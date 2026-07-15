@@ -3,22 +3,19 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighterPrism } from "react-syntax-highlighter";
-import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useTheme } from "@/app/theme-provider";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
-const prismTheme = {
-  dark: oneDark,
-  light: oneLight,
-};
+const prismTheme = oneDark;
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
 }
 
+// Code Block with copy button
 function CodeBlock({
   className,
   children,
@@ -31,15 +28,13 @@ function CodeBlock({
   const match = /language-(\w+)/.exec(className || "");
   const language = match ? match[1] : "text";
   const code = String(children).replace(/\n$/, "");
-  const preRef = useRef<HTMLDivElement>(null);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
       const ta = document.createElement("textarea");
       ta.value = code;
       document.body.appendChild(ta);
@@ -49,22 +44,13 @@ function CodeBlock({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
+  }, [code]);
 
   return (
-    <div className="my-4 rounded-xl overflow-hidden border border-[var(--code-border)] bg-[var(--code-bg)]">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--code-border)] bg-[var(--accent)]">
-        <span className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide">
-          {language}
-        </span>
-        <button
-          onClick={handleCopy}
-          className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
-            "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--border)]"
-          )}
-          aria-label={copied ? "Copied!" : "Copy code"}
-        >
+    <div className="code-block">
+      <div className="code-block-header">
+        <span className="code-block-lang">{language}</span>
+        <button onClick={handleCopy} className="code-block-copy" aria-label={copied ? "Copied!" : "Copy code"}>
           {copied ? (
             <>
               <Check className="w-3.5 h-3.5 text-emerald-500" />
@@ -78,16 +64,16 @@ function CodeBlock({
           )}
         </button>
       </div>
-      <div ref={preRef}>
+      <div className="code-block-body">
         <SyntaxHighlighterPrism
           language={language}
-          style={prismTheme.dark}
+          style={prismTheme}
           customStyle={{
             margin: 0,
-            padding: "1rem 1.25rem",
+            padding: 0,
             background: "transparent",
             fontSize: "0.8125rem",
-            lineHeight: 1.6,
+            lineHeight: 1.7,
             overflow: "auto",
           }}
           wrapLongLines={false}
@@ -114,7 +100,7 @@ function formatChildren(children: React.ReactNode): string {
 
 export default function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
   return (
-    <div className={cn("prose prose-sm max-w-none", className)}>
+    <div className={cn("prose", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -123,13 +109,7 @@ export default function MarkdownRenderer({ content, className }: MarkdownRendere
               return <CodeBlock className={className} {...props}>{children}</CodeBlock>;
             }
             return (
-              <code
-                className={cn(
-                  "inline-block px-1.5 py-0.5 rounded-md text-[0.8125rem] font-mono",
-                  "bg-[var(--accent)] border border-[var(--code-border)]"
-                )}
-                {...props}
-              >
+              <code {...props}>
                 {children}
               </code>
             );
@@ -139,7 +119,7 @@ export default function MarkdownRenderer({ content, className }: MarkdownRendere
           },
           table({ children }) {
             return (
-              <div className="overflow-x-auto my-4 rounded-lg border border-[var(--border)]">
+              <div className="overflow-x-auto my-4 rounded-lg border border-[var(--code-border)]">
                 <table className="w-full text-left text-sm">{children}</table>
               </div>
             );
