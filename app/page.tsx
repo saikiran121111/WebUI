@@ -9,7 +9,7 @@ import ChatMessage from "@/components/ChatMessage";
 import type { ChatMessage as ChatMessageType } from "@/lib/types";
 
 const SYSTEM_PROMPT =
-  "You are a helpful, concise, and precise AI assistant. Format your responses clearly with markdown. Use code blocks with language tags when showing code. Be thorough but avoid unnecessary verbosity.";
+  "You are a helpful, concise, and precise AI assistant. Respond naturally and directly based on the user's request. For simple greetings or casual conversation, reply in plain text only. Use markdown only when it improves readability. Use code blocks only when the user explicitly asks for code or when code is clearly necessary to answer. Do not include examples, sample code, tables, or structured formatting unless the user's request calls for it. Keep answers clean, relevant, and appropriately sized.";
 
 export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
