@@ -120,7 +120,7 @@ export default function ChatMessage({
       id={`message-${id}`}
     >
       {/* Thinking indicator */}
-      {(isThinking || (isStreaming && !content && !thinkingContent)) && (
+      {(isThinking || (isStreaming && !content && !thinkingContent)) && role === "assistant" && (
         <motion.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
@@ -171,7 +171,7 @@ export default function ChatMessage({
       )}
 
       {/* Thinking duration after completion */}
-      {thinkingContent && !isThinking && (
+      {thinkingContent && !isThinking && role === "assistant" && (
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
@@ -184,7 +184,7 @@ export default function ChatMessage({
       )}
 
       {/* Thinking block (collapsible) */}
-      {thinkingContent && !isThinking && (
+      {thinkingContent && !isThinking && role === "assistant" && (
         <div>
           <button
             onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}

@@ -90,7 +90,7 @@ export default function HomePage() {
     setIsThinking(false);
     setThinkingContent("");
 
-    const assistantMsgId = `msg-${Date.now()}`;
+    const assistantMsgId = `assistant-${Date.now()}`;
     streamingMsgIdRef.current = assistantMsgId;
 
     setMessages((prev) => [
@@ -223,7 +223,7 @@ export default function HomePage() {
     if (!text.trim() || isLoading) return;
 
     const userMessage: ChatMessageType = {
-      id: `msg-${Date.now()}`,
+      id: `user-${Date.now()}`,
       role: "user",
       content: text,
       createdAt: Date.now(),
