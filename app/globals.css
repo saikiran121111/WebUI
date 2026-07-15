@@ -1,0 +1,193 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root {
+  --background: #fafafa;
+  --foreground: #171717;
+  --muted: #737373;
+  --muted-foreground: #525252;
+  --border: #e5e5e5;
+  --ring: #171717;
+  --accent: #f5f5f5;
+  --accent-foreground: #171717;
+  --code-bg: #f5f5f5;
+  --code-border: #e5e5e5;
+  --thinking-bg: #fafafa;
+  --thinking-border: #e5e5e5;
+  --user-bubble: #e5e5e5;
+  --scrollbar-thumb: #d4d4d4;
+  --scrollbar-track: transparent;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --muted: #a1a1aa;
+  --muted-foreground: #71717a;
+  --border: #27272a;
+  --ring: #fafafa;
+  --accent: #1c1c1e;
+  --accent-foreground: #fafafa;
+  --code-bg: #111111;
+  --code-border: #27272a;
+  --thinking-bg: #0f0f0f;
+  --thinking-border: #1c1c1e;
+  --user-bubble: #1c1c1e;
+  --scrollbar-thumb: #3f3f46;
+  --scrollbar-track: transparent;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Syntax highlighting themes */
+.syntax-light {
+  --shiki-color-background: var(--code-bg);
+  --shiki-token-comment: #6a737d;
+  --shiki-token-string: #032f62;
+  --shiki-token-number: #005cc5;
+  --shiki-token-keyword: #d73a49;
+  --shiki-token-function: #6f42c1;
+  --shiki-token-constant: #005cc5;
+  --shiki-token-parameter: #6f42c1;
+}
+
+.syntax-dark {
+  --shiki-color-background: var(--code-bg);
+  --shiki-token-comment: #6a737d;
+  --shiki-token-string: #a5d6ff;
+  --shiki-token-number: #79c0ff;
+  --shiki-token-keyword: #ff7b72;
+  --shiki-token-function: #d2a8ff;
+  --shiki-token-constant: #79c0ff;
+  --shiki-token-parameter: #d2a8ff;
+}
+
+/* Custom prose for dark mode markdown */
+.dark .prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-links: #60a5fa;
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-bg: var(--code-bg);
+  --tw-prose-pre-border: var(--code-border);
+  --tw-prose-quotes: var(--muted);
+  --tw-prose-hr: var(--border);
+}
+
+.prose {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+}
+
+.prose code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.8125rem;
+}
+
+.prose pre {
+  border-radius: 0.75rem;
+  border-width: 1px;
+}
+
+.prose pre code {
+  background: transparent !important;
+  padding: 0 !important;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.prose th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  background: var(--accent);
+  border-bottom: 2px solid var(--border);
+}
+
+.prose td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.prose tr:nth-child(even) {
+  background: var(--accent);
+}
+
+.prose blockquote {
+  border-left-width: 3px;
+  padding-left: 1rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.prose a {
+  color: var(--tw-prose-links, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: opacity 0.15s;
+}
+
+.prose a:hover {
+  opacity: 0.8;
+}
+
+.prose hr {
+  border-color: var(--border);
+}
+
+/* Thinking block animation */
+.thinking-content {
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+/* Glassmorphism input */
+.glass-input {
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+}
+
+/* Smooth textarea auto-grow */
+textarea.auto-grow {
+  overflow: hidden;
+  resize: none;
+}
