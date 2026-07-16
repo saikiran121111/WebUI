@@ -299,11 +299,12 @@ body {
 /* ── Code Block Wrapper ── */
 .code-block {
   background: transparent;
-  border: none;
-  border-radius: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
   overflow: hidden;
   margin-top: 1.5em;
   margin-bottom: 1.5em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .code-block-header {
@@ -311,16 +312,50 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: transparent;
 }
 
 .code-block-body pre {
   margin: 0;
-  padding: 0;
-  background: transparent;
+  padding: 1rem 1.25rem;
+  background: transparent !important;
   border: none;
   border-radius: 0;
+  overflow-x: auto;
+  tab-size: 2;
+  -moz-tab-size: 2;
+}
+
+/* Ensure proper indentation with consistent spacing */
+.code-block-body .token {
+  white-space: pre;
+  background: transparent !important;
+}
+
+.code-block-body code {
+  display: block;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 2;
+  -moz-tab-size: 2;
+  padding: 0;
+  background: transparent !important;
+  border: none;
+}
+
+/* Override any Prism theme background colors */
+.code-block-body .token.comment,
+.code-block-body .token.prolog,
+.code-block-body .token.doctype,
+.code-block-body .token.cdata {
+  color: var(--muted-foreground);
+  background: transparent !important;
+}
+
+.code-block-body .token.punctuation {
+  color: var(--muted);
+  background: transparent !important;
 }
 
 .code-block-lang {
@@ -349,24 +384,6 @@ body {
 .code-block-copy:hover {
   background: rgba(255, 255, 255, 0.06);
   color: var(--muted);
-}
-
-.code-block-body {
-  padding: 1rem 1.25rem;
-  overflow-x: auto;
-  font-family: "JetBrains Mono", "Fira Code", monospace;
-  font-size: 0.8125rem;
-  line-height: 1.7;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-.code-block-body pre {
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 0;
 }
 
 /* ── Message Copy Button ── */
