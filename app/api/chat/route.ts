@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const LLM_API_URL =
-  process.env.LLM_API_URL || "http://127.0.0.1:8081/v1/chat/completions";
+  process.env.LLM_API_URL || "http://127.0.0.1:8080/v1/chat/completions";
 const LLM_API_KEY = process.env.LLM_API_KEY || "no-key";
 
 function stripThinkFromText(raw: string): string {

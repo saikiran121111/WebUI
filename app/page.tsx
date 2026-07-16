@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, StopCircle } from "lucide-react";
 import HeroComposer from "@/components/HeroComposer";
 import ChatInput from "@/components/ChatInput";
 import ChatMessage from "@/components/ChatMessage";
@@ -21,6 +21,9 @@ export default function HomePage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef<ChatMessageType[]>([]);
+  // Keep ref in sync with state so streamChat always reads latest
+  messagesRef.current = messages;
 
   const scrollToBottom = useCallback(
     (smooth = true) => {
@@ -111,7 +114,7 @@ export default function HomePage() {
           model: "local-model",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
-            ...messages.map((m) => ({ role: m.role, content: m.content })),
+            ...messagesRef.current.map((m) => ({ role: m.role, content: m.content })),
             { role: "user", content: userMessage },
           ],
           stream: true,
@@ -246,6 +249,59 @@ export default function HomePage() {
     }
   };
 
+  const handleStopGenerating = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const handleEdit = useCallback(
+    (newContent: string, oldMessageId: string) => {
+      // Update the user message in place in both state and ref
+      setMessages((prev) => {
+        const updated = prev.map((m) =>
+          m.id === oldMessageId ? { ...m, content: newContent } : m
+        );
+        messagesRef.current = updated;
+        return updated;
+      });
+
+      // If AI is still generating, abort current stream and remove assistant response
+      if (isLoading && streamingMsgIdRef.current) {
+        abortControllerRef.current?.abort();
+        // Remove the streaming assistant message from both state and ref
+        setMessages((prev) => {
+          const updated = prev.filter((m) => m.id !== streamingMsgIdRef.current);
+          messagesRef.current = updated;
+          return updated;
+        });
+        setIsLoading(false);
+        setIsThinking(false);
+        setThinkingContent("");
+        streamingMsgIdRef.current = null;
+        abortControllerRef.current = null;
+        // Stream new response with edited message
+        abortControllerRef.current = new AbortController();
+        streamChat(newContent, oldMessageId, abortControllerRef.current.signal);
+      } else {
+        // AI is done — remove last assistant message (if any) from both state and ref
+        setMessages((prev) => {
+          if (
+            prev.length > 0 &&
+            prev[prev.length - 1].role === "assistant"
+          ) {
+            const updated = prev.filter((m) => m.id !== prev[prev.length - 1].id);
+            messagesRef.current = updated;
+            return updated;
+          }
+          return prev;
+        });
+        // Re-send with the edited message
+        abortControllerRef.current = new AbortController();
+        streamChat(newContent, oldMessageId, abortControllerRef.current.signal);
+      }
+    },
+    [isLoading]
+  );
+
   const isEmpty = messages.length === 0;
 
   return (
@@ -299,7 +355,8 @@ export default function HomePage() {
                       content={msg.content}
                       thinkingContent={msg.thinkingContent}
                       thinkingDuration={msg.thinkingDuration}
-                      isStreaming={false}
+                      isStreaming={msg.id === streamingMsgIdRef.current}
+                      onEdit={msg.role === "user" ? (newContent: string) => handleEdit(newContent, msg.id) : undefined}
                     />
                   </motion.div>
                 );
@@ -321,6 +378,17 @@ export default function HomePage() {
                     isThinking={isThinking}
                     thinkingContent={thinkingContent}
                   />
+                  <motion.button
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.5 }}
+                    onClick={handleStopGenerating}
+                    className="flex items-center gap-1.5 mx-auto px-3 py-1.5 text-xs font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-full transition-all duration-200"
+                    aria-label="Stop generating"
+                  >
+                    <StopCircle className="w-3 h-3" />
+                    Stop generating
+                  </motion.button>
                 </motion.div>
               )}
 

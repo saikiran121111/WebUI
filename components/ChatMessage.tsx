@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 
@@ -14,6 +14,7 @@ interface ChatMessageProps {
   thinkingDuration?: number;
   isStreaming?: boolean;
   isThinking?: boolean;
+  onEdit?: (newContent: string) => void;
 }
 
 export default function ChatMessage({
@@ -24,12 +25,24 @@ export default function ChatMessage({
   thinkingDuration,
   isStreaming = false,
   isThinking = false,
+  onEdit,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
   const [firstRenderTime, setFirstRenderTime] = useState<number | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
   const messageRef = useRef<HTMLDivElement>(null);
+  const editAreaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus edit area when entering edit mode
+  useEffect(() => {
+    if (isEditing && editAreaRef.current) {
+      editAreaRef.current.focus();
+      editAreaRef.current.setSelectionRange(editAreaRef.current.value.length, editAreaRef.current.value.length);
+    }
+  }, [isEditing]);
 
   // Track first render time
   useEffect(() => {
@@ -78,19 +91,111 @@ export default function ChatMessage({
     }
   }, [content]);
 
+  // Edit handlers
+  const startEdit = useCallback(() => {
+    setEditValue(content);
+    setIsEditing(true);
+  }, [content]);
+
+  const cancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setEditValue("");
+  }, []);
+
+  const confirmEdit = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed) {
+      setIsEditing(false);
+      onEdit?.(trimmed);
+    }
+  }, [editValue, onEdit]);
+
+  const handleEditKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        confirmEdit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEdit();
+      }
+    },
+    [confirmEdit, cancelEdit]
+  );
+
   // User message
   if (role === "user") {
+    if (isEditing) {
+      return (
+        <motion.div
+          ref={messageRef}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+          className="flex justify-end mb-6"
+        >
+          <div className="max-w-[85%] md:max-w-[75%]">
+            <motion.div
+              className="px-4 py-2.5 rounded-2xl rounded-bl-md"
+              style={{
+                background: "rgba(99, 102, 241, 0.15)",
+                border: "1px solid rgba(99, 102, 241, 0.4)",
+                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(99, 102, 241, 0.2)",
+              }}
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <textarea
+                ref={editAreaRef}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                rows={2}
+                className="w-full bg-transparent text-white placeholder-white/40 text-[0.9375rem] leading-relaxed outline-none resize-none"
+                placeholder="Edit your message…"
+              />
+              <div className="flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-white/10">
+                <button
+                  onClick={cancelEdit}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-white/50 hover:text-white/80 transition-colors rounded"
+                  aria-label="Cancel edit"
+                >
+                  <X className="w-3 h-3" />
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmEdit}
+                  disabled={!editValue.trim()}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-all",
+                    editValue.trim()
+                      ? "bg-indigo-600 text-white hover:bg-indigo-500"
+                      : "bg-white/10 text-white/30 cursor-not-allowed"
+                  )}
+                  aria-label="Save edit"
+                >
+                  <Check className="w-3 h-3" />
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        </motion.div>
+      );
+    }
+
     return (
       <motion.div
         ref={messageRef}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
-        className="flex justify-end mb-6"
+        className="flex justify-end mb-6 group/user"
       >
         <div className="max-w-[85%] md:max-w-[75%]">
           <motion.div
-            className="px-4 py-2.5 rounded-2xl rounded-bl-md"
+            className="px-4 py-2.5 rounded-2xl rounded-bl-md relative"
             style={{
               background: "rgba(255, 255, 255, 0.08)",
               border: "1px solid rgba(255, 255, 255, 0.12)",
@@ -100,9 +205,18 @@ export default function ChatMessage({
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
           >
-            <p className="text-[0.9375rem] leading-relaxed text-white whitespace-pre-wrap">
+            <p className="text-[0.9375rem] leading-relaxed text-white whitespace-pre-wrap pr-6">
               {content}
             </p>
+            {onEdit && (
+              <button
+                onClick={startEdit}
+                className="absolute top-2 right-2 opacity-0 group-hover/user:opacity-100 transition-opacity duration-150 p-1 rounded hover:bg-white/10 text-white/40 hover:text-white/80"
+                aria-label="Edit message"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
           </motion.div>
         </div>
       </motion.div>
