@@ -36,7 +36,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!hasScrolledUp && messages.length > 0) {
-      scrollToBottom();
+      scrollToBottom(false);
     }
   }, [messages, hasScrolledUp, scrollToBottom]);
 
@@ -253,7 +253,7 @@ export default function HomePage() {
       {/* Messages container */}
       <motion.div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto scroll-smooth"
+        className="flex-1 overflow-y-auto"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4 }}

@@ -2,13 +2,9 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighterPrism } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-
-const prismTheme = oneDark;
 
 interface MarkdownRendererProps {
   content: string;
@@ -65,24 +61,9 @@ function CodeBlock({
         </button>
       </div>
       <div className="code-block-body">
-        <SyntaxHighlighterPrism
-          language={language}
-          style={prismTheme}
-          customStyle={{
-            margin: 0,
-            padding: 0,
-            background: "transparent",
-            fontSize: "0.8125rem",
-            lineHeight: 1.7,
-            overflow: "auto",
-          }}
-          wrapLongLines={false}
-          showLineNumbers={false}
-          PreTag="div"
-          {...props}
-        >
-          {code}
-        </SyntaxHighlighterPrism>
+        <pre>
+          <code {...props}>{code}</code>
+        </pre>
       </div>
     </div>
   );

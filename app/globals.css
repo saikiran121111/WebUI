@@ -298,9 +298,9 @@ body {
 
 /* ── Code Block Wrapper ── */
 .code-block {
-  background: var(--code-bg);
-  border: 1px solid var(--code-border);
-  border-radius: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   overflow: hidden;
   margin-top: 1.5em;
   margin-bottom: 1.5em;
@@ -311,8 +311,16 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--code-border);
-  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+}
+
+.code-block-body pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
 .code-block-lang {
