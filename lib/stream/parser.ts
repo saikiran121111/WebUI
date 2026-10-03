@@ -66,7 +66,10 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
         if (eof) break;
         buf += decoder.decode(value, { stream: true });
         const { events, done: sseDone } = sse(buf);
-        buf = "";
+        // NOTE: do NOT reset buf here — SSE events can span across chunk
+        // boundaries.  createSseParser() keeps its own internal state and
+        // only emits complete events, so any trailing partial frame stays
+        // in buf for the next read.
         for (const e of events) deliver(e.data);
         if (sseDone) break;
       }
