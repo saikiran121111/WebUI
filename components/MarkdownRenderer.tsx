@@ -1,179 +1,135 @@
 "use client";
-
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighterPrism } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import Prism from "prismjs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Check } from "lucide-react";
-import { useState, useRef, useEffect, useCallback } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/utils";
 
-// Custom transparent theme that preserves syntax colors but removes ALL backgrounds
-const transparentTheme = {
-  ...oneDark,
-  'pre[class*="language-"]': {
-    background: "transparent",
-  },
-  code: {
-    background: "transparent",
-  },
-  'pre[class*="language-"] code': {
-    background: "transparent",
-  },
-  'pre[class*="language-"] .token': {
-    background: "transparent",
-  },
-};
-
-interface MarkdownRendererProps {
-  content: string;
-  className?: string;
+// Lazy-load language components
+const LANGUAGE_MODULES: Record<string, () => Promise<any>> = {};
+function registerLang(name: string, mod: () => Promise<any>) {
+  LANGUAGE_MODULES[name] = mod;
 }
+registerLang("javascript", async () => { const m = await import("prismjs/components/prism-javascript"); return m.default; });
+registerLang("typescript", async () => { const m = await import("prismjs/components/prism-typescript"); return m.default; });
+registerLang("tsx", async () => { const m = await import("prismjs/components/prism-tsx"); return m.default; });
+registerLang("jsx", async () => { const m = await import("prismjs/components/prism-jsx"); return m.default; });
+registerLang("python", async () => { const m = await import("prismjs/components/prism-python"); return m.default; });
+registerLang("rust", async () => { const m = await import("prismjs/components/prism-rust"); return m.default; });
+registerLang("go", async () => { const m = await import("prismjs/components/prism-go"); return m.default; });
+registerLang("java", async () => { const m = await import("prismjs/components/prism-java"); return m.default; });
+registerLang("c", async () => { const m = await import("prismjs/components/prism-c"); return m.default; });
+registerLang("cpp", async () => { const m = await import("prismjs/components/prism-cpp"); return m.default; });
+registerLang("bash", async () => { const m = await import("prismjs/components/prism-bash"); return m.default; });
+registerLang("shell", async () => { const m = await import("prismjs/components/prism-bash"); return m.default; });
+registerLang("json", async () => { const m = await import("prismjs/components/prism-json"); return m.default; });
+registerLang("yaml", async () => { const m = await import("prismjs/components/prism-yaml"); return m.default; });
+registerLang("toml", async () => { const m = await import("prismjs/components/prism-toml"); return m.default; });
+registerLang("sql", async () => { const m = await import("prismjs/components/prism-sql"); return m.default; });
+registerLang("css", async () => { const m = await import("prismjs/components/prism-css"); return m.default; });
+registerLang("html", async () => { const m = await import("prismjs/components/prism-markup"); return m.default; });
+registerLang("markdown", async () => { const m = await import("prismjs/components/prism-markdown"); return m.default; });
+registerLang("diff", async () => { const m = await import("prismjs/components/prism-diff"); return m.default; });
 
-// Code Block with copy button
-function CodeBlock({
-  className,
-  children,
-  ...props
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const [copied, setCopied] = useState(false);
+function CodeBlock({ className, children, ...props }: { className?: string; children: React.ReactNode }) {
   const match = /language-(\w+)/.exec(className || "");
-  const language = match ? match[1] : "text";
+  const lang = match ? match[1] : "text";
   const code = String(children).replace(/\n$/, "");
+  const [copied, setCopied] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const codeRef = useRef<HTMLElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const loader = LANGUAGE_MODULES[lang] || LANGUAGE_MODULES[lang.toLowerCase()];
+      if (loader) {
+        await loader();
+      }
+      setLoaded(true);
+    };
+    load();
+  }, [lang]);
+
+  useEffect(() => {
+    if (loaded && codeRef.current && preRef.current) {
+      try { Prism.highlightElement(codeRef.current); } catch {}
+    }
+  }, [loaded, code]);
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = code;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    } catch {}
   }, [code]);
 
   return (
     <div className="code-block">
       <div className="code-block-header">
-        <span className="code-block-lang">{language}</span>
-        <button onClick={handleCopy} className="code-block-copy" aria-label={copied ? "Copied!" : "Copy code"}>
-          {copied ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="text-emerald-500">Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3.5 h-3.5" />
-              <span>Copy</span>
-            </>
-          )}
+        <span className="code-block-lang">{lang}</span>
+        <button onClick={handleCopy}
+          className="code-block-copy flex items-center gap-1">
+          {copied ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500 text-xs">Copied</span></>
+            : <><Copy className="w-3 h-3" /><span className="text-xs">Copy</span></>}
         </button>
       </div>
       <div className="code-block-body">
-        <SyntaxHighlighterPrism
-          language={language}
-          style={transparentTheme}
-          customStyle={{
-            margin: 0,
-            padding: 0,
-            background: "transparent",
-            fontSize: "0.875rem",
-            lineHeight: 1.75,
-            overflow: "visible",
-            tabSize: 2,
-          }}
-          wrapLongLines={false}
-          showLineNumbers={false}
-          PreTag="div"
-          {...props}
-        >
-          {code}
-        </SyntaxHighlighterPrism>
+        <pre ref={preRef} className="!m-0 !p-0 !bg-transparent !border-0">
+          <code ref={codeRef}
+            className={cn("language-" + lang, "block text-[0.8125rem] leading-relaxed whitespace-pre p-4")}
+            {...props}>
+            {code}
+          </code>
+        </pre>
       </div>
     </div>
   );
 }
 
-function formatChildren(children: React.ReactNode): string {
-  if (typeof children === "string") return children;
-  if (Array.isArray(children)) return children.map(formatChildren).join("");
-  if (children && typeof children === "object" && "props" in children) {
-    const child = children as { props?: { children?: React.ReactNode } };
-    return child.props?.children ? formatChildren(child.props.children) : "";
-  }
-  return String(children);
-}
-
-export default function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div className={cn("prose", className)}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code({ className, children, ...props }) {
-            if (className && /language-/.test(className)) {
-              return <CodeBlock className={className} {...props}>{children}</CodeBlock>;
-            }
-            return (
-              <code {...props}>
-                {children}
-              </code>
-            );
-          },
-          pre({ children }) {
-            return <>{children}</>;
-          },
-          table({ children }) {
-            return (
-              <div className="overflow-x-auto my-4 rounded-lg border border-[var(--code-border)]">
-                <table className="w-full text-left text-sm">{children}</table>
-              </div>
-            );
-          },
-          thead({ children }) {
-            return <thead className="[&_th]:bg-[var(--accent)] [&_th]:border-[var(--border)] [&_th]:font-semibold [&_th]:text-[var(--foreground)]">{children}</thead>;
-          },
-          blockquote({ children }) {
-            return (
-              <blockquote
-                className={cn(
-                  "border-l-[3px] border-[var(--border)] pl-4 italic",
-                  "text-[var(--muted)]"
-                )}
-              >
-                {children}
-              </blockquote>
-            );
-          },
-          a({ children, href }) {
-            return (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--tw-prose-links, #2563eb)] underline underline-offset-2 transition-opacity hover:opacity-80"
-              >
-                {children}
-              </a>
-            );
-          },
-          hr() {
-            return <hr className="my-6 border-[var(--border)]" />;
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ className, children, ...props }) {
+          if (className && /language-/.test(className)) {
+            return <CodeBlock className={className} {...props}>{children}</CodeBlock>;
+          }
+          return <code {...props}>{children}</code>;
+        },
+        pre({ children }) {
+          return <>{children}</>;
+        },
+        table({ children }) {
+          return (
+            <div className="overflow-x-auto my-4 rounded-lg border border-white/[0.07]">
+              <table className="w-full text-left text-sm">{children}</table>
+            </div>
+          );
+        },
+        thead({ children }) {
+          return <thead className="[&_th]:bg-white/[0.04] [&_th]:border-b [&_th]:border-white/[0.07] [&_th]:font-semibold [&_th]:text-white/90 [&_th]:text-xs">{children}</thead>;
+        },
+        blockquote({ children }) {
+          return (
+            <blockquote className="border-l-[3px] border-indigo-400/30 pl-4 py-1 text-white/60">
+              {children}
+            </blockquote>
+          );
+        },
+        a({ children, href }) {
+          return <a href={href} target="_blank" rel="noopener noreferrer"
+            className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 transition-colors">{children}</a>;
+        },
+        hr() {
+          return <hr className="my-6 border-white/[0.07]" />;
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
   );
 }

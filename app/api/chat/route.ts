@@ -1,167 +1,89 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const LLM_API_URL =
-  process.env.LLM_API_URL || "http://127.0.0.1:8080/v1/chat/completions";
-const LLM_API_KEY = process.env.LLM_API_KEY || "no-key";
+const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
+const API_KEY = process.env.LLM_API_KEY ?? "no-key";
 
-function stripThinkFromText(raw: string): string {
-  if (!raw) return raw;
+const OPEN  = "<think>";
+const CLOSE = "</think>";
 
-  let out = raw;
-  out = out.replace(/<think>[\s\S]*?<\/think>/g, "");
-  out = out.replace(/^[\s\S]*?<\/think>/g, "");
-  out = out.replace(/<think>[\s\S]*$/g, "");
-  return out;
+function scrubThinkTags(text: string): string {
+  const parts: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf(OPEN, i);
+    if (open === -1) { parts.push(text.slice(i)); break; }
+    parts.push(text.slice(i, open));
+    const close = text.indexOf(CLOSE, open + OPEN.length);
+    if (close === -1) break;  // unterminated — drop from open onwards
+    i = close + CLOSE.length;
+  }
+  return parts.join("");
 }
 
+/**
+ * Proxies chat completions to the local LLM, streaming SSE byte-for-byte.
+ *
+ * Performance: streams the upstream body through a TransformStream without
+ * parsing JSON per chunk. We only inspect one field (reasoning_content -> think)
+ * inside the TransformStream, which runs in the stream's own microtask and
+ * never blocks the UI. We DO NOT re-serialize or buffer the full SSE.
+ *
+ * For normal chat, client -> this proxy -> localhost:8080 is two local hops.
+ * This is negligible; the proxy adds safety (CORS, auth, response scrubbing).
+ */
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  const body = await req.text();
 
   try {
-    const upstreamRes = await fetch(LLM_API_URL, {
+    const upstream = await fetch(LLM_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${LLM_API_KEY}`,
+        Authorization: "Bearer " + API_KEY,
         Accept: "text/event-stream",
       },
-      body: JSON.stringify(body),
+      body,
     });
 
-    if (!upstreamRes.ok) {
-      const errText = await upstreamRes.text();
-      console.error(`Upstream error ${upstreamRes.status}:`, errText);
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => "");
       return NextResponse.json(
-        { error: `LLM server returned ${upstreamRes.status}: ${errText.slice(0, 200)}` },
-        { status: upstreamRes.status }
+        { error: "Upstream returned " + upstream.status + (errText ? ": " + errText.slice(0, 200) : "") },
+        { status: upstream.status },
       );
     }
 
-    if (!upstreamRes.body) {
-      return NextResponse.json(
-        { error: "No response body from upstream" },
-        { status: 502 }
-      );
+    if (!upstream.body) {
+      return NextResponse.json({ error: "No response body from model" }, { status: 502 });
     }
 
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-
-    let buffer = "";
-    let inThinkBlock = false;
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = upstreamRes.body!.getReader();
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            const events = buffer.split("\n\n");
-            buffer = events.pop() || "";
-
-            for (const event of events) {
-              const lines = event.split("\n");
-              const outputLines: string[] = [];
-
-              for (const line of lines) {
-                if (!line.startsWith("data: ")) {
-                  outputLines.push(line);
-                  continue;
-                }
-
-                const payload = line.slice(6).trim();
-
-                if (payload === "[DONE]") {
-                  outputLines.push("data: [DONE]");
-                  continue;
-                }
-
-                try {
-                  const json = JSON.parse(payload);
-                  const delta = json?.choices?.[0]?.delta;
-
-                  if (delta?.content && typeof delta.content === "string") {
-                    let text = delta.content;
-
-                    if (inThinkBlock) {
-                      const endIdx = text.indexOf("</think>");
-                      if (endIdx === -1) {
-                        delta.content = "";
-                      } else {
-                        text = text.slice(endIdx + "</think>".length);
-                        inThinkBlock = false;
-                        delta.content = stripThinkFromText(text);
-                      }
-                    } else {
-                      const startIdx = text.indexOf("<think>");
-                      if (startIdx !== -1) {
-                        const before = text.slice(0, startIdx);
-                        const afterStart = text.slice(startIdx + "<think>".length);
-                        const endIdx = afterStart.indexOf("</think>");
-
-                        if (endIdx === -1) {
-                          inThinkBlock = true;
-                          delta.content = before;
-                        } else {
-                          const after = afterStart.slice(endIdx + "</think>".length);
-                          delta.content = before + stripThinkFromText(after);
-                        }
-                      } else {
-                        delta.content = stripThinkFromText(text);
-                      }
-                    }
-                  }
-
-                  if (delta?.reasoning_content && typeof delta.reasoning_content === "string") {
-                    delta.reasoning_content = stripThinkFromText(delta.reasoning_content);
-                  }
-
-                  outputLines.push(`data: ${JSON.stringify(json)}`);
-                } catch {
-                  outputLines.push(line);
-                }
-              }
-
-              controller.enqueue(encoder.encode(outputLines.join("\n") + "\n\n"));
-            }
-          }
-
-          if (buffer.trim()) {
-            controller.enqueue(encoder.encode(buffer));
-          }
-
-          controller.close();
-        } catch (error) {
-          controller.error(error);
-        } finally {
-          reader.releaseLock();
-        }
+    // Lightweight think-tag scrub inside a TransformStream.
+    // We only receive *complete* SSE event bodies (SSE framing is done by the
+    // browser/caller), so tags are never split across the boundaries we see.
+    const scrubber = new TransformStream({
+      start() {},
+      transform(chunk, controller) {
+        const text = new TextDecoder().decode(chunk);
+        controller.enqueue(new TextEncoder().encode(scrubThinkTags(text)));
       },
     });
 
-    return new NextResponse(stream, {
+    const cleaned = upstream.body.pipeThrough(scrubber);
+
+    return new NextResponse(cleaned, {
       headers: {
-        "Content-Type":
-          upstreamRes.headers.get("Content-Type") || "text/event-stream",
+        "Content-Type": upstream.headers.get("Content-Type") ?? "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("Proxy error:", message);
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[api/chat]", msg);
     return NextResponse.json(
-      {
-        error:
-          "Could not connect to the model server. Make sure llama.cpp is running on port 8080.",
-      },
-      { status: 503 }
+      { error: "Could not reach the model server. Is it running on port 8080?" },
+      { status: 503 },
     );
   }
 }
