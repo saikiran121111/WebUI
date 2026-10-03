@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConversationOnDisk, saveConversationOnDisk } from "../../../../lib/persistence/disk";
+import {
+  getConversationOnDisk,
+  saveConversationOnDisk,
+  deleteConversationOnDisk,
+} from "../../../../lib/persistence/disk";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const raw = getConversationOnDisk(params.id);
@@ -10,5 +14,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.text();
   saveConversationOnDisk(params.id, body);
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  deleteConversationOnDisk(params.id);
   return NextResponse.json({ ok: true });
 }

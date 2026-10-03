@@ -28,12 +28,14 @@ export default function Sidebar({
 }: SidebarProps) {
   const [query, setQuery] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const filtered = query
     ? conversations.filter(c => c.title.toLowerCase().includes(query.toLowerCase()))
     : conversations;
 
-  const pinned = filtered.filter(c => c.pinned);
-  const unpinned = filtered.filter(c => !c.pinned);
+  const pinned = filtered.filter(c => c.pinned && !c.archived);
+  const unpinned = filtered.filter(c => !c.pinned && !c.archived);
+  const archived = filtered.filter(c => c.archived);
 
   return (
     <>
@@ -111,6 +113,32 @@ export default function Sidebar({
               setMenuOpen={setOpenMenu}
             />
           ))}
+          {archived.length > 0 && (
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              className="w-full flex items-center gap-1 px-2 py-1.5 mt-3 text-[10px]
+                font-semibold text-white/30 uppercase tracking-widest hover:text-white/50 transition-colors"
+              aria-expanded={showArchived}
+            >
+              <Archive className="w-3 h-3" />
+              Archived · {archived.length}
+              <ChevronRight className={cn("w-3 h-3 transition-transform", showArchived && "rotate-90")} />
+            </button>
+          )}
+          {showArchived && archived.map(c => (
+            <ConversationItem
+              key={c.id}
+              c={c}
+              activeId={activeId}
+              onSelect={onSelect}
+              onDelete={onDelete}
+              onTogglePin={onTogglePin}
+              onToggleArchive={onToggleArchive}
+              onRename={onRename}
+              menuOpen={openMenu}
+              setMenuOpen={setOpenMenu}
+            />
+          ))}
           {filtered.length === 0 && (
             <div className="px-3 py-8 text-center text-xs text-white/30">
               {query ? "No matches." : "No conversations yet."}
@@ -144,6 +172,8 @@ function ConversationItem({
   const open = menuOpen === c.id;
   return (
     <div
+      data-testid="conversation-item"
+      data-conversation-id={c.id}
       onClick={() => onSelect(c.id)}
       className={cn(
         "group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer",

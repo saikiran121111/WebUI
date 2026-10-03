@@ -21,6 +21,8 @@ export interface UseChatReturn {
   reasoningContent: string;
   /** Swap the conversation entirely. */
   load: (conversation: Conversation) => void;
+  /** Drop all messages (new chat / after deleting the active one). */
+  clear: () => void;
   send: (text: string, opts?: { mode?: ChatMode; attachments?: any[] }) => void;
   stop: () => void;
   retry: () => void;
@@ -60,6 +62,20 @@ export function useChat({
     setMessages(conversation.messages ?? []);
     messagesRef.current = conversation.messages ?? [];
     lastInputRef.current = null;
+    setStatus("complete");
+    setError(null);
+    setIsThinking(false);
+    setReasoningContent("");
+  }, []);
+
+  const clear = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setMessages([]);
+    messagesRef.current = [];
+    lastInputRef.current = null;
+    assistantIdRef.current = null;
+    streamContentRef.current = "";
     setStatus("complete");
     setError(null);
     setIsThinking(false);
@@ -216,7 +232,7 @@ export function useChat({
 
   return {
     messages, status, error, isThinking, reasoningContent,
-    load, send, stop, retry, edit,
+    load, clear, send, stop, retry, edit,
     clearError: () => setError(null),
     setEffort, effort,
   };

@@ -24,8 +24,9 @@ export async function saveConversation(conv: Conversation): Promise<void> {
   });
 }
 
-export async function deleteConversation(id: string): Promise<void> {
-  await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+export async function deleteConversation(id: string): Promise<boolean> {
+  const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+  return res.ok;
 }
 
 export async function updateConversationMeta(id: string, patch: Partial<ConversationMeta>): Promise<void> {

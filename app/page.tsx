@@ -5,6 +5,7 @@ import { ArrowDown, AlertCircle, RefreshCw, MessageSquarePlus, ChevronLeft, Chev
 import ChatMessage from "../components/ChatMessage";
 import ChatInput from "../components/ChatInput";
 import Sidebar from "../components/ui/Sidebar";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import type { ChatMode, Conversation, ConversationMeta, EffortLevel, Message } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv } from "../lib/persistence";
@@ -18,16 +19,30 @@ export default function HomePage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     messages, status, error, isThinking, reasoningContent,
-    send, stop, retry, edit, load, setEffort, effort,
+    send, stop, retry, edit, load, clear, setEffort, effort,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
 
+  // Ids deleted this session — a stale in-flight list refresh must never
+  // resurrect them in the sidebar.
+  const deletedRef = useRef<Set<string>>(new Set());
+  const refreshList = useCallback(() => {
+    listConversations().then(rows =>
+      setConversations(rows.filter(c => !deletedRef.current.has(c.id))));
+  }, []);
+
   // Load conversations from disk on mount.
-  useEffect(() => { listConversations().then(setConversations); }, []);
+  useEffect(() => { refreshList(); }, [refreshList]);
+
+  // Mirror of `conversations` so the persist effect can read the latest
+  // meta (title/pin/archive) without re-subscribing to it.
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
 
   // Persist current messages on every change.
   useEffect(() => {
@@ -35,19 +50,22 @@ export default function HomePage() {
     const convId = activeId ?? uid("c_");
     if (!activeId) setActiveId(convId);
 
+    // Preserve user-set metadata (rename, pin, archive) across saves —
+    // only fall back to defaults for a brand-new conversation.
+    const existing = conversationsRef.current.find(c => c.id === convId);
     const meta: ConversationMeta = {
       id: convId,
-      title: messages[0]?.content?.slice(0, 40) || "New conversation",
-      createdAt: Date.now(),
+      title: existing?.title ?? (messages[0]?.content?.slice(0, 40) || "New conversation"),
+      createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-      pinned: false, archived: false,
-      mode: "chat",
+      pinned: existing?.pinned ?? false,
+      archived: existing?.archived ?? false,
+      mode: existing?.mode ?? "chat",
       preview: messages[messages.length - 1]?.content?.slice(0, 80) ?? "",
       messageCount: messages.length,
     };
-    saveConversation({ id: convId, meta, messages }).then(() =>
-      listConversations().then(setConversations));
-  }, [messages, activeId]);
+    saveConversation({ id: convId, meta, messages }).then(refreshList);
+  }, [messages, activeId, refreshList]);
 
   // Auto-scroll when new messages appear, unless user scrolled up.
   useEffect(() => {
@@ -78,9 +96,12 @@ export default function HomePage() {
   }, []);
 
   const handleNew = useCallback(() => {
+    // Clear messages too — leaving them in state with a null activeId makes
+    // the persist effect re-save them under a brand-new id (a phantom clone).
+    clear();
     setActiveId(null);
     setHasScrolledUp(false);
-  }, []);
+  }, [clear]);
 
   const handleSelect = useCallback(async (id: string) => {
     const conv = await getConversation(id);
@@ -93,16 +114,38 @@ export default function HomePage() {
   }, [load]);
 
   const handleDelete = useCallback(async (id: string) => {
-    if (!confirm("Delete this conversation? This cannot be undone.")) return;
-    await deleteConv(id);
+    setConfirmDelete({ id });
+  }, []);
+
+  const confirmDeleteConv = useCallback(async () => {
+    if (!confirmDelete) return;
+    const id = confirmDelete.id;
+    setConfirmDelete(null);
+    const ok = await deleteConv(id);
+    if (!ok) return;
+    deletedRef.current.add(id);
     setConversations(prev => prev.filter(c => c.id !== id));
-    if (activeId === id) { setActiveId(null); setHasScrolledUp(false); }
-  }, [activeId]);
+    if (activeId === id) {
+      clear();
+      setActiveId(null);
+      setHasScrolledUp(false);
+    }
+  }, [confirmDelete, activeId, clear]);
 
   const handleTogglePin = useCallback(async (id: string) => {
     const conv = await getConversation(id);
     if (!conv) return;
     conv.meta.pinned = !conv.meta.pinned;
+    conv.meta.updatedAt = Date.now();
+    await saveConversation(conv);
+    refreshList();
+  }, [refreshList]);
+
+  const handleToggleArchive = useCallback(async (id: string) => {
+    const conv = await getConversation(id);
+    if (!conv) return;
+    conv.meta.archived = !conv.meta.archived;
+    conv.meta.updatedAt = Date.now();
     await saveConversation(conv);
     listConversations().then(setConversations);
   }, []);
@@ -127,7 +170,7 @@ export default function HomePage() {
         onNew={handleNew}
         onDelete={handleDelete}
         onTogglePin={handleTogglePin}
-        onToggleArchive={() => {}}
+        onToggleArchive={handleToggleArchive}
         onRename={handleRename}
         onSearch={() => {}}
         isOpen={sidebarOpen}
@@ -242,6 +285,15 @@ export default function HomePage() {
           </div>
         </div>
       </main>
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="Delete conversation?"
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDeleteConv}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
@@ -278,12 +330,12 @@ function EmptyState({
       </motion.div>
 
       {/* Recent history strip */}
-      {conversations.length > 0 && (
+      {conversations.filter(c => !c.archived).length > 0 && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.22 }}
           className="w-full max-w-2xl">
           <p className="text-[10px] text-white/20 uppercase tracking-widest mb-2 text-left">Recent</p>
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-            {conversations.slice(0, 6).map(conv => (
+            {conversations.filter(c => !c.archived).slice(0, 6).map(conv => (
               <button key={conv.id} onClick={() => onSelect(conv.id)}
                 className="flex-shrink-0 text-left text-[11px] px-3 py-2 rounded-lg
                   bg-white/[0.025] hover:bg-white/[0.06] border border-white/[0.06]

@@ -3,7 +3,6 @@ import {
   listConversationsOnDisk,
   getConversationOnDisk,
   saveConversationOnDisk,
-  deleteConversationOnDisk,
 } from "../../../lib/persistence/disk";
 
 export async function GET() {
@@ -33,12 +32,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "id and json required" }, { status: 400 });
   }
   saveConversationOnDisk(body.id, body.json);
-  return NextResponse.json({ ok: true });
-}
-
-export async function DELETE(req: NextRequest) {
-  const { id } = await req.json();
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  deleteConversationOnDisk(id);
   return NextResponse.json({ ok: true });
 }

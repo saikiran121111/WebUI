@@ -44,12 +44,24 @@ export function getConversationOnDisk(id: string): string | null {
   }
 }
 
+/**
+ * Tombstones for ids deleted this server session. A save POST that was
+ * already in flight when the user hit delete must not resurrect the file.
+ */
+const recentlyDeleted = new Map<string, number>();
+
 export function saveConversationOnDisk(id: string, json: string): void {
+  const deletedAt = recentlyDeleted.get(id);
+  if (deletedAt !== undefined) {
+    if (Date.now() - deletedAt < 5000) return; // racing a delete — drop the write
+    recentlyDeleted.delete(id);
+  }
   ensureDir();
   fs.writeFileSync(file(id), json, "utf-8");
 }
 
 export function deleteConversationOnDisk(id: string): void {
+  recentlyDeleted.set(id, Date.now());
   const fp = file(id);
   try { fs.unlinkSync(fp); } catch { /* ignore */ }
 }
