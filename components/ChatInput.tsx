@@ -152,16 +152,7 @@ export default function ChatInput({
           {(isThinking || reasoningContent) && !isLoading && (
             <div className="px-3 pt-2.5 flex items-center gap-2 text-[11px] text-emerald-400/70">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 animate-pulse" />
-              <span>Reasoning{reasoningContent ? "" : "…"}</span>
-            </div>
-          )}
-
-          {reasoningContent && !isLoading && (
-            <div className="px-3 pt-2">
-              <div className="text-[10px] text-emerald-400/60 font-medium uppercase tracking-wider mb-0.5">Thinking</div>
-              <div className="text-[11px] text-white/40 line-clamp-3 leading-relaxed max-h-16 overflow-hidden">
-                {reasoningContent}
-              </div>
+              <span>Reasoning…</span>
             </div>
           )}
 

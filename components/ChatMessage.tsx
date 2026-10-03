@@ -1,6 +1,6 @@
 "use client";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
@@ -53,49 +53,12 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
 
   // ── User message ──────────────────────────────────────────────────────
   if (isUser) {
-    if (isEditing) {
-      return (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          className="flex justify-end mb-4">
-          <div className="max-w-[85%] md:max-w-[75%]">
-            <div className="px-4 py-2.5 rounded-2xl rounded-br-sm bg-[#1a1a2e]/80
-              border border-indigo-500/30 shadow-lg shadow-black/20">
-              <textarea
-                ref={editRef}
-                value={editValue}
-                onChange={e => setEditValue(e.target.value)}
-                onKeyDown={handleEditKey}
-                rows={2}
-                className="w-full bg-transparent text-white placeholder-white/40 text-sm
-                  leading-relaxed outline-none resize-none"
-              />
-              <div className="flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-white/10">
-                <button onClick={() => setIsEditing(false)}
-                  className="px-2 py-1 text-xs text-white/50 hover:text-white/80 transition-colors">
-                  Cancel
-                </button>
-                <button onClick={confirmEdit} disabled={!editValue.trim()}
-                  className={cn(
-                    "px-2.5 py-1 text-xs font-medium rounded-md transition-all",
-                    editValue.trim()
-                      ? "bg-indigo-600 text-white hover:bg-indigo-500"
-                      : "bg-white/10 text-white/30 cursor-not-allowed",
-                  )}>
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      );
-    }
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-        className="flex justify-end mb-4 group/user">
+        className="flex justify-end mb-4 group/user gap-2 items-start">
         <div className="max-w-[85%] md:max-w-[75%]">
-          <div className="px-4 py-2.5 rounded-2xl rounded-br-sm relative
-            bg-white/[0.07] border border-white/[0.1] shadow-sm shadow-black/20">
-            <p className="text-sm leading-relaxed text-white/85 whitespace-pre-wrap pr-6">
+          <div className="px-4 py-2.5 rounded-2xl rounded-br-sm bg-white/[0.07] shadow-sm shadow-black/20">
+            <p className="text-sm leading-relaxed text-white/85 whitespace-pre-wrap">
               {content}
             </p>
             {attachments.length > 0 && (
@@ -108,16 +71,34 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
                 ))}
               </div>
             )}
-            {state !== "streaming" && (
-              <button onClick={startEdit}
-                className="absolute top-2 right-2 opacity-0 group-hover/user:opacity-100
-                  transition-opacity p-1 rounded hover:bg-white/10 text-white/40 hover:text-white/80"
-                aria-label="Edit message">
-                <Pencil className="w-3 h-3" />
-              </button>
-            )}
           </div>
         </div>
+
+        {/* Edit button — outside bubble, appears on hover */}
+        {state !== "streaming" && (
+          <button onClick={startEdit}
+            className="opacity-0 group-hover/user:opacity-100
+              transition-opacity p-1.5 rounded-lg
+              text-white/40 hover:text-white/80 hover:bg-white/[0.08]
+              flex-shrink-0 mt-0.5"
+            aria-label="Edit message">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Edit modal — clean, professional, theme-matched */}
+        <AnimatePresence>
+          {isEditing && (
+            <EditModal
+              value={editValue}
+              onChange={setEditValue}
+              onCancel={() => setIsEditing(false)}
+              onSave={confirmEdit}
+              textareaRef={editRef}
+              onKeyDown={handleEditKey}
+            />
+          )}
+        </AnimatePresence>
       </motion.div>
     );
   }
@@ -281,6 +262,69 @@ function CitationsBlock({ citations }: { citations: any[] }) {
         </a>
       ))}
     </div>
+  );
+}
+
+function EditModal({
+  value, onChange, onCancel, onSave, textareaRef, onKeyDown,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.12 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        onClick={e => e.stopPropagation()}
+        className="relative w-full max-w-lg rounded-xl
+          bg-[#141416] border border-white/[0.1]
+          shadow-2xl shadow-black/60"
+      >
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          rows={4}
+          autoFocus
+          className="w-full bg-transparent text-white placeholder-white/30 text-sm
+            leading-relaxed outline-none resize-none p-4 pb-3"
+          placeholder="Edit message…"
+        />
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-white/[0.06]">
+          <button onClick={onCancel}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg
+              text-white/50 hover:text-white/80 hover:bg-white/[0.06]
+              transition-colors">
+            Cancel
+          </button>
+          <button onClick={onSave} disabled={!value.trim()}
+            className={cn(
+              "px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all",
+              value.trim()
+                ? "bg-white text-black hover:bg-white/90 shadow-sm shadow-black/20"
+                : "bg-white/[0.08] text-white/30 cursor-not-allowed",
+            )}>
+            Save & regenerate
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
