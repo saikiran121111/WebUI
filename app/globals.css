@@ -25,6 +25,10 @@
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 3px; }
 
+/* Horizontal scroll strip that hides its scrollbar */
+.scrollbar-hide { overflow-x: auto; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
 html, body { height: 100%; background: var(--bg); }
 
 body {

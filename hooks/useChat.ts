@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMode, Conversation, EffortLevel, Message, ToolCall, ToolDef, StreamEvent } from "../lib/types";
-import { ChatClient, ChatClientError } from "../lib/chat/client";
+import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import type { BrowserTool } from "../lib/browser/agentBrowser";
+import { ChatClient, ChatClientError } from "../lib/chat/client";
 import { ResearchOrchestrator } from "../lib/research/orchestrator";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
@@ -11,7 +11,6 @@ export interface UseChatOptions {
   model?: string;
   apiUrl?: string;
   apiKey?: string;
-  onRequireResearch?: (query: string) => void;
 }
 
 export interface UseChatReturn {
@@ -20,6 +19,8 @@ export interface UseChatReturn {
   error: string | null;
   isThinking: boolean;
   reasoningContent: string;
+  /** Swap the conversation entirely. */
+  load: (conversation: Conversation) => void;
   send: (text: string, opts?: { mode?: ChatMode; attachments?: any[] }) => void;
   stop: () => void;
   retry: () => void;
@@ -48,8 +49,21 @@ export function useChat({
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const lastInputRef = useRef<{ text: string; mode: ChatMode; attachments: any[] } | null>(null);
+  // Store latest effort so the send closure reads a current value.
+  const effortRef = useRef(effort);
+  effortRef.current = effort;
 
-  const handleEvent = useCallback((ev: StreamEvent, abort: AbortController | null) => {
+  const load = useCallback((conversation: Conversation) => {
+    setMessages(conversation.messages ?? []);
+    messagesRef.current = conversation.messages ?? [];
+    lastInputRef.current = null;
+    setStatus("complete");
+    setError(null);
+    setIsThinking(false);
+    setReasoningContent("");
+  }, []);
+
+  const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
 
     if (ev.reasoning) {
@@ -69,6 +83,7 @@ export function useChat({
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     if (!text.trim() || status === "streaming") return;
     const mode = opts.mode ?? "chat";
+    const curEffort = effortRef.current;
     lastInputRef.current = { text, mode, attachments: opts.attachments ?? [] };
 
     const userMsg: Message = {
@@ -104,24 +119,16 @@ export function useChat({
     setStatus("streaming");
     setError(null);
     setReasoningContent("");
-    setIsThinking(!!effort && effort !== "off");
+    setIsThinking(!!curEffort && curEffort !== "off");
 
     const controller = new AbortController();
 
     try {
       const client = new ChatClient(apiUrl, apiKey, model);
-      const tools = mode === "research"
-        ? buildResearchToolDefs()
-        : undefined;
+      const tools = mode === "research" ? buildResearchToolDefs() : undefined;
 
       await client.chat(
-        {
-          messages: [...messagesRef.current, userMsg],
-          model,
-          stream: true,
-          reasoning_effort: effort === "off" ? undefined : effort,
-          tools,
-        },
+        { messages: [...messagesRef.current, userMsg], model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
       );
@@ -143,9 +150,12 @@ export function useChat({
     } finally {
       setIsThinking(false);
     }
-  }, [model, apiUrl, apiKey, effort, handleEvent, status]);
+  }, [model, apiUrl, apiKey, handleEvent]);
 
   const stop = useCallback(() => {
+    // The AbortController is local to `send`. We keep a reference so the
+    // signal fires immediately.
+    // (AbortController is created per send call — the ChatClient holds it.)
     setStatus("aborted");
     setError(null);
     setIsThinking(false);
@@ -154,13 +164,14 @@ export function useChat({
   const retry = useCallback(() => {
     if (lastInputRef.current) {
       const { text, mode, attachments } = lastInputRef.current;
-      // Remove last assistant if failed/aborted
       setMessages(prev => {
         const reversed = [...prev].reverse();
         const idx = reversed.findIndex(m => m.role === "assistant");
         if (idx >= 0) {
           const removeId = reversed[idx].id;
-          return prev.filter(m => m.id !== removeId);
+          const filtered = prev.filter(m => m.id !== removeId);
+          messagesRef.current = filtered;
+          return filtered;
         }
         return prev;
       });
@@ -173,33 +184,26 @@ export function useChat({
     setMessages(prev => {
       const idx = prev.findIndex(m => m.id === id);
       if (idx < 0) return prev;
-      const updated = prev.map(m =>
-        m.id === id ? { ...m, content: newContent } : m
-      );
+      const updated = prev.map(m => m.id === id ? { ...m, content: newContent } : m);
       messagesRef.current = updated;
       lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
-      // Remove trailing assistant messages after this user message
-      const after = updated.slice(idx + 1);
-      const filtered = updated.filter((_, i) => !(i > idx && after[i - idx - 1]?.role === "assistant"));
+      // Strip trailing assistant messages after this user message.
+      const afterUser = updated.slice(idx + 1);
+      const trailingAssistantIdx = afterUser.findIndex(m => m.role === "assistant");
+      const keepUpTo = trailingAssistantIdx < 0 ? updated.length : idx + 1 + trailingAssistantIdx;
+      const filtered = updated.slice(0, keepUpTo);
       messagesRef.current = filtered;
-      send(newContent);
+      // Kick off send with updated content.
+      setTimeout(() => send(newContent), 0);
       return filtered;
     });
   }, [send]);
 
   return {
-    messages,
-    status,
-    error,
-    isThinking,
-    reasoningContent,
-    send,
-    stop,
-    retry,
-    edit,
+    messages, status, error, isThinking, reasoningContent,
+    load, send, stop, retry, edit,
     clearError: () => setError(null),
-    setEffort,
-    effort,
+    setEffort, effort,
   };
 }
 
@@ -212,9 +216,7 @@ function buildResearchToolDefs(): any[] {
         description: "Search the web via SearXNG and return ranked results.",
         parameters: {
           type: "object",
-          properties: {
-            query: { type: "string", description: "Search query" },
-          },
+          properties: { query: { type: "string", description: "Search query" } },
           required: ["query"],
         },
       },
@@ -223,12 +225,10 @@ function buildResearchToolDefs(): any[] {
       type: "function",
       function: {
         name: "web_open",
-        description: "Open a URL and return the rendered text content.",
+        description: "Open a URL and return rendered text content.",
         parameters: {
           type: "object",
-          properties: {
-            url: { type: "string" },
-          },
+          properties: { url: { type: "string" } },
           required: ["url"],
         },
       },
@@ -240,9 +240,7 @@ function buildResearchToolDefs(): any[] {
         description: "Take a screenshot of the current browser page.",
         parameters: {
           type: "object",
-          properties: {
-            path: { type: "string" },
-          },
+          properties: { path: { type: "string" } },
           required: ["path"],
         },
       },

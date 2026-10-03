@@ -41,7 +41,7 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
   const confirmEdit = useCallback(() => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== content) {
-      onEdit(trimmed, message.id);
+      onEdit(message.id, trimmed);
     }
     setIsEditing(false);
   }, [editValue, content, message.id, onEdit]);
