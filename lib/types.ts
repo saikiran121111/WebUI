@@ -155,6 +155,7 @@ export interface ConversationMeta {
 }
 
 export interface Conversation {
+  id: string;               // mirrors meta.id — satisfies IDB keyPath "id"
   meta: ConversationMeta;
   messages: Message[];
 }

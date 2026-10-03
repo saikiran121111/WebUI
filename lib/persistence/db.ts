@@ -47,6 +47,15 @@ export async function getConversation(id: string): Promise<Conversation | null> 
 }
 
 export async function saveConversation(conversation: Conversation): Promise<void> {
+  // IDB object store was created with keyPath: "id". Guarantee it exists,
+  // even when older records from before the schema change are re-saved.
+  if (!conversation.id) {
+    if (conversation.meta?.id) {
+      conversation.id = conversation.meta.id;
+    } else {
+      throw new Error("saveConversation: conversation is missing both `id` and `meta.id`");
+    }
+  }
   const store = await tx("conversations", "readwrite");
   return new Promise((resolve, reject) => {
     const req = store.put(conversation);

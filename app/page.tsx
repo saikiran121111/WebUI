@@ -53,7 +53,7 @@ export default function HomePage() {
       preview: messages[messages.length - 1]?.content?.slice(0, 80) ?? "",
       messageCount: messages.length,
     };
-    const conv: Conversation = { meta, messages };
+    const conv: Conversation = { id: convId, meta, messages };
     saveConversation(conv).then(() => {
       listConversations().then(setConversations);
     });
