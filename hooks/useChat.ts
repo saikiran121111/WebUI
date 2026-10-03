@@ -49,9 +49,10 @@ export function useChat({
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const lastInputRef = useRef<{ text: string; mode: ChatMode; attachments: any[] } | null>(null);
-  // Store latest effort so the send closure reads a current value.
   const effortRef = useRef(effort);
   effortRef.current = effort;
+  /** Shared abort controller so `stop` can cancel an in-flight stream. */
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback((conversation: Conversation) => {
     setMessages(conversation.messages ?? []);
@@ -122,6 +123,7 @@ export function useChat({
     setIsThinking(!!curEffort && curEffort !== "off");
 
     const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const client = new ChatClient(apiUrl, apiKey, model);
@@ -141,21 +143,24 @@ export function useChat({
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
-        setError(e?.message ?? "Something went wrong");
+        // Show the real error from the network/parse layer so the user and
+        // developer can actually diagnose what went wrong.
+        const msg = e?.message ?? "Generation failed";
+        setError(msg);
         setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id ? { ...m, state: "error", error: e?.message } : m
+          m.id === assistantMsg.id ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
       }
     } finally {
       setIsThinking(false);
+      abortRef.current = null;
     }
   }, [model, apiUrl, apiKey, handleEvent]);
 
   const stop = useCallback(() => {
-    // The AbortController is local to `send`. We keep a reference so the
-    // signal fires immediately.
-    // (AbortController is created per send call — the ChatClient holds it.)
+    abortRef.current?.abort();
+    abortRef.current = null;
     setStatus("aborted");
     setError(null);
     setIsThinking(false);

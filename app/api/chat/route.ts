@@ -70,7 +70,8 @@ export async function POST(req: NextRequest) {
 
     const cleaned = upstream.body.pipeThrough(scrubber);
 
-    return new NextResponse(cleaned, {
+    return new Response(cleaned, {
+      status: 200,
       headers: {
         "Content-Type": upstream.headers.get("Content-Type") ?? "text/event-stream",
         "Cache-Control": "no-cache, no-transform",

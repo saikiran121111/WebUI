@@ -1,7 +1,7 @@
 import type { ChatRequest, ChatStreamCallback, ToolDef } from "./types";
 import { createStreamParser, StreamHandle, StreamOptions } from "../stream/parser";
 
-const DEFAULT_URL = "http://127.0.0.1:8080/v1/chat/completions";
+const DEFAULT_URL = "/api/chat";
 
 export class ChatClientError extends Error {
   constructor(public status: number, message: string) {
