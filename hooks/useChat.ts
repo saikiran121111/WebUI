@@ -51,6 +51,8 @@ export function useChat({
   const lastInputRef = useRef<{ text: string; mode: ChatMode; attachments: any[] } | null>(null);
   const effortRef = useRef(effort);
   effortRef.current = effort;
+  const assistantIdRef = useRef<string | null>(null);
+  const streamContentRef = useRef<string>("");
   /** Shared abort controller so `stop` can cancel an in-flight stream. */
   const abortRef = useRef<AbortController | null>(null);
 
@@ -72,6 +74,12 @@ export function useChat({
       setIsThinking(true);
     }
     if (ev.content) {
+      streamContentRef.current += ev.content;
+      setMessages(prev => prev.map(m =>
+        m.id === (assistantIdRef.current ?? "")
+          ? { ...m, content: (m.content as string) + ev.content }
+          : m
+      ));
       setIsThinking(false);
     }
     if (ev.finishReason === "abort" || ev.finishReason === "error") {
@@ -121,6 +129,8 @@ export function useChat({
     setError(null);
     setReasoningContent("");
     setIsThinking(!!curEffort && curEffort !== "off");
+    assistantIdRef.current = assistantMsg.id;
+    streamContentRef.current = "";
 
     const controller = new AbortController();
     abortRef.current = controller;

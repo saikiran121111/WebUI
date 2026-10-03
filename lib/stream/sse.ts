@@ -10,7 +10,7 @@ export interface SseMessage {
 export function createSseParser() {
   let buffer = "";
 
-  return function push(chunk: string): { events: SseMessage[]; done: boolean } {
+  return function push(chunk: string): { events: SseMessage[]; done: boolean; tail: string } {
     buffer += chunk;
 
     const events: SseMessage[] = [];
@@ -29,7 +29,7 @@ export function createSseParser() {
 
     if (buffer.length > 4_000_000) buffer = "";
 
-    return { events, done };
+    return { events, done, tail: buffer };
   };
 }
 

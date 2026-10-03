@@ -12,29 +12,30 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.15.0",
+    "idb-keyval": "^6.2.1",
+    "lucide-react": "^0.468.0",
     "next": "^14.2.23",
+    "prismjs": "^1.29.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "framer-motion": "^11.15.0",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
-    "prismjs": "^1.29.0",
-    "lucide-react": "^0.468.0",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^2.6.0",
-    "idb-keyval": "^6.2.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/typography": "^0.5.15",
     "@types/node": "^22.10.0",
+    "@types/prismjs": "^1.26.5",
     "@types/react": "^18.3.14",
     "@types/react-dom": "^18.3.4",
-    "@types/prismjs": "^1.26.5",
-    "typescript": "^5.7.2",
-    "tailwindcss": "^3.4.16",
-    "postcss": "^8.4.49",
     "autoprefixer": "^10.4.20",
-    "@tailwindcss/typography": "^0.5.15",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }
 }
