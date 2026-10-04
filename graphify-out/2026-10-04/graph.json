@@ -4,19 +4,6 @@
   "graph": {},
   "nodes": [
     {
-      "id": "components_chatinput_chatinputprops",
-      "label": "ChatInputProps",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "chatinputprops",
-      "source_file": "components/ChatInput.tsx",
-      "source_location": "L15"
-    },
-    {
       "id": "components_chatmessage_chatmessageprops",
       "label": "ChatMessageProps",
       "_callable": true,
@@ -28,19 +15,6 @@
       "norm_label": "chatmessageprops",
       "source_file": "components/ChatMessage.tsx",
       "source_location": "L9"
-    },
-    {
-      "id": "components_ui_sidebar_sidebarprops",
-      "label": "SidebarProps",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "sidebarprops",
-      "source_file": "components/ui/Sidebar.tsx",
-      "source_location": "L11"
     },
     {
       "id": "hooks_usechat_sendstatus",
@@ -95,17 +69,69 @@
       "source_location": "L6"
     },
     {
-      "id": "lib_types_attachment",
-      "label": "Attachment",
+      "id": "lib_research_orchestrator_researchorchestrator",
+      "label": "ResearchOrchestrator",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 0,
       "community_name": "lib/types.ts",
       "file_type": "code",
-      "norm_label": "attachment",
-      "source_file": "lib/types.ts",
-      "source_location": "L33"
+      "norm_label": "researchorchestrator",
+      "source_file": "lib/research/orchestrator.ts",
+      "source_location": "L22"
+    },
+    {
+      "id": "lib_research_orchestrator_researchstatus",
+      "label": "ResearchStatus",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "researchstatus",
+      "source_file": "lib/research/orchestrator.ts",
+      "source_location": "L8"
+    },
+    {
+      "id": "lib_research_orchestrator_researchtask",
+      "label": "ResearchTask",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "researchtask",
+      "source_file": "lib/research/orchestrator.ts",
+      "source_location": "L10"
+    },
+    {
+      "id": "lib_search_searx_searchresponse",
+      "label": "SearchResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "searchresponse",
+      "source_file": "lib/search/searx.ts",
+      "source_location": "L11"
+    },
+    {
+      "id": "lib_search_searx_searchresult",
+      "label": "SearchResult",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "searchresult",
+      "source_file": "lib/search/searx.ts",
+      "source_location": "L3"
     },
     {
       "id": "lib_types_attachmentframe",
@@ -160,43 +186,17 @@
       "source_location": "L10"
     },
     {
-      "id": "lib_types_conversation",
-      "label": "Conversation",
+      "id": "lib_types_citation",
+      "label": "Citation",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 0,
       "community_name": "lib/types.ts",
       "file_type": "code",
-      "norm_label": "conversation",
+      "norm_label": "citation",
       "source_file": "lib/types.ts",
-      "source_location": "L157"
-    },
-    {
-      "id": "lib_types_conversationmeta",
-      "label": "ConversationMeta",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "conversationmeta",
-      "source_file": "lib/types.ts",
-      "source_location": "L144"
-    },
-    {
-      "id": "lib_types_effortlevel",
-      "label": "EffortLevel",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "effortlevel",
-      "source_file": "lib/types.ts",
-      "source_location": "L13"
+      "source_location": "L91"
     },
     {
       "id": "lib_types_message",
@@ -223,6 +223,32 @@
       "norm_label": "messagestate",
       "source_file": "lib/types.ts",
       "source_location": "L120"
+    },
+    {
+      "id": "lib_types_researchevent",
+      "label": "ResearchEvent",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "researchevent",
+      "source_file": "lib/types.ts",
+      "source_location": "L189"
+    },
+    {
+      "id": "lib_types_researchstep",
+      "label": "ResearchStep",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "researchstep",
+      "source_file": "lib/types.ts",
+      "source_location": "L183"
     },
     {
       "id": "lib_types_role",
@@ -288,19 +314,6 @@
       "norm_label": "usage",
       "source_file": "lib/types.ts",
       "source_location": "L110"
-    },
-    {
-      "id": "components_herocomposer_herocomposerprops",
-      "label": "HeroComposerProps",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "herocomposerprops",
-      "source_file": "components/HeroComposer.tsx",
-      "source_location": "L6"
     },
     {
       "id": "lib_chat_client_chatclient",
@@ -498,108 +511,108 @@
       "source_location": "L76"
     },
     {
-      "id": "lib_research_orchestrator_researchorchestrator",
-      "label": "ResearchOrchestrator",
+      "id": "components_chatinput_chatinputprops",
+      "label": "ChatInputProps",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "researchorchestrator",
-      "source_file": "lib/research/orchestrator.ts",
-      "source_location": "L22"
+      "norm_label": "chatinputprops",
+      "source_file": "components/ChatInput.tsx",
+      "source_location": "L15"
     },
     {
-      "id": "lib_research_orchestrator_researchstatus",
-      "label": "ResearchStatus",
+      "id": "components_herocomposer_herocomposerprops",
+      "label": "HeroComposerProps",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "researchstatus",
-      "source_file": "lib/research/orchestrator.ts",
-      "source_location": "L8"
+      "norm_label": "herocomposerprops",
+      "source_file": "components/HeroComposer.tsx",
+      "source_location": "L6"
     },
     {
-      "id": "lib_research_orchestrator_researchtask",
-      "label": "ResearchTask",
+      "id": "components_ui_confirmdialog_confirmdialogprops",
+      "label": "ConfirmDialogProps",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "researchtask",
-      "source_file": "lib/research/orchestrator.ts",
-      "source_location": "L10"
+      "norm_label": "confirmdialogprops",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L5"
     },
     {
-      "id": "lib_search_searx_searchresponse",
-      "label": "SearchResponse",
+      "id": "components_ui_sidebar_sidebarprops",
+      "label": "SidebarProps",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "searchresponse",
-      "source_file": "lib/search/searx.ts",
+      "norm_label": "sidebarprops",
+      "source_file": "components/ui/Sidebar.tsx",
       "source_location": "L11"
     },
     {
-      "id": "lib_search_searx_searchresult",
-      "label": "SearchResult",
+      "id": "lib_types_attachment",
+      "label": "Attachment",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "searchresult",
-      "source_file": "lib/search/searx.ts",
-      "source_location": "L3"
+      "norm_label": "attachment",
+      "source_file": "lib/types.ts",
+      "source_location": "L33"
     },
     {
-      "id": "lib_types_citation",
-      "label": "Citation",
+      "id": "lib_types_conversation",
+      "label": "Conversation",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "citation",
+      "norm_label": "conversation",
       "source_file": "lib/types.ts",
-      "source_location": "L91"
+      "source_location": "L157"
     },
     {
-      "id": "lib_types_researchevent",
-      "label": "ResearchEvent",
+      "id": "lib_types_conversationmeta",
+      "label": "ConversationMeta",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "researchevent",
+      "norm_label": "conversationmeta",
       "source_file": "lib/types.ts",
-      "source_location": "L189"
+      "source_location": "L144"
     },
     {
-      "id": "lib_types_researchstep",
-      "label": "ResearchStep",
+      "id": "lib_types_effortlevel",
+      "label": "EffortLevel",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "researchstep",
+      "norm_label": "effortlevel",
       "source_file": "lib/types.ts",
-      "source_location": "L183"
+      "source_location": "L13"
     },
     {
       "id": "lib_browser_agentbrowser_browsertool",
@@ -615,66 +628,6 @@
       "source_location": "L6"
     },
     {
-      "id": "app_page_emptystate",
-      "label": "EmptyState()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "emptystate()",
-      "source_file": "app/page.tsx",
-      "source_location": "L284"
-    },
-    {
-      "id": "app_page_homepage",
-      "label": "HomePage()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "homepage()",
-      "source_file": "app/page.tsx",
-      "source_location": "L16"
-    },
-    {
-      "id": "app_page_uid",
-      "label": "uid()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "uid()",
-      "source_file": "app/page.tsx",
-      "source_location": "L12"
-    },
-    {
-      "id": "components_chatinput_chatinput",
-      "label": "ChatInput()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "chatinput()",
-      "source_file": "components/ChatInput.tsx",
-      "source_location": "L30"
-    },
-    {
-      "id": "components_chatinput_effortmenu",
-      "label": "EffortMenu()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "effortmenu()",
-      "source_file": "components/ChatInput.tsx",
-      "source_location": "L234"
-    },
-    {
       "id": "hooks_usechat_buildresearchtooldefs",
       "label": "buildResearchToolDefs()",
       "_callable": true,
@@ -684,7 +637,7 @@
       "file_type": "code",
       "norm_label": "buildresearchtooldefs()",
       "source_file": "hooks/useChat.ts",
-      "source_location": "L241"
+      "source_location": "L267"
     },
     {
       "id": "hooks_usechat_uid",
@@ -723,64 +676,40 @@
       "source_location": "L7"
     },
     {
-      "id": "lib_persistence_index_deleteconversation",
-      "label": "deleteConversation()",
+      "id": "lib_research_orchestrator_researchorchestrator_run",
+      "label": ".run()",
       "_callable": true,
       "_origin": "ast",
       "community": 0,
       "community_name": "lib/types.ts",
       "file_type": "code",
-      "norm_label": "deleteconversation()",
-      "source_file": "lib/persistence/index.ts",
-      "source_location": "L27"
+      "norm_label": ".run()",
+      "source_file": "lib/research/orchestrator.ts",
+      "source_location": "L25"
     },
     {
-      "id": "lib_persistence_index_getconversation",
-      "label": "getConversation()",
+      "id": "lib_research_orchestrator_researchorchestrator_stop",
+      "label": ".stop()",
       "_callable": true,
       "_origin": "ast",
       "community": 0,
       "community_name": "lib/types.ts",
       "file_type": "code",
-      "norm_label": "getconversation()",
-      "source_file": "lib/persistence/index.ts",
-      "source_location": "L13"
+      "norm_label": ".stop()",
+      "source_file": "lib/research/orchestrator.ts",
+      "source_location": "L92"
     },
     {
-      "id": "lib_persistence_index_listconversations",
-      "label": "listConversations()",
+      "id": "lib_search_searx_searchseax",
+      "label": "searchSeax()",
       "_callable": true,
       "_origin": "ast",
       "community": 0,
       "community_name": "lib/types.ts",
       "file_type": "code",
-      "norm_label": "listconversations()",
-      "source_file": "lib/persistence/index.ts",
-      "source_location": "L3"
-    },
-    {
-      "id": "lib_persistence_index_saveconversation",
-      "label": "saveConversation()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "saveconversation()",
-      "source_file": "lib/persistence/index.ts",
-      "source_location": "L19"
-    },
-    {
-      "id": "lib_persistence_index_updateconversationmeta",
-      "label": "updateConversationMeta()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "updateconversationmeta()",
-      "source_file": "lib/persistence/index.ts",
-      "source_location": "L32"
+      "norm_label": "searchseax()",
+      "source_file": "lib/search/searx.ts",
+      "source_location": "L15"
     },
     {
       "id": "lib_types_tooldef_execute",
@@ -795,90 +724,6 @@
       "source_location": "L105"
     },
     {
-      "id": "components_chatmessage_citationsblock",
-      "label": "CitationsBlock()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "citationsblock()",
-      "source_file": "components/ChatMessage.tsx",
-      "source_location": "L242"
-    },
-    {
-      "id": "components_chatmessage_editmodal",
-      "label": "EditModal()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "editmodal()",
-      "source_file": "components/ChatMessage.tsx",
-      "source_location": "L268"
-    },
-    {
-      "id": "components_chatmessage_formatduration",
-      "label": "formatDuration()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "formatduration()",
-      "source_file": "components/ChatMessage.tsx",
-      "source_location": "L331"
-    },
-    {
-      "id": "components_chatmessage_reasoningblock",
-      "label": "ReasoningBlock()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "reasoningblock()",
-      "source_file": "components/ChatMessage.tsx",
-      "source_location": "L207"
-    },
-    {
-      "id": "components_herocomposer_herocomposer",
-      "label": "HeroComposer()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "herocomposer()",
-      "source_file": "components/HeroComposer.tsx",
-      "source_location": "L12"
-    },
-    {
-      "id": "components_markdownrenderer_codeblock",
-      "label": "CodeBlock()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "codeblock()",
-      "source_file": "components/MarkdownRenderer.tsx",
-      "source_location": "L35"
-    },
-    {
-      "id": "components_markdownrenderer_markdownrenderer",
-      "label": "MarkdownRenderer()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "markdownrenderer()",
-      "source_file": "components/MarkdownRenderer.tsx",
-      "source_location": "L92"
-    },
-    {
       "id": "components_markdownrenderer_registerlang",
       "label": "registerLang()",
       "_callable": true,
@@ -889,42 +734,6 @@
       "norm_label": "registerlang()",
       "source_file": "components/MarkdownRenderer.tsx",
       "source_location": "L11"
-    },
-    {
-      "id": "components_ui_sidebar_conversationitem",
-      "label": "ConversationItem()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "conversationitem()",
-      "source_file": "components/ui/Sidebar.tsx",
-      "source_location": "L159"
-    },
-    {
-      "id": "components_ui_sidebar_sidebar",
-      "label": "Sidebar()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "sidebar()",
-      "source_file": "components/ui/Sidebar.tsx",
-      "source_location": "L25"
-    },
-    {
-      "id": "lib_utils_cn",
-      "label": "cn()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "cn()",
-      "source_file": "lib/utils.ts",
-      "source_location": "L3"
     },
     {
       "id": "scripts_probe_vision_png",
@@ -1527,40 +1336,256 @@
       "source_location": "L14"
     },
     {
-      "id": "lib_research_orchestrator_researchorchestrator_run",
-      "label": ".run()",
+      "id": "app_page_emptystate",
+      "label": "EmptyState()",
       "_callable": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": ".run()",
-      "source_file": "lib/research/orchestrator.ts",
-      "source_location": "L25"
+      "norm_label": "emptystate()",
+      "source_file": "app/page.tsx",
+      "source_location": "L311"
     },
     {
-      "id": "lib_research_orchestrator_researchorchestrator_stop",
-      "label": ".stop()",
+      "id": "app_page_homepage",
+      "label": "HomePage()",
       "_callable": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": ".stop()",
-      "source_file": "lib/research/orchestrator.ts",
+      "norm_label": "homepage()",
+      "source_file": "app/page.tsx",
+      "source_location": "L17"
+    },
+    {
+      "id": "app_page_uid",
+      "label": "uid()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "uid()",
+      "source_file": "app/page.tsx",
+      "source_location": "L13"
+    },
+    {
+      "id": "components_chatinput_chatinput",
+      "label": "ChatInput()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "chatinput()",
+      "source_file": "components/ChatInput.tsx",
+      "source_location": "L30"
+    },
+    {
+      "id": "components_chatinput_effortmenu",
+      "label": "EffortMenu()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "effortmenu()",
+      "source_file": "components/ChatInput.tsx",
+      "source_location": "L234"
+    },
+    {
+      "id": "components_chatmessage_citationsblock",
+      "label": "CitationsBlock()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "citationsblock()",
+      "source_file": "components/ChatMessage.tsx",
+      "source_location": "L255"
+    },
+    {
+      "id": "components_chatmessage_editmodal",
+      "label": "EditModal()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "editmodal()",
+      "source_file": "components/ChatMessage.tsx",
+      "source_location": "L281"
+    },
+    {
+      "id": "components_chatmessage_formatduration",
+      "label": "formatDuration()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "formatduration()",
+      "source_file": "components/ChatMessage.tsx",
+      "source_location": "L344"
+    },
+    {
+      "id": "components_chatmessage_reasoningblock",
+      "label": "ReasoningBlock()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "reasoningblock()",
+      "source_file": "components/ChatMessage.tsx",
+      "source_location": "L204"
+    },
+    {
+      "id": "components_herocomposer_herocomposer",
+      "label": "HeroComposer()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "herocomposer()",
+      "source_file": "components/HeroComposer.tsx",
+      "source_location": "L12"
+    },
+    {
+      "id": "components_markdownrenderer_codeblock",
+      "label": "CodeBlock()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "codeblock()",
+      "source_file": "components/MarkdownRenderer.tsx",
+      "source_location": "L35"
+    },
+    {
+      "id": "components_markdownrenderer_markdownrenderer",
+      "label": "MarkdownRenderer()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "markdownrenderer()",
+      "source_file": "components/MarkdownRenderer.tsx",
       "source_location": "L92"
     },
     {
-      "id": "lib_search_searx_searchseax",
-      "label": "searchSeax()",
+      "id": "components_ui_confirmdialog_confirmdialog",
+      "label": "ConfirmDialog()",
       "_callable": true,
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "searchseax()",
-      "source_file": "lib/search/searx.ts",
-      "source_location": "L15"
+      "norm_label": "confirmdialog()",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L16"
+    },
+    {
+      "id": "components_ui_sidebar_conversationitem",
+      "label": "ConversationItem()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "conversationitem()",
+      "source_file": "components/ui/Sidebar.tsx",
+      "source_location": "L159"
+    },
+    {
+      "id": "components_ui_sidebar_sidebar",
+      "label": "Sidebar()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "sidebar()",
+      "source_file": "components/ui/Sidebar.tsx",
+      "source_location": "L25"
+    },
+    {
+      "id": "lib_persistence_index_deleteconversation",
+      "label": "deleteConversation()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "deleteconversation()",
+      "source_file": "lib/persistence/index.ts",
+      "source_location": "L27"
+    },
+    {
+      "id": "lib_persistence_index_getconversation",
+      "label": "getConversation()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "getconversation()",
+      "source_file": "lib/persistence/index.ts",
+      "source_location": "L13"
+    },
+    {
+      "id": "lib_persistence_index_listconversations",
+      "label": "listConversations()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "listconversations()",
+      "source_file": "lib/persistence/index.ts",
+      "source_location": "L3"
+    },
+    {
+      "id": "lib_persistence_index_saveconversation",
+      "label": "saveConversation()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "saveconversation()",
+      "source_file": "lib/persistence/index.ts",
+      "source_location": "L19"
+    },
+    {
+      "id": "lib_persistence_index_updateconversationmeta",
+      "label": "updateConversationMeta()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "updateconversationmeta()",
+      "source_file": "lib/persistence/index.ts",
+      "source_location": "L32"
+    },
+    {
+      "id": "lib_utils_cn",
+      "label": "cn()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "cn()",
+      "source_file": "lib/utils.ts",
+      "source_location": "L3"
     },
     {
       "id": "lib_browser_agentbrowser_browsertool_click",
@@ -1671,50 +1696,6 @@
       "source_location": "L18"
     },
     {
-      "id": "app_page",
-      "label": "page.tsx",
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "page.tsx",
-      "source_file": "app/page.tsx",
-      "source_location": "L1"
-    },
-    {
-      "id": "components_chatinput",
-      "label": "ChatInput.tsx",
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "chatinput.tsx",
-      "source_file": "components/ChatInput.tsx",
-      "source_location": "L1"
-    },
-    {
-      "id": "components_chatinput_effort_label",
-      "label": "EFFORT_LABEL",
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "effort_label",
-      "source_file": "components/ChatInput.tsx",
-      "source_location": "L11"
-    },
-    {
-      "id": "components_chatinput_effort_levels",
-      "label": "EFFORT_LEVELS",
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "lib/types.ts",
-      "file_type": "code",
-      "norm_label": "effort_levels",
-      "source_file": "components/ChatInput.tsx",
-      "source_location": "L10"
-    },
-    {
       "id": "hooks_usechat",
       "label": "useChat.ts",
       "_origin": "ast",
@@ -1726,14 +1707,47 @@
       "source_location": "L1"
     },
     {
-      "id": "lib_persistence_index",
-      "label": "persistence/index.ts",
+      "id": "lib_research_index",
+      "label": "research/index.ts",
       "_origin": "ast",
       "community": 0,
       "community_name": "lib/types.ts",
       "file_type": "code",
-      "norm_label": "persistence/index.ts",
-      "source_file": "lib/persistence/index.ts",
+      "norm_label": "research/index.ts",
+      "source_file": "lib/research/index.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "lib_research_orchestrator",
+      "label": "orchestrator.ts",
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "orchestrator.ts",
+      "source_file": "lib/research/orchestrator.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "lib_search_index",
+      "label": "search/index.ts",
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "search/index.ts",
+      "source_file": "lib/search/index.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "lib_search_searx",
+      "label": "searx.ts",
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "file_type": "code",
+      "norm_label": "searx.ts",
+      "source_file": "lib/search/searx.ts",
       "source_location": "L1"
     },
     {
@@ -1957,28 +1971,6 @@
       "source_file": "prismjs/components/prism-yaml"
     },
     {
-      "id": "components_chatmessage",
-      "label": "ChatMessage.tsx",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "chatmessage.tsx",
-      "source_file": "components/ChatMessage.tsx",
-      "source_location": "L1"
-    },
-    {
-      "id": "components_herocomposer",
-      "label": "HeroComposer.tsx",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "code",
-      "norm_label": "herocomposer.tsx",
-      "source_file": "components/HeroComposer.tsx",
-      "source_location": "L1"
-    },
-    {
       "id": "components_markdownrenderer",
       "label": "MarkdownRenderer.tsx",
       "_origin": "ast",
@@ -2001,70 +1993,37 @@
       "source_location": "L10"
     },
     {
-      "id": "components_ui_sidebar",
-      "label": "Sidebar.tsx",
+      "id": "types_prismjs_d",
+      "label": "prismjs.d.ts",
       "_origin": "ast",
       "community": 1,
       "community_name": "MarkdownRenderer.tsx",
       "file_type": "code",
-      "norm_label": "sidebar.tsx",
-      "source_file": "components/ui/Sidebar.tsx",
+      "norm_label": "prismjs.d.ts",
+      "source_file": "types/prismjs.d.ts",
       "source_location": "L1"
     },
     {
-      "id": "lib_utils",
-      "label": "utils.ts",
+      "id": "types_prismjs_d_prismjs_components_prism",
+      "label": "prismjs/components/prism-*",
       "_origin": "ast",
       "community": 1,
       "community_name": "MarkdownRenderer.tsx",
       "file_type": "code",
-      "norm_label": "utils.ts",
-      "source_file": "lib/utils.ts",
-      "source_location": "L1"
+      "norm_label": "prismjs/components/prism-*",
+      "source_file": "types/prismjs.d.ts",
+      "source_location": "L2"
     },
     {
-      "id": "ref_clsx",
-      "label": "clsx",
+      "id": "ref_prismjs",
+      "label": "prismjs",
       "_origin": "ast",
       "community": 1,
       "community_name": "MarkdownRenderer.tsx",
       "file_type": "concept",
-      "norm_label": "clsx",
+      "norm_label": "prismjs",
       "source_file": "package.json",
-      "source_location": "L15"
-    },
-    {
-      "id": "ref_framer_motion",
-      "label": "framer-motion",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "concept",
-      "norm_label": "framer-motion",
-      "source_file": "package.json",
-      "source_location": "L16"
-    },
-    {
-      "id": "ref_lucide_react",
-      "label": "lucide-react",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "concept",
-      "norm_label": "lucide-react",
-      "source_file": "package.json",
-      "source_location": "L18"
-    },
-    {
-      "id": "ref_react",
-      "label": "react",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "MarkdownRenderer.tsx",
-      "file_type": "concept",
-      "norm_label": "react",
-      "source_file": "package.json",
-      "source_location": "L21"
+      "source_location": "L20"
     },
     {
       "id": "package_devdependencies",
@@ -2584,28 +2543,6 @@
       "source_location": "L3"
     },
     {
-      "id": "types_prismjs_d",
-      "label": "prismjs.d.ts",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "package.json",
-      "file_type": "code",
-      "norm_label": "prismjs.d.ts",
-      "source_file": "types/prismjs.d.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "types_prismjs_d_prismjs_components_prism",
-      "label": "prismjs/components/prism-*",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "package.json",
-      "file_type": "code",
-      "norm_label": "prismjs/components/prism-*",
-      "source_file": "types/prismjs.d.ts",
-      "source_location": "L2"
-    },
-    {
       "id": "ref_autoprefixer",
       "label": "autoprefixer",
       "_origin": "ast",
@@ -2637,17 +2574,6 @@
       "norm_label": "postcss",
       "source_file": "package.json",
       "source_location": "L36"
-    },
-    {
-      "id": "ref_prismjs",
-      "label": "prismjs",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "package.json",
-      "file_type": "concept",
-      "norm_label": "prismjs",
-      "source_file": "package.json",
-      "source_location": "L20"
     },
     {
       "id": "ref_react_dom",
@@ -2826,6 +2752,17 @@
       "source_location": "L51"
     },
     {
+      "id": "vitest_config",
+      "label": "vitest.config.ts",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "disk.ts",
+      "file_type": "code",
+      "norm_label": "vitest.config.ts",
+      "source_file": "vitest.config.ts",
+      "source_location": "L1"
+    },
+    {
       "id": "lib_chat_client",
       "label": "client.ts",
       "_origin": "ast",
@@ -2933,17 +2870,6 @@
       "file_type": "code",
       "norm_label": "sse.test.ts",
       "source_file": "__tests__/sse.test.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "vitest_config",
-      "label": "vitest.config.ts",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "parser.ts",
-      "file_type": "code",
-      "norm_label": "vitest.config.ts",
-      "source_file": "vitest.config.ts",
       "source_location": "L1"
     },
     {
@@ -3178,48 +3104,158 @@
       "source_location": "L22"
     },
     {
-      "id": "lib_research_index",
-      "label": "research/index.ts",
+      "id": "app_page",
+      "label": "page.tsx",
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "research/index.ts",
-      "source_file": "lib/research/index.ts",
+      "norm_label": "page.tsx",
+      "source_file": "app/page.tsx",
       "source_location": "L1"
     },
     {
-      "id": "lib_research_orchestrator",
-      "label": "orchestrator.ts",
+      "id": "components_chatinput",
+      "label": "ChatInput.tsx",
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "orchestrator.ts",
-      "source_file": "lib/research/orchestrator.ts",
+      "norm_label": "chatinput.tsx",
+      "source_file": "components/ChatInput.tsx",
       "source_location": "L1"
     },
     {
-      "id": "lib_search_index",
-      "label": "search/index.ts",
+      "id": "components_chatinput_effort_label",
+      "label": "EFFORT_LABEL",
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "search/index.ts",
-      "source_file": "lib/search/index.ts",
+      "norm_label": "effort_label",
+      "source_file": "components/ChatInput.tsx",
+      "source_location": "L11"
+    },
+    {
+      "id": "components_chatinput_effort_levels",
+      "label": "EFFORT_LEVELS",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "effort_levels",
+      "source_file": "components/ChatInput.tsx",
+      "source_location": "L10"
+    },
+    {
+      "id": "components_chatmessage",
+      "label": "ChatMessage.tsx",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "chatmessage.tsx",
+      "source_file": "components/ChatMessage.tsx",
       "source_location": "L1"
     },
     {
-      "id": "lib_search_searx",
-      "label": "searx.ts",
+      "id": "components_herocomposer",
+      "label": "HeroComposer.tsx",
       "_origin": "ast",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "file_type": "code",
-      "norm_label": "searx.ts",
-      "source_file": "lib/search/searx.ts",
+      "norm_label": "herocomposer.tsx",
+      "source_file": "components/HeroComposer.tsx",
       "source_location": "L1"
+    },
+    {
+      "id": "components_ui_confirmdialog",
+      "label": "ConfirmDialog.tsx",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "confirmdialog.tsx",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L1"
+    },
+    {
+      "id": "components_ui_sidebar",
+      "label": "Sidebar.tsx",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "sidebar.tsx",
+      "source_file": "components/ui/Sidebar.tsx",
+      "source_location": "L1"
+    },
+    {
+      "id": "lib_persistence_index",
+      "label": "persistence/index.ts",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "persistence/index.ts",
+      "source_file": "lib/persistence/index.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "lib_utils",
+      "label": "utils.ts",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "code",
+      "norm_label": "utils.ts",
+      "source_file": "lib/utils.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "ref_clsx",
+      "label": "clsx",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "concept",
+      "norm_label": "clsx",
+      "source_file": "package.json",
+      "source_location": "L15"
+    },
+    {
+      "id": "ref_framer_motion",
+      "label": "framer-motion",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "concept",
+      "norm_label": "framer-motion",
+      "source_file": "package.json",
+      "source_location": "L16"
+    },
+    {
+      "id": "ref_lucide_react",
+      "label": "lucide-react",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "concept",
+      "norm_label": "lucide-react",
+      "source_file": "package.json",
+      "source_location": "L18"
+    },
+    {
+      "id": "ref_react",
+      "label": "react",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "page.tsx",
+      "file_type": "concept",
+      "norm_label": "react",
+      "source_file": "package.json",
+      "source_location": "L21"
     },
     {
       "id": "lib_browser_agentbrowser",
@@ -3387,14 +3423,26 @@
       "source_location": "L26"
     },
     {
-      "id": "lib_files_index_validateattachment",
-      "label": "lib_files_index_validateattachment",
+      "id": "lib_search_index_searchresult",
+      "label": "lib_search_index_searchresult",
       "_origin": "semantic",
       "community": 0,
       "community_name": "lib/types.ts",
       "external": true,
       "file_type": "concept",
-      "norm_label": "lib_files_index_validateattachment",
+      "norm_label": "lib_search_index_searchresult",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "lib_search_index_searchseax",
+      "label": "lib_search_index_searchseax",
+      "_origin": "semantic",
+      "community": 0,
+      "community_name": "lib/types.ts",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "lib_search_index_searchseax",
       "source_file": "",
       "type": "external"
     },
@@ -3498,8 +3546,8 @@
       "id": "ref_node_path",
       "label": "ref_node_path",
       "_origin": "semantic",
-      "community": 5,
-      "community_name": "parser.ts",
+      "community": 3,
+      "community_name": "disk.ts",
       "external": true,
       "file_type": "concept",
       "norm_label": "ref_node_path",
@@ -3507,26 +3555,14 @@
       "type": "external"
     },
     {
-      "id": "lib_search_index_searchresult",
-      "label": "lib_search_index_searchresult",
+      "id": "lib_files_index_validateattachment",
+      "label": "lib_files_index_validateattachment",
       "_origin": "semantic",
       "community": 7,
-      "community_name": "orchestrator.ts",
+      "community_name": "page.tsx",
       "external": true,
       "file_type": "concept",
-      "norm_label": "lib_search_index_searchresult",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "lib_search_index_searchseax",
-      "label": "lib_search_index_searchseax",
-      "_origin": "semantic",
-      "community": 7,
-      "community_name": "orchestrator.ts",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "lib_search_index_searchseax",
+      "norm_label": "lib_files_index_validateattachment",
       "source_file": "",
       "type": "external"
     },
@@ -3637,7 +3673,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L346",
+      "source_location": "L373",
       "weight": 1.0
     },
     {
@@ -3649,7 +3685,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L105",
+      "source_location": "L107",
       "weight": 1.0
     },
     {
@@ -3661,7 +3697,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L116",
+      "source_location": "L124",
       "weight": 1.0
     },
     {
@@ -3673,7 +3709,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L158",
+      "source_location": "L166",
       "weight": 1.0
     },
     {
@@ -3685,7 +3721,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L200",
+      "source_location": "L208",
       "weight": 1.0
     },
     {
@@ -3697,7 +3733,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L264",
+      "source_location": "L280",
       "weight": 1.0
     },
     {
@@ -3709,7 +3745,19 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L27",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "app_page_homepage",
+      "target": "components_ui_confirmdialog_confirmdialog",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "app/page.tsx",
+      "source_location": "L298",
       "weight": 1.0
     },
     {
@@ -3721,7 +3769,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L33",
+      "source_location": "L35",
       "weight": 1.0
     },
     {
@@ -3733,7 +3781,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L48",
+      "source_location": "L50",
       "weight": 1.0
     },
     {
@@ -3745,7 +3793,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/page.tsx",
-      "source_location": "L65",
+      "source_location": "L67",
       "weight": 1.0
     },
     {
@@ -3805,7 +3853,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/ChatMessage.tsx",
-      "source_location": "L317",
+      "source_location": "L330",
       "weight": 1.0
     },
     {
@@ -3817,7 +3865,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "components/ChatMessage.tsx",
-      "source_location": "L222",
+      "source_location": "L229",
       "weight": 1.0
     },
     {
@@ -3830,6 +3878,18 @@
       "context": "call",
       "source_file": "components/MarkdownRenderer.tsx",
       "source_location": "L82",
+      "weight": 1.0
+    },
+    {
+      "source": "components_ui_confirmdialog_confirmdialog",
+      "target": "lib_utils_cn",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -3877,7 +3937,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hooks/useChat.ts",
-      "source_location": "L115",
+      "source_location": "L138",
       "weight": 1.0
     },
     {
@@ -3889,7 +3949,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hooks/useChat.ts",
-      "source_location": "L155",
+      "source_location": "L179",
       "weight": 1.0
     },
     {
@@ -3901,7 +3961,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hooks/useChat.ts",
-      "source_location": "L156",
+      "source_location": "L180",
       "weight": 1.0
     },
     {
@@ -4797,7 +4857,7 @@
     },
     {
       "source": "app_page",
-      "target": "lib_persistence_index_deleteconversation",
+      "target": "hooks_usechat_usechat",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -4805,6 +4865,18 @@
       "context": "import",
       "source_file": "app/page.tsx",
       "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "app_page",
+      "target": "lib_persistence_index_deleteconversation",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "app/page.tsx",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -4816,7 +4888,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "app/page.tsx",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -4828,7 +4900,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "app/page.tsx",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -4840,7 +4912,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "app/page.tsx",
-      "source_location": "L10",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -4869,7 +4941,7 @@
     },
     {
       "source": "app_page",
-      "target": "lib_types_chatmode",
+      "target": "components_ui_confirmdialog_confirmdialog",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -4877,6 +4949,18 @@
       "context": "import",
       "source_file": "app/page.tsx",
       "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "app_page",
+      "target": "lib_types_chatmode",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "app/page.tsx",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
@@ -4888,7 +4972,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "app/page.tsx",
-      "source_location": "L8",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
@@ -4900,7 +4984,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "app/page.tsx",
-      "source_location": "L8",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
@@ -4912,24 +4996,12 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "app/page.tsx",
-      "source_location": "L8",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
       "source": "app_page",
       "target": "lib_types_message",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "app/page.tsx",
-      "source_location": "L8",
-      "weight": 1.0
-    },
-    {
-      "source": "app_page",
-      "target": "hooks_usechat_usechat",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -5045,6 +5117,18 @@
       "context": "import",
       "source_file": "components/MarkdownRenderer.tsx",
       "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "components_ui_confirmdialog",
+      "target": "lib_utils_cn",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L3",
       "weight": 1.0
     },
     {
@@ -5950,7 +6034,7 @@
     },
     {
       "source": "app_page",
-      "target": "lib_persistence_index",
+      "target": "hooks_usechat",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -5958,6 +6042,18 @@
       "context": "import",
       "source_file": "app/page.tsx",
       "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "app_page",
+      "target": "lib_persistence_index",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "app/page.tsx",
+      "source_location": "L11",
       "weight": 1.0
     },
     {
@@ -6034,7 +6130,7 @@
     },
     {
       "source": "app_page",
-      "target": "lib_types",
+      "target": "components_ui_confirmdialog",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -6042,12 +6138,11 @@
       "context": "import",
       "source_file": "app/page.tsx",
       "source_location": "L8",
-      "type_only": true,
       "weight": 1.0
     },
     {
       "source": "app_page",
-      "target": "hooks_usechat",
+      "target": "lib_types",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -6055,6 +6150,7 @@
       "context": "import",
       "source_file": "app/page.tsx",
       "source_location": "L9",
+      "type_only": true,
       "weight": 1.0
     },
     {
@@ -6285,6 +6381,30 @@
       "context": "import",
       "source_file": "components/MarkdownRenderer.tsx",
       "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "components_ui_confirmdialog",
+      "target": "ref_framer_motion",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L2",
+      "weight": 1.0
+    },
+    {
+      "source": "components_ui_confirmdialog",
+      "target": "lib_utils",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L3",
       "weight": 1.0
     },
     {
@@ -7027,7 +7147,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/page.tsx",
-      "source_location": "L12",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -7038,7 +7158,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/page.tsx",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -7049,7 +7169,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/page.tsx",
-      "source_location": "L284",
+      "source_location": "L311",
       "weight": 1.0
     },
     {
@@ -7115,7 +7235,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/ChatMessage.tsx",
-      "source_location": "L207",
+      "source_location": "L204",
       "weight": 1.0
     },
     {
@@ -7126,7 +7246,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/ChatMessage.tsx",
-      "source_location": "L242",
+      "source_location": "L255",
       "weight": 1.0
     },
     {
@@ -7137,7 +7257,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/ChatMessage.tsx",
-      "source_location": "L268",
+      "source_location": "L281",
       "weight": 1.0
     },
     {
@@ -7148,7 +7268,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "components/ChatMessage.tsx",
-      "source_location": "L331",
+      "source_location": "L344",
       "weight": 1.0
     },
     {
@@ -7229,6 +7349,28 @@
       "weight": 1.0
     },
     {
+      "source": "components_ui_confirmdialog",
+      "target": "components_ui_confirmdialog_confirmdialog",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "components_ui_confirmdialog",
+      "target": "components_ui_confirmdialog_confirmdialogprops",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "components/ui/ConfirmDialog.tsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
       "source": "components_ui_sidebar",
       "target": "components_ui_sidebar_sidebarprops",
       "relation": "contains",
@@ -7291,7 +7433,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hooks/useChat.ts",
-      "source_location": "L241",
+      "source_location": "L267",
       "weight": 1.0
     },
     {
@@ -9228,7 +9370,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "hooks/useChat.ts",
-      "source_location": "L158",
+      "source_location": "L182",
       "weight": 1.0
     },
     {
@@ -9245,5 +9387,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "299b13f60befe168fcab9b106de60f1e29b7e916"
+  "built_at_commit": "9985873dd83e5ee03668e8b838a28725b7daea5c"
 }

@@ -40,10 +40,12 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
 
   const confirmEdit = useCallback(() => {
     const trimmed = editValue.trim();
-    if (trimmed && trimmed !== content) {
-      onEdit(message.id, trimmed);
+    if (!trimmed || trimmed === content) {
+      setIsEditing(false);
+      return;
     }
     setIsEditing(false);
+    onEdit(message.id, trimmed);
   }, [editValue, content, message.id, onEdit]);
 
   const handleEditKey = useCallback((e: React.KeyboardEvent) => {

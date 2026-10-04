@@ -57,6 +57,8 @@ export function useChat({
   const streamContentRef = useRef<string>("");
   /** Tracks when reasoning started so reasoningMs can be set on the message. */
   const reasoningStartRef = useRef<number | null>(null);
+  /** Guards send() against double-fire from rapid calls (e.g. edit + save). */
+  const sendBusyRef = useRef(false);
   /** Shared abort controller so `stop` can cancel an in-flight stream. */
   const abortRef = useRef<AbortController | null>(null);
 
@@ -130,52 +132,54 @@ export function useChat({
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     if (!text.trim() || status === "streaming") return;
-    const mode = opts.mode ?? "chat";
-    const curEffort = effortRef.current;
-    lastInputRef.current = { text, mode, attachments: opts.attachments ?? [] };
-
-    const userMsg: Message = {
-      id: uid("u_"),
-      conversationId: "",
-      role: "user",
-      content: text,
-      reasoning: "",
-      reasoningMs: undefined,
-      attachments: [],
-      toolCalls: [],
-      citations: [],
-      createdAt: Date.now(),
-      state: "complete",
-      mode,
-    };
-    const assistantMsg: Message = {
-      id: uid("a_"),
-      conversationId: "",
-      role: "assistant",
-      content: "",
-      reasoning: "",
-      reasoningMs: undefined,
-      attachments: [],
-      toolCalls: [],
-      citations: [],
-      createdAt: Date.now(),
-      state: "streaming",
-      mode,
-    };
-
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
-    setStatus("streaming");
-    setError(null);
-    setReasoningContent("");
-    reasoningStartRef.current = null;
-    setIsThinking(!!curEffort && curEffort !== "off");
-    assistantIdRef.current = assistantMsg.id;
-    streamContentRef.current = "";
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
+    if (sendBusyRef.current) return;
+    sendBusyRef.current = true;
     try {
+      const mode = opts.mode ?? "chat";
+      const curEffort = effortRef.current;
+      lastInputRef.current = { text, mode, attachments: opts.attachments ?? [] };
+
+      const userMsg: Message = {
+        id: uid("u_"),
+        conversationId: "",
+        role: "user",
+        content: text,
+        reasoning: "",
+        reasoningMs: undefined,
+        attachments: [],
+        toolCalls: [],
+        citations: [],
+        createdAt: Date.now(),
+        state: "complete",
+        mode,
+      };
+      const assistantMsg: Message = {
+        id: uid("a_"),
+        conversationId: "",
+        role: "assistant",
+        content: "",
+        reasoning: "",
+        reasoningMs: undefined,
+        attachments: [],
+        toolCalls: [],
+        citations: [],
+        createdAt: Date.now(),
+        state: "streaming",
+        mode,
+      };
+
+      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      setStatus("streaming");
+      setError(null);
+      setReasoningContent("");
+      reasoningStartRef.current = null;
+      setIsThinking(!!curEffort && curEffort !== "off");
+      assistantIdRef.current = assistantMsg.id;
+      streamContentRef.current = "";
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const client = new ChatClient(apiUrl, apiKey, model);
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
 
@@ -194,8 +198,6 @@ export function useChat({
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
-        // Show the real error from the network/parse layer so the user and
-        // developer can actually diagnose what went wrong.
         const msg = e?.message ?? "Generation failed";
         setError(msg);
         setMessages(prev => prev.map(m =>
@@ -207,6 +209,7 @@ export function useChat({
     } finally {
       setIsThinking(false);
       abortRef.current = null;
+      sendBusyRef.current = false;
     }
   }, [model, apiUrl, apiKey, handleEvent]);
 
@@ -244,9 +247,10 @@ export function useChat({
       const updated = prev.map(m => m.id === id ? { ...m, content: newContent } : m);
       messagesRef.current = updated;
       lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
-      // Strip everything after the edited user message — send() will append
-      // a fresh user + assistant pair so we end up with exactly one exchange.
-      const filtered = updated.slice(0, idx + 1);
+      // Drop the edited user message AND everything after it — send() will
+      // append exactly one fresh user + assistant pair, so we end up with a
+      // single exchange on screen.
+      const filtered = updated.slice(0, idx);
       messagesRef.current = filtered;
       // Kick off send with updated content.
       setTimeout(() => send(newContent), 0);
