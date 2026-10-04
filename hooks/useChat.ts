@@ -90,12 +90,12 @@ export function useChat({
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
+    console.log("[handleEvent]", JSON.stringify(ev).slice(0, 200));
 
     if (ev.reasoning) {
       if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
       setReasoningContent(prev => prev + ev.reasoning);
       setIsThinking(true);
-      // Write reasoning into the assistant message so it's visible after streaming ends.
       if (assistantIdRef.current) {
         setMessages(prev => prev.map(m =>
           m.id === assistantIdRef.current
@@ -131,12 +131,14 @@ export function useChat({
   }, []);
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
+    console.log("[send] called with:", text.slice(0, 30), "effort:", effortRef.current);
     if (!text.trim() || status === "streaming") return;
     if (sendBusyRef.current) return;
     sendBusyRef.current = true;
     try {
       const mode = opts.mode ?? "chat";
       const curEffort = effortRef.current;
+      console.log("[send] curEffort:", curEffort);
       lastInputRef.current = { text, mode, attachments: opts.attachments ?? [] };
 
       const userMsg: Message = {
@@ -182,21 +184,30 @@ export function useChat({
 
       const client = new ChatClient(apiUrl, apiKey, model);
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
+      console.log("[send] calling client.chat with effort:", curEffort === "off" ? undefined : curEffort);
 
       await client.chat(
         { messages: [...messagesRef.current, userMsg], model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
-      );
+      ).catch((e: any) => {
+        console.log("[send] client.chat threw:", e?.message, e?.name);
+        throw e;
+      });
 
+      console.log("[send] after client.chat - was it aborted?", controller.signal.aborted);
       if (!controller.signal.aborted) {
+        console.log("[send] stream completed normally");
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now() } : m
         ));
         setStatus("complete");
         setReasoningContent("");
+      } else {
+        console.log("[send] stream was aborted");
       }
     } catch (e: any) {
+      console.log("[send] stream error:", e?.message);
       if (e?.name !== "AbortError") {
         const msg = e?.message ?? "Generation failed";
         setError(msg);
