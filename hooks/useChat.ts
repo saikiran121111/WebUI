@@ -244,11 +244,9 @@ export function useChat({
       const updated = prev.map(m => m.id === id ? { ...m, content: newContent } : m);
       messagesRef.current = updated;
       lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
-      // Strip trailing assistant messages after this user message.
-      const afterUser = updated.slice(idx + 1);
-      const trailingAssistantIdx = afterUser.findIndex(m => m.role === "assistant");
-      const keepUpTo = trailingAssistantIdx < 0 ? updated.length : idx + 1 + trailingAssistantIdx;
-      const filtered = updated.slice(0, keepUpTo);
+      // Strip everything after the edited user message — send() will append
+      // a fresh user + assistant pair so we end up with exactly one exchange.
+      const filtered = updated.slice(0, idx + 1);
       messagesRef.current = filtered;
       // Kick off send with updated content.
       setTimeout(() => send(newContent), 0);
