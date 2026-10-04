@@ -55,6 +55,8 @@ export function useChat({
   effortRef.current = effort;
   const assistantIdRef = useRef<string | null>(null);
   const streamContentRef = useRef<string>("");
+  /** Tracks when reasoning started so reasoningMs can be set on the message. */
+  const reasoningStartRef = useRef<number | null>(null);
   /** Shared abort controller so `stop` can cancel an in-flight stream. */
   const abortRef = useRef<AbortController | null>(null);
 
@@ -66,6 +68,7 @@ export function useChat({
     setError(null);
     setIsThinking(false);
     setReasoningContent("");
+    reasoningStartRef.current = null;
   }, []);
 
   const clear = useCallback(() => {
@@ -80,17 +83,37 @@ export function useChat({
     setError(null);
     setIsThinking(false);
     setReasoningContent("");
+    reasoningStartRef.current = null;
   }, []);
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
 
     if (ev.reasoning) {
+      if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
       setReasoningContent(prev => prev + ev.reasoning);
       setIsThinking(true);
+      // Write reasoning into the assistant message so it's visible after streaming ends.
+      if (assistantIdRef.current) {
+        setMessages(prev => prev.map(m =>
+          m.id === assistantIdRef.current
+            ? { ...m, reasoning: (m.reasoning as string) + ev.reasoning }
+            : m
+        ));
+      }
     }
     if (ev.content) {
       streamContentRef.current += ev.content;
+      // Close out the reasoningMs when the first content chunk arrives.
+      if (reasoningStartRef.current != null && assistantIdRef.current) {
+        const elapsed = Date.now() - reasoningStartRef.current;
+        setMessages(prev => prev.map(m =>
+          m.id === assistantIdRef.current && m.reasoningMs == null
+            ? { ...m, reasoningMs: elapsed }
+            : m
+        ));
+        reasoningStartRef.current = null;
+      }
       setMessages(prev => prev.map(m =>
         m.id === (assistantIdRef.current ?? "")
           ? { ...m, content: (m.content as string) + ev.content }
@@ -144,6 +167,7 @@ export function useChat({
     setStatus("streaming");
     setError(null);
     setReasoningContent("");
+    reasoningStartRef.current = null;
     setIsThinking(!!curEffort && curEffort !== "off");
     assistantIdRef.current = assistantMsg.id;
     streamContentRef.current = "";
@@ -166,6 +190,7 @@ export function useChat({
           m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now() } : m
         ));
         setStatus("complete");
+        setReasoningContent("");
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
@@ -178,6 +203,7 @@ export function useChat({
         ));
         setStatus("error");
       }
+      setReasoningContent("");
     } finally {
       setIsThinking(false);
       abortRef.current = null;

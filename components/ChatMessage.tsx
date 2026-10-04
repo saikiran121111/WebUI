@@ -117,17 +117,14 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
         <div className="flex items-center gap-2 py-1.5 mb-1.5">
           <CheckCircle2 className="w-3 h-3 text-emerald-500/70" />
           <span className="text-xs text-white/40 font-medium">
-            {reasoningMs ? `Thought for ${reasoningMs}s` : "Reasoned"}
+            {reasoningMs ? `Thought for ${formatDuration(reasoningMs)}` : "Reasoned"}
           </span>
-          {reasoningMs && (
-            <span className="text-[10px] text-white/25 ml-1">{"(" + formatDuration(reasoningMs) + ")"}</span>
-          )}
         </div>
       )}
 
       {/* Reasoning block */}
       {reasoning && (
-        <ReasoningBlock text={reasoning} messageId={message.id} />
+        <ReasoningBlock text={reasoning} messageId={message.id} onCopy={onCopy} />
       )}
 
       {/* Error state */}
@@ -204,8 +201,18 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
   );
 });
 
-function ReasoningBlock({ text, messageId }: { text: string; messageId: string }) {
+function ReasoningBlock({
+  text, messageId, onCopy,
+}: { text: string; messageId: string; onCopy: (content: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    await onCopy(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [text, onCopy]);
+
   return (
     <div className="mb-3">
       <button
@@ -225,14 +232,20 @@ function ReasoningBlock({ text, messageId }: { text: string; messageId: string }
       </button>
       {expanded && (
         <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          transition={{ duration: 0.2 }}
+          initial={{ opacity: 0, height: 0, marginTop: 0 }}
+          animate={{ opacity: 1, height: "auto", marginTop: 8 }}
+          transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
           className="thinking-expanded"
         >
           <div className="text-xs leading-relaxed text-white/50 whitespace-pre-wrap font-mono">
             {text}
           </div>
+          <button onClick={handleCopy}
+            className="thinking-copy-btn mt-2.5 flex items-center gap-1.5 text-[11px]">
+            {copied
+              ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500">Copied</span></>
+              : <><Copy className="w-3 h-3" /><span>Copy</span></>}
+          </button>
         </motion.div>
       )}
     </div>

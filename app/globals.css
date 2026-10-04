@@ -122,7 +122,6 @@ body {
 }
 .thinking-trigger:hover { border-color: var(--border-strong); color: var(--muted); }
 .thinking-expanded {
-  margin-top: 0.5rem;
   padding: 0.875rem 1.125rem;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -130,6 +129,16 @@ body {
   max-height: 280px;
   overflow-y: auto;
 }
+.thinking-copy-btn {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  color: var(--muted-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem 0;
+  transition: color 0.15s ease;
+}
+.thinking-copy-btn:hover { color: var(--muted); }
 
 /* Markdown inline code */
 .msg-content code:not(pre code) {

@@ -265,25 +265,35 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
-        {/* Single composer, always docked */}
-        <div className="pointer-events-none flex-shrink-0">
-          <div className="pointer-events-auto max-w-3xl mx-auto px-4 pb-4 pt-1">
-            <motion.div layoutId="composer-wrapper">
-              <ChatInput
-                onSend={send}
-                onStop={stop}
-                isLoading={status === "streaming"}
-                isThinking={isThinking}
-                reasoningContent={reasoningContent}
-                effort={effort}
-                onEffortChange={setEffort}
-                isResearchMode={false}
-                onModeToggle={() => {}}
-                onAttachmentsChange={() => {}}
-              />
+        {/* Bottom bar — only visible when there are messages */}
+        <AnimatePresence>
+          {messages.length > 0 && (
+            <motion.div
+              key="composer-bar"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+              className="pointer-events-none flex-shrink-0"
+            >
+              <div className="pointer-events-auto max-w-3xl mx-auto px-4 pb-4 pt-1">
+                <ChatInput
+                  onSend={send}
+                  onStop={stop}
+                  isLoading={status === "streaming"}
+                  isThinking={isThinking}
+                  reasoningContent={reasoningContent}
+                  effort={effort}
+                  onEffortChange={setEffort}
+                  isResearchMode={false}
+                  onModeToggle={() => {}}
+                  onAttachmentsChange={() => {}}
+                  variant="bar"
+                />
+              </div>
             </motion.div>
-          </div>
-        </div>
+          )}
+        </AnimatePresence>
       </main>
       <ConfirmDialog
         open={!!confirmDelete}
@@ -358,7 +368,7 @@ function EmptyState({
         transition={{ delay: 0.16, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
         className="w-full max-w-2xl"
       >
-        {/* Single ChatInput, centered as hero input */}
+        {/* Hero ChatInput — centered in the empty state */}
         <div className="mb-4">
           <ChatInput
             onSend={onSend}
