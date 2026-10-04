@@ -18,8 +18,8 @@
     "semantic_hash": "7223698360f0dec53def5bc884f8dfc9"
   },
   "app/api/chat/route.ts": {
-    "mtime": 1791045090.0808625,
-    "seen": 1791083110.9253252,
+    "mtime": 1791014762.1207366,
+    "seen": 1791038300.8065913,
     "ast_hash": "fc2571ddc43d25d85ca50c16e14d822e",
     "semantic_hash": "fc2571ddc43d25d85ca50c16e14d822e"
   },
@@ -54,9 +54,9 @@
     "semantic_hash": "0eebdffc148276562ea74f12629b0e33"
   },
   "app/page.tsx": {
-    "mtime": 1791082870.9520352,
-    "seen": 1791083110.9253304,
-    "ast_hash": "c69c9575674261d03bfee1d5e62b0af9",
+    "mtime": 1791041254.2139394,
+    "seen": 1791041564.5964546,
+    "ast_hash": "a02d25ed49f1ad384b1332c468db40c8",
     "semantic_hash": ""
   },
   "components/ChatInput.tsx": {
@@ -66,10 +66,10 @@
     "semantic_hash": "0174e6d74c77e0f6430b2783c1083233"
   },
   "components/ChatMessage.tsx": {
-    "mtime": 1791082080.9270775,
-    "seen": 1791083110.925332,
-    "ast_hash": "a58761dc9c803ba61a79375f54266f38",
-    "semantic_hash": ""
+    "mtime": 1791017515.6366262,
+    "seen": 1791038300.8066027,
+    "ast_hash": "377615a245ca38fd415f794e6964ed49",
+    "semantic_hash": "377615a245ca38fd415f794e6964ed49"
   },
   "components/HeroComposer.tsx": {
     "mtime": 1790999390.7382603,
@@ -90,9 +90,9 @@
     "semantic_hash": ""
   },
   "hooks/useChat.ts": {
-    "mtime": 1791083000.4990888,
-    "seen": 1791083110.9253361,
-    "ast_hash": "0dc619ef95982da199b665b849c18c25",
+    "mtime": 1791039240.2767525,
+    "seen": 1791041564.5964582,
+    "ast_hash": "867f6acbe383cf6d2456b26a51a86eb1",
     "semantic_hash": ""
   },
   "lib/browser/agentBrowser.ts": {
@@ -240,8 +240,8 @@
     "semantic_hash": "1015027d6a62fe0f8392866ca9fed762"
   },
   "test-results/.last-run.json": {
-    "mtime": 1791043254.223179,
-    "seen": 1791083110.925351,
+    "mtime": 1791040710.1378517,
+    "seen": 1791041564.5964699,
     "ast_hash": "f196824657d8858bc7fa44eecbba38b1",
     "semantic_hash": "f196824657d8858bc7fa44eecbba38b1"
   },
@@ -270,21 +270,15 @@
     "semantic_hash": "e63e93ad7b721cd282c92978243ef1dd"
   },
   "tests/conversations-crud.spec.ts": {
-    "mtime": 1791043196.2229807,
-    "seen": 1791083110.9253519,
-    "ast_hash": "53f45dd8b540e609b9ee47f808c0ecc3",
+    "mtime": 1791039506.767209,
+    "seen": 1791041564.5964708,
+    "ast_hash": "5ed799ac8c531ef17f6f4202a3483116",
     "semantic_hash": ""
   },
   "tests/conversations-live-chat.spec.ts": {
-    "mtime": 1791043228.795186,
-    "seen": 1791083110.9253523,
-    "ast_hash": "a9cb14aa2abda833cf6387cc6166509e",
-    "semantic_hash": ""
-  },
-  "components/ui/ConfirmDialog.tsx": {
-    "mtime": 1791043172.6088598,
-    "seen": 1791083110.9253342,
-    "ast_hash": "b0d53379107eb886675a1dfa4603e98d",
+    "mtime": 1791039543.3357189,
+    "seen": 1791041564.5964713,
+    "ast_hash": "656e4cbc7352b34c9bbc596905bc8096",
     "semantic_hash": ""
   }
 }

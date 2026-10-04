@@ -6,7 +6,7 @@
   "4": "client.ts",
   "5": "parser.ts",
   "6": "compilerOptions",
-  "7": "page.tsx",
+  "7": "orchestrator.ts",
   "8": "BrowserTool",
   "9": "dependencies",
   "10": "devDependencies",
