@@ -6,7 +6,7 @@ import ChatMessage from "../components/ChatMessage";
 import ChatInput from "../components/ChatInput";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
-import type { Attachment, ChatMode, Conversation, ConversationMeta, EffortLevel, Message } from "../lib/types";
+import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv } from "../lib/persistence";
 
@@ -21,7 +21,6 @@ export default function HomePage() {
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -68,14 +67,35 @@ export default function HomePage() {
     saveConversation({ id: convId, meta, messages }).then(refreshList);
   }, [messages, activeId, refreshList]);
 
-  // Auto-scroll when new messages appear, unless user scrolled up.
-  useEffect(() => {
-    if (!hasScrolledUp && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ block: "end", behavior: "smooth" });
-    }
-  }, [messages, hasScrolledUp]);
+  // Follow the stream by pinning the container to the bottom. A smooth
+  // scrollIntoView per chunk cancels the previous in-flight animation and
+  // lags behind growing content (which used to flip hasScrolledUp and cause
+  // top/bottom jitter). An instant scrollTop pin, coalesced to one rAF per
+  // frame, tracks incremental growth smoothly.
+  const stickToBottomRef = useRef(true);
+  stickToBottomRef.current = !hasScrolledUp;
+  const pinRafRef = useRef<number | null>(null);
 
-  // Observe scroll position.
+  const pinToBottom = useCallback(() => {
+    if (pinRafRef.current != null) return;
+    pinRafRef.current = requestAnimationFrame(() => {
+      pinRafRef.current = null;
+      const c = messagesContainerRef.current;
+      if (c && stickToBottomRef.current) c.scrollTop = c.scrollHeight;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasScrolledUp) {
+      pinToBottom();
+    } else if (pinRafRef.current != null) {
+      cancelAnimationFrame(pinRafRef.current);
+      pinRafRef.current = null;
+    }
+  }, [messages, hasScrolledUp, pinToBottom]);
+
+  // Observe scroll position. Wheel-up unpins immediately so a pending pin
+  // can't yank the user back down mid-generation.
   useEffect(() => {
     const c = messagesContainerRef.current;
     if (!c) return;
@@ -83,8 +103,16 @@ export default function HomePage() {
       const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
       setHasScrolledUp(dist > 120);
     };
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) setHasScrolledUp(true);
+      else onScroll();
+    };
     c.addEventListener("scroll", onScroll, { passive: true });
-    return () => c.removeEventListener("scroll", onScroll);
+    c.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      c.removeEventListener("scroll", onScroll);
+      c.removeEventListener("wheel", onWheel);
+    };
   }, []);
 
   // Cmd/Ctrl+Shift+N → new chat.
@@ -224,7 +252,7 @@ export default function HomePage() {
         </header>
 
         {/* Scrollable message area */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
+        <div ref={messagesContainerRef} data-testid="messages-scroll" className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6 pb-36">
             {messages.length === 0 ? (
               <EmptyState
@@ -272,7 +300,6 @@ export default function HomePage() {
               </motion.div>
             )}
 
-            <div ref={messagesEndRef} />
           </div>
         </div>
 
@@ -284,7 +311,7 @@ export default function HomePage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 14, scale: 0.95 }}
               transition={{ duration: 0.18 }}
-              onClick={() => { setHasScrolledUp(false); messagesEndRef.current?.scrollIntoView({ block: "end" }); }}
+              onClick={() => { setHasScrolledUp(false); pinToBottom(); }}
               className="absolute bottom-[130px] left-1/2 -translate-x-1/2 z-30
                 flex items-center gap-1.5 px-3 py-1.5 rounded-full
                 bg-white/[0.07] hover:bg-white/[0.12] border border-white/[0.1]

@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-10-14 — fixed stream scroll jitter (top/bottom oscillation during generation)
+- `app/page.tsx` — replaced the per-chunk `messagesEndRef.scrollIntoView()` auto-scroll with a
+  single rAF-coalesced bottom pin (`pinToBottom` + `stickToBottomRef`), a scroll listener that
+  disengages past 120px, and a wheel-up listener that disengages immediately on scroll-up.
+  "Jump to latest" re-engages the pin. `messagesEndRef` removed entirely; added
+  `data-testid="messages-scroll"` to the scroll container.
+- `scripts/scroll-verify/{mock-upstream,check}.mjs` — SSE mock (:8081, 350 chunks @8ms) +
+  Playwright sampler (40ms): FAILs on >120px drift, visible pill, or upward scrollTop jumps.
+  Before/after proof: old code FAIL (2311px drift, pill 157/164 frames), fixed PASS
+  (maxDist 24px, 0 pill frames, 0 up jumps). Kept as regression tooling.
+
 ## 2026-10-14 — sidebar multi-select delete
 - `components/ui/Sidebar.tsx` — "Select" button enters select mode (checkboxes on every
   row, "Select all" toggle); once ≥1 selected the button becomes "Delete N". Selection

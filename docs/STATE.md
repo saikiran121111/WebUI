@@ -12,6 +12,10 @@
       `playwright.config.ts` via `PLAYWRIGHT_BROWSERS_PATH`) — nothing in the user profile.
 - [x] Sidebar multi-select delete: Select/Select all/Delete N flow (`components/ui/Sidebar.tsx`,
       `app/page.tsx`), covered by `tests/multi-select-delete.spec.ts` (2/2) + CRUD suite (7/7).
+- [x] Stream scroll jitter fix: rAF-coalesced bottom pin + wheel-up disengage in `app/page.tsx`
+      (`stickToBottomRef`/`pinToBottom`, `messagesEndRef` removed). Proven by
+      `scripts/scroll-verify/` (old code FAIL: 2311px drift, pill up 157/164 frames;
+      fixed PASS: maxDist 24px, 0 pill frames, 0 upward jumps).
 
 ## Verified
 - [x] `npm run typecheck` clean.
@@ -35,3 +39,6 @@
 ## Run
 - Dev server: `npm run dev` (:3000) · model: llama.cpp :8080 · fixtures: `node scripts/make-fixtures.mjs`
 - Watch the suite: `npx playwright test tests/file-reading.spec.ts --headed --reporter=list`
+- Scroll regression check: `node scripts/scroll-verify/mock-upstream.mjs` (:8081) +
+  `LLM_API_URL=http://127.0.0.1:8081/v1/chat/completions npx next dev -p 3001`, then
+  `PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright node scripts/scroll-verify/check.mjs`

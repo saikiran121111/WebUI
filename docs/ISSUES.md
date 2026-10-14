@@ -1,6 +1,11 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Scroll jitter during generation (view bounced top/bottom, "Jump to latest" appeared).
+  Root cause: a smooth `scrollIntoView` per streamed chunk cancelled the previous animation
+  and lagged growing content past the 120px threshold, flipping `hasScrolledUp` and
+  oscillating. Fixed with an rAF-coalesced instant `scrollTop` pin + wheel-up disengage in
+  `app/page.tsx`. Proven by `scripts/scroll-verify/check.mjs` (old FAIL / fixed PASS).
 - Model said "I don't see any image attached" → attachments never reached the prompt.
   Fixed by the extract route + `attachmentParts()` in `lib/chat/client.ts`. Verified by
   106 headed model turns.
@@ -26,6 +31,10 @@
 - `require("7zip-bin")` under ESM → use `await import("7zip-bin")` + `.default?.path7za`.
 - Relative `node_modules/ffmpeg-static/ffmpeg.exe` paths break when the shell cwd drifts —
   always absolute.
+- Playwright `fill()` on the controlled hero textarea reports success but React state never
+  syncs → Enter early-returns and the DOM value reverts. Use `pressSequentially` instead.
+- `[aria-label="Send message"]` exists only on the unused `HeroComposer`; `ChatInput`'s send
+  button is `[data-testid="send-button"]`.
 
 ## Untestable by construction
 - `.rar` (no writer exists), `.heic`/`.heif` (bundled ffmpeg has no HEIF encoder or demuxer).
