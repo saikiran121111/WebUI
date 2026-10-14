@@ -1,6 +1,13 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Model said "I can't hear the spoken narration" on uploaded videos. Root cause: the
+  `video` case in `lib/server/extract/index.ts` never touched the audio track (only
+  `videoFrames()`), and the `video` branch of `attachmentParts()` in `lib/chat/client.ts`
+  ignored `transcript`. Fixed: videos get Whisper-transcribed audio when they have an
+  audio stream, and the transcript rides into the prompt beside the frames. Proven by
+  `__tests__/video-narration.test.ts` (narrated mp4 → transcript contains "zephyr").
+  Note: narration is capped at `MAX_AUDIO_SECONDS` (180 s) like audio files.
 - Scroll jitter during generation (view bounced top/bottom, "Jump to latest" appeared).
   Root cause: a smooth `scrollIntoView` per streamed chunk cancelled the previous animation
   and lagged growing content past the 120px threshold, flipping `hasScrolledUp` and

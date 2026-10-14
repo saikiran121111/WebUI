@@ -17,8 +17,13 @@
       `scripts/scroll-verify/` (old code FAIL: 2311px drift, pill up 157/164 frames;
       fixed PASS: maxDist 24px, 0 pill frames, 0 upward jumps).
 
+- [x] Video audio path: `lib/server/extract/index.ts` (video case transcribes the audio
+      track via `audioPcm`+`transcribePcm`, silent clips stay frames-only) +
+      `lib/chat/client.ts` (`attachmentParts` appends "Audio transcript:" for videos).
+      Covered by `__tests__/video-narration.test.ts` (4 tests).
+
 ## Verified
-- [x] `npm run typecheck` clean.
+- [x] `npm run typecheck` clean; `npm test` 19/19 (incl. narrated-mp4 → "zephyr" transcript).
 - [x] Layer 1 extraction API: 106/106 passed (12.3 s).
 - [x] Layer 2 real model turns (headed, watched live): 106/106 passed
       — docs/archives 22, images+Dockerfile/Makefile 13, text/code 58, audio+video 13.

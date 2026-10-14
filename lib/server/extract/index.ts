@@ -86,7 +86,15 @@ export async function extractFile(name: string, buf: Buffer): Promise<ExtractRes
 
     case "video": {
       const { frames, durationSec } = await videoFrames(buf, ext || "mp4");
-      return { name, category, frames, durationSec };
+      // The audio track carries narration — transcribe it when the clip has
+      // one so the model hears the video, not just its sampled frames.
+      let transcript: string | undefined;
+      try {
+        transcript = (await transcribePcm(await audioPcm(buf, ext || "mp4"))) || undefined;
+      } catch { /* no (decodable) audio track — frames only */ }
+      if (!transcript) return { name, category, frames, durationSec };
+      const capped = cap(transcript);
+      return { name, category, frames, durationSec, transcript: capped.text, truncated: capped.truncated };
     }
 
     default:

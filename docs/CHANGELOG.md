@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 2026-10-14 — videos now carry their audio (Whisper transcript) into the prompt
+- `lib/server/extract/index.ts` — the `video` case only sampled frames; the audio track was
+  dropped entirely. It now also runs `audioPcm()` + `transcribePcm()` when the clip has a
+  decodable audio stream (try/catch keeps silent videos frames-only), capping the transcript
+  to `TEXT_CHAR_LIMIT`.
+- `lib/chat/client.ts` — the `video` prompt branch ignored `transcript` even when present;
+  it now appends an "Audio transcript:" part. Exported `attachmentParts` for testing.
+- `__tests__/video-narration.test.ts` — 4 new unit tests: narrated mp4 (muxed with the
+  spoken-codeword fixture wav via bundled ffmpeg) yields frames + a transcript containing
+  "zephyr"; silent mp4 stays frames-only with no error; prompt parts include/omit the
+  transcript accordingly. 19/19 unit tests + typecheck pass.
+
 ## 2026-10-14 — fixed stream scroll jitter (top/bottom oscillation during generation)
 - `app/page.tsx` — replaced the per-chunk `messagesEndRef.scrollIntoView()` auto-scroll with a
   single rAF-coalesced bottom pin (`pinToBottom` + `stickToBottomRef`), a scroll listener that

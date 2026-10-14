@@ -84,7 +84,7 @@ function messageContent(text: string | null, atts?: Attachment[]): unknown {
 }
 
 /** One attachment rendered into whatever the model can actually perceive. */
-function attachmentParts(att: Attachment): any[] {
+export function attachmentParts(att: Attachment): any[] {
   const label = `Attached file: ${att.name}`;
 
   switch (att.category) {
@@ -98,6 +98,7 @@ function attachmentParts(att: Attachment): any[] {
       const parts: any[] = [{ type: "text", text: `${label} (video — sampled frames follow)` }];
       for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
       if (!att.frames?.length) parts.push({ type: "text", text: "No frames could be sampled from this video." });
+      if (att.transcript) parts.push({ type: "text", text: `Audio transcript:\n${att.transcript}` });
       return parts;
     }
 
