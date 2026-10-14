@@ -6,7 +6,7 @@ import ChatMessage from "../components/ChatMessage";
 import ChatInput from "../components/ChatInput";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
-import type { ChatMode, Conversation, ConversationMeta, EffortLevel, Message } from "../lib/types";
+import type { Attachment, ChatMode, Conversation, ConversationMeta, EffortLevel, Message } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv } from "../lib/persistence";
 
@@ -205,7 +205,15 @@ export default function HomePage() {
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6 pb-36">
             {messages.length === 0 ? (
-              <EmptyState onSend={send} conversations={conversations} onSelect={handleSelect} />
+              <EmptyState
+                onSend={(text, atts) => send(text, { attachments: atts })}
+                conversations={conversations}
+                onSelect={handleSelect}
+                effort={effort}
+                onEffortChange={setEffort}
+                isLoading={status === "streaming"}
+                onStop={stop}
+              />
             ) : (
               <AnimatePresence mode="popLayout">
                 {messages.map((m, i) => (
@@ -278,7 +286,7 @@ export default function HomePage() {
             >
               <div className="pointer-events-auto max-w-3xl mx-auto px-4 pb-4 pt-1">
                 <ChatInput
-                  onSend={send}
+                  onSend={(text, atts) => send(text, { attachments: atts })}
                   onStop={stop}
                   isLoading={status === "streaming"}
                   isThinking={isThinking}
@@ -309,11 +317,15 @@ export default function HomePage() {
 }
 
 function EmptyState({
-  onSend, conversations, onSelect,
+  onSend, conversations, onSelect, effort, onEffortChange, isLoading, onStop,
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments: Attachment[]) => void;
   conversations: ConversationMeta[];
   onSelect: (id: string) => void;
+  effort: EffortLevel;
+  onEffortChange: (effort: EffortLevel) => void;
+  isLoading: boolean;
+  onStop: () => void;
 }) {
   const [fadeIn, setFadeIn] = useState(false);
 
@@ -372,12 +384,12 @@ function EmptyState({
         <div className="mb-4">
           <ChatInput
             onSend={onSend}
-            onStop={() => {}}
-            isLoading={false}
+            onStop={onStop}
+            isLoading={isLoading}
             isThinking={false}
             reasoningContent=""
-            effort="medium"
-            onEffortChange={() => {}}
+            effort={effort}
+            onEffortChange={onEffortChange}
             isResearchMode={false}
             onModeToggle={() => {}}
             onAttachmentsChange={() => {}}
@@ -393,7 +405,7 @@ function EmptyState({
             "Summarize the latest on agentic AI",
             "Walk me through a binary search",
           ].map(suggestion => (
-            <button key={suggestion} onClick={() => onSend(suggestion)}
+            <button key={suggestion} onClick={() => onSend(suggestion, [])}
               className="text-left text-[11px] text-white/45 hover:text-white/80 px-3 py-2.5 rounded-lg
                 bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.05] hover:border-white/[0.1]
                 transition-all hover:-translate-y-px">

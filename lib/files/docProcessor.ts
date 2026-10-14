@@ -1,78 +1,142 @@
-import type { Attachment } from "../chat/types";
+import type { Attachment } from "../types";
+import {
+  classifyFile,
+  MAX_ATTACHMENT_BYTES,
+  TEXT_CHAR_LIMIT,
+  type FileCategory,
+} from "./extensions";
 
-export interface ProcessResult {
-  attachment: Attachment;
+/**
+ * Client half of the attachment pipeline.
+ *
+ * Plain text and browser-decodable images are read right here in the browser;
+ * everything else is posted to /api/files/extract, where the extraction
+ * tooling bundled in node_modules (ffmpeg, whisper, 7za, pdf.js) does the work.
+ */
+
+/** Shape returned by /api/files/extract (mirrors ExtractResult). */
+interface ExtractResponse {
+  name: string;
+  category: FileCategory;
   text?: string;
+  truncated?: boolean;
+  pages?: number;
+  transcript?: string;
+  dataUrl?: string;
+  frames?: { dataUrl: string; at: number }[];
+  durationSec?: number;
+  error?: string;
 }
 
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;  // 25 MB
-const ALLOWED_IMAGE = /^(image\/(png|jpeg|jpg|webp|gif|bmp))$/i;
-const ALLOWED_DOC   = /^(text\/.*|application\/(pdf|json|csv|javascript|typescript|xml|yaml|yml|zip)|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/i;
-const ALLOWED_VIDEO = /^video\/.+/;
+/** Images are downscaled to this before being handed to the model. */
+const MAX_IMAGE_SIDE = 1280;
 
+function kindFor(cat: FileCategory): Attachment["kind"] {
+  if (cat === "image") return "image";
+  if (cat === "video") return "video";
+  if (cat === "unknown") return "other";
+  return "document";
+}
+
+function cap(text: string): { text: string; truncated: boolean } {
+  const clean = (text ?? "").replace(/\r\n/g, "\n").trim();
+  if (clean.length <= TEXT_CHAR_LIMIT) return { text: clean, truncated: false };
+  return { text: clean.slice(0, TEXT_CHAR_LIMIT), truncated: true };
+}
+
+/** Cheap, synchronous gate run the moment a file is picked. */
 export function validateAttachment(file: File): Attachment {
   if (file.size > MAX_ATTACHMENT_BYTES) {
-    throw new Error(file.name + " is larger than 25 MB");
+    throw new Error(`${file.name} is larger than ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB`);
   }
+  if (file.size === 0) throw new Error(`${file.name} is empty`);
 
-  let kind: Attachment["kind"] = "other";
-  if (ALLOWED_IMAGE.test(file.type))     kind = "image";
-  else if (ALLOWED_VIDEO.test(file.type)) kind = "video";
-  else if (ALLOWED_DOC.test(file.type))   kind = "document";
-
+  const category = classifyFile(file.name, file.type);
   return {
     id: "att_" + Math.random().toString(36).slice(2, 12),
     name: file.name,
-    kind,
-    mime: file.type,
+    kind: kindFor(category),
+    category,
+    mime: file.type || "",
     size: file.size,
     status: "pending",
   };
 }
 
-export function makePreviewUrl(file: File): string {
-  return URL.createObjectURL(file);
+/**
+ * Turn a picked file into a ready attachment: text body, image data URL,
+ * transcript, or sampled frames — whatever the model can be shown.
+ */
+export async function processAttachment(file: File, base: Attachment): Promise<Attachment> {
+  const att: Attachment = { ...base, status: "processing" };
+
+  try {
+    switch (att.category) {
+      case "text":
+        return { ...att, ...cap(await file.text()), status: "ready" };
+
+      case "image":
+        try {
+          const { dataUrl, width, height } = await encodeImage(file);
+          return { ...att, dataUrl, width, height, status: "ready" };
+        } catch {
+          // Browser can't decode it (tif/heic/ico/…) — let ffmpeg try instead.
+          return await extractOnServer(file, att);
+        }
+
+      default:
+        return await extractOnServer(file, att);
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Could not read this file";
+    console.warn("[attachment]", att.name, "-", message);
+    return { ...att, status: "error", error: message };
+  }
 }
 
-export async function processDocument(file: File, base: Attachment): Promise<ProcessResult> {
-  const att = { ...base, status: "processing" as const };
+async function extractOnServer(file: File, att: Attachment): Promise<Attachment> {
+  const form = new FormData();
+  form.append("file", file, file.name);
 
-  if (file.type.startsWith("text/")) {
-    const text = await file.text();
-    return { attachment: { ...att, status: "ready", text } };
+  const res = await fetch("/api/files/extract", { method: "POST", body: form });
+  const data = (await res.json().catch(() => null)) as ExtractResponse | null;
+  if (!res.ok || !data || data.error) {
+    throw new Error(data?.error ?? `Extraction failed (${res.status})`);
   }
 
-  if (file.type === "application/pdf") {
-    // pdftotext handles this on the server side (/api/files/extract).
-    return { attachment: { ...att, status: "ready", pages: await countPdfPages(file) } };
-  }
-
-  if (/zip|wordprocessing/.test(file.type)) {
-    // unzip + parse on the server side.
-    return { attachment: { ...att, status: "ready" } };
-  }
-
-  return { attachment: { ...att, status: "error", error: "Unsupported document type" } };
+  return {
+    ...att,
+    category: data.category ?? att.category,
+    text: data.text,
+    truncated: data.truncated,
+    pages: data.pages,
+    transcript: data.transcript,
+    dataUrl: data.dataUrl,
+    frames: data.frames,
+    durationSec: data.durationSec,
+    status: "ready",
+  };
 }
 
-async function countPdfPages(file: File): Promise<number> {
-  // Lightweight heuristic: read the /Type /Page count from PDF objects.
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = new TextDecoder("latin1").decode(reader.result as ArrayBuffer);
-      const m = text.match(/\/Type\s*\/Page(?!s)/g);
-      resolve(m ? m.length : 0);
-    };
-    reader.readAsArrayBuffer(file.slice(0, 50 * 1024));
-  });
-}
+/** Re-encode an image in-canvas: alpha flattened, long side capped, JPEG. */
+async function encodeImage(file: File): Promise<{ dataUrl: string; width: number; height: number }> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
 
-export async function extractPdfText(file: File): Promise<string> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch("/api/files/extract-pdf", { method: "POST", body: fd });
-  if (!res.ok) throw new Error("PDF extraction failed: " + res.status);
-  const data = await res.json();
-  return data.text as string;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas is unavailable in this browser");
+
+  ctx.fillStyle = "#ffffff"; // JPEG carries no alpha — composite onto white
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close?.();
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  if (dataUrl.length < 200) throw new Error("Image could not be encoded");
+  return { dataUrl, width, height };
 }

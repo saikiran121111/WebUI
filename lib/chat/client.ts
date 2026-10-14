@@ -1,4 +1,4 @@
-import type { ChatRequest, ChatStreamCallback, ToolDef } from "./types";
+import type { Attachment, ChatRequest, ChatStreamCallback, ToolDef } from "./types";
 import { createStreamParser, StreamHandle, StreamOptions } from "../stream/parser";
 
 const DEFAULT_URL = "/api/chat";
@@ -42,25 +42,14 @@ export class ChatClient {
   private buildBody(req: ChatRequest) {
     const messages: any[] = [];
     for (const m of req.messages) {
-      const entry: any = { role: m.role, content: m.content };
+      // Attachments ride on the message they belong to, so a follow-up
+      // question still has the file content in front of the model.
+      const atts = (m as any).attachments as Attachment[] | undefined;
+      const entry: any = { role: m.role, content: messageContent(m.content, atts) };
       if (m.reasoning_content) entry.reasoning_content = m.reasoning_content;
       if (m.tool_calls) entry.tool_calls = m.tool_calls;
       if (m.role === "tool") entry.tool_call_id = m.tool_call_id;
       messages.push(entry);
-    }
-
-    // Inject attachments into the last user message content array.
-    if (req.attachments?.length) {
-      const lastUserIdx = messages.map((m, i) => m.role === "user" ? i : -1).filter(i => i >= 0).pop();
-      if (lastUserIdx !== undefined) {
-        const parts: any[] = [{ type: "text", text: messages[lastUserIdx].content }];
-        for (const att of req.attachments) {
-          if (att.kind === "image" && att.previewUrl) {
-            parts.push({ type: "image_url", image_url: { url: att.previewUrl } });
-          }
-        }
-        messages[lastUserIdx].content = parts;
-      }
     }
 
     const body: any = {
@@ -79,6 +68,49 @@ export class ChatClient {
       body.stream_options = { include_usage: true };
     }
     return body;
+  }
+}
+
+/**
+ * Content in the shape the local chat template expects: a plain string when no
+ * files are attached, otherwise a parts array mixing text and image_url.
+ */
+function messageContent(text: string | null, atts?: Attachment[]): unknown {
+  if (!atts?.length) return text ?? "";
+  const parts: any[] = [];
+  if (text) parts.push({ type: "text", text });
+  for (const att of atts) parts.push(...attachmentParts(att));
+  return parts;
+}
+
+/** One attachment rendered into whatever the model can actually perceive. */
+function attachmentParts(att: Attachment): any[] {
+  const label = `Attached file: ${att.name}`;
+
+  switch (att.category) {
+    case "image":
+      return att.dataUrl
+        ? [{ type: "text", text: `${label} (image)` },
+           { type: "image_url", image_url: { url: att.dataUrl } }]
+        : [{ type: "text", text: `${label} — the image could not be read` }];
+
+    case "video": {
+      const parts: any[] = [{ type: "text", text: `${label} (video — sampled frames follow)` }];
+      for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+      if (!att.frames?.length) parts.push({ type: "text", text: "No frames could be sampled from this video." });
+      return parts;
+    }
+
+    case "audio":
+      return [{ type: "text", text: `${label} (audio)\nTranscript:\n${att.transcript ?? "[no speech detected]"}` }];
+
+    default: {
+      if (!att.text) return [{ type: "text", text: `${label} — no readable text was found` }];
+      const body =
+        `${label}\n[file content begins]\n${att.text}\n[file content ends]` +
+        (att.truncated ? "\n[the file was truncated]" : "");
+      return [{ type: "text", text: body }];
+    }
   }
 }
 

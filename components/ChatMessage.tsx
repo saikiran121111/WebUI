@@ -113,6 +113,8 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
       transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
       className="mb-5"
       id={"msg-" + message.id}
+      data-testid="assistant-message"
+      data-state={state}
     >
       {/* Thinking indicator */}
       {reasoning && !state?.startsWith("streaming") && (
@@ -311,7 +313,7 @@ function EditModal({
           shadow-2xl shadow-black/60"
       >
         <textarea
-          ref={textareaRef}
+          ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
           value={value}
           onChange={e => onChange(e.target.value)}
           onKeyDown={onKeyDown}

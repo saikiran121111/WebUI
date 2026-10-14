@@ -1,4 +1,8 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+
+// Browser binaries live inside the codebase, never in the user profile.
+process.env.PLAYWRIGHT_BROWSERS_PATH ||= path.join(__dirname, ".data", "ms-playwright");
 
 export default defineConfig({
   testDir: "./tests",

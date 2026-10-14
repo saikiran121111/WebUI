@@ -1,3 +1,5 @@
+import type { Attachment } from "../types";
+
 export interface ChatRequest {
   messages: OpenAIMessage[];
   model?: string;
@@ -10,24 +12,11 @@ export interface ChatRequest {
   attachments?: Attachment[];
 }
 
-export interface Attachment {
-  id: string;
-  name: string;
-  mime: string;
-  size: number;
-  kind: "image" | "document" | "video" | "other";
-  previewUrl?: string;
-  blobKey?: string;
-  text?: string;
-  pages?: number;
-  width?: number;
-  height?: number;
-  durationSec?: number;
-  frames?: { path: string; at: number }[];
-  transcript?: string;
-  status: "pending" | "processing" | "ready" | "error";
-  error?: string;
-}
+/**
+ * The wire format reuses the app's attachment model — one definition, so a
+ * field added for extraction can never drift between client and request body.
+ */
+export type { Attachment };
 
 export interface ToolDef {
   name: string;
@@ -44,4 +33,6 @@ export interface OpenAIMessage {
   reasoning_content?: string | null;
   tool_calls?: any[];
   tool_call_id?: string;
+  /** Files attached to this message; expanded into content parts on send. */
+  attachments?: Attachment[];
 }

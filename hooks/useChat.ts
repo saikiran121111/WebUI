@@ -135,6 +135,8 @@ export function useChat({
     if (!text.trim() || status === "streaming") return;
     if (sendBusyRef.current) return;
     sendBusyRef.current = true;
+    // Kept outside the try so the catch can still mark the right bubble.
+    let assistantId: string | null = null;
     try {
       const mode = opts.mode ?? "chat";
       const curEffort = effortRef.current;
@@ -148,7 +150,9 @@ export function useChat({
         content: text,
         reasoning: "",
         reasoningMs: undefined,
-        attachments: [],
+        // Carried on the message itself so the request builder can inline each
+        // file's content (text / image / frames / transcript) into the prompt.
+        attachments: opts.attachments ?? [],
         toolCalls: [],
         citations: [],
         createdAt: Date.now(),
@@ -170,6 +174,7 @@ export function useChat({
         mode,
       };
 
+      assistantId = assistantMsg.id;
       setMessages(prev => [...prev, userMsg, assistantMsg]);
       setStatus("streaming");
       setError(null);
@@ -212,7 +217,7 @@ export function useChat({
         const msg = e?.message ?? "Generation failed";
         setError(msg);
         setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id ? { ...m, state: "error", error: msg } : m
+          m.id === assistantId ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
       }

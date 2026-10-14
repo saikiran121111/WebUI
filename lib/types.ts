@@ -5,6 +5,8 @@
  * the local Qwen client, the streaming parser, the tool layer and persistence.
  */
 
+import type { FileCategory } from "./files/extensions";
+
 export type Role = "user" | "assistant" | "system" | "tool";
 
 export type ChatMode = "chat" | "research";
@@ -24,8 +26,8 @@ export type AttachmentKind = "image" | "document" | "video" | "other";
 export type AttachmentStatus = "pending" | "processing" | "ready" | "error";
 
 export interface AttachmentFrame {
-  /** Server-side path under .data/frames, served through /api/files. */
-  path: string;
+  /** Frame image inlined as a data URL — what the model actually receives. */
+  dataUrl: string;
   /** Seconds from the start of the clip. */
   at: number;
 }
@@ -38,6 +40,12 @@ export interface Attachment {
   size: number;
   status: AttachmentStatus;
   error?: string;
+
+  /**
+   * What the file actually is, decided from its extension. Drives which
+   * extraction path ran and how the content is put into the prompt.
+   */
+  category?: FileCategory;
 
   /** Key into the attachment blob store. Absent for ephemeral attachments. */
   blobKey?: string;
@@ -54,10 +62,14 @@ export interface Attachment {
   /* Image metadata */
   width?: number;
   height?: number;
+  /** Image content inlined as a data URL (canvas-encoded or ffmpeg-decoded). */
+  dataUrl?: string;
 
   /* Video metadata */
   durationSec?: number;
   frames?: AttachmentFrame[];
+
+  /* Audio metadata */
   transcript?: string;
 }
 

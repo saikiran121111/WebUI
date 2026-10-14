@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, X, StopCircle, Settings2 } from "lucide-react";
+import { Send, Paperclip, X, StopCircle, Settings2, Loader2, AlertCircle, Check } from "lucide-react";
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
-import { validateAttachment } from "../lib/files";
+import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib/files";
 import { cn } from "../lib/utils";
 
 const EFFORT_LEVELS: EffortLevel[] = ["off", "low", "medium", "high", "max"];
@@ -13,7 +13,7 @@ const EFFORT_LABEL: Record<EffortLevel, string> = {
 };
 
 interface ChatInputProps {
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
   isLoading: boolean;
   isThinking: boolean;
@@ -64,16 +64,34 @@ export default function ChatInput({
     addFiles(Array.from(e.dataTransfer.files));
   }, []);
 
+  const updateAttachment = useCallback((id: string, next: Attachment) => {
+    setAttachments(prev => {
+      const u = prev.map(a => (a.id === id ? next : a));
+      onAttachmentsChange(u);
+      return u;
+    });
+  }, [onAttachmentsChange]);
+
   const addFiles = useCallback((files: File[]) => {
-    const newAtt: Attachment[] = [];
+    const accepted: { att: Attachment; file: File }[] = [];
     for (const f of files) {
-      try { newAtt.push(validateAttachment(f)); }
+      try { accepted.push({ att: validateAttachment(f), file: f }); }
       catch (err: any) { console.warn("Skipped:", err.message); }
     }
-    if (newAtt.length) {
-      setAttachments(prev => { const u = [...prev, ...newAtt]; onAttachmentsChange(u); return u; });
+    if (!accepted.length) return;
+
+    setAttachments(prev => {
+      const u = [...prev, ...accepted.map(a => a.att)];
+      onAttachmentsChange(u);
+      return u;
+    });
+
+    // Read each file into something the model can be shown — text, an image,
+    // a transcript, sampled frames — and move its chip along as that lands.
+    for (const { att, file } of accepted) {
+      void processAttachment(file, att).then(next => updateAttachment(att.id, next));
     }
-  }, [onAttachmentsChange]);
+  }, [onAttachmentsChange, updateAttachment]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const imgs = Array.from(e.clipboardData.items)
@@ -82,15 +100,23 @@ export default function ChatInput({
     if (imgs.length) { e.preventDefault(); addFiles(imgs); }
   }, [addFiles]);
 
+  const stillReading = attachments.some(a => a.status === "pending" || a.status === "processing");
+
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed || isLoading) return;
-    onSend(trimmed);
+    // Attachments must finish being read first — sending early would ship a
+    // file the model never got to see.
+    if (!trimmed || isLoading || stillReading) return;
+    onSend(trimmed, attachments.filter(a => a.status === "ready"));
     setValue("");
-    setAttachments([]);
-    onAttachmentsChange([]);
+    // Failed attachments stay in the tray so the reason is still visible.
+    setAttachments(prev => {
+      const kept = prev.filter(a => a.status === "error");
+      onAttachmentsChange(kept);
+      return kept;
+    });
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [value, isLoading, onSend, onAttachmentsChange]);
+  }, [value, isLoading, stillReading, attachments, onSend, onAttachmentsChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -118,7 +144,7 @@ export default function ChatInput({
         </motion.div>
       )}
 
-      <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.docx,.doc,.mp4,.webm,.mp3,.wav"
+      <input ref={fileInputRef} type="file" multiple data-testid="file-input" accept={ACCEPT_EXTENSIONS}
         onChange={e => { const files = Array.from(e.target.files ?? []); if (files.length) addFiles(files); e.target.value = ""; }}
         className="hidden" />
 
@@ -126,9 +152,18 @@ export default function ChatInput({
         <div className="max-w-3xl mx-auto mb-2 px-4">
           <div className="flex flex-wrap gap-2">
             {attachments.map(att => (
-              <div key={att.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg
-                bg-white/[0.06] border border-white/[0.08] text-xs">
-                <span className="text-white/60 max-w-32 truncate">{att.name}</span>
+              <div key={att.id} data-testid="attachment-chip" data-status={att.status}
+                title={att.error ?? att.name}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-colors",
+                  att.status === "error"
+                    ? "bg-red-500/[0.07] border-red-500/25"
+                    : "bg-white/[0.06] border-white/[0.08]",
+                )}>
+                <AttachmentStatusIcon status={att.status} />
+                <span className={cn("max-w-40 truncate", att.status === "error" ? "text-red-300/80" : "text-white/60")}>
+                  {att.name}
+                </span>
                 <span className="text-white/25 text-[10px]">{(att.size / 1024).toFixed(0)}K</span>
                 <button onClick={() => removeAttachment(att.id)}
                   className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors">
@@ -199,10 +234,12 @@ export default function ChatInput({
                   <StopCircle className="w-4 h-4" />
                 </button>
               ) : (
-                <button onClick={handleSend} disabled={!hasContent}
+                <button onClick={handleSend} data-testid="send-button"
+                  disabled={!hasContent || stillReading}
+                  title={stillReading ? "Reading attached files…" : undefined}
                   className={cn(
                     "p-2 rounded-lg transition-all",
-                    hasContent
+                    hasContent && !stillReading
                       ? "bg-white text-black hover:bg-white/90"
                       : "bg-white/[0.08] text-white/30 cursor-not-allowed",
                   )}>
@@ -229,6 +266,14 @@ export default function ChatInput({
       </motion.div>
     </div>
   );
+}
+
+/** Spinner / check / bang showing where an attachment is in its read. */
+function AttachmentStatusIcon({ status }: { status: Attachment["status"] }) {
+  if (status === "processing" || status === "pending")
+    return <Loader2 className="w-3 h-3 animate-spin text-white/45" />;
+  if (status === "error") return <AlertCircle className="w-3 h-3 text-red-400" />;
+  return <Check className="w-3 h-3 text-emerald-400/80" />;
 }
 
 function EffortMenu({ effort, onSelect }: { effort: EffortLevel; onSelect: (e: EffortLevel) => void }) {
