@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-10-14 — sidebar multi-select delete
+- `components/ui/Sidebar.tsx` — "Select" button enters select mode (checkboxes on every
+  row, "Select all" toggle); once ≥1 selected the button becomes "Delete N". Selection
+  state self-prunes when conversations disappear. Removed unused imports.
+- `app/page.tsx` — `confirmDeleteIds` state + `confirmDeleteMany` (parallel DELETEs,
+  deletedRef tombstones, clears open chat if it was among them) + second ConfirmDialog.
+- `tests/multi-select-delete.spec.ts` — 2 tests: full UI flow (cancel path) and a real
+  seeded delete verified via API 404.
+- Note: the dev server's compiler worker had crashed ("Jest worker encountered 2 child
+  process exceptions") making all API routes 500 — restarted; all 7 CRUD tests pass again.
+
 ## 2026-10-14 — file reading verified end to end
 - `playwright.config.ts` — pins `PLAYWRIGHT_BROWSERS_PATH` to `.data/ms-playwright` so the
   Chromium download stays inside the codebase instead of the user profile.

@@ -10,6 +10,8 @@
 - [x] Suite: `tests/file-reading.spec.ts` (3 layers, 106+106+3 tests).
 - [x] Playwright browsers cached in-repo at `.data/ms-playwright` (set in
       `playwright.config.ts` via `PLAYWRIGHT_BROWSERS_PATH`) — nothing in the user profile.
+- [x] Sidebar multi-select delete: Select/Select all/Delete N flow (`components/ui/Sidebar.tsx`,
+      `app/page.tsx`), covered by `tests/multi-select-delete.spec.ts` (2/2) + CRUD suite (7/7).
 
 ## Verified
 - [x] `npm run typecheck` clean.

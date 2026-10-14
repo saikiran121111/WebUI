@@ -20,6 +20,7 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -132,6 +133,26 @@ export default function HomePage() {
     }
   }, [confirmDelete, activeId, clear]);
 
+  const handleDeleteSelected = useCallback((ids: string[]) => {
+    if (ids.length > 0) setConfirmDeleteIds(ids);
+  }, []);
+
+  const confirmDeleteMany = useCallback(async () => {
+    if (!confirmDeleteIds) return;
+    const ids = confirmDeleteIds;
+    setConfirmDeleteIds(null);
+    const results = await Promise.all(ids.map(id => deleteConv(id)));
+    const deleted = ids.filter((_, i) => results[i]);
+    if (deleted.length === 0) return;
+    deleted.forEach(id => deletedRef.current.add(id));
+    setConversations(prev => prev.filter(c => !deleted.includes(c.id)));
+    if (activeId && deleted.includes(activeId)) {
+      clear();
+      setActiveId(null);
+      setHasScrolledUp(false);
+    }
+  }, [confirmDeleteIds, activeId, clear]);
+
   const handleTogglePin = useCallback(async (id: string) => {
     const conv = await getConversation(id);
     if (!conv) return;
@@ -169,6 +190,7 @@ export default function HomePage() {
         onSelect={handleSelect}
         onNew={handleNew}
         onDelete={handleDelete}
+        onDeleteSelected={handleDeleteSelected}
         onTogglePin={handleTogglePin}
         onToggleArchive={handleToggleArchive}
         onRename={handleRename}
@@ -311,6 +333,15 @@ export default function HomePage() {
         danger
         onConfirm={confirmDeleteConv}
         onCancel={() => setConfirmDelete(null)}
+      />
+      <ConfirmDialog
+        open={!!confirmDeleteIds}
+        title={`Delete ${confirmDeleteIds?.length ?? 0} conversation${confirmDeleteIds?.length === 1 ? "" : "s"}?`}
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDeleteMany}
+        onCancel={() => setConfirmDeleteIds(null)}
       />
     </div>
   );
