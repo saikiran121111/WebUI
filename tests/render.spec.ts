@@ -297,6 +297,178 @@ test("right-click header filter and drag column resize work like a spreadsheet",
   expect(after).toBeGreaterThan(before + 60);
 });
 
+test("a 20-column table stays readable collapsed and expanded", async ({ page }) => {
+  const names = ["John", "María", "Yuki", "Patrick", "Sarah", "Takeshi", "Lucia", "Omar", "Freya", "Kwame"];
+  const surnames = ["Smith", "García-López", "Tanaka", "O'Brien", "O'Connor", "Yamamoto", "Fernández", "Haddad", "Novak", "Mensah"];
+  const cities = ["Berlin", "Madrid", "Tokyo", "Dublin", "Austin", "Osaka", "Lima", "Accra"];
+  const cols = ["ID", "Full Name", "Email", "Phone", "Company", "Address", "City", "Country", "Job", "Industry",
+    "Website", "Status", "Plan", "Score", "Usage", "Region", "Source", "Segment", "Renewal", "Notes"];
+  const rows = Array.from({ length: 40 }, (_, i) => [
+    String(i + 1),
+    `${names[i % 10]} ${surnames[(i * 3) % 10]}`,
+    `${names[i % 10].toLowerCase()}.${surnames[(i * 3) % 10].toLowerCase().replace(/[^a-z]/g, "")}${i}@example.com`,
+    `+1-555-${1000 + i}`,
+    `Acme Industries ${i}`,
+    `${100 + i} Boulevard Avenue`,
+    cities[i % 8],
+    ["DE", "ES", "JP", "IE", "US", "JP", "PE", "GH"][i % 8],
+    ["Engineer", "Analyst", "Designer", "Nurse", "Pilot", "Chef"][i % 6],
+    ["Software", "Finance", "Health", "Retail", "Energy", "Media"][i % 6],
+    `site-${i}.com`,
+    i % 2 ? "Active" : "Inactive",
+    ["Free", "Pro", "Enterprise"][i % 3],
+    String(50 + (i % 50)),
+    `${(i * 37) % 1000} GB`,
+    ["NA", "EU", "APAC", "LATAM"][i % 4],
+    ["Organic", "Paid Ads", "Referral"][i % 3],
+    `Segment-${i % 7}`,
+    `2026-0${(i % 9) + 1}-15`,
+    `Note ${i}`,
+  ]);
+  const table = [`| ${cols.join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`))
+    .join("\n");
+  await mockStream(page, table);
+  await page.goto("http://localhost:3000/");
+  await send(page, "big table please");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await wrap.hover();
+
+  const geo = () => wrap.evaluate((el) => {
+    const tableEl = el.querySelector("table") as HTMLElement;
+    const scroller = el.querySelector(".md-table-scroller") as HTMLElement;
+    const ths = Array.from(el.querySelectorAll("thead tr:not(.md-filter-row) th"))
+      .filter(th => (th as HTMLElement).offsetWidth > 0)
+      .map(th => Math.round((th as HTMLElement).getBoundingClientRect().width));
+    const trs = Array.from(el.querySelectorAll("tbody tr")).slice(0, 5)
+      .map(tr => Math.round((tr as HTMLElement).getBoundingClientRect().height));
+    return {
+      tableW: Math.round(tableEl.getBoundingClientRect().width),
+      scrollerW: scroller.clientWidth,
+      ths, trs,
+    };
+  });
+
+  // Collapsed (4 visible columns): the table must fill the wrap — no blank
+  // dead zone to the right of the grid.
+  const collapsed = await geo();
+  console.log("collapsed:", JSON.stringify(collapsed));
+  expect(collapsed.ths).toHaveLength(4);
+  expect(collapsed.tableW, "collapsed table leaves a blank gutter").toBeGreaterThanOrEqual(collapsed.scrollerW - 2);
+
+  // Expanded (all 20 columns): columns must never squeeze into one-character
+  // slivers — the scroller takes horizontal scroll instead, and rows stay short.
+  await wrap.locator('[data-testid="table-cols-btn"]').click();
+  const expanded = await geo();
+  console.log("expanded:", JSON.stringify(expanded));
+  expect(expanded.ths).toHaveLength(20);
+  for (const w of expanded.ths) {
+    expect(w, "column squeezed into an unreadable sliver").toBeGreaterThanOrEqual(90);
+  }
+  for (const h of expanded.trs) {
+    expect(h, "row ballooned by one-character-per-line wrapping").toBeLessThanOrEqual(80);
+  }
+});
+
+test("a wide table stays collapsed while it is still generating", async ({ page }) => {
+  const cols = ["ID", "First Name", "Last Name", "Email", "Age", "Salary", "Department", "Role",
+    "Level", "City", "Country", "Start Date", "Status", "Manager", "Notes"];
+  const rows = Array.from({ length: 30 }, (_, i) => [
+    String(i + 1),
+    ["John", "María", "Yuki", "Patrick", "Sarah"][i % 5],
+    ["Smith", "García", "Tanaka", "O'Brien", "Haddad"][i % 5],
+    `user${i}@example.com`,
+    String(22 + (i % 30)),
+    String(40000 + i * 1000),
+    ["Support", "Engineering", "Sales", "Finance"][i % 4],
+    ["Tier 2 Agent", "Junior Dev", "Senior Dev", "Lead"][i % 4],
+    `L${1 + i % 5}`,
+    ["Berlin", "Madrid", "Tokyo", "Dublin"][i % 4],
+    ["DE", "ES", "JP", "IE"][i % 4],
+    `202${3 + i % 4}-0${1 + i % 9}-15`,
+    i % 2 ? "Active" : "Inactive",
+    ["Dana", "Eli", "Fay"][i % 3],
+    `Note ${i}`,
+  ]);
+  const table = [`| ${cols.join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`))
+    .join("\n");
+  // Paced SSE: route.fulfill delivers the whole body in one chunk, so the
+  // table would only ever be observed complete. This server writes a frame
+  // every 15ms so the mid-generation state is observable for seconds.
+  const frames: string[] = [];
+  for (let i = 0; i < table.length; i += 40) {
+    frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: table.slice(i, i + 40) } }] })}\n\n`);
+  }
+  frames.push("data: [DONE]\n\n");
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+    let frameIndex = 0;
+    const pump = setInterval(() => {
+      if (frameIndex >= frames.length) { clearInterval(pump); res.end(); return; }
+      res.write(frames[frameIndex++]);
+    }, 15);
+    req.on("close", () => clearInterval(pump));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  await page.route("**/api/chat", route => void route.continue({ url: `http://127.0.0.1:${port}/chat` }));
+
+  await page.goto("http://localhost:3000/");
+  const box = page.locator("textarea").first();
+  await box.click();
+  await box.fill("big table streaming");
+  await box.press("Enter");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await wrap.waitFor({ timeout: 10_000 });
+  await wrap.hover(); // the user's cursor was over the bubble mid-generation
+
+  // Sample the live DOM while the message is still streaming: no row may
+  // expose columns past the 4th (the streamed-rows leak), and the grid must
+  // keep filling the wrap (no blank gutter).
+  let samples = 0;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const snap = await page.evaluate(() => {
+      const msg = document.querySelector('[data-testid="assistant-message"]');
+      const el = document.querySelector('[data-testid="md-table-wrap"]');
+      const tableEl = el?.querySelector("table");
+      const header = el?.querySelector("thead tr:not(.md-filter-row)");
+      if (!msg || !el || !tableEl || !header) return null;
+      const visibleCells = (row: Element) =>
+        Array.from(row.children).filter(c => (c as HTMLElement).offsetWidth > 0).length;
+      const scroller = el.querySelector(".md-table-scroller") as HTMLElement;
+      return {
+        streaming: msg.getAttribute("data-state") === "streaming",
+        headerVisible: visibleCells(header),
+        leakedRows: Array.from(tableEl.querySelectorAll("tbody tr"))
+          .map((r, i) => [i + 1, visibleCells(r)] as const)
+          .filter(([, n]) => n > 4),
+        tableW: Math.round(tableEl.getBoundingClientRect().width),
+        scrollerW: scroller.clientWidth,
+      };
+    });
+    if (!snap) { await page.waitForTimeout(100); continue; }
+    expect(snap.headerVisible, "header exposed more than 4 columns mid-stream").toBeLessThanOrEqual(4);
+    expect(snap.leakedRows, `rows leaked extra columns mid-stream: ${JSON.stringify(snap.leakedRows)}`).toHaveLength(0);
+    expect(snap.tableW, "blank gutter to the right of the grid mid-stream").toBeGreaterThanOrEqual(snap.scrollerW - 2);
+    samples++;
+    if (!snap.streaming) break;
+    await page.waitForTimeout(120);
+  }
+  expect(samples, "never observed a streaming table long enough to verify").toBeGreaterThanOrEqual(5);
+
+  // Stream finished: collapse intact, expand toggle still works.
+  await page.locator(ASSISTANT_DONE).first().waitFor({ timeout: 15_000 });
+  await expect(wrap.locator("thead th:visible")).toHaveCount(4);
+  await expect(wrap.locator('[data-testid="table-cols-btn"]')).toBeVisible();
+  await wrap.locator('[data-testid="table-cols-btn"]').click();
+  await expect(wrap.locator("thead th:visible")).toHaveCount(15);
+  server.close();
+});
+
 test("valid mermaid renders an interactive diagram stage", async ({ page }) => {
   const diagram = "graph TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Done]\n  B -->|no| A";
   await mockStream(page, "```mermaid\n" + diagram + "\n```");

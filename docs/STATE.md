@@ -31,6 +31,23 @@
 - [x] Render e2e spec: `tests/render.spec.ts` (13 tests: copy fidelity, table sort/CSV,
       mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence,
       line spacing, list markers, heading inline-code scale, IDE tree, mid-stream color).
+- [x] Table round 6 (2026-10-15): mid-generation table breakage fixed —
+      collapse/filters/counts/handles were applied once on hover (`measure`),
+      so rows streamed in later rendered unhidden (image: rows 4–5 exposing
+      columns 5–8 mid-stream). `MarkdownTable.tsx`: `measure` deleted; a
+      `useLayoutEffect` resync (no dep array) re-applies every imperative
+      state after each render — layout (not passive) so streamed rows never
+      flash uncollapsed for one frame; `syncFilterRow` grows the filter row
+      when columns stream in; `toggleCols`/`toggleFullscreen` now only flip
+      `expanded`. Proven by new paced-SSE e2e "a wide table stays collapsed
+      while it is still generating" (DOM sampled every 120ms during stream:
+      ≤4 visible cells per row, no blank gutter) — render spec 18/18, tsc clean.
+- [x] Table round 5 (2026-10-15): 20-col × 40-row stress table readable —
+      `min-width: 6rem` on th/td unless `.cols-resized` (scroller scrolls
+      instead of crushing columns into slivers; rows 138px → 77px). Blank
+      gutter in the collapsed screenshot did not reproduce (round 4 already
+      fills the wrap). New e2e "a 20-column table stays readable collapsed
+      and expanded" — render spec 17/17, tsc clean.
 - [x] Table round 4 (2026-10-15): infinite-drag/blank-gutter fixed — last
       visible column is the flexible filler (no explicit width, no resize
       handle; fixed layout gives it the container's leftover so the table

@@ -1,5 +1,5 @@
 "use client";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpDown, Check, Copy, Filter, Maximize2, Minimize2,
   ChevronsLeftRight, ChevronsRightLeft,
@@ -16,7 +16,10 @@ import { copyText } from "../../lib/render/clipboard";
  * and a fullscreen overlay with a sticky header.
  * Sorting, filtering, column hiding and resizing act on the DOM
  * imperatively — no React state churn on big tables and no re-render of
- * the markdown tree.
+ * the markdown tree. While the model is still generating, React keeps
+ * appending rows and cells to this table, so every piece of imperative
+ * state is re-synced after each render (see the resync effect) — otherwise
+ * freshly streamed rows render unhidden and unfiltered mid-stream.
  */
 const COLLAPSE_AT = 4; // columns beyond this hide behind the expand toggle
 const MIN_COL_WIDTH = 56; // px floor for hand-sized columns
@@ -32,6 +35,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   const valueFiltersRef = useRef<Map<number, Set<string>>>(new Map());
   const termFiltersRef = useRef<Map<number, string>>(new Map());
   const suppressSortAfterDragRef = useRef(0);
+  const colsHiddenRef = useRef<boolean | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [sortable, setSortable] = useState<boolean | null>(null);
   const [colCount, setColCount] = useState(0);
@@ -182,34 +186,65 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     }
   }, [makeResizeHandle]);
 
-  const applyColHidden = useCallback((hide: boolean) => {
-    const table = wrapRef.current?.querySelector<HTMLTableElement>("table.md-table");
-    if (!table) return;
-    // Captured widths of hidden cells are 0 — expanding them back would
-    // render 0px-wide columns, so drop the manual sizing when columns toggle.
-    const headerRow = table.querySelector("thead tr:not(.md-filter-row)");
-    if (table.classList.contains("cols-resized") && headerRow) resetColWidths(table, headerRow);
+  const setColsHiddenClasses = useCallback((table: HTMLTableElement, hide: boolean) => {
     for (const row of table.querySelectorAll("tr")) {
       for (let i = COLLAPSE_AT; i < row.children.length; i++) {
         row.children[i].classList.toggle("col-hidden", hide);
       }
     }
-    syncResizeHandles(table); // the flexible filler changes with the visible set
-  }, [resetColWidths, syncResizeHandles]);
+  }, []);
 
-  const measure = useCallback(() => {
-    if (sortable !== null) return;
+  // The filter row is imperative DOM; when columns stream in after it was
+  // built, grow it so every column keeps an input (and shrink if columns
+  // ever disappear).
+  const syncFilterRow = useCallback((table: HTMLTableElement, cols: number) => {
+    const filterRow = table.querySelector<HTMLTableRowElement>("thead tr.md-filter-row");
+    if (!filterRow) return;
+    while (filterRow.children.length < cols) {
+      const th = document.createElement("th");
+      const input = document.createElement("input");
+      input.type = "search";
+      input.placeholder = "filter";
+      input.setAttribute("aria-label", `Filter column ${filterRow.children.length + 1}`);
+      input.addEventListener("input", applyFilter);
+      th.appendChild(input);
+      filterRow.appendChild(th);
+    }
+    while (filterRow.children.length > cols) filterRow.lastElementChild?.remove();
+  }, [applyFilter]);
+
+  // Runs after every render (no dep array on purpose). While the model is
+  // generating, the markdown tree keeps growing: new rows/cells arrive
+  // without any of this component's imperative state, so collapse classes,
+  // counts, filters and resize handles must be re-applied continuously —
+  // a one-shot measure on hover left streamed rows unhidden mid-stream.
+  // useLayoutEffect, not useEffect: passive effects run *after paint*, which
+  // would flash every streamed row at full width for one frame before the
+  // collapse classes land.
+  useLayoutEffect(() => {
     const wrap = wrapRef.current;
-    const rows = wrap?.querySelectorAll("tbody tr").length ?? 0;
-    const cols = wrap?.querySelector("thead tr:not(.md-filter-row)")?.children.length ?? 0;
-    setSortable(rows >= 5);
-    setColCount(cols);
-    setRowCount(rows);
-    setVisibleRows(rows);
-    if (cols > COLLAPSE_AT) applyColHidden(true);
     const table = wrap?.querySelector<HTMLTableElement>("table.md-table");
-    if (table) syncResizeHandles(table);
-  }, [sortable, applyColHidden, syncResizeHandles]);
+    const headerRow = table?.querySelector("thead tr:not(.md-filter-row)");
+    if (!table || !headerRow) return;
+    const cols = headerRow.children.length;
+    const rows = table.querySelectorAll("tbody tr").length;
+    const sortableNow = rows >= 5;
+    if (sortable !== sortableNow) setSortable(sortableNow);
+    if (colCount !== cols) setColCount(cols);
+    if (rowCount !== rows) setRowCount(rows);
+    const hide = cols > COLLAPSE_AT && !expanded;
+    if (colsHiddenRef.current !== hide) {
+      colsHiddenRef.current = hide;
+      // Captured widths of hidden cells are 0 — expanding them back would
+      // render 0px-wide columns, so drop manual sizing when the set flips.
+      if (table.classList.contains("cols-resized")) resetColWidths(table, headerRow);
+    }
+    setColsHiddenClasses(table, hide);
+    syncResizeHandles(table); // the flexible filler changes with the visible set
+    syncFilterRow(table, cols);
+    if (filtering || valueFiltersRef.current.size || termFiltersRef.current.size) applyFilter();
+    else if (visibleRows !== rows) setVisibleRows(rows);
+  });
 
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     if (Date.now() - suppressSortAfterDragRef.current < 300) return; // a drag just ended — not a sort click
@@ -310,11 +345,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     };
   }, [filterMenu]);
 
-  const toggleCols = useCallback(() => {
-    const next = !expanded;
-    setExpanded(next);
-    applyColHidden(!next);
-  }, [expanded, applyColHidden]);
+  const toggleCols = useCallback(() => setExpanded(!expanded), [expanded]);
 
   const toggleFilter = useCallback(() => {
     if (!filtering) {
@@ -330,22 +361,17 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     setFiltering(false);
   }, [filtering, buildFilterRow, rowCount]);
 
+  // Only flips `expanded` — the resync effect applies the column hiding.
   const toggleFullscreen = useCallback(() => {
     if (!fullscreen) {
       savedExpandedRef.current = expanded;
-      if (colCount > COLLAPSE_AT) {
-        applyColHidden(false);
-        setExpanded(true);
-      }
+      if (colCount > COLLAPSE_AT) setExpanded(true);
       setFullscreen(true);
       return;
     }
-    if (colCount > COLLAPSE_AT) {
-      applyColHidden(!savedExpandedRef.current);
-      setExpanded(savedExpandedRef.current);
-    }
+    if (colCount > COLLAPSE_AT) setExpanded(savedExpandedRef.current);
     setFullscreen(false);
-  }, [fullscreen, expanded, colCount, applyColHidden]);
+  }, [fullscreen, expanded, colCount]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -384,7 +410,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
 
   return (
     <div className={`md-table-wrap${fullscreen ? " is-fullscreen" : ""}`} ref={wrapRef}
-      onPointerEnter={measure} data-testid="md-table-wrap">
+      data-testid="md-table-wrap">
       <div className="md-table-topbar">
         <span className="md-table-count" data-testid="table-row-count">
           {filtering || filterMenu ? `${visibleRows} of ${rowCount} rows` : ""}

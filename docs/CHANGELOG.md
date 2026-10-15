@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## 2026-10-15 — table round 6: wide tables stay collapsed while generating
+- User screenshot mid-generation: 15-col table showed rows 1–3 collapsed to
+  4 columns but rows 4–5 exposing columns 5–8 with no headers. Root cause:
+  `measure` (one-shot, on pointer-enter) + `applyColHidden` toggled
+  `col-hidden` only on rows that existed at that moment — rows React
+  streamed in afterwards got none of the component's imperative state.
+- `components/render/MarkdownTable.tsx`: deleted `measure`/`onPointerEnter`;
+  added a `useLayoutEffect` resync (no dep array) that after every render
+  recomputes counts/sortable, re-applies collapse (widths reset only when
+  the hide flag flips), re-applies active filters, re-syncs resize handles,
+  and grows/shrinks the filter row (`syncFilterRow`) when columns drift.
+  `useLayoutEffect` not `useEffect`: passive effects run after paint, so a
+  streamed row would flash full-width for one frame before collapsing —
+  the first test run proved exactly that (`row 12 leaked 15 columns`).
+  `toggleCols`/`toggleFullscreen` simplified to flipping `expanded` only.
+- New e2e "a wide table stays collapsed while it is still generating":
+  paced SSE server streams a 15×30 table at 15ms/frame; the DOM is sampled
+  every 120ms while `data-state="streaming"` — header ≤4 visible columns,
+  zero rows past 4 visible cells, table fills the wrap (no blank gutter);
+  after DONE, expand toggle still reaches 15. Render spec 18/18, tsc clean.
+
+## 2026-10-15 — table round 5: 20-column stress table stays readable
+- User screenshot of a 20-col × 40-row table: expanded columns squeezed into
+  41–88px one-character-per-line slivers with 138–158px rows. The blank
+  gutter in the collapsed shot did NOT reproduce — round 4's flex filler
+  already fills the wrap (probe: tableW == scrollerW).
+- `app/globals.css`: `table.md-table:not(.cols-resized) th/td { min-width: 6rem }`
+  — columns keep a readable floor and the scroller takes horizontal scroll
+  instead of crushing them; skipped while hand-resizing (drag clamp owns the
+  56px floor there).
+- New e2e "a 20-column table stays readable collapsed and expanded": collapsed
+  fills the wrap, expanded every column ≥90px, rows ≤80px (734px wrap →
+  1920px scrollable grid). Render spec 17/17, tsc clean.
+
 ## 2026-10-15 — table round 4: last column absorbs slack, no blank gutter / infinite drag
 - Reproduced with e2e: dragging the last column's handle left left a blank
   gutter (table narrower than the wrap) and right grew the table without
