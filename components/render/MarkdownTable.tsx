@@ -27,7 +27,9 @@ const MAX_FILTER_OPTIONS = 200;
 
 type FilterMenuState = { col: number; left: number; top: number };
 
-export default memo(function MarkdownTable({ children }: { children: React.ReactNode }) {
+export default memo(function MarkdownTable({
+  children, onSend,
+}: { children: React.ReactNode; onSend?: (text: string) => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<{ col: number; dir: 1 | -1 } | null>(null);
@@ -47,6 +49,8 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   const [menuOptions, setMenuOptions] = useState<string[]>([]);
   const [menuChecked, setMenuChecked] = useState<Set<string>>(new Set());
   const [menuSearch, setMenuSearch] = useState("");
+  const [rowAsk, setRowAsk] = useState<string | null>(null);
+  const rowSelRef = useRef<HTMLTableRowElement | null>(null);
 
   const updateFilterMarks = useCallback(() => {
     const headerRow = wrapRef.current?.querySelector("thead tr");
@@ -258,6 +262,28 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     });
   }, []);
 
+  // Header clicks sort (when sortable); body-row clicks select the row and
+  // open the "Ask AI about this row" bar. Resize drags are unaffected —
+  // their handles stop propagation and the sort guard suppresses phantom
+  // header clicks.
+  const handleTableClick = useCallback((e: React.MouseEvent) => {
+    const th = (e.target as Element).closest("th");
+    if (th) {
+      if (sortable) handleHeaderClick(e);
+      return;
+    }
+    const tr = (e.target as Element).closest("tbody tr") as HTMLTableRowElement | null;
+    if (!tr) return;
+    const headers = Array.from(tr.closest("table")?.querySelectorAll("thead th") ?? [])
+      .map(h => (h.textContent ?? "").trim());
+    const cells = Array.from(tr.children).map(c => (c.textContent ?? "").trim());
+    const summary = cells.map((c, i) => `${headers[i] || `col ${i + 1}`}: ${c}`).join(" · ");
+    rowSelRef.current?.classList.remove("is-row-selected");
+    tr.classList.add("is-row-selected");
+    rowSelRef.current = tr;
+    setRowAsk(summary);
+  }, [sortable, handleHeaderClick]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     const th = (e.target as Element).closest("th");
     if (!th) return;
@@ -397,12 +423,21 @@ export default memo(function MarkdownTable({ children }: { children: React.React
         </div>
       </div>
       <div className="md-table-scroller">
-        <table className="md-table" onClick={sortable ? handleHeaderClick : undefined}
+        <table className="md-table" onClick={handleTableClick}
           onContextMenu={handleContextMenu}
           data-sortable={sortable ? "true" : undefined}>
           {children}
         </table>
       </div>
+      {rowAsk && onSend && (
+        <div className="md-row-ask-bar" data-testid="row-ask-bar">
+          <span className="md-row-ask-summary">{rowAsk}</span>
+          <button type="button" className="viz-ask-btn"
+            onClick={() => onSend(`About this table row — ${rowAsk}. What does it tell us?`)}>
+            Ask AI about this row
+          </button>
+        </div>
+      )}
       <div className="md-table-tools">
         <span className="md-table-sort-hint" aria-hidden="true">
           <ArrowUpDown className="w-3 h-3" /> left-click headers to sort · right-click to filter · drag header edges to resize

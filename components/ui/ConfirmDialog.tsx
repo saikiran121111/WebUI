@@ -35,7 +35,7 @@ export default function ConfirmDialog({
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
             transition={{ duration: 0.15 }}
             className="relative z-10 w-[340px] rounded-xl
-              bg-[#141416] border border-white/[0.1] shadow-2xl p-5 space-y-4"
+              bg-[#0d0d12] border border-white/[0.1] shadow-2xl p-5 space-y-4"
           >
             <h3 className="text-[15px] font-semibold text-white/95">{title}</h3>
             <p className="text-sm text-white/55 leading-relaxed">{message}</p>

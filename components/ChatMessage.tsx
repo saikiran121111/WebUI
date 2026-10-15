@@ -345,7 +345,7 @@ function EditModal({
         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
         onClick={e => e.stopPropagation()}
         className="relative w-full max-w-lg rounded-xl
-          bg-[#141416] border border-white/[0.1]
+          bg-[#0d0d12] border border-white/[0.1]
           shadow-2xl shadow-black/60"
       >
         <textarea

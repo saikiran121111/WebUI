@@ -1,10 +1,15 @@
 "use client";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ZoomIn, ZoomOut, Maximize2, Minimize2, Code, Eye, Download, Crosshair } from "lucide-react";
+import {
+  Check, Copy, ZoomIn, ZoomOut, Maximize2, Minimize2, Code, Eye, Download, Crosshair,
+  Play, Pause, ChevronLeft, ChevronRight, RotateCcw, MessageSquarePlus,
+} from "lucide-react";
 import CodeBlock from "./CodeBlock";
 import { copyText } from "../../lib/render/clipboard";
+import { OBSIDIAN_MERMAID_THEME } from "../../lib/render/themes";
 
 const STREAM_SETTLE_MS = 500;
+const STEP_ADVANCE_MS = 1800;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 4;
 
@@ -17,38 +22,7 @@ function loadMermaid() {
         securityLevel: "strict",
         theme: "base",
         fontFamily: '"Inter", system-ui, sans-serif',
-        themeVariables: {
-          background: "transparent",
-          primaryColor: "#1b2430",
-          primaryBorderColor: "#3d4c5e",
-          primaryTextColor: "#cdd3de",
-          lineColor: "#828791",
-          secondaryColor: "#20262e",
-          tertiaryColor: "#161a20",
-          mainBkg: "#1b2430",
-          nodeBorder: "#3d4c5e",
-          clusterBkg: "rgba(255,255,255,0.02)",
-          edgeLabelBackground: "#141416",
-          titleColor: "#cdd3de",
-          actorBkg: "#1b2430",
-          actorBorder: "#3d4c5e",
-          actorTextColor: "#cdd3de",
-          signalColor: "#828791",
-          signalTextColor: "#cdd3de",
-          labelBoxBkgColor: "#1b2430",
-          labelBoxBorderColor: "#3d4c5e",
-          labelTextColor: "#cdd3de",
-          loopTextColor: "#cdd3de",
-          noteBkgColor: "#20262e",
-          noteTextColor: "#cdd3de",
-          noteBorderColor: "#3d4c5e",
-          activationBkgColor: "#20262e",
-          activationBorderColor: "#3d4c5e",
-          sequenceNumberColor: "#cdd3de",
-          classText: "#cdd3de",
-          attributeBackgroundColorOdd: "#161a20",
-          attributeBackgroundColorEven: "#1b2430",
-        },
+        themeVariables: OBSIDIAN_MERMAID_THEME,
       });
       return m.default;
     }).catch(err => {
@@ -66,14 +40,25 @@ let renderSeq = 0;
 interface MermaidBlockProps {
   source: string;
   streaming?: boolean;
+  onSend?: (text: string) => void;
+}
+
+interface DiagramStep {
+  id: string;
+  title: string;
+  explanation: string;
 }
 
 /**
  * First-class Mermaid rendering with pan/zoom/fit, node inspection with
  * connected-edge highlighting, source view, copy, SVG download, fullscreen.
+ * `%%step: NodeID | Title | Explanation` comments drive a synced step
+ * playback bar (Play/Pause/Prev/Next/Reset) that spotlights the active
+ * node and its edges while dimming the rest; without step comments the
+ * steps are derived from the rendered DOM (g.node / .messageText).
  * Invalid diagrams never crash: the source is preserved in a code block.
  */
-export default memo(function MermaidBlock({ source, streaming = false }: MermaidBlockProps) {
+export default memo(function MermaidBlock({ source, streaming = false, onSend }: MermaidBlockProps) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSource, setShowSource] = useState(false);
@@ -81,15 +66,24 @@ export default memo(function MermaidBlock({ source, streaming = false }: Mermaid
   const [selected, setSelected] = useState<{ label: string } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [derivedSteps, setDerivedSteps] = useState<DiagramStep[]>([]);
+  const [stepIndex, setStepIndex] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; viewX: number; viewY: number } | null>(null);
 
   const settledSource = useMemo(() => source.trim(), [source]);
+  const parsedSteps = useMemo(() => parseStepComments(settledSource), [settledSource]);
+  const steps = parsedSteps.length > 0 ? parsedSteps : derivedSteps;
+  const activeStep = stepIndex != null ? steps[stepIndex] ?? null : null;
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
+    setStepIndex(null);
+    setPlaying(false);
+    setDerivedSteps([]);
     const cached = svgCache.get(settledSource);
     if (cached) { setSvg(cached); return; }
     const delay = streaming ? STREAM_SETTLE_MS : 0;
@@ -114,19 +108,27 @@ export default memo(function MermaidBlock({ source, streaming = false }: Mermaid
     return () => { cancelled = true; clearTimeout(timer); };
   }, [settledSource, streaming]);
 
-  // Wire node/edge interactivity after each SVG injection.
+  // Inject the SVG imperatively — React must not own this subtree, because
+  // it re-sets dangerouslySetInnerHTML on every re-render, which would wipe
+  // the highlight classes and node listeners applied below. Then wire
+  // node/edge interactivity and derive DOM-based playback steps.
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !svg) return;
+    stage.innerHTML = svg;
     const cleanups: Array<() => void> = [];
+    const derived: DiagramStep[] = [];
     stage.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const label = node.querySelector(".nodeLabel")?.textContent?.trim()
-        ?? node.querySelector("text")?.textContent?.trim() ?? "";
+      const label = nodeLabelOf(node);
+      const rawId = normalizeNodeId(node.id);
+      if (rawId || label) derived.push({ id: rawId, title: label || rawId, explanation: "" });
       node.style.cursor = "pointer";
       node.setAttribute("tabindex", "0");
       const activate = () => {
         setSelected({ label });
         highlightConnectedEdges(stage, node.id);
+        const stepAt = parsedSteps.findIndex(s => (s.id && s.id === rawId) || s.title === label);
+        if (stepAt >= 0) setStepIndex(stepAt);
       };
       node.addEventListener("click", activate);
       node.addEventListener("keydown", e => {
@@ -134,8 +136,49 @@ export default memo(function MermaidBlock({ source, streaming = false }: Mermaid
       });
       cleanups.push(() => node.removeEventListener("click", activate));
     });
+    if (derived.length === 0) {
+      // Sequence diagrams have no g.node — fall back to message labels.
+      stage.querySelectorAll<SVGTextElement>(".messageText").forEach(text => {
+        const label = text.textContent?.trim() ?? "";
+        if (label) derived.push({ id: "", title: label, explanation: "" });
+      });
+    }
+    setDerivedSteps(derived);
     return () => cleanups.forEach(fn => fn());
-  }, [svg]);
+  }, [svg, parsedSteps, showSource]);
+
+  // Synced step highlight: active node glows, its edges flow, the rest dims.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || !svg) return;
+    const nodeIds = new Set<string>();
+    stage.querySelectorAll<SVGGElement>("g.node").forEach(node => {
+      const rawId = normalizeNodeId(node.id);
+      nodeIds.add(rawId);
+      const label = nodeLabelOf(node);
+      const isActive = !!activeStep &&
+        ((activeStep.id !== "" && activeStep.id === rawId) || activeStep.title === label);
+      node.classList.toggle("viz-active-node", isActive);
+      node.classList.toggle("viz-dimmed-node", !!activeStep && activeStep.id !== "" && !isActive);
+    });
+    stage.querySelectorAll<SVGPathElement>("path[data-edge]").forEach(edge => {
+      const ends = edgeEndpoints(edge.id, nodeIds);
+      edge.classList.toggle("viz-active-edge", !!activeStep && activeStep.id !== "" && ends.includes(activeStep.id));
+    });
+  }, [svg, activeStep, showSource]);
+
+  // Auto-advance while playing; stop at the last step.
+  useEffect(() => {
+    if (!playing) return;
+    const timer = setInterval(() => {
+      setStepIndex(i => {
+        if (i == null) return 0;
+        if (i + 1 >= steps.length) { setPlaying(false); return i; }
+        return i + 1;
+      });
+    }, STEP_ADVANCE_MS);
+    return () => clearInterval(timer);
+  }, [playing, steps.length]);
 
   // Non-passive wheel zoom (React onWheel is passive in some setups).
   useEffect(() => {
@@ -172,7 +215,7 @@ export default memo(function MermaidBlock({ source, streaming = false }: Mermaid
     else if (e.key === "+" || e.key === "=") setView(v => zoomAt(v, 1.2));
     else if (e.key === "-") setView(v => zoomAt(v, 0.83));
     else if (e.key === "0") setView({ x: 0, y: 0, k: 1 });
-    else if (e.key === "Escape") setSelected(null);
+    else if (e.key === "Escape") { setSelected(null); setStepIndex(null); setPlaying(false); }
     else return;
     e.preventDefault();
   }, []);
@@ -205,6 +248,13 @@ export default memo(function MermaidBlock({ source, streaming = false }: Mermaid
     a.click();
     URL.revokeObjectURL(url);
   }, [svg]);
+
+  const askAboutStep = useCallback((step: DiagramStep) => {
+    onSend?.(
+      `Explain this diagram step: "${step.title}"` +
+      `${step.explanation ? ` — ${step.explanation}` : ""}. What is happening here and why?`,
+    );
+  }, [onSend]);
 
   if (error) {
     return (
@@ -287,12 +337,62 @@ export default memo(function MermaidBlock({ source, streaming = false }: Mermaid
           ref={stageRef}
           className="diagram-canvas"
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}
-          dangerouslySetInnerHTML={{ __html: svg }}
         />
       </div>
+
+      {steps.length > 0 && (
+        <div className="viz-playbar" data-testid="mermaid-playbar">
+          <button type="button" className="viz-play-btn" aria-label="Reset playback" title="Reset"
+            onClick={() => { setStepIndex(null); setPlaying(false); }}>
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" className="viz-play-btn" aria-label="Previous step" title="Previous step"
+            disabled={stepIndex == null || stepIndex <= 0}
+            onClick={() => { setPlaying(false); setStepIndex(i => (i == null ? 0 : Math.max(0, i - 1))); }}>
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button type="button" className={"viz-play-btn" + (playing ? " is-active" : "")}
+            aria-label={playing ? "Pause playback" : "Play steps"} title={playing ? "Pause" : "Play"}
+            onClick={() => {
+              if (!playing && stepIndex == null) setStepIndex(0);
+              setPlaying(p => !p);
+            }}>
+            {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button type="button" className="viz-play-btn" aria-label="Next step" title="Next step"
+            disabled={stepIndex != null && stepIndex >= steps.length - 1}
+            onClick={() => { setPlaying(false); setStepIndex(i => (i == null ? 0 : Math.min(steps.length - 1, i + 1))); }}>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <span className="viz-step-count" data-testid="mermaid-step-count">
+            Step {stepIndex == null ? 0 : stepIndex + 1}/{steps.length}
+          </span>
+        </div>
+      )}
+
+      {activeStep && (
+        <div className="viz-callout" data-testid="mermaid-callout">
+          <div className="min-w-0 flex-1">
+            <span className="viz-callout-title">{activeStep.title}</span>
+            {activeStep.explanation}
+          </div>
+          {onSend && (
+            <button type="button" className="viz-ask-btn" onClick={() => askAboutStep(activeStep)}>
+              <MessageSquarePlus className="w-3 h-3" /> Explain this step
+            </button>
+          )}
+        </div>
+      )}
+
       {selected && (
         <div className="diagram-inspect" data-testid="diagram-inspect">
           <span className="diagram-inspect-label">{selected.label || "Selected node"}</span>
+          {onSend && (
+            <button type="button" className="viz-ask-btn"
+              onClick={() => onSend(`Explain the node "${selected.label}" in this diagram and how it connects to the rest.`)}>
+              <MessageSquarePlus className="w-3 h-3" /> Explain this step
+            </button>
+          )}
           <button className="code-block-ctl" onClick={() => setSelected(null)} aria-label="Clear selection">
             <Eye className="w-3 h-3" />
           </button>
@@ -309,11 +409,49 @@ function zoomAt(v: { x: number; y: number; k: number }, factor: number) {
   return { k, x: v.x * applied, y: v.y * applied };
 }
 
+function normalizeNodeId(id: string): string {
+  // Mermaid 12 nests the diagram id inside the DOM id, e.g.
+  // "mmd-1-flowchart-intake-0" -> "intake".
+  const marker = id.lastIndexOf("flowchart-");
+  const bare = marker >= 0 ? id.slice(marker + "flowchart-".length) : id;
+  return bare.replace(/-\d+$/, "");
+}
+
+function nodeLabelOf(node: Element): string {
+  return node.querySelector(".nodeLabel")?.textContent?.trim()
+    ?? node.querySelector("text")?.textContent?.trim() ?? "";
+}
+
 function highlightConnectedEdges(stage: HTMLElement, nodeId: string) {
-  const rawId = nodeId.replace(/^flowchart-/, "").replace(/-\d+$/, "");
+  const rawId = normalizeNodeId(nodeId);
   if (!rawId) return;
+  const nodeIds = new Set<string>();
+  stage.querySelectorAll<SVGGElement>("g.node").forEach(node => nodeIds.add(normalizeNodeId(node.id)));
   stage.querySelectorAll<SVGPathElement>("path[data-edge]").forEach(edge => {
-    const pair = (edge.getAttribute("data-edge") ?? "").split(",");
-    edge.classList.toggle("edge-active", pair.includes(rawId));
+    edge.classList.toggle("edge-active", edgeEndpoints(edge.id, nodeIds).includes(rawId));
   });
+}
+
+/** Mermaid 12 edge path ids look like "mmd-1-L_intake_plan_0"; node ids may
+ *  contain underscores, so split against the known node id set. */
+function edgeEndpoints(edgeId: string, nodeIds: Set<string>): string[] {
+  const match = /-L_(.+)_\d+$/.exec(edgeId);
+  if (!match) return [];
+  const joined = match[1];
+  for (const source of nodeIds) {
+    if (!joined.startsWith(source + "_")) continue;
+    const target = joined.slice(source.length + 1);
+    if (nodeIds.has(target)) return [source, target];
+  }
+  return [];
+}
+
+/** `%%step: NodeID | Title | Explanation` — one playback step per line. */
+function parseStepComments(source: string): DiagramStep[] {
+  const steps: DiagramStep[] = [];
+  for (const line of source.split("\n")) {
+    const match = /^%%\s*step:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+?)\s*$/.exec(line.trim());
+    if (match) steps.push({ id: match[1], title: match[2], explanation: match[3] });
+  }
+  return steps;
 }

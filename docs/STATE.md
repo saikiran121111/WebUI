@@ -1,6 +1,19 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Open Intelligent UI + Gemini Interactive UI upgrade (2026-10-16):
+      Obsidian luminous-black theme (`lib/render/themes.ts` `OBSIDIAN_SERIES_COLORS`/
+      `OBSIDIAN_MERMAID_THEME`, `.viz-active-node`/`.viz-dimmed-node`/`.viz-active-edge`
+      glow classes in globals.css), `VISUAL_ROUTER_SYSTEM_PROMPT`
+      (`lib/render/systemPrompt.ts`) prepended in `lib/chat/client.ts` `buildBody()`,
+      interactive ChartBlock (type switcher, mark-click explainer + Ask AI, legend
+      toggles, param sliders), interactive MermaidBlock (`%%step:` playback bar,
+      synced node/edge highlight, click-to-inspect), three.js Scene3DBlock (lazy
+      import, attitude sliders, raycast inspect) + MarkdownTable row-ask bar,
+      `/demo-ui` + `?demo=ui` showcase (`lib/render/demoShowcase.ts`, page.tsx
+      trigger). three + @types/three installed locally. Proven by
+      `tests/interactive-ui.spec.ts` 1/1 (zero console errors, zero NaN SVG attrs,
+      highlight classes persist across re-renders); typecheck clean.
 - [x] Filter menu All/Clear redundancy fix (2026-10-16): Clear was a
       duplicate of All; now unchecks all values (empty selection hides all
       rows, header marked via `has(col)`), term button toggles off,

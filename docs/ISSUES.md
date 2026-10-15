@@ -1,6 +1,20 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Mermaid step playback highlighted nothing (mermaid 12.2.0): node DOM ids nest
+  the render id — `mmd-1-flowchart-intake-0`, not `flowchart-intake`. The old
+  `^flowchart-` anchor never matched. Fixed: `normalizeNodeId` splits on
+  `lastIndexOf("flowchart-")` + strips the trailing `-\d+`.
+- Mermaid edge glow never matched: `data-edge` is just `"true"` in mermaid 12 —
+  endpoints live only in the path id `mmd-1-L_<src>_<tgt>_<n>`, and node ids can
+  contain underscores. Fixed: `edgeEndpoints(edgeId, nodeIds)` splits the joined
+  pair against the known node-id set instead of a naive `_` split.
+- Highlight classes + node click listeners vanished ~1s after being applied:
+  `dangerouslySetInnerHTML` on the diagram canvas makes React re-set innerHTML on
+  every re-render (new `{__html}` object identity), wiping all imperative DOM
+  state. Fixed: the interactivity effect injects `stage.innerHTML = svg` itself.
+  Proven: persistence probe (active 1 / dimmed 3 / edge 1 after 900ms) + spec
+  re-asserts counts after an 800ms wait.
 - Most languages rendered colorless: grammars embed others (cpp→regexp, vue→vue-directives,
   typst→tex…) and deps were never loaded; the first failure (cpp) left unresolved imports
   that made every later `loadLanguage` throw with an accumulated missing-list (python
@@ -43,6 +57,11 @@
   from the uploaded file name.
 
 ## Dead ends — do not retry
+- Mermaid wipe debug theories disproven (do not re-investigate): component
+  remount (dataset probes survived), render-effect re-run (step count stayed
+  "Step 1/4"), svg string change (render id stayed `mmd-1`). The wipe was
+  `dangerouslySetInnerHTML` re-injection — see Confirmed and fixed.
+- Playwright `CI=true` here enables `retries: 2` and triples the run time.
 - Playwright `route.fulfill` delivers the whole SSE body in one chunk — the message flips
   to "complete" before async highlighting can paint. Mid-stream tests need a real paced
   http server + `route.continue({ url })`.

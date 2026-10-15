@@ -19,6 +19,18 @@ const chartPointSchema = z.object({
   label: z.string().max(80).optional(),
 });
 
+const chartSliderSchema = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(1).max(60),
+  min: finiteNumber,
+  max: finiteNumber,
+  step: finiteNumber,
+  defaultValue: finiteNumber,
+  /** Series name to tune; omitted means every series. */
+  targetSeries: z.string().max(80).optional(),
+  operation: z.enum(["multiply", "add"]).optional(),
+}).strict();
+
 export const chartSpecSchema = z
   .object({
     type: z.enum([
@@ -26,12 +38,17 @@ export const chartSpecSchema = z
       "pie", "donut", "scatter", "histogram",
     ]),
     title: z.string().max(120).optional(),
+    subtitle: z.string().max(160).optional(),
+    insight: z.string().max(500).optional(),
     unit: z.string().max(24).optional(),
     xLabel: z.string().max(60).optional(),
     yLabel: z.string().max(60).optional(),
     categories: z.array(z.string().max(80)).max(200).optional(),
+    /** One annotation per category, aligned by index with `categories`. */
+    notes: z.array(z.string().max(500)).max(200).optional(),
     series: z.array(chartSeriesSchema).max(12).optional(),
     points: z.array(chartPointSchema).max(500).optional(),
+    sliders: z.array(chartSliderSchema).max(8).optional(),
   })
   .strict()
   .superRefine((spec, ctx) => {
@@ -62,9 +79,13 @@ export const chartSpecSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `series "${s.name}" length does not match categories` });
       }
     }
+    if (spec.notes && spec.notes.length !== spec.categories.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "notes must align one-per-category" });
+    }
   });
 
 export type ChartSpec = z.infer<typeof chartSpecSchema>;
+export type ChartSlider = z.infer<typeof chartSliderSchema>;
 
 const widgetFieldSchema = z
   .object({
@@ -111,6 +132,56 @@ export const widgetSpecSchema = z.discriminatedUnion("kind", [
 
 export type WidgetSpec = z.infer<typeof widgetSpecSchema>;
 export type WidgetField = z.infer<typeof widgetFieldSchema>;
+
+/* ── Scene3D: procedural three.js assets, never arbitrary code ─────────── */
+
+const vec3Schema = z.tuple([finiteNumber, finiteNumber, finiteNumber]);
+
+const sceneObjectSchema = z.object({
+  id: z.string().min(1).max(40),
+  kind: z.enum(["box", "sphere", "cylinder", "cone", "torus", "arrow", "grid"]),
+  label: z.string().max(80).optional(),
+  position: vec3Schema.optional(),
+  rotation: vec3Schema.optional(),
+  scale: vec3Schema.optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+}).strict();
+
+const sceneSliderSchema = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(1).max(60),
+  min: finiteNumber,
+  max: finiteNumber,
+  step: finiteNumber,
+  defaultValue: finiteNumber,
+  /** id of the object the slider drives. */
+  target: z.string().max(40),
+  binding: z.enum(["rotation", "scale", "position"]),
+  axis: z.enum(["x", "y", "z"]),
+}).strict();
+
+export const scene3dSpecSchema = z
+  .object({
+    title: z.string().max(120).optional(),
+    objects: z.array(sceneObjectSchema).min(1).max(24),
+    sliders: z.array(sceneSliderSchema).max(8).optional(),
+  })
+  .strict()
+  .superRefine((spec, ctx) => {
+    const ids = new Set(spec.objects.map(o => o.id));
+    if (ids.size !== spec.objects.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "object ids must be unique" });
+    }
+    for (const s of spec.sliders ?? []) {
+      if (!ids.has(s.target)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `slider "${s.id}" targets unknown object "${s.target}"` });
+      }
+    }
+  });
+
+export type Scene3DSpec = z.infer<typeof scene3dSpecSchema>;
+export type Scene3DObject = z.infer<typeof sceneObjectSchema>;
+export type Scene3DSlider = z.infer<typeof sceneSliderSchema>;
 
 export function parseJsonFence<T extends z.ZodTypeAny>(
   source: string,

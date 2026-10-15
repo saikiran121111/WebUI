@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## 2026-10-16 — Open Intelligent UI + Gemini Interactive UI upgrade
+- New interactive render layer + showcase, all verified by
+  `tests/interactive-ui.spec.ts` (1/1, zero console errors, zero NaN SVG attrs):
+  chart type switcher + mark-click explainer + Ask AI hand-off + legend switches +
+  param sliders (`components/render/ChartBlock.tsx`), mermaid `%%step:` playback
+  with synced node/edge glow + click-to-inspect (`components/render/MermaidBlock.tsx`),
+  lazy three.js scene with attitude sliders + raycast inspect
+  (`components/render/Scene3DBlock.tsx`, three + @types/three installed locally),
+  table row-click → "Ask AI about this row" bar (`components/render/MarkdownTable.tsx`).
+- `lib/render/themes.ts`: `OBSIDIAN_SERIES_COLORS` + `OBSIDIAN_MERMAID_THEME`
+  (pure-black `#050507`/`#0d0d12`, luminous accents); `app/globals.css`:
+  `.viz-active-node`/`.viz-dimmed-node`/`.viz-active-edge` glow classes +
+  `viz-edge-flow` under `prefers-reduced-motion: no-preference`.
+- `lib/render/systemPrompt.ts`: `VISUAL_ROUTER_SYSTEM_PROMPT` (when/how to emit
+  chart/mermaid/scene3d/table blocks + `%%step:` comments) prepended to every
+  request in `lib/chat/client.ts` `buildBody()`.
+- `/demo-ui` page + `?demo=ui` query (`app/page.tsx`, `lib/render/demoShowcase.ts`)
+  exercise every interaction client-side — no model server needed.
+- MermaidBlock fixes (see ISSUES.md): mermaid-12 node/edge id parsing
+  (`normalizeNodeId`, `edgeEndpoints`) and imperative `stage.innerHTML = svg`
+  replacing `dangerouslySetInnerHTML` so highlight classes + listeners survive
+  React re-renders. Typecheck clean.
+
 ## 2026-10-16 — filter menu All/Clear redundancy fixed
 - User: in the right-click filter dropdown, "Clear" and "All" do the same
   thing. True: `clearColumnFilter` deleted the value filter AND re-checked

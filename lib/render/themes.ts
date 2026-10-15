@@ -83,3 +83,47 @@ export const lightTheme: ThemeRegistration = {
   colors: { "editor.background": "#00000000" },
   tokenColors: lightTokens,
 };
+
+/**
+ * Obsidian Luminous series palette — eye-friendly on pure black, ordered so
+ * adjacent chart series stay distinguishable. Shared by ChartBlock, the
+ * Scene3D default mesh colors and any future generative surface.
+ */
+export const OBSIDIAN_SERIES_COLORS = [
+  "#38BDF8", "#A78BFA", "#34D399", "#FBBF24",
+  "#FB7185", "#818CF8", "#2DD4BF", "#FB923C",
+] as const;
+
+/** Mermaid `theme: "base"` variables tuned to the Obsidian black palette. */
+export const OBSIDIAN_MERMAID_THEME: Record<string, string> = {
+  background: "transparent",
+  primaryColor: "#0d0d12",
+  primaryBorderColor: "#3d4c5e",
+  primaryTextColor: "#F4F4F6",
+  lineColor: "#64748B",
+  secondaryColor: "#161a22",
+  tertiaryColor: "#0d0d12",
+  mainBkg: "#0d0d12",
+  nodeBorder: "#3d4c5e",
+  clusterBkg: "rgba(255,255,255,0.02)",
+  edgeLabelBackground: "#0d0d12",
+  titleColor: "#F4F4F6",
+  actorBkg: "#0d0d12",
+  actorBorder: "#3d4c5e",
+  actorTextColor: "#F4F4F6",
+  signalColor: "#64748B",
+  signalTextColor: "#F4F4F6",
+  labelBoxBkgColor: "#0d0d12",
+  labelBoxBorderColor: "#3d4c5e",
+  labelTextColor: "#F4F4F6",
+  loopTextColor: "#F4F4F6",
+  noteBkgColor: "#161a22",
+  noteTextColor: "#F4F4F6",
+  noteBorderColor: "#3d4c5e",
+  activationBkgColor: "#161a22",
+  activationBorderColor: "#3d4c5e",
+  sequenceNumberColor: "#F4F4F6",
+  classText: "#F4F4F6",
+  attributeBackgroundColorOdd: "#0d0d12",
+  attributeBackgroundColorEven: "#161a22",
+};

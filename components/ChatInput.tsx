@@ -277,7 +277,7 @@ function AttachmentStatusIcon({ status }: { status: Attachment["status"] }) {
 
 function EffortMenu({ effort, onSelect }: { effort: EffortLevel; onSelect: (e: EffortLevel) => void }) {
   return (
-    <div className="absolute bottom-10 right-0 z-30 w-36 py-1 rounded-xl bg-[#141416] border border-white/[0.1] shadow-xl">
+    <div className="absolute bottom-10 right-0 z-30 w-36 py-1 rounded-xl bg-[#0d0d12] border border-white/[0.1] shadow-xl">
       <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-widest font-medium">Reasoning effort</div>
       {EFFORT_LEVELS.map(e => (
         <button key={e} onClick={() => onSelect(e)}

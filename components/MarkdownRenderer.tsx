@@ -15,6 +15,7 @@ import CodeBlock from "./render/CodeBlock";
 import MermaidBlock from "./render/MermaidBlock";
 import ChartBlock from "./render/ChartBlock";
 import WidgetBlock from "./render/WidgetBlock";
+import Scene3DBlock from "./render/Scene3DBlock";
 import TreeBlock from "./render/TreeBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import { fenceKind } from "../lib/render/registry";
@@ -157,7 +158,10 @@ const MD_COMPONENTS = {
     return <code className={className} {...props}>{children}</code>;
   },
   table({ children }: { children?: ReactNode }) {
-    return <MarkdownTable>{children}</MarkdownTable>;
+    // Row-level "Ask AI about this row" needs onSend — context resolves
+    // here because react-markdown renders these overrides as components.
+    const { onSend } = useContext(RenderContext);
+    return <MarkdownTable onSend={onSend}>{children}</MarkdownTable>;
   },
   a({ children, href }: { children?: ReactNode; href?: string }) {
     return (
@@ -205,8 +209,9 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   const source = flattenText(childProps.children).replace(/\n$/, "");
 
   const kind = fenceKind(language);
-  if (kind === "mermaid" && allowInteractive) return <MermaidBlock source={source} streaming={streaming} />;
-  if (kind === "chart" && allowInteractive) return <ChartBlock source={source} streaming={streaming} />;
+  if (kind === "mermaid" && allowInteractive) return <MermaidBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "chart" && allowInteractive) return <ChartBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "scene3d" && allowInteractive) return <Scene3DBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "widget" && allowInteractive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
   // Box-drawing trees arrive in plain/text fences — detect by content, not label.
   if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;

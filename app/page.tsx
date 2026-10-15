@@ -9,6 +9,7 @@ import ConfirmDialog from "../components/ui/ConfirmDialog";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv } from "../lib/persistence";
+import { buildDemoConversation } from "../lib/render/demoShowcase";
 
 function uid(prefix = ""): string {
   return prefix + Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
@@ -27,6 +28,20 @@ export default function HomePage() {
     messages, status, error, isThinking, reasoningContent,
     send, stop, retry, edit, load, clear, setEffort, effort,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
+
+  // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
+  // deterministic interactive sample via load() — no model server needed.
+  const loadDemo = useCallback(() => {
+    load(buildDemoConversation());
+    setHasScrolledUp(false);
+  }, [load]);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("demo") === "ui") loadDemo();
+  }, [loadDemo]);
+  const runSend = useCallback((text: string, attachments: Attachment[] = []) => {
+    if (text.trim() === "/demo-ui") { loadDemo(); return; }
+    send(text, { attachments });
+  }, [send, loadDemo]);
 
   // Ids deleted this session — a stale in-flight list refresh must never
   // resurrect them in the sidebar.
@@ -225,7 +240,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-[#0a0a0c] text-white overflow-hidden">
+    <div className="flex h-screen bg-[#050507] text-white overflow-hidden">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -270,7 +285,7 @@ export default function HomePage() {
           <div className="max-w-3xl mx-auto px-4 py-6 pb-36">
             {messages.length === 0 ? (
               <EmptyState
-                onSend={(text, atts) => send(text, { attachments: atts })}
+                onSend={(text, atts) => runSend(text, atts)}
                 conversations={conversations}
                 onSelect={handleSelect}
                 effort={effort}
@@ -291,7 +306,7 @@ export default function HomePage() {
                     <ChatMessage
                       message={m}
                       onEdit={edit}
-                      onSend={(text) => send(text)}
+                      onSend={(text) => runSend(text)}
                     />
                   </motion.div>
                 ))}
@@ -349,7 +364,7 @@ export default function HomePage() {
             >
               <div className="pointer-events-auto max-w-3xl mx-auto px-4 pb-4 pt-1">
                 <ChatInput
-                  onSend={(text, atts) => send(text, { attachments: atts })}
+                  onSend={(text, atts) => runSend(text, atts)}
                   onStop={stop}
                   isLoading={status === "streaming"}
                   isThinking={isThinking}

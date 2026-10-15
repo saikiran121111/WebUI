@@ -286,7 +286,7 @@ function ConversationItem({
         {open && (
           <div
             className="absolute right-0 top-5 z-50 w-36 py-1 rounded-lg
-              bg-[#141416] border border-white/[0.1] shadow-xl"
+              bg-[#0d0d12] border border-white/[0.1] shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <button onClick={() => { onRename(c.id); setMenuOpen(null); }}

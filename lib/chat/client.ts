@@ -1,5 +1,6 @@
 import type { Attachment, ChatRequest, ChatStreamCallback, ToolDef } from "./types";
 import { createStreamParser, StreamHandle, StreamOptions } from "../stream/parser";
+import { VISUAL_ROUTER_SYSTEM_PROMPT } from "../render/systemPrompt";
 
 const DEFAULT_URL = "/api/chat";
 
@@ -41,6 +42,9 @@ export class ChatClient {
 
   private buildBody(req: ChatRequest) {
     const messages: any[] = [];
+    // Visual-router instructions first: the model only emits chart/mermaid/
+    // scene3d/widget fences because this system turn teaches it the formats.
+    messages.push({ role: "system", content: VISUAL_ROUTER_SYSTEM_PROMPT });
     for (const m of req.messages) {
       // Attachments ride on the message they belong to, so a follow-up
       // question still has the file content in front of the model.
