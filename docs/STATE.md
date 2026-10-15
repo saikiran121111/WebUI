@@ -31,6 +31,15 @@
 - [x] Render e2e spec: `tests/render.spec.ts` (13 tests: copy fidelity, table sort/CSV,
       mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence,
       line spacing, list markers, heading inline-code scale, IDE tree, mid-stream color).
+- [x] Table round 3 (2026-10-15): drag UX fixed — table width pinned to the
+      column-width sum during resize (kills the width:100%+fixed redistribution
+      that re-wrapped text), `.cols-resized` cells clip with ellipsis instead of
+      re-wrapping (row heights never change mid-drag), 12px grab zone with hover
+      grip line + accent drag guide, body `col-resize` cursor + no text
+      selection while dragging, drag no longer triggers a phantom sort click,
+      manual widths reset when columns expand/collapse. Proven by extended
+      e2e "dragging one column must not reflow other columns or row heights"
+      (widen + shrink + fullscreen phases) — render spec 16/16, tsc clean.
 - [x] Table round 2 (2026-10-15): drag-resize columns (fixed layout + handles),
       right-click header filter dropdown (unique values + custom text term),
       sticky fullscreen header. `tests/render.spec.ts` 15/15.

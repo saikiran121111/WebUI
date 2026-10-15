@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 2026-10-15 — table round 3: spreadsheet-grade column dragging (Playwright-proven)
+- Reproduced the complaint with e2e geometry sampling: shrinking a column made
+  row heights jump 57/37 → 77px (fullscreen: whole table reflowed) because
+  `width:100%` + `table-layout:fixed` redistributed the freed space across every
+  column, re-wrapping text mid-drag.
+- `components/render/MarkdownTable.tsx` `startResize`: pins `table.style.width`
+  to the exact sum of column widths at drag start and on every move — freed
+  space stays freed, other columns never budge.
+- `app/globals.css`: once `.cols-resized` is active, tbody cells clip with
+  `nowrap + text-overflow: ellipsis` (Excel semantics) — row heights are
+  constant while dragging; widening a column reveals the text again.
+- Grab ergonomics: handle widened 8→12px (`right:-6px`), faint grip line on
+  header hover, solid accent guide on the active edge, `body.md-col-dragging`
+  keeps the col-resize cursor and blocks text selection across the whole page.
+- A drag no longer fires a phantom sort on release (`suppressSortAfterDragRef`);
+  manual widths are reset when columns expand/collapse (hidden cells were
+  captured at 0px) and on double-click reset (`resetColWidths`).
+- Test extended: widen + shrink + fullscreen drag phases, asserting other
+  columns ±2px and row heights ±1px throughout. Render spec 16/16, `tsc` clean.
+
 ## 2026-10-15 — table round 2: drag-resize columns, right-click value filters, sticky fullscreen header
 - Column resizing: drag handle on each header's right edge (`.md-col-resize`); first
   drag switches the table to `table-layout: fixed` with captured widths; double-click

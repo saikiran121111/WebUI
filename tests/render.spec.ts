@@ -141,6 +141,113 @@ test("markdown table collapses wide columns, filters rows and opens fullscreen",
   await expect(wrap).not.toHaveClass(/is-fullscreen/);
 });
 
+test("dragging one column must not reflow other columns or row heights", async ({ page }) => {
+  const rows = [
+    ["Ada", "C", "90", "12", "MIT", "first programmer of all, wrote the analytic engine notes in the 1840s"],
+    ["Grace", "COBOL", "10", "8", "Apache", "pioneered compilers and taught the navy to program in English"],
+    ["Linus", "C", "50", "20", "GPL", "maintains the largest collaborative software project ever attempted"],
+    ["Ken", "Go", "30", "15", "BSD", "co-created Unix and Plan 9, later designed the Go language"],
+    ["Barbara", "Smalltalk", "70", "5", "MIT", "invented OOP at Xerox PARC with the Dynabago vision"],
+    ["Alan", "Prolog", "20", "3", "MIT", "formalized computability and later worked on morphology"],
+  ];
+  const table = ["| Name | Lang | Score | Stars | License | Notes |", "| --- | --- | --- | --- | --- | --- |"]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`))
+    .join("\n");
+  await mockStream(page, table);
+  await page.goto("http://localhost:3000/");
+  await send(page, "wide table please");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await wrap.hover();
+  await wrap.locator('[data-testid="table-cols-btn"]').click(); // expand so long Notes text is visible
+
+  const geometry = () => wrap.evaluate((el) => {
+    const ths = Array.from(el.querySelectorAll("thead tr:not(.md-filter-row) th"))
+      .map(th => Math.round((th as HTMLElement).getBoundingClientRect().width));
+    const trs = Array.from(el.querySelectorAll("tbody tr"))
+      .map(tr => Math.round((tr as HTMLElement).getBoundingClientRect().height));
+    const tableW = Math.round((el.querySelector("table") as HTMLElement).getBoundingClientRect().width);
+    return { ths, trs, tableW };
+  });
+
+  const before = await geometry();
+  const handleBox = await wrap.locator("thead th").nth(0).locator(".md-col-resize").boundingBox();
+  const y = handleBox!.y + handleBox!.height / 2;
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(handleBox!.x + 60, y, { steps: 4 });
+  const mid = await geometry();
+  await page.screenshot({ path: "test-results/drag-mid.png" });
+  await page.mouse.move(handleBox!.x + 120, y, { steps: 4 });
+  const after = await geometry();
+  await page.screenshot({ path: "test-results/drag-end.png" });
+  await page.mouse.up();
+
+  console.log("before:", JSON.stringify(before));
+  console.log("mid:   ", JSON.stringify(mid));
+  console.log("after: ", JSON.stringify(after));
+
+  // Dragged column grew by ~120px.
+  expect(after.ths[0]).toBeGreaterThanOrEqual(before.ths[0] + 100);
+  // Every other column must keep its width (±2px) — no squeeze-reflow.
+  for (let i = 1; i < before.ths.length; i++) {
+    expect(Math.abs(after.ths[i] - before.ths[i]), `column ${i} width changed`).toBeLessThanOrEqual(2);
+  }
+  // Row heights must not change while dragging (mid → after, both inside the
+  // drag: spreadsheet mode clips cell text instead of re-wrapping it).
+  for (let i = 0; i < mid.trs.length; i++) {
+    expect(Math.abs(after.trs[i] - mid.trs[i]), `row ${i} height changed`).toBeLessThanOrEqual(1);
+  }
+
+  // Shrink phase: dragging a wide column narrower must not let the browser
+  // redistribute the freed space across the other columns (that re-wrapped
+  // text and made rows jump — the "row increase while dragging" complaint).
+  const shrinkBefore = await geometry();
+  await wrap.locator(".md-table-scroller").evaluate(el => { el.scrollLeft = el.scrollWidth; });
+  const notesHandle = await wrap.locator("thead th").nth(5).locator(".md-col-resize").boundingBox();
+  const ny = notesHandle!.y + notesHandle!.height / 2;
+  await page.mouse.move(notesHandle!.x + notesHandle!.width / 2, ny);
+  await page.mouse.down();
+  await page.mouse.move(notesHandle!.x - 200, ny, { steps: 6 });
+  const shrunk = await geometry();
+  await page.mouse.up();
+  console.log("shrunk:", JSON.stringify(shrunk));
+
+  expect(shrunk.ths[5]).toBeLessThanOrEqual(shrinkBefore.ths[5] - 180);
+  for (let i = 0; i < 5; i++) {
+    expect(Math.abs(shrunk.ths[i] - shrinkBefore.ths[i]), `column ${i} grew when Notes shrank`).toBeLessThanOrEqual(2);
+  }
+  for (let i = 0; i < shrinkBefore.trs.length; i++) {
+    expect(Math.abs(shrunk.trs[i] - shrinkBefore.trs[i]), `row ${i} height jumped on shrink`).toBeLessThanOrEqual(1);
+  }
+
+  // Fullscreen: the wide viewport is where redistribution was worst.
+  await wrap.locator('[data-testid="table-fullscreen-btn"]').click();
+  await expect(wrap).toHaveClass(/is-fullscreen/);
+  const fsBefore = await geometry();
+  const fsHandle = await wrap.locator("thead th").nth(5).locator(".md-col-resize").boundingBox();
+  const fy = fsHandle!.y + fsHandle!.height / 2;
+  // grab the inner half of the handle — the outer half is clipped at the
+  // viewport edge, exactly like a spreadsheet's last column border
+  await page.mouse.move(fsHandle!.x + 2, fy);
+  await page.mouse.down();
+  await page.mouse.move(fsHandle!.x - 300, fy, { steps: 6 });
+  const fsAfter = await geometry();
+  await page.screenshot({ path: "test-results/drag-fullscreen.png" });
+  await page.mouse.up();
+  console.log("fs before:", JSON.stringify(fsBefore));
+  console.log("fs after: ", JSON.stringify(fsAfter));
+
+  expect(fsAfter.ths[5]).toBeLessThanOrEqual(fsBefore.ths[5] - 280);
+  for (let i = 0; i < 5; i++) {
+    expect(Math.abs(fsAfter.ths[i] - fsBefore.ths[i]), `fullscreen column ${i} changed`).toBeLessThanOrEqual(2);
+  }
+  for (let i = 0; i < fsBefore.trs.length; i++) {
+    expect(Math.abs(fsAfter.trs[i] - fsBefore.trs[i]), `fullscreen row ${i} height jumped`).toBeLessThanOrEqual(1);
+  }
+  await page.keyboard.press("Escape");
+});
+
 test("right-click header filter and drag column resize work like a spreadsheet", async ({ page }) => {
   const rows = [
     ["Ada", "C", "90", "12", "MIT", "first programmer"],

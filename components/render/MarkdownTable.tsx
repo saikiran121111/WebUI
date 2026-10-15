@@ -30,6 +30,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   const savedExpandedRef = useRef(false);
   const valueFiltersRef = useRef<Map<number, Set<string>>>(new Map());
   const termFiltersRef = useRef<Map<number, string>>(new Map());
+  const suppressSortAfterDragRef = useRef(0);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [sortable, setSortable] = useState<boolean | null>(null);
   const [colCount, setColCount] = useState(0);
@@ -111,14 +112,26 @@ export default memo(function MarkdownTable({ children }: { children: React.React
       table.classList.add("cols-resized");
       headerCells.forEach((cell, i) => { cell.style.width = `${widths[i]}px`; });
     }
+    // Pin the table to the exact sum of column widths. Without this the CSS
+    // width:100% + fixed layout redistributes leftover space proportionally
+    // across every column whenever the sum shrinks below the container —
+    // which re-wrapped text and made row heights jump mid-drag.
+    const sumWidths = () => headerCells.reduce((sum, c) => sum + (parseFloat(c.style.width) || 0), 0);
+    table.style.width = `${sumWidths()}px`;
     const startX = e.clientX;
     const startW = th.getBoundingClientRect().width;
     handle.classList.add("is-dragging");
+    document.body.classList.add("md-col-dragging");
+    let moved = false;
     const onMove = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - startX) > 3) moved = true;
       th.style.width = `${Math.max(56, Math.round(startW + ev.clientX - startX))}px`;
+      table.style.width = `${sumWidths()}px`;
     };
     const onUp = () => {
       handle.classList.remove("is-dragging");
+      document.body.classList.remove("md-col-dragging");
+      if (moved) suppressSortAfterDragRef.current = Date.now();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
@@ -126,8 +139,14 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     window.addEventListener("pointerup", onUp);
   }, []);
 
+  const resetColWidths = useCallback((table: HTMLTableElement, headerRow: Element) => {
+    table.classList.remove("cols-resized");
+    table.style.width = "";
+    for (const c of headerRow.children) (c as HTMLElement).style.width = "";
+  }, []);
+
   const addResizeHandles = useCallback(() => {
-    const table = wrapRef.current?.querySelector("table.md-table");
+    const table = wrapRef.current?.querySelector<HTMLTableElement>("table.md-table");
     const headerRow = table?.querySelector("thead tr:not(.md-filter-row)");
     if (!table || !headerRow) return;
     for (const cell of headerRow.children) {
@@ -140,23 +159,24 @@ export default memo(function MarkdownTable({ children }: { children: React.React
         startResize(e as PointerEvent, cell as HTMLTableCellElement, handle);
       });
       handle.addEventListener("click", (e) => e.stopPropagation());
-      handle.addEventListener("dblclick", () => {
-        table.classList.remove("cols-resized");
-        for (const c of headerRow.children) (c as HTMLElement).style.width = "";
-      });
+      handle.addEventListener("dblclick", () => resetColWidths(table, headerRow));
       cell.appendChild(handle);
     }
-  }, [startResize]);
+  }, [startResize, resetColWidths]);
 
   const applyColHidden = useCallback((hide: boolean) => {
-    const table = wrapRef.current?.querySelector("table.md-table");
+    const table = wrapRef.current?.querySelector<HTMLTableElement>("table.md-table");
     if (!table) return;
+    // Captured widths of hidden cells are 0 — expanding them back would
+    // render 0px-wide columns, so drop the manual sizing when columns toggle.
+    const headerRow = table.querySelector("thead tr:not(.md-filter-row)");
+    if (table.classList.contains("cols-resized") && headerRow) resetColWidths(table, headerRow);
     for (const row of table.querySelectorAll("tr")) {
       for (let i = COLLAPSE_AT; i < row.children.length; i++) {
         row.children[i].classList.toggle("col-hidden", hide);
       }
     }
-  }, []);
+  }, [resetColWidths]);
 
   const measure = useCallback(() => {
     if (sortable !== null) return;
@@ -172,6 +192,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   }, [sortable, applyColHidden, addResizeHandles]);
 
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
+    if (Date.now() - suppressSortAfterDragRef.current < 300) return; // a drag just ended — not a sort click
     if ((e.target as Element).closest(".md-filter-row")) return;
     const th = (e.target as Element).closest("th");
     if (!th) return;

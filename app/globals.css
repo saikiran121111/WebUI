@@ -287,19 +287,29 @@ table.md-table {
 .md-col-resize {
   position: absolute;
   top: 0;
-  right: -4px;
-  width: 8px;
+  right: -6px;
+  width: 12px;
   height: 100%;
   cursor: col-resize;
   z-index: 3;
   touch-action: none;
-  border-radius: 2px;
   background: transparent;
   transition: background 0.15s ease;
 }
-.md-col-resize:hover, .md-col-resize.is-dragging { background: var(--accent-soft); }
+/* faint grip line on header hover so the grab zone is discoverable */
+.md-table th:hover .md-col-resize {
+  background: linear-gradient(to right, transparent 5px, var(--border-strong) 5px, var(--border-strong) 7px, transparent 7px);
+}
+/* solid accent guide on the active edge */
+.md-col-resize:hover, .md-col-resize.is-dragging {
+  background: linear-gradient(to right, transparent 4px, var(--accent) 4px, var(--accent) 6px, transparent 6px);
+}
+body.md-col-dragging { cursor: col-resize; user-select: none; }
 table.md-table.cols-resized { table-layout: fixed; }
-table.md-table.cols-resized td { overflow: hidden; }
+/* Once columns are hand-sized the table behaves like a spreadsheet grid:
+   cells clip with an ellipsis instead of re-wrapping, so row heights stay
+   rock-steady while dragging (widening a column reveals more text again). */
+table.md-table.cols-resized td { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .md-table td {
   padding: 0.5rem 0.85rem;
   border-bottom: 1px solid var(--border);
