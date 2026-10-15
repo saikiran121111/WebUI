@@ -52,8 +52,9 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     const headerRow = wrapRef.current?.querySelector("thead tr");
     if (!headerRow) return;
     Array.from(headerRow.children).forEach((cell, col) => {
-      const active = (valueFiltersRef.current.get(col)?.size ?? 0) > 0
-        || !!termFiltersRef.current.get(col);
+      // An empty selection set is a real filter too (it hides every row), so
+      // key off has(), not size.
+      const active = valueFiltersRef.current.has(col) || !!termFiltersRef.current.get(col);
       cell.classList.toggle("filter-active", active);
     });
   }, []);
@@ -295,22 +296,16 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     applyFilter();
   }, [filterMenu, menuOptions, applyFilter]);
 
+  // The "contains" button toggles: clicking it while its term is the active
+  // filter removes the term (Clear no longer doubles as the term reset).
   const applyMenuTextTerm = useCallback(() => {
     if (!filterMenu) return;
     const term = menuSearch.trim().toLowerCase();
-    if (!term) return;
-    termFiltersRef.current.set(filterMenu.col, term);
+    const active = !!term && (termFiltersRef.current.get(filterMenu.col) ?? "") === term;
+    if (!term || active) termFiltersRef.current.delete(filterMenu.col);
+    else termFiltersRef.current.set(filterMenu.col, term);
     applyFilter();
   }, [filterMenu, menuSearch, applyFilter]);
-
-  const clearColumnFilter = useCallback(() => {
-    if (!filterMenu) return;
-    valueFiltersRef.current.delete(filterMenu.col);
-    termFiltersRef.current.delete(filterMenu.col);
-    setMenuChecked(new Set(menuOptions));
-    setMenuSearch("");
-    applyFilter();
-  }, [filterMenu, menuOptions, applyFilter]);
 
   useEffect(() => {
     if (!filterMenu) return;
@@ -451,8 +446,10 @@ export default memo(function MarkdownTable({ children }: { children: React.React
             {visibleOptions.length === 0 && <div className="md-table-menu-empty">No matching values</div>}
           </div>
           <div className="md-table-menu-foot">
-            <button type="button" onClick={() => commitMenuChecked(new Set(menuOptions))}>All</button>
-            <button type="button" onClick={clearColumnFilter}>Clear</button>
+            <button type="button" title="Check every value"
+              onClick={() => commitMenuChecked(new Set(menuOptions))}>All</button>
+            <button type="button" title="Uncheck every value — then tick just the ones you want"
+              onClick={() => commitMenuChecked(new Set())}>Clear</button>
             <span>{menuChecked.size === menuOptions.length ? "all" : `${menuChecked.size}/${menuOptions.length}`} selected</span>
           </div>
         </div>

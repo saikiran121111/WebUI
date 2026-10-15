@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026-10-16 — filter menu All/Clear redundancy fixed
+- User: in the right-click filter dropdown, "Clear" and "All" do the same
+  thing. True: `clearColumnFilter` deleted the value filter AND re-checked
+  every box — identical to All unless a text term happened to be set.
+- `components/render/MarkdownTable.tsx`: Clear now unchecks every value
+  (`commitMenuChecked(new Set())`) so you can tick one value without
+  unticking the rest; `clearColumnFilter` deleted. The "contains" term
+  button toggles off when its term is active. `updateFilterMarks` keys on
+  `has(col)` not `size > 0` — an empty selection hides all rows and must
+  still mark the header filter-active.
+- `tests/render.spec.ts`: filter test extended (term toggle off → 6 rows,
+  Clear → 0 rows + "0 of 6 rows" chip, All → 6 rows). Suite 9/9, tsc clean.
+
 ## 2026-10-16 — expanded-table tall-row gaps fixed
 - User: right after expanding a wide table, every row is ~120px of empty
   space; it only compacts after the first drag. Root cause: in auto layout

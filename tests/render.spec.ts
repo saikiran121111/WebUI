@@ -131,9 +131,18 @@ test("markdown table collapses wide columns, filters rows and opens fullscreen",
   await wrap.locator('[data-testid="filter-menu-text"]').click();
   await expect(wrap.locator("tbody tr:visible")).toHaveCount(1);
   await expect(wrap.locator('[data-testid="table-row-count"]')).toHaveText("1 of 6 rows");
-  await wrap.locator(".md-table-menu-foot button:has-text('Clear')").click();
-  await page.keyboard.press("Escape");
+  // The term button toggles: clicking the active term removes that filter.
+  await wrap.locator('[data-testid="filter-menu-text"]').click();
   await expect(wrap.locator("tbody tr:visible")).toHaveCount(6);
+  // Clear unchecks every value (hides all rows); All re-checks them. They are
+  // deliberately opposites now — Clear exists so you can tick one value after
+  // unchecking the rest instead of unticking seven boxes one by one.
+  await wrap.locator(".md-table-menu-foot button:has-text('Clear')").click();
+  await expect(wrap.locator("tbody tr:visible")).toHaveCount(0);
+  await expect(wrap.locator('[data-testid="table-row-count"]')).toHaveText("0 of 6 rows");
+  await wrap.locator(".md-table-menu-foot button:has-text('All')").click();
+  await expect(wrap.locator("tbody tr:visible")).toHaveCount(6);
+  await page.keyboard.press("Escape");
 
   // Fullscreen overlay: fixed inset-0, Escape closes it.
   await wrap.locator('[data-testid="table-fullscreen-btn"]').click();

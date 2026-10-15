@@ -1,6 +1,10 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Filter menu All/Clear redundancy fix (2026-10-16): Clear was a
+      duplicate of All; now unchecks all values (empty selection hides all
+      rows, header marked via `has(col)`), term button toggles off,
+      `clearColumnFilter` deleted. Filter e2e extended; suite 9/9, tsc clean.
 - [x] Expanded-table tall-row gap fix (2026-10-16): off-screen wrapped cell
       text ballooned row heights until first drag; `syncOverflowClass` now
       toggles `cols-nowrap` (nowrap+ellipsis td) whenever the table overflows
