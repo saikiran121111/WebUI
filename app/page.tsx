@@ -277,7 +277,7 @@ export default function HomePage() {
                     <ChatMessage
                       message={m}
                       onEdit={edit}
-                      onCopy={async (text) => { try { await navigator.clipboard.writeText(text); } catch {} }}
+                      onSend={(text) => send(text)}
                     />
                   </motion.div>
                 ))}

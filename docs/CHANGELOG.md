@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 2026-10-15 — project-wide rendering upgrade (Shiki, tables, mermaid, charts, widgets)
+- Root cause of white code: Prism emitted token spans but no theme CSS existed anywhere.
+  Replaced with Shiki core + JS regex engine, dual dark/light themes (`lib/render/themes.ts`),
+  ~110-language lazy registry with aliases + honest "Plain text" fallback (`lib/render/languages.ts`).
+- New `lib/render/` (highlight LRU cache, clipboard helper, fence registry, math detection,
+  zod chart/widget schemas) and `components/render/` (CodeBlock with line numbers/wrap/
+  collapse/download + exact-source copy; MermaidBlock with pan/zoom/inspect/fullscreen/SVG
+  export + source-preserving invalid fallback; ChartBlock hand-built SVG + data table;
+  WidgetBlock form/tabs/accordion with validation + follow-up send; MarkdownTable with
+  sorting + CSV).
+- `components/MarkdownRenderer.tsx` rewritten: fences route through the registry (fixes
+  language-less fences rendering as inline code), lazy KaTeX gated by `mathDetect`.
+  `ChatMessage.tsx`/`app/page.tsx` pass streaming + onSend, copy via `copyText`.
+- `app/globals.css` chunks 1–4: Shiki dual-theme override, gutter/diff/wrap, tables,
+  diagram stage, charts, widgets, prose typography, KaTeX.
+- Tests: 5 vitest files under `__tests__/render/` + `tests/render.spec.ts` (8 e2e).
+- Deps installed (user ran npm install). Grammar ids audited against the installed
+  @shikijs/langs dist: fortran→fortran-free-form, postgresql key now loads the `sql`
+  grammar, sshconfig→ssh-config, systemverilog→system-verilog; removed 9 languages with
+  no grammar in the pack (meson, prql, antlr4, gitignore, svg, mustache, sed, reason,
+  purebasic) plus their aliases/labels. Prism dropped from package.json.
+- Verified: `tsc --noEmit` clean; vitest 57/57; `npm run build` clean;
+  `tests/render.spec.ts` 8/8 green (dev server :3000 + mocked SSE, no model).
+  Test fixes along the way: wait for the first colored token before counting
+  (async grammar chunk load) and normalize LF→CRLF before the clipboard
+  fidelity compare (Windows rewrites line endings at the OS layer).
+  `types/prismjs.d.ts` deleted. Full suite not run — file-reading layer 2
+  needs a live model on :8080.
+
 ## 2026-10-14 — videos now carry their audio (Whisper transcript) into the prompt
 - `lib/server/extract/index.ts` — the `video` case only sampled frames; the audio track was
   dropped entirely. It now also runs `audioPcm()` + `transcribePcm()` when the clip has a

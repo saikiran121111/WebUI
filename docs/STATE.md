@@ -21,9 +21,34 @@
       track via `audioPcm`+`transcribePcm`, silent clips stay frames-only) +
       `lib/chat/client.ts` (`attachmentParts` appends "Audio transcript:" for videos).
       Covered by `__tests__/video-narration.test.ts` (4 tests).
+- [x] UI rendering upgrade (code/tables/diagrams/charts/widgets): full `lib/render/`
+      layer (themes, languages ~110 grammars, highlight, clipboard, registry, mathDetect,
+      math, schemas), `components/render/` (CodeBlock, MermaidBlock, ChartBlock,
+      WidgetBlock, MarkdownTable), MarkdownRenderer rewrite (fence routing + lazy KaTeX),
+      ChatMessage/page.tsx wiring (streaming + onSend + copyText), globals.css chunks 1–4
+      (Shiki dual-theme, tables, diagrams, charts, widgets, prose, KaTeX).
+- [x] Render unit tests: `__tests__/render/{languages,registry,mathDetect,highlight,schemas}.test.ts`.
+- [x] Render e2e spec: `tests/render.spec.ts` (8 tests: copy fidelity, table sort/CSV,
+      mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence).
+
+## Rendering upgrade verification (2026-10-15)
+- [x] Deps installed (user ran npm install). Prism fully removed: package.json +
+      `types/prismjs.d.ts` deleted.
+- [x] @shikijs/langs subpath ids audited: 4 renamed (fortran-free-form, sql,
+      ssh-config, system-verilog), 9 dead entries removed + aliases/labels.
+- [x] `npx tsc --noEmit` clean. `npx vitest run` 57/57 green (8 files).
+      `npm run build` clean (route / 173 kB, first load 264 kB, shared 91.2 kB).
+- [x] `tests/render.spec.ts` 8/8 green (dev server :3000 + mocked SSE, no model).
+      Two test-side fixes: wait for the first colored token before counting
+      (grammar chunks load async), and compare the clipboard after LF→CRLF
+      normalization (the Windows OS clipboard layer rewrites line endings).
+- [ ] Full `npx playwright test` not run: `tests/file-reading.spec.ts` layer 2
+      needs a live llama.cpp model on :8080; the 6 other regression specs were
+      left un-run at the user's stop — awaiting direction.
 
 ## Verified
-- [x] `npm run typecheck` clean; `npm test` 19/19 (incl. narrated-mp4 → "zephyr" transcript).
+- [x] `npm run typecheck` clean; `npm test` 57/57 (was 19/19 before the render
+      unit tests; incl. narrated-mp4 → "zephyr" transcript).
 - [x] Layer 1 extraction API: 106/106 passed (12.3 s).
 - [x] Layer 2 real model turns (headed, watched live): 106/106 passed
       — docs/archives 22, images+Dockerfile/Makefile 13, text/code 58, audio+video 13.

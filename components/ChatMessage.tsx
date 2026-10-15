@@ -4,18 +4,20 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { copyText } from "../lib/render/clipboard";
 import type { Message } from "../lib/types";
 
 interface ChatMessageProps {
   message: Message;
   onEdit: (newContent: string, messageId: string) => void;
-  onCopy: (content: string) => void;
+  /** Lets interactive widgets (```widget forms) send validated follow-ups. */
+  onSend?: (text: string) => void;
 }
 
-export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessageProps) {
+export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessageProps) {
   const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error } = message;
   const isUser = role === "user";
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
@@ -28,10 +30,10 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
   }, [isEditing]);
 
   const handleCopy = useCallback(async () => {
-    await onCopy(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [content, onCopy]);
+    const ok = await copyText(content);
+    setCopyStatus(ok ? "copied" : "failed");
+    setTimeout(() => setCopyStatus("idle"), 2000);
+  }, [content]);
 
   const startEdit = useCallback(() => {
     setEditValue(content);
@@ -128,7 +130,7 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
 
       {/* Reasoning block */}
       {reasoning && (
-        <ReasoningBlock text={reasoning} messageId={message.id} onCopy={onCopy} />
+        <ReasoningBlock text={reasoning} />
       )}
 
       {/* Error state */}
@@ -166,7 +168,7 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
       {/* Main content */}
       {content && (
         <div className="msg-content">
-          <MarkdownRenderer content={content} />
+          <MarkdownRenderer content={content} streaming={state === "streaming"} onSend={onSend} />
           {citations.length > 0 && (
             <CitationsBlock citations={citations} />
           )}
@@ -193,10 +195,13 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
       {state !== "streaming" && state !== "error" && (
         <div className="flex items-center gap-1 mt-2">
           {content && (
-            <button onClick={handleCopy}
+            <button onClick={handleCopy} aria-live="polite"
               className="msg-copy-btn flex items-center gap-1.5">
-              {copied ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500 text-xs">Copied</span></>
-                : <><Copy className="w-3 h-3" /><span className="text-xs">Copy</span></>}
+              {copyStatus === "copied"
+                ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500 text-xs">Copied</span></>
+                : copyStatus === "failed"
+                  ? <><AlertCircle className="w-3 h-3 text-red-400" /><span className="text-red-400 text-xs">Failed</span></>
+                  : <><Copy className="w-3 h-3" /><span className="text-xs">Copy</span></>}
             </button>
           )}
         </div>
@@ -205,17 +210,15 @@ export default memo(function ChatMessage({ message, onEdit, onCopy }: ChatMessag
   );
 });
 
-function ReasoningBlock({
-  text, messageId, onCopy,
-}: { text: string; messageId: string; onCopy: (content: string) => void }) {
+function ReasoningBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
 
   const handleCopy = useCallback(async () => {
-    await onCopy(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [text, onCopy]);
+    const ok = await copyText(text);
+    setCopyStatus(ok ? "copied" : "failed");
+    setTimeout(() => setCopyStatus("idle"), 2000);
+  }, [text]);
 
   return (
     <div className="mb-3">
@@ -244,11 +247,13 @@ function ReasoningBlock({
           <div className="text-xs leading-relaxed text-white/50 whitespace-pre-wrap font-mono">
             {text}
           </div>
-          <button onClick={handleCopy}
+          <button onClick={handleCopy} aria-live="polite"
             className="thinking-copy-btn mt-2.5 flex items-center gap-1.5 text-[11px]">
-            {copied
+            {copyStatus === "copied"
               ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500">Copied</span></>
-              : <><Copy className="w-3 h-3" /><span>Copy</span></>}
+              : copyStatus === "failed"
+                ? <><AlertCircle className="w-3 h-3 text-red-400" /><span className="text-red-400">Failed</span></>
+                : <><Copy className="w-3 h-3" /><span>Copy</span></>}
           </button>
         </motion.div>
       )}
