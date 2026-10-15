@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 2026-10-15 — crash on math messages + free scrolling during stream
+- "Expected usable value but received an empty preset" (unified): `lib/render/math.ts`
+  returned `rehypePlugins` as a flat `[plugin, options]` pair and `MarkdownRenderer`
+  spread both as separate entries → unified received the KaTeX options object as a
+  standalone preset (no plugins/settings) and threw. Now a proper `[[plugin, options]]`
+  tuple passed through untouched. Proven by `__tests__/render/mathPlugins.test.ts`.
+- Unable to scroll up mid-generation (`app/page.tsx`): the 120px dead zone re-pinned
+  any upward scroll closer than 120px to the bottom, and wheel-up unpin raced a
+  same-frame rAF pin (React state flushes after the rAF). Now direction-aware
+  hysteresis (any upward move unpins; re-pin only within 8px of bottom) + synchronous
+  `stickToBottomRef` clear in the wheel handler.
+
 ## 2026-10-15 — six rendering fixes from user screenshots + all-139-language proof
 - No colors/indentation for html/css/most languages: TextMate grammars embed others
   (cpp→regexp…, vue→vue-directives…, typst→tex…) and only the requested one loaded →

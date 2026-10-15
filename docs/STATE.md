@@ -38,6 +38,15 @@
       collapse), list-marker restore + heading-code 0.85em, CodeBlock throttle-with-
       trailing + monotonic `appliedSeq` for mid-stream color.
 
+- [x] Math crash + scroll fixes (2026-10-15): `lib/render/math.ts` rehypePlugins now
+      `[[plugin, options]]` tuples (flat pair made unified throw "empty preset" on any
+      TeX message), `MarkdownRenderer` passes them through; `app/page.tsx` scroll is
+      direction-aware (any upward move unpins, re-pin within 8px) + synchronous wheel
+      unpin. `__tests__/render/mathPlugins.test.ts` 2/2; `tsc --noEmit` clean.
+      Live proof: `scripts/scroll-verify/check.mjs` PASS (maxDist 49, 0 pill frames,
+      0 up-jumps) + new `check-upscroll.mjs` PASS (60px wheel-up mid-stream stays
+      free: 0 down-yanks, minDist 231px, pill shown).
+
 ## Rendering upgrade verification (2026-10-15)
 - [x] Deps installed (user ran npm install). Prism fully removed: package.json +
       `types/prismjs.d.ts` deleted.

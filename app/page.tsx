@@ -99,13 +99,27 @@ export default function HomePage() {
   useEffect(() => {
     const c = messagesContainerRef.current;
     if (!c) return;
+    // Direction-aware with hysteresis: any upward movement unpins, even a few
+    // px from the bottom (the old 120px dead zone re-pinned small upward
+    // scrolls, making free scrolling impossible mid-stream). Re-pin only once
+    // the user is back within 8px of the bottom.
+    let lastScrollTop = c.scrollTop;
     const onScroll = () => {
+      const wentUp = c.scrollTop < lastScrollTop - 1;
+      lastScrollTop = c.scrollTop;
       const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
-      setHasScrolledUp(dist > 120);
+      if (wentUp && dist > 8) setHasScrolledUp(true);
+      else if (dist <= 8) setHasScrolledUp(false);
     };
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) setHasScrolledUp(true);
-      else onScroll();
+      if (e.deltaY < 0) {
+        // Synchronous: a rAF pin scheduled earlier this frame must not yank
+        // the user back down before React flushes hasScrolledUp.
+        stickToBottomRef.current = false;
+        setHasScrolledUp(true);
+      } else {
+        onScroll();
+      }
     };
     c.addEventListener("scroll", onScroll, { passive: true });
     c.addEventListener("wheel", onWheel, { passive: true });

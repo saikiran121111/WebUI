@@ -8,11 +8,14 @@ import rehypeKatex from "rehype-katex";
 
 export function mathPlugins(): {
   remarkPlugins: unknown[];
-  rehypePlugins: [unknown, Record<string, unknown>];
+  rehypePlugins: unknown[];
 } {
   return {
     remarkPlugins: [remarkMath],
-    rehypePlugins: [rehypeKatex, { throwOnError: false, errorColor: "#e0a3a3", strict: "ignore" }],
+    // Each entry is a unified plugin tuple [plugin, options]. Passing the
+    // options as a separate array entry makes unified treat it as a preset
+    // with neither plugins nor settings and throw "empty preset".
+    rehypePlugins: [[rehypeKatex, { throwOnError: false, errorColor: "#e0a3a3", strict: "ignore" }]],
   };
 }
 

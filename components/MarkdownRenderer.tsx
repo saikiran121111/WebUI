@@ -24,7 +24,7 @@ import { containsMath } from "../lib/render/mathDetect";
 interface MathModule {
   mathPlugins(): {
     remarkPlugins: unknown[];
-    rehypePlugins: [unknown, Record<string, unknown>];
+    rehypePlugins: unknown[];
   };
 }
 
@@ -73,7 +73,7 @@ export default memo(function MarkdownRenderer({
     const math = mathMod.mathPlugins();
     return {
       remarkPlugins: [remarkGfm, ...math.remarkPlugins],
-      rehypePlugins: [math.rehypePlugins[0], math.rehypePlugins[1]] as unknown[],
+      rehypePlugins: math.rehypePlugins,
     };
   }, [mathMod]);
 
