@@ -198,7 +198,6 @@ export default function ChatInput({
               onChange={e => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={isHero ? "Ask anything — try 'Explain async/await'…" : "Message…"}
-              disabled={isLoading}
               rows={1}
               className={cn(
                 "flex-1 bg-transparent text-white placeholder-white/35 text-sm leading-relaxed outline-none resize-none",

@@ -17,6 +17,21 @@
       `scripts/scroll-verify/` (old code FAIL: 2311px drift, pill up 157/164 frames;
       fixed PASS: maxDist 24px, 0 pill frames, 0 upward jumps).
 
+- [x] Edit/stop fix + collapsible user bubble (2026-10-16): editing a user
+      message mid-stream aborted nothing → sliced bubbles emptied the screen
+      back to the hero ("redirects to homepage") and the orphaned stream's
+      `sendBusyRef` blocked the regeneration; stop left the bubble
+      "streaming" forever; composer was disabled mid-generation.
+      `hooks/useChat.ts`: `edit()` aborts first + `setTimeout(send,0)` after
+      the finally's microtasks; `stop()` + send's aborted branch finalize the
+      partial bubble; send guard now `sendBusyRef` (stale `status` closure
+      removed). `components/ChatInput.tsx`: textarea never disabled.
+      `components/ChatMessage.tsx`: ≥600 chars or ≥12 lines → clamped bubble
+      + Show more/less; `.user-msg-collapsed` in globals.css. Proven by
+      `tests/edit-stop-collapse.spec.ts` 5/5 (paced-SSE upstream proves the
+      old connection really closes); chat-stream+live-chat+render+reasoning
+      regression run 24/24, tsc clean.
+
 - [x] Video audio path: `lib/server/extract/index.ts` (video case transcribes the audio
       track via `audioPcm`+`transcribePcm`, silent clips stay frames-only) +
       `lib/chat/client.ts` (`attachmentParts` appends "Audio transcript:" for videos).

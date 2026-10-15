@@ -7,9 +7,14 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import { copyText } from "../lib/render/clipboard";
 import type { Message } from "../lib/types";
 
+// A user message pasted longer than this starts collapsed to a few lines —
+// people rarely re-read their own prompts, but they can expand on demand.
+const USER_MSG_COLLAPSE_CHARS = 600;
+const USER_MSG_COLLAPSE_LINES = 12;
+
 interface ChatMessageProps {
   message: Message;
-  onEdit: (newContent: string, messageId: string) => void;
+  onEdit: (messageId: string, newContent: string) => void;
   /** Lets interactive widgets (```widget forms) send validated follow-ups. */
   onSend?: (text: string) => void;
 }
@@ -20,7 +25,12 @@ export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessag
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [userMsgExpanded, setUserMsgExpanded] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
+
+  const isLongUserMessage = isUser
+    && (content.length >= USER_MSG_COLLAPSE_CHARS
+        || (content.match(/\n/g)?.length ?? 0) >= USER_MSG_COLLAPSE_LINES - 1);
 
   useEffect(() => {
     if (isEditing && editRef.current) {
@@ -62,9 +72,30 @@ export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessag
         className="flex justify-end mb-4 group/user gap-2 items-start">
         <div className="max-w-[85%] md:max-w-[75%]">
           <div className="px-4 py-2.5 rounded-2xl rounded-br-sm bg-white/[0.07] shadow-sm shadow-black/20">
-            <p className="text-sm leading-relaxed text-white/85 whitespace-pre-wrap">
+            <p
+              data-testid="user-message-bubble"
+              className={cn(
+                "text-sm leading-relaxed text-white/85 whitespace-pre-wrap",
+                isLongUserMessage && !userMsgExpanded && "user-msg-collapsed",
+              )}
+            >
               {content}
             </p>
+            {isLongUserMessage && (
+              <button
+                onClick={() => setUserMsgExpanded(v => !v)}
+                data-testid="user-msg-toggle"
+                aria-expanded={userMsgExpanded}
+                className="mt-1.5 flex items-center gap-1 text-[11px] font-medium
+                  text-white/40 hover:text-white/70 transition-colors">
+                {userMsgExpanded ? "Show less" : "Show more"}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className={cn("transition-transform duration-200", userMsgExpanded && "rotate-180")}>
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+            )}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {attachments.map(att => (

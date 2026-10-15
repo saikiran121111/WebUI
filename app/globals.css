@@ -807,3 +807,16 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
 /* ── KaTeX math ───────────────────────────────────────────────────────── */
 .katex { font-size: 1.05em; }
 .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.25rem 0; }
+
+/* ── Collapsible user message bubble ──────────────────────────────────── */
+/* Long pasted prompts start clamped to a few lines with a fade-out tail;
+   the "Show more" toggle drops this class to reveal the full text. */
+.user-msg-collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.6em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.6em), transparent);
+}

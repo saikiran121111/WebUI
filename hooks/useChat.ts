@@ -132,8 +132,9 @@ export function useChat({
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     console.log("[send] called with:", text.slice(0, 30), "effort:", effortRef.current);
-    if (!text.trim() || status === "streaming") return;
-    if (sendBusyRef.current) return;
+    // sendBusyRef is the real concurrency guard — `status` here would be a
+    // stale closure value (it isn't a dep of this useCallback).
+    if (!text.trim() || sendBusyRef.current) return;
     sendBusyRef.current = true;
     // Kept outside the try so the catch can still mark the right bubble.
     let assistantId: string | null = null;
@@ -210,6 +211,14 @@ export function useChat({
         setReasoningContent("");
       } else {
         console.log("[send] stream was aborted");
+        // Finalize the partial bubble: stop the blinking cursor and bring
+        // back the actions row even though the stream never finished.
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsg.id && m.state === "streaming"
+            ? { ...m, state: "complete", finishedAt: Date.now() }
+            : m
+        ));
+        setStatus("aborted");
       }
     } catch (e: any) {
       console.log("[send] stream error:", e?.message);
@@ -230,8 +239,18 @@ export function useChat({
   }, [model, apiUrl, apiKey, handleEvent]);
 
   const stop = useCallback(() => {
+    const id = assistantIdRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
+    // Finalize the partial bubble so the cursor stops blinking and the
+    // actions row appears; the stream's own finally cleans up the rest.
+    if (id) {
+      setMessages(prev => prev.map(m =>
+        m.id === id && m.state === "streaming"
+          ? { ...m, state: "complete", finishedAt: Date.now() }
+          : m
+      ));
+    }
     setStatus("aborted");
     setError(null);
     setIsThinking(false);
@@ -257,21 +276,28 @@ export function useChat({
   }, [send]);
 
   const edit = useCallback((id: string, newContent: string) => {
-    setMessages(prev => {
-      const idx = prev.findIndex(m => m.id === id);
-      if (idx < 0) return prev;
-      const updated = prev.map(m => m.id === id ? { ...m, content: newContent } : m);
-      messagesRef.current = updated;
-      lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
-      // Drop the edited user message AND everything after it — send() will
-      // append exactly one fresh user + assistant pair, so we end up with a
-      // single exchange on screen.
-      const filtered = updated.slice(0, idx);
-      messagesRef.current = filtered;
-      // Kick off send with updated content.
-      setTimeout(() => send(newContent), 0);
-      return filtered;
-    });
+    // Abort any in-flight generation FIRST. Without this the orphaned
+    // stream keeps running (and its sendBusyRef blocks the replacement
+    // send), while slicing away the streaming assistant bubble can empty
+    // the screen back to the hero — the "edit redirects me home" bug.
+    abortRef.current?.abort();
+    abortRef.current = null;
+
+    const prev = messagesRef.current;
+    const idx = prev.findIndex(m => m.id === id);
+    if (idx < 0) return;
+    // Drop the edited user message AND everything after it — send() will
+    // append exactly one fresh user + assistant pair, so we end up with a
+    // single exchange on screen.
+    const filtered = prev.slice(0, idx);
+    messagesRef.current = filtered;
+    lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
+    setMessages(filtered);
+    setStatus("complete");
+
+    // One macrotask later: the aborted send's finally (pure microtasks by
+    // then) has released sendBusyRef before the replacement send fires.
+    setTimeout(() => send(newContent), 0);
   }, [send]);
 
   return {

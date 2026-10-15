@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## 2026-10-16 — mid-stream edit/stop fixed + collapsible user bubble
+- User: editing the input while generating "redirects to homepage" and the
+  generation can't be stopped. Root cause: `edit()` never aborted the
+  in-flight stream — slicing to `slice(0, idx)` could empty `messages` (hero
+  EmptyState returns), and the orphaned send held `sendBusyRef`, swallowing
+  the regeneration; `stop()` never finalized the partial bubble (cursor
+  blinked forever); the composer textarea was `disabled` mid-generation.
+- `hooks/useChat.ts`: `edit()` aborts first, then `setTimeout(() => send(...), 0)`
+  (the old send's finally is pure microtasks, so the guard is released before
+  the macrotask); `stop()` and send's aborted branch flip the bubble to
+  `complete`; send guard uses `sendBusyRef` (the old `status === "streaming"`
+  check read a stale closure value).
+- `components/ChatInput.tsx`: textarea no longer disabled while streaming
+  (send button already swaps to the stop button; `handleSend` still guards).
+- `components/ChatMessage.tsx` + `app/globals.css`: user messages ≥600 chars
+  or ≥12 lines render clamped (6-line `-webkit-line-clamp` + fade mask) with
+  a Show more/less toggle — collapsed the moment the message is sent.
+- `tests/edit-stop-collapse.spec.ts` (new, 5/5): stop mid-stream finalizes +
+  content stops growing; composer editable mid-generation, Enter doesn't
+  double-send; edit mid-stream → no hero, old upstream connection closed,
+  only the SECOND_REPLY survives; long bubble collapses/expands/re-collapses
+  (scrollHeight vs clientHeight); short messages get no toggle. Regression:
+  chat-stream + conversations-live-chat + render + reasoning specs 24/24.
+
 ## 2026-10-15 — table round 8: funnel filter button removed
 - User: right-click already does filtering, the funnel icon is dead weight.
 - `components/render/MarkdownTable.tsx`: deleted the funnel button, `filtering`
