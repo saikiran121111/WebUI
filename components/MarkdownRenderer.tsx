@@ -82,6 +82,11 @@ export default memo(function MarkdownRenderer({
     [streaming, onSend, allowInteractive],
   );
 
+  const source = useMemo(
+    () => (streaming ? stabilizeStreamingTables(content) : content),
+    [content, streaming],
+  );
+
   return (
     <RenderContext.Provider value={options}>
       <ReactMarkdown
@@ -89,11 +94,57 @@ export default memo(function MarkdownRenderer({
         rehypePlugins={plugins.rehypePlugins as never[] | undefined}
         components={MD_COMPONENTS}
       >
-        {content}
+        {source}
       </ReactMarkdown>
     </RenderContext.Provider>
   );
 });
+
+/**
+ * GFM only recognizes a table once the `| --- | --- |` delimiter row has
+ * fully arrived, so while streaming, the header line sits rendered as raw
+ * pipe text for as long as that row takes to type out (~1s for 20+ columns).
+ * Synthesize the missing or half-streamed tail delimiter row so the table
+ * renders as a table the moment its header line starts arriving. Only
+ * streaming content is touched — the finished message parses exactly as
+ * written.
+ */
+function stabilizeStreamingTables(content: string): string {
+  if ((content.match(/^```/gm)?.length ?? 0) % 2 === 1) return content; // inside an open code fence
+  const lines = content.split("\n");
+  let last = lines.length - 1;
+  while (last >= 0 && lines[last].trim() === "") last--;
+  if (last < 0) return content;
+  const tail = lines[last].trim();
+  const isRow = (line: string) => line.startsWith("|");
+  const DELIM_COMPLETE = /^\|(?:\s*:?-+:?\s*\|)+$/;
+  const DELIM_PARTIAL = /^\|[\s:|-]*$/; // "|", "| ---", "| :--- | ---" — not yet complete
+  const delimFor = (row: string): string | null => {
+    const cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").length;
+    return cells >= 1 ? `|${" --- |".repeat(cells)}` : null;
+  };
+  // The delimiter row itself is mid-stream: replace the tail with a complete
+  // one sized to the header line above it. A short `| --- | --- |` can be
+  // syntactically complete yet mismatch the (wider) header — remark-gfm then
+  // refuses the table — so cell count, not syntax, decides the rewrite.
+  if (last >= 1 && isRow(tail) && DELIM_PARTIAL.test(tail)) {
+    const header = lines[last - 1].trim();
+    if (!isRow(header) || DELIM_COMPLETE.test(header)) return content;
+    const delim = delimFor(header);
+    if (!delim) return content;
+    lines[last] = delim;
+    return lines.join("\n");
+  }
+  // The header line itself is the tail (delimiter not started yet): append a
+  // synthesized delimiter row after it.
+  if (isRow(tail) && !DELIM_PARTIAL.test(tail) && (last === 0 || lines[last - 1].trim() === "")) {
+    const delim = delimFor(tail);
+    if (!delim) return content;
+    lines.splice(last + 1, 0, delim);
+    return lines.join("\n");
+  }
+  return content;
+}
 
 const MD_COMPONENTS = {
   pre({ children }: { children?: ReactNode }) {

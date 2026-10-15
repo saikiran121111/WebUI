@@ -31,6 +31,20 @@
 - [x] Render e2e spec: `tests/render.spec.ts` (13 tests: copy fidelity, table sort/CSV,
       mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence,
       line spacing, list markers, heading inline-code scale, IDE tree, mid-stream color).
+- [x] Table round 8 (2026-10-15): funnel filter button removed (right-click
+      covers filtering) — `filtering` state, `toggleFilter`, `buildFilterRow`,
+      `syncFilterRow`, the `.md-filter-row` DOM/CSS and its guards all deleted
+      from `MarkdownTable.tsx` + globals.css; row-count chip now shows only
+      while a filter is active. Render spec 19/19, tsc clean.
+- [x] Table round 7 (2026-10-15): raw-pipe flash before table parse fixed —
+      remark-gfm only parses a table once the full `| --- |` row arrives, so
+      the header line rendered as a plain paragraph for ~1s. `MarkdownRenderer.tsx`
+      now runs `stabilizeStreamingTables` on streaming content only: synthesizes
+      the missing/half-typed tail delimiter row sized to the header line
+      (fence-guarded). Bug found by the new e2e: a short `| --- | --- |` is
+      syntactically complete but cell-mismatched — the rewrite keys on cell
+      count, not syntax. Proven by paced-SSE e2e "renders as a table
+      immediately, never as raw pipe text".
 - [x] Table round 6 (2026-10-15): mid-generation table breakage fixed —
       collapse/filters/counts/handles were applied once on hover (`measure`),
       so rows streamed in later rendered unhidden (image: rows 4–5 exposing

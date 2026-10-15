@@ -331,29 +331,6 @@ table.md-table[data-sortable="true"] th:hover { color: var(--foreground); }
 
 /* Column partition lines (rows already carry border-bottom separators) */
 .md-table th + th, .md-table td + td { border-left: 1px solid var(--border); }
-.md-table .md-filter-row th + th { border-left: 1px solid var(--border); }
-
-/* Per-column filter row (injected imperatively under the header) */
-.md-table .md-filter-row th {
-  padding: 0.35rem 0.5rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid var(--border-strong);
-}
-.md-table .md-filter-row input {
-  width: 100%;
-  min-width: 4.5rem;
-  padding: 0.25rem 0.45rem;
-  font-size: 0.75rem;
-  color: var(--foreground);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  outline: none;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.md-table .md-filter-row input:focus { border-color: var(--accent); background: rgba(255, 255, 255, 0.05); }
-.md-table .md-filter-row input::placeholder { color: var(--muted-2); }
-.md-table .md-filter-row input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 
 /* Wide tables: columns past COLLAPSE_AT hide until expanded */
 .md-table .col-hidden { display: none; }
@@ -468,7 +445,7 @@ table.md-table:not(.cols-resized) td { min-width: 6rem; }
 .md-table-wrap.is-fullscreen thead { position: sticky; top: 0; z-index: 4; }
 .md-table-wrap.is-fullscreen thead th { background: #101216; }
 @media (prefers-reduced-motion: reduce) {
-  .md-table-ctl, .md-table .md-filter-row input { transition: none; }
+  .md-table-ctl { transition: none; }
 }
 .md-table-tools {
   display: flex;

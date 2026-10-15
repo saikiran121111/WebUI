@@ -124,13 +124,15 @@ test("markdown table collapses wide columns, filters rows and opens fullscreen",
   await wrap.locator('[data-testid="table-cols-btn"]').click();
   await expect(wrap.locator("tbody tr").first().locator("td").nth(5)).toBeVisible();
 
-  // Per-column filter row hides non-matching rows and reports the count.
-  await wrap.locator('[data-testid="table-filter-btn"]').click();
-  await expect(wrap.locator(".md-filter-row input")).toHaveCount(6);
-  await wrap.locator(".md-filter-row input").nth(1).fill("cobol");
+  // Right-click header filter hides non-matching rows and reports the count.
+  await wrap.locator("thead th").nth(1).click({ button: "right" });
+  await expect(wrap.locator('[data-testid="table-filter-menu"]')).toBeVisible();
+  await wrap.locator('[data-testid="filter-menu-search"]').fill("cobol");
+  await wrap.locator('[data-testid="filter-menu-text"]').click();
   await expect(wrap.locator("tbody tr:visible")).toHaveCount(1);
   await expect(wrap.locator('[data-testid="table-row-count"]')).toHaveText("1 of 6 rows");
-  await wrap.locator('[data-testid="table-filter-btn"]').click();
+  await wrap.locator(".md-table-menu-foot button:has-text('Clear')").click();
+  await page.keyboard.press("Escape");
   await expect(wrap.locator("tbody tr:visible")).toHaveCount(6);
 
   // Fullscreen overlay: fixed inset-0, Escape closes it.
@@ -466,6 +468,70 @@ test("a wide table stays collapsed while it is still generating", async ({ page 
   await expect(wrap.locator('[data-testid="table-cols-btn"]')).toBeVisible();
   await wrap.locator('[data-testid="table-cols-btn"]').click();
   await expect(wrap.locator("thead th:visible")).toHaveCount(15);
+  server.close();
+});
+
+test("a streaming table renders as a table immediately, never as raw pipe text", async ({ page }) => {
+  const cols = Array.from({ length: 22 }, (_, i) => `Column ${i + 1} With A Longish Header Name`);
+  const rows = Array.from({ length: 6 }, (_, i) => cols.map((_, c) => `r${i}c${c}`));
+  const table = [`| ${cols.join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`)).join("\n");
+  // Paced SSE at 10 chars/frame: the header line alone takes ~2s to arrive —
+  // exactly the window where the raw-pipe paragraph used to render instead
+  // of the table (remark-gfm needs the full `| --- |` row to parse a table).
+  const frames: string[] = [];
+  for (let i = 0; i < table.length; i += 10) {
+    frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: table.slice(i, i + 10) } }] })}\n\n`);
+  }
+  frames.push("data: [DONE]\n\n");
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+    let frameIndex = 0;
+    const pump = setInterval(() => {
+      if (frameIndex >= frames.length) { clearInterval(pump); res.end(); return; }
+      res.write(frames[frameIndex++]);
+    }, 25);
+    req.on("close", () => clearInterval(pump));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  await page.route("**/api/chat", route => void route.continue({ url: `http://127.0.0.1:${port}/chat` }));
+
+  await page.goto("http://localhost:3000/");
+  const box = page.locator("textarea").first();
+  await box.click();
+  await box.fill("raw pipe flash");
+  await box.press("Enter");
+
+  // Sample the live DOM: no paragraph may ever contain pipe text, and the
+  // table wrap must appear while the message is still streaming.
+  let sawTableWhileStreaming = false;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const snap = await page.evaluate(() => {
+      const msg = document.querySelector('[data-testid="assistant-message"]');
+      if (!msg) return null;
+      const rawPipe = Array.from(msg.querySelectorAll("p"))
+        .some(p => /\|\s/.test(p.textContent ?? ""));
+      return {
+        streaming: msg.getAttribute("data-state") === "streaming",
+        rawPipe,
+        hasWrap: !!msg.querySelector('[data-testid="md-table-wrap"]'),
+      };
+    });
+    if (!snap) { await page.waitForTimeout(100); continue; }
+    expect(snap.rawPipe, "raw pipe text rendered as a paragraph mid-stream").toBe(false);
+    if (snap.hasWrap && snap.streaming) sawTableWhileStreaming = true;
+    if (!snap.streaming) break;
+    await page.waitForTimeout(80);
+  }
+  expect(sawTableWhileStreaming, "the table never rendered while the message was still streaming").toBe(true);
+
+  // Stream finished: the real delimiter row took over, collapse is intact.
+  await page.locator(ASSISTANT_DONE).first().waitFor({ timeout: 20_000 });
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await expect(wrap.locator("thead th:visible")).toHaveCount(4);
+  await expect(wrap.locator("tbody tr")).toHaveCount(6);
   server.close();
 });
 

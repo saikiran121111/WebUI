@@ -1,7 +1,7 @@
 "use client";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  ArrowUpDown, Check, Copy, Filter, Maximize2, Minimize2,
+  ArrowUpDown, Check, Copy, Maximize2, Minimize2,
   ChevronsLeftRight, ChevronsRightLeft,
 } from "lucide-react";
 import { copyText } from "../../lib/render/clipboard";
@@ -11,9 +11,9 @@ import { copyText } from "../../lib/render/clipboard";
  * scroll without page overflow, column resizing (drag the header edge like
  * a spreadsheet), row sorting on left-click of headers, filtering on
  * right-click of headers (dropdown of unique values + custom text term),
- * a free-text filter row (funnel toggle), column collapse for wide tables
- * (5+ columns hide behind an expand toggle), CSV copy of the visible rows,
- * and a fullscreen overlay with a sticky header.
+ * column collapse for wide tables (5+ columns hide behind an expand
+ * toggle), CSV copy of the visible rows, and a fullscreen overlay with a
+ * sticky header.
  * Sorting, filtering, column hiding and resizing act on the DOM
  * imperatively — no React state churn on big tables and no re-render of
  * the markdown tree. While the model is still generating, React keeps
@@ -41,7 +41,6 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   const [colCount, setColCount] = useState(0);
   const [rowCount, setRowCount] = useState(0);
   const [visibleRows, setVisibleRows] = useState(0);
-  const [filtering, setFiltering] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [filterMenu, setFilterMenu] = useState<FilterMenuState | null>(null);
@@ -50,7 +49,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   const [menuSearch, setMenuSearch] = useState("");
 
   const updateFilterMarks = useCallback(() => {
-    const headerRow = wrapRef.current?.querySelector("thead tr:not(.md-filter-row)");
+    const headerRow = wrapRef.current?.querySelector("thead tr");
     if (!headerRow) return;
     Array.from(headerRow.children).forEach((cell, col) => {
       const active = (valueFiltersRef.current.get(col)?.size ?? 0) > 0
@@ -62,19 +61,14 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   const applyFilter = useCallback(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const inputTerms = Array.from(wrap.querySelectorAll<HTMLInputElement>(".md-filter-row input"))
-      .map(input => input.value.trim().toLowerCase());
-    const headerCols = wrap.querySelector("thead tr:not(.md-filter-row)")?.children.length ?? 0;
-    const cols = Math.max(headerCols, inputTerms.length);
+    const headerCols = wrap.querySelector("thead tr")?.children.length ?? 0;
     let visible = 0;
     for (const row of wrap.querySelectorAll<HTMLTableRowElement>("tbody tr")) {
       let show = true;
-      for (let col = 0; col < cols && show; col++) {
+      for (let col = 0; col < headerCols && show; col++) {
         const text = (row.children[col]?.textContent ?? "").trim();
         const lower = text.toLowerCase();
-        const rowTerm = inputTerms[col] ?? "";
         const menuTerm = termFiltersRef.current.get(col) ?? "";
-        if (rowTerm && !lower.includes(rowTerm)) { show = false; break; }
         if (menuTerm && !lower.includes(menuTerm)) { show = false; break; }
         const valueSet = valueFiltersRef.current.get(col);
         if (valueSet && !valueSet.has(text)) { show = false; break; }
@@ -85,26 +79,6 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     setVisibleRows(visible);
     updateFilterMarks();
   }, [updateFilterMarks]);
-
-  const buildFilterRow = useCallback(() => {
-    const thead = wrapRef.current?.querySelector("table.md-table thead");
-    if (!thead || thead.querySelector(".md-filter-row")) return;
-    const headerCells = thead.querySelector("tr:not(.md-filter-row)")?.children ?? [];
-    const tr = document.createElement("tr");
-    tr.className = "md-filter-row";
-    for (let i = 0; i < headerCells.length; i++) {
-      const th = document.createElement("th");
-      if (headerCells[i].classList.contains("col-hidden")) th.classList.add("col-hidden");
-      const input = document.createElement("input");
-      input.type = "search";
-      input.placeholder = "filter";
-      input.setAttribute("aria-label", `Filter ${headerCells[i].textContent?.trim() || `column ${i + 1}`}`);
-      input.addEventListener("input", applyFilter);
-      th.appendChild(input);
-      tr.appendChild(th);
-    }
-    thead.appendChild(tr);
-  }, [applyFilter]);
 
   const startResize = useCallback((e: PointerEvent, th: HTMLTableCellElement, handle: HTMLSpanElement) => {
     e.preventDefault();
@@ -164,7 +138,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     handle.addEventListener("pointerdown", (e) => startResize(e as PointerEvent, cell, handle));
     handle.addEventListener("click", (e) => e.stopPropagation());
     handle.addEventListener("dblclick", () => {
-      const headerRow = table.querySelector("thead tr:not(.md-filter-row)");
+      const headerRow = table.querySelector("thead tr");
       if (headerRow) resetColWidths(table, headerRow);
     });
     return handle;
@@ -173,7 +147,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   // Handles live on every visible header except the last one — the last
   // visible column is the flexible filler, so its edge must not be draggable.
   const syncResizeHandles = useCallback((table: HTMLTableElement) => {
-    const headerRow = table.querySelector("thead tr:not(.md-filter-row)");
+    const headerRow = table.querySelector("thead tr");
     if (!headerRow) return;
     const cells = Array.from(headerRow.children) as HTMLTableCellElement[];
     const visible = cells.filter(c => !c.classList.contains("col-hidden"));
@@ -194,25 +168,6 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     }
   }, []);
 
-  // The filter row is imperative DOM; when columns stream in after it was
-  // built, grow it so every column keeps an input (and shrink if columns
-  // ever disappear).
-  const syncFilterRow = useCallback((table: HTMLTableElement, cols: number) => {
-    const filterRow = table.querySelector<HTMLTableRowElement>("thead tr.md-filter-row");
-    if (!filterRow) return;
-    while (filterRow.children.length < cols) {
-      const th = document.createElement("th");
-      const input = document.createElement("input");
-      input.type = "search";
-      input.placeholder = "filter";
-      input.setAttribute("aria-label", `Filter column ${filterRow.children.length + 1}`);
-      input.addEventListener("input", applyFilter);
-      th.appendChild(input);
-      filterRow.appendChild(th);
-    }
-    while (filterRow.children.length > cols) filterRow.lastElementChild?.remove();
-  }, [applyFilter]);
-
   // Runs after every render (no dep array on purpose). While the model is
   // generating, the markdown tree keeps growing: new rows/cells arrive
   // without any of this component's imperative state, so collapse classes,
@@ -224,7 +179,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     const table = wrap?.querySelector<HTMLTableElement>("table.md-table");
-    const headerRow = table?.querySelector("thead tr:not(.md-filter-row)");
+    const headerRow = table?.querySelector("thead tr");
     if (!table || !headerRow) return;
     const cols = headerRow.children.length;
     const rows = table.querySelectorAll("tbody tr").length;
@@ -241,14 +196,12 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     }
     setColsHiddenClasses(table, hide);
     syncResizeHandles(table); // the flexible filler changes with the visible set
-    syncFilterRow(table, cols);
-    if (filtering || valueFiltersRef.current.size || termFiltersRef.current.size) applyFilter();
+    if (valueFiltersRef.current.size || termFiltersRef.current.size) applyFilter();
     else if (visibleRows !== rows) setVisibleRows(rows);
   });
 
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     if (Date.now() - suppressSortAfterDragRef.current < 300) return; // a drag just ended — not a sort click
-    if ((e.target as Element).closest(".md-filter-row")) return;
     const th = (e.target as Element).closest("th");
     if (!th) return;
     const table = th.closest("table");
@@ -278,7 +231,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     const th = (e.target as Element).closest("th");
-    if (!th || th.closest(".md-filter-row")) return;
+    if (!th) return;
     const col = Array.from(th.parentElement?.children ?? []).indexOf(th);
     if (col < 0) return;
     e.preventDefault();
@@ -347,20 +300,6 @@ export default memo(function MarkdownTable({ children }: { children: React.React
 
   const toggleCols = useCallback(() => setExpanded(!expanded), [expanded]);
 
-  const toggleFilter = useCallback(() => {
-    if (!filtering) {
-      buildFilterRow();
-      setFiltering(true);
-      return;
-    }
-    wrapRef.current?.querySelector(".md-filter-row")?.remove();
-    for (const row of wrapRef.current?.querySelectorAll<HTMLTableRowElement>("tbody tr") ?? []) {
-      row.style.display = "";
-    }
-    setVisibleRows(rowCount);
-    setFiltering(false);
-  }, [filtering, buildFilterRow, rowCount]);
-
   // Only flips `expanded` — the resync effect applies the column hiding.
   const toggleFullscreen = useCallback(() => {
     if (!fullscreen) {
@@ -390,7 +329,6 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     if (!table) return;
     const lines: string[] = [];
     for (const row of table.querySelectorAll("tr")) {
-      if (row.classList.contains("md-filter-row")) continue;
       if (row.parentElement?.tagName === "TBODY" && row.style.display === "none") continue;
       const cells = Array.from(row.children).map(cell => csvEscape(cell.textContent ?? ""));
       lines.push(cells.join(","));
@@ -413,7 +351,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
       data-testid="md-table-wrap">
       <div className="md-table-topbar">
         <span className="md-table-count" data-testid="table-row-count">
-          {filtering || filterMenu ? `${visibleRows} of ${rowCount} rows` : ""}
+          {filterMenu || visibleRows < rowCount ? `${visibleRows} of ${rowCount} rows` : ""}
         </span>
         <div className="md-table-ctls">
           {wide && (
@@ -427,13 +365,6 @@ export default memo(function MarkdownTable({ children }: { children: React.React
               {!expanded && <span className="text-xs">+{colCount - COLLAPSE_AT}</span>}
             </button>
           )}
-          <button type="button"
-            className={`md-table-ctl${filtering ? " is-active" : ""}`}
-            onClick={toggleFilter}
-            aria-label={filtering ? "Hide column filters" : "Show column filters"}
-            title="Free-text filter row" data-testid="table-filter-btn">
-            <Filter className="w-3.5 h-3.5" />
-          </button>
           <button type="button" className="md-table-ctl" onClick={toggleFullscreen}
             aria-label={fullscreen ? "Exit fullscreen" : "View table fullscreen"}
             title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}

@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 2026-10-15 — table round 8: funnel filter button removed
+- User: right-click already does filtering, the funnel icon is dead weight.
+- `components/render/MarkdownTable.tsx`: deleted the funnel button, `filtering`
+  state, `toggleFilter`, `buildFilterRow`, `syncFilterRow`, every
+  `.md-filter-row` guard/skip, and simplified `thead tr:not(.md-filter-row)`
+  → `thead tr`. Row-count chip now shows when a right-click filter is active
+  (`filterMenu || visibleRows < rowCount`). `app/globals.css`: filter-row
+  block + reduced-motion entry removed. Test rewritten to the right-click
+  flow (menu search → contains term → Clear).
+
+## 2026-10-15 — table round 7: no raw-pipe flash before the table appears
+- User screenshot: for ~1s the header line of a 22-col table shows as plain
+  pipe text before becoming a table. Root cause: remark-gfm only recognizes a
+  GFM table once the whole `| --- | … |` delimiter row has streamed in.
+- `components/MarkdownRenderer.tsx`: `stabilizeStreamingTables(content)` runs
+  only while `streaming` (finished messages parse exactly as written; open
+  code fences skipped). If the tail is the header line → append a synthesized
+  delimiter; if the tail is delimiter-ish (`|`, `-`, `:`, spaces only) →
+  replace it with a full one sized to the header above. First test run still
+  failed: a short `| --- | --- |` is syntactically complete but mismatches a
+  22-cell header, so the guard must be cell count, not syntax.
+- New paced-SSE e2e "a streaming table renders as a table immediately, never
+  as raw pipe text": 10 chars/frame, DOM sampled every 80ms — no paragraph
+  ever contains pipe text, wrap appears while `data-state="streaming"`.
+  Render spec 19/19, tsc clean.
+
 ## 2026-10-15 — table round 6: wide tables stay collapsed while generating
 - User screenshot mid-generation: 15-col table showed rows 1–3 collapsed to
   4 columns but rows 4–5 exposing columns 5–8 with no headers. Root cause:
