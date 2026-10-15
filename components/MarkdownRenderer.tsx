@@ -15,8 +15,10 @@ import CodeBlock from "./render/CodeBlock";
 import MermaidBlock from "./render/MermaidBlock";
 import ChartBlock from "./render/ChartBlock";
 import WidgetBlock from "./render/WidgetBlock";
+import TreeBlock from "./render/TreeBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import { fenceKind } from "../lib/render/registry";
+import { looksLikeTree } from "../lib/render/treeParse";
 import { containsMath } from "../lib/render/mathDetect";
 
 interface MathModule {
@@ -155,6 +157,8 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   if (kind === "mermaid" && allowInteractive) return <MermaidBlock source={source} streaming={streaming} />;
   if (kind === "chart" && allowInteractive) return <ChartBlock source={source} streaming={streaming} />;
   if (kind === "widget" && allowInteractive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
+  // Box-drawing trees arrive in plain/text fences — detect by content, not label.
+  if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;
   return <CodeBlock code={source} lang={language} streaming={streaming} />;
 }
 

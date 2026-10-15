@@ -1,8 +1,8 @@
 import { createHighlighterCore, type HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
-import type { ShikiTransformer } from "shiki/types";
+import type { LanguageRegistration, ShikiTransformer } from "shiki/types";
 import { darkTheme, lightTheme, DARK_THEME_NAME, LIGHT_THEME_NAME } from "./themes";
-import { resolveLanguage, type LangLoader } from "./languages";
+import { resolveLanguage, grammarDependencyLoader, type LangLoader } from "./languages";
 
 /**
  * Shiki singleton: JS regex engine (no WASM), zero preloaded grammars —
@@ -35,16 +35,68 @@ async function ensureLanguage(key: string, loader: LangLoader): Promise<boolean>
     const mod = await loader();
     // Shiki registers grammars under their own internal name; re-key them to
     // the registry key so codeToHtml({lang: key}) always resolves (e.g. the
-    // "postgresql" key borrows the "sql" grammar).
-    const registrations = Array.isArray(mod.default) ? mod.default : [mod.default];
-    await hl.loadLanguage(...registrations.map(reg => ({ ...reg, name: key })));
+    // "postgresql" key borrows the "sql" grammar). The old canonical name's
+    // aliases must drop the new key or the alias points at itself — Shiki
+    // throws "Circular alias" (proto → protobuf, lean → lean4).
+    const registrations = normalizeRegistrations(mod).map(reg =>
+      reg.name === key ? reg : { ...reg, name: key, aliases: (reg.aliases ?? []).filter(a => a !== key) },
+    );
+    await loadGrammarTree(hl, registrations);
     loadedLanguages.add(key);
     return true;
   } catch (err) {
     console.warn("[highlight] grammar load failed:", key, err);
+    // A half-loaded grammar leaves unresolved embedded imports inside the
+    // highlighter, and every later loadLanguage then re-validates them and
+    // throws too — one bad grammar used to poison all the rest. Discard the
+    // instance so the next language starts from a clean slate.
+    highlighterPromise = null;
+    loadedLanguages.clear();
     return false; // grammar failed to load → caller falls back to plain text
   }
 }
+
+function normalizeRegistrations(mod: {
+  default: LanguageRegistration | LanguageRegistration[];
+}): LanguageRegistration[] {
+  return Array.isArray(mod.default) ? mod.default : [mod.default];
+}
+
+/**
+ * TextMate grammars embed others (cpp embeds regexp/glsl/cpp-macro, vue
+ * embeds vue-directives, typst embeds tex…). Shiki resolves those references
+ * by canonical grammar name, so dependencies load first and keep their real
+ * names — only the top-level grammar is re-keyed to the registry key.
+ */
+async function loadGrammarTree(hl: HighlighterCore, registrations: LanguageRegistration[]): Promise<void> {
+  for (const reg of registrations) {
+    for (const dep of reg.embeddedLangs ?? []) {
+      if (hl.getLoadedLanguages().includes(dep)) continue;
+      const depLoader = grammarDependencyLoader(dep);
+      if (!depLoader) continue; // unknown internal grammar — tokenizing may still work
+      const depRegs = normalizeRegistrations(await depLoader());
+      await loadGrammarTree(hl, depRegs);
+      await hl.loadLanguage(...depRegs);
+    }
+  }
+  await hl.loadLanguage(...registrations);
+}
+
+/**
+ * Shiki emits a "\n" text node between every .line span. Lines are block
+ * elements (line numbers, diff tints and wrapping need that), so each raw
+ * newline would also form an anonymous line box — the double spacing seen
+ * between every code row. Strip them; copy uses the canonical source
+ * string, never this HTML, so clipboard fidelity is untouched.
+ */
+const stripLineNewlines: ShikiTransformer = {
+  name: "webui-strip-line-newlines",
+  code(node) {
+    node.children = node.children.filter(
+      child => !(child.type === "text" && child.value === "\n"),
+    );
+  },
+};
 
 /** Marks +/-/@@ lines so the stylesheet can tint diff lines subtly. */
 const diffLineClasses: ShikiTransformer = {
@@ -109,7 +161,7 @@ export async function highlightCode(code: string, rawLang: string): Promise<High
       lang: resolved.key,
       themes: { dark: DARK_THEME_NAME, light: LIGHT_THEME_NAME },
       defaultColor: false,
-      transformers: resolved.key === "diff" ? [diffLineClasses] : [],
+      transformers: resolved.key === "diff" ? [stripLineNewlines, diffLineClasses] : [stripLineNewlines],
     });
     const result: HighlightResult = { html, label: resolved.label, langKey: resolved.key };
     htmlCache.set(cacheKey, result);

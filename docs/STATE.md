@@ -28,8 +28,15 @@
       ChatMessage/page.tsx wiring (streaming + onSend + copyText), globals.css chunks 1–4
       (Shiki dual-theme, tables, diagrams, charts, widgets, prose, KaTeX).
 - [x] Render unit tests: `__tests__/render/{languages,registry,mathDetect,highlight,schemas}.test.ts`.
-- [x] Render e2e spec: `tests/render.spec.ts` (8 tests: copy fidelity, table sort/CSV,
-      mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence).
+- [x] Render e2e spec: `tests/render.spec.ts` (13 tests: copy fidelity, table sort/CSV,
+      mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence,
+      line spacing, list markers, heading inline-code scale, IDE tree, mid-stream color).
+- [x] Screenshot bug fixes (2026-10-15): grammar-dependency cascade + circular-alias
+      filter (`lib/render/highlight.ts`, `grammarDependencyLoader` in languages.ts),
+      `stripLineNewlines`, vivid `themes.ts`, tree renderer (`lib/render/treeParse.ts`,
+      `components/render/TreeBlock.tsx`, globals.css tree chunk with minmax(0,0fr)
+      collapse), list-marker restore + heading-code 0.85em, CodeBlock throttle-with-
+      trailing + monotonic `appliedSeq` for mid-stream color.
 
 ## Rendering upgrade verification (2026-10-15)
 - [x] Deps installed (user ran npm install). Prism fully removed: package.json +
@@ -38,10 +45,14 @@
       ssh-config, system-verilog), 9 dead entries removed + aliases/labels.
 - [x] `npx tsc --noEmit` clean. `npx vitest run` 57/57 green (8 files).
       `npm run build` clean (route / 173 kB, first load 264 kB, shared 91.2 kB).
-- [x] `tests/render.spec.ts` 8/8 green (dev server :3000 + mocked SSE, no model).
-      Two test-side fixes: wait for the first colored token before counting
-      (grammar chunks load async), and compare the clipboard after LF→CRLF
-      normalization (the Windows OS clipboard layer rewrites line endings).
+- [x] `tests/render.spec.ts` 13/13 green (dev server :3000 + mocked SSE, no model).
+      Test-side fixes: wait for the first colored token before counting (grammar
+      chunks load async), compare the clipboard after LF→CRLF normalization (Windows
+      rewrites line endings), mid-stream test drives a paced SSE server because
+      `route.fulfill` delivers the whole body in one chunk.
+- [x] All 139 registry languages load their grammar + embedded dependencies and emit
+      line spans (`__tests__/render/allLanguages.test.ts`); `__tests__/render` 187/187;
+      `tsc --noEmit` clean.
 - [ ] Full `npx playwright test` not run: `tests/file-reading.spec.ts` layer 2
       needs a live llama.cpp model on :8080; the 6 other regression specs were
       left un-run at the user's stop — awaiting direction.

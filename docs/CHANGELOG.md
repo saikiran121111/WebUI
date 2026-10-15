@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 2026-10-15 — six rendering fixes from user screenshots + all-139-language proof
+- No colors/indentation for html/css/most languages: TextMate grammars embed others
+  (cpp→regexp…, vue→vue-directives…, typst→tex…) and only the requested one loaded →
+  "Missing languages"; one failed load poisoned every later one. `loadGrammarTree` in
+  `lib/render/highlight.ts` loads embeddedLangs recursively (canonical names, new
+  `grammarDependencyLoader` map in `lib/render/languages.ts`) and resets the highlighter
+  on any load failure. Re-keying a grammar to its registry key now strips that key from
+  its own aliases (proto→protobuf, lean→lean4 threw "Circular alias"). Proven by
+  `__tests__/render/allLanguages.test.ts`: all 139 keys load and emit line spans.
+- Double line spacing in code: Shiki emits "\n" text nodes between block-level .line
+  spans → extra anonymous line boxes. `stripLineNewlines` transformer removes them.
+- Dull colors: vivid dark/light palettes in `lib/render/themes.ts`.
+- Folder-structure fences → interactive IDE tree: `lib/render/treeParse.ts` parses
+  box-drawing/ASCII trees; `components/render/TreeBlock.tsx` adds icons, CSS guide rails,
+  click-to-collapse (grid `minmax(0,1fr)`→`minmax(0,0fr)` — a bare `0fr` keeps the
+  track's auto minimum and left a 15.6px gap), collapse-all, exact-source copy.
+- List markers invisible: Tailwind preflight strips list-style → globals.css restores
+  disc/decimal in markdown prose. Heading inline code now scales 0.85em (the stray "5."
+  next to a tiny chip).
+- Highlighting only appeared when the fence closed: debounce → throttle-with-trailing
+  (200ms) in `components/render/CodeBlock.tsx`; the `seq === highlightSeq` guard also
+  discarded every result resolving during a fast stream — replaced with monotonic
+  `appliedSeq` so the newest-resolving highlight always paints.
+- Verified: `tsc --noEmit` clean; `__tests__/render` 187/187; `tests/render.spec.ts`
+  13/13 (mid-stream test uses a paced SSE server — `route.fulfill` delivers in one chunk).
+
 ## 2026-10-15 — project-wide rendering upgrade (Shiki, tables, mermaid, charts, widgets)
 - Root cause of white code: Prism emitted token spans but no theme CSS existed anywhere.
   Replaced with Shiki core + JS regex engine, dual dark/light themes (`lib/render/themes.ts`),

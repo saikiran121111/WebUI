@@ -1,4 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 
 /**
  * Rendering e2e: drives the real chat UI against a mocked SSE upstream so no
@@ -207,4 +209,150 @@ test("streaming a partial fence never crashes and settles into a highlighted blo
   const block = page.locator('[data-testid="code-block"]');
   await expect(block).toHaveAttribute("data-lang", "JavaScript");
   await expect(block.locator(".shiki span[style]").first()).toBeVisible();
+});
+
+test("code lines are single-spaced, not double-spaced", async ({ page }) => {
+  const source = "def greet():\n    print('one')\n    print('two')\n    print('three')";
+  await mockStream(page, "```python\n" + source + "\n```");
+  await page.goto("http://localhost:3000/");
+  await send(page, "spacing check");
+
+  const block = page.locator('[data-testid="code-block"]');
+  await expect(block.locator(".shiki span[style]").first()).toBeVisible({ timeout: 10_000 });
+
+  const boxes = await block.locator(".code-block-body .line").evaluateAll(rows =>
+    rows.map(row => {
+      const rect = row.getBoundingClientRect();
+      return { top: rect.top, height: rect.height };
+    }));
+  expect(boxes.length).toBe(4);
+  for (const box of boxes) expect(box.height).toBeGreaterThan(15);
+  // One line-height at 13px font × 1.65 ≈ 21.5px; the old double-spacing
+  // bug (raw \n between line spans) put the gap at ~43px.
+  for (let i = 1; i < boxes.length; i++) {
+    expect(boxes[i].top - boxes[i - 1].top).toBeLessThan(30);
+  }
+});
+
+test("lists render real bullet and number markers", async ({ page }) => {
+  await mockStream(page, "Points:\n\n- first point\n- second point\n\nSteps:\n\n1. step one\n2. step two");
+  await page.goto("http://localhost:3000/");
+  await send(page, "list please");
+
+  await expect(page.locator(".msg-content ul").first()).toHaveCSS("list-style-type", "disc");
+  await expect(page.locator(".msg-content ol").first()).toHaveCSS("list-style-type", "decimal");
+});
+
+test("inline code inside a heading scales with the heading", async ({ page }) => {
+  await mockStream(page, "## 5. `app/templates/base.html`");
+  await page.goto("http://localhost:3000/");
+  await send(page, "heading code");
+
+  const heading = page.locator(".msg-content h2").first();
+  await expect(heading).toBeVisible();
+  const sizes = await heading.evaluate(h => {
+    const code = h.querySelector("code");
+    return {
+      heading: parseFloat(getComputedStyle(h).fontSize),
+      code: code ? parseFloat(getComputedStyle(code).fontSize) : 0,
+    };
+  });
+  // The chip must track the heading size (0.85em), not sit at a fixed 13px.
+  expect(sizes.code).toBeGreaterThan(sizes.heading * 0.75);
+  expect(sizes.code).toBeLessThan(sizes.heading);
+});
+
+test("folder-structure fence renders an interactive IDE-style tree", async ({ page }) => {
+  const tree = [
+    "my_flask_app/",
+    "├── app/",
+    "│   ├── __init__.py",
+    "│   └── templates/",
+    "│       └── base.html",
+    "└── run.py",
+  ].join("\n");
+  await mockStream(page, "```\n" + tree + "\n```");
+  await page.goto("http://localhost:3000/");
+  await send(page, "show the tree");
+
+  const treeBlock = page.locator('[data-testid="tree-block"]');
+  await expect(treeBlock).toBeVisible();
+  await expect(treeBlock).toContainText("base.html");
+  expect(await treeBlock.locator(".tree-icon-dir").count()).toBeGreaterThanOrEqual(3);
+
+  // Collapse "app" (exact name match so the root row is not targeted):
+  // its children animate to zero height, then restore on re-expand.
+  const appRow = treeBlock
+    .locator(".tree-row.is-dir")
+    .filter({ has: page.locator(".tree-name", { hasText: /^app$/ }) })
+    .first();
+  await appRow.click();
+  const collapsedWrap = treeBlock.locator(".tree-children.is-collapsed").first();
+  await expect(collapsedWrap).toBeVisible();
+  // Computed grid tracks are always reported in used px, so the collapsed
+  // target minmax(0, 0fr) reads as "0px".
+  await expect(collapsedWrap).toHaveCSS("grid-template-rows", "0px");
+
+  await appRow.click();
+  const leafBox = await treeBlock.getByText("base.html").boundingBox();
+  expect(leafBox).not.toBeNull();
+  expect(leafBox!.height).toBeGreaterThan(5);
+});
+
+test("highlighting and indentation apply mid-stream, not only when the fence closes", async ({ page }) => {
+  const blockSource = Array.from(
+    { length: 80 },
+    (_, i) => `def handler_${String(i).padStart(2, "0")}():\n    result = compute(${i})  # work\n    return result`,
+  ).join("\n");
+  // Paced SSE, not route.fulfill: fulfill delivers the whole body in one
+  // chunk, so the message flips to "complete" before the async highlight can
+  // ever paint mid-stream. This server writes one frame every 20ms, keeping
+  // data-state="streaming" alive long enough to observe colors landing.
+  const fullSource = "```python\n" + blockSource + "\n```";
+  const frames: string[] = [];
+  for (let i = 0; i < fullSource.length; i += 40) {
+    const chunk = fullSource.slice(i, i + 40);
+    frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`);
+  }
+  frames.push("data: [DONE]\n\n");
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+    let frameIndex = 0;
+    const pump = setInterval(() => {
+      if (frameIndex >= frames.length) {
+        clearInterval(pump);
+        res.end();
+        return;
+      }
+      res.write(frames[frameIndex++]);
+    }, 20);
+    req.on("close", () => clearInterval(pump));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  await page.route("**/api/chat", route => void route.continue({ url: `http://127.0.0.1:${port}/chat` }));
+
+  await page.goto("http://localhost:3000/");
+
+  const box = page.locator("textarea").first();
+  await box.click();
+  await box.fill("stream python");
+  await box.press("Enter");
+
+  // While the message is still streaming, colored tokens must already exist.
+  // The old pure-debounce highlight never fired until the stream ended.
+  const streamingColored = page.locator(
+    '[data-testid="assistant-message"][data-state="streaming"] .shiki span[style]',
+  );
+  await expect(streamingColored.first()).toBeVisible({ timeout: 10_000 });
+
+  // Leading indentation is preserved mid-stream inside the highlighted body.
+  const hasIndent = await page
+    .locator('[data-testid="assistant-message"][data-state="streaming"] .code-block-body')
+    .first()
+    .evaluate(body => (body.textContent ?? "").includes("    result = compute"));
+  expect(hasIndent).toBe(true);
+
+  await page.locator(ASSISTANT_DONE).first().waitFor({ timeout: 30_000 });
+  server.close();
 });

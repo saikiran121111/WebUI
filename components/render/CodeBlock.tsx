@@ -5,7 +5,7 @@ import { highlightCode } from "../../lib/render/highlight";
 import { resolveLanguage } from "../../lib/render/languages";
 import { copyText } from "../../lib/render/clipboard";
 
-const STREAM_DEBOUNCE_MS = 150;
+const STREAM_HIGHLIGHT_INTERVAL_MS = 200;
 const MAX_STREAM_HIGHLIGHT_CHARS = 10_000;
 const COLLAPSE_AFTER_LINES = 24;
 
@@ -32,6 +32,15 @@ export default memo(function CodeBlock({ code, lang, streaming = false }: CodeBl
   const lineCount = useMemo(() => code.split("\n").length, [code]);
   const collapsible = lineCount > COLLAPSE_AFTER_LINES;
 
+  // Throttle, never debounce: SSE chunks arrive faster than any fixed delay,
+  // so a debounced timer is always cleared before it fires and colors would
+  // only appear when the fence closes. Highlight immediately once the
+  // interval has elapsed; otherwise schedule the trailing run — the final
+  // chunk's timer is never cleared, so the last highlight always lands.
+  const lastHighlightAt = useRef(0);
+  const highlightSeq = useRef(0);
+  const appliedSeq = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
     if (!resolved.loader) {
@@ -43,11 +52,27 @@ export default memo(function CodeBlock({ code, lang, streaming = false }: CodeBl
       setHtml(null);
       return;
     }
-    const delay = streaming ? STREAM_DEBOUNCE_MS : 0;
-    const timer = setTimeout(async () => {
-      const result = await highlightCode(code, lang);
-      if (!cancelled) setHtml(result?.html ?? null);
-    }, delay);
+    const sinceLast = Date.now() - lastHighlightAt.current;
+    const wait = streaming ? Math.max(0, STREAM_HIGHLIGHT_INTERVAL_MS - sinceLast) : 0;
+    const run = () => {
+      lastHighlightAt.current = Date.now();
+      const seq = ++highlightSeq.current;
+      void highlightCode(code, lang).then(result => {
+        // During a fast stream seq advances before this resolves; discarding
+        // the result then would leave the block plain until the stream pauses
+        // (the exact UX bug this throttle exists to fix). Paint it as long as
+        // nothing newer has already painted — never regress to older code.
+        if (!cancelled && seq >= appliedSeq.current) {
+          appliedSeq.current = seq;
+          setHtml(result?.html ?? null);
+        }
+      });
+    };
+    if (wait === 0) {
+      run();
+      return () => { cancelled = true; };
+    }
+    const timer = setTimeout(run, wait);
     return () => {
       cancelled = true;
       clearTimeout(timer);

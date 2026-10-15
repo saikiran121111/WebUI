@@ -1,6 +1,22 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Most languages rendered colorless: grammars embed others (cpp→regexp, vue→vue-directives,
+  typst→tex…) and deps were never loaded; the first failure (cpp) left unresolved imports
+  that made every later `loadLanguage` throw with an accumulated missing-list (python
+  passed in isolation but failed in the 139-key run). Fixed: recursive `loadGrammarTree`
+  + highlighter reset on any load failure. Do not rely on `embeddedLangsLazy` — those are
+  deliberately not auto-loaded.
+- Re-keying a grammar to its registry key (postgresql→sql, protobuf→proto, lean4→lean)
+  must strip the new key from the old grammar's `aliases`, or Shiki throws
+  "Circular alias X -> X" and the bad alias leaks into later loads (coq/docker failed
+  with lean4/protobuf's errors).
+- Mid-stream highlighting never painted: the `seq === highlightSeq` guard discarded every
+  in-flight result while chunks kept arriving (seq advanced every 200ms; highlighting took
+  longer). Fixed with monotonic `appliedSeq` — paint unless older than what already painted.
+- Tree collapse left a 15.6px gap: Chrome floors a bare `0fr` track at the content's min
+  contribution; `min-height:0` on the item does not lift the track's auto minimum. Use
+  `minmax(0, 1fr)` → `minmax(0, 0fr)`.
 - Model said "I can't hear the spoken narration" on uploaded videos. Root cause: the
   `video` case in `lib/server/extract/index.ts` never touched the audio track (only
   `videoFrames()`), and the `video` branch of `attachmentParts()` in `lib/chat/client.ts`
@@ -27,6 +43,11 @@
   from the uploaded file name.
 
 ## Dead ends — do not retry
+- Playwright `route.fulfill` delivers the whole SSE body in one chunk — the message flips
+  to "complete" before async highlighting can paint. Mid-stream tests need a real paced
+  http server + `route.continue({ url })`.
+- `getComputedStyle().gridTemplateRows` always reports used px — asserting `"0fr"` can
+  never match; assert `"0px"`.
 - `7za a -tbz2` → "Unsupported archive type" (7za reads bz2, cannot write it). Use `bzip2`.
 - `drawtext` with `fontfile=` before `textfile=` → "Both text and text file provided".
 - `System.Speech...SetWavOutputFile` → method not found. Use COM `SAPI.SpFileStream` +

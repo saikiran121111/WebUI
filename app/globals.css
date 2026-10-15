@@ -173,7 +173,9 @@ body {
   tab-size: 4;
   -moz-tab-size: 4;
 }
-.code-block-body .line { display: block; min-height: 1.35em; }
+/* Inter-line newlines are stripped by the Shiki transformer, so empty
+   source lines need their full line box from min-height (1.65 = line-height). */
+.code-block-body .line { display: block; min-height: 1.65em; }
 .code-block-body.code-wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block-body.code-collapsed pre { max-height: 24rem; overflow: hidden; }
 
@@ -500,9 +502,25 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
 .msg-content h2 { font-size: 1.15rem; }
 .msg-content h3 { font-size: 1.02rem; }
 .msg-content h4, .msg-content h5, .msg-content h6 { font-size: 0.93rem; }
+/* Inline code inside a heading scales with the heading, so a numbered
+   heading like "5. `app/templates/base.html`" never shows an undersized chip. */
+.msg-content :is(h1, h2, h3, h4, h5, h6) code:not(pre code) {
+  font-size: 0.85em;
+  font-weight: inherit;
+  padding: 0.05em 0.3em;
+  background: rgba(255, 255, 255, 0.06);
+}
+/* Tailwind preflight strips list markers; restore real bullets/numbers so
+   the model's choice of dots vs. numbers actually renders. */
 .msg-content ul, .msg-content ol { margin: 0.6em 0; padding-left: 1.4em; }
+.msg-content ul { list-style: disc; }
+.msg-content ul ul { list-style: circle; }
+.msg-content ul ul ul { list-style: square; }
+.msg-content ol { list-style: decimal; }
+.msg-content ol ol { list-style: lower-alpha; }
+.msg-content ol ol ol { list-style: lower-roman; }
 .msg-content li { margin: 0.25em 0; }
-.msg-content li::marker { color: var(--muted-2); }
+.msg-content li::marker { color: var(--muted-2); font-variant-numeric: tabular-nums; }
 .msg-content ul.contains-task-list, .msg-content ol.contains-task-list { padding-left: 0.35em; list-style: none; }
 .msg-content li input[type="checkbox"] { margin-right: 0.45em; }
 .md-link { color: var(--accent); text-decoration: none; }
@@ -529,6 +547,87 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
   white-space: pre;
   tab-size: 4;
 }
+
+/* ── Folder-structure trees ───────────────────────────────────────────── */
+.tree-block {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 1em 0;
+}
+.tree-body { padding: 0.6rem 0.875rem 0.85rem; overflow-x: auto; }
+.tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+/* Expand/collapse: grid minmax(0,1fr) → minmax(0,0fr) animates height without
+   touching layout of siblings; the global reduced-motion rule collapses it
+   instantly. The explicit 0 minimum is required — a bare 0fr keeps the track's
+   auto minimum, which Chrome floors at the content's min contribution, leaving
+   a ~16px gap under collapsed folders. */
+.tree-children {
+  position: relative;
+  padding-left: 1.15rem;
+  margin-left: 0.35rem;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tree-children.is-collapsed { grid-template-rows: minmax(0, 0fr); }
+.tree-children > .tree-list { overflow: hidden; min-height: 0; }
+/* IDE-style guide lines: a vertical rail per nesting level, a connector
+   per row, and the rail stops at the last row's center. */
+.tree-children::before {
+  content: "";
+  position: absolute;
+  left: 0.35rem;
+  top: 0;
+  bottom: 0.85rem;
+  width: 1px;
+  background: var(--border-strong);
+}
+.tree-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.18rem 0.4rem;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  border-radius: 6px;
+}
+.tree-row::before {
+  content: "";
+  position: absolute;
+  left: -0.8rem;
+  top: 50%;
+  width: 0.8rem;
+  height: 1px;
+  background: var(--border-strong);
+}
+.tree-body > .tree-list > li > .tree-row::before { display: none; }
+.tree-row.is-dir { cursor: pointer; transition: background 0.15s ease; }
+.tree-row.is-dir:hover { background: rgba(255, 255, 255, 0.05); }
+.tree-row.is-dir:active { transform: scale(0.99); }
+.tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-chevron { width: 1rem; display: inline-flex; justify-content: center; flex-shrink: 0; color: var(--muted-2); }
+.tree-chevron-icon { width: 0.85rem; height: 0.85rem; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.tree-chevron-icon.is-open { transform: rotate(90deg); }
+.tree-icon { width: 1rem; height: 1rem; flex-shrink: 0; }
+.tree-icon-dir { color: #e6a35c; }
+.tree-icon-file { color: var(--muted-2); }
+.tree-name { white-space: pre; }
+.tree-note { color: var(--muted-2); font-size: 0.75rem; }
+.tree-row.is-ellipsis .tree-name { color: var(--muted-2); }
 
 /* ── KaTeX math ───────────────────────────────────────────────────────── */
 .katex { font-size: 1.05em; }

@@ -173,6 +173,58 @@ const LANG_LOADERS: Record<string, LangLoader> = {
   powerquery: () => import("@shikijs/langs/powerquery"),
 };
 
+/**
+ * Grammars that other grammars embed via `embeddedLangs` (cpp embeds
+ * regexp/glsl/cpp-macro, vue embeds vue-directives, typst embeds tex…) but
+ * that users almost never fence directly. Shiki resolves embedded references
+ * by canonical grammar name, so these load under their real names and are
+ * never re-keyed. Names here are the exact union of every `embeddedLangs`
+ * entry across @shikijs/langs that is not already a registry key.
+ */
+const GRAMMAR_DEP_LOADERS: Record<string, LangLoader> = {
+  "angular-expression": () => import("@shikijs/langs/angular-expression"),
+  "angular-html": () => import("@shikijs/langs/angular-html"),
+  "angular-inline-style": () => import("@shikijs/langs/angular-inline-style"),
+  "angular-inline-template": () => import("@shikijs/langs/angular-inline-template"),
+  "angular-let-declaration": () => import("@shikijs/langs/angular-let-declaration"),
+  "angular-template": () => import("@shikijs/langs/angular-template"),
+  "angular-template-blocks": () => import("@shikijs/langs/angular-template-blocks"),
+  bibtex: () => import("@shikijs/langs/bibtex"),
+  coffee: () => import("@shikijs/langs/coffee"),
+  "cpp-macro": () => import("@shikijs/langs/cpp-macro"),
+  "es-tag-css": () => import("@shikijs/langs/es-tag-css"),
+  "es-tag-glsl": () => import("@shikijs/langs/es-tag-glsl"),
+  "es-tag-html": () => import("@shikijs/langs/es-tag-html"),
+  "es-tag-sql": () => import("@shikijs/langs/es-tag-sql"),
+  "es-tag-xml": () => import("@shikijs/langs/es-tag-xml"),
+  "fortran-free-form": () => import("@shikijs/langs/fortran-free-form"),
+  "git-commit": () => import("@shikijs/langs/git-commit"),
+  "git-rebase": () => import("@shikijs/langs/git-rebase"),
+  groovy: () => import("@shikijs/langs/groovy"),
+  "html-derivative": () => import("@shikijs/langs/html-derivative"),
+  "jinja-html": () => import("@shikijs/langs/jinja-html"),
+  log: () => import("@shikijs/langs/log"),
+  "markdown-nix": () => import("@shikijs/langs/markdown-nix"),
+  "markdown-vue": () => import("@shikijs/langs/markdown-vue"),
+  "nextflow-groovy": () => import("@shikijs/langs/nextflow-groovy"),
+  "objective-c": () => import("@shikijs/langs/objective-c"),
+  regexp: () => import("@shikijs/langs/regexp"),
+  sdbl: () => import("@shikijs/langs/sdbl"),
+  sql: () => import("@shikijs/langs/sql"),
+  stylus: () => import("@shikijs/langs/stylus"),
+  "system-verilog": () => import("@shikijs/langs/system-verilog"),
+  tex: () => import("@shikijs/langs/tex"),
+  turtle: () => import("@shikijs/langs/turtle"),
+  "vue-directives": () => import("@shikijs/langs/vue-directives"),
+  "vue-interpolations": () => import("@shikijs/langs/vue-interpolations"),
+  "vue-sfc-style-variable-injection": () => import("@shikijs/langs/vue-sfc-style-variable-injection"),
+};
+
+/** Loader for an embedded dependency grammar, by canonical Shiki name. */
+export function grammarDependencyLoader(name: string): LangLoader | null {
+  return GRAMMAR_DEP_LOADERS[name] ?? LANG_LOADERS[name] ?? null;
+}
+
 /** Fenced-block info strings that mean "no highlighting". */
 const PLAIN_IDS = new Set([
   "text", "plaintext", "plain", "txt", "raw", "", "none", "null", "undefined",
@@ -329,4 +381,9 @@ export function resolveLanguage(raw: string | undefined | null): ResolvedLanguag
 /** True when the fence info string names a language we can highlight. */
 export function isHighlightable(raw: string | undefined | null): boolean {
   return resolveLanguage(raw).loader !== null;
+}
+
+/** Every canonical registry key — used by the all-languages validation test. */
+export function languageKeys(): string[] {
+  return Object.keys(LANG_LOADERS);
 }
