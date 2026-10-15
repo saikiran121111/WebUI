@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 2026-10-16 — Fix: orphaned mermaid error boxes at page bottom
+- `components/render/MermaidBlock.tsx`: added `suppressErrorRendering: true` to
+  `mermaid.initialize`. Mermaid 12.2.0 injected its "Syntax error in text" SVG into
+  `document.body` on parse failure and threw before removing the temp `div#d<id>`,
+  leaving error boxes stuck at the page bottom (one per failed render attempt).
+  Our own error fallback (source code block) already covers the failure.
+  Verified: `npx tsc --noEmit` clean, `npx vitest run tests/render.spec.ts __tests__/render`
+  → 189/189 pass.
+
 ## 2026-10-16 — Open Intelligent UI + Gemini Interactive UI upgrade
 - New interactive render layer + showcase, all verified by
   `tests/interactive-ui.spec.ts` (1/1, zero console errors, zero NaN SVG attrs):

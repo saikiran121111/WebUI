@@ -20,6 +20,11 @@ function loadMermaid() {
       m.default.initialize({
         startOnLoad: false,
         securityLevel: "strict",
+        // Without this, mermaid injects its "Syntax error in text" SVG into
+        // document.body on parse failure and throws before cleaning it up,
+        // leaving orphaned error boxes at the bottom of the page. We render
+        // our own fallback (see the error state below), so suppress theirs.
+        suppressErrorRendering: true,
         theme: "base",
         fontFamily: '"Inter", system-ui, sans-serif',
         themeVariables: OBSIDIAN_MERMAID_THEME,

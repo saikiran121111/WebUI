@@ -1,6 +1,14 @@
 # ISSUES
 
 ## Confirmed and fixed
+- "Syntax error in text / mermaid version 12.2.0" boxes stuck at the bottom of the
+  page (from an AI-generated diagram with unescaped quotes: `cartEmpty[Display "Cart
+  is empty"]`). Mermaid 12.2.0's `renderDiagram` draws the error SVG into a temp
+  `div#d<id>` appended to `document.body`, then throws *before* `removeTempElements()`
+  runs — the box is never cleaned up (one per failed attempt, hence duplicates during
+  streaming). Fixed: `suppressErrorRendering: true` in `mermaid.initialize`
+  (mermaid `config.type.d.ts:346`) — mermaid removes the temp elements and throws;
+  `MermaidBlock`'s existing catch shows the source fallback.
 - Mermaid step playback highlighted nothing (mermaid 12.2.0): node DOM ids nest
   the render id — `mmd-1-flowchart-intake-0`, not `flowchart-intake`. The old
   `^flowchart-` anchor never matched. Fixed: `normalizeNodeId` splits on
