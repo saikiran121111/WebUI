@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-10-15 — table round 4: last column absorbs slack, no blank gutter / infinite drag
+- Reproduced with e2e: dragging the last column's handle left left a blank
+  gutter (table narrower than the wrap) and right grew the table without
+  bound — the round-3 width pinning made the grid a fixed block inside a
+  scrollable wrap.
+- `components/render/MarkdownTable.tsx`: Excel rule — the last visible column
+  is the flexible filler: no explicit width (fixed layout hands it the
+  container's leftover, so the table always fills it) and no resize handle
+  (its edge is the grid edge). Middle drags are clamped so the filler never
+  drops below `MIN_COL_WIDTH` (56px). `addResizeHandles` → `syncResizeHandles`
+  (adds/removes handles when the visible set changes; called from
+  `applyColHidden` + `measure`). Bug caught by the test: capture must measure
+  widths *before* adding `.cols-resized` (fixed layout equalizes auto columns
+  first — captured 122px instead of 78/61/57/71).
+- Test rewritten: widen/runaway(+900px clamp)/shrink/fullscreen phases assert
+  `tableW == scroller.clientWidth` after every drag, filler absorbs the delta,
+  last column has no handle in fullscreen. Render spec 16/16, tsc clean.
+
 ## 2026-10-15 — table round 3: spreadsheet-grade column dragging (Playwright-proven)
 - Reproduced the complaint with e2e geometry sampling: shrinking a column made
   row heights jump 57/37 → 77px (fullscreen: whole table reflowed) because

@@ -19,6 +19,7 @@ import { copyText } from "../../lib/render/clipboard";
  * the markdown tree.
  */
 const COLLAPSE_AT = 4; // columns beyond this hide behind the expand toggle
+const MIN_COL_WIDTH = 56; // px floor for hand-sized columns
 const MAX_FILTER_OPTIONS = 200;
 
 type FilterMenuState = { col: number; left: number; top: number };
@@ -107,17 +108,21 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     const table = th.closest("table");
     if (!table) return;
     const headerCells = Array.from(th.parentElement?.children ?? []) as HTMLTableCellElement[];
+    const visibleCells = headerCells.filter(c => !c.classList.contains("col-hidden"));
+    const flexCell = visibleCells[visibleCells.length - 1];
+    if (th === flexCell) return; // last visible column's edge is the grid edge (Excel rule)
     if (!table.classList.contains("cols-resized")) {
-      const widths = headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
+      const widths = visibleCells.map(cell => Math.round(cell.getBoundingClientRect().width));
       table.classList.add("cols-resized");
-      headerCells.forEach((cell, i) => { cell.style.width = `${widths[i]}px`; });
+      visibleCells.forEach((cell, i) => {
+        if (cell !== flexCell) cell.style.width = `${widths[i]}px`;
+      });
     }
-    // Pin the table to the exact sum of column widths. Without this the CSS
-    // width:100% + fixed layout redistributes leftover space proportionally
-    // across every column whenever the sum shrinks below the container —
-    // which re-wrapped text and made row heights jump mid-drag.
-    const sumWidths = () => headerCells.reduce((sum, c) => sum + (parseFloat(c.style.width) || 0), 0);
-    table.style.width = `${sumWidths()}px`;
+    // The last visible column keeps no explicit width: fixed layout hands it
+    // whatever the container leaves over, so the table always fills it — no
+    // blank gutter when columns shrink, no runaway growth dragging right.
+    // Dragged columns are clamped so that filler never drops below MIN_COL_WIDTH.
+    const scroller = table.parentElement;
     const startX = e.clientX;
     const startW = th.getBoundingClientRect().width;
     handle.classList.add("is-dragging");
@@ -125,8 +130,10 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     let moved = false;
     const onMove = (ev: PointerEvent) => {
       if (Math.abs(ev.clientX - startX) > 3) moved = true;
-      th.style.width = `${Math.max(56, Math.round(startW + ev.clientX - startX))}px`;
-      table.style.width = `${sumWidths()}px`;
+      const othersW = visibleCells.reduce(
+        (sum, c) => sum + (c === th || c === flexCell ? 0 : (parseFloat(c.style.width) || 0)), 0);
+      const availW = (scroller?.clientWidth ?? Infinity) - othersW - MIN_COL_WIDTH;
+      th.style.width = `${Math.max(MIN_COL_WIDTH, Math.min(availW, Math.round(startW + ev.clientX - startX)))}px`;
     };
     const onUp = () => {
       handle.classList.remove("is-dragging");
@@ -145,24 +152,35 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     for (const c of headerRow.children) (c as HTMLElement).style.width = "";
   }, []);
 
-  const addResizeHandles = useCallback(() => {
-    const table = wrapRef.current?.querySelector<HTMLTableElement>("table.md-table");
-    const headerRow = table?.querySelector("thead tr:not(.md-filter-row)");
-    if (!table || !headerRow) return;
-    for (const cell of headerRow.children) {
-      if (cell.querySelector(".md-col-resize")) continue;
-      const handle = document.createElement("span");
-      handle.className = "md-col-resize";
-      handle.setAttribute("aria-hidden", "true");
-      handle.title = "Drag to resize · double-click to reset";
-      handle.addEventListener("pointerdown", (e) => {
-        startResize(e as PointerEvent, cell as HTMLTableCellElement, handle);
-      });
-      handle.addEventListener("click", (e) => e.stopPropagation());
-      handle.addEventListener("dblclick", () => resetColWidths(table, headerRow));
-      cell.appendChild(handle);
-    }
+  const makeResizeHandle = useCallback((table: HTMLTableElement, cell: HTMLTableCellElement) => {
+    const handle = document.createElement("span");
+    handle.className = "md-col-resize";
+    handle.setAttribute("aria-hidden", "true");
+    handle.title = "Drag to resize · double-click to reset";
+    handle.addEventListener("pointerdown", (e) => startResize(e as PointerEvent, cell, handle));
+    handle.addEventListener("click", (e) => e.stopPropagation());
+    handle.addEventListener("dblclick", () => {
+      const headerRow = table.querySelector("thead tr:not(.md-filter-row)");
+      if (headerRow) resetColWidths(table, headerRow);
+    });
+    return handle;
   }, [startResize, resetColWidths]);
+
+  // Handles live on every visible header except the last one — the last
+  // visible column is the flexible filler, so its edge must not be draggable.
+  const syncResizeHandles = useCallback((table: HTMLTableElement) => {
+    const headerRow = table.querySelector("thead tr:not(.md-filter-row)");
+    if (!headerRow) return;
+    const cells = Array.from(headerRow.children) as HTMLTableCellElement[];
+    const visible = cells.filter(c => !c.classList.contains("col-hidden"));
+    const flex = visible[visible.length - 1];
+    for (const cell of cells) {
+      const existing = cell.querySelector(".md-col-resize");
+      const resizable = visible.includes(cell) && cell !== flex;
+      if (resizable && !existing) cell.appendChild(makeResizeHandle(table, cell));
+      else if (!resizable && existing) existing.remove();
+    }
+  }, [makeResizeHandle]);
 
   const applyColHidden = useCallback((hide: boolean) => {
     const table = wrapRef.current?.querySelector<HTMLTableElement>("table.md-table");
@@ -176,7 +194,8 @@ export default memo(function MarkdownTable({ children }: { children: React.React
         row.children[i].classList.toggle("col-hidden", hide);
       }
     }
-  }, [resetColWidths]);
+    syncResizeHandles(table); // the flexible filler changes with the visible set
+  }, [resetColWidths, syncResizeHandles]);
 
   const measure = useCallback(() => {
     if (sortable !== null) return;
@@ -188,8 +207,9 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     setRowCount(rows);
     setVisibleRows(rows);
     if (cols > COLLAPSE_AT) applyColHidden(true);
-    addResizeHandles();
-  }, [sortable, applyColHidden, addResizeHandles]);
+    const table = wrap?.querySelector<HTMLTableElement>("table.md-table");
+    if (table) syncResizeHandles(table);
+  }, [sortable, applyColHidden, syncResizeHandles]);
 
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     if (Date.now() - suppressSortAfterDragRef.current < 300) return; // a drag just ended — not a sort click

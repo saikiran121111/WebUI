@@ -170,80 +170,81 @@ test("dragging one column must not reflow other columns or row heights", async (
     return { ths, trs, tableW };
   });
 
+  const scrollerW = () => wrap.locator(".md-table-scroller").evaluate(el => el.clientWidth);
+  const drag = async (colIdx: number, dx: number) => {
+    const box = await wrap.locator("thead th").nth(colIdx).locator(".md-col-resize").boundingBox();
+    const y = box!.y + box!.height / 2;
+    await page.mouse.move(box!.x + box!.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + box!.width / 2 + dx, y, { steps: 6 });
+    const mid = await geometry();
+    await page.mouse.up();
+    return { mid, after: await geometry() };
+  };
+
   const before = await geometry();
-  const handleBox = await wrap.locator("thead th").nth(0).locator(".md-col-resize").boundingBox();
-  const y = handleBox!.y + handleBox!.height / 2;
-  await page.mouse.move(handleBox!.x + handleBox!.width / 2, y);
-  await page.mouse.down();
-  await page.mouse.move(handleBox!.x + 60, y, { steps: 4 });
-  const mid = await geometry();
+  const containerW = await scrollerW();
+
+  // The last visible column (Notes) is the flexible filler: widening Name
+  // must shrink Notes by the same amount — the table never grows past its
+  // container, and the middle columns never budge.
+  const widen = await drag(0, 120);
   await page.screenshot({ path: "test-results/drag-mid.png" });
-  await page.mouse.move(handleBox!.x + 120, y, { steps: 4 });
-  const after = await geometry();
-  await page.screenshot({ path: "test-results/drag-end.png" });
-  await page.mouse.up();
-
   console.log("before:", JSON.stringify(before));
-  console.log("mid:   ", JSON.stringify(mid));
-  console.log("after: ", JSON.stringify(after));
-
-  // Dragged column grew by ~120px.
-  expect(after.ths[0]).toBeGreaterThanOrEqual(before.ths[0] + 100);
-  // Every other column must keep its width (±2px) — no squeeze-reflow.
-  for (let i = 1; i < before.ths.length; i++) {
-    expect(Math.abs(after.ths[i] - before.ths[i]), `column ${i} width changed`).toBeLessThanOrEqual(2);
+  console.log("widen: ", JSON.stringify(widen.after));
+  expect(widen.after.ths[0]).toBeGreaterThanOrEqual(before.ths[0] + 100);
+  for (let i = 1; i < 5; i++) {
+    expect(Math.abs(widen.after.ths[i] - before.ths[i]), `column ${i} width changed`).toBeLessThanOrEqual(2);
   }
-  // Row heights must not change while dragging (mid → after, both inside the
-  // drag: spreadsheet mode clips cell text instead of re-wrapping it).
-  for (let i = 0; i < mid.trs.length; i++) {
-    expect(Math.abs(after.trs[i] - mid.trs[i]), `row ${i} height changed`).toBeLessThanOrEqual(1);
+  expect(widen.after.ths[5]).toBeLessThanOrEqual(before.ths[5] - 100); // Notes absorbed the slack
+  expect(Math.abs(widen.after.tableW - containerW), "table overflowed its container").toBeLessThanOrEqual(2);
+  for (let i = 0; i < widen.mid.trs.length; i++) {
+    expect(Math.abs(widen.after.trs[i] - widen.mid.trs[i]), `row ${i} height changed`).toBeLessThanOrEqual(1);
   }
 
-  // Shrink phase: dragging a wide column narrower must not let the browser
-  // redistribute the freed space across the other columns (that re-wrapped
-  // text and made rows jump — the "row increase while dragging" complaint).
-  const shrinkBefore = await geometry();
-  await wrap.locator(".md-table-scroller").evaluate(el => { el.scrollLeft = el.scrollWidth; });
-  const notesHandle = await wrap.locator("thead th").nth(5).locator(".md-col-resize").boundingBox();
-  const ny = notesHandle!.y + notesHandle!.height / 2;
-  await page.mouse.move(notesHandle!.x + notesHandle!.width / 2, ny);
-  await page.mouse.down();
-  await page.mouse.move(notesHandle!.x - 200, ny, { steps: 6 });
-  const shrunk = await geometry();
-  await page.mouse.up();
-  console.log("shrunk:", JSON.stringify(shrunk));
+  // Runaway drag right must stop at the clamp (the "goes infinitely to the
+  // right" complaint): the filler floors at ~56px and the table keeps
+  // filling exactly the container — no endless horizontal growth.
+  const runaway = await drag(0, 900);
+  console.log("runaway:", JSON.stringify(runaway.after));
+  expect(Math.abs(runaway.after.tableW - containerW), "table grew infinitely to the right").toBeLessThanOrEqual(2);
+  expect(runaway.after.ths[5]).toBeGreaterThanOrEqual(54);
 
-  expect(shrunk.ths[5]).toBeLessThanOrEqual(shrinkBefore.ths[5] - 180);
-  for (let i = 0; i < 5; i++) {
-    expect(Math.abs(shrunk.ths[i] - shrinkBefore.ths[i]), `column ${i} grew when Notes shrank`).toBeLessThanOrEqual(2);
+  // Shrink a middle column: Notes grows back to absorb the freed space —
+  // no blank gutter on the right (the "blank in table on right" complaint),
+  // and row heights never jump.
+  const shrinkBase = await geometry();
+  const shrink = await drag(1, -20);
+  console.log("shrink:", JSON.stringify(shrink.after));
+  expect(shrink.after.ths[1]).toBeLessThanOrEqual(shrinkBase.ths[1] - 18);
+  for (const i of [0, 2, 3, 4]) {
+    expect(Math.abs(shrink.after.ths[i] - shrinkBase.ths[i]), `column ${i} changed on shrink`).toBeLessThanOrEqual(2);
   }
-  for (let i = 0; i < shrinkBefore.trs.length; i++) {
-    expect(Math.abs(shrunk.trs[i] - shrinkBefore.trs[i]), `row ${i} height jumped on shrink`).toBeLessThanOrEqual(1);
+  expect(shrink.after.ths[5]).toBeGreaterThanOrEqual(shrinkBase.ths[5] + 16);
+  expect(Math.abs(shrink.after.tableW - containerW), "blank gutter appeared on the right").toBeLessThanOrEqual(2);
+  for (let i = 0; i < shrink.mid.trs.length; i++) {
+    expect(Math.abs(shrink.after.trs[i] - shrink.mid.trs[i]), `row ${i} height jumped on shrink`).toBeLessThanOrEqual(1);
   }
 
-  // Fullscreen: the wide viewport is where redistribution was worst.
+  // Fullscreen: same invariants at full viewport width. The last column has
+  // no handle there either — its edge is the grid edge.
   await wrap.locator('[data-testid="table-fullscreen-btn"]').click();
   await expect(wrap).toHaveClass(/is-fullscreen/);
-  const fsBefore = await geometry();
-  const fsHandle = await wrap.locator("thead th").nth(5).locator(".md-col-resize").boundingBox();
-  const fy = fsHandle!.y + fsHandle!.height / 2;
-  // grab the inner half of the handle — the outer half is clipped at the
-  // viewport edge, exactly like a spreadsheet's last column border
-  await page.mouse.move(fsHandle!.x + 2, fy);
-  await page.mouse.down();
-  await page.mouse.move(fsHandle!.x - 300, fy, { steps: 6 });
-  const fsAfter = await geometry();
+  await expect(wrap.locator("thead th").nth(5).locator(".md-col-resize")).toHaveCount(0);
+  const fsContainerW = await scrollerW();
+  const fsBase = await geometry();
+  const fs = await drag(4, 300);
   await page.screenshot({ path: "test-results/drag-fullscreen.png" });
-  await page.mouse.up();
-  console.log("fs before:", JSON.stringify(fsBefore));
-  console.log("fs after: ", JSON.stringify(fsAfter));
-
-  expect(fsAfter.ths[5]).toBeLessThanOrEqual(fsBefore.ths[5] - 280);
-  for (let i = 0; i < 5; i++) {
-    expect(Math.abs(fsAfter.ths[i] - fsBefore.ths[i]), `fullscreen column ${i} changed`).toBeLessThanOrEqual(2);
+  console.log("fs base: ", JSON.stringify(fsBase));
+  console.log("fs after:", JSON.stringify(fs.after));
+  expect(fs.after.ths[4]).toBeGreaterThanOrEqual(fsBase.ths[4] + 280);
+  expect(fs.after.ths[5]).toBeLessThanOrEqual(fsBase.ths[5] - 280);
+  for (const i of [0, 1, 2, 3]) {
+    expect(Math.abs(fs.after.ths[i] - fsBase.ths[i]), `fullscreen column ${i} changed`).toBeLessThanOrEqual(2);
   }
-  for (let i = 0; i < fsBefore.trs.length; i++) {
-    expect(Math.abs(fsAfter.trs[i] - fsBefore.trs[i]), `fullscreen row ${i} height jumped`).toBeLessThanOrEqual(1);
+  expect(Math.abs(fs.after.tableW - fsContainerW), "fullscreen table overflowed its container").toBeLessThanOrEqual(2);
+  for (let i = 0; i < fs.mid.trs.length; i++) {
+    expect(Math.abs(fs.after.trs[i] - fs.mid.trs[i]), `fullscreen row ${i} height jumped`).toBeLessThanOrEqual(1);
   }
   await page.keyboard.press("Escape");
 });

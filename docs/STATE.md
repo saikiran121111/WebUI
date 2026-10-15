@@ -31,6 +31,13 @@
 - [x] Render e2e spec: `tests/render.spec.ts` (13 tests: copy fidelity, table sort/CSV,
       mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence,
       line spacing, list markers, heading inline-code scale, IDE tree, mid-stream color).
+- [x] Table round 4 (2026-10-15): infinite-drag/blank-gutter fixed — last
+      visible column is the flexible filler (no explicit width, no resize
+      handle; fixed layout gives it the container's leftover so the table
+      always fills it), middle drags clamped to keep the filler ≥56px,
+      `syncResizeHandles` re-syncs handles on collapse/expand. Proven by the
+      rewritten reflow e2e (widen/runaway-clamp/shrink/fullscreen, tableW ==
+      scroller width after every drag) — render spec 16/16, tsc clean.
 - [x] Table round 3 (2026-10-15): drag UX fixed — table width pinned to the
       column-width sum during resize (kills the width:100%+fixed redistribution
       that re-wrapped text), `.cols-resized` cells clip with ellipsis instead of
