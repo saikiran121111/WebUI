@@ -31,6 +31,15 @@
 - [x] Render e2e spec: `tests/render.spec.ts` (13 tests: copy fidelity, table sort/CSV,
       mermaid valid+invalid, chart+data toggle, widget form, streaming partial fence,
       line spacing, list markers, heading inline-code scale, IDE tree, mid-stream color).
+- [x] Table round 2 (2026-10-15): drag-resize columns (fixed layout + handles),
+      right-click header filter dropdown (unique values + custom text term),
+      sticky fullscreen header. `tests/render.spec.ts` 15/15.
+
+- [x] Table toolbar upgrade (2026-10-15): `components/render/MarkdownTable.tsx` +
+      globals.css table chunk — filter row per column, 5+ column collapse (+N expand),
+      fullscreen overlay (Esc, top-right icon), column partition lines, CSV = visible rows.
+      Proven by `tests/render.spec.ts` (14/14).
+
 - [x] Screenshot bug fixes (2026-10-15): grammar-dependency cascade + circular-alias
       filter (`lib/render/highlight.ts`, `grammarDependencyLoader` in languages.ts),
       `stripLineNewlines`, vivid `themes.ts`, tree renderer (`lib/render/treeParse.ts`,

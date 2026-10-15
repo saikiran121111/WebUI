@@ -99,6 +99,96 @@ test("markdown table supports header sorting and CSV copy", async ({ page }) => 
   expect(csv).toContain("Barbara,70");
 });
 
+test("markdown table collapses wide columns, filters rows and opens fullscreen", async ({ page }) => {
+  const rows = [
+    ["Ada", "C", "90", "12", "MIT", "first programmer"],
+    ["Grace", "COBOL", "10", "8", "Apache", "compiler pioneer"],
+    ["Linus", "C", "50", "20", "GPL", "kernel maintainer"],
+    ["Ken", "Go", "30", "15", "BSD", "unix co-author"],
+    ["Barbara", "Smalltalk", "70", "5", "MIT", "oop researcher"],
+    ["Alan", "Prolog", "20", "3", "MIT", "computability"],
+  ];
+  const table = ["| Name | Lang | Score | Stars | License | Notes |", "| --- | --- | --- | --- | --- | --- |"]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`))
+    .join("\n");
+  await mockStream(page, table);
+  await page.goto("http://localhost:3000/");
+  await send(page, "wide table please");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await wrap.hover();
+
+  // Wide table (6 cols): columns past the 4th collapse behind an expand toggle.
+  await expect(wrap.locator('[data-testid="table-cols-btn"]')).toBeVisible();
+  await expect(wrap.locator("tbody tr").first().locator("td").nth(5)).toBeHidden();
+  await wrap.locator('[data-testid="table-cols-btn"]').click();
+  await expect(wrap.locator("tbody tr").first().locator("td").nth(5)).toBeVisible();
+
+  // Per-column filter row hides non-matching rows and reports the count.
+  await wrap.locator('[data-testid="table-filter-btn"]').click();
+  await expect(wrap.locator(".md-filter-row input")).toHaveCount(6);
+  await wrap.locator(".md-filter-row input").nth(1).fill("cobol");
+  await expect(wrap.locator("tbody tr:visible")).toHaveCount(1);
+  await expect(wrap.locator('[data-testid="table-row-count"]')).toHaveText("1 of 6 rows");
+  await wrap.locator('[data-testid="table-filter-btn"]').click();
+  await expect(wrap.locator("tbody tr:visible")).toHaveCount(6);
+
+  // Fullscreen overlay: fixed inset-0, Escape closes it.
+  await wrap.locator('[data-testid="table-fullscreen-btn"]').click();
+  await expect(wrap).toHaveClass(/is-fullscreen/);
+  await expect(wrap.locator("table.md-table")).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(wrap).not.toHaveClass(/is-fullscreen/);
+});
+
+test("right-click header filter and drag column resize work like a spreadsheet", async ({ page }) => {
+  const rows = [
+    ["Ada", "C", "90", "12", "MIT", "first programmer"],
+    ["Grace", "COBOL", "10", "8", "Apache", "compiler pioneer"],
+    ["Linus", "C", "50", "20", "GPL", "kernel maintainer"],
+    ["Ken", "Go", "30", "15", "BSD", "unix co-author"],
+    ["Barbara", "Smalltalk", "70", "5", "MIT", "oop researcher"],
+    ["Alan", "Prolog", "20", "3", "MIT", "computability"],
+  ];
+  const table = ["| Name | Lang | Score | Stars | License | Notes |", "| --- | --- | --- | --- | --- | --- |"]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`))
+    .join("\n");
+  await mockStream(page, table);
+  await page.goto("http://localhost:3000/");
+  await send(page, "wide table please");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await wrap.hover();
+
+  // Right-click on a header opens the unique-values filter dropdown.
+  await wrap.locator("thead th").nth(1).click({ button: "right" });
+  const menu = page.locator('[data-testid="table-filter-menu"]');
+  await expect(menu).toBeVisible();
+  await expect(menu.locator(".md-table-menu-list label")).toHaveCount(5); // unique langs (C twice)
+  await menu.locator(".md-table-menu-list label").nth(0).click(); // uncheck "C"
+  await expect(wrap.locator("tbody tr:visible")).toHaveCount(4);
+  await expect(wrap.locator('[data-testid="table-row-count"]')).toHaveText("4 of 6 rows");
+
+  // Custom text term from the search box combines with the value selection.
+  await menu.locator('[data-testid="filter-menu-search"]').fill("small");
+  await menu.locator('[data-testid="filter-menu-text"]').click();
+  await expect(wrap.locator("tbody tr:visible")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(wrap.locator("thead th").nth(1)).toHaveClass(/filter-active/);
+
+  // Dragging the header's right edge resizes the column like a spreadsheet.
+  const nameTh = wrap.locator("thead th").nth(0);
+  const before = await nameTh.evaluate(el => el.getBoundingClientRect().width);
+  const handleBox = await nameTh.locator(".md-col-resize").boundingBox();
+  await page.mouse.move(handleBox!.x + 3, handleBox!.y + handleBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox!.x + 120, handleBox!.y + handleBox!.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const after = await nameTh.evaluate(el => el.getBoundingClientRect().width);
+  expect(after).toBeGreaterThan(before + 60);
+});
+
 test("valid mermaid renders an interactive diagram stage", async ({ page }) => {
   const diagram = "graph TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Done]\n  B -->|no| A";
   await mockStream(page, "```mermaid\n" + diagram + "\n```");

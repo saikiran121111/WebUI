@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## 2026-10-15 — table round 2: drag-resize columns, right-click value filters, sticky fullscreen header
+- Column resizing: drag handle on each header's right edge (`.md-col-resize`); first
+  drag switches the table to `table-layout: fixed` with captured widths; double-click
+  resets. Excel-like per-column sizing.
+- Right-click a header → filter dropdown: checkbox list of unique values (sorted,
+  capped 200) + search box that doubles as a custom "contains" text term; All/Clear
+  footer; filtered headers get a `.filter-active` accent mark; state survives menu
+  re-open. Left-click still sorts; bottom hint now spells out all three gestures.
+- Fullscreen: sticky `thead` with opaque background while scrolling rows.
+- Bug found by e2e: `applyFilter` only looped columns that had filter-row inputs, so
+  dropdown filters did nothing while the funnel row was closed — now loops all header
+  columns. Proven by new spec "right-click header filter and drag column resize
+  work like a spreadsheet" — render spec 15/15 green.
+
+## 2026-10-15 — table toolbar: filters, column collapse, fullscreen, grid lines
+- `components/render/MarkdownTable.tsx`: top toolbar (row count + filter/columns/
+  fullscreen icon buttons, fullscreen at top right). Per-column filter row injected
+  into `thead` imperatively (`.md-filter-row`), live substring filtering with
+  "x of y rows" count. Tables with 5+ columns collapse columns past the 4th behind
+  a "+N" expand toggle (`.col-hidden`). Fullscreen = `is-fullscreen` fixed overlay
+  on the wrap (Esc closes, body scroll locked, columns auto-expand while open).
+  CSV now exports visible (unfiltered) rows and skips the filter row.
+- `app/globals.css`: column partition lines (`th+th`/`td+td` border-left), topbar/
+  ctl/filter-row styles, `.col-hidden`, `.md-table-wrap.is-fullscreen` overlay,
+  reduced-motion guards.
+- `tests/render.spec.ts`: new e2e "collapses wide columns, filters rows and opens
+  fullscreen" — render spec 14/14 green.
+
 ## 2026-10-15 — crash on math messages + free scrolling during stream
 - "Expected usable value but received an empty preset" (unified): `lib/render/math.ts`
   returned `rehypePlugins` as a flat `[plugin, options]` pair and `MarkdownRenderer`

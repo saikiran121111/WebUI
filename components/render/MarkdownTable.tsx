@@ -1,28 +1,178 @@
 "use client";
-import { memo, useCallback, useRef, useState } from "react";
-import { Check, Copy, ArrowUpDown } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowUpDown, Check, Copy, Filter, Maximize2, Minimize2,
+  ChevronsLeftRight, ChevronsRightLeft,
+} from "lucide-react";
 import { copyText } from "../../lib/render/clipboard";
 
 /**
  * Table wrapper used as the react-markdown `table` override: horizontal
- * scroll without page overflow, row sorting (only when it genuinely helps,
- * i.e. 5+ body rows), and CSV copy built from the actual cell text.
- * Sorting reorders DOM rows imperatively — no React state churn on big
- * tables and no re-render of the markdown tree.
+ * scroll without page overflow, column resizing (drag the header edge like
+ * a spreadsheet), row sorting on left-click of headers, filtering on
+ * right-click of headers (dropdown of unique values + custom text term),
+ * a free-text filter row (funnel toggle), column collapse for wide tables
+ * (5+ columns hide behind an expand toggle), CSV copy of the visible rows,
+ * and a fullscreen overlay with a sticky header.
+ * Sorting, filtering, column hiding and resizing act on the DOM
+ * imperatively — no React state churn on big tables and no re-render of
+ * the markdown tree.
  */
+const COLLAPSE_AT = 4; // columns beyond this hide behind the expand toggle
+const MAX_FILTER_OPTIONS = 200;
+
+type FilterMenuState = { col: number; left: number; top: number };
+
 export default memo(function MarkdownTable({ children }: { children: React.ReactNode }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<{ col: number; dir: 1 | -1 } | null>(null);
+  const savedExpandedRef = useRef(false);
+  const valueFiltersRef = useRef<Map<number, Set<string>>>(new Map());
+  const termFiltersRef = useRef<Map<number, string>>(new Map());
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [sortable, setSortable] = useState<boolean | null>(null);
+  const [colCount, setColCount] = useState(0);
+  const [rowCount, setRowCount] = useState(0);
+  const [visibleRows, setVisibleRows] = useState(0);
+  const [filtering, setFiltering] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [filterMenu, setFilterMenu] = useState<FilterMenuState | null>(null);
+  const [menuOptions, setMenuOptions] = useState<string[]>([]);
+  const [menuChecked, setMenuChecked] = useState<Set<string>>(new Set());
+  const [menuSearch, setMenuSearch] = useState("");
+
+  const updateFilterMarks = useCallback(() => {
+    const headerRow = wrapRef.current?.querySelector("thead tr:not(.md-filter-row)");
+    if (!headerRow) return;
+    Array.from(headerRow.children).forEach((cell, col) => {
+      const active = (valueFiltersRef.current.get(col)?.size ?? 0) > 0
+        || !!termFiltersRef.current.get(col);
+      cell.classList.toggle("filter-active", active);
+    });
+  }, []);
+
+  const applyFilter = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const inputTerms = Array.from(wrap.querySelectorAll<HTMLInputElement>(".md-filter-row input"))
+      .map(input => input.value.trim().toLowerCase());
+    const headerCols = wrap.querySelector("thead tr:not(.md-filter-row)")?.children.length ?? 0;
+    const cols = Math.max(headerCols, inputTerms.length);
+    let visible = 0;
+    for (const row of wrap.querySelectorAll<HTMLTableRowElement>("tbody tr")) {
+      let show = true;
+      for (let col = 0; col < cols && show; col++) {
+        const text = (row.children[col]?.textContent ?? "").trim();
+        const lower = text.toLowerCase();
+        const rowTerm = inputTerms[col] ?? "";
+        const menuTerm = termFiltersRef.current.get(col) ?? "";
+        if (rowTerm && !lower.includes(rowTerm)) { show = false; break; }
+        if (menuTerm && !lower.includes(menuTerm)) { show = false; break; }
+        const valueSet = valueFiltersRef.current.get(col);
+        if (valueSet && !valueSet.has(text)) { show = false; break; }
+      }
+      row.style.display = show ? "" : "none";
+      if (show) visible++;
+    }
+    setVisibleRows(visible);
+    updateFilterMarks();
+  }, [updateFilterMarks]);
+
+  const buildFilterRow = useCallback(() => {
+    const thead = wrapRef.current?.querySelector("table.md-table thead");
+    if (!thead || thead.querySelector(".md-filter-row")) return;
+    const headerCells = thead.querySelector("tr:not(.md-filter-row)")?.children ?? [];
+    const tr = document.createElement("tr");
+    tr.className = "md-filter-row";
+    for (let i = 0; i < headerCells.length; i++) {
+      const th = document.createElement("th");
+      if (headerCells[i].classList.contains("col-hidden")) th.classList.add("col-hidden");
+      const input = document.createElement("input");
+      input.type = "search";
+      input.placeholder = "filter";
+      input.setAttribute("aria-label", `Filter ${headerCells[i].textContent?.trim() || `column ${i + 1}`}`);
+      input.addEventListener("input", applyFilter);
+      th.appendChild(input);
+      tr.appendChild(th);
+    }
+    thead.appendChild(tr);
+  }, [applyFilter]);
+
+  const startResize = useCallback((e: PointerEvent, th: HTMLTableCellElement, handle: HTMLSpanElement) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const table = th.closest("table");
+    if (!table) return;
+    const headerCells = Array.from(th.parentElement?.children ?? []) as HTMLTableCellElement[];
+    if (!table.classList.contains("cols-resized")) {
+      const widths = headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
+      table.classList.add("cols-resized");
+      headerCells.forEach((cell, i) => { cell.style.width = `${widths[i]}px`; });
+    }
+    const startX = e.clientX;
+    const startW = th.getBoundingClientRect().width;
+    handle.classList.add("is-dragging");
+    const onMove = (ev: PointerEvent) => {
+      th.style.width = `${Math.max(56, Math.round(startW + ev.clientX - startX))}px`;
+    };
+    const onUp = () => {
+      handle.classList.remove("is-dragging");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
+
+  const addResizeHandles = useCallback(() => {
+    const table = wrapRef.current?.querySelector("table.md-table");
+    const headerRow = table?.querySelector("thead tr:not(.md-filter-row)");
+    if (!table || !headerRow) return;
+    for (const cell of headerRow.children) {
+      if (cell.querySelector(".md-col-resize")) continue;
+      const handle = document.createElement("span");
+      handle.className = "md-col-resize";
+      handle.setAttribute("aria-hidden", "true");
+      handle.title = "Drag to resize · double-click to reset";
+      handle.addEventListener("pointerdown", (e) => {
+        startResize(e as PointerEvent, cell as HTMLTableCellElement, handle);
+      });
+      handle.addEventListener("click", (e) => e.stopPropagation());
+      handle.addEventListener("dblclick", () => {
+        table.classList.remove("cols-resized");
+        for (const c of headerRow.children) (c as HTMLElement).style.width = "";
+      });
+      cell.appendChild(handle);
+    }
+  }, [startResize]);
+
+  const applyColHidden = useCallback((hide: boolean) => {
+    const table = wrapRef.current?.querySelector("table.md-table");
+    if (!table) return;
+    for (const row of table.querySelectorAll("tr")) {
+      for (let i = COLLAPSE_AT; i < row.children.length; i++) {
+        row.children[i].classList.toggle("col-hidden", hide);
+      }
+    }
+  }, []);
 
   const measure = useCallback(() => {
     if (sortable !== null) return;
-    const rows = wrapRef.current?.querySelectorAll("tbody tr").length ?? 0;
+    const wrap = wrapRef.current;
+    const rows = wrap?.querySelectorAll("tbody tr").length ?? 0;
+    const cols = wrap?.querySelector("thead tr:not(.md-filter-row)")?.children.length ?? 0;
     setSortable(rows >= 5);
-  }, [sortable]);
+    setColCount(cols);
+    setRowCount(rows);
+    setVisibleRows(rows);
+    if (cols > COLLAPSE_AT) applyColHidden(true);
+    addResizeHandles();
+  }, [sortable, applyColHidden, addResizeHandles]);
 
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as Element).closest(".md-filter-row")) return;
     const th = (e.target as Element).closest("th");
     if (!th) return;
     const table = th.closest("table");
@@ -50,11 +200,131 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     });
   }, []);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const th = (e.target as Element).closest("th");
+    if (!th || th.closest(".md-filter-row")) return;
+    const col = Array.from(th.parentElement?.children ?? []).indexOf(th);
+    if (col < 0) return;
+    e.preventDefault();
+    const values = new Map<string, true>();
+    for (const row of th.closest("table")?.querySelectorAll("tbody tr") ?? []) {
+      const value = (row.children[col]?.textContent ?? "").trim();
+      if (value) values.set(value, true);
+    }
+    const options = Array.from(values.keys()).sort((a, b) => {
+      const an = parseFloat(a.replace(/,/g, ""));
+      const bn = parseFloat(b.replace(/,/g, ""));
+      if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+      return a.localeCompare(b);
+    }).slice(0, MAX_FILTER_OPTIONS);
+    const existingValues = valueFiltersRef.current.get(col);
+    const existingTerm = termFiltersRef.current.get(col) ?? "";
+    setMenuOptions(options);
+    setMenuChecked(existingValues ? new Set(options.filter(o => existingValues.has(o))) : new Set(options));
+    setMenuSearch(existingTerm);
+    setFilterMenu({
+      col,
+      left: Math.max(8, Math.min(e.clientX, window.innerWidth - 264)),
+      top: Math.max(8, Math.min(e.clientY, window.innerHeight - 336)),
+    });
+    updateFilterMarks();
+  }, [updateFilterMarks]);
+
+  const commitMenuChecked = useCallback((next: Set<string>) => {
+    if (!filterMenu) return;
+    setMenuChecked(next);
+    if (next.size === menuOptions.length) valueFiltersRef.current.delete(filterMenu.col);
+    else valueFiltersRef.current.set(filterMenu.col, next);
+    applyFilter();
+  }, [filterMenu, menuOptions, applyFilter]);
+
+  const applyMenuTextTerm = useCallback(() => {
+    if (!filterMenu) return;
+    const term = menuSearch.trim().toLowerCase();
+    if (!term) return;
+    termFiltersRef.current.set(filterMenu.col, term);
+    applyFilter();
+  }, [filterMenu, menuSearch, applyFilter]);
+
+  const clearColumnFilter = useCallback(() => {
+    if (!filterMenu) return;
+    valueFiltersRef.current.delete(filterMenu.col);
+    termFiltersRef.current.delete(filterMenu.col);
+    setMenuChecked(new Set(menuOptions));
+    setMenuSearch("");
+    applyFilter();
+  }, [filterMenu, menuOptions, applyFilter]);
+
+  useEffect(() => {
+    if (!filterMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFilterMenu(null); };
+    const onDown = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setFilterMenu(null);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [filterMenu]);
+
+  const toggleCols = useCallback(() => {
+    const next = !expanded;
+    setExpanded(next);
+    applyColHidden(!next);
+  }, [expanded, applyColHidden]);
+
+  const toggleFilter = useCallback(() => {
+    if (!filtering) {
+      buildFilterRow();
+      setFiltering(true);
+      return;
+    }
+    wrapRef.current?.querySelector(".md-filter-row")?.remove();
+    for (const row of wrapRef.current?.querySelectorAll<HTMLTableRowElement>("tbody tr") ?? []) {
+      row.style.display = "";
+    }
+    setVisibleRows(rowCount);
+    setFiltering(false);
+  }, [filtering, buildFilterRow, rowCount]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!fullscreen) {
+      savedExpandedRef.current = expanded;
+      if (colCount > COLLAPSE_AT) {
+        applyColHidden(false);
+        setExpanded(true);
+      }
+      setFullscreen(true);
+      return;
+    }
+    if (colCount > COLLAPSE_AT) {
+      applyColHidden(!savedExpandedRef.current);
+      setExpanded(savedExpandedRef.current);
+    }
+    setFullscreen(false);
+  }, [fullscreen, expanded, colCount, applyColHidden]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") toggleFullscreen(); };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [fullscreen, toggleFullscreen]);
+
   const handleCopyCsv = useCallback(async () => {
     const table = wrapRef.current?.querySelector("table");
     if (!table) return;
     const lines: string[] = [];
     for (const row of table.querySelectorAll("tr")) {
+      if (row.classList.contains("md-filter-row")) continue;
+      if (row.parentElement?.tagName === "TBODY" && row.style.display === "none") continue;
       const cells = Array.from(row.children).map(cell => csvEscape(cell.textContent ?? ""));
       lines.push(cells.join(","));
     }
@@ -63,18 +333,59 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     setTimeout(() => setCopyStatus("idle"), 2000);
   }, []);
 
+  const wide = colCount > COLLAPSE_AT;
+  const menuTermActive = filterMenu
+    ? (termFiltersRef.current.get(filterMenu.col) ?? "") === menuSearch.trim().toLowerCase() && !!menuSearch.trim()
+    : false;
+  const visibleOptions = menuSearch.trim()
+    ? menuOptions.filter(o => o.toLowerCase().includes(menuSearch.trim().toLowerCase()))
+    : menuOptions;
+
   return (
-    <div className="md-table-wrap" ref={wrapRef} onPointerEnter={measure} data-testid="md-table-wrap">
-      <table className="md-table" onClick={sortable ? handleHeaderClick : undefined}
-        data-sortable={sortable ? "true" : undefined}>
-        {children}
-      </table>
+    <div className={`md-table-wrap${fullscreen ? " is-fullscreen" : ""}`} ref={wrapRef}
+      onPointerEnter={measure} data-testid="md-table-wrap">
+      <div className="md-table-topbar">
+        <span className="md-table-count" data-testid="table-row-count">
+          {filtering || filterMenu ? `${visibleRows} of ${rowCount} rows` : ""}
+        </span>
+        <div className="md-table-ctls">
+          {wide && (
+            <button type="button"
+              className={`md-table-ctl${expanded ? " is-active" : ""}`}
+              onClick={toggleCols}
+              aria-label={expanded ? "Collapse extra columns" : `Show ${colCount - COLLAPSE_AT} more columns`}
+              title={expanded ? "Collapse columns" : `+${colCount - COLLAPSE_AT} columns`}
+              data-testid="table-cols-btn">
+              {expanded ? <ChevronsRightLeft className="w-3.5 h-3.5" /> : <ChevronsLeftRight className="w-3.5 h-3.5" />}
+              {!expanded && <span className="text-xs">+{colCount - COLLAPSE_AT}</span>}
+            </button>
+          )}
+          <button type="button"
+            className={`md-table-ctl${filtering ? " is-active" : ""}`}
+            onClick={toggleFilter}
+            aria-label={filtering ? "Hide column filters" : "Show column filters"}
+            title="Free-text filter row" data-testid="table-filter-btn">
+            <Filter className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" className="md-table-ctl" onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Exit fullscreen" : "View table fullscreen"}
+            title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
+            data-testid="table-fullscreen-btn">
+            {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+      <div className="md-table-scroller">
+        <table className="md-table" onClick={sortable ? handleHeaderClick : undefined}
+          onContextMenu={handleContextMenu}
+          data-sortable={sortable ? "true" : undefined}>
+          {children}
+        </table>
+      </div>
       <div className="md-table-tools">
-        {sortable && (
-          <span className="md-table-sort-hint" aria-hidden="true">
-            <ArrowUpDown className="w-3 h-3" /> click headers to sort
-          </span>
-        )}
+        <span className="md-table-sort-hint" aria-hidden="true">
+          <ArrowUpDown className="w-3 h-3" /> left-click headers to sort · right-click to filter · drag header edges to resize
+        </span>
         <button type="button" className="md-table-csv" onClick={handleCopyCsv}
           aria-label="Copy table as CSV" data-testid="table-csv-btn">
           {copyStatus === "copied" ? <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -83,6 +394,43 @@ export default memo(function MarkdownTable({ children }: { children: React.React
           <span className="text-xs">{copyStatus === "copied" ? "CSV copied" : "CSV"}</span>
         </button>
       </div>
+      {filterMenu && (
+        <div className="md-table-filter-menu" ref={menuRef}
+          style={{ left: filterMenu.left, top: filterMenu.top }}
+          data-testid="table-filter-menu">
+          <input className="md-table-menu-search" type="search" placeholder="Search or type a value…"
+            value={menuSearch} autoFocus data-testid="filter-menu-search"
+            onChange={(e) => setMenuSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") applyMenuTextTerm(); }} />
+          {menuSearch.trim() && (
+            <button type="button"
+              className={`md-table-menu-text${menuTermActive ? " is-active" : ""}`}
+              onClick={applyMenuTextTerm} data-testid="filter-menu-text">
+              contains "{menuSearch.trim()}"
+            </button>
+          )}
+          <div className="md-table-menu-list">
+            {visibleOptions.map(option => (
+              <label key={option}>
+                <input type="checkbox" checked={menuChecked.has(option)}
+                  onChange={() => {
+                    const next = new Set(menuChecked);
+                    if (next.has(option)) next.delete(option);
+                    else next.add(option);
+                    commitMenuChecked(next);
+                  }} />
+                <span>{option}</span>
+              </label>
+            ))}
+            {visibleOptions.length === 0 && <div className="md-table-menu-empty">No matching values</div>}
+          </div>
+          <div className="md-table-menu-foot">
+            <button type="button" onClick={() => commitMenuChecked(new Set(menuOptions))}>All</button>
+            <button type="button" onClick={clearColumnFilter}>Clear</button>
+            <span>{menuChecked.size === menuOptions.length ? "all" : `${menuChecked.size}/${menuOptions.length}`} selected</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
