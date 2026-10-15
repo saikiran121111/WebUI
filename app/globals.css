@@ -310,6 +310,15 @@ table.md-table.cols-resized { table-layout: fixed; }
    cells clip with an ellipsis instead of re-wrapping, so row heights stay
    rock-steady while dragging (widening a column reveals more text again). */
 table.md-table.cols-resized td { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Expanded wide tables overflow the scroller even before any drag: cells
+   must not wrap there either, or an off-screen column's long text wraps to
+   several lines and balloons every row's height (tall gaps under short
+   visible text). The scroller takes the width instead of the rows. */
+table.md-table.cols-nowrap td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Hand-sized columns can go narrower than their header text: clip the header
+   instead of letting nowrap text bleed over the neighbouring column.
+   clip-margin keeps the resize handle (right:-6px) visible and grabbable. */
+table.md-table.cols-resized th { overflow: clip; overflow-clip-margin: 8px; text-overflow: ellipsis; }
 .md-table td {
   padding: 0.5rem 0.85rem;
   border-bottom: 1px solid var(--border);

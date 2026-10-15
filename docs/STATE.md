@@ -1,6 +1,15 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Expanded-table tall-row gap fix (2026-10-16): off-screen wrapped cell
+      text ballooned row heights until first drag; `syncOverflowClass` now
+      toggles `cols-nowrap` (nowrap+ellipsis td) whenever the table overflows
+      the scroller. Proven by new compact-rows e2e; table+drag suite 9/9.
+- [x] Expanded-table column drag fix (2026-10-16): `MarkdownTable.tsx`
+      `startResize` now has fit vs overflow regimes (overflowing tables give
+      every column a fixed width, drag grows the table itself); `cols-resized
+      th` clipped in globals.css. Proven by 20-col drag assertions + table
+      suite 6/6.
 - [x] Attachment reading pipeline: `lib/files/extensions.ts`, `lib/server/extract/*`,
       `app/api/files/extract/route.ts` (replaces the old `extract-pdf` route).
 - [x] Client wiring: `lib/files/docProcessor.ts`, `lib/files/index.ts`, `lib/types.ts`,

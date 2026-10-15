@@ -80,6 +80,18 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     updateFilterMarks();
   }, [updateFilterMarks]);
 
+  // Expanded wide tables overflow the scroller: cells must not wrap, or an
+  // off-screen column's long text wraps to several lines and balloons every
+  // row's height (the "tall gaps right after expanding" complaint — the
+  // row's tallest cell is one you cannot even see). One-line cells give the
+  // same compact grid look as hand-sized columns from the first moment;
+  // the scroller takes the horizontal scroll instead.
+  const syncOverflowClass = useCallback((table: HTMLTableElement) => {
+    const scroller = table.parentElement;
+    const overflowing = !!scroller && table.getBoundingClientRect().width > scroller.clientWidth + 1;
+    table.classList.toggle("cols-nowrap", overflowing);
+  }, []);
+
   const startResize = useCallback((e: PointerEvent, th: HTMLTableCellElement, handle: HTMLSpanElement) => {
     e.preventDefault();
     e.stopPropagation();
@@ -89,18 +101,27 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     const visibleCells = headerCells.filter(c => !c.classList.contains("col-hidden"));
     const flexCell = visibleCells[visibleCells.length - 1];
     if (th === flexCell) return; // last visible column's edge is the grid edge (Excel rule)
+    const scroller = table.parentElement;
+    // Two regimes, same as Excel:
+    // - Table fits the scroller: the last visible column keeps no explicit
+    //   width — fixed layout hands it whatever the container leaves over, so
+    //   the table always fills it (no blank gutter, no runaway growth).
+    //   Dragged columns are clamped so that filler never drops below
+    //   MIN_COL_WIDTH.
+    // - Table overflows the scroller (expanded wide tables): there is no
+    //   leftover to hand out, so every visible column — the last one
+    //   included — gets a fixed width and the drag grows/shrinks the table
+    //   itself; the scroller just scrolls further. Clamping this case to
+    //   the viewport used to snap every dragged column straight to the
+    //   MIN_COL_WIDTH floor, so dragging left or right did nothing.
+    const overflowing = table.getBoundingClientRect().width > (scroller?.clientWidth ?? 0) + 1;
     if (!table.classList.contains("cols-resized")) {
       const widths = visibleCells.map(cell => Math.round(cell.getBoundingClientRect().width));
       table.classList.add("cols-resized");
       visibleCells.forEach((cell, i) => {
-        if (cell !== flexCell) cell.style.width = `${widths[i]}px`;
+        if (cell !== flexCell || overflowing) cell.style.width = `${widths[i]}px`;
       });
     }
-    // The last visible column keeps no explicit width: fixed layout hands it
-    // whatever the container leaves over, so the table always fills it — no
-    // blank gutter when columns shrink, no runaway growth dragging right.
-    // Dragged columns are clamped so that filler never drops below MIN_COL_WIDTH.
-    const scroller = table.parentElement;
     const startX = e.clientX;
     const startW = th.getBoundingClientRect().width;
     handle.classList.add("is-dragging");
@@ -108,21 +129,26 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     let moved = false;
     const onMove = (ev: PointerEvent) => {
       if (Math.abs(ev.clientX - startX) > 3) moved = true;
-      const othersW = visibleCells.reduce(
-        (sum, c) => sum + (c === th || c === flexCell ? 0 : (parseFloat(c.style.width) || 0)), 0);
-      const availW = (scroller?.clientWidth ?? Infinity) - othersW - MIN_COL_WIDTH;
-      th.style.width = `${Math.max(MIN_COL_WIDTH, Math.min(availW, Math.round(startW + ev.clientX - startX)))}px`;
+      let w = Math.round(startW + ev.clientX - startX);
+      if (!overflowing) {
+        const othersW = visibleCells.reduce(
+          (sum, c) => sum + (c === th || c === flexCell ? 0 : (parseFloat(c.style.width) || 0)), 0);
+        const availW = (scroller?.clientWidth ?? Infinity) - othersW - MIN_COL_WIDTH;
+        w = Math.min(availW, w);
+      }
+      th.style.width = `${Math.max(MIN_COL_WIDTH, w)}px`;
     };
     const onUp = () => {
       handle.classList.remove("is-dragging");
       document.body.classList.remove("md-col-dragging");
       if (moved) suppressSortAfterDragRef.current = Date.now();
+      syncOverflowClass(table); // the drag changed the table's own width
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, []);
+  }, [syncOverflowClass]);
 
   const resetColWidths = useCallback((table: HTMLTableElement, headerRow: Element) => {
     table.classList.remove("cols-resized");
@@ -140,9 +166,10 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     handle.addEventListener("dblclick", () => {
       const headerRow = table.querySelector("thead tr");
       if (headerRow) resetColWidths(table, headerRow);
+      syncOverflowClass(table); // back to auto layout — re-measure the fit
     });
     return handle;
-  }, [startResize, resetColWidths]);
+  }, [startResize, resetColWidths, syncOverflowClass]);
 
   // Handles live on every visible header except the last one — the last
   // visible column is the flexible filler, so its edge must not be draggable.
@@ -196,6 +223,7 @@ export default memo(function MarkdownTable({ children }: { children: React.React
     }
     setColsHiddenClasses(table, hide);
     syncResizeHandles(table); // the flexible filler changes with the visible set
+    syncOverflowClass(table); // expanded wide tables stop cells wrapping at once
     if (valueFiltersRef.current.size || termFiltersRef.current.size) applyFilter();
     else if (visibleRows !== rows) setVisibleRows(rows);
   });

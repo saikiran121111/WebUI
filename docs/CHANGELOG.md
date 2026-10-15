@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 2026-10-16 — expanded-table tall-row gaps fixed
+- User: right after expanding a wide table, every row is ~120px of empty
+  space; it only compacts after the first drag. Root cause: in auto layout
+  cells wrap, and the row's tallest cell was an OFF-screen column's long
+  text (Best For/Community) wrapping to 4-5 lines — invisible, yet it set
+  every visible row's height. `cols-resized` (drag) sets td nowrap, which is
+  why dragging "fixed" it.
+- `components/render/MarkdownTable.tsx`: `syncOverflowClass` toggles
+  `cols-nowrap` on the table whenever it overflows the scroller; runs in the
+  resync effect, on drag pointerup and on dblclick reset.
+- `app/globals.css`: `cols-nowrap td` = nowrap + ellipsis (same one-line
+  grid look as hand-sized columns, from the first moment).
+- Regression: new e2e "expanding a wide table keeps rows compact before any
+  drag" (overflow true, rows 37px ≤48). Table+drag suite 9/9, typecheck clean.
+
+## 2026-10-16 — expanded-table column drag fixed
+- User: on an expanded (wide) table, dragging header edges left/right does
+  nothing and columns snap to ~56px with headers overlapping. Root cause:
+  `startResize`'s clamp computed available width from `scroller.clientWidth`
+  — valid only while the table fits the scroller. Expanded tables overflow
+  it, so `availW` went ≈0/negative and every drag pinned the column to
+  MIN_COL_WIDTH; the last column (no explicit width) also collapsed to 0.
+- `components/render/MarkdownTable.tsx`: two regimes — fits scroller: old
+  filler/clamp behavior kept; overflows scroller: every visible column
+  (last included) gets a fixed width and the drag grows/shrinks the table
+  itself (scroller scrolls further), floor stays MIN_COL_WIDTH.
+- `app/globals.css`: `cols-resized th` gets `overflow: clip` +
+  `overflow-clip-margin: 8px` so narrow headers clip instead of bleeding
+  over the neighbour (clip-margin keeps the -6px resize handle grabbable).
+- Regression: `tests/render.spec.ts` 20-col test now drags expanded edges
+  (+150 → 96→246px, −100 → 246→146px). Table suite 6/6 + drag specs 3/3,
+  typecheck clean. (Earlier red runs were a stale/cold dev server, not code.)
+
 ## 2026-10-16 — mid-stream edit/stop fixed + collapsible user bubble
 - User: editing the input while generating "redirects to homepage" and the
   generation can't be stopped. Root cause: `edit()` never aborted the

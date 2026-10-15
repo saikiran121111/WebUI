@@ -371,6 +371,68 @@ test("a 20-column table stays readable collapsed and expanded", async ({ page })
   for (const h of expanded.trs) {
     expect(h, "row ballooned by one-character-per-line wrapping").toBeLessThanOrEqual(80);
   }
+
+  // Expanded wide tables overflow the scroller: dragging a header edge must
+  // still resize that column. It used to snap to the 56px floor because the
+  // clamp measured the viewport instead of the table, so left/right drags
+  // did nothing.
+  const dragEdge = async (colIdx: number, dx: number) => {
+    const box = (await wrap.locator("thead th").nth(colIdx).locator(".md-col-resize").boundingBox())!;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(box.x + box.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, y, { steps: 6 });
+    await page.mouse.up();
+    return geo();
+  };
+  const widened = await dragEdge(0, 150);
+  console.log("expanded widened:", JSON.stringify(widened.ths.slice(0, 2)));
+  expect(widened.ths[0], "drag right did nothing on an expanded overflowing table").toBeGreaterThanOrEqual(expanded.ths[0] + 130);
+  expect(widened.tableW, "table did not grow with the drag").toBeGreaterThanOrEqual(expanded.tableW + 130);
+  const shrunk = await dragEdge(0, -100);
+  console.log("expanded shrunk:", JSON.stringify(shrunk.ths.slice(0, 2)));
+  expect(shrunk.ths[0], "drag left did nothing").toBeLessThanOrEqual(widened.ths[0] - 80);
+});
+
+test("expanding a wide table keeps rows compact before any drag", async ({ page }) => {
+  // One off-screen column carries long text: if cells wrap while the table
+  // overflows the scroller, that invisible cell sets every row's height and
+  // the visible rows fill with tall empty gaps until the first drag.
+  const rows = [
+    ["Python", "Multi-paradigm", "1991", "Dynamic", "~1.2M", "450K+ pkgs", "Easy", "ML and data science, web backends, automation, scripting glue"],
+    ["Zig", "Multi-paradigm", "2016", "Static", "~115M", "8K+ pkgs", "Brutal", "Systems programming, embedded targets, game tooling, compilers"],
+    ["C", "Procedural", "1972", "Static", "~120M", "12K+ libs", "Brutal", "Operating systems, embedded firmware, language runtimes, drivers"],
+    ["TypeScript", "Multi-paradigm", "2012", "Static", "~45M", "2.1M+ pkgs", "Moderate", "Web frontends and backends, tooling, large shared codebases"],
+    ["Kotlin", "OOP + FP", "2011", "Static", "~52M", "320K+ libs", "Moderate", "Android apps, JVM services, multiplatform shared logic"],
+    ["Go", "Procedural", "2009", "Static", "~78M", "85K+ modules", "Easy", "Cloud services, CLIs, networking proxies, containers"],
+    ["Rust", "Multi-paradigm", "2010", "Static", "~95M", "140K+ crates", "Brutal", "Systems software, WASM modules, CLI tools, game engines"],
+  ];
+  const cols = ["Language", "Paradigm", "Year", "Typing", "Speed", "Ecosystem", "Learning", "Best For"];
+  const table = [`| ${cols.join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`]
+    .concat(rows.map(r => `| ${r.join(" | ")} |`))
+    .join("\n");
+  await mockStream(page, table);
+  await page.goto("http://localhost:3000/");
+  await send(page, "beefy table please");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await wrap.hover();
+  await wrap.locator('[data-testid="table-cols-btn"]').click(); // expand, no drag yet
+
+  const state = await wrap.evaluate((el) => {
+    const tableEl = el.querySelector("table") as HTMLElement;
+    const scroller = el.querySelector(".md-table-scroller") as HTMLElement;
+    return {
+      overflowing: tableEl.getBoundingClientRect().width > scroller.clientWidth + 1,
+      trs: Array.from(el.querySelectorAll("tbody tr")).slice(0, 5)
+        .map(tr => Math.round((tr as HTMLElement).getBoundingClientRect().height)),
+    };
+  });
+  console.log("expanded pre-drag:", JSON.stringify(state));
+  expect(state.overflowing, "expanded table should overflow the scroller").toBe(true);
+  for (const h of state.trs) {
+    expect(h, "row ballooned by off-screen wrapped text before any drag").toBeLessThanOrEqual(48);
+  }
 });
 
 test("a wide table stays collapsed while it is still generating", async ({ page }) => {
