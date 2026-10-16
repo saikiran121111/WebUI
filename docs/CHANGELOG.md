@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026-10-16 — Feat: 60fps smooth motion for all chart interactions
+- New `hooks/useTweenedNumbers.ts`: rAF easeOutCubic tween of numeric vectors;
+  snaps instantly on vector-shape change or `prefers-reduced-motion`.
+- `components/render/ChartBlock.tsx`: AxisMarks/BarMarks/ScatterMarks/PieMarks
+  now render from tweened values, axis scales, and bar layout scalars —
+  slider drags, legend toggles, rescales and pie sweeps glide at native
+  refresh rate; chart-type switch crossfades (`chart-marks-enter`).
+- `app/globals.css`: opacity-only enter fades (marks, ticks, tooltip),
+  `.chart-mark:hover` fill-opacity lift, reduced-motion disables all fades.
+- Proven: frame-sampling shows 21 distinct height+width frames per legend
+  toggle (~320ms ease-out); reduced-motion browser context snaps instantly.
+  Chart e2e 3/3 green, `tsc --noEmit` clean.
+
 ## 2026-10-16 — Fix: header-click sorting dead on tables under 5 rows
 - `components/render/MarkdownTable.tsx`: sort gate `rows >= 5` → `rows >= 2`
   (the footer hint always advertised sorting; 4-row tables silently ignored

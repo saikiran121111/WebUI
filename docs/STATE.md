@@ -1,6 +1,18 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Chart 60fps motion (2026-10-16): new `hooks/useTweenedNumbers.ts`
+      (rAF easeOutCubic vector tween, snaps on shape change / reduced-motion).
+      `ChartBlock.tsx`: AxisMarks tweens series values + axis lo/hi (bars,
+      lines, areas, stacked, histogram glide on slider/legend/rescale; ticks
+      fade in and slide), BarMarks tweens groupW/barW (legend-toggle widths
+      no longer snap), ScatterMarks tweens coords + both scales, PieMarks
+      tweens slice values (sweeps rotate smoothly); type switch crossfades
+      via `<g key={type} className="chart-marks-enter">`. CSS fades only
+      (opacity/GPU-safe) + `prefers-reduced-motion` kill switch in
+      globals.css chart chunk. Proven by frame sampling: legend toggle =
+      21 distinct height AND width frames over ~320ms; reduced-motion
+      context snaps instantly. Chart specs 3/3, tsc clean.
 - [x] Table sort threshold fix (2026-10-16): header-click sorting was gated on
       `rows >= 5` while the hint always advertised it — 4-row tables ignored
       clicks. `MarkdownTable.tsx` gate now `rows >= 2`; new 4-row e2e in

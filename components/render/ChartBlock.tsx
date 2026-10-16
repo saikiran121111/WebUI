@@ -4,6 +4,7 @@ import { Table2, BarChart3, MessageSquarePlus } from "lucide-react";
 import CodeBlock from "./CodeBlock";
 import { parseJsonFence, chartSpecSchema, type ChartSpec } from "../../lib/render/schemas";
 import { OBSIDIAN_SERIES_COLORS } from "../../lib/render/themes";
+import { useTweenedNumbers } from "../../hooks/useTweenedNumbers";
 
 const PLOT = { left: 52, right: 16, top: 14, bottom: 44, width: 640, height: 360 };
 
@@ -172,11 +173,13 @@ function ChartView({ spec, onSend }: { spec: ChartSpec; onSend?: (text: string) 
         <div className="chart-stage">
           <svg viewBox={`0 0 ${PLOT.width} ${PLOT.height}`} role="img" aria-label={summary}
             className="chart-svg" preserveAspectRatio="xMidYMid meet">
-            {isPie
-              ? <PieMarks spec={viewSpec} onTip={setTooltip} onSelect={setSelected} />
-              : isScatter
-                ? <ScatterMarks spec={viewSpec} onTip={setTooltip} onSelect={setSelected} />
-                : <AxisMarks spec={viewSpec} onTip={setTooltip} onSelect={setSelected} />}
+            <g key={type} className="chart-marks-enter">
+              {isPie
+                ? <PieMarks spec={viewSpec} onTip={setTooltip} onSelect={setSelected} />
+                : isScatter
+                  ? <ScatterMarks spec={viewSpec} onTip={setTooltip} onSelect={setSelected} />
+                  : <AxisMarks spec={viewSpec} onTip={setTooltip} onSelect={setSelected} />}
+            </g>
           </svg>
           {tooltip && (
             <div className="chart-tooltip" style={{ left: `${(tooltip.x / PLOT.width) * 100}%`, top: `${(tooltip.y / PLOT.height) * 100}%` }}>
@@ -288,14 +291,30 @@ function AxisMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHandl
   const categories = spec.categories ?? [];
   const stacked = spec.type === "stacked-bar";
   const values = series.flatMap(s => s.data);
-  if (values.length === 0) return null; // every series hidden — empty plot
+
+  // rAF-tweened geometry: series values and the axis scale ease toward their
+  // targets, so slider drags, legend toggles and rescales glide at native
+  // refresh rate instead of snapping.
+  const displayValues = useTweenedNumbers(values);
+  let cursor = 0;
+  const displaySeries = series.map(s => {
+    const data = displayValues.slice(cursor, cursor + s.data.length);
+    cursor += s.data.length;
+    return { ...s, data };
+  });
+
   const totals = stacked
     ? categories.map((_, ci) => series.reduce((sum, s) => sum + (s.data[ci] ?? 0), 0))
     : values;
-  const scale = niceScale(Math.min(0, ...totals), Math.max(...totals));
+  const scale = values.length
+    ? niceScale(Math.min(0, ...totals), Math.max(...totals))
+    : { lo: 0, hi: 1, step: 1 };
+  const [lo, hi] = useTweenedNumbers([scale.lo, scale.hi]);
+
+  if (values.length === 0) return null; // every series hidden — empty plot
   const plotW = PLOT.width - PLOT.left - PLOT.right;
   const plotH = PLOT.height - PLOT.top - PLOT.bottom;
-  const y = (v: number) => PLOT.top + plotH - ((v - scale.lo) / (scale.hi - scale.lo)) * plotH;
+  const y = (v: number) => PLOT.top + plotH - ((v - lo) / (hi - lo)) * plotH;
   const band = plotW / Math.max(categories.length, 1);
   const unit = spec.unit ? ` ${spec.unit}` : "";
 
@@ -304,8 +323,8 @@ function AxisMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHandl
 
   return (
     <g>
-      {ticks.map(v => (
-        <g key={v}>
+      {ticks.filter(v => v >= lo - 1e-9 && v <= hi + 1e-9).map(v => (
+        <g key={v} className="chart-tick-in">
           <line x1={PLOT.left} x2={PLOT.width - PLOT.right} y1={y(v)} y2={y(v)} className="chart-grid" />
           <text x={PLOT.left - 8} y={y(v) + 4} textAnchor="end" className="chart-tick">{formatNumber(v)}</text>
         </g>
@@ -322,8 +341,8 @@ function AxisMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHandl
       )}
 
       {spec.type === "bar" || spec.type === "grouped-bar" || spec.type === "stacked-bar" || spec.type === "histogram"
-        ? <BarMarks spec={spec} y={y} band={band} stacked={stacked} onTip={onTip} onSelect={onSelect} unit={unit} />
-        : <LineMarks spec={spec} y={y} band={band} area={spec.type === "area"} onTip={onTip} onSelect={onSelect} unit={unit} />}
+        ? <BarMarks spec={{ ...spec, series: displaySeries }} y={y} band={band} stacked={stacked} onTip={onTip} onSelect={onSelect} unit={unit} />
+        : <LineMarks spec={{ ...spec, series: displaySeries }} y={y} band={band} area={spec.type === "area"} onTip={onTip} onSelect={onSelect} unit={unit} />}
     </g>
   );
 }
@@ -335,8 +354,12 @@ function BarMarks({ spec, y, band, stacked, onTip, onSelect, unit }: {
   const series = spec.series ?? [];
   const categories = spec.categories ?? [];
   const gap = spec.type === "histogram" ? 0.08 : 0.25;
-  const groupW = band * (1 - gap);
-  const barW = stacked || spec.type === "histogram" ? groupW : groupW / series.length;
+  // rAF-tweened layout scalars (see AxisMarks): when a series is toggled the
+  // remaining bars widen/slide smoothly instead of snapping to new widths.
+  const [groupW, barW] = useTweenedNumbers([
+    band * (1 - gap),
+    (stacked || spec.type === "histogram") ? band * (1 - gap) : band * (1 - gap) / Math.max(series.length, 1),
+  ]);
   const zeroY = y(0);
   return (
     <g>
@@ -433,30 +456,42 @@ function LineMarks({ spec, y, band, area, onTip, onSelect, unit }: {
 function ScatterMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHandler; onSelect: SelectHandler }) {
   const points = spec.points ?? [];
   const xs = points.map(p => (typeof p.x === "number" ? p.x : NaN));
-  const numericX = xs.every(v => !Number.isNaN(v));
+  const numericX = points.length > 0 && xs.every(v => !Number.isNaN(v));
+  const ys = points.map(p => p.y);
+
+  // rAF-tweened point coordinates and both axis scales (see AxisMarks).
+  const displayFlat = useTweenedNumbers(numericX ? points.flatMap(p => [p.x as number, p.y]) : ys);
+  const displayXs = numericX ? displayFlat.filter((_, i) => i % 2 === 0) : null;
+  const displayYs = numericX ? displayFlat.filter((_, i) => i % 2 === 1) : displayFlat;
+
   const xScale = numericX
     ? niceScale(Math.min(...(xs as number[])), Math.max(...(xs as number[])))
     : { lo: 0, hi: Math.max(points.length - 1, 1), step: 1 };
-  const ys = points.map(p => p.y);
-  const yScale = niceScale(Math.min(...ys), Math.max(...ys));
+  const yScale = points.length
+    ? niceScale(Math.min(...ys), Math.max(...ys))
+    : { lo: 0, hi: 1, step: 1 };
+  const [xLo, xHi] = useTweenedNumbers([xScale.lo, xScale.hi]);
+  const [yLo, yHi] = useTweenedNumbers([yScale.lo, yScale.hi]);
+
+  if (points.length === 0) return null;
   const plotW = PLOT.width - PLOT.left - PLOT.right;
   const plotH = PLOT.height - PLOT.top - PLOT.bottom;
-  const x = (v: number) => PLOT.left + ((v - xScale.lo) / (xScale.hi - xScale.lo)) * plotW;
-  const y = (v: number) => PLOT.top + plotH - ((v - yScale.lo) / (yScale.hi - yScale.lo)) * plotH;
+  const x = (v: number) => PLOT.left + ((v - xLo) / (xHi - xLo)) * plotW;
+  const y = (v: number) => PLOT.top + plotH - ((v - yLo) / (yHi - yLo)) * plotH;
   const unit = spec.unit ? ` ${spec.unit}` : "";
   const ticks: number[] = [];
   for (let v = yScale.lo; v <= yScale.hi + yScale.step / 2; v += yScale.step) ticks.push(v);
   return (
     <g>
-      {ticks.map(v => (
-        <g key={v}>
+      {ticks.filter(v => v >= yLo - 1e-9 && v <= yHi + 1e-9).map(v => (
+        <g key={v} className="chart-tick-in">
           <line x1={PLOT.left} x2={PLOT.width - PLOT.right} y1={y(v)} y2={y(v)} className="chart-grid" />
           <text x={PLOT.left - 8} y={y(v) + 4} textAnchor="end" className="chart-tick">{formatNumber(v)}</text>
         </g>
       ))}
       {points.map((p, i) => {
-        const cx = numericX ? x(p.x as number) : x(i);
-        const cy = y(p.y);
+        const cx = displayXs ? x(displayXs[i]) : x(i);
+        const cy = y(displayYs[i]);
         if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
         const label = p.label ?? `(${String(p.x)}, ${trimZero(p.y)})`;
         return (
@@ -472,7 +507,11 @@ function ScatterMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHa
 
 function PieMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHandler; onSelect: SelectHandler }) {
   const values = (spec.series?.[0]?.data ?? []).map(v => Math.max(v, 0));
+  // rAF-tweened slice values: sweeps and label positions rotate smoothly
+  // toward the target shares (see AxisMarks).
+  const displayValues = useTweenedNumbers(values);
   if (values.length === 0) return null;
+  const displayTotal = displayValues.reduce((a, b) => a + b, 0) || 1;
   const total = values.reduce((a, b) => a + b, 0) || 1;
   const cx = PLOT.width / 2;
   const cy = (PLOT.top + PLOT.height - PLOT.bottom) / 2;
@@ -482,13 +521,14 @@ function PieMarks({ spec, onTip, onSelect }: { spec: ChartSpec; onTip: TipHandle
   let angle = -Math.PI / 2;
   return (
     <g>
-      {values.map((v, i) => {
-        const sweep = (v / total) * Math.PI * 2;
+      {displayValues.map((dv, i) => {
+        const sweep = (dv / displayTotal) * Math.PI * 2;
         const path = arcPath(cx, cy, r, inner, angle, angle + sweep);
         angle += sweep;
         if (!path) return null;
         const cat = spec.categories?.[i] ?? `#${i + 1}`;
         const mid = angle - sweep / 2;
+        const v = values[i];
         const pct = (v / total) * 100;
         return (
           <g key={i}>

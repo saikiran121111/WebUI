@@ -924,6 +924,18 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
 }
 .chart-explainer-metrics { color: var(--foreground); font-weight: 500; font-variant-numeric: tabular-nums; }
 .chart-explainer-note { color: var(--muted); font-style: italic; }
+
+/* ── Chart motion: geometry is rAF-tweened in JS (useTweenedNumbers);
+      CSS covers opacity-only fades (GPU-safe) for enter/switch moments ── */
+@keyframes chart-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.chart-marks-enter { animation: chart-fade-in 0.24s ease-out; }
+.chart-tick-in { animation: chart-fade-in 0.2s ease-out; }
+.chart-mark { animation: chart-fade-in 0.2s ease-out; transition: fill-opacity 0.15s ease-out; }
+.chart-mark:hover { fill-opacity: 1; }
+.chart-tooltip { animation: chart-fade-in 0.14s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .chart-marks-enter, .chart-tick-in, .chart-mark, .chart-tooltip { animation: none; }
+}
 .viz-ask-btn {
   margin-left: auto; flex-shrink: 0;
   display: inline-flex; align-items: center; gap: 0.35rem;
