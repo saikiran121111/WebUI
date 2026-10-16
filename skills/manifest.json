@@ -73,6 +73,36 @@
       "activation": "intent",
       "subIntent": "performance",
       "dependsOn": ["3d"]
+    },
+    {
+      "id": "anatomy",
+      "file": "anatomy/SKILL.md",
+      "title": "Anatomy domain parent",
+      "purpose": "Isometric technical illustration: fence contract, quality workflow, routing boundaries, iteration rules.",
+      "activation": "domain",
+      "subIntent": null,
+      "dependsOn": [],
+      "domain": "anatomy"
+    },
+    {
+      "id": "anatomy/drawing-craft",
+      "file": "anatomy/drawing-craft/SKILL.md",
+      "title": "Isometric drawing craft",
+      "purpose": "Solid construction, tone hierarchy, line discipline, depth order, composition budgets.",
+      "activation": "intent",
+      "subIntent": "craft",
+      "dependsOn": ["anatomy"],
+      "domain": "anatomy"
+    },
+    {
+      "id": "anatomy/mechanism-explainers",
+      "file": "anatomy/mechanism-explainers/SKILL.md",
+      "title": "Mechanism & instrument explainers",
+      "purpose": "Engines, pumps, gauges, fluid systems: part relationships, live state models, readouts.",
+      "activation": "intent",
+      "subIntent": "mechanism",
+      "dependsOn": ["anatomy"],
+      "domain": "anatomy"
     }
   ]
 }

@@ -1,6 +1,33 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Anatomy routing fix (2026-10-16): explicit "Anatomy skill" invocation
+      overrides mode-D exclusion + weak "mesh" disclaimer wording in
+      `lib/skills/anatomyIntent.ts`; named formats (GLB/STL/…) still win.
+      Intent 9/9, anatomy vitest 44/44, tsc clean.
+- [x] Anatomy illustration skill (2026-10-16): WebUI-only, never a Claude Code
+      skill. Pack `skills/anatomy/**` (3 SKILL.md) registered in
+      `skills/manifest.json`; routing `lib/skills/anatomyIntent.ts` +
+      domain-gated `lib/skills/loader.ts`; the anatomy pack REPLACES the 3D
+      pack in `injectSkillPacks` (`app/api/chat/route.ts`). Kit vendored
+      verbatim from upstream v1.1.0 (MIT, commit e9488296…, `LICENSE` +
+      `NOTICE.md`) at `lib/anatomy/kit/`. Model emits ```anatomy fence JSON →
+      strict zod (`lib/anatomy/anatomySchema.ts`: 11 part kinds, budgets,
+      formula whitelist, dup-id/parent/slide/accent checks) → deterministic
+      builder (`lib/anatomy/anatomyBuilder.ts`: SVG plate + declarative
+      liveSpec, painter depth sort, fit projection) →
+      `components/render/AnatomyBlock.tsx` lazy-mounts plate + zero-import
+      `lib/anatomy/liveEngine.mjs` (rAF gated by IntersectionObserver,
+      sliders/explode/needle/readouts from ONE state model, reduced-motion,
+      destroy cleanup). Honest badge "SVG vector illustration — not a 3D
+      mesh"; downloads SVG/PNG/standalone-HTML/TSX via
+      `app/api/anatomy/export/route.ts`; GLB/FBX/etc. stay with scene3d/
+      asset3d. Showcase `/demo-anatomy` + `?demo=anatomy`
+      (`lib/render/anatomyDemoShowcase.ts`, 4 figures). Proven: vitest
+      300/300 (41 anatomy), tsc + build clean, lazy chunks proven,
+      Playwright anatomy 7/7 + regression 158/158 (file-reading layer 2
+      not run to completion — see ISSUES.md).
+
 - [x] AI 3D design system (2026-10-16): two modes. Mode A procedural
       ```scene3d v2: strict zod contract (`lib/three3d/sceneSchema.ts`) →
       deterministic builder (`lib/three3d/sceneBuilder.ts`: lathe/extrude/

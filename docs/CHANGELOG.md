@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## 2026-10-16 — Fix: Anatomy routing honors explicit "Anatomy skill" invocation
+- `lib/skills/anatomyIntent.ts`: an explicit invocation ("use the Anatomy
+  skill/runtime/…") now overrides the mode-D subject exclusion (a user
+  knowingly asking for a building cutaway gets Anatomy) and neutralizes
+  weak mesh wording ("not a genuine 3D mesh" disclaimers); a NAMED mesh
+  format (GLB/GLTF/FBX/USDZ/3MF/STL) still routes to the 3D pack.
+  Implicit architecture/C4/chart requests stay excluded (mode D intact).
+- `__tests__/anatomy/intent.test.ts`: +3 tests (explicit-over-exclusion,
+  disclaimer wording, named-format-wins). anatomy vitest 44/44, tsc clean.
+
+## 2026-10-16 — Feat: Anatomy isometric technical-illustration skill (WebUI-only)
+- New `lib/anatomy/`: upstream kit vendored verbatim (MIT v1.1.0, commit
+  e9488296…, `LICENSE` + `NOTICE.md`), `anatomySchema.ts` (strict zod
+  `anatomy` fence contract: 11 part kinds, budgets, formula whitelist,
+  dup-id/parent/slide/accent validation), `anatomyBuilder.ts` (spec → SVG
+  plate + liveSpec, painter's-order depth sort, fit projection),
+  `liveEngine.mjs` (zero-import vanilla runtime: rAF gated by
+  IntersectionObserver, sliders/explode/needle/readouts from one state
+  model, reduced-motion stillness, destroy() cleanup).
+- New `components/render/AnatomyBlock.tsx` (lazy builder+engine import,
+  light/dark theme, part-click → refinement send, honest "SVG vector
+  illustration — not a 3D mesh" badge, SVG/PNG/HTML/TSX downloads) +
+  `app/api/anatomy/export/route.ts` (standalone HTML with the engine
+  inlined, self-contained React component; zod-strict request).
+- Skill pack `skills/anatomy/**` (3 SKILL.md) added to `skills/manifest.json`;
+  `lib/skills/anatomyIntent.ts` + domain-gated `lib/skills/loader.ts`;
+  anatomy instructions replace the 3D pack in `app/api/chat/route.ts`.
+  `lib/render/registry.ts` + `MarkdownRenderer.tsx` route ```anatomy fences;
+  `lib/render/systemPrompt.ts` router rules updated (anatomy vs scene3d vs
+  asset3d vs "not for architecture/C4/charts").
+- Showcase: `/demo-anatomy` + `?demo=anatomy`
+  (`lib/render/anatomyDemoShowcase.ts`, 4 figures: single-cyl head, dial
+  indicator, hydraulic pump, connection pool).
+- Tests: `__tests__/anatomy/` 5 files 41/41; `tests/anatomy.spec.ts` 7/7
+  (slider→readout 30.0→42.0 + piston transform, explode, theme, downloads,
+  mobile 390px, reduced-motion). Fixed `tests/conversations-crud.spec.ts`
+  unarchive reload race (see ISSUES.md). No new npm deps.
+
 ## 2026-10-16 — Feat: AI 3D design system (procedural scenes + genuine AI meshes)
 - New `lib/three3d/`: `sceneSchema.ts` (strict zod v2 `scene3d` + `asset3d`
   contracts, budgets), `geometryKit.ts` (lathe/extrude/tube/primitives),

@@ -3,6 +3,10 @@
  * Reads the manifest once, then loads ONLY the SKILL.md files selected by the
  * detected intent (mtime-cached). This is plain Node fs inside the Next.js
  * server — it has zero dependency on Claude Code or any external agent runtime.
+ *
+ * The manifest carries one shared skill list for every WebUI skill domain
+ * ("3d", "anatomy", ...); each skill declares its domain (default "3d") so a
+ * request only ever loads the pack it activated.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -16,6 +20,7 @@ export interface SkillMeta {
   activation: "domain" | "intent";
   subIntent: string | null;
   dependsOn: string[];
+  domain?: "3d" | "anatomy";
 }
 
 interface SkillManifest { version: number; domain: string; skills: SkillMeta[]; }
@@ -38,13 +43,14 @@ async function getManifest(): Promise<SkillManifest> {
   return manifestPromise;
 }
 
-/** Skill ids selected for the given sub-intents, plus their dependency closure. */
-export async function selectSkillIds(subIntents: ThreeSubIntent[]): Promise<string[]> {
+/** Skill ids selected for one domain pack + sub-intents, with dependency closure. */
+async function selectPackIds(domain: "3d" | "anatomy", subIntents: string[]): Promise<string[]> {
   const manifest = await getManifest();
   const wanted = new Set<string>();
   for (const skill of manifest.skills) {
+    if ((skill.domain ?? "3d") !== domain) continue;
     if (skill.activation === "domain") wanted.add(skill.id);
-    else if (skill.subIntent && subIntents.includes(skill.subIntent as ThreeSubIntent)) wanted.add(skill.id);
+    else if (skill.subIntent && subIntents.includes(skill.subIntent)) wanted.add(skill.id);
   }
   // Dependency closure (deps load before dependents).
   const ordered: string[] = [];
@@ -58,6 +64,16 @@ export async function selectSkillIds(subIntents: ThreeSubIntent[]): Promise<stri
   };
   for (const id of wanted) visit(id, new Set());
   return ordered;
+}
+
+/** 3D pack ids (kept as the public entry point the chat route and tests use). */
+export async function selectSkillIds(subIntents: ThreeSubIntent[]): Promise<string[]> {
+  return selectPackIds("3d", subIntents);
+}
+
+/** Anatomy pack ids for the given anatomy sub-intents. */
+export async function selectAnatomySkillIds(subIntents: string[]): Promise<string[]> {
+  return selectPackIds("anatomy", subIntents);
 }
 
 async function readSkillFile(relFile: string): Promise<string | null> {
@@ -76,13 +92,9 @@ async function readSkillFile(relFile: string): Promise<string | null> {
   }
 }
 
-/**
- * The instruction block to inject into a qualifying Strata request.
- * Returns "" when nothing applies, so unrelated chat is untouched.
- */
-export async function loadSkillInstructions(subIntents: ThreeSubIntent[]): Promise<string> {
+async function loadPackInstructions(domain: "3d" | "anatomy", subIntents: string[]): Promise<string> {
   try {
-    const ids = await selectSkillIds(subIntents);
+    const ids = await selectPackIds(domain, subIntents);
     const manifest = await getManifest();
     const blocks: string[] = [];
     for (const id of ids) {
@@ -95,6 +107,19 @@ export async function loadSkillInstructions(subIntents: ThreeSubIntent[]): Promi
   } catch {
     return ""; // skill subsystem must never break chat
   }
+}
+
+/**
+ * The 3D instruction block to inject into a qualifying Strata request.
+ * Returns "" when nothing applies, so unrelated chat is untouched.
+ */
+export async function loadSkillInstructions(subIntents: ThreeSubIntent[]): Promise<string> {
+  return loadPackInstructions("3d", subIntents);
+}
+
+/** The Anatomy instruction block (same guarantees as loadSkillInstructions). */
+export async function loadAnatomyInstructions(subIntents: string[]): Promise<string> {
+  return loadPackInstructions("anatomy", subIntents);
 }
 
 /** Diagnostics/test surface: the catalog without file contents. */

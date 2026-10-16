@@ -1,6 +1,31 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Explicit "Use the Anatomy skill" prompt fell back to `scene3d`: the
+  detector's early return `if (wantsMesh || excluded)` fired on BOTH the
+  mode-D exclusion ("architectural"/"building") and `MESH_REQUEST`
+  (`/\bmesh(es)?\b/i` matched the prompt's own "not a genuine 3D mesh"
+  disclaimer). Fixed: `EXPLICIT_INVOCATION` override — naming the Anatomy
+  system beats the exclusion and weak mesh wording; only a NAMED format
+  (GLB/STL/…) still wins. Proven: intent tests 9/9.
+- `conversations-crud` unarchive test failed after `page.reload()`:
+  `handleToggleArchive` is GET→POST→refresh, and the immediate reload
+  aborted the in-flight POST, so the reload read back `archived:true` and
+  the item stayed hidden in the collapsed Archived section. Pre-existing
+  test race, not an app bug. Fixed: `waitForResponse` for the OK POST to
+  `/api/conversations` before reloading. CRUD spec 7/7 deterministic.
+- Anatomy demo figure 2 (dial indicator) failed zod: `planSchema` requires
+  `r` (no default) and the jewel's plan omitted it → only 3 of 4 figures
+  rendered. Fixed: `r: 0`. `__tests__/anatomy/demo.test.ts` now validates
+  every showcase fence through the builder, so a bad fixture fails vitest
+  instead of silently dropping a figure.
+- Full `tests/file-reading.spec.ts` runs exceed the 9-minute Bash cap on
+  this machine: every "the model reads the file" fixture does a real
+  llama.cpp :8080 inference turn (~5 s × 106). Pre-existing, unrelated to
+  current changes. For regression run `--grep "reaches the server"`
+  (layer 1: 106/106 in ~12 s).
+
+## Confirmed and fixed (earlier)
 - `conversations-crud` "archive hides from main list" failed reproducibly
   after a killed full-suite run: the seeded `c_arch_*` conversation stayed on
   disk (`~/.local-intelligence/conversations`) with `archived:true`, and the
@@ -109,3 +134,11 @@
   `Ready` before running the suite, or every Layer 2 test fails with `ERR_CONNECTION_REFUSED`.
 - Next dev server hot-reloads route/server modules; no restart needed for `lib/**` edits.
 - Playwright `--headed` works because no project pins `headless` in `playwright.config.ts`.
+- `npx next start & … kill $SRV` kills only the npx wrapper; the next-server
+  child keeps port 3000 → the next run dies EADDRINUSE and Playwright
+  silently tests the STALE build. After every run kill by port:
+  `PID=$(netstat -ano | grep -E ":3000 .*LISTENING" | head -1 | awk '{print $NF}'); taskkill //PID $PID //F`.
+- Each `?demo=anatomy` (or `?demo=ui`) page load persists a NEW `c_*`
+  conversation to `~/.local-intelligence/conversations` (page.tsx persist
+  effect). Clean test artifacts by id prefix (`c_arch_`, `c_del_`,
+  `c_new_`, `c_pin_`, `c_ren_`, …) and by content `demo-anatomy`.

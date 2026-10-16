@@ -1,15 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { selectSkillIds, loadSkillInstructions, getSkillCatalog } from "../../lib/skills/loader";
+import { selectSkillIds, loadSkillInstructions, loadAnatomyInstructions, getSkillCatalog } from "../../lib/skills/loader";
 
 describe("WebUI skill registry (skills/ directory, not Claude Code)", () => {
-  it("manifest lists the domain skill plus seven intent skills", async () => {
+  it("manifest lists the 3D pack plus the anatomy pack", async () => {
     const catalog = await getSkillCatalog();
-    expect(catalog).toHaveLength(8);
+    expect(catalog).toHaveLength(11);
     const ids = catalog.map(s => s.id);
     expect(ids).toContain("3d");
     for (const id of ["3d/scene-design", "3d/geometry-and-topology", "3d/materials-and-lighting",
       "3d/interaction-and-animation", "3d/asset-generation", "3d/export-and-interoperability",
       "3d/performance-and-quality-assurance"]) {
+      expect(ids, `missing ${id}`).toContain(id);
+    }
+    for (const id of ["anatomy", "anatomy/drawing-craft", "anatomy/mechanism-explainers"]) {
       expect(ids, `missing ${id}`).toContain(id);
     }
   });
@@ -35,9 +38,15 @@ describe("WebUI skill registry (skills/ directory, not Claude Code)", () => {
 
   it("every manifest skill file loads (no dead references)", async () => {
     const catalog = await getSkillCatalog();
-    const all = await loadSkillInstructions(
+    const all3d = await loadSkillInstructions(
       ["scene", "geometry", "materials", "interaction", "assetGen", "export", "performance"],
     );
-    for (const meta of catalog) expect(all, `skill body missing: ${meta.id}`).toContain(`<!-- skill: ${meta.id} -->`);
+    for (const meta of catalog.filter(s => (s.domain ?? "3d") === "3d")) {
+      expect(all3d, `skill body missing: ${meta.id}`).toContain(`<!-- skill: ${meta.id} -->`);
+    }
+    const allAnatomy = await loadAnatomyInstructions(["craft", "mechanism"]);
+    for (const meta of catalog.filter(s => s.domain === "anatomy")) {
+      expect(allAnatomy, `skill body missing: ${meta.id}`).toContain(`<!-- skill: ${meta.id} -->`);
+    }
   });
 });

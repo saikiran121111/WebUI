@@ -195,9 +195,15 @@ test.describe("conversation CRUD", () => {
     await page.getByRole("button", { name: /Archived/ }).click();
     await expect(itemByTitle(page, title)).toBeVisible();
 
-    // Unarchive brings it back to the main list.
+    // Unarchive brings it back to the main list. The toggle persists via a
+    // GET-then-POST round trip; the item stays visible inside the expanded
+    // Archived section until the POST lands, so wait for the save response
+    // before reloading — otherwise navigation aborts the in-flight save and
+    // the reload reads back the stale archived state.
     await openMenuFor(page, title);
     await page.getByRole("button", { name: "Unarchive", exact: true }).click();
+    await page.waitForResponse(r =>
+      r.url().includes("/api/conversations") && r.request().method() === "POST" && r.ok());
     await page.reload();
     await expect(itemByTitle(page, title)).toBeVisible();
     // The Archived section button is global state — leftovers from other runs

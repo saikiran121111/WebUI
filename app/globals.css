@@ -1062,3 +1062,40 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
   font-size: 12px; color: var(--muted);
 }
 .md-row-ask-summary { color: var(--foreground); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+/* ── Anatomy isometric illustration blocks ────────────────────────────── */
+.anatomy-block {
+  margin: 0.75rem 0; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-elevated); overflow: hidden;
+}
+.anatomy-toolbar {
+  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+}
+.anatomy-tools { margin-left: auto; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.anatomy-badge {
+  font-size: 10px; color: var(--muted-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 0.2rem 0.55rem; white-space: nowrap;
+}
+.anatomy-plate-slot { padding: 0.75rem; overflow-x: auto; }
+.anatomy-plate-slot .iso-figure { margin: 0 auto; max-width: 100%; }
+.anatomy-loading { padding: 1.5rem 0.75rem; font-size: 12px; color: var(--muted); }
+.anatomy-warnings { padding: 0.4rem 0.75rem; font-size: 11px; color: var(--muted-2); border-top: 1px solid var(--border); }
+.anatomy-readouts { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.5rem 0.75rem 0; }
+.anatomy-readout {
+  display: inline-flex; align-items: baseline; gap: 0.3rem;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.25rem 0.5rem;
+}
+.anatomy-readout-label { font-size: 10px; color: var(--muted); }
+.anatomy-readout-value { font-size: 12px; font-weight: 600; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.anatomy-readout-unit { font-size: 10px; color: var(--muted-2); }
+.anatomy-controls { padding-top: 0.5rem; }
+.anatomy-toggle {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 11px; color: var(--muted); background: transparent;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.6rem;
+  cursor: pointer; transition: color 0.15s ease-out, border-color 0.15s ease-out, transform 0.15s ease-out;
+}
+.anatomy-toggle:hover { color: var(--foreground); border-color: var(--border-strong); }
+.anatomy-toggle:active { transform: scale(0.96); }
+.anatomy-toggle[aria-pressed="true"] { color: #38BDF8; border-color: var(--border-glow); background: rgba(56, 189, 248, 0.08); }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { detectThreeIntent, extractUserText } from "../../../lib/skills/intent";
-import { loadSkillInstructions } from "../../../lib/skills/loader";
+import { detectAnatomyIntent } from "../../../lib/skills/anatomyIntent";
+import { loadAnatomyInstructions, loadSkillInstructions } from "../../../lib/skills/loader";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
@@ -23,13 +24,16 @@ function scrubThinkTags(text: string): string {
 }
 
 /**
- * WebUI's own 3D skill system: when the latest user message qualifies, the
+ * WebUI's own skill system: when the latest user message qualifies, the
  * relevant SKILL.md documents from the project's `skills/` directory are
  * injected as a system turn right before that message. Unrelated chat is
  * forwarded byte-for-byte untouched. This is the app's runtime skill
  * registry — it has nothing to do with Claude Code's skill system.
+ *
+ * Pack precedence: an Anatomy request injects the Anatomy pack INSTEAD of the
+ * 3D pack (mesh/file requests keep routing to the 3D pipelines).
  */
-async function injectThreeSkills(raw: string): Promise<string> {
+async function injectSkillPacks(raw: string): Promise<string> {
   let payload: any;
   try {
     payload = JSON.parse(raw);
@@ -45,7 +49,24 @@ async function injectThreeSkills(raw: string): Promise<string> {
   }
   if (lastUserIdx === -1) return raw;
 
-  const intent = detectThreeIntent(extractUserText(messages[lastUserIdx]?.content));
+  const text = extractUserText(messages[lastUserIdx]?.content);
+
+  const anatomy = detectAnatomyIntent(text);
+  if (anatomy.wantsAnatomy) {
+    const instructions = await loadAnatomyInstructions(anatomy.subIntents);
+    if (instructions) {
+      messages.splice(lastUserIdx, 0, {
+        role: "system",
+        content:
+          "The WebUI Anatomy illustration system is active for this request. Follow these skill instructions exactly, " +
+          "and emit fences in exactly the documented contract format. If the user actually wants a genuine 3D model or " +
+          "mesh file, use the scene3d/asset3d fences instead:\n\n" + instructions,
+      });
+      return JSON.stringify(payload);
+    }
+  }
+
+  const intent = detectThreeIntent(text);
   if (!intent.wants3D) return raw;
 
   const instructions = await loadSkillInstructions(intent.subIntents);
@@ -73,7 +94,7 @@ async function injectThreeSkills(raw: string): Promise<string> {
  */
 export async function POST(req: NextRequest) {
   const raw = await req.text();
-  const body = await injectThreeSkills(raw);
+  const body = await injectSkillPacks(raw);
 
   try {
     const upstream = await fetch(LLM_URL, {
