@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## 2026-10-16 — Feat: AI 3D design system (procedural scenes + genuine AI meshes)
+- New `lib/three3d/`: `sceneSchema.ts` (strict zod v2 `scene3d` + `asset3d`
+  contracts, budgets), `geometryKit.ts` (lathe/extrude/tube/primitives),
+  `materials.ts`, `lighting.ts`, `camera.ts`, `sceneBuilder.ts` (deterministic
+  spec→Object3D + animation clips + stats + dispose), `exporters.ts`
+  (GLTFExporter GLB/GLTF + `validateGlb` + `reimportGlb` proof), `zipWriter.ts`
+  (store-only zip, no new dep), `viewerCore.ts` (orbit/pan/zoom, grid/axes/
+  wireframe/playback/reset/fullscreen/stats/pick), `providers/{types,meshy}.ts`
+  (Meshy v2 text-to-3d, preview→PBR refine, OBJ+MTL+textures→zip).
+- New `app/api/3d/assets/{,[id],[id]/download}` routes: key stays server-side,
+  honest 503 when unconfigured, 409 on not-ready/absent format; the browser
+  only ever sees opaque `meshy:pv|rf:<id>` job ids and same-origin URLs.
+- New `components/render/Asset3DBlock.tsx`; `Scene3DBlock.tsx` rewritten to
+  the v2 contract; `components/MarkdownRenderer.tsx` routes `asset3d` fences;
+  `lib/render/{registry,systemPrompt,demoShowcase}.ts` updated; `.env.example`
+  gains `MESHY_API_KEY=` (empty).
+- New WebUI-local skill pack: `skills/manifest.json` + 8 `skills/3d/**/SKILL.md`
+  served by `lib/skills/{intent,loader}.ts`; `injectThreeSkills` in
+  `app/api/chat/route.ts` splices matched skill text before the last user
+  message. Never registered as Claude Code skills.
+- Tests: `__tests__/three3d/` 7 files 49/49; `tests/three3d.spec.ts` 3/3
+  (viewer tools, export re-import proof, honest 503 path, credit-safe API
+  probes via route mocks). Full regression 45/45 across 10 specs.
+- Fixed `tests/conversations-crud.spec.ts` archive test (see ISSUES.md).
+
 ## 2026-10-16 — Feat: 60fps smooth motion for all chart interactions
 - New `hooks/useTweenedNumbers.ts`: rAF easeOutCubic tween of numeric vectors;
   snaps instantly on vector-shape change or `prefers-reduced-motion`.

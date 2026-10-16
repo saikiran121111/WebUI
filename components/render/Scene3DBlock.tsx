@@ -1,18 +1,19 @@
 "use client";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquarePlus } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Axis3d, Box, Download, Grid3x3, Maximize2, MessageSquarePlus, Pause, Play, RotateCcw } from "lucide-react";
 import CodeBlock from "./CodeBlock";
-import { parseJsonFence, scene3dSpecSchema, type Scene3DSpec, type Scene3DObject } from "../../lib/render/schemas";
-import { OBSIDIAN_SERIES_COLORS } from "../../lib/render/themes";
+import { parseJsonFence } from "../../lib/render/schemas";
+import { scene3dSpecSchema, type Scene3DSpec } from "../../lib/three3d/sceneSchema";
+import type { SceneExportFormat } from "../../lib/three3d/exporters"; // type-only: keeps three out of the bundle
 
 /**
- * Renders ```scene3d fences as procedural three.js scenes: validated JSON
- * only (never arbitrary code), lazy `await import("three")` so the initial
- * bundle stays 0 KB for this feature, orbit drag + wheel zoom on the
- * Obsidian-black canvas, live sliders bound to rotation/scale/position,
- * click raycasting with an "Ask AI about this 3D part" hand-off, and an
- * IntersectionObserver that parks requestAnimationFrame at 0% GPU when the
- * canvas scrolls off-screen.
+ * Renders ```scene3d fences as procedural three.js scenes (v2 contract):
+ * validated JSON only — model output is never executed as code — built into
+ * real geometry by the deterministic builder in lib/three3d. three.js and
+ * the viewer load via dynamic import so the initial bundle stays free of
+ * three. The viewer offers orbit/pan/zoom, grid/axes/wireframe toggles,
+ * animation playback, reset, fullscreen, live stats and GLB/GLTF export
+ * (the GLB path re-imports the bytes to prove the file is valid).
  */
 interface Scene3DBlockProps {
   source: string;
@@ -35,204 +36,210 @@ export default memo(function Scene3DBlock({ source, streaming = false, onSend }:
   return <Scene3DView spec={parsed.value} onSend={onSend} />;
 });
 
-interface SelectedPart { id: string; label: string; kind: string }
+interface SelectedPart { id: string; label: string }
 
 function Scene3DView({ spec, onSend }: { spec: Scene3DSpec; onSend?: (text: string) => void }) {
   const stageRef = useRef<HTMLDivElement>(null);
-  const meshesRef = useRef<Map<string, any>>(new Map());
-  const rendererRef = useRef<any>(null);
-  const orbitRef = useRef({ theta: 0.65, phi: 1.15, radius: 7 });
+  const labelLayerRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<any>(null);
+  const threeRef = useRef<any>(null);
+  const clipsRef = useRef<any[]>([]);
+  const pickablesRef = useRef<any[]>([]);
+  const sliderValuesRef = useRef<Record<string, number>>({});
+  const lastHoverIdRef = useRef<string | null>(null);
+
   const [sliderValues, setSliderValues] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<SelectedPart | null>(null);
+  const [hover, setHover] = useState<{ label: string; x: number; y: number } | null>(null);
   const [glError, setGlError] = useState(false);
+  const [gridOn, setGridOn] = useState(true);
+  const [axesOn, setAxesOn] = useState(false);
+  const [wireOn, setWireOn] = useState(false);
+  const [playing, setPlaying] = useState(true);
+  const [stats, setStats] = useState<{ meshes: number; vertices: number; triangles: number } | null>(null);
+  const [exportFmt, setExportFmt] = useState<SceneExportFormat>("glb");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNote, setExportNote] = useState("");
 
-  const sliderValue = useCallback((id: string, def: number) => (
-    Number.isFinite(sliderValues[id]) ? sliderValues[id]! : def
-  ), [sliderValues]);
-
-  // Bind slider values onto the live meshes (base transform + axis override).
-  const applySliders = useCallback(() => {
-    for (const sl of spec.sliders ?? []) {
-      const obj = meshesRef.current.get(sl.target);
-      if (!obj) continue;
-      const v = Number.isFinite(sliderValues[sl.id]) ? sliderValues[sl.id]! : sl.defaultValue;
-      const axisIdx = sl.axis === "x" ? 0 : sl.axis === "y" ? 1 : 2;
-      if (sl.binding === "rotation") obj.rotation[sl.axis] = v;
-      else if (sl.binding === "scale") obj.scale.setComponent(axisIdx, v);
-      else obj.position.setComponent(axisIdx, v);
-    }
-  }, [spec, sliderValues]);
-
-  const applySlidersRef = useRef(applySliders);
-  applySlidersRef.current = applySliders;
-
-  useEffect(() => { applySliders(); }, [applySliders]);
+  const hasAnimations = (spec.animations?.length ?? 0) > 0;
+  const exportFilename = spec.export?.filename ?? slugify(spec.title ?? "scene");
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     let disposed = false;
-    let raf = 0;
+    let frameHandler: ((dt: number) => void) | null = null;
     const cleanups: Array<() => void> = [];
+    const interactions = spec.interactions ?? {};
 
     void (async () => {
       const three = await import("three");
+      if (disposed) return;
+      const [{ ViewerCore }, { buildScene, buildAnimationClips }] = await Promise.all([
+        import("../../lib/three3d/viewerCore"),
+        import("../../lib/three3d/sceneBuilder"),
+      ]);
       if (disposed || !stageRef.current) return;
 
-      let renderer: any;
+      let viewer: any;
       try {
-        renderer = new three.WebGLRenderer({ antialias: true });
+        viewer = new ViewerCore(three, stage, {
+          preset: spec.lighting?.preset ?? "studio",
+          shadows: spec.lighting?.shadows ?? false,
+          ambientIntensity: spec.lighting?.ambientIntensity,
+          fov: spec.camera?.fov ?? 45,
+        });
       } catch {
         setGlError(true);
         return;
       }
-      rendererRef.current = renderer;
-      renderer.setClearColor(0x050507, 1);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      stage.appendChild(renderer.domElement);
+      threeRef.current = three;
+      viewerRef.current = viewer;
+      if (interactions.orbit === false) viewer.controls.enableRotate = false;
+      if (interactions.pan === false) viewer.controls.enablePan = false;
 
-      const scene = new three.Scene();
-      const camera = new three.PerspectiveCamera(50, 1, 0.1, 200);
+      const built = buildScene(three, spec);
+      const clips = buildAnimationClips(three, spec, built.nodesById);
+      clipsRef.current = clips;
+      pickablesRef.current = built.pickables;
+      viewer.setContent(built.root, clips, { loop: true });
+      setStats(viewer.getStats());
 
-      scene.add(new three.HemisphereLight(0xbfd4ff, 0x0d0d12, 1.1));
-      const keyLight = new three.DirectionalLight(0x38bdf8, 1.4);
-      keyLight.position.set(4, 6, 3);
-      scene.add(keyLight);
-      const rimLight = new three.DirectionalLight(0xa78bfa, 0.6);
-      rimLight.position.set(-5, -2, -4);
-      scene.add(rimLight);
+      if (spec.camera?.position) {
+        viewer.camera.position.fromArray(spec.camera.position);
+        viewer.controls.target.fromArray(spec.camera.target ?? [0, 0, 0]);
+        viewer.controls.update();
+      }
 
-      const meshes = new Map<string, any>();
-      spec.objects.forEach((obj, i) => {
-        const node = buildNode(three, obj, OBSIDIAN_SERIES_COLORS[i % OBSIDIAN_SERIES_COLORS.length]);
-        const pos = obj.position ?? [0, 0, 0];
-        const rot = obj.rotation ?? [0, 0, 0];
-        const scale = obj.scale ?? [1, 1, 1];
-        node.position.set(...pos);
-        node.rotation.set(...rot);
-        node.scale.set(...scale);
-        node.userData = { id: obj.id, label: obj.label ?? obj.id, kind: obj.kind, pickable: obj.kind !== "grid" };
-        scene.add(node);
-        meshes.set(obj.id, node);
-      });
-      meshesRef.current = meshes;
-      applySlidersRef.current();
-
-      const orbit = orbitRef.current;
-      const placeCamera = () => {
-        const phi = Math.min(Math.PI - 0.15, Math.max(0.15, orbit.phi));
-        const r = orbit.radius;
-        camera.position.set(
-          r * Math.sin(phi) * Math.sin(orbit.theta),
-          r * Math.cos(phi),
-          r * Math.sin(phi) * Math.cos(orbit.theta),
-        );
-        camera.lookAt(0, 0, 0);
-      };
-
-      const resize = () => {
-        const w = stage.clientWidth || 1;
-        const h = stage.clientHeight || 1;
-        renderer.setSize(w, h);
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
-      };
-      resize();
-      const ro = new ResizeObserver(resize);
-      ro.observe(stage);
-      cleanups.push(() => ro.disconnect());
-
-      // IntersectionObserver gate: an off-screen canvas renders zero frames.
-      let visible = true;
-      const io = new IntersectionObserver(entries => {
-        visible = entries[0]?.isIntersecting ?? true;
-      });
-      io.observe(stage);
-      cleanups.push(() => io.disconnect());
-
-      const loop = () => {
-        raf = requestAnimationFrame(loop);
-        if (!visible) return;
-        placeCamera();
-        renderer.render(scene, camera);
-      };
-      loop();
-
-      let dragging = false;
-      let moved = 0;
-      let lastX = 0;
-      let lastY = 0;
-      const onPointerDown = (e: PointerEvent) => {
-        dragging = true;
-        moved = 0;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        stage.classList.add("is-dragging");
-        stage.setPointerCapture?.(e.pointerId);
-      };
-      const onPointerMove = (e: PointerEvent) => {
-        if (!dragging) return;
-        const dx = e.clientX - lastX;
-        const dy = e.clientY - lastY;
-        moved += Math.abs(dx) + Math.abs(dy);
-        lastX = e.clientX;
-        lastY = e.clientY;
-        orbit.theta -= dx * 0.008;
-        orbit.phi -= dy * 0.008;
-      };
-      const onPointerUp = (e: PointerEvent) => {
-        dragging = false;
-        stage.classList.remove("is-dragging");
-        if (moved > 5) return; // an orbit drag, not a part click
-        const rect = renderer.domElement.getBoundingClientRect();
-        const ndc = new three.Vector2(
-          ((e.clientX - rect.left) / rect.width) * 2 - 1,
-          -((e.clientY - rect.top) / rect.height) * 2 + 1,
-        );
-        const ray = new three.Raycaster();
-        ray.setFromCamera(ndc, camera);
-        const targets = [...meshes.values()].filter(m => m.userData?.pickable);
-        const hit = ray.intersectObjects(targets, true)[0];
-        if (!hit) { setSelected(null); return; }
-        let node: any = hit.object;
-        while (node && !node.userData?.id) node = node.parent;
-        if (node?.userData?.id) {
-          setSelected({ id: node.userData.id, label: node.userData.label, kind: node.userData.kind });
+      // One frame handler rides the viewer's rAF after the mixer: sliders
+      // override the animated channel, and HTML label tags follow their node.
+      frameHandler = () => {
+        for (const sl of spec.sliders ?? []) {
+          const node = built.nodesById.get(sl.target);
+          if (!node) continue;
+          const v = Number.isFinite(sliderValuesRef.current[sl.id]) ? sliderValuesRef.current[sl.id]! : sl.defaultValue;
+          const axisIdx = sl.axis === "x" ? 0 : sl.axis === "y" ? 1 : 2;
+          // Euler has no setComponent (that's a Vector API) — assign the axis directly.
+          if (sl.binding === "rotation") node.rotation[sl.axis] = v;
+          else if (sl.binding === "scale") node.scale.setComponent(axisIdx, v);
+          else node.position.setComponent(axisIdx, v);
+        }
+        const layer = labelLayerRef.current;
+        if (layer && spec.labels?.length) {
+          for (const label of spec.labels) {
+            const node = built.nodesById.get(label.target);
+            if (!node) continue;
+            let tag = layer.querySelector<HTMLElement>(`[data-label-target="${label.target}"]`);
+            if (!tag) {
+              tag = document.createElement("span");
+              tag.className = "scene3d-label-tag";
+              tag.dataset.labelTarget = label.target;
+              tag.textContent = label.text;
+              layer.appendChild(tag);
+            }
+            const world = node.getWorldPosition(new three.Vector3());
+            if (label.offset) world.add(new three.Vector3(label.offset[0], label.offset[1], label.offset[2]));
+            const p = viewer.projectToScreen(world);
+            tag.style.display = p.behind ? "none" : "";
+            tag.style.left = `${p.x}px`;
+            tag.style.top = `${p.y}px`;
+          }
         }
       };
-      const onWheel = (e: WheelEvent) => {
-        e.preventDefault();
-        orbit.radius = Math.min(40, Math.max(2.5, orbit.radius * (e.deltaY < 0 ? 0.9 : 1.1)));
+      viewer.addFrameHandler(frameHandler);
+
+      let downX = 0;
+      let downY = 0;
+      const nodeOfHit = (hit: any): any => {
+        let node = hit?.object ?? null;
+        while (node && !node.userData?.nodeId) node = node.parent;
+        return node;
+      };
+      const onPointerDown = (e: PointerEvent) => { downX = e.clientX; downY = e.clientY; };
+      const onPointerUp = (e: PointerEvent) => {
+        if (interactions.select === false) return;
+        if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 6) return; // orbit drag, not a part click
+        const node = nodeOfHit(viewer.pick(e.clientX, e.clientY, pickablesRef.current));
+        if (!node?.userData?.nodeId) { setSelected(null); return; }
+        setSelected({ id: node.userData.nodeId, label: node.userData.label ?? node.userData.nodeId });
+      };
+      let hoverQueued = false;
+      const onPointerMove = (e: PointerEvent) => {
+        if (interactions.hover === false || hoverQueued) return;
+        hoverQueued = true;
+        requestAnimationFrame(() => {
+          hoverQueued = false;
+          const node = nodeOfHit(viewer.pick(e.clientX, e.clientY, pickablesRef.current));
+          const nodeId = node?.userData?.nodeId ?? null;
+          if (!nodeId) { lastHoverIdRef.current = null; setHover(null); return; }
+          if (nodeId === lastHoverIdRef.current) return; // tip follows on hover change only (no 60fps re-render)
+          lastHoverIdRef.current = nodeId;
+          const rect = stage.getBoundingClientRect();
+          setHover({ label: node.userData.label ?? nodeId, x: e.clientX - rect.left, y: e.clientY - rect.top });
+        });
       };
       stage.addEventListener("pointerdown", onPointerDown);
-      stage.addEventListener("pointermove", onPointerMove);
       stage.addEventListener("pointerup", onPointerUp);
-      stage.addEventListener("wheel", onWheel, { passive: false });
+      stage.addEventListener("pointermove", onPointerMove);
       cleanups.push(() => {
         stage.removeEventListener("pointerdown", onPointerDown);
-        stage.removeEventListener("pointermove", onPointerMove);
         stage.removeEventListener("pointerup", onPointerUp);
-        stage.removeEventListener("wheel", onWheel);
+        stage.removeEventListener("pointermove", onPointerMove);
       });
     })();
 
     return () => {
       disposed = true;
-      cancelAnimationFrame(raf);
+      viewerRef.current?.removeFrameHandler(frameHandler);
       cleanups.forEach(fn => fn());
-      for (const node of meshesRef.current.values()) {
-        node.traverse?.((child: any) => {
-          child.geometry?.dispose();
-          if (Array.isArray(child.material)) child.material.forEach((mat: any) => mat.dispose());
-          else child.material?.dispose();
-        });
-      }
-      meshesRef.current.clear();
-      rendererRef.current?.dispose();
-      rendererRef.current = null;
-      stage.querySelector("canvas")?.remove();
+      viewerRef.current?.dispose();
+      viewerRef.current = null;
+      threeRef.current = null;
+      pickablesRef.current = [];
+      clipsRef.current = [];
+      labelLayerRef.current?.replaceChildren();
+      setSelected(null);
+      setHover(null);
+      setStats(null);
     };
   }, [spec]);
+
+  const setSlider = (id: string, value: number) => {
+    sliderValuesRef.current[id] = value;
+    setSliderValues(prev => ({ ...prev, [id]: value }));
+  };
+
+  const toggleGrid = () => { const on = !gridOn; setGridOn(on); viewerRef.current?.setGrid(on); };
+  const toggleAxes = () => { const on = !axesOn; setAxesOn(on); viewerRef.current?.setAxes(on); };
+  const toggleWire = () => { const on = !wireOn; setWireOn(on); viewerRef.current?.setWireframe(on); };
+  const togglePlay = () => { const on = !playing; setPlaying(on); viewerRef.current?.setPlaying(on); };
+
+  async function runExport() {
+    const viewer = viewerRef.current;
+    const three = threeRef.current;
+    if (!viewer || !three || exportBusy) return;
+    setExportBusy(true);
+    setExportNote("");
+    try {
+      const { exportScene, downloadBlob, validateGlb, reimportGlb } = await import("../../lib/three3d/exporters");
+      const blob = await exportScene(three, viewer.getContent(), clipsRef.current, exportFmt, exportFilename);
+      if (exportFmt === "glb") {
+        // Prove the file we just wrote is a real glTF 2.0 binary by parsing
+        // its chunks and re-importing it through GLTFLoader.
+        const bytes = await blob.arrayBuffer();
+        validateGlb(bytes);
+        const { meshes } = await reimportGlb(three, bytes);
+        setExportNote(`GLB exported — re-import verified: ${meshes} mesh${meshes === 1 ? "" : "es"} loaded back.`);
+      } else {
+        setExportNote("GLTF exported — JSON with embedded base64 buffers.");
+      }
+      downloadBlob(blob, `${exportFilename}.${exportFmt}`);
+    } catch (err: unknown) {
+      setExportNote(`Export failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setExportBusy(false);
+    }
+  }
 
   return (
     <div className="scene3d-block" data-testid="scene3d-block" data-scene-title={spec.title ?? ""}>
@@ -242,19 +249,58 @@ function Scene3DView({ spec, onSend }: { spec: Scene3DSpec; onSend?: (text: stri
       <div ref={stageRef} className="scene3d-stage" data-testid="scene3d-stage"
         role="img" aria-label={`3D scene: ${spec.title ?? "interactive model"}`}>
         {glError && <div className="diagram-error-note">WebGL is unavailable in this browser.</div>}
-        <span className="scene3d-hint">drag to orbit · scroll to zoom · click a part</span>
+        <div ref={labelLayerRef} className="scene3d-label-layer" aria-hidden="true" />
+        {hover && <span className="scene3d-hover-tip" style={{ left: hover.x, top: hover.y }}>{hover.label}</span>}
+        <span className="scene3d-hint">drag to orbit · right-drag to pan · scroll to zoom · click a part</span>
       </div>
+
+      <div className="scene3d-toolbar">
+        <button type="button" className={`scene3d-tool-btn${gridOn ? " is-active" : ""}`} data-testid="scene3d-tool-grid" onClick={toggleGrid} aria-pressed={gridOn}>
+          <Grid3x3 size={13} /> Grid
+        </button>
+        <button type="button" className={`scene3d-tool-btn${axesOn ? " is-active" : ""}`} data-testid="scene3d-tool-axes" onClick={toggleAxes} aria-pressed={axesOn}>
+          <Axis3d size={13} /> Axes
+        </button>
+        <button type="button" className={`scene3d-tool-btn${wireOn ? " is-active" : ""}`} data-testid="scene3d-tool-wireframe" onClick={toggleWire} aria-pressed={wireOn}>
+          <Box size={13} /> Wireframe
+        </button>
+        {hasAnimations && (
+          <button type="button" className="scene3d-tool-btn" data-testid="scene3d-tool-play" onClick={togglePlay} aria-pressed={playing}>
+            {playing ? <Pause size={13} /> : <Play size={13} />} {playing ? "Pause" : "Play"}
+          </button>
+        )}
+        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-tool-reset" onClick={() => viewerRef.current?.resetView()}>
+          <RotateCcw size={13} /> Reset view
+        </button>
+        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-tool-fullscreen" onClick={() => viewerRef.current?.enterFullscreen()}>
+          <Maximize2 size={13} /> Fullscreen
+        </button>
+        <select className="scene3d-format" data-testid="scene3d-export-format" value={exportFmt}
+          aria-label="Export format" onChange={e => setExportFmt(e.target.value as SceneExportFormat)}>
+          <option value="glb">GLB</option>
+          <option value="gltf">GLTF</option>
+        </select>
+        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-export" onClick={runExport} disabled={exportBusy}>
+          <Download size={13} /> {exportBusy ? "Exporting…" : "Export"}
+        </button>
+        {stats && (
+          <span className="scene3d-stats" data-testid="scene3d-stats">
+            {stats.meshes} meshes · {stats.vertices.toLocaleString()} verts · {stats.triangles.toLocaleString()} tris
+          </span>
+        )}
+      </div>
+      {exportNote && <div className="scene3d-export-note" data-testid="scene3d-export-note">{exportNote}</div>}
 
       {spec.sliders && spec.sliders.length > 0 && (
         <div className="chart-sliders" data-testid="scene3d-sliders">
           {spec.sliders.map(sl => {
-            const v = sliderValue(sl.id, sl.defaultValue);
+            const v = Number.isFinite(sliderValues[sl.id]) ? sliderValues[sl.id]! : sl.defaultValue;
             return (
               <label key={sl.id} className="chart-slider-row">
                 <span className="chart-slider-label">{sl.label}</span>
                 <input type="range" min={sl.min} max={sl.max} step={sl.step} value={v}
                   data-testid={`scene3d-slider-${sl.id}`} aria-label={sl.label}
-                  onChange={e => setSliderValues(prev => ({ ...prev, [sl.id]: Number(e.target.value) }))} />
+                  onChange={e => setSlider(sl.id, Number(e.target.value))} />
                 <span className="chart-slider-value">{trimZero(v)}</span>
               </label>
             );
@@ -268,7 +314,7 @@ function Scene3DView({ spec, onSend }: { spec: Scene3DSpec; onSend?: (text: stri
           {onSend && (
             <button type="button" className="viz-ask-btn"
               onClick={() => onSend(
-                `In the 3D scene "${spec.title ?? "untitled"}": the part "${selected.label}" (${selected.kind}). ` +
+                `In the 3D scene "${spec.title ?? "untitled"}": the part "${selected.label}" (node id "${selected.id}"). ` +
                 `What is it doing and why does it matter?`,
               )}>
               <MessageSquarePlus className="w-3 h-3" /> Ask AI about this 3D part
@@ -284,26 +330,6 @@ function trimZero(n: number): string {
   return Number(n.toFixed(2)).toString();
 }
 
-function buildNode(three: any, obj: Scene3DObject, paletteColor: string): any {
-  const color = obj.color ?? paletteColor;
-  if (obj.kind === "grid") return new three.GridHelper(8, 16, 0x38bdf8, 0x1e293b);
-  if (obj.kind === "arrow") {
-    const mat = new three.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.15 });
-    const group = new three.Group();
-    const shaft = new three.Mesh(new three.CylinderGeometry(0.06, 0.06, 1, 16), mat);
-    const head = new three.Mesh(new three.ConeGeometry(0.18, 0.4, 16), mat);
-    head.position.y = 0.7;
-    group.add(shaft, head);
-    return group;
-  }
-  let geometry;
-  switch (obj.kind) {
-    case "box": geometry = new three.BoxGeometry(1, 1, 1); break;
-    case "sphere": geometry = new three.SphereGeometry(0.6, 32, 24); break;
-    case "cylinder": geometry = new three.CylinderGeometry(0.5, 0.5, 1.4, 32); break;
-    case "cone": geometry = new three.ConeGeometry(0.6, 1.4, 32); break;
-    case "torus": geometry = new three.TorusGeometry(0.7, 0.22, 24, 48); break;
-    default: geometry = new three.BoxGeometry(1, 1, 1);
-  }
-  return new three.Mesh(geometry, new three.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.15 }));
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "scene";
 }

@@ -1,6 +1,26 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] AI 3D design system (2026-10-16): two modes. Mode A procedural
+      ```scene3d v2: strict zod contract (`lib/three3d/sceneSchema.ts`) →
+      deterministic builder (`lib/three3d/sceneBuilder.ts`: lathe/extrude/
+      tube/primitives, PBR, studio lighting, labels, sliders, yoyo anims,
+      budgets) rendered by `components/render/Scene3DBlock.tsx` (orbit/pan/
+      zoom, grid/axes/wireframe/playback/reset/fullscreen/stats, GLB+GLTF
+      export — the GLB is re-imported via GLTFLoader to prove validity).
+      Mode B genuine AI mesh ```asset3d: server-only Meshy v2 adapter
+      (`lib/three3d/providers/{types,meshy}.ts`, preview→PBR refine, OBJ
+      shipped as textured zip via `lib/three3d/zipWriter.ts`), routes
+      `app/api/3d/assets/**`, `components/render/Asset3DBlock.tsx`. Key
+      never leaves the server (opaque job ids, same-origin downloads);
+      unconfigured → honest 503 + procedural fallback. WebUI-local skill
+      pack `skills/3d/**` (8 SKILL.md + manifest.json) served by
+      `lib/skills/{intent,loader}.ts` and spliced into chat requests by
+      `injectThreeSkills` in `app/api/chat/route.ts` — never Claude Code
+      skills. three stays lazy. Proven: `__tests__/three3d/` 49/49,
+      `npx vitest run` 259/259, tsc clean, `npm run build` clean,
+      Playwright 45/45 across 10 specs (file-reading excluded: layer 2
+      needs live llama.cpp :8080).
 - [x] Chart 60fps motion (2026-10-16): new `hooks/useTweenedNumbers.ts`
       (rAF easeOutCubic vector tween, snaps on shape change / reduced-motion).
       `ChartBlock.tsx`: AxisMarks tweens series values + axis lo/hi (bars,
@@ -192,9 +212,11 @@
 - [x] All 139 registry languages load their grammar + embedded dependencies and emit
       line spans (`__tests__/render/allLanguages.test.ts`); `__tests__/render` 187/187;
       `tsc --noEmit` clean.
-- [ ] Full `npx playwright test` not run: `tests/file-reading.spec.ts` layer 2
-      needs a live llama.cpp model on :8080; the 6 other regression specs were
-      left un-run at the user's stop — awaiting direction.
+- [x] Playwright regression (2026-10-16): 10 specs / 45 tests green
+      (chat-stream, conversations-crud, conversations-live-chat, inspect-dup,
+      reasoning-test, multi-select-delete, edit-stop-collapse, render,
+      interactive-ui, three3d). `tests/file-reading.spec.ts` stays excluded:
+      layer 2 needs a live llama.cpp model on :8080.
 
 ## Verified
 - [x] `npm run typecheck` clean; `npm test` 57/57 (was 19/19 before the render

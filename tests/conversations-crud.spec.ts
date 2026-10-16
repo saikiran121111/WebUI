@@ -200,7 +200,14 @@ test.describe("conversation CRUD", () => {
     await page.getByRole("button", { name: "Unarchive", exact: true }).click();
     await page.reload();
     await expect(itemByTitle(page, title)).toBeVisible();
-    await expect(page.getByRole("button", { name: /Archived/ })).toHaveCount(0);
+    // The Archived section button is global state — leftovers from other runs
+    // can keep it visible — so assert on THIS conversation instead: after
+    // unarchiving it must never appear inside the Archived section.
+    const archivedSection = page.getByRole("button", { name: /Archived/ });
+    if (await archivedSection.count() > 0) {
+      await archivedSection.click();
+      await expect(itemByTitle(page, title)).toHaveCount(0);
+    }
 
     await cleanup(request, id);
   });

@@ -169,55 +169,8 @@ export type WidgetField = z.infer<typeof widgetFieldSchema>;
 export type KpiCard = z.infer<typeof kpiCardSchema>;
 export type KpiSlider = z.infer<typeof kpiSliderSchema>;
 
-/* ── Scene3D: procedural three.js assets, never arbitrary code ─────────── */
-
-const vec3Schema = z.tuple([finiteNumber, finiteNumber, finiteNumber]);
-
-const sceneObjectSchema = z.object({
-  id: z.string().min(1).max(40),
-  kind: z.enum(["box", "sphere", "cylinder", "cone", "torus", "arrow", "grid"]),
-  label: z.string().max(80).optional(),
-  position: vec3Schema.optional(),
-  rotation: vec3Schema.optional(),
-  scale: vec3Schema.optional(),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-}).strict();
-
-const sceneSliderSchema = z.object({
-  id: z.string().min(1).max(40),
-  label: z.string().min(1).max(60),
-  min: finiteNumber,
-  max: finiteNumber,
-  step: finiteNumber,
-  defaultValue: finiteNumber,
-  /** id of the object the slider drives. */
-  target: z.string().max(40),
-  binding: z.enum(["rotation", "scale", "position"]),
-  axis: z.enum(["x", "y", "z"]),
-}).strict();
-
-export const scene3dSpecSchema = z
-  .object({
-    title: z.string().max(120).optional(),
-    objects: z.array(sceneObjectSchema).min(1).max(24),
-    sliders: z.array(sceneSliderSchema).max(8).optional(),
-  })
-  .strict()
-  .superRefine((spec, ctx) => {
-    const ids = new Set(spec.objects.map(o => o.id));
-    if (ids.size !== spec.objects.length) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "object ids must be unique" });
-    }
-    for (const s of spec.sliders ?? []) {
-      if (!ids.has(s.target)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `slider "${s.id}" targets unknown object "${s.target}"` });
-      }
-    }
-  });
-
-export type Scene3DSpec = z.infer<typeof scene3dSpecSchema>;
-export type Scene3DObject = z.infer<typeof sceneObjectSchema>;
-export type Scene3DSlider = z.infer<typeof sceneSliderSchema>;
+/* Scene3D v2 schemas live in lib/three3d/sceneSchema.ts (single source of
+   truth for the fence contract; the skill docs reference that file). */
 
 export function parseJsonFence<T extends z.ZodTypeAny>(
   source: string,

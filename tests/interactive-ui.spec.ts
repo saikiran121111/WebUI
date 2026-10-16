@@ -24,6 +24,14 @@ test("interactive UI showcase: chart, mermaid, scene3d, kpi widget, table", asyn
   const consoleErrors: string[] = [];
   watchConsole(page, consoleErrors);
 
+  // Keep the asset3d block from starting a real provider job during tests:
+  // the honest 503 path is asserted in tests/three3d.spec.ts instead.
+  await page.route("**/api/3d/assets*", route => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "No 3D generation provider is configured on this server. Procedural scene3d remains available." }),
+  }));
+
   await page.goto(DEMO_URL);
 
   // --- Chart: switcher, mark click explainer, Ask AI hand-off, legend, slider ---
@@ -95,8 +103,8 @@ test("interactive UI showcase: chart, mermaid, scene3d, kpi widget, table", asyn
     await expect(scene.locator(".chart-slider-value").first()).toHaveText("0.5");
     await stage.click({ position: { x: 10, y: 10 } }); // orbit drag, must not select
     await expect(page.locator('[data-testid="scene3d-inspect"]')).toHaveCount(0);
-    await stage.click(); // center raycast hits the lander body
-    await expect(page.locator('[data-testid="scene3d-inspect"]')).toContainText("Lander body");
+    await stage.click(); // center raycast hits the probe bus
+    await expect(page.locator('[data-testid="scene3d-inspect"]')).toContainText("Main bus");
   } else {
     await expect(stage).toContainText("WebGL is unavailable");
   }

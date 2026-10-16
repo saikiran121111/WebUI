@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { detectThreeIntent, extractUserText } from "../../../lib/skills/intent";
+import { loadSkillInstructions } from "../../../lib/skills/loader";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
@@ -21,6 +23,44 @@ function scrubThinkTags(text: string): string {
 }
 
 /**
+ * WebUI's own 3D skill system: when the latest user message qualifies, the
+ * relevant SKILL.md documents from the project's `skills/` directory are
+ * injected as a system turn right before that message. Unrelated chat is
+ * forwarded byte-for-byte untouched. This is the app's runtime skill
+ * registry — it has nothing to do with Claude Code's skill system.
+ */
+async function injectThreeSkills(raw: string): Promise<string> {
+  let payload: any;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return raw; // not JSON: forward as-is
+  }
+  const messages = payload?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return raw;
+
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") { lastUserIdx = i; break; }
+  }
+  if (lastUserIdx === -1) return raw;
+
+  const intent = detectThreeIntent(extractUserText(messages[lastUserIdx]?.content));
+  if (!intent.wants3D) return raw;
+
+  const instructions = await loadSkillInstructions(intent.subIntents);
+  if (!instructions) return raw;
+
+  messages.splice(lastUserIdx, 0, {
+    role: "system",
+    content:
+      "The WebUI 3D design system is active for this request. Follow these skill instructions exactly, " +
+      "and emit fences in exactly the documented contract format:\n\n" + instructions,
+  });
+  return JSON.stringify(payload);
+}
+
+/**
  * Proxies chat completions to the local LLM, streaming SSE byte-for-byte.
  *
  * Performance: streams the upstream body through a TransformStream without
@@ -32,7 +72,8 @@ function scrubThinkTags(text: string): string {
  * This is negligible; the proxy adds safety (CORS, auth, response scrubbing).
  */
 export async function POST(req: NextRequest) {
-  const body = await req.text();
+  const raw = await req.text();
+  const body = await injectThreeSkills(raw);
 
   try {
     const upstream = await fetch(LLM_URL, {

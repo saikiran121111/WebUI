@@ -1002,6 +1002,56 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
   font-size: 12px; color: var(--muted);
 }
 .scene3d-inspect-label { color: var(--foreground); font-weight: 500; }
+.scene3d-toolbar {
+  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  padding: 0.5rem 0.75rem; border-top: 1px solid var(--border);
+}
+.scene3d-tool-btn {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.3rem 0.55rem; font-size: 11px; color: var(--muted);
+  background: transparent; border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; transition: color 0.15s ease-out, border-color 0.15s ease-out, transform 0.15s ease-out;
+}
+.scene3d-tool-btn:hover { color: var(--foreground); border-color: var(--border-strong); }
+.scene3d-tool-btn:active { transform: scale(0.96); }
+.scene3d-tool-btn.is-active { color: #38BDF8; border-color: var(--border-glow); background: rgba(56, 189, 248, 0.08); }
+.scene3d-format {
+  font-size: 11px; color: var(--muted); background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.4rem;
+}
+.scene3d-stats { margin-left: auto; font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.scene3d-label-tag {
+  position: absolute; transform: translate(-50%, -100%); pointer-events: none;
+  font-size: 10px; color: var(--foreground); white-space: nowrap;
+  background: rgba(8, 10, 16, 0.78); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.1rem 0.4rem;
+}
+.scene3d-hover-tip {
+  position: absolute; transform: translate(0.6rem, 0.9rem); pointer-events: none;
+  font-size: 11px; color: var(--foreground); white-space: nowrap;
+  background: rgba(8, 10, 16, 0.85); border: 1px solid var(--border-glow);
+  border-radius: 6px; padding: 0.15rem 0.5rem;
+}
+.scene3d-stage:fullscreen { height: 100vh; }
+.scene3d-label-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.scene3d-export-note { padding: 0.4rem 0.75rem; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+
+/* ── 3D provider-generated asset blocks ───────────────────────────────── */
+.asset3d-block {
+  margin: 0.75rem 0; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-elevated); overflow: hidden;
+}
+.asset3d-status { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; font-size: 12px; color: var(--muted); }
+.asset3d-thumb { width: 72px; height: 72px; border-radius: 8px; border: 1px solid var(--border); object-fit: cover; background: #050507; }
+.asset3d-progress { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.asset3d-progress-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.asset3d-progress-fill { height: 100%; background: #38BDF8; border-radius: 2px; transition: width 0.45s ease-out; }
+.asset3d-pct { font-variant-numeric: tabular-nums; color: var(--foreground); }
+.asset3d-stage { position: relative; background: #050507; height: 320px; touch-action: none; }
+.asset3d-stage canvas { display: block; width: 100%; height: 100%; }
+.asset3d-error-note { padding: 0.75rem; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.asset3d-downloads { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); }
+.asset3d-error-inline { display: inline-flex; align-items: center; gap: 0.35rem; color: #FB7185; }
 
 /* ── Markdown table row ask ───────────────────────────────────────────── */
 .md-table tbody tr { transition: background 0.15s ease-out; }

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "domain": "3d",
+  "skills": [
+    {
+      "id": "3d",
+      "file": "3d/SKILL.md",
+      "title": "3D domain parent",
+      "purpose": "Shared fence contract, quality bar, mode routing, iteration rules.",
+      "activation": "domain",
+      "subIntent": null,
+      "dependsOn": []
+    },
+    {
+      "id": "3d/scene-design",
+      "file": "3d/scene-design/SKILL.md",
+      "title": "Scene design & domain templates",
+      "purpose": "Object hierarchy, proportions, recognizable silhouettes, domain-specific construction.",
+      "activation": "intent",
+      "subIntent": "scene",
+      "dependsOn": ["3d"]
+    },
+    {
+      "id": "3d/geometry-and-topology",
+      "file": "3d/geometry-and-topology/SKILL.md",
+      "title": "Geometry & topology",
+      "purpose": "Lathe/extrude/tube/capsule construction, segment budgets, bevels, normals.",
+      "activation": "intent",
+      "subIntent": "geometry",
+      "dependsOn": ["3d"]
+    },
+    {
+      "id": "3d/materials-and-lighting",
+      "file": "3d/materials-and-lighting/SKILL.md",
+      "title": "Materials & lighting",
+      "purpose": "PBR material separation, believable surface values, lighting presets.",
+      "activation": "intent",
+      "subIntent": "materials",
+      "dependsOn": ["3d"]
+    },
+    {
+      "id": "3d/interaction-and-animation",
+      "file": "3d/interaction-and-animation/SKILL.md",
+      "title": "Interaction & animation",
+      "purpose": "Orbit/select/hover, animation channels, parameter sliders.",
+      "activation": "intent",
+      "subIntent": "interaction",
+      "dependsOn": ["3d"]
+    },
+    {
+      "id": "3d/asset-generation",
+      "file": "3d/asset-generation/SKILL.md",
+      "title": "AI asset generation",
+      "purpose": "When and how to request a genuine AI-generated mesh via the provider pipeline.",
+      "activation": "intent",
+      "subIntent": "assetGen",
+      "dependsOn": ["3d"]
+    },
+    {
+      "id": "3d/export-and-interoperability",
+      "file": "3d/export-and-interoperability/SKILL.md",
+      "title": "Export & interoperability",
+      "purpose": "GLB/glTF export, provider formats, pivot/orientation/scale conventions.",
+      "activation": "intent",
+      "subIntent": "export",
+      "dependsOn": ["3d"]
+    },
+    {
+      "id": "3d/performance-and-quality-assurance",
+      "file": "3d/performance-and-quality-assurance/SKILL.md",
+      "title": "Performance & QA",
+      "purpose": "Polygon/texture/memory budgets, cleanup, self-validation checklist.",
+      "activation": "intent",
+      "subIntent": "performance",
+      "dependsOn": ["3d"]
+    }
+  ]
+}

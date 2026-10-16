@@ -1,6 +1,15 @@
 # ISSUES
 
 ## Confirmed and fixed
+- `conversations-crud` "archive hides from main list" failed reproducibly
+  after a killed full-suite run: the seeded `c_arch_*` conversation stayed on
+  disk (`~/.local-intelligence/conversations`) with `archived:true`, and the
+  Sidebar shows the "Archived · N" button whenever ANY archived conversation
+  exists, so the test's global `toHaveCount(0)` on that button broke even
+  though its own conversation unarchived correctly. Not an app bug. Fixed:
+  stale row removed via `DELETE /api/conversations/{id}`; the assertion is
+  now scoped to the seeded conversation (open the Archived section if
+  present, assert the title is absent there). CRUD spec 7/7.
 - "Syntax error in text / mermaid version 12.2.0" boxes stuck at the bottom of the
   page (from an AI-generated diagram with unescaped quotes: `cartEmpty[Display "Cart
   is empty"]`). Mermaid 12.2.0's `renderDiagram` draws the error SVG into a temp
