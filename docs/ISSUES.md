@@ -1,6 +1,17 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Model-authored COMPACT fences still hit random syntax holes (user's 2nd
+  Aetherion attempt: "Expected ':' after property name in JSON at position
+  17084") — emission discipline reduces but cannot guarantee error-free
+  20 KB JSON. Fixed at the app level: silent repair loop (see CHANGELOG)
+  feeds the exact error back to the model and splices the corrected fence
+  into the same bubble; the user only ever sees the error note if BOTH
+  repair rounds fail. Gotchas: the repair request must contain "anatomy
+  illustration" or `detectAnatomyIntent` won't re-inject SKILL.md for the
+  repair turn (`injectSkillPacks` only inspects the LAST user message) —
+  unit test guards this; top-level `label` is REQUIRED (anatomySchema.ts:
+  388) — a test fixture without it failed zod before the intended error.
 - User-reported "Anatomy illustration data did not validate" on a model-authored
   Aetherion fence: NOT a runtime bug — the model's 45 KB JSON was malformed.
   Extracted from `~/.local-intelligence/conversations`: one JSON syntax hole

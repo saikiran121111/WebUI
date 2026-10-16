@@ -4,6 +4,13 @@ import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types"
 import type { BrowserTool } from "../lib/browser/agentBrowser";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
 import { ResearchOrchestrator } from "../lib/research/orchestrator";
+import {
+  MAX_FENCE_REPAIRS,
+  applyFenceRepair,
+  extractAnatomyFenceBody,
+  fenceRepairRequest,
+  findBrokenAnatomyFences,
+} from "../lib/render/fenceRepair";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
@@ -130,6 +137,57 @@ export function useChat({
     }
   }, []);
 
+  /**
+   * Silent anatomy fence repair. A broken ```anatomy fence is the model's
+   * mistake and only the model can fix it: feed the exact validation error
+   * back (the broken fence already sits in its history), splice the
+   * corrected fence into the same bubble, and keep the repair turn out of
+   * visible/persisted state — the user should never have to read a
+   * validation error they cannot act on. After MAX_FENCE_REPAIRS rounds the
+   * honest error fallback in AnatomyBlock remains as the last resort.
+   */
+  const repairAnatomyFences = useCallback(async (
+    assistantId: string,
+    history: any[],
+    effort: EffortLevel,
+    controller: AbortController,
+  ) => {
+    for (let attempt = 0; attempt < MAX_FENCE_REPAIRS; attempt++) {
+      if (controller.signal.aborted) return;
+      const content = streamContentRef.current;
+      const broken = findBrokenAnatomyFences(content);
+      if (broken.length === 0) return;
+
+      let reply = "";
+      const client = new ChatClient(apiUrl, apiKey, model);
+      try {
+        await client.chat(
+          {
+            messages: [
+              ...history,
+              { role: "assistant", content },
+              { role: "user", content: fenceRepairRequest(broken[0]) },
+            ],
+            model,
+            stream: true,
+            reasoning_effort: effort === "off" ? undefined : effort,
+          },
+          (ev) => { if (ev.content) reply += ev.content; },
+          controller.signal,
+        );
+      } catch {
+        return; // aborted or upstream failure: leave the fence for the fallback
+      }
+      if (controller.signal.aborted) return;
+
+      const corrected = extractAnatomyFenceBody(reply);
+      if (!corrected) continue; // model answered without a fence: ask again
+      const repaired = applyFenceRepair(content, broken[0], corrected);
+      streamContentRef.current = repaired;
+      setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: repaired } : m)));
+    }
+  }, [model, apiUrl, apiKey]);
+
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     console.log("[send] called with:", text.slice(0, 30), "effort:", effortRef.current);
     // sendBusyRef is the real concurrency guard — `status` here would be a
@@ -192,14 +250,24 @@ export function useChat({
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
       console.log("[send] calling client.chat with effort:", curEffort === "off" ? undefined : curEffort);
 
+      // Snapshot the request history BEFORE the stream: a repair round must
+      // replay the exact conversation the broken reply was generated from.
+      const requestHistory = [...messagesRef.current, userMsg];
+
       await client.chat(
-        { messages: [...messagesRef.current, userMsg], model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
+        { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
       ).catch((e: any) => {
         console.log("[send] client.chat threw:", e?.message, e?.name);
         throw e;
       });
+
+      // A broken anatomy fence gets silently repaired before the bubble is
+      // finalized — the user sees the finished figure, not the error.
+      if (!controller.signal.aborted) {
+        await repairAnatomyFences(assistantMsg.id, requestHistory, curEffort, controller);
+      }
 
       console.log("[send] after client.chat - was it aborted?", controller.signal.aborted);
       if (!controller.signal.aborted) {
@@ -236,7 +304,7 @@ export function useChat({
       abortRef.current = null;
       sendBusyRef.current = false;
     }
-  }, [model, apiUrl, apiKey, handleEvent]);
+  }, [model, apiUrl, apiKey, handleEvent, repairAnatomyFences]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;

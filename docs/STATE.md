@@ -1,6 +1,21 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Anatomy fence auto-repair loop (2026-10-16): a broken ```anatomy
+      fence never reaches the user first. `lib/render/fenceRepair.ts`:
+      findBrokenAnatomyFences (offset-precise fence scan + schema check),
+      fenceRepairRequest (feeds the exact V8/zod error back — wording must
+      keep "anatomy illustration" so SKILL.md re-injects), extractAnatomy-
+      FenceBody + applyFenceRepair (splice corrected fence into the same
+      bubble), MAX_FENCE_REPAIRS=2. `hooks/useChat.ts`: repairAnatomyFences
+      runs post-stream pre-finalize on the SAME AbortController (stop()
+      cancels repair rounds); repair turns never enter visible/persisted
+      state; AnatomyBlock error note stays as honest last resort. SKILL.md:
+      top-level `title`+`label` marked REQUIRED (anatomySchema.ts:385/388).
+      Proven: fenceRepair.test 11/11 (incl. detector guard), render+anatomy
+      vitest 277/277, tsc clean, Playwright anatomy-repair.spec 2/2
+      (broken→corrected renders `svg.anatomy-svg` with zero `anatomy-error`;
+      always-broken = exactly 3 chat calls then honest fallback).
 - [x] Anatomy advanced architectural runtime (2026-10-16): v2 schema
       `profile` standard|advanced + `budgetsFor` (advanced ≤240 logical /
       ≤700 rendered parts, ≤100 floors, ≤8 modules, ≤48 connections+flows);

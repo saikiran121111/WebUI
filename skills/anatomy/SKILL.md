@@ -35,6 +35,8 @@ Top level:
  "parts":[...],"controls":[...],"readouts":[...],"legend":[...],
  "explode":{"label":"Explode"},"export":{"filename":"four-stroke-head"}}
 ```
+- REQUIRED top level: `title` AND `label` (the aria label) — a fence missing
+  either fails validation before anything else is even checked.
 - `width` 320–900 (default 650), `height` 240–720 (default 420). The figure
   auto-fits the camera to your parts — never fight framing by hand.
 - Budgets (standard profile): ≤90 parts, ≤6 controls, ≤6 readouts, ≤8 legend

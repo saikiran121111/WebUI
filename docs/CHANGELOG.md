@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 2026-10-16 — Feat: silent anatomy fence auto-repair
+- New `lib/render/fenceRepair.ts`: locate broken ```anatomy fences by
+  offset, phrase the exact validation error as a repair request, splice
+  the model's corrected fence back into the same bubble (MAX_FENCE_REPAIRS=2).
+- `hooks/useChat.ts`: `repairAnatomyFences` runs post-stream, pre-finalize,
+  reusing the send AbortController (stop() cancels repair rounds); the
+  repair turn never enters visible or persisted state — the user sees the
+  finished figure, not the error. AnatomyBlock's error note remains as the
+  honest last resort after both rounds fail.
+- `skills/anatomy/SKILL.md`: top-level `title`+`label` marked REQUIRED
+  (anatomySchema.ts:385/388 — a fixture without `label` failed zod).
+- Proven: `__tests__/render/fenceRepair.test.ts` 11/11 (incl. guard that
+  the repair prompt still triggers Anatomy pack injection), new
+  `tests/anatomy-repair.spec.ts` 2/2 (broken→corrected renders
+  `svg.anatomy-svg`, zero `anatomy-error`; always-broken = exactly 3 chat
+  calls + honest fallback), render+anatomy vitest 277/277, tsc clean.
+
 ## 2026-10-16 — Fix: anatomy skill docs caused the model's invalid fences
 - `skills/anatomy/SKILL.md`: rod line now documents REQUIRED `r` (the schema
   always demanded it — 37 model rods failed `parts.N.r: Required` because the
