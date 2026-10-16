@@ -215,7 +215,10 @@ export default memo(function MarkdownTable({
     if (!table || !headerRow) return;
     const cols = headerRow.children.length;
     const rows = table.querySelectorAll("tbody tr").length;
-    const sortableNow = rows >= 5;
+    // Sort any table with 2+ rows — the footer hint always advertises
+    // sorting, so gating it on a row minimum (it used to be 5) made small
+    // tables like 4-row summaries silently ignore header clicks.
+    const sortableNow = rows >= 2;
     if (sortable !== sortableNow) setSortable(sortableNow);
     if (colCount !== cols) setColCount(cols);
     if (rowCount !== rows) setRowCount(rows);

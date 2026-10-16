@@ -1,6 +1,10 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Table sort threshold fix (2026-10-16): header-click sorting was gated on
+      `rows >= 5` while the hint always advertised it — 4-row tables ignored
+      clicks. `MarkdownTable.tsx` gate now `rows >= 2`; new 4-row e2e in
+      `tests/render.spec.ts`; markdown-table specs 3/3 green.
 - [x] Task 7 KPI widget + MarkdownTable rollback (2026-10-16): per the user the
       table row-ask bar was rolled back — `components/render/MarkdownTable.tsx`
       restored to `308188f` (`.md-row-ask-bar` CSS left in place). New

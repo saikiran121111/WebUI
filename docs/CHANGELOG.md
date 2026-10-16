@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 2026-10-16 — Fix: header-click sorting dead on tables under 5 rows
+- `components/render/MarkdownTable.tsx`: sort gate `rows >= 5` → `rows >= 2`
+  (the footer hint always advertised sorting; 4-row tables silently ignored
+  header clicks). New e2e "markdown table with 4 rows still sorts on header
+  click" in `tests/render.spec.ts`; markdown-table specs 3/3 green.
+
 ## 2026-10-16 — Task 7: Live KPI value cards & formula calculators
 - `lib/render/schemas.ts`: `kpiSliderSchema` + `kpiCardSchema` joined the
   `widgetSpecSchema` union as `kind:"kpi"` (sliders max 8, cards 1–12; value/

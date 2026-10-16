@@ -99,6 +99,32 @@ test("markdown table supports header sorting and CSV copy", async ({ page }) => 
   expect(csv).toContain("Barbara,70");
 });
 
+test("markdown table with 4 rows still sorts on header click", async ({ page }) => {
+  // Regression: sorting used to require 5+ rows, so the 4-row tables the
+  // model streams constantly ignored header clicks while the footer hint
+  // still advertised sorting.
+  const table = [
+    "| Region | Q1 (k$) |",
+    "| --- | --- |",
+    "| North | 42 |",
+    "| South | 28 |",
+    "| East | 31 |",
+    "| West | 24 |",
+  ].join("\n");
+  await mockStream(page, table);
+  await page.goto("http://localhost:3000/");
+  await send(page, "regional table");
+
+  const wrap = page.locator('[data-testid="md-table-wrap"]');
+  await expect(wrap).toBeVisible();
+  await expect(wrap.locator("table.md-table")).toHaveAttribute("data-sortable", "true");
+
+  await wrap.locator("th").nth(1).click();
+  await expect(wrap.locator("tbody tr").first().locator("td").nth(1)).toHaveText("24");
+  await wrap.locator("th").nth(1).click();
+  await expect(wrap.locator("tbody tr").first().locator("td").nth(1)).toHaveText("42");
+});
+
 test("markdown table collapses wide columns, filters rows and opens fullscreen", async ({ page }) => {
   const rows = [
     ["Ada", "C", "90", "12", "MIT", "first programmer"],
