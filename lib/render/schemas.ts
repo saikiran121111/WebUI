@@ -179,12 +179,18 @@ export function parseJsonFence<T extends z.ZodTypeAny>(
   let json: unknown;
   try {
     json = JSON.parse(source);
-  } catch {
-    return { ok: false, error: "invalid JSON" };
+  } catch (e) {
+    // V8's message names the offending token and position — exactly what the
+    // user needs to paste back to the model for a targeted fix.
+    return { ok: false, error: `invalid JSON — ${(e as Error).message}`.slice(0, 300) };
   }
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "schema mismatch" };
+    const issue = parsed.error.issues[0];
+    if (!issue) return { ok: false, error: "schema mismatch" };
+    const where = issue.path.length ? issue.path.join(".") : "(root)";
+    const more = parsed.error.issues.length > 1 ? ` (+${parsed.error.issues.length - 1} more)` : "";
+    return { ok: false, error: `${where}: ${issue.message}${more}` };
   }
   return { ok: true, value: parsed.data };
 }

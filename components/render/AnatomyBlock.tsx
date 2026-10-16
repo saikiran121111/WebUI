@@ -1,6 +1,6 @@
 "use client";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Layers, Moon, Sun } from "lucide-react";
+import { Download, Layers, Maximize2, Minimize2, Moon, Sun } from "lucide-react";
 import CodeBlock from "./CodeBlock";
 import { parseJsonFence } from "../../lib/render/schemas";
 import { anatomySpecSchema, type AnatomySpec } from "../../lib/anatomy/anatomySchema";
@@ -28,7 +28,10 @@ export default memo(function AnatomyBlock({ source, streaming = false, onSend }:
     if (streaming) return null; // partial JSON mid-stream: render nothing yet
     return (
       <div className="anatomy-block" data-testid="anatomy-error">
-        <div className="diagram-error-note">Anatomy illustration data did not validate — showing the source instead.</div>
+        <div className="diagram-error-note">
+          Anatomy illustration data did not validate ({parsed.error}) — showing the source instead.
+          Ask the model to fix this exact error and re-emit the full fence.
+        </div>
         <CodeBlock code={source} lang="json" />
       </div>
     );
@@ -45,11 +48,16 @@ interface AnatomyEngineHandle {
 function AnatomyView({ spec, onSend }: { spec: AnatomySpec; onSend?: (text: string) => void }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<AnatomyEngineHandle | null>(null);
+  // Keep the refine callback in a ref: its identity changes on every parent
+  // render, and re-mounting the engine for that would duplicate its controls.
+  const onSendRef = useRef(onSend);
+  onSendRef.current = onSend;
 
   const [figure, setFigure] = useState<AnatomyFigure | null>(null);
   const [buildFailed, setBuildFailed] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [exploded, setExploded] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [exportNote, setExportNote] = useState("");
 
   const filename = figure?.filename ?? slugify(spec.title);
@@ -71,6 +79,16 @@ function AnatomyView({ spec, onSend }: { spec: AnatomySpec; onSend?: (text: stri
     return () => { disposed = true; };
   }, [spec]);
 
+  // The plate slot is written imperatively: React must never re-set its
+  // innerHTML, or a parent-driven re-render would wipe the live engine's
+  // injected controls (dangerouslySetInnerHTML re-applies on every commit).
+  const plateRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const slot = plateRef.current;
+    if (!slot) return;
+    slot.innerHTML = figure ? figure.plate : "";
+  }, [figure]);
+
   // Mount the live engine over the plate; part clicks send a focused refinement prompt.
   useEffect(() => {
     const root = rootRef.current;
@@ -82,7 +100,7 @@ function AnatomyView({ spec, onSend }: { spec: AnatomySpec; onSend?: (text: stri
       engineRef.current = mountAnatomyLive(rootRef.current, figure.liveSpec, {
         onPartClick: (id: string, label: string, note: string) => {
           const name = label || id;
-          onSend?.(`Refine the "${name}" part of this anatomy illustration${note ? ` (${note})` : ""} — keep every other part and the current control values unchanged.`);
+          onSendRef.current?.(`Refine the "${name}" part of this anatomy illustration${note ? ` (${note})` : ""} — keep every other part and the current control values unchanged.`);
         },
       });
     })();
@@ -91,13 +109,35 @@ function AnatomyView({ spec, onSend }: { spec: AnatomySpec; onSend?: (text: stri
       engineRef.current?.destroy();
       engineRef.current = null;
     };
-  }, [figure, onSend]);
+  }, [figure]);
 
   // Explode state lives in React so re-mounts restore it.
   useEffect(() => { engineRef.current?.setExplode(exploded); }, [exploded, figure]);
 
+  // Fullscreen where the browser supports it; the engine's zoom/pan/reset keep
+  // the figure usable at any size inside the fullscreen element.
+  useEffect(() => {
+    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  function toggleFullscreen() {
+    const element = rootRef.current;
+    if (!element) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    if (!element.requestFullscreen) {
+      setExportNote("Fullscreen is not available in this browser.");
+      return;
+    }
+    element.requestFullscreen().catch(() => setExportNote("Fullscreen was blocked by the browser."));
+  }
+
   async function standaloneSvgMarkup(): Promise<string | null> {
-    const svg = rootRef.current?.querySelector("svg");
+    const svg = rootRef.current?.querySelector("svg.anatomy-svg");
     if (!svg) return null;
     const { ISO_CSS } = await import("../../lib/anatomy/kit/iso-kit");
     const clone = svg.cloneNode(true) as SVGElement;
@@ -183,6 +223,16 @@ function AnatomyView({ spec, onSend }: { spec: AnatomySpec; onSend?: (text: stri
           <button
             type="button"
             className="viz-play-btn"
+            onClick={toggleFullscreen}
+            aria-pressed={fullscreen}
+            data-testid="anatomy-fullscreen"
+            title="Fullscreen the illustration"
+          >
+            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />} Fullscreen
+          </button>
+          <button
+            type="button"
+            className="viz-play-btn"
             onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
             data-testid="anatomy-theme"
             title="Switch illustration theme"
@@ -206,10 +256,11 @@ function AnatomyView({ spec, onSend }: { spec: AnatomySpec; onSend?: (text: stri
 
       {buildFailed ? (
         <div className="diagram-error-note" data-testid="anatomy-build-error">The illustration could not be drawn — showing the source instead.</div>
-      ) : figure ? (
-        <div className="anatomy-plate-slot" data-testid="anatomy-plate" dangerouslySetInnerHTML={{ __html: figure.plate }} />
       ) : (
-        <div className="anatomy-loading">Drawing the illustration…</div>
+        <>
+          {!figure && <div className="anatomy-loading">Drawing the illustration…</div>}
+          <div className="anatomy-plate-slot" data-testid="anatomy-plate" ref={plateRef} />
+        </>
       )}
 
       {figure && figure.warnings.length > 0 && (

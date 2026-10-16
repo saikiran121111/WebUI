@@ -5,11 +5,11 @@ import { test, expect } from "@playwright/test";
 const ANATOMY_URL = "http://localhost:3000/?demo=anatomy";
 
 test.describe("Anatomy illustration blocks", () => {
-  test("renders four SVG plates with honest non-mesh labeling", async ({ page }) => {
+  test("renders five SVG plates with honest non-mesh labeling", async ({ page }) => {
     await page.goto(ANATOMY_URL);
     const blocks = page.locator('[data-testid="anatomy-block"]');
-    await expect(blocks).toHaveCount(4, { timeout: 20000 });
-    await expect(page.locator("svg.anatomy-svg")).toHaveCount(4);
+    await expect(blocks).toHaveCount(5, { timeout: 20000 });
+    await expect(page.locator("svg.anatomy-svg")).toHaveCount(5);
     await expect(page.locator('[data-testid="anatomy-badge"]').first()).toContainText("not a 3D mesh");
     // No fake mesh-format options anywhere in the anatomy toolbars.
     const toolbarText = await page.locator(".anatomy-toolbar").first().innerText();
@@ -91,6 +91,146 @@ test.describe("Anatomy illustration blocks", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(ANATOMY_URL);
     await expect(page.locator('[data-testid="anatomy-block"]').first()).toBeVisible({ timeout: 20000 });
-    await expect(page.locator("svg.anatomy-svg")).toHaveCount(4);
+    await expect(page.locator("svg.anatomy-svg")).toHaveCount(5);
+  });
+});
+
+// The advanced-profile architectural cutaway (FIG 5) exercises the v2 runtime:
+// layer toggles, floor/system inspection, flows, info panels and zoom/pan.
+test.describe("Architectural cutaway runtime (advanced profile)", () => {
+  async function openCutaway(page: import("@playwright/test").Page) {
+    await page.goto(ANATOMY_URL);
+    const arch = page.locator('[data-testid="anatomy-block"]').nth(4);
+    await expect(arch).toBeVisible({ timeout: 20000 });
+    await expect(arch.locator('[data-part="f6__plate"]')).toBeVisible();
+    return arch;
+  }
+
+  test("layer toggle hides its group's parts and connections", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await expect(arch.locator('[data-part="col1"]')).toBeVisible();
+    await arch.locator("button.anatomy-toggle", { hasText: "Facade" }).click();
+    await expect(arch.locator('[data-part="col1"]')).toBeHidden();
+    await expect(arch.locator('[data-part="canopy"]')).toBeHidden();
+    await arch.locator("button.anatomy-toggle", { hasText: "Water" }).click();
+    await expect(arch.locator('g[data-connection="conn-water"]')).toBeHidden();
+    // other layers stay untouched — independent visibility per group
+    await expect(arch.locator('[data-part="core-shaft"]')).toBeVisible();
+  });
+
+  test("PV visibility toggle hides the gated part only", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await expect(arch.locator('[data-part="pv-array"]')).toBeVisible();
+    await arch.locator("button.anatomy-toggle", { hasText: "PV array" }).click();
+    await expect(arch.locator('[data-part="pv-array"]')).toBeHidden();
+    await expect(arch.locator('[data-part="energy-riser"]')).toBeVisible();
+  });
+
+  test("floor select dims other floors but preserves overall building context", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await arch.locator("select").first().selectOption("f3");
+    await expect(arch.locator('[data-part="f1__plate"]')).toHaveAttribute("opacity", "0.12");
+    await expect(arch.locator('[data-part="f3__plate"]')).not.toHaveAttribute("opacity");
+    // untagged context (core, foundation) is never dimmed
+    await expect(arch.locator('[data-part="core-shaft"]')).not.toHaveAttribute("opacity");
+  });
+
+  test("system select isolates one service system", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await arch.locator("select").nth(1).selectOption("hvac");
+    await expect(arch.locator('[data-part="water-riser"]')).toHaveAttribute("opacity", "0.12");
+    await expect(arch.locator('[data-part="hvac-trunk"]')).not.toHaveAttribute("opacity");
+    await expect(arch.locator('g[data-connection="conn-water"]')).toHaveAttribute("opacity", "0.12");
+  });
+
+  test("flow play animates dashoffset along the route; pause freezes; reset zeroes", async ({ page }) => {
+    const arch = await openCutaway(page);
+    const flow = arch.locator('[data-flow="flow-energy"]');
+    await expect(flow).toHaveAttribute("stroke-dashoffset", "0");
+    await arch.locator("button.anatomy-button", { hasText: "Play flows" }).click();
+    await page.waitForTimeout(350);
+    const first = Number(await flow.getAttribute("stroke-dashoffset"));
+    await page.waitForTimeout(350);
+    const second = Number(await flow.getAttribute("stroke-dashoffset"));
+    expect(second).toBeLessThan(first); // dashes travel along the connection path
+    await arch.locator("button.anatomy-button", { hasText: "Pause" }).click();
+    await page.waitForTimeout(250);
+    const paused = Number(await flow.getAttribute("stroke-dashoffset"));
+    await page.waitForTimeout(250);
+    expect(Number(await flow.getAttribute("stroke-dashoffset"))).toBe(paused);
+    await arch.locator("button.anatomy-button", { hasText: "Reset" }).click();
+    await expect(flow).toHaveAttribute("stroke-dashoffset", "0");
+  });
+
+  test("clicking a part opens the info panel with group, floor and description", async ({ page }) => {
+    const arch = await openCutaway(page);
+    // The near-side office cluster overlaps other parts on screen (stacked
+    // floors, its own faces), so find a point that actually hit-tests to it
+    // and send a real mouse click there — exactly what a user would do.
+    await arch.locator('[data-part="f4__office-b"]').scrollIntoViewIfNeeded();
+    const point = await arch.evaluate((el) => {
+      const office = el.querySelector('[data-part="f4__office-b"]');
+      if (!office) return null;
+      const box = office.getBoundingClientRect();
+      for (const [fx, fy] of [[0.5, 0.85], [0.5, 0.7], [0.3, 0.8], [0.7, 0.8], [0.5, 0.5], [0.5, 0.3]] as const) {
+        const x = box.left + box.width * fx;
+        const y = box.top + box.height * fy;
+        const hit = document.elementFromPoint(x, y);
+        if (hit?.closest("[data-part]")?.getAttribute("data-part") === "f4__office-b") return { x, y };
+      }
+      return null;
+    });
+    if (!point) throw new Error("no visible office-b surface found to click");
+    await page.mouse.click(point.x, point.y);
+    const panel = arch.locator("[data-anatomy-info]");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Office cluster B");
+    await expect(panel).toContainText("Level 4");
+    await expect(panel).toContainText("authored once, instantiated per level");
+    await expect(panel.locator("button", { hasText: "refine" })).toBeVisible();
+    await page.mouse.click(5, 5); // click outside clears the selection
+    await expect(panel).toBeHidden();
+  });
+
+  test("wheel zooms the viewport and reset restores the original view", async ({ page }) => {
+    const arch = await openCutaway(page);
+    const viewport = arch.locator("[data-viewport]");
+    await expect(viewport).not.toHaveAttribute("transform");
+    await arch.locator("svg.anatomy-svg").hover();
+    await page.mouse.wheel(0, -400);
+    await expect(viewport).toHaveAttribute("transform", /scale\(1\.\d/);
+    await arch.locator("button.anatomy-button", { hasText: "Reset" }).click();
+    await expect(viewport).not.toHaveAttribute("transform");
+  });
+
+  test("engine buttons explode the roof and restore collapses it back", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await expect(arch.locator('[data-part="chiller"]')).not.toHaveAttribute("transform");
+    await arch.locator("button.anatomy-button", { hasText: "Explode" }).click();
+    await expect(arch.locator('[data-part="chiller"]')).toHaveAttribute("transform", /translate\(/);
+    await arch.locator("button.anatomy-button", { hasText: "Restore" }).click();
+    await expect(arch.locator('[data-part="chiller"]')).not.toHaveAttribute("transform");
+  });
+
+  test("collapsible layer sections group the toggles", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await expect(arch.locator("details.anatomy-section summary", { hasText: "Services" })).toBeVisible();
+    await expect(arch.locator("details.anatomy-section", { hasText: "HVAC" }).locator("button.anatomy-toggle")).toHaveCount(3);
+  });
+
+  test("fullscreen control is offered on the toolbar", async ({ page }) => {
+    const arch = await openCutaway(page);
+    await expect(arch.locator('[data-testid="anatomy-fullscreen"]')).toBeVisible();
+  });
+
+  test("reduced motion keeps the cutaway static but fully usable", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const arch = await openCutaway(page);
+    const flow = arch.locator('[data-flow="flow-energy"]');
+    await arch.locator("button.anatomy-button", { hasText: "Play flows" }).click();
+    await page.waitForTimeout(300);
+    await expect(flow).toHaveAttribute("stroke-dashoffset", "0"); // no motion under reduced-motion
+    await arch.locator("select").first().selectOption("f2");
+    await expect(arch.locator('[data-part="f5__plate"]')).toHaveAttribute("opacity", "0.12");
   });
 });

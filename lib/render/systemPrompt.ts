@@ -19,7 +19,7 @@ Build real subjects: lathe profiles for bodies/nozzles, extrude+bevel for wings/
 
 \`\`\`asset3d — genuine AI-generated mesh request: {"title":"...","prompt":"exactly one physical object; material + topology intent","formats":["glb"],"quality":"standard|detailed"}
 
-\`\`\`anatomy — crafted isometric technical illustration of a real mechanism/instrument (SVG, interactive). Full JSON contract arrives only with the Anatomy skill pack; emit this fence only when that pack is active in the conversation. Never for architecture/C4/schema diagrams, charts, wireframes, or genuine 3D meshes (use scene3d/asset3d for those).
+\`\`\`anatomy — crafted isometric technical illustration of a real mechanism/instrument or architectural cutaway (SVG, interactive). Full JSON contract arrives only with the Anatomy skill pack; emit this fence only when that pack is active in the conversation. Emit the fence as COMPACT single-line JSON — never pretty-printed, never abbreviated with "..." placeholders. Buildings use the pack's "profile":"advanced" contract (groups/floors/modules/connections/flows). Never for C4/schema diagrams, charts, wireframes, or genuine 3D meshes (use scene3d/asset3d for those).
 
 \`\`\`widget — JSON form/tabs/accordion to collect structured input from the user, or live KPI cards:
 {"kind":"kpi","title":"...","insight":"...","sliders":[{"id":"s1","label":"Growth","min":0.5,"max":2,"step":0.05,"defaultValue":1,"unit":"..."}],"cards":[{"id":"c1","label":"Revenue","value":52,"prefix":"$","unit":"k","delta":"+18%","trend":"up|down|neutral","sparkline":[40,42,45],"formula":"base × growth","detail":"...","bindSlider":"s1","operation":"multiply|add|percent"}]}

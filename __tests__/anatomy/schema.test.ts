@@ -87,4 +87,101 @@ describe("anatomySpecSchema", () => {
     bad.parts[0].plan.w = null;
     expect(anatomySpecSchema.safeParse(bad).success).toBe(false);
   });
+
+  // ── v2: profiles, budgets, and architectural references ──
+
+  function slabs(count: number, prefix: string) {
+    return Array.from({ length: count }, (_, i) => ({
+      id: `${prefix}${i}`, tone: "base", kind: "slab", plan: { x: 0, y: 0, w: 1, d: 1, r: 0 }, z: 0, height: 1,
+    }));
+  }
+
+  it("advanced profile lifts the logical part budget; standard still caps at 90", () => {
+    const big = clone(VALID_SPEC);
+    big.profile = "advanced";
+    big.parts = slabs(240, "p");
+    expect(anatomySpecSchema.safeParse(big).success).toBe(true);
+
+    const bigStandard = clone(VALID_SPEC);
+    bigStandard.parts = slabs(240, "p");
+    expect(anatomySpecSchema.safeParse(bigStandard).success).toBe(false);
+  });
+
+  it("counts floor-module expansion against the rendered-instance cap", () => {
+    const spec = clone(VALID_SPEC);
+    spec.modules = [{ id: "mod", parts: slabs(40, "m") }];
+    spec.floors = [0, 1, 2, 3].map((i) => ({ id: `fl${i}`, z: i * 10, module: "mod" }));
+    // 4 authored parts + 4 floors x 40 instances = 164 rendered > 150 standard cap
+    expect(anatomySpecSchema.safeParse(spec).success).toBe(false);
+
+    spec.profile = "advanced";
+    expect(anatomySpecSchema.safeParse(spec).success).toBe(true);
+  });
+
+  it("module parts count once toward the logical budget, not per floor", () => {
+    const spec = clone(VALID_SPEC);
+    spec.profile = "advanced";
+    spec.parts = slabs(200, "p");
+    spec.modules = [{ id: "mod", parts: slabs(50, "m") }];
+    spec.floors = [{ id: "fl1", z: 0, module: "mod" }];
+    // logical = 200 + 50 = 250 > 240 even though rendered = 250 <= 700
+    expect(anatomySpecSchema.safeParse(spec).success).toBe(false);
+  });
+
+  it("rejects dangling group, floor, module, connection and flow references", () => {
+    const cases: Array<(spec: any) => void> = [
+      (s) => { s.parts[0].group = "ghost-group"; },
+      (s) => { s.parts[0].floor = "ghost-floor"; },
+      (s) => { s.floors = [{ id: "fl1", z: 0, module: "ghost-module" }]; },
+      (s) => { s.connections = [{ id: "c1", from: "ghost-part", path: [[0, 0, 0], [1, 1, 1]] }]; },
+      (s) => { s.connections = [{ id: "c1", path: [[0, 0, 0], [1, 1, 1]] }]; s.flows = [{ id: "fl", connection: "ghost-conn" }]; },
+      (s) => { s.groups = [{ id: "g1", label: "G" }]; s.controls.push({ id: "tg", kind: "toggle", label: "T", group: "ghost" }); },
+    ];
+    for (const mutate of cases) {
+      const bad = clone(VALID_SPEC);
+      mutate(bad);
+      expect(anatomySpecSchema.safeParse(bad).success, JSON.stringify(mutate)).toBe(false);
+    }
+  });
+
+  it("visibleWhen must reference a toggle control, not a slider", () => {
+    const bad = clone(VALID_SPEC);
+    bad.parts[0].visibleWhen = "stroke"; // stroke is a slider
+    expect(anatomySpecSchema.safeParse(bad).success).toBe(false);
+
+    const good = clone(VALID_SPEC);
+    good.controls.push({ id: "showDeck", kind: "toggle", label: "Deck", value: true });
+    good.parts[0].visibleWhen = "showDeck";
+    expect(anatomySpecSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("keeps the single-accent rule out of reach for module parts", () => {
+    const bad = clone(VALID_SPEC);
+    bad.modules = [{ id: "mod", parts: [{ id: "m0", tone: "accent", kind: "slab", plan: { x: 0, y: 0, w: 1, d: 1, r: 0 }, z: 0, height: 1 }] }];
+    bad.floors = [{ id: "fl1", z: 0, module: "mod" }];
+    expect(anatomySpecSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("accepts the v2 control kinds with valid references", () => {
+    const good = clone(VALID_SPEC);
+    good.groups = [{ id: "g1", label: "Frame", color: "blue", section: "Shell" }];
+    good.floors = [{ id: "fl1", z: 0, label: "Level 1" }];
+    good.controls.push(
+      { id: "tg", kind: "toggle", label: "Frame", value: true, group: "g1" },
+      { id: "bt", kind: "button", label: "Play", action: "play" },
+      { id: "sf", kind: "select", label: "Floor", target: "floor", value: "fl1" },
+      { id: "ss", kind: "select", label: "System", target: "system", options: [{ value: "g1", label: "Frame" }] },
+    );
+    expect(anatomySpecSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("select target floor needs floors, select target system needs groups", () => {
+    const noFloors = clone(VALID_SPEC);
+    noFloors.controls.push({ id: "sf", kind: "select", label: "Floor", target: "floor" });
+    expect(anatomySpecSchema.safeParse(noFloors).success).toBe(false);
+
+    const noGroups = clone(VALID_SPEC);
+    noGroups.controls.push({ id: "ss", kind: "select", label: "System", target: "system" });
+    expect(anatomySpecSchema.safeParse(noGroups).success).toBe(false);
+  });
 });

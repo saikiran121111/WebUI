@@ -1,5 +1,48 @@
 # CHANGELOG
 
+## 2026-10-16 — Fix: anatomy skill docs caused the model's invalid fences
+- `skills/anatomy/SKILL.md`: rod line now documents REQUIRED `r` (the schema
+  always demanded it — 37 model rods failed `parts.N.r: Required` because the
+  docs omitted it); new "JSON emission discipline" section (compact
+  single-line JSON, no `...` skeletons, fixed-length coord arrays,
+  required-field cheat sheet, ≤20k-char fence size); iteration rule now
+  references the exact error the UI shows. `lib/render/systemPrompt.ts`:
+  anatomy line demands compact, never-abbreviated JSON.
+
+## 2026-10-16 — Fix: anatomy fallback now names the exact validation error
+- `lib/render/schemas.ts` `parseJsonFence`: JSON syntax errors return V8's
+  message (offending token + position); zod errors return `path: message
+  (+N more)` instead of a bare first message.
+- `components/render/AnatomyBlock.tsx`: error note shows that detail and tells
+  the user to ask the model to fix the exact error and re-emit the fence.
+- Proven: `__tests__/render/schemas.test.ts` 18/18 (new path/count assertions).
+
+## 2026-10-16 — Feat: Anatomy advanced architectural runtime (v2)
+- `lib/anatomy/anatomySchema.ts`: `profile` ("standard" default | "advanced")
+  + `budgetsFor`; advanced budgets ≤240 logical / ≤700 rendered parts, ≤14
+  controls, ≤100 floors, ≤8 modules, ≤48 connections+flows; new `groups`,
+  `floors`, `modules`, part `group`/`floor`/`visibleWhen`/`info`, control
+  `toggle.group` / `button.action` / `select.target`, `connections` + `flows`.
+- New `lib/anatomy/floorModules.ts` (`expandFloorModules`: one authored module
+  reused by many floors, instance ids `floor__part`). `anatomyBuilder.ts`:
+  renderer-side rendered-part cap throws instead of silently truncating +
+  aggregated explode warnings. `liveEngine.mjs`: layer toggles, floor select
+  dims other floors (building context kept), system isolation, flow
+  play/pause/reset, click-to-inspect info panel, wheel zoom/pan/reset +
+  fullscreen. `AnatomyBlock.tsx`: collapsible layer sections, fullscreen,
+  info panel. `skills/anatomy/SKILL.md`: advanced-profile contract section.
+- Fixed `standaloneSvgMarkup` in `AnatomyBlock.tsx`: `querySelector("svg")`
+  matched a lucide download-icon svg, so SVG/PNG downloads exported the icon;
+  now `svg.anatomy-svg`. PNG test asserts IHDR 1280×1040 (2× the 640×520
+  figure).
+- Showcase: FIG 5 six-level service-core cutaway (advanced profile).
+- Tests: `__tests__/anatomy/` 7 files 74/74 (new `floorModules.test.ts`,
+  `stress.test.ts` — AETHERION 80-floor/497-part benchmark, 44.9 ms);
+  `tests/anatomy.spec.ts` 18/18; new `tests/anatomy-export.spec.ts` 5/5 +
+  `tests/helpers/aetherion.ts` — HTML/SVG/PNG/TSX downloads proven
+  standalone (file:// interactivity), incl. AETHERION through
+  `/api/anatomy/export`.
+
 ## 2026-10-16 — Fix: Anatomy routing honors explicit "Anatomy skill" invocation
 - `lib/skills/anatomyIntent.ts`: an explicit invocation ("use the Anatomy
   skill/runtime/…") now overrides the mode-D subject exclusion (a user

@@ -1,6 +1,23 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Anatomy advanced architectural runtime (2026-10-16): v2 schema
+      `profile` standard|advanced + `budgetsFor` (advanced ≤240 logical /
+      ≤700 rendered parts, ≤100 floors, ≤8 modules, ≤48 connections+flows);
+      `groups`/`floors`/`modules` (one module reused by many floors via
+      `lib/anatomy/floorModules.ts`, ids `floor__part`), part
+      `group`/`floor`/`visibleWhen`/`info`, control `toggle.group` /
+      `button.action` / `select.target`, `connections`+`flows`. Builder
+      throws on over-cap rendered parts (never silently truncated) and
+      aggregates explode warnings. liveEngine v2: layer toggles, floor
+      select dims (context preserved), system isolation, flow
+      play/pause/reset, click info panel, zoom/pan/reset/fullscreen.
+      Fixed `standaloneSvgMarkup` grabbing a lucide icon svg (SVG+PNG
+      exports were exporting the icon). Showcase FIG 5 cutaway (advanced).
+      AETHERION stress (`tests/helpers/aetherion.ts`): 80 floors, 497
+      rendered parts, 44.9 ms build. Proven: anatomy vitest 74/74, tsc +
+      build clean, Playwright anatomy.spec 18/18 + anatomy-export.spec 5/5
+      (HTML/SVG/PNG/TSX verified standalone via file://, incl. AETHERION).
 - [x] Anatomy routing fix (2026-10-16): explicit "Anatomy skill" invocation
       overrides mode-D exclusion + weak "mesh" disclaimer wording in
       `lib/skills/anatomyIntent.ts`; named formats (GLB/STL/…) still win.

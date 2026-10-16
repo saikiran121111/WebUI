@@ -1,6 +1,32 @@
 # ISSUES
 
 ## Confirmed and fixed
+- User-reported "Anatomy illustration data did not validate" on a model-authored
+  Aetherion fence: NOT a runtime bug — the model's 45 KB JSON was malformed.
+  Extracted from `~/.local-intelligence/conversations`: one JSON syntax hole
+  (rod `col4` path `[,-55,240]` — missing first coordinate, char 21819) and,
+  after repairing it, 42 zod issues `parts.N.r Required`. ROOT CAUSE OF THE
+  ZOD WAVE WAS OUR DOCS: `rodPart` requires `r` (anatomySchema.ts:142) but
+  SKILL.md's rod line never documented it — the model followed the docs and
+  all 37 rods failed. Fixed: rod line now names `r`, plus a "JSON emission
+  discipline" section (compact single-line JSON, never `...` skeletons,
+  fixed-length coordinate arrays, required-field cheat sheet, ≤20k-char size
+  rule). A later message emitted a `...`-elided skeleton instead of the real
+  fence — also covered by the new rules. Fallback-to-source is correct
+  behavior; the error note now shows the exact first issue (`parseJsonFence`
+  returns V8's parse message / `path: message (+N more)`).
+- Anatomy SVG/PNG downloads exported a lucide icon, not the figure:
+  `standaloneSvgMarkup` used `querySelector("svg")` and the download-button
+  icon svg came first in DOM order. Fixed: `querySelector("svg.anatomy-svg")`
+  (same trap as the `svg` selector matching lucide elsewhere). PNG test now
+  asserts IHDR dims 1280×1040 so a stray icon can never pass again.
+- TS narrowing lost on zod `safeParse`: replacing a narrowing `throw` with
+  `console.log` + `expect(parsed.success).toBe(true)` left `parsed.data`
+  possibly-undefined (TS18048/TS2345 in `stress.test.ts`). Keep a `throw`
+  branch before using `parsed.data`.
+- Anatomy builder warned per part ("no explode offset") — 493 warning lines
+  at AETHERION scale flooded the block's warning strip. Fixed: aggregated
+  into one line with the first offender named.
 - Explicit "Use the Anatomy skill" prompt fell back to `scene3d`: the
   detector's early return `if (wantsMesh || excluded)` fired on BOTH the
   mode-D exclusion ("architectural"/"building") and `MESH_REQUEST`
@@ -99,6 +125,16 @@
   from the uploaded file name.
 
 ## Dead ends — do not retry
+- Anatomy schema coords are capped ±600 and solid `height` ≤300: an 80-floor
+  tower needs a 7-unit floor pitch (not 24) and tall cores/columns/risers
+  must be split into stacked segments.
+- Advanced toggle ids derived from group ids use the FULL capitalized group
+  id (`tCirculation`, not `tCirc`) — readout formulas referencing a short
+  name fail superRefine.
+- TSX export embeds the plate as a JS string literal: assert the ESCAPED
+  form `data-part=\"...\"` in the downloaded file, not raw `data-part="..."`.
+- Over-budget rendered count = top-level + Σ floors×module parts
+  (anchor + 8×100 = 801, not 800).
 - Mermaid wipe debug theories disproven (do not re-investigate): component
   remount (dataset probes survived), render-effect re-run (step count stayed
   "Step 1/4"), svg string change (render id stayed `mmd-1`). The wipe was

@@ -75,3 +75,75 @@ describe("buildAnatomyFigure (deterministic kit projection)", () => {
     expect(build(noExport).filename).toBe("single-cylinder-head");
   });
 });
+
+const ARCH_SPEC = {
+  title: "Two-level module stub",
+  fig: "FIG 9",
+  label: "Two levels of one reusable module with a service route",
+  groups: [{ id: "g1", label: "Frame", color: "blue", section: "Shell" }],
+  floors: [
+    { id: "f1", z: 0, module: "m1", label: "L1" },
+    { id: "f2", z: 20, module: "m1", label: "L2" },
+  ],
+  modules: [
+    {
+      id: "m1",
+      parts: [
+        { id: "plate", tone: "base", kind: "slab", plan: { x: -10, y: -10, w: 20, d: 20, r: 1 }, z: 0, height: 3, label: "Plate", group: "g1", explode: [0, 0, 6] },
+        { id: "post", tone: "structure", kind: "rod", r: 1, path: [[8, 8, 3], [8, 8, 15]], label: "Post", on: "plate", group: "g1" },
+      ],
+    },
+  ],
+  parts: [
+    { id: "base", tone: "base", kind: "slab", plan: { x: -14, y: -14, w: 28, d: 28, r: 1 }, z: -4, height: 4, label: "Base", info: "Raft under both levels", visibleWhen: "vis" },
+  ],
+  connections: [{ id: "c1", system: "g1", from: "base", to: "base", label: "Service loop", path: [[0, 0, 2], [10, 10, 24]] }],
+  flows: [{ id: "fl1", connection: "c1", speed: 1.5 }],
+  controls: [
+    { id: "tg", kind: "toggle", label: "Frame", value: true, group: "g1" },
+    { id: "vis", kind: "toggle", label: "Base", value: true },
+    { id: "bt", kind: "button", label: "Play", action: "play" },
+    { id: "sel", kind: "select", label: "Floor", target: "floor" },
+  ],
+};
+
+describe("buildAnatomyFigure (architectural v2 markup)", () => {
+  const figure = build(ARCH_SPEC);
+
+  it("expands floor modules into addressable per-floor part groups", () => {
+    for (const id of ["f1__plate", "f1__post", "f2__plate", "f2__post"]) {
+      expect(figure.plate, `missing instance: ${id}`).toContain(`data-part="${id}"`);
+    }
+    expect(figure.plate).toContain('data-floor="f2"');
+    expect(figure.plate).toContain('data-group="g1"');
+    expect(figure.plate).toContain('data-visible-when="vis"');
+    expect(figure.plate).toContain('data-info="Raft under both levels"');
+  });
+
+  it("wraps the drawing in a viewport group and adds the info-panel slot", () => {
+    expect(figure.plate).toContain("<g data-viewport>");
+    expect(figure.plate).toContain("data-anatomy-info");
+  });
+
+  it("draws connections as dashed routes with flow paths on their own paths", () => {
+    expect(figure.plate).toContain('data-connection="c1"');
+    expect(figure.plate).toContain('data-system="g1"');
+    expect(figure.plate).toContain('class="anatomy-flow"');
+    expect(figure.plate).toContain('data-speed="1.5"');
+    expect(figure.plate).toContain('stroke="#3d7dd8"'); // blue system convention, inline so exports need no app CSS
+  });
+
+  it("liveSpec carries groups, floors and the extended control kinds", () => {
+    expect(figure.liveSpec.groups).toEqual([{ id: "g1", label: "Frame", color: "blue", section: "Shell" }]);
+    expect(figure.liveSpec.floors).toEqual([{ id: "f1", label: "L1" }, { id: "f2", label: "L2" }]);
+    const byId = new Map(figure.liveSpec.controls.map((c) => [c.id, c]));
+    expect(byId.get("tg")).toMatchObject({ kind: "toggle", group: "g1" });
+    expect(byId.get("bt")).toMatchObject({ kind: "button", action: "play" });
+    expect(byId.get("sel")).toMatchObject({ kind: "select", target: "floor" });
+  });
+
+  it("expanded instances keep their motion bindings in liveSpec", () => {
+    const instance = figure.liveSpec.parts.find((p) => p.id === "f2__plate");
+    expect(instance?.explode).toEqual([0, 0, 6]);
+  });
+});

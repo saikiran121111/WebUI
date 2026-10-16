@@ -145,13 +145,24 @@ describe("parseJsonFence", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("returns a readable error for malformed JSON", () => {
-    const r = parseJsonFence("{ not json", chartSpecSchema);
+  it("returns a readable error naming the offending token for malformed JSON", () => {
+    const r = parseJsonFence('{"a":[1,],[2]}', chartSpecSchema);
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("invalid JSON");
   });
 
   it("returns a readable error for schema violations", () => {
     const r = parseJsonFence('{"type":"bar"}', chartSpecSchema);
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("chart has no data");
+  });
+
+  it("prefixes schema errors with the exact issue path and issue count", () => {
+    const r = parseJsonFence('{"type":"bar","categories":["a"],"series":[{"data":[1]}],"points":[{"x":1}]}', chartSpecSchema);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("series.0.name: Required");
+      expect(r.error).toMatch(/\(\+\d+ more\)/);
+    }
   });
 });

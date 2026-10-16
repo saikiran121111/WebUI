@@ -4,10 +4,11 @@ export const ANATOMY_DEMO_CONVERSATION_ID = "demo_anatomy_showcase";
 
 /**
  * Deterministic Anatomy showcase used by the `/demo-anatomy` command and the
- * `?demo=anatomy` query trigger. It renders four crafted isometric figures —
- * a single-cylinder head, a dial indicator, a hydraulic hand pump, and a
- * connection-pool analogy — entirely client-side through the Anatomy builder
- * and live engine, with no model server involved.
+ * `?demo=anatomy` query trigger. It renders five crafted isometric figures —
+ * a single-cylinder head, a dial indicator, a hydraulic hand pump, a
+ * connection-pool analogy, and an advanced-profile architectural cutaway —
+ * entirely client-side through the Anatomy builder and live engine, with no
+ * model server involved.
  */
 
 function fence(spec: unknown): string {
@@ -97,10 +98,111 @@ const POOL_SPEC = {
   export: { filename: "connection-pool" },
 };
 
+/**
+ * Medium-complexity architectural cutaway on the ADVANCED profile — the
+ * milestone fixture that exercises every v2 runtime feature: reusable floor
+ * modules (one module, six instantiated levels), layer groups with collapsible
+ * sections, floor/system inspection selects, clickable parts with info panels,
+ * a visibility-gated part, action buttons, and flow animations that follow
+ * schema-defined service routes.
+ */
+const ARCH_SPEC = {
+  title: "Six-level service core cutaway",
+  fig: "FIG 5",
+  label: "Cutaway of a six-level office block: one reusable floor module, four service systems",
+  profile: "advanced",
+  width: 640,
+  height: 520,
+  groups: [
+    { id: "structure", label: "Structure", color: "gray", section: "Structure" },
+    { id: "facade", label: "Facade", color: "gray", section: "Structure" },
+    { id: "hvac", label: "HVAC", color: "cyan", section: "Services" },
+    { id: "electrical", label: "Electrical", color: "amber", section: "Services" },
+    { id: "water", label: "Water", color: "blue", section: "Services" },
+    { id: "circulation", label: "Circulation", color: "green", section: "Circulation" },
+  ],
+  floors: [
+    { id: "f1", z: 0, height: 24, label: "Level 1", module: "floor-unit" },
+    { id: "f2", z: 26, height: 24, label: "Level 2", module: "floor-unit" },
+    { id: "f3", z: 52, height: 24, label: "Level 3", module: "floor-unit" },
+    { id: "f4", z: 78, height: 24, label: "Level 4", module: "floor-unit" },
+    { id: "f5", z: 104, height: 24, label: "Level 5", module: "floor-unit" },
+    { id: "f6", z: 130, height: 24, label: "Level 6", module: "floor-unit" },
+  ],
+  modules: [
+    {
+      id: "floor-unit",
+      parts: [
+        { id: "plate", tone: "base", kind: "slab", plan: { x: -46, y: -30, w: 92, d: 60, r: 2 }, z: 0, height: 4, label: "Floor plate", group: "structure" },
+        { id: "office-a", tone: "subject", kind: "cylinder", center: [-26, 10], r: 8, z: 4, height: 18, label: "Office cluster A", group: "structure", on: "plate", info: "Reusable floor module — authored once, instantiated per level" },
+        { id: "office-b", tone: "subject", kind: "cylinder", center: [26, -10], r: 8, z: 4, height: 18, label: "Office cluster B", group: "structure", on: "plate", info: "Reusable floor module — authored once, instantiated per level" },
+        { id: "mep-unit", tone: "structure", kind: "slab", plan: { x: 14, y: 16, w: 12, d: 8, r: 1 }, z: 4, height: 6, label: "MEP unit", group: "hvac", on: "plate" },
+      ],
+    },
+  ],
+  parts: [
+    { id: "foundation", tone: "base", kind: "slab", plan: { x: -50, y: -34, w: 100, d: 68, r: 3 }, z: -6, height: 6, label: "Foundation raft", group: "structure", info: "Raft supporting the core and the facade columns" },
+    { id: "core-shaft", tone: "structure", kind: "rod", path: [[0, 0, -6], [0, 0, 154]], r: 6, label: "Circulation core", group: "circulation", info: "Stair and lift core serving every level" },
+    { id: "col1", tone: "structure", kind: "rod", path: [[-46, -30, -6], [-46, -30, 154]], r: 2.5, label: "Facade column 1", group: "facade" },
+    { id: "col2", tone: "structure", kind: "rod", path: [[46, -30, -6], [46, -30, 154]], r: 2.5, label: "Facade column 2", group: "facade" },
+    { id: "col3", tone: "structure", kind: "rod", path: [[-46, 30, -6], [-46, 30, 154]], r: 2.5, label: "Facade column 3", group: "facade" },
+    { id: "col4", tone: "structure", kind: "rod", path: [[46, 30, -6], [46, 30, 154]], r: 2.5, label: "Facade column 4", group: "facade" },
+    { id: "hvac-trunk", tone: "subject", kind: "rod", path: [[-34, -24, 150], [-34, -24, 10]], r: 2.5, label: "HVAC trunk", group: "hvac" },
+    { id: "water-riser", tone: "subject", kind: "rod", path: [[34, -24, 150], [34, -24, 10]], r: 2, label: "Water riser", group: "water" },
+    { id: "energy-riser", tone: "subject", kind: "rod", path: [[-34, 24, 150], [-34, 24, 10]], r: 2, label: "Electrical riser", group: "electrical" },
+    { id: "chiller", tone: "structure", kind: "cylinder", center: [30, 18], r: 8, z: 158, height: 10, label: "Chiller plant", group: "hvac", explode: [0, 0, 34] },
+    { id: "tank", tone: "structure", kind: "cylinder", center: [-14, 18], r: 6, z: 158, height: 10, label: "Break tank", group: "water", explode: [0, 0, 34] },
+    { id: "pv-array", tone: "accent", kind: "slab", plan: { x: -40, y: 12, w: 56, d: 16, r: 1 }, z: 158, height: 3, label: "PV array", group: "electrical", visibleWhen: "tPv", explode: [0, 0, 40], info: "Rooftop solar — shown only while the PV toggle is on" },
+    { id: "canopy", tone: "base", kind: "slab", plan: { x: -50, y: -34, w: 100, d: 68, r: 3 }, z: 154, height: 4, label: "Roof canopy", group: "facade", explode: [0, 0, 26] },
+    { id: "plaza", tone: "base", kind: "slab", plan: { x: -12, y: -42, w: 24, d: 10, r: 2 }, z: -4, height: 2, label: "Entrance plaza", group: "circulation" },
+  ],
+  connections: [
+    { id: "conn-hvac", system: "hvac", from: "chiller", to: "hvac-trunk", label: "Cool-air trunk run", path: [[30, 18, 158], [-30, -20, 158], [-34, -24, 150], [-34, -24, 10]] },
+    { id: "conn-water", system: "water", from: "tank", to: "water-riser", label: "Potable riser", path: [[-14, 18, 158], [20, -24, 158], [34, -24, 150], [34, -24, 10]] },
+    { id: "conn-energy", system: "electrical", from: "pv-array", to: "energy-riser", label: "PV distribution", path: [[-12, 20, 158], [-34, 24, 156], [-34, 24, 10]] },
+    { id: "conn-circ", system: "circulation", from: "plaza", to: "core-shaft", label: "Occupant route", path: [[0, -37, -4], [0, -20, 0], [0, 0, 10], [0, 0, 150]] },
+  ],
+  flows: [
+    { id: "flow-hvac", connection: "conn-hvac", speed: 1.4, label: "Cool air" },
+    { id: "flow-water", connection: "conn-water", speed: 1, label: "Potable water" },
+    { id: "flow-energy", connection: "conn-energy", speed: 2.2, label: "Energy" },
+    { id: "flow-circ", connection: "conn-circ", speed: 0.7, label: "Movement" },
+  ],
+  controls: [
+    { id: "tStructure", kind: "toggle", label: "Structure", value: true, group: "structure" },
+    { id: "tFacade", kind: "toggle", label: "Facade", value: true, group: "facade" },
+    { id: "tHvac", kind: "toggle", label: "HVAC", value: true, group: "hvac" },
+    { id: "tWater", kind: "toggle", label: "Water", value: true, group: "water" },
+    { id: "tEnergy", kind: "toggle", label: "Electrical", value: true, group: "electrical" },
+    { id: "tCirc", kind: "toggle", label: "Circulation", value: true, group: "circulation" },
+    { id: "tPv", kind: "toggle", label: "PV array", value: true },
+    { id: "bExplode", kind: "button", label: "Explode", action: "explode" },
+    { id: "bRestore", kind: "button", label: "Restore", action: "restore" },
+    { id: "bPlay", kind: "button", label: "Play flows", action: "play" },
+    { id: "bPause", kind: "button", label: "Pause", action: "pause" },
+    { id: "bReset", kind: "button", label: "Reset", action: "reset" },
+    { id: "selFloor", kind: "select", label: "Floor", target: "floor" },
+    { id: "selSystem", kind: "select", label: "System", target: "system" },
+  ],
+  readouts: [
+    { id: "levels", label: "Levels", unit: "floors", decimals: 0, formula: "6" },
+    { id: "liveSystems", label: "Systems on", unit: "of 4", decimals: 0, formula: "tHvac + tWater + tEnergy + tCirc" },
+  ],
+  legend: [
+    { mark: "dotted", label: "Service route (dashed)" },
+    { mark: "blue", label: "Water flow" },
+    { mark: "green", label: "Circulation flow" },
+    { mark: "lit", label: "PV / energy accent" },
+  ],
+  explode: { label: "Explode roof" },
+  caption: "Advanced profile: six levels share ONE reusable floor module. Layer toggles, floor/system inspection, clickable parts with info panels, and flow animations that follow the schema's service routes.",
+  export: { filename: "service-core-cutaway" },
+};
+
 const SHOWCASE_MARKDOWN = [
   "## Anatomy illustration showcase",
   "",
-  "Four crafted isometric technical illustrations, built from the Anatomy kit's deterministic geometry — every figure is an SVG vector plate, not a 3D mesh.",
+  "Five crafted isometric technical illustrations, built from the Anatomy kit's deterministic geometry — every figure is an SVG vector plate, not a 3D mesh.",
   "Each figure's numbers come from the same live state model that drives its motion.",
   "",
   fence(HEAD_SPEC),
@@ -110,6 +212,8 @@ const SHOWCASE_MARKDOWN = [
   fence(PUMP_SPEC),
   "",
   fence(POOL_SPEC),
+  "",
+  fence(ARCH_SPEC),
 ].join("\n");
 
 export const ANATOMY_DEMO_MARKDOWN = SHOWCASE_MARKDOWN;

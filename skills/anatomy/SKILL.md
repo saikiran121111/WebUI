@@ -37,8 +37,9 @@ Top level:
 ```
 - `width` 320–900 (default 650), `height` 240–720 (default 420). The figure
   auto-fits the camera to your parts — never fight framing by hand.
-- Budgets: ≤90 parts, ≤6 controls, ≤6 readouts, ≤8 legend keys, rod paths
-  ≤24 points, prism outlines ≤40 points.
+- Budgets (standard profile): ≤90 parts, ≤6 controls, ≤6 readouts, ≤8 legend
+  keys, rod paths ≤24 points, prism outlines ≤40 points. For architectural
+  cutaways set `"profile":"advanced"` — see "Architectural cutaways" below.
 
 Every part has: `id` (unique), `kind`, `tone`
 (`base` = ground/bedding, `structure` = frames/housings, `subject` = the
@@ -53,7 +54,7 @@ Part kinds (coordinates are model units; z is up):
 - `slab`: `plan {"x","y","w","d","r"}`, `z`, `height`, optional `steps` 3–24, `bevel` 0–8
 - `cylinder`: `center [x,y]`, `r`, `z`, `height`, optional `steps`, `bevel`
 - `prism`: `outline [[x,y],...]` (3–40 pts), `z`, `height`, `convex` (default true)
-- `rod`: `path [[x,y,z],...]` (2–24 pts) — pipes, pushrods, crank throws, wiring runs
+- `rod`: `path [[x,y,z],...]` (2–24 pts), `r` (rod radius, REQUIRED, ≤40) — pipes, pushrods, crank throws, wiring runs, columns, mullions
 - `coil`: `from [x,y,z]`, `to [x,y,z]`, `center [x,y]`, `r`, `turns` 1–40, `axis "x"|"y"`
 - `dial`: `center [x,y]`, `z`, `r`, optional `ticks {"count","every","minor","major","from","span"}`,
   optional `needle {"from":deg,"to":deg,"state":"sliderId","length":0.3–1}`, optional `face` text
@@ -75,6 +76,63 @@ values that drive the drawing's motion — never hardcode a "display" number
 that contradicts the animation.
 
 Legend keys: `{"mark":"raised|flat|lit|edge|dim|dotted|dashed|red|green|blue","label":"..."}`.
+
+## Architectural cutaways (advanced profile)
+
+Set `"profile":"advanced"` for buildings. Budgets rise to ≤240 logical parts,
+≤14 controls, ≤8 readouts, ≤12 legend keys, ≤12 groups, ≤100 floors, ≤8
+modules, ≤48 connections, ≤48 flows, ≤700 RENDERED parts. Over-budget specs
+are rejected with a precise count in the error — never silently truncated.
+
+- `groups`: `{"id","label","color":"gray|green|blue|amber|red|violet|cyan","section"}`
+  — independent visibility layers; `section` collapses them into one UI group
+  without losing per-layer control.
+- `floors`: `{"id","z","height"≤300,"label","module"}` — stable ids; the floor
+  select highlights one floor and dims (not hides) the rest, preserving the
+  whole-building context.
+- `modules`: `{"id","anchorZ","parts"}` — one authored floor module reused by
+  many floors; instance ids become `floor__part`. Module furniture must attach
+  with `on` to the module's own plate so it rides its floor.
+- Parts gain: `group`, `floor`, `visibleWhen` (a toggle control id — the part
+  shows only while that toggle is on), `info` (≤240 chars, shown in the
+  click-to-inspect panel).
+- Controls gain: `toggle` with `group` (layer visibility),
+  `{"kind":"button","action":"explode|restore|play|pause|reset|resetView"}`,
+  `{"kind":"select","target":"floor"|"system"}`.
+- `connections`: `{"id","system","from","to","label","path":[[x,y,z],...]}` —
+  service routes (HVAC/water/energy/circulation) as data, separate from the
+  drawing geometry. `flows`: `{"id","connection","speed" 0–4}` animate along
+  the route with play/pause/reset — never free-floating particles.
+- Geometry limits still apply: coordinates ±600, solid `height` ≤300 — split
+  tall cores/columns/risers into stacked segments.
+
+## JSON emission discipline (strict)
+
+The renderer accepts ONLY a complete, syntactically exact fence. Three
+failure modes break generation — never commit them:
+
+1. **Compact, single-line JSON.** No newlines or indentation inside the
+   fence. Pretty-printing doubles the tokens you must generate error-free
+   and risks mid-generation truncation.
+2. **Never abbreviate.** No `...` placeholders, no "skeleton + prose
+   explanation", no "keep the rest as before". Every fence you emit is the
+   COMPLETE object, every time.
+3. **Fixed-length coordinate arrays.** `[x,y]` has exactly 2 numbers,
+   `[x,y,z]` exactly 3 — never `[,...]`, never a dropped slot. Count the
+   numbers before closing each bracket.
+
+Required fields per kind (every part also needs `id`, `kind`, `tone`):
+slab → `plan{x,y,w,d,r}` (`r:0` = square corners), `z`, `height` ·
+cylinder → `center,r,z,height` · prism → `outline,z,height` ·
+rod → `path,r` · coil → `from,to,center,r,turns` · dial → `center,z,r` ·
+ruler → `axis,from,to,step,every,edge,z,lengths` ·
+knob → `center,r,z,height,knurl` · screws → `plan,z` ·
+callout → `at,text,dx,dy` · faceLabel → `target,text`.
+
+Size discipline: keep the whole fence under ~20,000 characters. Repeated
+floor furniture belongs in ONE module referenced by many floors; full-height
+repeats (columns, mullions, risers) get a representative few parts, not
+dozens of near-identical rods.
 
 ## Worked mini-example
 
@@ -117,5 +175,8 @@ Legend keys: `{"mark":"raised|flat|lit|edge|dim|dotted|dashed|red|green|blue","l
   part, id, control value, and camera as they were.
 - Callouts and face labels are static overlays: they do not travel with
   exploded parts. Place them on the assembled view.
-- If a figure fails to render, the user sees the raw JSON — fix the exact
-  validation error rather than simplifying the whole figure.
+- If a figure fails to render, the error note names the exact problem —
+  either the bad JSON token + position (`invalid JSON — Unexpected token
+  ',' … [,-55,240]`) or the missing field (`parts.21.r: Required`). Fix
+  THAT exact problem and re-emit the full fence; never simplify the whole
+  figure or answer with a description of the fix instead of the fence.

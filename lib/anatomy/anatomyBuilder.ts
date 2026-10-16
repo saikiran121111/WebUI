@@ -34,7 +34,8 @@ import {
 } from "./kit/iso-kit";
 import { tubePieces, tubeSvg } from "./kit/tube.mjs";
 import { dot3, viewOf } from "./kit/lathe.mjs";
-import type { AnatomyPart, AnatomySpec } from "./anatomySchema";
+import { expandFloorModules } from "./floorModules";
+import { budgetsFor, type AnatomyPart, type AnatomySpec } from "./anatomySchema";
 
 /**
  * Deterministic Anatomy figure builder: validated ```anatomy JSON in, finished
@@ -45,7 +46,21 @@ import type { AnatomyPart, AnatomySpec } from "./anatomySchema";
 
 export interface AnatomyLiveSpec {
   camera: { origin: [number, number]; scale: number; azimuth: number; elevation: number };
-  controls: Array<{ id: string; kind: "slider" | "toggle"; label: string; min?: number; max?: number; step?: number; value: number | boolean }>;
+  controls: Array<{
+    id: string;
+    kind: "slider" | "toggle" | "button" | "select";
+    label: string;
+    min?: number;
+    max?: number;
+    step?: number;
+    value?: number | boolean | string;
+    group?: string;
+    action?: string;
+    target?: "floor" | "system";
+    options?: Array<{ value: string; label: string }>;
+  }>;
+  groups: Array<{ id: string; label: string; color: string; section?: string }>;
+  floors: Array<{ id: string; label: string }>;
   parts: Array<{
     id: string;
     slide?: { axis: "x" | "y" | "z"; from: number; to: number; state?: string; oscillate?: { period: number } };
@@ -86,6 +101,17 @@ const shiftPlan = (plan: { x: number; y: number; w: number; d: number; r: number
 });
 
 const OVERLAY_KINDS = new Set(["callout", "faceLabel"]);
+
+/** Inline system colors keep connections/flows self-styled in app, export and TSX alike. */
+const SYSTEM_HEX: Record<string, string> = {
+  gray: "#8a8a84",
+  green: "#3f9d5f",
+  blue: "#3d7dd8",
+  amber: "#d8963d",
+  red: "#d84f4f",
+  violet: "#9a5fd8",
+  cyan: "#3db8c9",
+};
 
 function anchorOf(part: AnatomyPart): Point3 {
   switch (part.kind) {
@@ -165,7 +191,17 @@ function topZOf(part: AnatomyPart): number | null {
 
 export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
   const warnings: string[] = [];
-  const byId = new Map(spec.parts.map((part) => [part.id, part]));
+  const parts = expandFloorModules(spec);
+  // Renderer-side budget guard (the schema already rejects over-budget specs;
+  // this protects every other caller too). Over-budget figures are refused
+  // outright — never silently truncated.
+  const budget = budgetsFor(spec.profile);
+  if (parts.length > budget.maxRenderedParts) {
+    throw new Error(
+      `anatomy build refused: ${parts.length} rendered parts exceed the "${spec.profile}" cap of ${budget.maxRenderedParts}`,
+    );
+  }
+  const byId = new Map(parts.map((part) => [part.id, part]));
   const origins = new Map<string, Point3>();
 
   const originOf = (part: AnatomyPart): Point3 => {
@@ -177,10 +213,11 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
   };
 
   const fitPoints: Point3[] = [];
-  for (const part of spec.parts) {
+  for (const part of parts) {
     if (OVERLAY_KINDS.has(part.kind) && part.kind !== "callout") continue;
     fitPoints.push(...extentsOf(part).map((point) => shift3(point, originOf(part))));
   }
+  for (const connection of spec.connections) fitPoints.push(...connection.path);
   if (!fitPoints.length) fitPoints.push([0, 0, 0], [10, 10, 10]);
 
   const P: Projection = fitProjection(fitPoints, spec.width, spec.height, {
@@ -283,7 +320,7 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
 
   const childrenOf = new Map<string, AnatomyPart[]>();
   const roots: AnatomyPart[] = [];
-  for (const part of spec.parts) {
+  for (const part of parts) {
     if (OVERLAY_KINDS.has(part.kind)) continue;
     if (part.on && byId.has(part.on)) {
       const siblings = childrenOf.get(part.on) ?? [];
@@ -302,6 +339,10 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
     const attrs = [`data-part="${part.id}"`];
     if (part.label) attrs.push(`data-label="${attr(part.label)}"`);
     if (part.note) attrs.push(`data-note="${attr(part.note)}"`);
+    if (part.info) attrs.push(`data-info="${attr(part.info)}"`);
+    if (part.group) attrs.push(`data-group="${part.group}"`);
+    if (part.floor) attrs.push(`data-floor="${part.floor}"`);
+    if (part.visibleWhen) attrs.push(`data-visible-when="${part.visibleWhen}"`);
     return `<g ${attrs.join(" ")}>${partMarkup(part)}${children.map(renderPart).join("")}</g>`;
   }
 
@@ -312,7 +353,7 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
       const to: [number, number] = [from[0] + part.dx, from[1] + part.dy];
       const textTone: Tone = part.leader === "lit" ? "hi" : part.leader === "red" || part.leader === "green" || part.leader === "blue" ? "mid" : part.leader;
       return (
-        `<g data-part="${part.id}"${part.label ? ` data-label="${attr(part.label)}"` : ""}${part.note ? ` data-note="${attr(part.note)}"` : ""}>` +
+        `<g data-part="${part.id}"${part.label ? ` data-label="${attr(part.label)}"` : ""}${part.note ? ` data-note="${attr(part.note)}"` : ""}${part.info ? ` data-info="${attr(part.info)}"` : ""}${part.group ? ` data-group="${part.group}"` : ""}${part.floor ? ` data-floor="${part.floor}"` : ""}${part.visibleWhen ? ` data-visible-when="${part.visibleWhen}"` : ""}>` +
         wireSvg(from, to, { tone: part.leader, dashed: part.dashed, ends: "to" }) +
         faceTextSvg(`translate(${round1(to[0] + (part.dx < 0 ? -4 : 4))} ${round1(to[1] + 3)})`, part.text, {
           size: 3.2,
@@ -337,17 +378,49 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
     return "";
   }
 
-  const overlays = spec.parts.filter((part) => OVERLAY_KINDS.has(part.kind));
-  for (const part of spec.parts) {
+  const groupColor = new Map(spec.groups.map((group) => [group.id, group.color ?? "gray"]));
+
+  function connectionMarkup(connection: AnatomySpec["connections"][number]): string {
+    const projected = connection.path.map((point) => iso(point, P));
+    const d = projected.map(([x, y], index) => `${index ? "L" : "M"}${round1(x)} ${round1(y)}`).join("");
+    const color = SYSTEM_HEX[connection.system ? groupColor.get(connection.system) ?? "gray" : "gray"] ?? "#8a8a84";
+    const attrs = ['class="anatomy-connection"', `data-connection="${connection.id}"`, `stroke="${color}"`];
+    if (connection.system) attrs.push(`data-system="${connection.system}"`);
+    if (connection.label) attrs.push(`data-label="${attr(connection.label)}"`);
+    const flows = spec.flows
+      .filter((flow) => flow.connection === connection.id)
+      .map(
+        (flow) =>
+          `<path class="anatomy-flow" data-flow="${flow.id}" data-connection="${connection.id}" data-speed="${flow.speed}" stroke="${color}" fill="none" stroke-width="2" stroke-linecap="round" d="${d}"/>`,
+      )
+      .join("");
+    return `<g ${attrs.join(" ")} fill="none"><path d="${d}" stroke-width="1.1" stroke-opacity="0.55" stroke-dasharray="2 3"/>${flows}</g>`;
+  }
+
+  const overlays = parts.filter((part) => OVERLAY_KINDS.has(part.kind));
+  // Aggregate the (common) static-explode notice: a large advanced figure can
+  // have hundreds of intentionally static parts, and one warning per part
+  // would flood the block's warning strip.
+  let staticExplodeCount = 0;
+  let staticExplodeSample = "";
+  for (const part of parts) {
     if (spec.explode && part.explode === undefined && !OVERLAY_KINDS.has(part.kind)) {
-      warnings.push(`part "${part.id}" has no explode offset and will stay put`);
+      staticExplodeCount++;
+      if (!staticExplodeSample) staticExplodeSample = part.id;
     }
     if (part.slide && !part.slide.state && !part.slide.oscillate) {
       warnings.push(`part "${part.id}" slide needs a state slider or oscillate to move`);
     }
   }
+  if (staticExplodeCount > 0) {
+    warnings.push(`${staticExplodeCount} parts have no explode offset and will stay put (first: "${staticExplodeSample}")`);
+  }
 
-  const body = [...roots].sort(byDepth).map(renderPart).join("") + overlays.map(overlayMarkup).join("");
+  const drawing =
+    [...roots].sort(byDepth).map(renderPart).join("") +
+    spec.connections.map(connectionMarkup).join("") +
+    overlays.map(overlayMarkup).join("");
+  const body = `<g data-viewport>${drawing}</g>`;
   const svg = figureSvg({ width: spec.width, height: spec.height, label: spec.label, body, className: "anatomy-svg" });
 
   const readoutsHtml = spec.readouts.length
@@ -362,6 +435,7 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
         .join("")}</div>`
     : "";
   const controlsSlot = spec.controls.length ? `<div class="chart-sliders anatomy-controls" data-anatomy-controls></div>` : "";
+  const infoSlot = `<div class="anatomy-info" data-anatomy-info hidden></div>`;
 
   const plate = plateHtml({
     fig: spec.fig,
@@ -370,10 +444,10 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
     readout: spec.readouts[0] ? `${spec.readouts[0].label} —` : "",
     keys: spec.legend.map((key) => ({ mark: key.mark, label: key.label }) as LegendKey),
     caption: spec.caption,
-    body: svg + readoutsHtml + controlsSlot,
+    body: svg + infoSlot + readoutsHtml + controlsSlot,
   });
 
-  const liveParts = spec.parts
+  const liveParts = parts
     .filter((part) => part.slide || part.explode || (part.kind === "dial" && part.needle))
     .map((part) => {
       const o = originOf(part);
@@ -400,8 +474,14 @@ export function buildAnatomyFigure(spec: AnatomySpec): AnatomyFigure {
     controls: spec.controls.map((control) =>
       control.kind === "slider"
         ? { id: control.id, kind: "slider", label: control.label, min: control.min, max: control.max, step: control.step, value: control.value }
-        : { id: control.id, kind: "toggle", label: control.label, value: control.value },
+        : control.kind === "toggle"
+          ? { id: control.id, kind: "toggle", label: control.label, value: control.value, group: control.group }
+          : control.kind === "button"
+            ? { id: control.id, kind: "button", label: control.label, action: control.action }
+            : { id: control.id, kind: "select", label: control.label, target: control.target, value: control.value, options: control.options },
     ),
+    groups: spec.groups.map((group) => ({ id: group.id, label: group.label, color: group.color ?? "gray", section: group.section })),
+    floors: spec.floors.map((floor) => ({ id: floor.id, label: floor.label ?? floor.id })),
     parts: liveParts,
     readouts: spec.readouts.map((readout) => ({
       id: readout.id,

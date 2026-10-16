@@ -10,8 +10,8 @@ function fences(markdown: string): string[] {
 describe("Anatomy demo showcase fixtures stay valid", () => {
   const blocks = fences(ANATOMY_DEMO_MARKDOWN);
 
-  it("contains four anatomy fences", () => {
-    expect(blocks).toHaveLength(4);
+  it("contains five anatomy fences", () => {
+    expect(blocks).toHaveLength(5);
   });
 
   blocks.forEach((source, index) => {
