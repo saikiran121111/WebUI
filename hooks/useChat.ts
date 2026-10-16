@@ -258,6 +258,15 @@ export function useChat({
         { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
+        // Skill engine metadata: the proxy names the fired skill via header.
+        (headers) => {
+          const skill = headers.get("X-Used-Skill");
+          if (skill) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, usedSkill: skill } : m
+            ));
+          }
+        },
       ).catch((e: any) => {
         console.log("[send] client.chat threw:", e?.message, e?.name);
         throw e;

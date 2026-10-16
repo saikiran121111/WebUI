@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## 2026-10-17 — Feat: Universal Skill Installation & Lazy-Loading Engine
+- Fake skill packs moved to `archive/skills/**`; deleted `lib/skills/{intent,
+  loader,anatomyIntent}.ts` + `__tests__/{anatomy,three3d}/{intent,loader,
+  skillLoader}.test.ts`. Root `CLAUDE.md` + `AGENTS.md` carry the mandatory
+  STRICT SKILL MANAGEMENT RULES (never fabricate SKILL.md, downloads only via
+  `npx -y skills add`, routing lives only in `skill-scenarios/*.json`).
+- New engine `lib/skills/{types,frontmatter,modality,registry,lazy}.ts`:
+  registry moves CLI installs out of `.agents/skills`/`.claude/skills` into
+  `./skills/` (zero duplicates, dangling-symlink cleanup via `isBrokenLink`),
+  never overwrites an existing scenario, blocks external image/video-gen
+  skills (`modality.ts` STRONG/WEAK + code-viz allow), lazy loader enforces
+  Mode 1 `/skill-name` intercept and Mode 2 `<skill_router>` + `load_skill`
+  tool + keyword pre-router (SKILL.md body never in prompt unless matched).
+- New routes `app/api/skills/{,install,[skillName]/scenario,[skillName]}`
+  (GET/POST/PATCH/DELETE); chat route emits `X-Used-Skill` → pill in
+  `components/ChatMessage.tsx` (wired through `lib/stream/parser.ts` onMeta,
+  `lib/chat/client.ts`, `hooks/useChat.ts`, `lib/types.ts`).
+- New UI `components/SkillsModal.tsx` (install + installed tabs, Manual/
+  Auto-Scenario/Blocked badges, autoUse toggle, whenToUse edit, delete) and
+  `components/ChatInput.tsx` skills button + floating slash autocomplete.
+- Live proof: installed `blader/humanizer` through the running service —
+  `skills/humanizer/SKILL.md` genuine download, `skill-scenarios/humanizer.json`
+  exactly the 7-field spec (autoUse true, 4 triggerKeywords).
+- Proven: `__tests__/skills/` 4 files 29 tests (1 skipped — Windows symlink
+  privilege), full `npx vitest run` 348/348, `tsc --noEmit` clean, new
+  `tests/skills.spec.ts` 4/4 (pill via fulfilled SSE, modal badges, slash
+  menu open/Escape/Enter-insert).
+
 ## 2026-10-16 — Feat: silent anatomy fence auto-repair
 - New `lib/render/fenceRepair.ts`: locate broken ```anatomy fences by
   offset, phrase the exact validation error as a repair request, splice

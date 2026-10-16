@@ -22,6 +22,7 @@ export class ChatClient {
     req: ChatRequest,
     onEvent: ChatStreamCallback,
     signal?: AbortSignal,
+    onMeta?: (headers: Headers) => void,
   ): Promise<void> {
     const body = this.buildBody(req);
     const handle = createStreamParser({
@@ -29,6 +30,7 @@ export class ChatClient {
       apiKey: this.apiKey,
       body,
       signal,
+      onMeta,
     });
 
     for await (const ev of iterate(handle)) {

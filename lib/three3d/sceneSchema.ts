@@ -6,7 +6,7 @@ import { z } from "zod";
  * it is parsed against this schema, bounded by hard budgets, and translated
  * into real geometry by lib/three3d/sceneBuilder.ts.
  *
- * The fence contract documented in skills/3d/SKILL.md must stay in sync with
+ * The fence contract documented in archive/skills/3d/SKILL.md must stay in sync with
  * this file; the schema is the source of truth.
  */
 

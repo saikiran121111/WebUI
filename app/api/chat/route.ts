@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { detectThreeIntent, extractUserText } from "../../../lib/skills/intent";
-import { detectAnatomyIntent } from "../../../lib/skills/anatomyIntent";
-import { loadAnatomyInstructions, loadSkillInstructions } from "../../../lib/skills/loader";
+import { activateSkillFromToolCall, applySkillRouting } from "../../../lib/skills/lazy";
+import { projectRoot } from "../../../lib/skills/registry";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
@@ -23,130 +22,161 @@ function scrubThinkTags(text: string): string {
   return parts.join("");
 }
 
-/**
- * WebUI's own skill system: when the latest user message qualifies, the
- * relevant SKILL.md documents from the project's `skills/` directory are
- * injected as a system turn right before that message. Unrelated chat is
- * forwarded byte-for-byte untouched. This is the app's runtime skill
- * registry — it has nothing to do with Claude Code's skill system.
- *
- * Pack precedence: an Anatomy request injects the Anatomy pack INSTEAD of the
- * 3D pack (mesh/file requests keep routing to the 3D pipelines).
- */
-async function injectSkillPacks(raw: string): Promise<string> {
-  let payload: any;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return raw; // not JSON: forward as-is
-  }
-  const messages = payload?.messages;
-  if (!Array.isArray(messages) || messages.length === 0) return raw;
-
-  let lastUserIdx = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user") { lastUserIdx = i; break; }
-  }
-  if (lastUserIdx === -1) return raw;
-
-  const text = extractUserText(messages[lastUserIdx]?.content);
-
-  const anatomy = detectAnatomyIntent(text);
-  if (anatomy.wantsAnatomy) {
-    const instructions = await loadAnatomyInstructions(anatomy.subIntents);
-    if (instructions) {
-      messages.splice(lastUserIdx, 0, {
-        role: "system",
-        content:
-          "The WebUI Anatomy illustration system is active for this request. Follow these skill instructions exactly, " +
-          "and emit fences in exactly the documented contract format. If the user actually wants a genuine 3D model or " +
-          "mesh file, use the scene3d/asset3d fences instead:\n\n" + instructions,
-      });
-      return JSON.stringify(payload);
-    }
-  }
-
-  const intent = detectThreeIntent(text);
-  if (!intent.wants3D) return raw;
-
-  const instructions = await loadSkillInstructions(intent.subIntents);
-  if (!instructions) return raw;
-
-  messages.splice(lastUserIdx, 0, {
-    role: "system",
-    content:
-      "The WebUI 3D design system is active for this request. Follow these skill instructions exactly, " +
-      "and emit fences in exactly the documented contract format:\n\n" + instructions,
-  });
-  return JSON.stringify(payload);
+function upstreamHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: "Bearer " + API_KEY,
+    Accept: "text/event-stream",
+  };
 }
 
-/**
- * Proxies chat completions to the local LLM, streaming SSE byte-for-byte.
- *
- * Performance: streams the upstream body through a TransformStream without
- * parsing JSON per chunk. We only inspect one field (reasoning_content -> think)
- * inside the TransformStream, which runs in the stream's own microtask and
- * never blocks the UI. We DO NOT re-serialize or buffer the full SSE.
- *
- * For normal chat, client -> this proxy -> localhost:8080 is two local hops.
- * This is negligible; the proxy adds safety (CORS, auth, response scrubbing).
- */
-export async function POST(req: NextRequest) {
-  const raw = await req.text();
-  const body = await injectSkillPacks(raw);
+function streamHeaders(contentType: string | null, usedSkill: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": contentType ?? "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  };
+  // Skill metadata for the UI: the client reads this and shows the pill.
+  if (usedSkill) headers["X-Used-Skill"] = usedSkill;
+  return headers;
+}
 
+function upstreamErrorResponse(status: number, errText: string): NextResponse {
+  return NextResponse.json(
+    { error: "Upstream returned " + status + (errText ? ": " + errText.slice(0, 200) : "") },
+    { status },
+  );
+}
+
+/** Stream the upstream SSE byte-for-byte through the think-tag scrubber. */
+function streamUpstream(upstream: Response, usedSkill: string | null): Response {
+  const scrubber = new TransformStream({
+    transform(chunk, controller) {
+      const text = new TextDecoder().decode(chunk);
+      controller.enqueue(new TextEncoder().encode(scrubThinkTags(text)));
+    },
+  });
+  return new Response(upstream.body!.pipeThrough(scrubber), {
+    status: 200,
+    headers: streamHeaders(upstream.headers.get("Content-Type"), usedSkill),
+  });
+}
+
+async function forwardStream(body: string, usedSkill: string | null): Promise<Response> {
   try {
-    const upstream = await fetch(LLM_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + API_KEY,
-        Accept: "text/event-stream",
-      },
-      body,
-    });
-
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "");
-      return NextResponse.json(
-        { error: "Upstream returned " + upstream.status + (errText ? ": " + errText.slice(0, 200) : "") },
-        { status: upstream.status },
-      );
-    }
-
-    if (!upstream.body) {
-      return NextResponse.json({ error: "No response body from model" }, { status: 502 });
-    }
-
-    // Lightweight think-tag scrub inside a TransformStream.
-    // We only receive *complete* SSE event bodies (SSE framing is done by the
-    // browser/caller), so tags are never split across the boundaries we see.
-    const scrubber = new TransformStream({
-      start() {},
-      transform(chunk, controller) {
-        const text = new TextDecoder().decode(chunk);
-        controller.enqueue(new TextEncoder().encode(scrubThinkTags(text)));
-      },
-    });
-
-    const cleaned = upstream.body.pipeThrough(scrubber);
-
-    return new Response(cleaned, {
-      status: 200,
-      headers: {
-        "Content-Type": upstream.headers.get("Content-Type") ?? "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[api/chat]", msg);
+    const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body });
+    if (!upstream.ok) return upstreamErrorResponse(upstream.status, await upstream.text().catch(() => ""));
+    if (!upstream.body) return NextResponse.json({ error: "No response body from model" }, { status: 502 });
+    return streamUpstream(upstream, usedSkill);
+  } catch {
     return NextResponse.json(
       { error: "Could not reach the model server. Is it running on port 8080?" },
       { status: 503 },
     );
+  }
+}
+
+/** Pull a load_skill(skill_name) call out of a buffered SSE round. */
+function extractLoadSkillCall(sseText: string): string | null {
+  const names = new Map<number, string>();
+  const args = new Map<number, string>();
+  for (const line of sseText.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    let event: any;
+    try { event = JSON.parse(data); } catch { continue; }
+    for (const call of event?.choices?.[0]?.delta?.tool_calls ?? []) {
+      const idx = typeof call.index === "number" ? call.index : 0;
+      if (typeof call.function?.name === "string") names.set(idx, (names.get(idx) ?? "") + call.function.name);
+      if (typeof call.function?.arguments === "string") args.set(idx, (args.get(idx) ?? "") + call.function.arguments);
+    }
+  }
+  for (const [idx, name] of names) {
+    if (name !== "load_skill") continue;
+    try {
+      const parsed = JSON.parse(args.get(idx) ?? "{}");
+      if (typeof parsed.skill_name === "string" && parsed.skill_name) return parsed.skill_name;
+    } catch {
+      // Malformed arguments: treat as no tool call.
+    }
+  }
+  return null;
+}
+
+/**
+ * Proxies chat completions to the local LLM, streaming SSE byte-for-byte,
+ * with the Universal Skill Engine's strict lazy loading applied first:
+ *
+ *  - "/<skill-name> ..."  -> strip the prefix, inject that skill's SKILL.md
+ *    (+ linked .md files) as <active_skill> for this turn only.
+ *  - autoUse skills        -> keyword pre-router injects the body directly on
+ *    a strong match; otherwise a <skill_router> block (name + whenToUse only,
+ *    never the body) plus a load_skill tool is offered. A tool call triggers
+ *    a buffered round 1, then the skill body is injected for round 2. If the
+ *    local model skips the tool call, round 1's SSE is replayed untouched.
+ *  - everything else       -> forwarded byte-for-byte, zero skill tokens.
+ *
+ * The fired skill name travels back via the X-Used-Skill response header so
+ * the chat UI can show the "Used skill" pill.
+ */
+export async function POST(req: NextRequest) {
+  const raw = await req.text();
+  let payload: any = null;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Not JSON: forward as-is (no routing possible).
+  }
+
+  let usedSkill: string | null = null;
+  let toolLoopRequired = false;
+  if (payload) {
+    try {
+      const routing = await applySkillRouting(payload);
+      usedSkill = routing.usedSkill;
+      toolLoopRequired = routing.toolLoopRequired;
+    } catch (err: unknown) {
+      console.error("[api/chat] skill routing failed:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (!toolLoopRequired) {
+    return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill);
+  }
+
+  // ---- load_skill tool loop (round 1 is buffered, not streamed) ----------
+  try {
+    const round1 = await fetch(LLM_URL, {
+      method: "POST",
+      headers: upstreamHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!round1.ok) return upstreamErrorResponse(round1.status, await round1.text().catch(() => ""));
+
+    const sseText = round1.body ? await new Response(round1.body).text() : "";
+    const requestedSkill = extractLoadSkillCall(sseText);
+    if (requestedSkill) {
+      const activated = await activateSkillFromToolCall(payload, requestedSkill, projectRoot());
+      if (activated) {
+        usedSkill = activated;
+        const round2 = await fetch(LLM_URL, {
+          method: "POST",
+          headers: upstreamHeaders(),
+          body: JSON.stringify(payload),
+        });
+        if (round2.ok && round2.body) return streamUpstream(round2, usedSkill);
+      }
+    }
+
+    // Model skipped the tool call (or round 2 failed): replay round 1 verbatim.
+    return new Response(scrubThinkTags(sseText), { status: 200, headers: streamHeaders(null, usedSkill) });
+  } catch {
+    // Round 1 never reached the model: retry once without the tool contract.
+    delete payload.tools;
+    delete payload.tool_choice;
+    return forwardStream(JSON.stringify(payload), null);
   }
 }

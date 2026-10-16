@@ -1,10 +1,12 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, X, StopCircle, Settings2, Loader2, AlertCircle, Check } from "lucide-react";
+import { Send, Paperclip, X, StopCircle, Settings2, Loader2, AlertCircle, Check, Blocks } from "lucide-react";
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
+import type { SkillRecord } from "../lib/skills/types";
 import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib/files";
+import SkillsModal from "./SkillsModal";
 import { cn } from "../lib/utils";
 
 const EFFORT_LEVELS: EffortLevel[] = ["off", "low", "medium", "high", "max"];
@@ -36,9 +38,39 @@ export default function ChatInput({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [showEffortMenu, setShowEffortMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showSkillsModal, setShowSkillsModal] = useState(false);
+  const [skills, setSkills] = useState<SkillRecord[]>([]);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
+
+  const refreshSkills = useCallback(() => {
+    fetch("/api/skills")
+      .then(r => (r.ok ? r.json() : { skills: [] }))
+      .then(data => setSkills(Array.isArray(data?.skills) ? data.skills : []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { refreshSkills(); }, [refreshSkills]);
+
+  // Slash autocomplete: only while the whole value is one "/word" token.
+  const slashCandidates = useMemo(() => {
+    const partial = /^\/([a-z0-9._-]*)$/i.exec(value);
+    if (!partial) return [];
+    const query = partial[1].toLowerCase();
+    return skills
+      .filter(s => s.enabled && s.skillName.toLowerCase().startsWith(query))
+      .slice(0, 8);
+  }, [value, skills]);
+
+  useEffect(() => { setSlashDismissed(false); setSlashIndex(0); }, [value]);
+
+  const pickSlashSkill = useCallback((skillName: string) => {
+    setValue("/" + skillName + " ");
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -119,8 +151,27 @@ export default function ChatInput({
   }, [value, isLoading, stillReading, attachments, onSend, onAttachmentsChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const menuOpen = slashCandidates.length > 0 && !slashDismissed;
+    if (menuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIndex(i => (i + 1) % slashCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIndex(i => (i - 1 + slashCandidates.length) % slashCandidates.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        pickSlashSkill(slashCandidates[Math.min(slashIndex, slashCandidates.length - 1)].skillName);
+        return;
+      }
+      if (e.key === "Escape") { e.preventDefault(); setSlashDismissed(true); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
-  }, [handleSend]);
+  }, [handleSend, slashCandidates, slashDismissed, slashIndex, pickSlashSkill]);
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments(prev => { const u = prev.filter(a => a.id !== id); onAttachmentsChange(u); return u; });
@@ -178,12 +229,43 @@ export default function ChatInput({
       <motion.div layoutId="composer"
         className={cn("max-w-3xl mx-auto", isHero ? "px-0" : "px-4 pb-4")}>
         <div className={cn(
-          "rounded-2xl border transition-all duration-200",
+          "relative rounded-2xl border transition-all duration-200",
           isHero
             ? "border-white/[0.12] bg-white/[0.05] shadow-2xl shadow-black/40"
             : "border-white/[0.1] bg-white/[0.04] backdrop-blur-xl shadow-lg shadow-black/30",
           "focus-within:border-white/25 focus-within:bg-white/[0.06]",
         )}>
+          {slashCandidates.length > 0 && !slashDismissed && (
+            <div
+              data-testid="slash-skill-menu"
+              className="absolute bottom-full left-0 right-0 mb-2 z-30 py-1 rounded-xl
+                bg-[#0d0d12] border border-white/[0.1] shadow-xl shadow-black/50"
+            >
+              <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-widest font-medium">
+                Skills — Enter or Tab to insert
+              </div>
+              {slashCandidates.map((s, i) => (
+                <button
+                  key={s.skillName}
+                  onClick={() => pickSlashSkill(s.skillName)}
+                  className={cn(
+                    "w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2",
+                    i === Math.min(slashIndex, slashCandidates.length - 1)
+                      ? "bg-white/[0.06] text-white/90"
+                      : "text-white/60 hover:bg-white/[0.04]",
+                  )}
+                >
+                  <span className="font-mono text-white/80">/{s.skillName}</span>
+                  {s.autoUse && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/[0.12] text-amber-400/80">
+                      auto
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
           {(isThinking || reasoningContent) && !isLoading && (
             <div className="px-3 pt-2.5 flex items-center gap-2 text-[11px] text-emerald-400/70">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 animate-pulse" />
@@ -206,6 +288,12 @@ export default function ChatInput({
             />
 
             <div className="flex items-center gap-0.5 pb-1.5 pr-1">
+              <button onClick={() => setShowSkillsModal(true)}
+                className="p-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
+                aria-label="Skills" title="Skills">
+                <Blocks className="w-4 h-4" />
+              </button>
+
               <button onClick={() => fileInputRef.current?.click()}
                 className="p-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
                 aria-label="Attach file" title="Attach file">
@@ -263,6 +351,11 @@ export default function ChatInput({
           )}
         </div>
       </motion.div>
+
+      <SkillsModal
+        open={showSkillsModal}
+        onClose={() => { setShowSkillsModal(false); refreshSkills(); }}
+      />
     </div>
   );
 }

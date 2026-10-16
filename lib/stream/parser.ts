@@ -14,6 +14,8 @@ export interface StreamOptions {
   apiKey?: string;
   body: unknown;
   signal?: AbortSignal;
+  /** Fired once with the response headers (used to read X-Used-Skill). */
+  onMeta?: (headers: Headers) => void;
 }
 
 /**
@@ -57,6 +59,9 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error("Upstream returned " + res.status + ": " + text.slice(0, 300));
+      }
+      if (opts.onMeta) {
+        try { opts.onMeta(res.headers); } catch {}
       }
       if (!res.body) throw new Error("No response body from upstream");
 

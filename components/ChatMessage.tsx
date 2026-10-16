@@ -1,7 +1,7 @@
 "use client";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle, Zap } from "lucide-react";
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { copyText } from "../lib/render/clipboard";
@@ -20,7 +20,7 @@ interface ChatMessageProps {
 }
 
 export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessageProps) {
-  const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error } = message;
+  const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error, usedSkill } = message;
   const isUser = role === "user";
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [isEditing, setIsEditing] = useState(false);
@@ -149,6 +149,16 @@ export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessag
       data-testid="assistant-message"
       data-state={state}
     >
+      {/* Skill engine: the pill names the skill that fired for this reply. */}
+      {usedSkill && (
+        <div className="flex items-center gap-1.5 mb-1.5" data-testid="used-skill-pill">
+          <Zap className="w-3 h-3 text-amber-400/80" />
+          <span className="text-[11px] font-medium text-white/45">
+            Used skill: <span className="text-white/70">{usedSkill}</span>
+          </span>
+        </div>
+      )}
+
       {/* Thinking indicator */}
       {reasoning && !state?.startsWith("streaming") && (
         <div className="flex items-center gap-2 py-1.5 mb-1.5">

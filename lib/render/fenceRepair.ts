@@ -48,8 +48,8 @@ export function findBrokenAnatomyFences(content: string): BrokenFence[] {
 
 /**
  * The user turn that shows the model its own exact error. Wording matters:
- * "anatomy illustration" keeps EXPLICIT_INVOCATION firing so the Anatomy
- * skill pack (the JSON contract) is re-injected for the repair turn too.
+ * naming the "anatomy illustration" contract is what makes the model re-emit
+ * a valid fence on the repair turn.
  */
 export function fenceRepairRequest(broken: BrokenFence): string {
   return (

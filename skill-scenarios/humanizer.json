@@ -1,0 +1,14 @@
+{
+  "skillName": "humanizer",
+  "sourceRepo": "blader/humanizer",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Use this skill when the user asks to humanize text, remove AI writing patterns, or make robotic text sound natural and human-written.",
+  "triggerKeywords": [
+    "humanize",
+    "humanizer",
+    "sound human",
+    "remove ai tone"
+  ],
+  "blockedReason": null
+}

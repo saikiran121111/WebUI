@@ -6,7 +6,6 @@ import {
   fenceRepairRequest,
   findBrokenAnatomyFences,
 } from "../../lib/render/fenceRepair";
-import { detectAnatomyIntent } from "../../lib/skills/anatomyIntent";
 
 // Known-valid mini spec (mirrors the SKILL.md worked example).
 const VALID_BODY =
@@ -75,12 +74,12 @@ describe("fence repair round-trip", () => {
     expect(extractAnatomyFenceBody("```anatomy\n\n```")).toBeNull();
   });
 
-  it("the repair request names the exact error and keeps the Anatomy pack active", () => {
+  it("the repair request names the exact error and keeps the anatomy contract wording", () => {
     const [broken] = findBrokenAnatomyFences("```anatomy\n{ bad\n```");
     const prompt = fenceRepairRequest(broken);
     expect(prompt).toContain(broken.error);
-    // The repair turn is the last user message injectSkillPacks inspects —
-    // it must still trigger Anatomy skill-pack injection (the JSON contract).
-    expect(detectAnatomyIntent(prompt).wantsAnatomy).toBe(true);
+    // The repair prompt must keep naming the anatomy illustration contract —
+    // that wording is what makes the model re-emit a valid fence.
+    expect(prompt.toLowerCase()).toContain("anatomy illustration");
   });
 });

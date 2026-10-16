@@ -149,6 +149,8 @@ export interface Message {
   error?: string;
   mode: ChatMode;
   tool_call_id?: string; // for tool role messages
+  /** Skill engine: name of the skill that fired for this reply. */
+  usedSkill?: string;
 }
 
 /* ── Conversations ───────────────────────────────────────────────────────── */

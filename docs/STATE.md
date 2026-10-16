@@ -1,6 +1,23 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Universal Skill Installation & Lazy-Loading Engine (2026-10-17): fake
+      packs archived to `archive/skills/**`, old `lib/skills/{intent,loader,
+      anatomyIntent}.ts` + their 4 tests deleted. Engine `lib/skills/{types,
+      frontmatter,modality,registry,lazy}.ts` (all registry fns async); routes
+      GET `/api/skills`, POST `/api/skills/install` (sanitized `npx -y skills
+      add`), PATCH `…/[skillName]/scenario`, DELETE `…/[skillName]`; auto-move
+      from `.agents/skills`+`.claude/skills` + debounced watcher; modality
+      filter blocks external image/video-gen services, code-viz allowed.
+      Chat lazy routing: Mode 1 `/name` intercept, Mode 2 `<skill_router>` +
+      `load_skill` tool + keyword pre-router; `X-Used-Skill` → pill in
+      ChatMessage. UI: `components/SkillsModal.tsx` + ChatInput skills button
+      + slash autocomplete. Root `CLAUDE.md`+`AGENTS.md` strict rules. Fixed
+      dangling-symlink cleanup in `syncInstalledSkills` (isBrokenLink).
+      Proven: `__tests__/skills/` 29 tests (1 skipped: no Windows symlink
+      privilege), full vitest 348/348, tsc clean, live install of
+      blader/humanizer (real SKILL.md + exact 7-field scenario JSON),
+      `tests/skills.spec.ts` 4/4.
 - [x] Anatomy fence auto-repair loop (2026-10-16): a broken ```anatomy
       fence never reaches the user first. `lib/render/fenceRepair.ts`:
       findBrokenAnatomyFences (offset-precise fence scan + schema check),
