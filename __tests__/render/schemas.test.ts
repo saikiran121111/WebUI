@@ -111,6 +111,32 @@ describe("widget spec validation", () => {
     expect(widgetSpecSchema.safeParse({ kind: "form", fields: [] }).success).toBe(false);
     expect(widgetSpecSchema.safeParse({ kind: "tabs", items: [] }).success).toBe(false);
   });
+
+  it("accepts a kpi widget with sliders and formula cards", () => {
+    expect(widgetSpecSchema.safeParse({
+      kind: "kpi",
+      title: "Unit economics",
+      sliders: [{ id: "g", label: "Growth", min: 0.5, max: 2, step: 0.05, defaultValue: 1 }],
+      cards: [{
+        id: "rev", label: "Revenue", value: 52, prefix: "$", unit: "k",
+        delta: "+18%", trend: "up", sparkline: [40, 42, 45],
+        formula: "base × growth", bindSlider: "g", operation: "multiply",
+      }],
+    }).success).toBe(true);
+  });
+
+  it("rejects invalid kpi cards", () => {
+    expect(widgetSpecSchema.safeParse({ kind: "kpi", cards: [] }).success).toBe(false);
+    expect(widgetSpecSchema.safeParse({
+      kind: "kpi", cards: [{ id: "a", label: "A", value: 1, trend: "rocket" }],
+    }).success).toBe(false);
+    expect(widgetSpecSchema.safeParse({
+      kind: "kpi", cards: [{ id: "a", label: "A", value: 1, operation: "divide" }],
+    }).success).toBe(false);
+    expect(widgetSpecSchema.safeParse({
+      kind: "kpi", cards: [{ id: "a", label: "A", value: Number.NaN }],
+    }).success).toBe(false);
+  });
 });
 
 describe("parseJsonFence", () => {

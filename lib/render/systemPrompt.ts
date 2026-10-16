@@ -16,6 +16,8 @@ Add "sliders" when the user benefits from What-If tuning, "insight" when a real 
 \`\`\`scene3d — one JSON object for spatial/3D topics:
 {"title":"...","objects":[{"id":"core","kind":"box|sphere|cylinder|cone|torus|arrow|grid","label":"...","position":[0,0,0],"rotation":[0,0,0],"scale":[1,1,1],"color":"#38BDF8"}],"sliders":[{"id":"yaw","label":"Yaw","min":-3.14,"max":3.14,"step":0.01,"defaultValue":0,"target":"core","binding":"rotation|scale|position","axis":"x|y|z"}]}
 
-\`\`\`widget — JSON form/tabs/accordion to collect structured input from the user.
+\`\`\`widget — JSON form/tabs/accordion to collect structured input from the user, or live KPI cards:
+{"kind":"kpi","title":"...","insight":"...","sliders":[{"id":"s1","label":"Growth","min":0.5,"max":2,"step":0.05,"defaultValue":1,"unit":"..."}],"cards":[{"id":"c1","label":"Revenue","value":52,"prefix":"$","unit":"k","delta":"+18%","trend":"up|down|neutral","sparkline":[40,42,45],"formula":"base × growth","detail":"...","bindSlider":"s1","operation":"multiply|add|percent"}]}
+Cards bound to a slider recompute live: multiply = factor, add = amount, percent = % change.
 
 Rules: never invent data; every number finite; valid JSON (no comments, no trailing commas); one concept per block; keep fences closed.`;

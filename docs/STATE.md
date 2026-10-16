@@ -1,6 +1,23 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Task 7 KPI widget + MarkdownTable rollback (2026-10-16): per the user the
+      table row-ask bar was rolled back — `components/render/MarkdownTable.tsx`
+      restored to `308188f` (`.md-row-ask-bar` CSS left in place). New
+      `kind:"kpi"` widget: `lib/render/schemas.ts` (`kpiSliderSchema`/
+      `kpiCardSchema`, sliders ≤8 + cards 1–12 with value/unit/prefix/delta/
+      trend/sparkline/formula/detail/bindSlider/operation), `components/render/
+      WidgetBlock.tsx` (`KpiWidget`: Obsidian #0d0d12 grid, tabular-nums, trend
+      badges #34D399/#FB7185/#38BDF8, inline SVG sparkline, sliders recompute
+      bound cards + sparklines live via multiply/add/percent, card click →
+      #38BDF8 selection + formula/detail callout + "Ask AI about this metric"
+      → onSend), kpi lines in `lib/render/systemPrompt.ts`, KPI block in
+      `lib/render/demoShowcase.ts`, `.kpi-*` chunk in `app/globals.css`. Proven
+      by `tests/interactive-ui.spec.ts` 1/1 (slider recalc $52k→$104k/$62k,
+      callout, ask→send, zero NaN SVG attrs, zero console errors; test clicks
+      Stop before the 2nd ask — useChat `sendBusyRef` one-send-at-a-time — and
+      whitelists the parser's `[PARSER] AbortError` diagnostic). schemas.test.ts
+      17/17 (incl. 2 new kpi tests), tsc clean.
 - [x] Open Intelligent UI + Gemini Interactive UI upgrade (2026-10-16):
       Obsidian luminous-black theme (`lib/render/themes.ts` `OBSIDIAN_SERIES_COLORS`/
       `OBSIDIAN_MERMAID_THEME`, `.viz-active-node`/`.viz-dimmed-node`/`.viz-active-edge`

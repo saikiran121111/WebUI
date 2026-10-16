@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## 2026-10-16 — Task 7: Live KPI value cards & formula calculators
+- `lib/render/schemas.ts`: `kpiSliderSchema` + `kpiCardSchema` joined the
+  `widgetSpecSchema` union as `kind:"kpi"` (sliders max 8, cards 1–12; value/
+  unit/prefix/delta/trend/sparkline/formula/detail/bindSlider/operation).
+- `components/render/WidgetBlock.tsx`: `KpiWidget` — responsive Obsidian grid
+  (#0d0d12 cards, `rgba(255,255,255,0.08)` border, tabular-nums), trend badges
+  (up #34D399 / down #FB7185 / neutral #38BDF8), inline SVG sparkline
+  (viewBox 0 0 100 30, `.toFixed(2)` coords), sliders recompute bound card
+  values and scale sparklines live (multiply/add/percent), card click →
+  #38BDF8 border + formula/detail callout + "Ask AI about this metric" → onSend.
+- `lib/render/systemPrompt.ts`: kpi fence instructions; `lib/render/demoShowcase.ts`:
+  KPI showcase (growth/extra sliders; mrr/cogs/margin/forecast cards);
+  `app/globals.css`: `.kpi-*` chunk with reduced-motion guard.
+- `components/render/MarkdownTable.tsx`: rolled back to `308188f` per the user
+  (row-ask bar gone); `.md-row-ask-bar` CSS left in place.
+- Verified: `tests/interactive-ui.spec.ts` 1/1 (4.5 s) — slider recalc
+  ($52k→$104k, forecast +10k→$62k), callout text, `is-selected`, ask →
+  message appended, zero NaN SVG attrs, zero console/page errors. Test clicks
+  "Stop generating" before the 2nd ask (useChat `sendBusyRef` allows one send
+  at a time) and whitelists the `[PARSER] AbortError` stop diagnostic.
+
 ## 2026-10-16 — Fix: orphaned mermaid error boxes at page bottom
 - `components/render/MermaidBlock.tsx`: added `suppressErrorRendering: true` to
   `mermaid.initialize`. Mermaid 12.2.0 injected its "Syntax error in text" SVG into

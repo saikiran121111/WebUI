@@ -1,12 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 
 // The ?demo=ui showcase is fully client-side (no model server needed):
-// interactive chart + mermaid step playback + scene3d + table row ask.
+// interactive chart + mermaid step playback + scene3d + KPI widget + table.
 const DEMO_URL = "http://localhost:3000/?demo=ui";
 
 // Network-level logs from the intentional "Ask AI" send (the llama.cpp
 // server may be down) are not UI defects; uncaught exceptions never are.
-const IGNORED_CONSOLE_ERRORS = [/Failed to load resource/i, /net::ERR_/i];
+// The [PARSER] AbortError log is the stream parser's diagnostic for the
+// deliberate Stop click that releases the one-send-at-a-time guard.
+const IGNORED_CONSOLE_ERRORS = [/Failed to load resource/i, /net::ERR_/i, /AbortError/];
 
 function watchConsole(page: Page, errors: string[]) {
   page.on("console", msg => {
@@ -18,7 +20,7 @@ function watchConsole(page: Page, errors: string[]) {
   page.on("pageerror", err => errors.push(err.message));
 }
 
-test("interactive UI showcase: chart, mermaid, scene3d, table row ask", async ({ page }) => {
+test("interactive UI showcase: chart, mermaid, scene3d, kpi widget, table", async ({ page }) => {
   const consoleErrors: string[] = [];
   watchConsole(page, consoleErrors);
 
@@ -99,13 +101,37 @@ test("interactive UI showcase: chart, mermaid, scene3d, table row ask", async ({
     await expect(stage).toContainText("WebGL is unavailable");
   }
 
-  // --- Markdown table: row click → "Ask AI about this row" bar ---
+  // --- KPI widget: sliders recompute bound cards live, card click opens callout ---
+  const kpi = page.locator('[data-testid="kpi-block"]');
+  await expect(kpi).toBeVisible();
+  await expect(kpi.locator(".kpi-card")).toHaveCount(4);
+  await expect(kpi.locator(".kpi-spark")).toHaveCount(4);
+  await expect(kpi.locator(".kpi-trend-up")).toHaveCount(2);
+  await expect(kpi.locator(".kpi-trend-down")).toHaveCount(1);
+
+  await page.locator('[data-testid="kpi-slider-growth"]').fill("2");
+  await expect(page.locator('[data-testid="kpi-value-mrr"]')).toHaveText("$104k");
+  await expect(page.locator('[data-testid="kpi-value-forecast"]')).toHaveText("$52k");
+  await page.locator('[data-testid="kpi-slider-extra"]').fill("10");
+  await expect(page.locator('[data-testid="kpi-value-forecast"]')).toHaveText("$62k");
+
+  await page.locator('[data-testid="kpi-card-margin"]').click();
+  const kpiCallout = page.locator('[data-testid="kpi-callout"]');
+  await expect(kpiCallout).toContainText("revenue - cost of goods");
+  await expect(kpiCallout).toContainText("engine of the P&L");
+  await expect(page.locator('[data-testid="kpi-card-margin"]')).toHaveClass(/is-selected/);
+  // useChat allows one send at a time (sendBusyRef guard): the chart-ask
+  // send may still be in flight, so stop it before the KPI ask send fires,
+  // otherwise the guard silently drops it.
+  const stopBtn = page.getByRole("button", { name: "Stop generating" });
+  if (await stopBtn.isVisible().catch(() => false)) await stopBtn.click();
+  await kpiCallout.locator('[data-testid="kpi-ask-btn"]').click();
+  await expect(page.locator('[data-testid="messages-scroll"]')).toContainText("About this metric");
+
+  // --- Markdown table (original build): renders, and has no row-ask bar ---
   const tableWrap = page.locator('[data-testid="md-table-wrap"]').first();
-  await tableWrap.locator("tbody tr").first().click();
-  const rowAskBar = page.locator('[data-testid="row-ask-bar"]');
-  await expect(rowAskBar).toBeVisible();
-  await expect(rowAskBar).toContainText("Region: North");
-  await expect(rowAskBar.locator(".viz-ask-btn")).toBeVisible();
+  await expect(tableWrap.locator("tbody tr")).toHaveCount(4);
+  await expect(page.locator('[data-testid="row-ask-bar"]')).toHaveCount(0);
 
   // --- Zero NaN in any SVG attribute (charts + mermaid) ---
   const nanAttrs = await page.$$eval("svg, svg *", els =>

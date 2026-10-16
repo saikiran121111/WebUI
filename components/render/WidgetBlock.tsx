@@ -1,8 +1,11 @@
 "use client";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import CodeBlock from "./CodeBlock";
-import { parseJsonFence, widgetSpecSchema, type WidgetSpec, type WidgetField } from "../../lib/render/schemas";
+import {
+  parseJsonFence, widgetSpecSchema,
+  type WidgetSpec, type WidgetField, type KpiCard,
+} from "../../lib/render/schemas";
 import MarkdownRenderer from "../MarkdownRenderer";
 
 interface WidgetBlockProps {
@@ -40,6 +43,7 @@ export default memo(function WidgetBlock({ source, streaming = false, onSend }: 
 function WidgetBody({ spec, onSend }: { spec: WidgetSpec; onSend?: (text: string) => void }) {
   if (spec.kind === "form") return <FormWidget spec={spec} onSend={onSend} />;
   if (spec.kind === "tabs") return <TabsWidget spec={spec} />;
+  if (spec.kind === "kpi") return <KpiWidget spec={spec} onSend={onSend} />;
   return <AccordionWidget spec={spec} />;
 }
 
@@ -275,5 +279,132 @@ function AccordionWidget({ spec }: { spec: Extract<WidgetSpec, { kind: "accordio
         );
       })}
     </div>
+  );
+}
+
+/* ── KPI value cards + live formula calculators ───────────────────────── */
+
+const KPI_TREND_META = {
+  up: { icon: TrendingUp, className: "kpi-trend-up" },
+  down: { icon: TrendingDown, className: "kpi-trend-down" },
+  neutral: { icon: Minus, className: "kpi-trend-neutral" },
+} as const;
+
+/** Bound-slider math: multiply = factor, add = amount, percent = % change. */
+function applyKpiOperation(base: number, operation: KpiCard["operation"], amount: number): number {
+  if (operation === "add") return base + amount;
+  if (operation === "percent") return base * (1 + amount / 100);
+  return base * amount;
+}
+
+function formatKpiNumber(n: number): string {
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function KpiWidget({ spec, onSend }: {
+  spec: Extract<WidgetSpec, { kind: "kpi" }>;
+  onSend?: (text: string) => void;
+}) {
+  const sliders = spec.sliders ?? [];
+  const [sliderValues, setSliderValues] = useState<Record<string, number>>(
+    () => Object.fromEntries(sliders.map(s => [s.id, s.defaultValue])),
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Slider moves recompute every bound card value + sparkline point in one
+  // memo pass — the whole grid is small, so each input event stays 60fps.
+  const computed = useMemo(() => {
+    const sliderById = new Map(sliders.map(s => [s.id, s]));
+    return spec.cards.map(card => {
+      const slider = card.bindSlider ? sliderById.get(card.bindSlider) : undefined;
+      const amount = slider ? sliderValues[slider.id] ?? slider.defaultValue : 0;
+      const raw = slider ? applyKpiOperation(card.value, card.operation, amount) : card.value;
+      const display = Number.isFinite(raw) ? raw : card.value;
+      const sparkline = slider && card.sparkline
+        ? card.sparkline.map(p => {
+            const scaled = applyKpiOperation(p, card.operation, amount);
+            return Number.isFinite(scaled) ? scaled : p;
+          })
+        : card.sparkline;
+      return { card, display, sparkline };
+    });
+  }, [spec.cards, sliders, sliderValues]);
+
+  const selected = computed.find(c => c.card.id === selectedId) ?? null;
+
+  return (
+    <div className="widget-block kpi-block" data-testid="kpi-block">
+      {spec.title && <div className="widget-title">{spec.title}</div>}
+      {spec.insight && <div className="widget-desc">{spec.insight}</div>}
+      {sliders.length > 0 && (
+        <div className="kpi-sliders">
+          {sliders.map(s => (
+            <div key={s.id} className="widget-slider-row">
+              <label className="widget-label" htmlFor={`kpi-slider-${s.id}`}>{s.label}</label>
+              <input id={`kpi-slider-${s.id}`} data-testid={`kpi-slider-${s.id}`} type="range"
+                min={s.min} max={s.max} step={s.step ?? 1} value={sliderValues[s.id] ?? s.defaultValue}
+                onChange={e => setSliderValues(v => ({ ...v, [s.id]: Number(e.target.value) }))} />
+              <span className="widget-slider-value">
+                {formatKpiNumber(sliderValues[s.id] ?? s.defaultValue)}{s.unit ? ` ${s.unit}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="kpi-grid">
+        {computed.map(({ card, display, sparkline }) => {
+          const trend = card.trend ? KPI_TREND_META[card.trend] : null;
+          const TrendIcon = trend?.icon;
+          return (
+            <button key={card.id} type="button" data-testid={`kpi-card-${card.id}`}
+              className={"kpi-card" + (selectedId === card.id ? " is-selected" : "")}
+              aria-pressed={selectedId === card.id}
+              onClick={() => setSelectedId(prev => (prev === card.id ? null : card.id))}>
+              <span className="kpi-card-label">{card.label}</span>
+              <span className="kpi-card-value" data-testid={`kpi-value-${card.id}`}>
+                {card.prefix ?? ""}{formatKpiNumber(display)}{card.unit ?? ""}
+              </span>
+              {card.delta && trend && (
+                <span className={"kpi-trend " + trend.className}>
+                  {TrendIcon && <TrendIcon aria-hidden="true" />}
+                  {card.delta}
+                </span>
+              )}
+              {sparkline && sparkline.length >= 2 && <KpiSparkline points={sparkline} />}
+            </button>
+          );
+        })}
+      </div>
+      {selected && (
+        <div className="kpi-callout" data-testid="kpi-callout">
+          <span className="kpi-callout-formula">{selected.card.formula ?? selected.card.label}</span>
+          {selected.card.detail && <span className="kpi-callout-detail">{selected.card.detail}</span>}
+          {onSend && (
+            <button type="button" className="viz-ask-btn" data-testid="kpi-ask-btn"
+              onClick={() => onSend(
+                `About this metric — ${selected.card.label}: ${selected.card.formula ?? selected.card.label}` +
+                ` (currently ${formatKpiNumber(selected.display)}${selected.card.unit ?? ""}). What does it tell us?`,
+              )}>
+              Ask AI about this metric
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KpiSparkline({ points }: { points: number[] }) {
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const stepX = 100 / (points.length - 1);
+  const path = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${(i * stepX).toFixed(2)} ${(28 - ((p - min) / range) * 26).toFixed(2)}`)
+    .join(" ");
+  return (
+    <svg className="kpi-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }

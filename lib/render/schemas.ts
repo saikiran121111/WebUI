@@ -112,6 +112,33 @@ const contentItemSchema = z.object({
   content: z.string().max(20000),
 });
 
+const kpiSliderSchema = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(1).max(60),
+  min: finiteNumber,
+  max: finiteNumber,
+  step: finiteNumber.optional(),
+  defaultValue: finiteNumber,
+  unit: z.string().max(24).optional(),
+}).strict();
+
+const kpiCardSchema = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(1).max(80),
+  value: finiteNumber,
+  unit: z.string().max(24).optional(),
+  prefix: z.string().max(8).optional(),
+  delta: z.string().max(40).optional(),
+  trend: z.enum(["up", "down", "neutral"]).optional(),
+  sparkline: z.array(finiteNumber).min(2).max(64).optional(),
+  formula: z.string().max(200).optional(),
+  detail: z.string().max(500).optional(),
+  /** Slider id whose live value drives this card. */
+  bindSlider: z.string().max(40).optional(),
+  /** How the bound slider combines with `value` (defaults to multiply). */
+  operation: z.enum(["multiply", "add", "percent"]).optional(),
+}).strict();
+
 export const widgetSpecSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("form"),
@@ -128,10 +155,19 @@ export const widgetSpecSchema = z.discriminatedUnion("kind", [
     kind: z.literal("accordion"),
     items: z.array(contentItemSchema).min(1).max(20),
   }).strict(),
+  z.object({
+    kind: z.literal("kpi"),
+    title: z.string().max(120).optional(),
+    insight: z.string().max(500).optional(),
+    sliders: z.array(kpiSliderSchema).max(8).optional(),
+    cards: z.array(kpiCardSchema).min(1).max(12),
+  }).strict(),
 ]);
 
 export type WidgetSpec = z.infer<typeof widgetSpecSchema>;
 export type WidgetField = z.infer<typeof widgetFieldSchema>;
+export type KpiCard = z.infer<typeof kpiCardSchema>;
+export type KpiSlider = z.infer<typeof kpiSliderSchema>;
 
 /* ── Scene3D: procedural three.js assets, never arbitrary code ─────────── */
 
