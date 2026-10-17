@@ -42,10 +42,16 @@
   color: var(--cad-text-muted); display: flex; align-items: center; justify-content: space-between; z-index: 20; }
 /* NOTE: stroke-width here is in SVG USER UNITS unless non-scaling-stroke is on.
    The viewBox is ~24 model units wide, so 3.5 user units = ~126 px halos that
-   merge into giant dark blobs behind room tags. Keep non-scaling-stroke. */
+   merge into giant dark blobs behind room tags. Keep non-scaling-stroke.
+   Room-tag pill text opts out with stroke="none" (Chromium mis-paints the
+   halo on tspan-wrapped labels); the pill fill provides the contrast. */
 .cad-svg-canvas text { font-family: var(--cad-font-mono); paint-order: stroke fill;
   stroke: #060a12; stroke-width: 3.5px; stroke-linecap: round; stroke-linejoin: round;
   vector-effect: non-scaling-stroke; }
+/* Room-tag pill text carries NO halo (stroke none beats the rule above):
+   Chromium mis-paints even a non-scaling halo on tspan-wrapped labels —
+   giant dark disc + dropped first line at fit zoom. Pill fill = contrast. */
+.cad-svg-canvas g.cad-room-tag text { stroke: none; }
 
 /* ── Compat layer: keeps the locked 16:9 / fullscreen sizing and the
    existing testids working while the workstation chrome is active. ───── */

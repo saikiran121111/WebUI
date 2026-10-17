@@ -62,12 +62,14 @@ import {
   layoutRoomTags,
   offsetPolyline,
   pointInPolygon,
+  raycastRoomRect,
   windowLines,
   type BlockPrim,
   type PlacedTag,
   type Pt,
   type RectBox,
   type RoomTagSeed,
+  type WallSeg,
 } from "../../lib/cad/cadBlocks";
 
 type ViewMode = "2d" | "iso" | "3d" | "split";
@@ -338,39 +340,24 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
     [spec.grid, bbox, maxDim],
   );
 
-  // Collision-checked room tag pills: middle-anchored annotation texts that sit
-  // inside a room polygon become dark slate badges; the raw text is suppressed.
+  // Collision-checked room tag pills: annotation texts that sit inside a room
+  // polygon — or, when the spec has no room polys (wall-only plans), inside a
+  // wall-to-wall room derived by raycasting — become dark slate badges sized
+  // to their room; the raw oversized text entity is suppressed.
   const roomTags = useMemo(() => {
     type RoomPoly = Extract<(typeof spec.entities)[number], { kind: "polygon" | "polyline" }>;
     const polys = spec.entities.filter(
       (e): e is RoomPoly => e.kind === "polygon" || (e.kind === "polyline" && e.closed),
     );
-    const seeds: RoomTagSeed[] = [];
-    const tagged = new Set<string>();
-    for (const entity of spec.entities) {
-      if (entity.kind !== "text" || entity.layer !== "layer-annotations" || entity.anchor !== "middle") continue;
-      const poly = polys.find((p) => pointInPolygon([entity.x, entity.y], p.points));
-      if (!poly) continue;
-      const xs = poly.points.map((p) => p[0]);
-      const ys = poly.points.map((p) => p[1]);
-      seeds.push({
-        x: entity.x,
-        y: entity.y,
-        name: entity.content,
-        area: shoelaceArea(poly.points),
-        dx: Math.max(...xs) - Math.min(...xs),
-        dy: Math.max(...ys) - Math.min(...ys),
-      });
-      tagged.add(`${entity.x}|${entity.y}|${entity.content}`);
-    }
-    if (!seeds.length) return { tags: [] as PlacedTag[], tagged };
     const obstacles: RectBox[] = [];
+    const wallSegs: WallSeg[] = [];
     for (const wall of spec.walls) {
       const n = wall.path.length;
       const segs = wall.closed ? n : n - 1;
       for (let i = 0; i < segs; i++) {
         const a = wall.path[i];
         const b = wall.path[(i + 1) % n];
+        wallSegs.push({ a, b, half: wall.thickness / 2 });
         obstacles.push({
           x: Math.min(a[0], b[0]) - wall.thickness / 2,
           y: Math.min(a[1], b[1]) - wall.thickness / 2,
@@ -380,8 +367,37 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
       }
     }
     for (const f of spec.furniture) obstacles.push({ x: f.x, y: f.y, w: f.w, h: f.h });
+    // Reach spans the whole plan: open areas without a partition (e.g. a
+    // counter zone merged with its neighbour) still resolve to the true
+    // enclosure; text OUTSIDE the wall envelope misses a ray and stays plain.
+    const maxReach = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY);
+    const seeds: RoomTagSeed[] = [];
+    const tagged = new Set<string>();
+    for (const entity of spec.entities) {
+      if (entity.kind !== "text" || entity.layer !== "layer-annotations") continue;
+      // Approximate the label's visual center for any anchor so start-anchored
+      // labels (the schema default) still get centered, room-fitting pills.
+      const approxW = entity.content.length * entity.height * 0.62;
+      const cx = entity.anchor === "middle" ? entity.x : entity.anchor === "end" ? entity.x - approxW / 2 : entity.x + approxW / 2;
+      const c: Pt = [cx, entity.y];
+      const poly = polys.find((p) => pointInPolygon(c, p.points));
+      if (poly) {
+        const xs = poly.points.map((p) => p[0]);
+        const ys = poly.points.map((p) => p[1]);
+        const rx = Math.min(...xs), ry = Math.min(...ys);
+        const rw = Math.max(...xs) - rx, rh = Math.max(...ys) - ry;
+        seeds.push({ x: cx, y: entity.y, name: entity.content, area: shoelaceArea(poly.points), dx: rw, dy: rh, room: { x: rx, y: ry, w: rw, h: rh } });
+        tagged.add(`${entity.x}|${entity.y}|${entity.content}`);
+        continue;
+      }
+      const room = raycastRoomRect(c, wallSegs, maxReach);
+      if (!room) continue;
+      seeds.push({ x: cx, y: entity.y, name: entity.content, area: room.w * room.h, dx: room.w, dy: room.h, room });
+      tagged.add(`${entity.x}|${entity.y}|${entity.content}`);
+    }
+    if (!seeds.length) return { tags: [] as PlacedTag[], tagged };
     return { tags: layoutRoomTags(seeds, obstacles, pxPerModel), tagged };
-  }, [spec.entities, spec.walls, spec.furniture, pxPerModel]);
+  }, [spec.entities, spec.walls, spec.furniture, pxPerModel, bbox]);
 
   const vertexPool = useMemo<Point2[]>(() => {
     const pool: Point2[] = [];
@@ -777,7 +793,9 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
         case "text":
           if (roomTags.tagged.has(`${entity.x}|${entity.y}|${entity.content}`)) return null;
           return (
-            <text key={key} x={entity.x} y={-entity.y} fill={color} fontSize={entity.height}
+            // Cap model-sized text at ~13 px on screen so zooming in never turns
+            // labels into oversized blocks that spill out of their space.
+            <text key={key} x={entity.x} y={-entity.y} fill={color} fontSize={Math.min(entity.height, 13 / pxPerModel)}
               textAnchor={entity.anchor === "middle" ? "middle" : entity.anchor === "end" ? "end" : "start"}
               transform={entity.rotation ? `rotate(${-entity.rotation} ${entity.x} ${-entity.y})` : undefined}>
               {entity.content}
@@ -785,7 +803,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           );
       }
     },
-    [layerColor, dashFor, spec.entities, dimTick, roomTags.tagged],
+    [layerColor, dashFor, spec.entities, dimTick, roomTags.tagged, pxPerModel],
   );
 
   const hotspotR = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) * 0.008;
@@ -1148,12 +1166,25 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                   </g>
                 )}
                 {roomTags.tags.map((tag, i) => (
-                  <g key={`rt${i}`} data-testid="cad-room-tag" pointerEvents="none">
+                  <g key={`rt${i}`} data-testid="cad-room-tag" className="cad-room-tag" pointerEvents="none">
                     <rect x={tag.cx - tag.w / 2} y={-(tag.cy + tag.h / 2)} width={tag.w} height={tag.h} rx={tag.h * 0.28}
                       fill={theme.key === "white-plot" ? "#ffffff" : "#0b101b"} stroke="#38bdf8" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
-                    <text x={tag.cx} y={-(tag.cy + tag.h * 0.12)} fontSize={9 / pxPerModel} fontWeight="bold" textAnchor="middle"
-                      fill={theme.key === "white-plot" ? "#0f172a" : "#f8fafc"}>{tag.name}</text>
-                    <text x={tag.cx} y={-(tag.cy - tag.h * 0.22)} fontSize={8 / pxPerModel} textAnchor="middle"
+                    {/* The .cad-room-tag CSS rule zeroes the text halo stroke:
+                        Chromium mis-paints the non-scaling halo on tspan-wrapped
+                        labels (giant dark disc + dropped first line at fit zoom).
+                        The pill rect fill is opaque, so no halo is needed for
+                        legibility. Do not remove. */}
+                    {tag.lines.length === 1 ? (
+                      <text x={tag.cx} y={-tag.nameY} fontSize={(9 * tag.fontScale) / pxPerModel} fontWeight="bold" textAnchor="middle"
+                        fill={theme.key === "white-plot" ? "#0f172a" : "#f8fafc"}>{tag.lines[0]}</text>
+                    ) : (
+                      <text x={tag.cx} y={-tag.nameY} fontSize={(9 * tag.fontScale) / pxPerModel} fontWeight="bold" textAnchor="middle"
+                        fill={theme.key === "white-plot" ? "#0f172a" : "#f8fafc"}>
+                        <tspan x={tag.cx}>{tag.lines[0]}</tspan>
+                        <tspan x={tag.cx} dy={(10 * tag.fontScale) / pxPerModel}>{tag.lines[1]}</tspan>
+                      </text>
+                    )}
+                    <text x={tag.cx} y={-tag.subY} fontSize={(8 * tag.fontScale) / pxPerModel} textAnchor="middle"
                       fill={theme.key === "white-plot" ? "#0369a1" : "#38bdf8"}>{tag.sub}</text>
                   </g>
                 ))}

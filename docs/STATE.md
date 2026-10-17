@@ -1,6 +1,37 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] CAD "text too big / going out of its box" report (2026-10-17, LOCKED,
+      browser-verified): kiosk room labels rendered as RAW model-sized text
+      (fontSize = entity.height → scales with zoom, spills over walls)
+      because the pill system required anchor "middle" + a room POLYGON and
+      the kiosk spec has walls only. Fixed: (1) `raycastRoomRect()` in
+      `lib/cad/cadBlocks.ts` derives a room rect by 4 axis-aligned rays from
+      the label center against wall centerlines (inset half thickness; null
+      if a ray misses or reach > plan maxDim — open zones merge truthfully,
+      text outside the envelope stays plain). (2) Any-anchor centering
+      (start/middle/end via approxW = len×h×0.62). (3) `layoutRoomTags`
+      word-wraps long names to 2 lines (trailing space on line 1 keeps
+      textContent intact for Playwright hasText), screen-constant 9px font
+      (fontSize = 9×scale/pxPerModel), fontScale floor 0.8, pill contained
+      in room (avail = room.w×ppm×0.86), ring-search anti-collision.
+      (4) Plain text entities capped at 13 px screen
+      (`Math.min(entity.height, 13/pxPerModel)`). Live proof: 4 pills at
+      fit AND 400% zoom, nameFontPx 9.0 constant, pillW 102–138 px
+      constant, textOverflowsPill false, plain [] — screenshots
+      `.data/tmp/cad-tags-fit.png` / `cad-tags-200.png`. New unit tests
+      `__tests__/cad/cadRoomTags.test.ts` (5). FOLLOW-ON REGRESSION FIXED
+      (same day, browser-verified): wrapped 2-line pills showed a giant
+      dark DISC + dropped first line at fit = Chromium mis-paints the
+      `.cad-svg-canvas text` halo on tspan-wrapped labels (paint-only;
+      computed style lies). Fix: `className="cad-room-tag"` on the tag
+      group + CSS `.cad-svg-canvas g.cad-room-tag text { stroke: none; }`
+      (presentation attr `stroke="none"` does NOT work — CSS wins; do not
+      remove). LAB paint guard rewritten: asserts computed
+      `stroke === "none"` on ALL room-tag texts. Clean proof
+      `.data/tmp/disc-Q-fresh.png`. Gates: tsc clean, vitest **407
+      passed | 1 skipped** (35 files), headed suite **6 passed run #9**.
+      Details docs/ISSUES.md.
 - [x] CAD "export sliced / right part cutting" report (2026-10-17, LOCKED,
       browser-verified): (A) ribbon overflowed the 768 px chat column
       (scrollWidth 1103 > 850, hidden scrollbar) burying Export off-card —

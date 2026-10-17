@@ -1,6 +1,56 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Giant dark DISC behind the wrapped "CUSTOMER SEATING AREA" pill at fit
+  zoom (found during live verification of the text-sizing fix below,
+  2026-10-17, browser-proven): a ~150 px round dark blob + the first
+  wrapped line ("CUSTOMER ") not painted, ONLY on the one tag whose name
+  wraps to 2 lines via `<tspan>`; gone after any zoom-out/zoom-back.
+  DOM geometry was correct (rect 102×34, tspans normal) — it is a
+  Chromium PAINT bug: the `.cad-svg-canvas text` halo (stroke #060a12,
+  3.5px, round caps, `paint-order: stroke`, `vector-effect:
+  non-scaling-stroke`) is mis-rasterized for tspan-wrapped text — the
+  halo paints at ~3.5 USER units (≈142 px disc) and drops a line.
+  Single-line tags are unaffected (non-scaling-stroke works there).
+  FIX: room-tag pill text opts out of the halo entirely — new CSS rule
+  `.cad-svg-canvas g.cad-room-tag text { stroke: none; }` + `className=
+  "cad-room-tag"` on the tag group (`app/cad-studio.css`,
+  ArchitectureCadViewer.tsx). Presentation attr `stroke="none"` does
+  NOT work (CSS rule wins specificity) — must be a CSS rule or inline
+  style. The opaque pill fill (#0b101b / #ffffff) carries legibility.
+  LAB-stress paint guard rewritten: asserts EVERY room-tag text has
+  computed `stroke === "none"` (was: vectorEffect+stroke-width check,
+  which passed while the blob painted — computed style lies here, only
+  pixels told the truth). Verified: fresh-load fit screenshot clean
+  (`.data/tmp/disc-Q-fresh.png`), both lines + sub crisp, no disc at
+  fit/200/400. Gates: tsc clean, vitest 407|1, headed suite **6 passed
+  run #9**.
+- CAD sheet "text is a little big and going out of the space … make it
+  professional and neat" (user screenshot, Modern Tech Coffee Kiosk): zone
+  labels rendered as RAW text entities at `fontSize={entity.height}` (model
+  units → ~12-16 px at fit, huge when zoomed) and wider than their rooms.
+  ROOT CAUSE: room-tag pills only seeded from MIDDLE-anchored texts inside
+  room POLYGON entities — the kiosk spec has no room polys (walls only), so
+  all 4 labels stayed oversized plain text spilling over walls. FIX (three
+  layers): (1) `raycastRoomRect()` in `lib/cad/cadBlocks.ts` derives the
+  interior room rect by 4 axis rays against wall centerline segments (inset
+  half-thickness; maxReach = plan maxDim so open zones merge truthfully,
+  text outside the envelope still misses a ray → stays plain); any-anchor
+  annotation texts inside a poly OR a raycast room become pills (label
+  center approximated for start/end anchors). (2) `layoutRoomTags` now
+  WRAPS long names to 2 balanced lines at a word boundary (trailing space
+  keeps textContent == full name for e2e `hasText`), shrinks font only as
+  last resort (floor 0.8, was 0.6 → 5.4 px unreadable), grows pill h to
+  34·s, and constrains placement INSIDE the room rect (ring search +
+  room-center clamp). (3) leftover plain text entities capped at 13 px on
+  screen (`Math.min(entity.height, 13/pxPerModel)`). Live verification
+  (cadfix session, kiosk conv): all 4 labels → pills, nameFontPx 9 at fit
+  AND at 400% zoom (scale 40.7→162.9, pill 102-138 px constant),
+  textOverflowsPill false everywhere, 0 plain annotation texts left;
+  CUSTOMER SEATING AREA wraps 2 lines. New unit tests
+  `__tests__/cad/cadRoomTags.test.ts` (5): raycast enclosure/reach-null,
+  wrap+textContent intact, single-line wide room + containment, obstacle
+  ring nudge.
 - CAD sheet "export sliced to half / right part cutting" (user screenshot,
   Modern Tech Coffee Kiosk): TWO stacked layout defects, both measured live
   (playwright-cli `cadfix`): (A) RIBBON OVERFLOW — `.cad-ribbon-bar`

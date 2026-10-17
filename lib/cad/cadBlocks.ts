@@ -403,40 +403,147 @@ export function gridAxes(
   return { lines, bubbles };
 }
 
-export interface RoomTagSeed { x: number; y: number; name: string; area: number; dx: number; dy: number }
-export interface PlacedTag { cx: number; cy: number; w: number; h: number; name: string; sub: string }
+export interface RoomTagSeed {
+  x: number;
+  y: number;
+  name: string;
+  area: number;
+  dx: number;
+  dy: number;
+  /** Interior room rect (model coords) the pill must stay inside when known. */
+  room?: RectBox;
+}
+export interface PlacedTag {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  name: string;
+  sub: string;
+  fontScale: number;
+  /** Name rendered on 1–2 lines (wrapped at a word when the room is narrow). */
+  lines: string[];
+  /** Baselines (model coords) for the name block and the sub line. */
+  nameY: number;
+  subY: number;
+}
 
 function overlaps(a: RectBox, b: RectBox): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
+export interface WallSeg { a: Pt; b: Pt; half: number }
+
+/**
+ * Wall-to-wall room rect around p via four axis-aligned rays against wall
+ * centerline segments (inset by half wall thickness). Returns null when p is
+ * not enclosed by walls within maxReach — so legend / dimension text that
+ * lives outside the floor plan never turns into a room pill.
+ */
+export function raycastRoomRect(p: Pt, segs: WallSeg[], maxReach: number): RectBox | null {
+  let dl = Infinity, dr = Infinity, dd = Infinity, du = Infinity;
+  for (const { a, b, half } of segs) {
+    const [ax, ay] = a, [bx, by] = b;
+    const dx = bx - ax, dy = by - ay;
+    if (Math.abs(dy) > 1e-9) {
+      const t = (p[1] - ay) / dy;
+      if (t >= 0 && t <= 1) {
+        const x = ax + t * dx;
+        if (x > p[0]) dr = Math.min(dr, x - half - p[0]);
+        else if (x < p[0]) dl = Math.min(dl, p[0] - (x + half));
+      }
+    }
+    if (Math.abs(dx) > 1e-9) {
+      const t = (p[0] - ax) / dx;
+      if (t >= 0 && t <= 1) {
+        const y = ay + t * dy;
+        if (y > p[1]) du = Math.min(du, y - half - p[1]);
+        else if (y < p[1]) dd = Math.min(dd, p[1] - (y + half));
+      }
+    }
+  }
+  if (!isFinite(dl) || !isFinite(dr) || !isFinite(dd) || !isFinite(du)) return null;
+  if (dl > maxReach || dr > maxReach || dd > maxReach || du > maxReach) return null;
+  const w = dl + dr, h = dd + du;
+  if (w < 0.6 || h < 0.6) return null;
+  return { x: p[0] - dl, y: p[1] - dd, w, h };
+}
+
+/** Split an all-caps name into two balanced lines at a word boundary. */
+function wrapName(name: string): string[] {
+  const words = name.split(/\s+/);
+  if (words.length < 2) return [name];
+  let best = 1, bestDiff = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const l1 = words.slice(0, i).join(" ").length;
+    const l2 = words.slice(i).join(" ").length;
+    const diff = Math.abs(l1 - l2);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  }
+  // Trailing space keeps the joined textContent identical to the full name.
+  return [`${words.slice(0, best).join(" ")} `, words.slice(best).join(" ")];
+}
+
 /**
  * Collision-checked room tag pills: each tag is nudged off walls / furniture /
- * other tags by concentric offset rings until its bounding box is clear.
+ * other tags by concentric offset rings until its bounding box is clear. When
+ * the seed carries a room rect the label wraps to two lines (then shrinks,
+ * floor 80%) to fit inside it, and placement prefers positions fully inside
+ * the room — labels never spill over the space they name.
  */
 export function layoutRoomTags(seeds: RoomTagSeed[], obstacles: RectBox[], pxPerModel: number): PlacedTag[] {
   const placed: PlacedTag[] = [];
   const boxes = [...obstacles];
+  const ppm = Math.max(1, pxPerModel);
   for (const seed of seeds) {
     const name = seed.name.toUpperCase();
     const sub = `${seed.area.toFixed(1)} m² · ${seed.dx.toFixed(1)}×${seed.dy.toFixed(1)}m`;
-    const textW = Math.max(name.length * 9 * 0.62, sub.length * 8 * 0.6) + 16;
-    const w = textW / Math.max(1, pxPerModel);
-    const h = 26 / Math.max(1, pxPerModel);
+    const subW = sub.length * 8 * 0.6 + 16;
+    const singleW = name.length * 9 * 0.62 + 16;
+    const availPx = seed.room ? seed.room.w * ppm * 0.86 : Infinity;
+    let lines = [name];
+    let textW = Math.max(singleW, subW);
+    if (textW > availPx) {
+      const wrapped = wrapName(name);
+      const wrapW = Math.max(...wrapped.map((l) => l.length * 9 * 0.62)) + 16;
+      if (wrapped.length === 2 && wrapW < textW) { lines = wrapped; textW = Math.max(wrapW, subW); }
+    }
+    const scale = Math.max(0.8, Math.min(1, availPx / textW));
+    const w = (textW * scale) / ppm;
+    const h = ((lines.length === 1 ? 26 : 34) * scale) / ppm;
     const step = h * 1.15;
+    const room = seed.room;
+    const inRoom = (box: RectBox) =>
+      !room ||
+      (box.x >= room.x + room.w * 0.03 && box.x + box.w <= room.x + room.w * 0.97 &&
+       box.y >= room.y + room.h * 0.03 && box.y + box.h <= room.y + room.h * 0.97);
     const tries: [number, number][] = [[0, 0]];
+    if (room) tries.push([room.x + room.w / 2 - seed.x, room.y + room.h / 2 - seed.y]);
     for (let ring = 1; ring <= 3; ring++) {
       for (const [ox, oy] of [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         tries.push([ox * step * ring, oy * step * ring]);
       }
     }
-    let best: [number, number] = [0, 0];
+    let best: [number, number] | null = null;
     for (const [ox, oy] of tries) {
       const box: RectBox = { x: seed.x + ox - w / 2, y: seed.y + oy - h / 2, w, h };
-      if (!boxes.some((b) => overlaps(box, b))) { best = [ox, oy]; break; }
+      if (!boxes.some((b) => overlaps(box, b)) && inRoom(box)) { best = [ox, oy]; break; }
     }
-    boxes.push({ x: seed.x + best[0] - w / 2, y: seed.y + best[1] - h / 2, w, h });
-    placed.push({ cx: seed.x + best[0], cy: seed.y + best[1], w, h, name, sub });
+    if (!best && room && w <= room.w * 0.94 && h <= room.h * 0.94) {
+      const cx = Math.min(Math.max(seed.x, room.x + w / 2), room.x + room.w - w / 2);
+      const cy = Math.min(Math.max(seed.y, room.y + h / 2), room.y + room.h - h / 2);
+      best = [cx - seed.x, cy - seed.y];
+    }
+    if (!best) best = [0, 0];
+    const cx = seed.x + best[0];
+    const cy = seed.y + best[1];
+    boxes.push({ x: cx - w / 2, y: cy - h / 2, w, h });
+    // Baselines in model coords (y-up). Single line keeps the legacy offsets;
+    // two lines stack name1 / name2 / sub with 10·s / 9·s px gaps.
+    const s = scale;
+    const nameY = lines.length === 1 ? cy + h * 0.12 : cy + ((17 * s - 11.2 * s)) / ppm;
+    const subY = lines.length === 1 ? cy - h * 0.22 : cy - ((30.2 * s - 17 * s)) / ppm;
+    placed.push({ cx, cy, w, h, name, sub, fontScale: s, lines, nameY, subY });
   }
   return placed;
 }

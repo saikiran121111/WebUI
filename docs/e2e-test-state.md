@@ -7,8 +7,18 @@
   (user mandate). Each run wipes `test-results/` — view artifacts immediately.
 - Green suite (headed, watched): `npx playwright test
   tests/studio-viewers-visible.spec.ts --headed --workers=1 --reporter=list`
-  → **6 passed (1.5 m, run 2026-10-17 #7, after text-halo CSS fix + dock-hint
-  UX fix + ribbon-overflow/dock-aware-fit fixes)**. Run #7 NEW guards (CAD
+  → **6 passed (1.6 m, run 2026-10-18 #9, after room-tag halo opt-out —
+  `.cad-svg-canvas g.cad-room-tag text { stroke:none }` kills the
+  Chromium tspan-halo mis-paint (dark disc + dropped line at fit);
+  run #8 also green after the text-sizing fix — wall-raycast rooms +
+  word-wrapped 9px pills + 13px plain-text cap; zone `hasText`
+  assertions still pass because a wrapped label's <text> textContent
+  retains the full name via tspans)**. Run #9 CHANGED guard (LAB
+  stress): room-tag paint guard now asserts computed `stroke === "none"`
+  on ALL `[data-testid="cad-room-tag"] text` (≥16 texts) — the old
+  vectorEffect/stroke-width assertion PASSED while the blob painted,
+  so it is banned as a guard; pixel screenshots are the only reliable
+  blob check. Run #7 NEW guards (CAD
   coverage test): `.cad-ribbon-bar` scrollWidth−clientWidth ≤ 0 (chat column
   is ~768 px — ribbon must FIT, `scrollbar-width:none` hides overflow);
   `cad-export` boundingBox inside `.cad-workstation-shell`; every
@@ -68,4 +78,7 @@
   requires a selected mesh (click the outliner row first).
 - Dev-server port conflicts: stale hung Next servers squat :3000/:3001/:3002
   (curl times out, exit 28) — `taskkill //PID <pid> //F //T` each, restart.
-- Unit gate: `npx vitest run` → 34 files, 402 passed | 1 skipped. `tsc --noEmit` clean.
+- Unit gate: `npx vitest run` → 35 files, 407 passed | 1 skipped (adds
+  `__tests__/cad/cadRoomTags.test.ts` ×5: raycastRoomRect enclosure/null
+  cases, 2-line wrap + textContent intact, fontScale floor, pill-inside-
+  room, obstacle ring-nudge). `tsc --noEmit` clean.

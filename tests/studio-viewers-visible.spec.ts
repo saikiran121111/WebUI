@@ -734,16 +734,18 @@ test.describe("Stress: ArchitectureCadViewer full lab blueprint + BIM (visible)"
     });
     expect(pillOverlaps, "room-tag pills must never overlap each other").toBe(0);
 
-    // Paint guard (blob regression 2026-10-17): the CSS text halo is 3.5 SVG
+    // Paint guard (blob regressions 2026-10-17): the CSS text halo is 3.5 SVG
     // USER units — without non-scaling-stroke that is ~126 px of round-capped
-    // stroke per glyph, merging into giant dark blobs behind every room tag.
+    // stroke per glyph, merging into giant dark blobs. Worse, Chromium mis-paints
+    // even the non-scaling halo on tspan-wrapped labels (dark disc + dropped
+    // line at fit zoom). Room-tag text therefore opts out entirely (stroke="none")
+    // — the opaque pill fill carries legibility. No tag text may ever have a halo.
     const halo = await page.evaluate(() => {
-      const t = document.querySelector('[data-testid="cad-room-tag"] text');
-      const cs = getComputedStyle(t as Element);
-      return { vectorEffect: cs.vectorEffect || (t as SVGGraphicsElement).style?.vectorEffect || "", strokeWidth: cs.strokeWidth };
+      const ts = [...document.querySelectorAll('[data-testid="cad-room-tag"] text')];
+      return { n: ts.length, stroked: ts.filter((t) => getComputedStyle(t as Element).stroke !== "none").length };
     });
-    expect(halo.vectorEffect, "text halo must be device-pixel (non-scaling-stroke)").toBe("non-scaling-stroke");
-    expect(parseFloat(halo.strokeWidth), "halo stroke-width must stay in px range").toBeLessThanOrEqual(5);
+    expect(halo.n, "room tags render name + sub text").toBeGreaterThanOrEqual(16);
+    expect(halo.stroked, "no room-tag text may carry a stroke halo (blob source)").toBe(0);
 
     await step(page, "🧪 STRESS: Structural column grid axes A–D / 1–4 with bubble bubbles...");
     await expect(page.locator('[data-testid="cad-grid-axes"]')).toHaveCount(1);
@@ -816,7 +818,7 @@ test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
         for (const sh of g.querySelectorAll("line,rect,path,polyline,polygon,circle")) {
           try {
             const bb = (sh as SVGGraphicsElement).getBBox();
-            const ctm = sh.getScreenCTM()!;
+            const ctm = (sh as SVGGraphicsElement).getScreenCTM()!;
             for (const [px, py] of [[bb.x, bb.y], [bb.x + bb.width, bb.y + bb.height]]) {
               const sx = ctm.a * px + ctm.c * py + ctm.e;
               minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
