@@ -1,42 +1,52 @@
 "use client";
-import { memo, useMemo } from "react";
-import CodeBlock from "./CodeBlock";
-import ThreeStudioViewer from "./ThreeStudioViewer";
-import { parseJsonFence } from "../../lib/render/schemas";
-import { scene3dSpecSchema } from "../../lib/three3d/sceneSchema";
 
-/**
- * Renders ```scene3d fences: validated JSON only (model output is never
- * executed as code), parsed against the v2 schema and handed to
- * ThreeStudioViewer — the full studio front-end (shading modes, outliner,
- * material editor, 3-point lighting, post-FX, explode, multi-format export).
- * three.js and the studio engine load on demand inside the viewer, so the
- * base bundle never pays for three.
- */
+import { memo, useMemo } from "react";
+import { normalizeScene3d } from "../../lib/three3d/normalizeScene";
+import { fenceFixRequest } from "../../lib/render/fenceRepair";
+import ThreeStudioViewer from "./ThreeStudioViewer";
+import CodeBlock from "./CodeBlock";
+
 interface Scene3DBlockProps {
   source: string;
   streaming?: boolean;
   onSend?: (text: string) => void;
 }
 
+/**
+ * ```scene3d fence: fault-tolerant by design. The normalizer repairs model
+ * drift (segment caps, unknown animation targets, kind aliases, missing
+ * params) so the studio viewer ALWAYS mounts when there is an objects array.
+ * The old all-or-nothing "did not validate" wall only appears when the JSON
+ * is truly unusable — and even then with a "Fix with AI" retry path.
+ */
 export default memo(function Scene3DBlock({ source, streaming = false, onSend }: Scene3DBlockProps) {
-  const parsed = useMemo(() => parseJsonFence(source, scene3dSpecSchema), [source]);
+  const result = useMemo(() => normalizeScene3d(source), [source]);
 
-  if (!parsed.ok) {
-    if (streaming) return null; // partial JSON mid-stream: render nothing yet
+  if (!result.ok) {
+    if (streaming) return null; // mid-stream JSON is always incomplete — stay quiet
     return (
       <div className="scene3d-block" data-testid="scene3d-error">
-        <div className="diagram-error-note">3D scene data did not validate — showing the source instead.</div>
+        <div className="diagram-error-note">3D scene could not be loaded: {result.error}</div>
+        <button
+          type="button"
+          className="scene3d-tool-btn"
+          data-testid="scene3d-fix-ai"
+          onClick={() => onSend?.(fenceFixRequest("scene3d", result.error))}
+        >
+          🔧 Fix with AI
+        </button>
         <CodeBlock code={source} lang="json" />
       </div>
     );
   }
+
   return (
-    <div className="scene3d-block" data-testid="scene3d-block" data-scene-title={parsed.value.title ?? ""}>
+    <div className="scene3d-block" data-testid="scene3d-block" data-scene-title={result.spec.title ?? ""}>
       <div className="code-block-header">
-        <span className="code-block-lang">{parsed.value.title ?? "3D scene"}</span>
+        <span className="code-block-lang">3D studio</span>
+        {result.spec.title && <span className="scene3d-title">{result.spec.title}</span>}
       </div>
-      <ThreeStudioViewer spec={parsed.value} onSend={onSend} />
+      <ThreeStudioViewer spec={result.spec} onSend={onSend} />
     </div>
   );
 });

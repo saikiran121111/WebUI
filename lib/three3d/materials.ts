@@ -15,6 +15,7 @@ export function buildMaterial(three: any, m?: Scene3DMaterial): any {
     mat.emissiveIntensity = m.emissiveIntensity ?? 1;
   }
   if (m?.flatShading) mat.flatShading = true;
+  if (m?.wireframe) mat.wireframe = true;
   if (m?.opacity != null && m.opacity < 1) {
     mat.transparent = m.transparent ?? true;
     mat.opacity = m.opacity;

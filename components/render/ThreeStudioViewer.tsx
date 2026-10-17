@@ -11,6 +11,7 @@ import type {
   BackgroundSpec, LightState, MaterialInfo, OutlinerNode,
   ShadingMode, StudioStats, TransformMode,
 } from "../../lib/three3d/studioEngine";
+import { fenceFixRequest } from "../../lib/render/fenceRepair";
 
 /**
  * ThreeStudioViewer — the Blender/Maya-grade studio front-end for ```scene3d
@@ -51,14 +52,25 @@ const SHADING_OPTIONS: Array<{ value: ShadingMode; label: string }> = [
 
 const ENV_OPTIONS = ["studio-soft", "cyberpunk-neon", "sunset-gold", "showroom-white", "deep-space", "night"];
 
+/** Code-mode viewers have no spec: a stable empty spec keeps effect deps constant. */
+const EMPTY_SPEC = { title: "Three.js model", objects: [] } as unknown as Scene3DSpec;
+
 interface ThreeStudioViewerProps {
-  spec: Scene3DSpec;
+  /** Normalized ```scene3d contract. */
+  spec?: Scene3DSpec;
+  /** Executable ```threejs fence body — runs in this live scene instead of spec. */
+  code?: string;
   onSend?: (text: string) => void;
+  /** Reports a code-level failure (syntax/runtime/empty scene) for auto-repair. */
+  onRuntimeError?: (info: { error: string }) => void;
 }
 
 interface SelectedPart { id: string; label: string }
 
-export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerProps) {
+export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntimeError }: ThreeStudioViewerProps) {
+  const spec = useMemo(() => specIn ?? EMPTY_SPEC, [specIn]);
+  const onRuntimeErrorRef = useRef(onRuntimeError);
+  onRuntimeErrorRef.current = onRuntimeError;
   const stageRef = useRef<HTMLDivElement>(null);
   const labelLayerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
@@ -111,6 +123,9 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
   const [exportFmt, setExportFmt] = useState<StudioExportFormat>("glb");
   const [exportBusy, setExportBusy] = useState(false);
   const [exportNote, setExportNote] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const codeUpdateRef = useRef<((delta: number, elapsed: number) => void) | null>(null);
+  const elapsedRef = useRef(0);
 
   const hasAnimations = (spec.animations?.length ?? 0) > 0;
   const exportFilename = useMemo(() => {
@@ -155,10 +170,30 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
       viewer.setLight({ shadows: spec.lighting?.shadows ?? false, ambientIntensity: spec.lighting?.ambientIntensity ?? viewer.getLights().ambientIntensity });
       setLights(viewer.getLights());
 
-      const built = buildScene(three, spec);
-      const clips = buildAnimationClips(three, spec, built.nodesById);
-      clipsRef.current = clips;
-      viewer.setContent(built.root, clips);
+      // Two content modes: executable ```threejs fence, or normalized scene3d spec.
+      let nodesById: Map<string, any>;
+      if (code) {
+        const { runThreeCode } = await import("../../lib/three3d/codeRunner");
+        const run = runThreeCode(three, code);
+        if (!run.ok) {
+          setCodeError(run.error);
+          onRuntimeErrorRef.current?.({ error: run.error });
+          nodesById = new Map();
+          viewer.setContent(new three.Group(), []);
+        } else {
+          nodesById = new Map();
+          run.root.traverse((obj: any) => { if (obj.name) nodesById.set(obj.name, obj); });
+          codeUpdateRef.current = run.onUpdate;
+          elapsedRef.current = 0;
+          viewer.setContent(run.root, []);
+        }
+      } else {
+        const built = buildScene(three, spec);
+        const clips = buildAnimationClips(three, spec, built.nodesById);
+        clipsRef.current = clips;
+        nodesById = built.nodesById;
+        viewer.setContent(built.root, clips);
+      }
       setOutliner(viewer.getOutliner());
       setClipIds(viewer.getClipIds());
       setDuration(viewer.getDuration());
@@ -172,20 +207,32 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
       // One frame handler rides the engine's rAF after the mixer + explode:
       // spec sliders override their channel, label tags follow their node,
       // and the timeline scrubber tracks playback without React churn.
-      frameHandler = () => {
+      frameHandler = (dt: number) => {
+        if (codeUpdateRef.current) {
+          elapsedRef.current += dt;
+          try { codeUpdateRef.current(dt, elapsedRef.current); } catch { /* a broken onUpdate must not kill the render loop */ }
+        }
         for (const sl of spec.sliders ?? []) {
-          const node = built.nodesById.get(sl.target);
+          const node = nodesById.get(sl.target);
           if (!node) continue;
           const v = Number.isFinite(sliderValuesRef.current[sl.id]) ? sliderValuesRef.current[sl.id]! : sl.defaultValue;
           const axisIdx = sl.axis === "x" ? 0 : sl.axis === "y" ? 1 : 2;
           if (sl.binding === "rotation") node.rotation[sl.axis] = v;
           else if (sl.binding === "scale") node.scale.setComponent(axisIdx, v);
+          else if (sl.binding.startsWith("material.")) {
+            const mat = node.material;
+            if (!mat) continue;
+            if (sl.binding === "material.emissiveIntensity") mat.emissiveIntensity = v;
+            else if (sl.binding === "material.roughness") mat.roughness = v;
+            else if (sl.binding === "material.metalness") mat.metalness = v;
+            else if (sl.binding === "material.opacity") { mat.opacity = v; mat.transparent = v < 1; }
+          }
           else node.position.setComponent(axisIdx, v);
         }
         const layer = labelLayerRef.current;
         if (layer && spec.labels?.length) {
           for (const label of spec.labels) {
-            const node = built.nodesById.get(label.target);
+            const node = nodesById.get(label.target);
             if (!node) continue;
             let tag = layer.querySelector<HTMLElement>(`[data-label-target="${label.target}"]`);
             if (!tag) {
@@ -219,7 +266,7 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
         if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 6) return; // orbit drag, not a pick
         const id = viewer.pick(e.clientX, e.clientY);
         if (!id) { setSelected(null); viewer.select(null); setMatForm(null); return; }
-        const node = built.nodesById.get(id);
+        const node = nodesById.get(id);
         setSelected({ id, label: node?.userData?.label ?? id });
         viewer.select(id);
         setMatForm(viewer.getMaterial(id));
@@ -235,7 +282,7 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
           if (id === lastHoverIdRef.current) return;
           lastHoverIdRef.current = id;
           const rect = stage.getBoundingClientRect();
-          setHover({ label: built.nodesById.get(id)?.userData?.label ?? id, x: e.clientX - rect.left, y: e.clientY - rect.top });
+          setHover({ label: nodesById.get(id)?.userData?.label ?? id, x: e.clientX - rect.left, y: e.clientY - rect.top });
         });
       };
       stage.addEventListener("pointerdown", onPointerDown);
@@ -261,8 +308,11 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
       setMatForm(null);
       setHover(null);
       setStats(null);
+      codeUpdateRef.current = null;
+      elapsedRef.current = 0;
+      setCodeError(null);
     };
-  }, [spec]);
+  }, [spec, code]);
 
   /* ── dock handlers (all cheap engine calls, no remount) ─────────────── */
 
@@ -358,7 +408,7 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
         };
         setExportNote(notes[exportFmt]);
         downloadBlob(blob, `${exportFilename}.${exportFmt}`);
-      } else if (exportFmt === "html" || exportFmt === "tsx") {
+      } else if ((exportFmt === "html" || exportFmt === "tsx") && !code) {
         const { buildStandaloneHtml, buildR3fComponent } = await import("../../lib/three3d/standaloneExport");
         if (exportFmt === "html") {
           const blob = new Blob([buildStandaloneHtml(spec)], { type: "text/html" });
@@ -489,7 +539,7 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
         </button>
         <select className="scene3d-format" data-testid="scene3d-export-format" value={exportFmt}
           aria-label="Export format" onChange={e => setExportFmt(e.target.value as StudioExportFormat)}>
-          {EXPORT_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          {EXPORT_FORMATS.filter(f => !code || (f.value !== "html" && f.value !== "tsx")).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
         <button type="button" className="scene3d-tool-btn" data-testid="scene3d-export" onClick={runExport} disabled={exportBusy}>
           <Download size={13} /> {exportBusy ? "Exporting…" : "Export"}
@@ -499,6 +549,14 @@ export default function ThreeStudioViewer({ spec, onSend }: ThreeStudioViewerPro
       <div ref={stageRef} className="scene3d-stage" data-testid="scene3d-stage" tabIndex={0} onKeyDown={onStageKey}
         role="img" aria-label={`3D studio: ${spec.title ?? "interactive model"}`}>
         {glError && <div className="diagram-error-note">WebGL is unavailable in this browser.</div>}
+        {codeError && (
+          <div className="scene3d-code-error" data-testid="threejs-code-error">
+            <span>⚠️ 3D code failed: {codeError}</span>
+            <button type="button" className="scene3d-tool-btn" onClick={() => onSend?.(fenceFixRequest("threejs", codeError))}>
+              🔧 Fix with AI
+            </button>
+          </div>
+        )}
         <div ref={labelLayerRef} className="scene3d-label-layer" aria-hidden="true" />
         {hover && <span className="scene3d-hover-tip" style={{ left: hover.x, top: hover.y }}>{hover.label}</span>}
         {stats && (

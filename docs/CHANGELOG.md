@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## 2026-10-17 — Fix: 3D/CAD fences stop rejecting valid model output (Step 8)
+- Root cause of "3D scene data did not validate" + "entities.12.content:
+  Required (+115 more)": strict zod rejected drift (sphere segs 48 > old
+  cap, unknown animation target, cad `text` instead of `content`, `""`-key
+  layer). New fault-tolerant normalizers `lib/three3d/normalizeScene.ts` +
+  `lib/cad/normalizeCad.ts` (aliases, defaults, caps raised to 64, unknown
+  anim targets dropped+warned, single malformed entity skipped);
+  `Scene3DBlock.tsx`/`CadBlock.tsx` rewritten to use them; `sceneSchema.ts`
+  gains torusKnot/ring/polyhedra/group + material.* slider bindings;
+  `geometryKit.ts`/`sceneBuilder.ts`/`materials.ts` updated.
+- Dual-mode viewer: new `lib/three3d/codeRunner.ts` (sandboxed
+  `new Function("THREE","root","api",…)` — syntax/runtime/empty-scene
+  errors reported) + `components/render/ThreeCodeBlock.tsx`;
+  `ThreeStudioViewer.tsx` now takes `spec` OR `code`, runs ```threejs
+  fences, indexes named parts, drives `onUpdate(delta,elapsed)`;
+  `MarkdownRenderer.tsx` routes ```threejs + ```js-that-looks-like-Three;
+  `registry.ts` FENCE_OWNERS gains `threejs`.
+- Auto-heal: `lib/render/fenceRepair.ts` rewritten
+  (`findBrokenRenderFences`, `fenceFixRequest`, `findFenceByLang`,
+  `extractFenceBody`; anatomy contract untouched); `hooks/useChat.ts`
+  `runRepairRounds` (post-stream, ≤2 rounds, 3D/CAD shows
+  "🔄 Auto-repairing 3D/CAD model…", anatomy stays silent) +
+  `requestFenceRepair` for runtime failures; `Message.fenceRepair` +
+  note in `ChatMessage.tsx` + "🔧 Fix with AI" buttons; `.fence-repair-note`
+  / `.scene3d-code-error` in `globals.css`; coreRouter THREE_CONTRACT +
+  `systemPrompt.ts` teach both fence modes + cad leniency.
+- Proven: `scripts/test-validators.mjs` (both exact failing fixtures →
+  valid:true, 0 errors), `tsc --noEmit` clean, full `npx vitest run`
+  402/402 (1 skipped), `npm run build` clean.
+
 ## 2026-10-17 — Feat: ArchitectureCadViewer (AutoCAD/BIM-grade CAD module, Step 6)
 - New `lib/cad/`: `cadSchema.ts` (strict zod `cad` fence contract +
   CAD_BUDGETS), `cad2d.ts` (bbox / shoelace area / angle / iso projection /

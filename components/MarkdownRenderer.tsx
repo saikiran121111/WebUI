@@ -19,10 +19,12 @@ import Scene3DBlock from "./render/Scene3DBlock";
 import Asset3DBlock from "./render/Asset3DBlock";
 import AnatomyBlock from "./render/AnatomyBlock";
 import CadBlock from "./render/CadBlock";
+import ThreeCodeBlock from "./render/ThreeCodeBlock";
 import TreeBlock from "./render/TreeBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import { fenceKind } from "../lib/render/registry";
 import { looksLikeTree } from "../lib/render/treeParse";
+import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
 
 interface MathModule {
@@ -37,6 +39,8 @@ interface RenderOptions {
   onSend?: (text: string) => void;
   /** Nested widget content disables interactive fences (no recursive widgets/charts). */
   allowInteractive: boolean;
+  /** A fence failed at runtime (```threejs code threw in the viewer) — route to auto-repair. */
+  onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
 }
 
 const RenderContext = createContext<RenderOptions>({ streaming: false, allowInteractive: true });
@@ -46,6 +50,7 @@ export interface MarkdownRendererProps {
   streaming?: boolean;
   onSend?: (text: string) => void;
   allowInteractive?: boolean;
+  onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
 }
 
 /**
@@ -60,6 +65,7 @@ export default memo(function MarkdownRenderer({
   streaming = false,
   onSend,
   allowInteractive = true,
+  onFenceRuntimeError,
 }: MarkdownRendererProps) {
   const [mathMod, setMathMod] = useState<MathModule | null>(null);
 
@@ -82,8 +88,8 @@ export default memo(function MarkdownRenderer({
   }, [mathMod]);
 
   const options = useMemo<RenderOptions>(
-    () => ({ streaming, onSend, allowInteractive }),
-    [streaming, onSend, allowInteractive],
+    () => ({ streaming, onSend, allowInteractive, onFenceRuntimeError }),
+    [streaming, onSend, allowInteractive, onFenceRuntimeError],
   );
 
   const source = useMemo(
@@ -192,7 +198,7 @@ const MD_COMPONENTS = {
  * never mislabeled, never rendered as inline code.
  */
 function FencedBlock({ children }: { children?: ReactNode }) {
-  const { streaming, onSend, allowInteractive } = useContext(RenderContext);
+  const { streaming, onSend, allowInteractive, onFenceRuntimeError } = useContext(RenderContext);
 
   // react-markdown renders the inner <code> through our own `code` override,
   // so the child's type is that component — not the string "code".
@@ -218,9 +224,12 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   if (kind === "asset3d" && allowInteractive) return <Asset3DBlock source={source} streaming={streaming} />;
   if (kind === "anatomy" && allowInteractive) return <AnatomyBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "cad" && allowInteractive) return <CadBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "threejs" && allowInteractive) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={onFenceRuntimeError ? error => onFenceRuntimeError({ lang: "threejs", body: source, error }) : undefined} />;
   if (kind === "widget" && allowInteractive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
   // Box-drawing trees arrive in plain/text fences — detect by content, not label.
   if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;
+  // Executable Three.js arriving in a plain js fence still gets the studio viewer.
+  if (kind === "code" && allowInteractive && looksLikeThreeCode(source)) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={onFenceRuntimeError ? error => onFenceRuntimeError({ lang: "threejs", body: source, error }) : undefined} />;
   return <CodeBlock code={source} lang={language} streaming={streaming} />;
 }
 

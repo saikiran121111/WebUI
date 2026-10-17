@@ -151,6 +151,8 @@ export interface Message {
   tool_call_id?: string; // for tool role messages
   /** Skill engine: name of the skill that fired for this reply. */
   usedSkill?: string;
+  /** Visible auto-repair status while a broken 3D/CAD fence is being fixed. */
+  fenceRepair?: string;
 }
 
 /* ── Conversations ───────────────────────────────────────────────────────── */

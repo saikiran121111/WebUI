@@ -31,7 +31,10 @@ export function buildScene(three: any, spec: Scene3DSpec): BuiltScene {
   const buildNode = (node: Scene3DNode, parent: any): void => {
     let object: any;
 
-    if (node.geometry.kind === "grid") {
+    if (!node.geometry || node.geometry.kind === "group") {
+      // Container node: children only, never a raycast target.
+      object = new three.Group();
+    } else if (node.geometry.kind === "grid") {
       object = buildGridHelper(three, node.geometry);
     } else if (node.geometry.kind === "arrow") {
       object = buildArrowGroup(three, node.geometry);

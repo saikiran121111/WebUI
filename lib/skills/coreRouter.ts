@@ -52,12 +52,19 @@ const R3F_TWIN: Record<string, string> = {
 const ARCH_SKILLS = ["archify", "anatomy", "architecture-diagram", "diagram-design"];
 
 const THREE_CONTRACT = `<output_contract_3d>
-Produce a Three.js visual for this chat: one short intro sentence, then a single \`\`\`scene3d fenced JSON block. Build a rich, multi-part PROCEDURAL model (no external asset URLs):
-- Combine primitives (box/sphere/cylinder/cone/torus/capsule/lathe/extrude/tube) into 15-80 named parts, parented into logical sub-assemblies.
-- Every meaningful part gets a descriptive name like "Helmet_Faceplate", "Eyes_Emissive", "Planet_Saturn", "Shoe_Sole", "Reactor_Core" — the Studio Viewer Outliner, Part Inspector and Explode slider work off these names.
-- PBR materials (metalness/roughness/emissive) matching the requested look (chrome, glass, neon, clay); emissive + bloom-friendly colors for glow/aura/arc-reactor/hologram parts.
-- Expose motion: animation clips / procedural update hooks (orbits, rotation, bobbing, walk cycles) so timeline Play/Pause works; add sliders for user-tunable parameters when useful.
-Put every detail in the scene3d JSON, not in prose.
+Produce a Three.js visual for this chat: one short intro sentence, then ONE fenced block — either \`\`\`threejs (executable code) or \`\`\`scene3d (JSON). Never emit both.
+
+\`\`\`threejs — executable Three.js, PREFERRED for organic or complex subjects (helmets, faces, characters, footwear, extruded logos, anything rigid JSON primitives cannot express):
+- Plain Three.js: NO imports, NO module/export syntax. THREE, root and api are already in scope — add meshes to root directly, or define function build(THREE, root, api).
+- Use any Three.js API: THREE.Group/Mesh, ExtrudeGeometry+Shape, LatheGeometry, TubeGeometry+CatmullRomCurve3, TorusKnotGeometry, custom BufferGeometry, MeshStandardMaterial/MeshPhysicalMaterial/ShaderMaterial, custom lights.
+- Name every meaningful part (helmet_shell, eyes_emissive, sole_tread, logo_extrude...) — named THREE.Group/Mesh objects are auto-indexed into the Outliner, Part Inspector, Explode slider and every exporter (.glb/.gltf/.obj/.stl/.ply/.usdz).
+- Optional function onUpdate(delta, elapsed) runs in the render loop for animation.
+
+\`\`\`scene3d — one JSON object for primitive-composable subjects (all parameters optional — sensible defaults apply, never fail on missing fields):
+- kinds: box/sphere/cylinder/cone/torus/torusKnot/capsule/lathe/extrude/tube/ring/icosahedron/octahedron/dodecahedron/tetrahedron/plane/grid/arrow/group; 15-80 named parts parented into logical sub-assemblies.
+- PBR materials (color/metalness/roughness/emissive/emissiveIntensity/wireframe/opacity) matching the requested look; emissive + bloom-friendly colors for glow/aura/arc-reactor/hologram parts.
+- labels/animations/sliders optional; sliders may bind rotation|position|scale|material.emissiveIntensity|material.roughness|material.metalness|material.opacity.
+Put every detail in the block, not in prose.
 </output_contract_3d>`;
 
 const ARCH_CONTRACT = `<output_contract_architecture>
@@ -65,6 +72,7 @@ Produce an architecture / CAD visual for this chat: one short intro sentence, th
 - Group every element into semantic CAD layers with these ids: layer-structural (walls/frames), layer-architectural (doors/windows/openings), layer-furniture, layer-mep (ducts/pipes/wiring), layer-dimensions (gridlines/dimensions), layer-annotations (labels/title block), layer-flow (flow paths).
 - Carry real-world scale metadata on the root: data-scale-meters-per-unit (e.g. "0.01"), data-floor-level and data-height per part/room — the Layer Manager, Ruler, 3D Massing Extruder and .dxf exporter depend on these.
 - Floor plans: real room dimensions in meters, wall thicknesses, door swings; label every room with name + area.
+- The CAD viewer auto-normalizes common drift (text/label→content, missing layer→layer-architectural, rect w/h or width/height, line from/to or x1y1x2y2, circle cx/cy/r or x/y/radius) — emit the documented shape anyway.
 - Cutaway/anatomy: exploded layer stack with callouts and connections between layers.
 Keep prose to one short sentence; all geometry and metadata inside the fenced block.
 </output_contract_architecture>`;

@@ -17,9 +17,11 @@ interface ChatMessageProps {
   onEdit: (messageId: string, newContent: string) => void;
   /** Lets interactive widgets (```widget forms) send validated follow-ups. */
   onSend?: (text: string) => void;
+  /** A 3D code fence reported a runtime failure — ask useChat to auto-repair it. */
+  onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
 }
 
-export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessageProps) {
+export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRuntimeError }: ChatMessageProps) {
   const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error, usedSkill } = message;
   const isUser = role === "user";
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -209,7 +211,10 @@ export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessag
       {/* Main content */}
       {content && (
         <div className="msg-content">
-          <MarkdownRenderer content={content} streaming={state === "streaming"} onSend={onSend} />
+          <MarkdownRenderer content={content} streaming={state === "streaming"} onSend={onSend} onFenceRuntimeError={onFenceRuntimeError} />
+          {message.fenceRepair && (
+            <div className="fence-repair-note" data-testid="fence-repair-note">{message.fenceRepair}</div>
+          )}
           {citations.length > 0 && (
             <CitationsBlock citations={citations} />
           )}

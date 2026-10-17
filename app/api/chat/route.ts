@@ -143,11 +143,10 @@ export async function POST(req: NextRequest) {
       console.error("[api/chat] skill routing failed:", err instanceof Error ? err.message : err);
     }
     // Core hidden tier: fires only through this router, never listed in the UI.
+    // Its name is deliberately NOT merged into X-Used-Skill — the ⚡ "Used
+    // skill" badge stays reserved for the user tier (./skills/).
     try {
-      const core = await applyCoreSkillRouting(payload);
-      if (core.usedSkills.length > 0) {
-        usedSkill = [usedSkill, ...core.usedSkills].filter(Boolean).join(",");
-      }
+      await applyCoreSkillRouting(payload);
     } catch (err: unknown) {
       console.error("[api/chat] core skill routing failed:", err instanceof Error ? err.message : err);
     }

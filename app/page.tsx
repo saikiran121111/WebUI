@@ -27,7 +27,7 @@ export default function HomePage() {
 
   const {
     messages, status, error, isThinking, reasoningContent,
-    send, stop, retry, edit, load, clear, setEffort, effort,
+    send, stop, retry, edit, load, clear, setEffort, effort, requestFenceRepair,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
 
   // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
@@ -316,6 +316,7 @@ export default function HomePage() {
                       message={m}
                       onEdit={edit}
                       onSend={(text) => runSend(text)}
+                      onFenceRuntimeError={(info) => requestFenceRepair(m.id, info)}
                     />
                   </motion.div>
                 ))}

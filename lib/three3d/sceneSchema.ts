@@ -26,11 +26,18 @@ const seg = (min: number, max: number, def: number) =>
 
 const geometrySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("box"), width: z.number().min(0.001).max(100), height: z.number().min(0.001).max(100), depth: z.number().min(0.001).max(100) }).strict(),
-  z.object({ kind: z.literal("sphere"), radius: z.number().min(0.001).max(50), widthSegments: seg(3, 64, 24), heightSegments: seg(2, 32, 16) }).strict(),
+  z.object({ kind: z.literal("sphere"), radius: z.number().min(0.001).max(50), widthSegments: seg(3, 64, 32), heightSegments: seg(2, 64, 32) }).strict(),
   z.object({ kind: z.literal("cylinder"), radiusTop: z.number().min(0).max(50), radiusBottom: z.number().min(0).max(50), height: z.number().min(0.001).max(100), radialSegments: seg(3, 64, 24), openEnded: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal("cone"), radius: z.number().min(0.001).max(50), height: z.number().min(0.001).max(100), radialSegments: seg(3, 64, 24) }).strict(),
   z.object({ kind: z.literal("torus"), radius: z.number().min(0.001).max(50), tube: z.number().min(0.001).max(20), radialSegments: seg(3, 32, 16), tubularSegments: seg(3, 128, 32) }).strict(),
   z.object({ kind: z.literal("capsule"), radius: z.number().min(0.001).max(50), length: z.number().min(0.001).max(100), capSegments: seg(1, 16, 8), radialSegments: seg(3, 64, 16) }).strict(),
+  z.object({ kind: z.literal("torusKnot"), radius: z.number().min(0.001).max(50), tube: z.number().min(0.001).max(20), radialSegments: seg(3, 64, 16), tubularSegments: seg(3, 256, 64), p: z.number().int().min(1).max(12).optional(), q: z.number().int().min(1).max(12).optional() }).strict(),
+  z.object({ kind: z.literal("ring"), innerRadius: z.number().min(0).max(50), outerRadius: z.number().min(0.001).max(50), thetaSegments: seg(3, 128, 32), phiSegments: seg(1, 16, 1) }).strict(),
+  z.object({ kind: z.literal("icosahedron"), radius: z.number().min(0.001).max(50), detail: seg(0, 4, 0) }).strict(),
+  z.object({ kind: z.literal("octahedron"), radius: z.number().min(0.001).max(50), detail: seg(0, 4, 0) }).strict(),
+  z.object({ kind: z.literal("dodecahedron"), radius: z.number().min(0.001).max(50), detail: seg(0, 4, 0) }).strict(),
+  z.object({ kind: z.literal("tetrahedron"), radius: z.number().min(0.001).max(50), detail: seg(0, 4, 0) }).strict(),
+  z.object({ kind: z.literal("group") }).strict(),
   z.object({
     kind: z.literal("lathe"),
     points: z.array(z.tuple([z.number().min(0).max(50), finite])).min(2).max(64),
@@ -71,6 +78,7 @@ const materialSchema = z.object({
   emissive: hex.optional(),
   emissiveIntensity: z.number().min(0).max(5).optional(),
   flatShading: z.boolean().optional(),
+  wireframe: z.boolean().optional(),
   side: z.enum(["front", "back", "double"]).optional(),
 }).strict();
 
@@ -81,7 +89,8 @@ export type Scene3DMaterial = z.infer<typeof materialSchema>;
 interface SceneNode {
   id: string;
   label?: string;
-  geometry: Scene3DGeometry;
+  /** Omitted = pure container (group): allowed so parent nodes can carry children only. */
+  geometry?: Scene3DGeometry;
   material?: Scene3DMaterial;
   position?: [number, number, number];
   rotation?: [number, number, number];
@@ -94,7 +103,7 @@ const nodeSchema: z.ZodType<SceneNode> = z.lazy(() =>
   z.object({
     id,
     label: z.string().min(1).max(80).optional(),
-    geometry: geometrySchema,
+    geometry: geometrySchema.optional(),
     material: materialSchema.optional(),
     position: vec3.optional(),
     rotation: vec3.optional(),
@@ -147,7 +156,10 @@ const sliderSchema = z.object({
   step: z.number().positive(),
   defaultValue: finite,
   target: id,
-  binding: z.enum(["rotation", "position", "scale"]),
+  binding: z.enum([
+    "rotation", "position", "scale",
+    "material.emissiveIntensity", "material.roughness", "material.metalness", "material.opacity",
+  ]),
   axis: z.enum(["x", "y", "z"]),
 }).strict().refine(s => s.min < s.max, "slider min must be less than max");
 

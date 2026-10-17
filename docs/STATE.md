@@ -1,6 +1,25 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Step 8 fault-tolerant 3D/CAD pipeline (2026-10-17): the two UI failures
+      ("3D scene data did not validate", "entities.12.content: Required
+      (+115 more)") fixed at the root — strict all-or-nothing zod replaced by
+      lenient normalizers. New `lib/three3d/normalizeScene.ts` +
+      `lib/cad/normalizeCad.ts` (kind aliases, every param optional w/
+      defaults, sphere segs ≤64, unknown animation targets dropped+warned,
+      cad text/label→content, `""`-key→layer, layer default, w/h +
+      from/to + cx/cy aliases, malformed entity skipped). New
+      `lib/three3d/codeRunner.ts` + `components/render/ThreeCodeBlock.tsx`:
+      ```threejs (and ```js that looks like Three.js) runs model code with
+      THREE/root/api bound, build()/main()/onUpdate(delta,elapsed), named
+      parts auto-indexed into Outliner/pick/gizmos/explode/exporters — same
+      ThreeStudioViewer handles both code and scene3d JSON. Frontend
+      auto-heal: post-stream `findBrokenRenderFences` + runtime-error report
+      → ≤2 repair rounds, "🔄 Auto-repairing 3D/CAD model…" note +
+      "🔧 Fix with AI" buttons (useChat `requestFenceRepair`, fenceRepair.ts
+      rewrite, ChatMessage/page/globals.css). Proven:
+      `scripts/test-validators.mjs` both exact fixtures valid:true/0 errors,
+      full vitest 402/402, tsc + build clean.
 - [x] Step 6 ArchitectureCadViewer (2026-10-17): AutoCAD/BIM-grade CAD
       module. New `lib/cad/`: `cadSchema.ts` (strict zod `cad` fence +
       CAD_BUDGETS), `cad2d.ts` (bbox/shoelace area/angle/iso projection/

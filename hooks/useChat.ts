@@ -7,9 +7,11 @@ import { ResearchOrchestrator } from "../lib/research/orchestrator";
 import {
   MAX_FENCE_REPAIRS,
   applyFenceRepair,
-  extractAnatomyFenceBody,
+  extractFenceBody,
   fenceRepairRequest,
-  findBrokenAnatomyFences,
+  findBrokenRenderFences,
+  findFenceByLang,
+  type BrokenFence,
 } from "../lib/render/fenceRepair";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
@@ -37,6 +39,8 @@ export interface UseChatReturn {
   clearError: () => void;
   setEffort: (level: EffortLevel) => void;
   effort: EffortLevel;
+  /** Repair a fence that only fails at runtime (```threejs code throws in the viewer). */
+  requestFenceRepair: (assistantId: string, info: { lang: string; body: string; error: string }) => void;
 }
 
 function uid(prefix = ""): string {
@@ -138,25 +142,35 @@ export function useChat({
   }, []);
 
   /**
-   * Silent anatomy fence repair. A broken ```anatomy fence is the model's
-   * mistake and only the model can fix it: feed the exact validation error
-   * back (the broken fence already sits in its history), splice the
-   * corrected fence into the same bubble, and keep the repair turn out of
-   * visible/persisted state — the user should never have to read a
-   * validation error they cannot act on. After MAX_FENCE_REPAIRS rounds the
-   * honest error fallback in AnatomyBlock remains as the last resort.
+   * Fence repair for anatomy / scene3d / cad fences. A broken fence is the
+   * model's mistake and only the model can fix it: feed the exact error back
+   * (the broken fence already sits in its history), splice the corrected
+   * fence into the same bubble. Anatomy repairs stay silent (existing
+   * contract); 3D/CAD repairs show a visible "Auto-repairing…" note so the
+   * user knows the model is retrying instead of a dead error panel. After
+   * MAX_FENCE_REPAIRS rounds the honest error fallback stays as last resort.
    */
-  const repairAnatomyFences = useCallback(async (
+  const runRepairRounds = useCallback(async (
     assistantId: string,
     history: any[],
     effort: EffortLevel,
     controller: AbortController,
+    locate: (content: string) => BrokenFence[],
+    stopAfterFirstApply = false,
   ) => {
     for (let attempt = 0; attempt < MAX_FENCE_REPAIRS; attempt++) {
       if (controller.signal.aborted) return;
       const content = streamContentRef.current;
-      const broken = findBrokenAnatomyFences(content);
-      if (broken.length === 0) return;
+      const broken = locate(content);
+      if (broken.length === 0) {
+        setMessages(prev => prev.map(m => (m.id === assistantId && m.fenceRepair ? { ...m, fenceRepair: undefined } : m)));
+        return;
+      }
+
+      const lang = broken[0].lang ?? "anatomy";
+      if (lang !== "anatomy") {
+        setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing 3D/CAD model…" } : m)));
+      }
 
       let reply = "";
       const client = new ChatClient(apiUrl, apiKey, model);
@@ -180,13 +194,51 @@ export function useChat({
       }
       if (controller.signal.aborted) return;
 
-      const corrected = extractAnatomyFenceBody(reply);
+      const corrected = extractFenceBody(reply, lang);
       if (!corrected) continue; // model answered without a fence: ask again
       const repaired = applyFenceRepair(content, broken[0], corrected);
       streamContentRef.current = repaired;
-      setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: repaired } : m)));
+      setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: repaired, fenceRepair: undefined } : m)));
+      if (stopAfterFirstApply) return;
     }
   }, [model, apiUrl, apiKey]);
+
+  // Manual "Fix with AI" / runtime-error repair cap, per message.
+  const fenceRepairAttemptsRef = useRef(new Map<string, number>());
+
+  /**
+   * Repair a fence that only fails at RUNTIME (```threejs code that throws
+   * inside the viewer) — it passed every static check, so the block itself
+   * reports the exact error and we feed it straight back to the model.
+   */
+  const requestFenceRepair = useCallback((
+    assistantId: string,
+    info: { lang: string; body: string; error: string },
+  ) => {
+    const idx = messagesRef.current.findIndex(m => m.id === assistantId);
+    if (idx < 0) return;
+    const attempts = fenceRepairAttemptsRef.current;
+    const used = attempts.get(assistantId) ?? 0;
+    if (used >= MAX_FENCE_REPAIRS) return;
+    attempts.set(assistantId, used + 1);
+
+    const message = messagesRef.current[idx];
+    const history = messagesRef.current.slice(0, idx);
+    streamContentRef.current = message.content;
+    const controller = new AbortController();
+    void runRepairRounds(
+      assistantId,
+      history,
+      effortRef.current,
+      controller,
+      content => {
+        const fence = findFenceByLang(content, info.lang);
+        if (!fence) return [];
+        return [{ error: info.error, bodyStart: fence.bodyStart, bodyEnd: fence.bodyEnd, closed: fence.closed, lang: info.lang }];
+      },
+      true,
+    );
+  }, [runRepairRounds]);
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     console.log("[send] called with:", text.slice(0, 30), "effort:", effortRef.current);
@@ -272,10 +324,10 @@ export function useChat({
         throw e;
       });
 
-      // A broken anatomy fence gets silently repaired before the bubble is
-      // finalized — the user sees the finished figure, not the error.
+      // Broken anatomy/3D/CAD fences get repaired before the bubble is
+      // finalized — the user sees the finished visual, not the error.
       if (!controller.signal.aborted) {
-        await repairAnatomyFences(assistantMsg.id, requestHistory, curEffort, controller);
+        await runRepairRounds(assistantMsg.id, requestHistory, curEffort, controller, findBrokenRenderFences);
       }
 
       console.log("[send] after client.chat - was it aborted?", controller.signal.aborted);
@@ -313,7 +365,7 @@ export function useChat({
       abortRef.current = null;
       sendBusyRef.current = false;
     }
-  }, [model, apiUrl, apiKey, handleEvent, repairAnatomyFences]);
+  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;
@@ -381,7 +433,7 @@ export function useChat({
     messages, status, error, isThinking, reasoningContent,
     load, clear, send, stop, retry, edit,
     clearError: () => setError(null),
-    setEffort, effort,
+    setEffort, effort, requestFenceRepair,
   };
 }
 

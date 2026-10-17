@@ -54,8 +54,23 @@ export function buildGeometry(three: any, spec: Scene3DGeometry): any | null {
     }
     case "plane":
       return new three.PlaneGeometry(spec.width, spec.height);
+    case "torusKnot":
+      // TorusKnotGeometry(radius, tube, tubularSegments, radialSegments, p, q)
+      return new three.TorusKnotGeometry(
+        spec.radius, spec.tube, spec.tubularSegments ?? 64, spec.radialSegments ?? 16, spec.p ?? 2, spec.q ?? 3,
+      );
+    case "ring":
+      return new three.RingGeometry(spec.innerRadius, spec.outerRadius, spec.thetaSegments ?? 32, spec.phiSegments ?? 1);
+    case "icosahedron":
+      return new three.IcosahedronGeometry(spec.radius, spec.detail ?? 0);
+    case "octahedron":
+      return new three.OctahedronGeometry(spec.radius, spec.detail ?? 0);
+    case "dodecahedron":
+      return new three.DodecahedronGeometry(spec.radius, spec.detail ?? 0);
+    case "tetrahedron":
+      return new three.TetrahedronGeometry(spec.radius, spec.detail ?? 0);
     default:
-      return null; // grid | arrow are composites
+      return null; // grid | arrow | group are composites
   }
 }
 
