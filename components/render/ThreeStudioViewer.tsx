@@ -496,82 +496,95 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
 
   return (
     <>
-      <div className="scene3d-toolbar">
-        <select className="scene3d-format" data-testid="scene3d-shading" value={shading} aria-label="Shading mode"
-          onChange={e => { setShading(e.target.value as ShadingMode); viewerRef.current?.setShading(e.target.value as ShadingMode); }}>
-          {SHADING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select className="scene3d-format" data-testid="scene3d-projection" value={projection} aria-label="Camera projection"
-          onChange={e => { setProjection(e.target.value); viewerRef.current?.setProjection(e.target.value); }}>
-          <option value="perspective">Perspective</option>
-          <option value="orthographic">Orthographic</option>
-        </select>
-        <label className="studio-field-row" style={{ margin: 0, flex: "0 1 140px" }}>
-          <span className="studio-field-label">FOV</span>
-          <input type="range" min={20} max={110} step={1} value={fov} data-testid="scene3d-fov"
-            onChange={e => { setFov(Number(e.target.value)); viewerRef.current?.setFov(Number(e.target.value)); }} />
-          <span className="studio-field-val">{fov}°</span>
-        </label>
-        {(["front", "back", "left", "right", "top", "bottom", "iso"] as const).map(v => (
-          <button key={v} type="button" className="scene3d-tool-btn" data-testid={`scene3d-view-${v}`}
-            onClick={() => viewerRef.current?.setView(v)}>
-            {v === "iso" ? "Iso" : v[0].toUpperCase() + v.slice(1)}
+      <div className="scene3d-toolbar cad-ribbon-bar">
+        <span className="cad-ribbon-title">3D STUDIO</span>
+        <div className="cad-ribbon-group">
+          <select className="scene3d-format" data-testid="scene3d-shading" value={shading} aria-label="Shading mode"
+            onChange={e => { setShading(e.target.value as ShadingMode); viewerRef.current?.setShading(e.target.value as ShadingMode); }}>
+            {SHADING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="cad-ribbon-group">
+          <select className="scene3d-format" data-testid="scene3d-projection" value={projection} aria-label="Camera projection"
+            onChange={e => { setProjection(e.target.value); viewerRef.current?.setProjection(e.target.value); }}>
+            <option value="perspective">Perspective</option>
+            <option value="orthographic">Orthographic</option>
+          </select>
+          <label className="studio-field-row" style={{ margin: 0, flex: "0 1 120px" }}>
+            <span className="studio-field-label">FOV</span>
+            <input type="range" min={20} max={110} step={1} value={fov} data-testid="scene3d-fov"
+              onChange={e => { setFov(Number(e.target.value)); viewerRef.current?.setFov(Number(e.target.value)); }} />
+            <span className="studio-field-val">{fov}°</span>
+          </label>
+          {(["front", "back", "left", "right", "top", "bottom", "iso"] as const).map(v => (
+            <button key={v} type="button" className="scene3d-tool-btn" data-testid={`scene3d-view-${v}`}
+              onClick={() => viewerRef.current?.setView(v)}>
+              {v === "iso" ? "Iso" : v[0].toUpperCase() + v.slice(1)}
+            </button>
+          ))}
+          <button type="button" className="scene3d-tool-btn" data-testid="scene3d-view-frame" onClick={() => viewerRef.current?.frameSelected()}>
+            <Target size={13} /> Frame (F)
           </button>
-        ))}
-        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-view-frame" onClick={() => viewerRef.current?.frameSelected()}>
-          <Target size={13} /> Frame (F)
-        </button>
-        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-view-reset" onClick={() => viewerRef.current?.setView("reset")}>
-          <RotateCcw size={13} /> Reset
-        </button>
-        <button type="button" className={`scene3d-tool-btn${transformMode === "translate" ? " is-active" : ""}`}
-          data-testid="scene3d-transform-translate" aria-pressed={transformMode === "translate"}
-          onClick={() => applyTransformMode("translate")}><Move size={13} /> Move</button>
-        <button type="button" className={`scene3d-tool-btn${transformMode === "rotate" ? " is-active" : ""}`}
-          data-testid="scene3d-transform-rotate" aria-pressed={transformMode === "rotate"}
-          onClick={() => applyTransformMode("rotate")}><RotateCw size={13} /> Rotate</button>
-        <button type="button" className={`scene3d-tool-btn${transformMode === "scale" ? " is-active" : ""}`}
-          data-testid="scene3d-transform-scale" aria-pressed={transformMode === "scale"}
-          onClick={() => applyTransformMode("scale")}><Scale3d size={13} /> Scale</button>
-        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-transform-space"
-          onClick={() => applyTransformSpace(transformSpace === "local" ? "world" : "local")}>
-          {transformSpace === "local" ? "Local" : "World"}
-        </button>
-        <button type="button" className={`scene3d-tool-btn${autoRotate ? " is-active" : ""}`} data-testid="scene3d-autorotate"
-          aria-pressed={autoRotate} onClick={() => { const on = !autoRotate; setAutoRotate(on); viewerRef.current?.setAutoRotate(on); }}>
-          Turntable
-        </button>
-        <button type="button" className={`scene3d-tool-btn${gridOn ? " is-active" : ""}`} data-testid="scene3d-tool-grid"
-          aria-pressed={gridOn} onClick={() => { const on = !gridOn; setGridOn(on); viewerRef.current?.setGrid(on); }}>
-          <Grid3x3 size={13} /> Grid
-        </button>
-        <button type="button" className={`scene3d-tool-btn${axesOn ? " is-active" : ""}`} data-testid="scene3d-tool-axes"
-          aria-pressed={axesOn} onClick={() => { const on = !axesOn; setAxesOn(on); viewerRef.current?.setAxes(on); }}>
-          <Axis3d size={13} /> Axes
-        </button>
-        <button type="button" className={`scene3d-tool-btn${bboxOn ? " is-active" : ""}`} data-testid="scene3d-tool-bbox"
-          aria-pressed={bboxOn} onClick={() => { const on = !bboxOn; setBboxOn(on); viewerRef.current?.setBbox(on); }}>
-          Bounding box
-        </button>
-        <button type="button" className={`scene3d-tool-btn${cageOn ? " is-active" : ""}`} data-testid="scene3d-tool-cage"
-          aria-pressed={cageOn} onClick={() => { const on = !cageOn; setCageOn(on); viewerRef.current?.setCage(on); }}>
-          <Box size={13} /> Cage
-        </button>
-        <button type="button" className={`scene3d-tool-btn${helpersOn ? " is-active" : ""}`} data-testid="scene3d-tool-lights"
-          aria-pressed={helpersOn} onClick={() => { const on = !helpersOn; setHelpersOn(on); viewerRef.current?.setLightHelpers(on); }}>
-          Light rig
-        </button>
-        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-fullscreen"
-          aria-pressed={isFullscreen} onClick={toggleStageFullscreen}>
-          {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        </button>
-        <select className="scene3d-format" data-testid="scene3d-export-format" value={exportFmt}
-          aria-label="Export format" onChange={e => setExportFmt(e.target.value as StudioExportFormat)}>
-          {EXPORT_FORMATS.filter(f => !code || (f.value !== "html" && f.value !== "tsx")).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-        </select>
-        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-export" onClick={runExport} disabled={exportBusy}>
-          <Download size={13} /> {exportBusy ? "Exporting…" : "Export"}
-        </button>
+          <button type="button" className="scene3d-tool-btn" data-testid="scene3d-view-reset" onClick={() => viewerRef.current?.setView("reset")}>
+            <RotateCcw size={13} /> Reset
+          </button>
+          <button type="button" className={`scene3d-tool-btn${autoRotate ? " is-active" : ""}`} data-testid="scene3d-autorotate"
+            aria-pressed={autoRotate} onClick={() => { const on = !autoRotate; setAutoRotate(on); viewerRef.current?.setAutoRotate(on); }}>
+            Turntable
+          </button>
+        </div>
+        <div className="cad-ribbon-group">
+          <button type="button" className={`scene3d-tool-btn${transformMode === "translate" ? " is-active" : ""}`}
+            data-testid="scene3d-transform-translate" aria-pressed={transformMode === "translate"}
+            onClick={() => applyTransformMode("translate")}><Move size={13} /> Move</button>
+          <button type="button" className={`scene3d-tool-btn${transformMode === "rotate" ? " is-active" : ""}`}
+            data-testid="scene3d-transform-rotate" aria-pressed={transformMode === "rotate"}
+            onClick={() => applyTransformMode("rotate")}><RotateCw size={13} /> Rotate</button>
+          <button type="button" className={`scene3d-tool-btn${transformMode === "scale" ? " is-active" : ""}`}
+            data-testid="scene3d-transform-scale" aria-pressed={transformMode === "scale"}
+            onClick={() => applyTransformMode("scale")}><Scale3d size={13} /> Scale</button>
+          <button type="button" className="scene3d-tool-btn" data-testid="scene3d-transform-space"
+            onClick={() => applyTransformSpace(transformSpace === "local" ? "world" : "local")}>
+            {transformSpace === "local" ? "Local" : "World"}
+          </button>
+        </div>
+        <div className="cad-ribbon-group">
+          <button type="button" className={`scene3d-tool-btn${gridOn ? " is-active" : ""}`} data-testid="scene3d-tool-grid"
+            aria-pressed={gridOn} onClick={() => { const on = !gridOn; setGridOn(on); viewerRef.current?.setGrid(on); }}>
+            <Grid3x3 size={13} /> Grid
+          </button>
+          <button type="button" className={`scene3d-tool-btn${axesOn ? " is-active" : ""}`} data-testid="scene3d-tool-axes"
+            aria-pressed={axesOn} onClick={() => { const on = !axesOn; setAxesOn(on); viewerRef.current?.setAxes(on); }}>
+            <Axis3d size={13} /> Axes
+          </button>
+          <button type="button" className={`scene3d-tool-btn${bboxOn ? " is-active" : ""}`} data-testid="scene3d-tool-bbox"
+            aria-pressed={bboxOn} onClick={() => { const on = !bboxOn; setBboxOn(on); viewerRef.current?.setBbox(on); }}>
+            Bounding box
+          </button>
+          <button type="button" className={`scene3d-tool-btn${cageOn ? " is-active" : ""}`} data-testid="scene3d-tool-cage"
+            aria-pressed={cageOn} onClick={() => { const on = !cageOn; setCageOn(on); viewerRef.current?.setCage(on); }}>
+            <Box size={13} /> Cage
+          </button>
+          <button type="button" className={`scene3d-tool-btn${helpersOn ? " is-active" : ""}`} data-testid="scene3d-tool-lights"
+            aria-pressed={helpersOn} onClick={() => { const on = !helpersOn; setHelpersOn(on); viewerRef.current?.setLightHelpers(on); }}>
+            Light rig
+          </button>
+        </div>
+        <div className="cad-ribbon-group">
+          <button type="button" className="scene3d-tool-btn" data-testid="scene3d-fullscreen"
+            aria-pressed={isFullscreen} onClick={toggleStageFullscreen}>
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          </button>
+        </div>
+        <div className="cad-ribbon-group">
+          <select className="scene3d-format" data-testid="scene3d-export-format" value={exportFmt}
+            aria-label="Export format" onChange={e => setExportFmt(e.target.value as StudioExportFormat)}>
+            {EXPORT_FORMATS.filter(f => !code || (f.value !== "html" && f.value !== "tsx")).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          <button type="button" className="scene3d-tool-btn" data-testid="scene3d-export" onClick={runExport} disabled={exportBusy}>
+            <Download size={13} /> {exportBusy ? "Exporting…" : "Export"}
+          </button>
+        </div>
       </div>
 
       <div ref={stageRef} className="scene3d-stage" data-testid="scene3d-stage" tabIndex={0} onKeyDown={onStageKey}
@@ -586,6 +599,13 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
           </div>
         )}
         <div ref={labelLayerRef} className="scene3d-label-layer" aria-hidden="true" />
+        <div className="cad-viewcube cad-viewcube-studio" role="group" aria-label="ViewCube">
+          {([["top", "TOP"], ["front", "FRONT"], ["right", "RIGHT"], ["iso-ne", "ISO NE"], ["iso-sw", "ISO SW"]] as const).map(([dir, label]) => (
+            <button key={dir} type="button" data-testid={`scene3d-viewcube-${dir}`} onClick={() => viewerRef.current?.setView(dir)}>
+              {label}
+            </button>
+          ))}
+        </div>
         {hover && <span className="scene3d-hover-tip" style={{ left: hover.x, top: hover.y }}>{hover.label}</span>}
         {stats && (
           <div className="studio-hud" data-testid="scene3d-stats">

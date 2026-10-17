@@ -52,6 +52,23 @@ import { cadToDxf } from "../../lib/cad/svgToDxf";
 import { cadToPdf } from "../../lib/cad/pdfExport";
 import { buildCadStandaloneHtml } from "../../lib/cad/cadStandalone";
 import type { CadBimViewer } from "../../lib/cad/cadEngine";
+import {
+  deg2rad,
+  dimensionDecor,
+  doorSymbol,
+  furnitureBlock,
+  gridAxes,
+  hatchFillPath,
+  layoutRoomTags,
+  offsetPolyline,
+  pointInPolygon,
+  windowLines,
+  type BlockPrim,
+  type PlacedTag,
+  type Pt,
+  type RectBox,
+  type RoomTagSeed,
+} from "../../lib/cad/cadBlocks";
 
 type ViewMode = "2d" | "iso" | "3d" | "split";
 type CadTool = "measure" | "area" | "protractor" | null;
@@ -73,6 +90,65 @@ const CAD_THEMES: CadTheme[] = [
   { key: "white-plot", label: "White Plot Sheet", bg: "#ffffff", grid: "#e6ebf2", gridStrong: "#cfd9e6", text: "#0f172a", crosshair: "#0284c7" },
   { key: "thermal", label: "Thermal / Energy", bg: "#101018", grid: "#1c2230", gridStrong: "#273044", text: "#f1f5f9", crosshair: "#fbbf24" },
 ];
+
+/**
+ * Autodesk layer-role palette: the viewer overrides LLM-chosen hexes per role
+ * so walls are crisp light lines, openings cyan, furniture thin slate — never
+ * salmon-red or neon green regardless of what the model emitted.
+ */
+const ROLE_COLORS: Record<string, Record<string, string>> = {
+  "autocad-dark": {
+    "layer-structural": "#e2e8f0", "layer-architectural": "#38bdf8", "layer-furniture": "#94a3b8",
+    "layer-mep": "#f59e0b", "layer-dimensions": "#64748b", "layer-annotations": "#e2e8f0",
+  },
+  "white-plot": {
+    "layer-structural": "#0f172a", "layer-architectural": "#0369a1", "layer-furniture": "#475569",
+    "layer-mep": "#b45309", "layer-dimensions": "#334155", "layer-annotations": "#0f172a",
+  },
+  cyanotype: {
+    "layer-structural": "#e0f2fe", "layer-architectural": "#7dd3fc", "layer-furniture": "#93c5fd",
+    "layer-mep": "#fcd34d", "layer-dimensions": "#7dd3fc", "layer-annotations": "#e0f2fe",
+  },
+};
+
+const HATCH_COLORS: Record<string, { fill: string; line: string }> = {
+  "autocad-dark": { fill: "#1e293b", line: "#334155" },
+  cyanotype: { fill: "#123354", line: "#1a4470" },
+  "white-plot": { fill: "#f1f5f9", line: "#94a3b8" },
+  thermal: { fill: "#1e293b", line: "#334155" },
+};
+
+/** Renders one procedural CAD-block primitive inside a y-up flipped group. */
+function renderBlockPrim(
+  prim: BlockPrim,
+  key: number,
+  stroke: string,
+  fill: string,
+  dash: string | undefined,
+): ReactNode {
+  const thin = { stroke, strokeWidth: 0.9, vectorEffect: "non-scaling-stroke" as const };
+  switch (prim.kind) {
+    case "rect":
+      return <rect key={key} x={prim.x} y={prim.y} width={prim.w} height={prim.h} fill={fill} {...thin} />;
+    case "line":
+      return <line key={key} x1={prim.a[0]} y1={prim.a[1]} x2={prim.b[0]} y2={prim.b[1]} fill="none" strokeDasharray={prim.dash ? dash : undefined} {...thin} />;
+    case "circle":
+      return <circle key={key} cx={prim.cx} cy={prim.cy} r={prim.r} fill={prim.filled ? fill : "none"} {...thin} />;
+    case "arc": {
+      const a0 = deg2rad(prim.a0);
+      const a1 = deg2rad(prim.a1);
+      const x0 = prim.cx + prim.r * Math.cos(a0);
+      const y0 = prim.cy + prim.r * Math.sin(a0);
+      const x1 = prim.cx + prim.r * Math.cos(a1);
+      const y1 = prim.cy + prim.r * Math.sin(a1);
+      const delta = prim.a1 - prim.a0;
+      const large = Math.abs(delta) > 180 ? 1 : 0;
+      // Inside the scale(1,-1) group the user space is y-up: positive sweep = CCW.
+      const sweep = delta > 0 ? 1 : 0;
+      return <path key={key} d={`M ${x0} ${y0} A ${prim.r} ${prim.r} 0 ${large} ${sweep} ${x1} ${y1}`} fill="none" strokeDasharray={prim.dash ? dash : undefined} {...thin} />;
+    }
+  }
+}
 
 const EXPORT_OPTIONS: { value: ExportFormat; label: string }[] = [
   { value: "dxf", label: "DXF (R2000)" },
@@ -135,6 +211,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   );
   const [flowsOn, setFlowsOn] = useState(spec.flows.length > 0);
   const [explode, setExplode] = useState(0);
+  const [wallCut, setWallCut] = useState<number | null>(null);
   const [sectionOn, setSectionOn] = useState({ x: false, y: false, z: false });
   const [sectionVal, setSectionVal] = useState({
     x: (bbox.minX + bbox.maxX) / 2,
@@ -182,7 +259,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
       const index = spec.layers.findIndex((l) => l.id === layerId);
       const layer = spec.layers[index];
       if (theme.key === "thermal") return thermalColor(index / Math.max(1, spec.layers.length - 1));
-      return layer?.color ?? "#94a3b8";
+      return ROLE_COLORS[theme.key]?.[layerId] ?? layer?.color ?? "#94a3b8";
     },
     [spec.layers, theme.key],
   );
@@ -206,6 +283,69 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
     }
     return map;
   }, [spec.entities]);
+
+  const pxPerModel = stageSize.w > 0 ? stageSize.w / view.w : 1;
+  const maxDim = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, 1);
+  const dimTick = maxDim * 0.012;
+  const bubbleR = maxDim * 0.014;
+
+  const gridDeco = useMemo(
+    () =>
+      spec.grid
+        ? gridAxes(
+            spec.grid.columns,
+            spec.grid.rows,
+            { x: bbox.minX, y: bbox.minY, w: bbox.maxX - bbox.minX, h: bbox.maxY - bbox.minY },
+            maxDim * 0.08,
+          )
+        : null,
+    [spec.grid, bbox, maxDim],
+  );
+
+  // Collision-checked room tag pills: middle-anchored annotation texts that sit
+  // inside a room polygon become dark slate badges; the raw text is suppressed.
+  const roomTags = useMemo(() => {
+    type RoomPoly = Extract<(typeof spec.entities)[number], { kind: "polygon" | "polyline" }>;
+    const polys = spec.entities.filter(
+      (e): e is RoomPoly => e.kind === "polygon" || (e.kind === "polyline" && e.closed),
+    );
+    const seeds: RoomTagSeed[] = [];
+    const tagged = new Set<string>();
+    for (const entity of spec.entities) {
+      if (entity.kind !== "text" || entity.layer !== "layer-annotations" || entity.anchor !== "middle") continue;
+      const poly = polys.find((p) => pointInPolygon([entity.x, entity.y], p.points));
+      if (!poly) continue;
+      const xs = poly.points.map((p) => p[0]);
+      const ys = poly.points.map((p) => p[1]);
+      seeds.push({
+        x: entity.x,
+        y: entity.y,
+        name: entity.content,
+        area: shoelaceArea(poly.points),
+        dx: Math.max(...xs) - Math.min(...xs),
+        dy: Math.max(...ys) - Math.min(...ys),
+      });
+      tagged.add(`${entity.x}|${entity.y}|${entity.content}`);
+    }
+    if (!seeds.length) return { tags: [] as PlacedTag[], tagged };
+    const obstacles: RectBox[] = [];
+    for (const wall of spec.walls) {
+      const n = wall.path.length;
+      const segs = wall.closed ? n : n - 1;
+      for (let i = 0; i < segs; i++) {
+        const a = wall.path[i];
+        const b = wall.path[(i + 1) % n];
+        obstacles.push({
+          x: Math.min(a[0], b[0]) - wall.thickness / 2,
+          y: Math.min(a[1], b[1]) - wall.thickness / 2,
+          w: Math.abs(b[0] - a[0]) + wall.thickness,
+          h: Math.abs(b[1] - a[1]) + wall.thickness,
+        });
+      }
+    }
+    for (const f of spec.furniture) obstacles.push({ x: f.x, y: f.y, w: f.w, h: f.h });
+    return { tags: layoutRoomTags(seeds, obstacles, pxPerModel), tagged };
+  }, [spec.entities, spec.walls, spec.furniture, pxPerModel]);
 
   const vertexPool = useMemo<Point2[]>(() => {
     const pool: Point2[] = [];
@@ -373,6 +513,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   }, [viewMode, spec]);
 
   useEffect(() => { bimRef.current?.setExplode(explode); }, [explode, viewMode]);
+  useEffect(() => { bimRef.current?.setWallHeight(wallCut); }, [wallCut, viewMode]);
   useEffect(() => { bimRef.current?.setSun(sunTime); }, [sunTime, viewMode]);
   useEffect(() => {
     const bim = bimRef.current;
@@ -541,6 +682,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
 
   const dashFor = useCallback(
     (layerId: string) => {
+      if (layerId === "layer-mep") return `${gridStep * 0.3} ${gridStep * 0.18}`;
       const layer = spec.layers.find((l) => l.id === layerId);
       if (layer?.lineType === "dashed") return `${gridStep * 0.4} ${gridStep * 0.25}`;
       if (layer?.lineType === "dotted") return `${gridStep * 0.06} ${gridStep * 0.12}`;
@@ -555,8 +697,21 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
       const dash = dashFor(entity.layer);
       const common = { stroke: color, strokeWidth: 1.2, fill: "none" as const, vectorEffect: "non-scaling-stroke" as const, strokeDasharray: dash };
       switch (entity.kind) {
-        case "line":
-          return <line key={key} x1={entity.from[0]} y1={-entity.from[1]} x2={entity.to[0]} y2={-entity.to[1]} {...common} />;
+        case "line": {
+          const ticks =
+            entity.layer === "layer-dimensions"
+              ? (dimensionDecor(entity.from, entity.to, dimTick) as Extract<BlockPrim, { kind: "line" }>[])
+              : ([] as Extract<BlockPrim, { kind: "line" }>[]);
+          return (
+            <g key={key}>
+              <line x1={entity.from[0]} y1={-entity.from[1]} x2={entity.to[0]} y2={-entity.to[1]} {...common} />
+              {ticks.map((tick, i) => (
+                <line key={i} x1={tick.a[0]} y1={-tick.a[1]} x2={tick.b[0]} y2={-tick.b[1]}
+                  stroke={color} strokeWidth={0.75} vectorEffect="non-scaling-stroke" />
+              ))}
+            </g>
+          );
+        }
         case "rect":
           return (
             <rect key={key} x={entity.x} y={-(entity.y + entity.h)} width={entity.w} height={entity.h}
@@ -584,6 +739,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           return <path key={key} d={`M ${x0} ${y0} A ${entity.r} ${entity.r} 0 ${delta > 180 ? 1 : 0} 0 ${x1} ${y1}`} {...common} />;
         }
         case "text":
+          if (roomTags.tagged.has(`${entity.x}|${entity.y}|${entity.content}`)) return null;
           return (
             <text key={key} x={entity.x} y={-entity.y} fill={color} fontSize={entity.height}
               textAnchor={entity.anchor === "middle" ? "middle" : entity.anchor === "end" ? "end" : "start"}
@@ -593,7 +749,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           );
       }
     },
-    [layerColor, dashFor, spec.entities],
+    [layerColor, dashFor, spec.entities, dimTick, roomTags.tagged],
   );
 
   const hotspotR = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) * 0.008;
@@ -663,9 +819,10 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const sun = sunPosition(sunTime);
   const sunClock = `${String(Math.floor(sunTime)).padStart(2, "0")}:${String(Math.round((sunTime % 1) * 60)).padStart(2, "0")}`;
 
-  const pxPerModel = stageSize.w > 0 ? stageSize.w / view.w : 1;
   const barModel = niceRoundStep(140 / pxPerModel, 1);
   const barPx = Math.round(barModel * pxPerModel);
+  const hatch = HATCH_COLORS[theme.key] ?? HATCH_COLORS["autocad-dark"];
+  const hatchSize = Math.max(view.w * 0.006, 0.02);
 
   const toolHint =
     tool === "measure" ? "Click two points to measure"
@@ -674,9 +831,10 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
     : "Drag to pan · scroll to zoom";
 
   return (
-    <div ref={rootRef} className="cad-viewer" data-testid="cad-viewer" style={{ background: theme.bg, color: theme.text }}>
-      <div className="cad-toolbar">
-        <div className="cad-seg" role="group" aria-label="View mode">
+    <div ref={rootRef} className="cad-viewer cad-workstation-shell" data-testid="cad-viewer" style={{ background: theme.bg, color: theme.text }}>
+      <div className="cad-toolbar cad-ribbon-bar">
+        <span className="cad-ribbon-title">ARCHITECTURE CAD</span>
+        <div className="cad-seg cad-ribbon-group" role="group" aria-label="View mode">
           {(["2d", "iso", "3d", "split"] as ViewMode[]).map((mode) => (
             <button key={mode} type="button" data-testid={`cad-view-${mode}`} aria-pressed={viewMode === mode}
               className={viewMode === mode ? "is-active" : ""} onClick={() => setViewMode(mode)}>
@@ -689,13 +847,13 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           aria-label="Sheet theme">
           {CAD_THEMES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
-        <div className="cad-seg">
+        <div className="cad-seg cad-ribbon-group">
           <button type="button" data-testid="cad-zoom-fit" onClick={() => setZoomPct(100)} title="Zoom fit"><Maximize2 size={14} /></button>
           {[100, 200, 400].map((pct) => (
             <button key={pct} type="button" data-testid={`cad-zoom-${pct}`} onClick={() => setZoomPct(pct)}>{pct}%</button>
           ))}
         </div>
-        <div className="cad-seg">
+        <div className="cad-seg cad-ribbon-group">
           <button type="button" data-testid="cad-tool-measure" aria-pressed={tool === "measure"} title="Point-to-point measure"
             className={tool === "measure" ? "is-active" : ""} onClick={() => { setTool(tool === "measure" ? null : "measure"); setPending([]); }}>
             <Ruler size={14} />
@@ -719,7 +877,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
             <button type="button" data-testid="cad-area-finish" onClick={finishArea}>Finish</button>
           )}
         </div>
-        <div className="cad-seg">
+        <div className="cad-seg cad-ribbon-group">
           <button type="button" data-testid="cad-fullscreen" aria-pressed={isFullscreen}
             title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen the sheet"}
             onClick={toggleSheetFullscreen}>
@@ -738,9 +896,10 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
 
       <div className="cad-body">
         <aside className="cad-dock cad-dock-left" aria-label="Layer manager">
-          <div className="cad-dock-title"><Layers size={13} /> LAYERS {soloLayer && (
+          <div className="cad-dock-header"><Layers size={13} /> LAYERS {soloLayer && (
             <button type="button" data-testid="cad-solo-clear" className="cad-solo-clear" onClick={() => setSoloLayer(null)}>solo: {soloLayer} ✕</button>
           )}</div>
+          <div className="cad-dock-scroll">
           {spec.layers.map((layer) => {
             const state = layerState[layer.id];
             return (
@@ -774,6 +933,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
               {flowsOn ? <Eye size={13} /> : <EyeOff size={13} />} Flow paths ({spec.flows.length})
             </button>
           )}
+          </div>
         </aside>
 
         <div className="cad-stage-wrap" ref={stageWrapRef}>
@@ -781,7 +941,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
             <div className="cad-pane cad-pane-2d">
               <svg
                 ref={svg2dRef}
-                className="cad-stage-svg"
+                className="cad-stage-svg cad-svg-canvas"
                 data-testid="cad-stage"
                 viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
                 onPointerDown={(e) => { dragRef.current = { x: e.clientX, y: e.clientY, moved: false }; }}
@@ -808,6 +968,13 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                 onPointerLeave={() => setCursor(null)}
                 onDoubleClick={() => { if (tool === "area") finishArea(); }}
               >
+                <defs>
+                  <pattern id="cad-wall-hatch" patternUnits="userSpaceOnUse" width={hatchSize} height={hatchSize} patternTransform="rotate(45)">
+                    <rect width={hatchSize} height={hatchSize} fill={hatch.fill} />
+                    <line x1={0} y1={0} x2={0} y2={hatchSize} stroke={hatch.line} strokeWidth={Math.max(hatchSize * 0.14, 0.02)} />
+                    <line x1={0} y1={0} x2={hatchSize} y2={0} stroke={hatch.line} strokeWidth={Math.max(hatchSize * 0.14, 0.02)} />
+                  </pattern>
+                </defs>
                 <g className="cad-grid">{gridLines}</g>
                 {spec.layers.map((layer) => {
                   if (!isLayerVisible(layer.id)) return null;
@@ -815,12 +982,65 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                   return (
                     <g key={layer.id} data-layer={layer.id} opacity={state.opacity}>
                       {(entitiesByLayer.get(layer.id) ?? []).map((entity, i) => renderEntity(entity, i))}
-                      {spec.walls.filter((w) => w.layer === layer.id).map((wall) => (
-                        <polyline key={wall.id} data-testid={`cad-wall-${wall.id}`}
-                          points={(wall.closed ? [...wall.path, wall.path[0]] : wall.path).map((p) => `${p[0]},${-p[1]}`).join(" ")}
-                          fill="none" stroke={layerColor(layer.id)} strokeWidth={Math.max(wall.thickness, gridStep * 0.04)}
-                          strokeLinejoin="round" strokeDasharray={dashFor(layer.id)} />
+                      {spec.walls.filter((w) => w.layer === layer.id).map((wall) => {
+                        const half = Math.max(wall.thickness / 2, 0.02);
+                        const { outer, inner } = offsetPolyline(wall.path, half, wall.closed);
+                        return (
+                          <g key={wall.id} data-testid={`cad-wall-${wall.id}`}>
+                            <path d={hatchFillPath(outer, inner, wall.closed)} fillRule="evenodd" fill="url(#cad-wall-hatch)" stroke="none" />
+                            {(wall.closed ? [outer, [...inner, inner[0]]] : [outer, inner]).map((line, li) => (
+                              <polyline key={li} points={line.map((p) => `${p[0]},${-p[1]}`).join(" ")}
+                                fill="none" stroke={layerColor(layer.id)} strokeWidth={1.6} strokeLinejoin="round"
+                                strokeDasharray={dashFor(layer.id)} vectorEffect="non-scaling-stroke" />
+                            ))}
+                          </g>
+                        );
+                      })}
+                      {spec.doors.filter((d) => d.layer === layer.id).map((door) => {
+                        const sym = doorSymbol(door.hinge, door.angleDeg, door.width, door.swingDeg);
+                        const [hinge, tip] = sym.leaf;
+                        const { cx, cy, r, a0, a1 } = sym.arc;
+                        const x0 = cx + r * Math.cos(deg2rad(a0));
+                        const y0 = -(cy + r * Math.sin(deg2rad(a0)));
+                        const x1 = cx + r * Math.cos(deg2rad(a1));
+                        const y1 = -(cy + r * Math.sin(deg2rad(a1)));
+                        const delta = a1 - a0;
+                        return (
+                          <g key={door.id} data-testid={`cad-door-${door.id}`}>
+                            <line x1={hinge[0]} y1={-hinge[1]} x2={tip[0]} y2={-tip[1]}
+                              stroke={layerColor(layer.id)} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                            <path d={`M ${x0} ${y0} A ${r} ${r} 0 ${Math.abs(delta) > 180 ? 1 : 0} ${delta > 0 ? 0 : 1} ${x1} ${y1}`}
+                              fill="none" stroke={layerColor(layer.id)} strokeWidth={0.9}
+                              strokeDasharray={`${gridStep * 0.3} ${gridStep * 0.15}`} vectorEffect="non-scaling-stroke" />
+                          </g>
+                        );
+                      })}
+                      {spec.windows.filter((w) => w.layer === layer.id).map((win) => (
+                        <g key={win.id} data-testid={`cad-window-${win.id}`}>
+                          {windowLines(win.from, win.to, 0.15, win.mullions).map((ln, i) => (
+                            <line key={i} x1={ln.a[0]} y1={-ln.a[1]} x2={ln.b[0]} y2={-ln.b[1]}
+                              stroke={layerColor(layer.id)} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                          ))}
+                        </g>
                       ))}
+                      {spec.furniture.filter((f) => f.layer === layer.id).map((f) => (
+                        <g key={f.id} data-testid={`cad-furniture-${f.id}`}
+                          transform={`translate(${f.x} ${-f.y}) rotate(${-f.rotation}) scale(1 -1)`}>
+                          {furnitureBlock(f.category, f.w, f.h).map((prim, i) => renderBlockPrim(
+                            prim, i, layerColor(layer.id),
+                            theme.key === "white-plot" ? "rgba(148,163,184,0.15)" : "rgba(30,41,59,0.45)",
+                            undefined,
+                          ))}
+                        </g>
+                      ))}
+                      {layer.id === "layer-mep" && (entitiesByLayer.get(layer.id) ?? []).flatMap((e, i) =>
+                        e.kind === "line"
+                          ? [
+                              <circle key={`jn${i}a`} cx={e.from[0]} cy={-e.from[1]} r={maxDim * 0.004} fill={layerColor(layer.id)} />,
+                              <circle key={`jn${i}b`} cx={e.to[0]} cy={-e.to[1]} r={maxDim * 0.004} fill={layerColor(layer.id)} />,
+                            ]
+                          : [],
+                      )}
                     </g>
                   );
                 })}
@@ -837,6 +1057,20 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                       onClick={() => setHotspotSel(hotspotSel?.id === hotspot.id ? null : hotspot)} />
                   </g>
                 ))}
+                {gridDeco && (
+                  <g data-testid="cad-grid-axes" pointerEvents="none">
+                    {gridDeco.lines.map((gl, i) => (
+                      <line key={i} x1={gl.a[0]} y1={-gl.a[1]} x2={gl.b[0]} y2={-gl.b[1]} stroke="#64748b" strokeWidth={0.8}
+                        strokeDasharray={`${gridStep * 0.8} ${gridStep * 0.25} ${gridStep * 0.2} ${gridStep * 0.25}`} vectorEffect="non-scaling-stroke" />
+                    ))}
+                    {gridDeco.bubbles.map((b, i) => (
+                      <g key={`bub${i}`}>
+                        <circle cx={b.x} cy={-b.y} r={bubbleR} fill={theme.bg} stroke="#94a3b8" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                        <text x={b.x} y={-b.y + bubbleR * 0.35} fontSize={bubbleR * 1.1} fill={theme.text} textAnchor="middle">{b.label}</text>
+                      </g>
+                    ))}
+                  </g>
+                )}
                 {measures.map((m, i) => (
                   <g key={`m${i}`} className="cad-measure">
                     <line x1={m.a[0]} y1={-m.a[1]} x2={m.b[0]} y2={-m.b[1]} stroke="#FBBF24" strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
@@ -876,6 +1110,16 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                     <line x1={view.x} y1={-cursor[1]} x2={view.x + view.w} y2={-cursor[1]} stroke={theme.crosshair} strokeWidth={0.6} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
                   </g>
                 )}
+                {roomTags.tags.map((tag, i) => (
+                  <g key={`rt${i}`} data-testid="cad-room-tag" pointerEvents="none">
+                    <rect x={tag.cx - tag.w / 2} y={-(tag.cy + tag.h / 2)} width={tag.w} height={tag.h} rx={tag.h * 0.28}
+                      fill={theme.key === "white-plot" ? "#ffffff" : "#0b101b"} stroke="#38bdf8" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+                    <text x={tag.cx} y={-(tag.cy + tag.h * 0.12)} fontSize={9 / pxPerModel} fontWeight="bold" textAnchor="middle"
+                      fill={theme.key === "white-plot" ? "#0f172a" : "#f8fafc"}>{tag.name}</text>
+                    <text x={tag.cx} y={-(tag.cy - tag.h * 0.22)} fontSize={8 / pxPerModel} textAnchor="middle"
+                      fill={theme.key === "white-plot" ? "#0369a1" : "#38bdf8"}>{tag.sub}</text>
+                  </g>
+                ))}
               </svg>
               <div className="cad-north" aria-hidden="true">
                 <svg width="26" height="30" viewBox="0 0 26 30">
@@ -892,7 +1136,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
 
           {viewMode === "iso" && (
             <div className="cad-pane cad-pane-iso">
-              <svg className="cad-iso-svg" data-testid="cad-iso-stage" viewBox={isoViewBox}>
+              <svg className="cad-iso-svg cad-svg-canvas" data-testid="cad-iso-stage" viewBox={isoViewBox}>
                 {isoFaces?.map((face, i) => (
                   <polygon key={i} points={face.points.map((p) => `${p[0]},${p[1]}`).join(" ")}
                     fill={face.color} fillOpacity={face.opacity} stroke={face.stroke} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
@@ -910,17 +1154,33 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           )}
 
           {(viewMode === "3d" || viewMode === "split") && (
-            <div className="cad-pane cad-pane-3d" ref={bimContainerRef} data-testid="cad-3d" />
+            <div className="cad-pane cad-pane-3d">
+              <div className="cad-bim-host" ref={bimContainerRef} data-testid="cad-3d" />
+              <div className="cad-viewcube cad-viewcube-cad" role="group" aria-label="ViewCube">
+                {([["top", "TOP"], ["front", "FRONT"], ["right", "RIGHT"], ["iso-ne", "ISO NE"], ["iso-sw", "ISO SW"]] as const).map(([dir, label]) => (
+                  <button key={dir} type="button" data-testid={`cad-viewcube-${dir}`} onClick={() => bimRef.current?.setView(dir)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
         <aside className="cad-dock cad-dock-right" aria-label="Drawing controls">
-          <div className="cad-dock-title">VIEW CONTROLS</div>
+          <div className="cad-dock-header">VIEW CONTROLS</div>
+          <div className="cad-dock-scroll">
           <label className="cad-control-row">
             <span>Explode</span>
             <input type="range" min={0} max={100} value={explode} data-testid="cad-explode" disabled={viewMode === "2d"}
               onChange={(e) => setExplode(Number(e.target.value))} />
             <b className="cad-control-value">{explode}%</b>
+          </label>
+          <label className="cad-control-row">
+            <span>Wall Height</span>
+            <input type="range" min={0.5} max={2.8} step={0.05} value={wallCut ?? 2.8} data-testid="cad-wall-height" disabled={viewMode === "2d"}
+              onChange={(e) => { const v = Number(e.target.value); setWallCut(v >= 2.8 ? null : v); }} />
+            <b className="cad-control-value">{wallCut === null ? "full" : `${wallCut.toFixed(2)} m`}</b>
           </label>
           {(["x", "y", "z"] as const).map((axis) => (
             <label key={axis} className="cad-control-row">
@@ -966,6 +1226,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
               )}
             </div>
           )}
+          </div>
         </aside>
       </div>
 

@@ -407,20 +407,31 @@ test.describe("ArchitectureCadViewer live sheet (visible)", () => {
 
     await step(page, "🧪 TESTING: Tape Measure — two clicks must draw a live dimension readout...");
     const stage = page.locator('[data-testid="cad-stage"]');
-    await stage.scrollIntoViewIfNeeded();
     await page.click('[data-testid="cad-tool-measure"]');
+    // Clicking the ribbon tool button scrolled the page (the shell top sits above
+    // the viewport), pushing the stage's bbox midpoint onto the chat composer.
+    // Re-center the stage AFTER arming the tool, then read the box.
+    await stage.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
     const box = (await stage.boundingBox())!;
-    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.5);
-    await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.5);
+    // The layer/controls docks are absolute overlays — click the clear band
+    // between them (never the outer 30% of the stage width).
+    await page.mouse.click(box.x + box.width * 0.42, box.y + box.height * 0.5);
+    await page.mouse.click(box.x + box.width * 0.58, box.y + box.height * 0.5);
     await expect(page.locator(".cad-measure text").first()).toHaveText(/\d+(\.\d+)?\s*(m|mm|ft)/);
 
     await step(page, "🧪 TESTING: Area tool — four corners must display m²...");
     await page.click('[data-testid="cad-tool-clear"]');
     await page.click('[data-testid="cad-tool-area"]');
-    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.3);
-    await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.3);
-    await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.7);
-    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.7);
+    // The clear/area ribbon clicks re-scroll the chat container (the stage bbox
+    // jumps ~270px), so the old box is stale — re-center and re-read it.
+    await stage.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
+    const abox = (await stage.boundingBox())!;
+    await page.mouse.click(abox.x + abox.width * 0.42, abox.y + abox.height * 0.35);
+    await page.mouse.click(abox.x + abox.width * 0.58, abox.y + abox.height * 0.35);
+    await page.mouse.click(abox.x + abox.width * 0.58, abox.y + abox.height * 0.65);
+    await page.mouse.click(abox.x + abox.width * 0.42, abox.y + abox.height * 0.65);
     await expect(page.locator('[data-testid="cad-area-finish"]')).toBeVisible({ timeout: 5000 });
     await page.click('[data-testid="cad-area-finish"]');
     await expect(page.locator(".cad-area text").first()).toContainText("m²");
@@ -432,5 +443,475 @@ test.describe("ArchitectureCadViewer live sheet (visible)", () => {
     expect(dxf).toContain("LAYER");
     const svg = await downloadText(page, "cad-export-format", "svg", "cad-export");
     expect(svg).toContain("<svg");
+  });
+});
+
+// ── Stress case 1: high-fidelity Three.js contract (12–25 named sub-meshes) ──
+
+const MECHA_PROMPT =
+  "Create a high-detail 3D Mecha Strike Helmet & Arc Core Bust in Three.js with at least 16 named articulated " +
+  "parts: Upper_Crown, Brow_Plate, Left_Cheek_Armor, Right_Cheek_Armor, Jaw_Guard, Chin_Vent, Left_Optic_Visor " +
+  "(glowing cyan), Right_Optic_Visor (glowing cyan), Forehead_Crest, Left_Ear_Comms_Pod, Right_Ear_Comms_Pod, " +
+  "Neck_Hydraulic_Piston_L, Neck_Hydraulic_Piston_R, Chest_Arc_Reactor_Ring, Chest_Arc_Core (pulsing emissive), " +
+  "and Shoulder_Pauldron_L/R. Add idle breathing motion, visor glow pulse, and full support for the 0-100% " +
+  "Explode slider.";
+
+const MECHA_CODE = [
+  "const armor = new THREE.MeshStandardMaterial({ color: 0x42506b, metalness: 0.9, roughness: 0.32 });",
+  "const dark = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.75, roughness: 0.45 });",
+  "const glow = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x38bdf8, emissiveIntensity: 2.4 });",
+  "const edgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.5 });",
+  "function part(geo, mat, name, x, y, z) { const m = new THREE.Mesh(geo, mat); m.name = name; m.position.set(x, y, z); m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 15), edgeMat)); root.add(m); return m; }",
+  "const crown = part(new THREE.SphereGeometry(1, 32, 24, 0, Math.PI * 2, 0, Math.PI * 0.58), armor, 'Upper_Crown', 0, 0.3, 0);",
+  "crown.scale.set(0.95, 0.95, 1.05);",
+  "part(new THREE.BoxGeometry(1.5, 0.16, 0.45), armor, 'Brow_Plate', 0, 0.26, 0.8);",
+  "const cheekShape = new THREE.Shape(); cheekShape.moveTo(-0.3, 0); cheekShape.lineTo(0.3, 0); cheekShape.lineTo(0.22, -0.55); cheekShape.lineTo(-0.24, -0.42); cheekShape.closePath();",
+  "const cheekGeo = new THREE.ExtrudeGeometry(cheekShape, { depth: 0.12, bevelEnabled: true, bevelSize: 0.03, bevelThickness: 0.03 });",
+  "part(cheekGeo, armor, 'Left_Cheek_Armor', 0.52, 0.02, 0.5);",
+  "part(cheekGeo, armor, 'Right_Cheek_Armor', -0.52, 0.02, 0.5);",
+  "part(new THREE.BoxGeometry(1.1, 0.3, 0.5), armor, 'Jaw_Guard', 0, -0.35, 0.55);",
+  "part(new THREE.CylinderGeometry(0.16, 0.16, 0.5, 12), dark, 'Chin_Vent', 0, -0.55, 0.35);",
+  "part(new THREE.SphereGeometry(0.16, 20, 14), glow, 'Left_Optic_Visor', 0.34, 0.05, 0.86);",
+  "part(new THREE.SphereGeometry(0.16, 20, 14), glow, 'Right_Optic_Visor', -0.34, 0.05, 0.86);",
+  "const crestShape = new THREE.Shape(); crestShape.moveTo(0, 0.5); crestShape.lineTo(0.18, 0); crestShape.lineTo(-0.18, 0); crestShape.closePath();",
+  "part(new THREE.ExtrudeGeometry(crestShape, { depth: 0.1, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02 }), armor, 'Forehead_Crest', 0, 0.62, 0.55);",
+  "const podPts = [[0.04, 0], [0.13, 0.06], [0.15, 0.2], [0.05, 0.26]].map((p) => new THREE.Vector2(p[0], p[1]));",
+  "part(new THREE.LatheGeometry(podPts, 18), dark, 'Left_Ear_Comms_Pod', 0.98, 0.05, 0);",
+  "part(new THREE.LatheGeometry(podPts, 18), dark, 'Right_Ear_Comms_Pod', -0.98, 0.05, 0);",
+  "part(new THREE.CylinderGeometry(0.09, 0.13, 0.7, 14), armor, 'Neck_Hydraulic_Piston_L', 0.28, -0.85, -0.1);",
+  "part(new THREE.CylinderGeometry(0.09, 0.13, 0.7, 14), armor, 'Neck_Hydraulic_Piston_R', -0.28, -0.85, -0.1);",
+  "part(new THREE.TorusGeometry(0.5, 0.09, 14, 36), armor, 'Chest_Arc_Reactor_Ring', 0, -1.35, 0.55);",
+  "part(new THREE.SphereGeometry(0.3, 24, 16), glow, 'Chest_Arc_Core', 0, -1.35, 0.55);",
+  "const pauldronGeo = new THREE.SphereGeometry(0.55, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);",
+  "part(pauldronGeo, armor, 'Shoulder_Pauldron_L', 1.35, -0.95, 0);",
+  "part(pauldronGeo, armor, 'Shoulder_Pauldron_R', -1.35, -0.95, 0);",
+  "part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0, -0.6, -0.35), new THREE.Vector3(0, -1.2, -0.5), new THREE.Vector3(0, -1.8, -0.35)]), 24, 0.12, 10, false), dark, 'Spine_Support', 0, 0, 0);",
+  "function onUpdate(delta, elapsed) {",
+  "  const breathe = 1 + Math.sin(elapsed * 1.6) * 0.02;",
+  "  root.scale.set(breathe, breathe, breathe);",
+  "  glow.emissiveIntensity = 2.0 + Math.sin(elapsed * 3.2) * 0.9;",
+  "}",
+].join("\n");
+
+test.describe("Stress: ThreeStudioViewer mecha bust fidelity (visible)", () => {
+  test("17 named articulated parts, emissive visors, explode slider, ViewCube", async ({ page }) => {
+    test.setTimeout(240000);
+    await mockChat(page, "threejs", MECHA_CODE);
+    await page.goto("http://localhost:3000/");
+    await step(page, "🧪 STRESS: Submitting the Mecha Strike Helmet & Arc Core Bust prompt...");
+    await sendPrompt(page, MECHA_PROMPT);
+    await expect(page.locator('[data-testid="scene3d-stage"]')).toBeVisible({ timeout: 40000 });
+    await expect(page.locator('[data-testid="threejs-code-error"]')).toHaveCount(0);
+
+    await step(page, "🧪 STRESS: Counting named sub-meshes — the 3D contract demands 12–25 distinct parts...");
+    const named = await page.evaluate(() => {
+      const set = new Set<string>();
+      (window as any).__studioViewer.scene.traverse((o: any) => { if (o.isMesh && o.name) set.add(o.name); });
+      return [...set];
+    });
+    expect(named.length, "3D contract: at least 16 named meshes, no lazy 4-primitive toy").toBeGreaterThanOrEqual(16);
+    for (const p of ["Upper_Crown", "Brow_Plate", "Left_Optic_Visor", "Right_Optic_Visor", "Chest_Arc_Core", "Shoulder_Pauldron_L", "Shoulder_Pauldron_R", "Neck_Hydraulic_Piston_L"]) {
+      expect(named, `missing contract part ${p}`).toContain(p);
+    }
+    const geoTypes = await page.evaluate(() => {
+      const s = new Set<string>();
+      (window as any).__studioViewer.scene.traverse((o: any) => { if (o.isMesh && o.geometry?.type) s.add(o.geometry.type); });
+      return [...s];
+    });
+    expect(geoTypes.length, "contract: real assets mix Extrude/Lathe/Tube/Torus/Cylinder geometries").toBeGreaterThanOrEqual(4);
+
+    await step(page, "🧪 STRESS: Verifying emissive visor materials (glow pulse)...");
+    const visorMat = await page.evaluate(() => {
+      let m: any = null;
+      (window as any).__studioViewer.scene.traverse((o: any) => { if (o.name === "Left_Optic_Visor") m = o.material; });
+      return m ? { emissive: m.emissive?.getHex?.() ?? 0, emissiveIntensity: m.emissiveIntensity ?? 0 } : null;
+    });
+    expect(visorMat, "Left_Optic_Visor mesh must exist").not.toBeNull();
+    expect(visorMat!.emissive, "visor must carry an emissive color").not.toBe(0);
+    expect(visorMat!.emissiveIntensity, "visor emissiveIntensity >= 1.5").toBeGreaterThanOrEqual(1.5);
+
+    await step(page, "🧪 STRESS: Canvas pixel probe — emissive bust must render real lit pixels...");
+    await page.waitForTimeout(1200);
+    expectRealRender(await canvasProbe(page, ".scene3d-stage canvas"), "mecha bust render");
+
+    await step(page, "🧪 STRESS: Explode slider 0 → 100% → 0% pushes pauldrons away from the crown...");
+    const partDist = () => page.evaluate(() => {
+      const V = (window as any).__studioViewer.activeCamera.position.constructor;
+      const p: Record<string, any> = {};
+      (window as any).__studioViewer.scene.traverse((o: any) => {
+        if (o.name === "Shoulder_Pauldron_L" || o.name === "Upper_Crown") p[o.name] = o.getWorldPosition(new V());
+      });
+      return Math.hypot(p.Shoulder_Pauldron_L.x - p.Upper_Crown.x, p.Shoulder_Pauldron_L.y - p.Upper_Crown.y, p.Shoulder_Pauldron_L.z - p.Upper_Crown.z);
+    });
+    const baseDist = await partDist();
+    await setRange(page, "scene3d-explode", "100");
+    await page.waitForTimeout(500);
+    const explodedDist = await partDist();
+    expect(explodedDist, "explode 100% must separate pauldron from crown").toBeGreaterThan(baseDist + 0.5);
+    await setRange(page, "scene3d-explode", "0");
+    await page.waitForTimeout(500);
+    expect(Math.abs((await partDist()) - baseDist), "explode 0% must restore the bust").toBeLessThan(0.2);
+
+    await step(page, "🧪 STRESS: ViewCube TOP / FRONT / RIGHT / ISO NE / ISO SW reposition the live camera...");
+    const camPos = () => page.evaluate(() => { const c = (window as any).__studioViewer.activeCamera.position; return [c.x, c.y, c.z]; });
+    let prev = await camPos();
+    for (const dir of ["top", "front", "right", "iso-ne", "iso-sw"]) {
+      await page.click(`[data-testid="scene3d-viewcube-${dir}"]`);
+      await page.waitForTimeout(450);
+      const now = await camPos();
+      const moved = Math.hypot(now[0] - prev[0], now[1] - prev[1], now[2] - prev[2]);
+      expect(moved, `ViewCube ${dir} must move the live camera`).toBeGreaterThan(0.5);
+      prev = now;
+    }
+    expectRealRender(await canvasProbe(page, ".scene3d-stage canvas"), "mecha bust after ViewCube");
+    await expect(page.locator('[data-testid="scene3d-stats"]')).toContainText("meshes");
+  });
+});
+
+// ── Stress case 2: full architectural blueprint + BIM cutaway ────────────────
+
+const LAB_PROMPT =
+  "Create a complete architectural CAD blueprint and 3D isometric BIM cutaway for a 2-Level Sustainable " +
+  "Innovation Lab & Executive Hub (18m x 12m) with 8 detailed zones: Double-Height Atrium Lobby, Glass " +
+  "Conference Boardroom, Open AI Engineering Studio (with 8 desks), Espresso & Lounge Bar, Server & Quantum " +
+  "Cooling Vault, Prototyping Workshop, Restroom Core, and Rooftop Solar Terrace with Staircase. Include full " +
+  "structural column grids (A-D, 1-4), double-lined hatched walls, door swings, window mullions, detailed " +
+  "furniture CAD blocks, MEP routing, and dimension chains.";
+
+const LAB_SPEC = {
+  title: "Sustainable Innovation Lab & Executive Hub",
+  units: "m",
+  scale: { ratio: 100 },
+  layers: [
+    { id: "layer-structural", name: "Structural Walls", color: "#e2e8f0", group: "shell" },
+    { id: "layer-architectural", name: "Doors / Windows", color: "#38bdf8", group: "shell", lineType: "dashed" },
+    { id: "layer-furniture", name: "Furniture / Equipment", color: "#94a3b8" },
+    { id: "layer-mep", name: "MEP Routing", color: "#f59e0b", lineType: "dotted" },
+    { id: "layer-dimensions", name: "Dimension Chains", color: "#64748b" },
+    { id: "layer-annotations", name: "Annotations / Room Tags", color: "#cbd5e1" },
+  ],
+  entities: [
+    // Room boundary polygons (drive room-tag pill placement)
+    { kind: "polygon", layer: "layer-annotations", points: [[0, 8], [6, 8], [6, 12], [0, 12]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[6, 8], [12, 8], [12, 12], [6, 12]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[12, 8], [18, 8], [18, 12], [12, 12]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[0, 4], [6, 4], [6, 8], [0, 8]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[6, 4], [12, 4], [12, 8], [6, 8]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[12, 4], [18, 4], [18, 8], [12, 8]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[0, 0], [6, 0], [6, 4], [0, 4]] },
+    { kind: "polygon", layer: "layer-annotations", points: [[13, 0], [18, 0], [18, 4], [13, 4]] },
+    // Zone labels (middle-anchored → become anti-collision room-tag pills)
+    { kind: "text", layer: "layer-annotations", x: 3, y: 10, content: "DOUBLE-HEIGHT ATRIUM LOBBY", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 9, y: 10, content: "GLASS CONFERENCE BOARDROOM", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 15, y: 10, content: "ROOFTOP SOLAR TERRACE", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 3, y: 6, content: "OPEN AI ENGINEERING STUDIO", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 9, y: 6, content: "ESPRESSO & LOUNGE BAR", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 15, y: 6, content: "PROTOTYPING WORKSHOP", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 3, y: 2, content: "SERVER & QUANTUM COOLING VAULT", height: 0.35, anchor: "middle" },
+    { kind: "text", layer: "layer-annotations", x: 15.5, y: 2, content: "RESTROOM CORE", height: 0.35, anchor: "middle" },
+    // Dimension chains (45° slash ticks are drawn by the viewer)
+    { kind: "line", layer: "layer-dimensions", from: [0, -1], to: [18, -1] },
+    { kind: "line", layer: "layer-dimensions", from: [-1, 0], to: [-1, 12] },
+    { kind: "line", layer: "layer-dimensions", from: [0, 13], to: [18, 13] },
+    { kind: "line", layer: "layer-dimensions", from: [19, 0], to: [19, 12] },
+    { kind: "text", layer: "layer-dimensions", x: 9, y: -1.4, content: "18.00 m", height: 0.3, anchor: "middle" },
+    { kind: "text", layer: "layer-dimensions", x: -1.4, y: 6, content: "12.00 m", height: 0.3, anchor: "middle" },
+    // MEP routing (dashed amber + junction nodes)
+    { kind: "line", layer: "layer-mep", from: [10.7, 6.7], to: [10.7, 4.2] },
+    { kind: "line", layer: "layer-mep", from: [10.7, 4.2], to: [16.9, 4.2] },
+    { kind: "line", layer: "layer-mep", from: [16.9, 4.2], to: [16.9, 1.4] },
+  ],
+  walls: [
+    { id: "wall-envelope", layer: "layer-structural", path: [[0, 0], [18, 0], [18, 12], [0, 12]], closed: true, height: 3, thickness: 0.25 },
+    { id: "wall-part-a", layer: "layer-structural", path: [[6, 8], [6, 12]], height: 3, thickness: 0.15 },
+    { id: "wall-part-b", layer: "layer-structural", path: [[12, 8], [12, 12]], height: 3, thickness: 0.15 },
+    { id: "wall-part-c1", layer: "layer-structural", path: [[0, 8], [5.5, 8]], height: 3, thickness: 0.15 },
+    { id: "wall-part-c2", layer: "layer-structural", path: [[6.5, 8], [11.5, 8]], height: 3, thickness: 0.15 },
+    { id: "wall-part-c3", layer: "layer-structural", path: [[12.5, 8], [18, 8]], height: 3, thickness: 0.15 },
+    { id: "wall-part-f1", layer: "layer-structural", path: [[0, 4], [5.5, 4]], height: 3, thickness: 0.15 },
+    { id: "wall-part-f2", layer: "layer-structural", path: [[6.5, 4], [12.5, 4]], height: 3, thickness: 0.15 },
+    { id: "wall-part-h", layer: "layer-structural", path: [[13, 0], [13, 4]], height: 3, thickness: 0.15 },
+    { id: "wall-part-i", layer: "layer-structural", path: [[13, 4], [18, 4]], height: 3, thickness: 0.15 },
+  ],
+  doors: [
+    { id: "door-entry", layer: "layer-architectural", hinge: [8.5, 0], width: 1.8, angleDeg: 90, swingDeg: 90, wall: "wall-envelope" },
+    { id: "door-conf", layer: "layer-architectural", hinge: [6, 9], width: 1.1, angleDeg: 0, swingDeg: 90, wall: "wall-part-a" },
+    { id: "door-studio", layer: "layer-architectural", hinge: [5.5, 8], width: 1, angleDeg: -90, swingDeg: 90, wall: "wall-part-c1" },
+    { id: "door-vault", layer: "layer-architectural", hinge: [4, 4], width: 1, angleDeg: 90, swingDeg: -90, wall: "wall-part-f1" },
+    { id: "door-rest", layer: "layer-architectural", hinge: [13, 1.2], width: 0.9, angleDeg: 0, swingDeg: 90, wall: "wall-part-h" },
+  ],
+  windows: [
+    { id: "win-s1", layer: "layer-architectural", from: [1.5, 0], to: [4.5, 0], mullions: 3, wall: "wall-envelope" },
+    { id: "win-s2", layer: "layer-architectural", from: [12, 0], to: [15, 0], mullions: 3, wall: "wall-envelope" },
+    { id: "win-n1", layer: "layer-architectural", from: [7, 12], to: [11, 12], mullions: 3, wall: "wall-envelope" },
+    { id: "win-n2", layer: "layer-architectural", from: [14, 12], to: [17, 12], mullions: 2, wall: "wall-envelope" },
+    { id: "win-e1", layer: "layer-architectural", from: [18, 5], to: [18, 7], mullions: 2, wall: "wall-envelope" },
+    { id: "win-w1", layer: "layer-architectural", from: [0, 9], to: [0, 11], mullions: 2, wall: "wall-envelope" },
+  ],
+  furniture: [
+    { id: "f-desk-1", layer: "layer-furniture", category: "desk", x: 0.8, y: 6.6, w: 1.4, h: 0.7, label: "Desk 1" },
+    { id: "f-desk-2", layer: "layer-furniture", category: "desk", x: 2.6, y: 6.6, w: 1.4, h: 0.7, label: "Desk 2" },
+    { id: "f-desk-3", layer: "layer-furniture", category: "desk", x: 4.2, y: 6.6, w: 1.4, h: 0.7, label: "Desk 3" },
+    { id: "f-desk-4", layer: "layer-furniture", category: "desk", x: 0.8, y: 5.2, w: 1.4, h: 0.7, label: "Desk 4" },
+    { id: "f-chair-1", layer: "layer-furniture", category: "chair", x: 1.4, y: 5.9, w: 0.5, h: 0.5 },
+    { id: "f-plant-1", layer: "layer-furniture", category: "plant", x: 5.4, y: 7.2, w: 0.5, h: 0.5 },
+    { id: "f-counter", layer: "layer-furniture", category: "counter", x: 7, y: 6.6, w: 3, h: 0.8, label: "Espresso Counter" },
+    { id: "f-sink", layer: "layer-furniture", category: "sink", x: 10.4, y: 6.7, w: 0.6, h: 0.6 },
+    { id: "f-sofa", layer: "layer-furniture", category: "sofa", x: 7, y: 4.6, w: 2.4, h: 0.9 },
+    { id: "f-coffee", layer: "layer-furniture", category: "coffee_table", x: 7.7, y: 5.8, w: 1.2, h: 0.7 },
+    { id: "f-shelving", layer: "layer-furniture", category: "shelving", x: 13, y: 7.2, w: 2, h: 0.5 },
+    { id: "f-appliance", layer: "layer-furniture", category: "appliance", x: 16.8, y: 6.4, w: 0.8, h: 0.8 },
+    { id: "f-plant-2", layer: "layer-furniture", category: "plant", x: 17.4, y: 7.4, w: 0.5, h: 0.5 },
+    { id: "f-rack-1", layer: "layer-furniture", category: "server_rack", x: 1, y: 1, w: 0.8, h: 1.2, label: "Quantum Rack A" },
+    { id: "f-rack-2", layer: "layer-furniture", category: "server_rack", x: 2.4, y: 1, w: 0.8, h: 1.2, label: "Quantum Rack B" },
+    { id: "f-toilet", layer: "layer-furniture", category: "toilet", x: 16.8, y: 0.5, w: 0.6, h: 0.9 },
+    { id: "f-shower", layer: "layer-furniture", category: "shower", x: 13.5, y: 0.4, w: 1.2, h: 1.2 },
+    { id: "f-stairs", layer: "layer-furniture", category: "stairs", x: 16.4, y: 2.2, w: 1.4, h: 1.6, label: "Core Stair" },
+  ],
+  grid: {
+    columns: [{ label: "A", position: 0 }, { label: "B", position: 6 }, { label: "C", position: 12 }, { label: "D", position: 18 }],
+    rows: [{ label: "1", position: 0 }, { label: "2", position: 4 }, { label: "3", position: 8 }, { label: "4", position: 12 }],
+  },
+  slabs: [{ id: "slab-floor", layer: "layer-structural", outline: [[0, 0], [18, 0], [18, 12], [0, 12]], z: 0, thickness: 0.15 }],
+  titleBlock: { projectName: "Sustainable Innovation Lab & Executive Hub", sheetTitle: "Level 1 Plan + BIM Cutaway", scaleLabel: "1:100", date: "2026-10-17", author: "WebUI Studio", sheetNumber: "A-201" },
+  defaultView: "2d",
+  export: { filename: "innovation-lab" },
+};
+
+test.describe("Stress: ArchitectureCadViewer full lab blueprint + BIM (visible)", () => {
+  test("hatched double walls, door swings, mullions, furniture blocks, room-tag pills, grid axes, BIM cutaway", async ({ page }) => {
+    test.setTimeout(300000);
+    await mockChat(page, "cad", JSON.stringify(LAB_SPEC, null, 2));
+    await page.goto("http://localhost:3000/");
+    await step(page, "🧪 STRESS: Submitting the 18m×12m Innovation Lab blueprint prompt...");
+    await sendPrompt(page, LAB_PROMPT);
+    await expect(page.locator('[data-testid="cad-viewer"]')).toBeVisible({ timeout: 40000 });
+    await expect(page.locator('[data-testid="cad-stage"]')).toBeVisible();
+
+    await step(page, "🧪 STRESS: AutoCAD poché hatch pattern + double-lined walls...");
+    await expect(page.locator("#cad-wall-hatch"), "wall hatch <pattern> must be defined in <defs>").toHaveCount(1);
+    await expect(page.locator('[data-testid="cad-wall-wall-envelope"] polyline'), "envelope must render OUTER + INNER lines")
+      .toHaveCount(2);
+    await expect(page.locator('[data-testid="cad-wall-wall-envelope"] path').first(), "envelope poché fill path").toBeVisible();
+
+    await step(page, "🧪 STRESS: Door leaves + 90° dashed swing arcs...");
+    await expect(page.locator('[data-testid^="cad-door-"]')).toHaveCount(5);
+    const doorArcs = await page.locator('[data-testid^="cad-door-"] path').count();
+    expect(doorArcs, "each door must draw its swing arc").toBeGreaterThanOrEqual(5);
+
+    await step(page, "🧪 STRESS: Window mullions (triple-line glazing)...");
+    await expect(page.locator('[data-testid^="cad-window-"]')).toHaveCount(6);
+    const winLines = await page.locator('[data-testid="cad-window-win-s1"] line').count();
+    expect(winLines, "3 mullions → glazing + mullion line bundle").toBeGreaterThanOrEqual(5);
+
+    await step(page, "🧪 STRESS: Procedural furniture CAD blocks (desks, counters, racks, sanitary)...");
+    await expect(page.locator('[data-testid^="cad-furniture-"]')).toHaveCount(18);
+    const deskPrims = await page.locator('[data-testid="cad-furniture-f-desk-1"] line, [data-testid="cad-furniture-f-desk-1"] rect').count();
+    expect(deskPrims, "desk block must be multi-stroke, not an empty rectangle").toBeGreaterThanOrEqual(3);
+    const rackPrims = await page.locator('[data-testid="cad-furniture-f-rack-1"] line, [data-testid="cad-furniture-f-rack-1"] rect').count();
+    expect(rackPrims, "server rack block must show rails/vents").toBeGreaterThanOrEqual(3);
+
+    await step(page, "🧪 STRESS: Dimension chains with 45° slash ticks...");
+    const dimLines = await page.locator('[data-testid="cad-stage"] [data-layer="layer-dimensions"] line').count();
+    expect(dimLines, "4 dimension chains + 8 slash ticks").toBeGreaterThanOrEqual(10);
+
+    await step(page, "🧪 STRESS: Room-tag pills — 8 zones, zero bounding-box collisions...");
+    const pillCount = await page.locator('[data-testid="cad-room-tag"]').count();
+    expect(pillCount, "every middle-anchored zone label becomes a pill").toBeGreaterThanOrEqual(8);
+    for (const zone of ["GLASS CONFERENCE BOARDROOM", "SERVER & QUANTUM COOLING VAULT", "ROOFTOP SOLAR TERRACE"]) {
+      await expect(page.locator('[data-testid="cad-room-tag"] text').filter({ hasText: zone }).first()).toBeVisible();
+    }
+    const pillOverlaps = await page.evaluate(() => {
+      const boxes = [...document.querySelectorAll('[data-testid="cad-room-tag"]')].map((g) => (g as unknown as SVGGraphicsElement).getBBox());
+      let n = 0;
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i], b = boxes[j];
+          if (a.x < b.x + b.width - 1 && b.x < a.x + a.width - 1 && a.y < b.y + b.height - 1 && b.y < a.y + a.height - 1) n++;
+        }
+      }
+      return n;
+    });
+    expect(pillOverlaps, "room-tag pills must never overlap each other").toBe(0);
+
+    await step(page, "🧪 STRESS: Structural column grid axes A–D / 1–4 with bubble bubbles...");
+    await expect(page.locator('[data-testid="cad-grid-axes"]')).toHaveCount(1);
+    for (const label of ["A", "B", "C", "D", "1", "2", "3", "4"]) {
+      await expect(page.locator('[data-testid="cad-grid-axes"] text').filter({ hasText: new RegExp(`^${label}$`) }).first(), `grid axis ${label}`).toBeVisible();
+    }
+
+    await step(page, "🧪 STRESS: 3D BIM cutaway — extruded walls, openings, furniture, edge shader...");
+    await page.click('[data-testid="cad-view-3d"]');
+    await expect(page.locator('[data-testid="cad-3d"] canvas')).toBeVisible({ timeout: 20000 });
+    await page.waitForTimeout(1500);
+    const statsText = await page.locator('[data-testid="cad-stats"]').textContent();
+    const meshCount = Number((statsText ?? "").match(/(\d+)\s+meshes/)?.[1] ?? 0);
+    expect(meshCount, "BIM extruder: walls split by openings + doors + windows + furniture").toBeGreaterThanOrEqual(40);
+    const bimProbe = await canvasProbe(page, '[data-testid="cad-3d"] canvas');
+    expectRealRender(bimProbe, "lab BIM cutaway", 240);
+
+    await step(page, "🧪 STRESS: BIM ViewCube TOP / FRONT / RIGHT / ISO NE / ISO SW...");
+    for (const dir of ["top", "front", "right", "iso-ne", "iso-sw"]) {
+      await page.click(`[data-testid="cad-viewcube-${dir}"]`);
+      await page.waitForTimeout(400);
+      expectRealRender(await canvasProbe(page, '[data-testid="cad-3d"] canvas'), `lab viewcube ${dir}`, 240);
+    }
+
+    await step(page, "🧪 STRESS: Wall Height slider (0.6 m cut) must visibly change the BIM scene...");
+    const fullSig = JSON.stringify([bimProbe.colors, bimProbe.litRatio, bimProbe.variedRatio]);
+    await setRange(page, "cad-wall-height", "0.6");
+    await page.waitForTimeout(700);
+    const cutProbe = await canvasProbe(page, '[data-testid="cad-3d"] canvas');
+    expectRealRender(cutProbe, "lab walls cut to 0.6 m", 240);
+    expect(JSON.stringify([cutProbe.colors, cutProbe.litRatio, cutProbe.variedRatio]), "wall-height slider must change the live BIM render")
+      .not.toBe(fullSig);
+    await setRange(page, "cad-wall-height", "2.8");
+
+    await step(page, "🧪 STRESS: Section clipping X must slice the model without errors...");
+    await page.check('[data-testid="cad-section-x"]');
+    await setRange(page, "cad-section-val-x", "9");
+    await page.waitForTimeout(700);
+    expectRealRender(await canvasProbe(page, '[data-testid="cad-3d"] canvas'), "lab section X", 240);
+    await page.uncheck('[data-testid="cad-section-x"]');
+  });
+});
+
+// ── Coverage: every control in both viewers exists and toggles cleanly ───────
+
+test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
+  test("full ribbon, layer dock, tools and 3D control checklist", async ({ page }) => {
+    test.setTimeout(240000);
+    await mockChat(page, "cad", JSON.stringify(KIOSK_SPEC, null, 2));
+    await page.goto("http://localhost:3000/");
+    await step(page, "🧪 CHECKLIST: Loading the Coffee Kiosk for the CAD control sweep...");
+    await sendPrompt(page, KIOSK_PROMPT);
+    await expect(page.locator('[data-testid="cad-viewer"]')).toBeVisible({ timeout: 40000 });
+
+    await step(page, "🧪 CHECKLIST: Ribbon — view modes, themes, zoom, tools, fullscreen, exports...");
+    for (const mode of ["2d", "iso", "3d", "split"]) {
+      await expect(page.locator(`[data-testid="cad-view-${mode}"]`), `view mode ${mode}`).toHaveCount(1);
+    }
+    await expect(page.locator('[data-testid="cad-theme"] option')).not.toHaveCount(0);
+    await expect(page.locator('[data-testid^="cad-zoom-"]')).not.toHaveCount(0);
+    for (const tool of ["measure", "area", "protractor", "snap-grid", "snap-vertex"]) {
+      await expect(page.locator(`[data-testid="cad-tool-${tool}"]`), `tool ${tool}`).toHaveCount(1);
+    }
+    await page.click('[data-testid="cad-tool-protractor"]');
+    await expect(page.locator('[data-testid="cad-tool-clear"]'), "clear appears while a tool is armed").toBeVisible();
+    await page.click('[data-testid="cad-tool-clear"]');
+    await expect(page.locator('[data-testid="cad-fullscreen"]')).toHaveCount(1);
+    const cadFormats = await page.locator('[data-testid="cad-export-format"] option').allTextContents();
+    expect(cadFormats.length, "export formats").toBeGreaterThanOrEqual(7);
+    for (const f of ["DXF", "SVG", "PDF", "PNG", "HTML", "GLB", "OBJ"]) {
+      expect(cadFormats.some((t) => t.startsWith(f)), `export format ${f}`).toBe(true);
+    }
+
+    await step(page, "🧪 CHECKLIST: Layer dock — Eye / Lock / Opacity / Solo for every layer...");
+    for (const layer of ["layer-structural", "layer-architectural", "layer-furniture", "layer-mep", "layer-dimensions", "layer-annotations"]) {
+      for (const ctl of ["hide", "lock", "opacity", "solo"]) {
+        await expect(page.locator(`[data-testid="cad-${ctl}-${layer}"]`), `${ctl} ${layer}`).toHaveCount(1);
+      }
+      await page.click(`[data-testid="cad-lock-${layer}"]`);
+      await page.click(`[data-testid="cad-lock-${layer}"]`);
+    }
+    await page.click('[data-testid="cad-solo-layer-mep"]');
+    await expect(page.locator('[data-testid="cad-solo-clear"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cad-stage"] [data-layer="layer-structural"]')).toHaveCount(0);
+    await page.click('[data-testid="cad-solo-clear"]');
+    // cad-toggle-flows renders only when the spec contains flow entities — the
+    // kiosk has none, so assert its absence instead of a false positive.
+    await expect(page.locator('[data-testid="cad-toggle-flows"]')).toHaveCount(0);
+
+    await step(page, "🧪 CHECKLIST: 3D controls — explode, wall height, sections, sun, ViewCube, stats...");
+    await page.click('[data-testid="cad-view-3d"]');
+    await expect(page.locator('[data-testid="cad-3d"] canvas')).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('[data-testid="cad-explode"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="cad-wall-height"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="cad-sun"]')).toBeEnabled();
+    for (const axis of ["x", "y", "z"]) {
+      await expect(page.locator(`[data-testid="cad-section-${axis}"]`), `section ${axis}`).toHaveCount(1);
+      await expect(page.locator(`[data-testid="cad-section-val-${axis}"]`), `section ${axis} value`).toHaveCount(1);
+    }
+    await page.check('[data-testid="cad-section-y"]');
+    await setRange(page, "cad-section-val-y", "3");
+    await page.uncheck('[data-testid="cad-section-y"]');
+    for (const dir of ["top", "front", "right", "iso-ne", "iso-sw"]) {
+      await expect(page.locator(`[data-testid="cad-viewcube-${dir}"]`), `viewcube ${dir}`).toHaveCount(1);
+      await page.click(`[data-testid="cad-viewcube-${dir}"]`);
+    }
+    await expect(page.locator('[data-testid="cad-stats"]')).toContainText("meshes");
+    await page.click('[data-testid="cad-view-2d"]');
+    await expect(page.locator('[data-testid="cad-stage"]')).toBeVisible();
+  });
+});
+
+test.describe("Coverage: ThreeStudioViewer controls (visible)", () => {
+  test("full ribbon, outliner, material inspector, post-fx and ViewCube checklist", async ({ page }) => {
+    test.setTimeout(240000);
+    await mockChat(page, "threejs", DRONE_CODE);
+    await page.goto("http://localhost:3000/");
+    await step(page, "🧪 CHECKLIST: Loading the Hover Drone for the studio control sweep...");
+    await sendPrompt(page, DRONE_PROMPT);
+    await expect(page.locator('[data-testid="scene3d-stage"]')).toBeVisible({ timeout: 40000 });
+    await expect(page.locator('[data-testid="threejs-code-error"]')).toHaveCount(0);
+
+    await step(page, "🧪 CHECKLIST: Ribbon — shading, projection, FOV, 7 views, transforms, overlays...");
+    await expect(page.locator('[data-testid="scene3d-shading"] option')).not.toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-projection"] option')).toHaveCount(2);
+    await expect(page.locator('[data-testid="scene3d-fov"]')).toHaveCount(1);
+    for (const v of ["front", "back", "left", "right", "top", "bottom", "iso"]) {
+      await expect(page.locator(`[data-testid="scene3d-view-${v}"]`), `view ${v}`).toHaveCount(1);
+      await page.click(`[data-testid="scene3d-view-${v}"]`);
+    }
+    for (const b of ["frame", "reset"]) await expect(page.locator(`[data-testid="scene3d-view-${b}"]`)).toHaveCount(1);
+    for (const t of ["translate", "rotate", "scale", "space"]) await expect(page.locator(`[data-testid="scene3d-transform-${t}"]`)).toHaveCount(1);
+    for (const o of ["grid", "axes", "bbox", "cage", "lights"]) {
+      await expect(page.locator(`[data-testid="scene3d-tool-${o}"]`), `overlay ${o}`).toHaveCount(1);
+      await page.click(`[data-testid="scene3d-tool-${o}"]`);
+      await page.click(`[data-testid="scene3d-tool-${o}"]`);
+    }
+    await expect(page.locator('[data-testid="scene3d-fullscreen"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="scene3d-export-format"] option')).not.toHaveCount(0);
+
+    await step(page, "🧪 CHECKLIST: ViewCube — 5 faces reposition the live camera...");
+    const camPos = () => page.evaluate(() => { const c = (window as any).__studioViewer.activeCamera.position; return [c.x, c.y, c.z]; });
+    let prev = await camPos();
+    for (const dir of ["top", "front", "right", "iso-ne", "iso-sw"]) {
+      await expect(page.locator(`[data-testid="scene3d-viewcube-${dir}"]`), `viewcube ${dir}`).toHaveCount(1);
+      await page.click(`[data-testid="scene3d-viewcube-${dir}"]`);
+      await page.waitForTimeout(350);
+      const now = await camPos();
+      expect(Math.hypot(now[0] - prev[0], now[1] - prev[1], now[2] - prev[2]), `viewcube ${dir} moves camera`).toBeGreaterThan(0.3);
+      prev = now;
+    }
+
+    await step(page, "🧪 CHECKLIST: Outliner rows with Eye + Solo for every named part...");
+    await expect(page.locator('[data-testid^="scene3d-outliner-"]')).not.toHaveCount(0);
+    await expect(page.locator('[data-testid^="scene3d-hide-"]')).not.toHaveCount(0);
+    await expect(page.locator('[aria-label^="Solo "]')).not.toHaveCount(0);
+
+    await step(page, "🧪 CHECKLIST: Material inspector + environment + post-processing controls...");
+    // The material inspector renders only for a SELECTED mesh — select first.
+    await page.click('[data-testid="scene3d-outliner-Drone_Body"]');
+    for (const m of ["color", "metalness", "roughness", "emissive", "emissiveIntensity", "opacity", "flatShading", "wireframe"]) {
+      await expect(page.locator(`[data-testid="scene3d-material-${m}"]`), `material ${m}`).toHaveCount(1);
+    }
+    for (const fx of ["bloom", "ssao", "vignette"]) {
+      await expect(page.locator(`[data-testid="scene3d-${fx}"]`), `post-fx ${fx}`).toHaveCount(1);
+      await page.click(`[data-testid="scene3d-${fx}"]`);
+      await page.click(`[data-testid="scene3d-${fx}"]`);
+    }
+    for (const env of ["env", "bg", "tonemap"]) await expect(page.locator(`[data-testid="scene3d-${env}"]`)).toHaveCount(1);
+    await expect(page.locator('[data-testid^="scene3d-light-"]')).not.toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-explode"]')).toHaveCount(1);
+    // The bottom-dock timeline (play/restart/scrub/speed/clip) and the custom
+    // slider dock render ONLY for declarative spec scenes (spec.animations /
+    // spec.sliders — ThreeStudioViewer hasAnimations gate). The drone is a
+    // code scene driving motion via onUpdate, so both docks must be absent.
+    await expect(page.locator('[data-testid="scene3d-play"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-restart"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-clip"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-sliders"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-stats"]')).toContainText("meshes");
   });
 });

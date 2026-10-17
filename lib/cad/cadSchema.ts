@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FURNITURE_CATEGORIES } from "./cadBlocks";
 
 /**
  * Strict contract for the ```cad fence: a 2D CAD / BIM floor plan that the
@@ -22,6 +23,9 @@ export const CAD_BUDGETS = {
   maxFloors: 40,
   maxHotspots: 30,
   maxFlows: 16,
+  maxDoors: 60,
+  maxWindows: 80,
+  maxFurniture: 120,
 } as const;
 
 const layerSchema = z
@@ -158,6 +162,52 @@ const flowSchema = z
     z: z.number().finite().default(0),
   })
   .strict();
+const doorSchema = z
+  .object({
+    id: idRef,
+    layer: layerRef,
+    hinge: point2d,
+    width: z.number().positive().max(6).default(0.9),
+    angleDeg: z.number().finite().min(-360).max(360).default(0),
+    swingDeg: z.number().finite().min(-180).max(180).default(90),
+    wall: idRef.optional(),
+  })
+  .strict();
+const windowSchema = z
+  .object({
+    id: idRef,
+    layer: layerRef,
+    from: point2d,
+    to: point2d,
+    sillHeight: z.number().min(0).max(3).default(0.9),
+    headHeight: z.number().min(0.3).max(6).default(2.4),
+    mullions: z.number().int().min(0).max(12).default(1),
+    wall: idRef.optional(),
+  })
+  .strict();
+const furnitureSchema = z
+  .object({
+    id: idRef,
+    layer: layerRef,
+    category: z.enum(FURNITURE_CATEGORIES).default("generic"),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    w: z.number().positive().max(20),
+    h: z.number().positive().max(20),
+    rotation: z.number().finite().min(-360).max(360).default(0),
+    label: z.string().min(1).max(60).optional(),
+    room: z.string().min(1).max(60).optional(),
+  })
+  .strict();
+const gridTickSchema = z
+  .object({ label: z.string().min(1).max(4), position: z.number().finite() })
+  .strict();
+const gridSchema = z
+  .object({
+    columns: z.array(gridTickSchema).max(30),
+    rows: z.array(gridTickSchema).max(30),
+  })
+  .strict();
 const titleBlockSchema = z
   .object({
     projectName: z.string().min(1).max(80).optional(),
@@ -201,6 +251,10 @@ export const cadSpecSchema = z
     floors: z.array(floorSchema).max(CAD_BUDGETS.maxFloors).default([]),
     hotspots: z.array(hotspotSchema).max(CAD_BUDGETS.maxHotspots).default([]),
     flows: z.array(flowSchema).max(CAD_BUDGETS.maxFlows).default([]),
+    doors: z.array(doorSchema).max(CAD_BUDGETS.maxDoors).default([]),
+    windows: z.array(windowSchema).max(CAD_BUDGETS.maxWindows).default([]),
+    furniture: z.array(furnitureSchema).max(CAD_BUDGETS.maxFurniture).default([]),
+    grid: gridSchema.optional(),
     titleBlock: titleBlockSchema.optional(),
     defaultView: z.enum(["2d", "iso", "3d", "split"]).default("2d"),
     sun: sunSchema.optional(),
@@ -237,8 +291,13 @@ export const cadSpecSchema = z
     spec.hotspots.forEach((hotspot, i) =>
       requireLayer(hotspot.layer, ["hotspots", i, "layer"], `hotspot "${hotspot.id}"`),
     );
+    spec.doors.forEach((door, i) => requireLayer(door.layer, ["doors", i, "layer"], `door "${door.id}"`));
+    spec.windows.forEach((win, i) => requireLayer(win.layer, ["windows", i, "layer"], `window "${win.id}"`));
+    spec.furniture.forEach((f, i) =>
+      requireLayer(f.layer, ["furniture", i, "layer"], `furniture "${f.id}"`),
+    );
 
-    for (const group of ["walls", "slabs", "floors", "hotspots", "flows"] as const) {
+    for (const group of ["walls", "slabs", "floors", "hotspots", "flows", "doors", "windows", "furniture"] as const) {
       const seen = new Set<string>();
       spec[group].forEach((item, i) => {
         if (seen.has(item.id)) {
@@ -260,3 +319,8 @@ export type CadWall = CadSpec["walls"][number];
 export type CadSlab = CadSpec["slabs"][number];
 export type CadHotspot = CadSpec["hotspots"][number];
 export type CadFlow = CadSpec["flows"][number];
+export type CadDoor = CadSpec["doors"][number];
+export type CadWindow = CadSpec["windows"][number];
+export type CadFurniture = CadSpec["furniture"][number];
+export type CadGrid = NonNullable<CadSpec["grid"]>;
+export type { FurnitureCategory } from "./cadBlocks";

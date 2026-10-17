@@ -22,7 +22,7 @@ export default defineConfig({
       name: "chromium-visible",
       use: {
         ...devices["Desktop Chrome"],
-        launchOptions: { headless: false, slowMo: 350 },
+        launchOptions: { headless: false, slowMo: 300 },
       },
     },
   ],

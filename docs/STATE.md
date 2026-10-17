@@ -1,6 +1,51 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] 2000x studio upgrade vs Revit/AutoCAD Architecture 2026 (2026-10-17,
+      ALL 5 PARTS LOCKED, browser-verified):
+      PART 1 `app/cad-studio.css` — Autodesk/Blender workstation chrome:
+      `:root` tokens (--cad-bg-canvas #060a12 … --cad-accent-cyan #38bdf8,
+      mono font stack), `.cad-workstation-shell` (680px, radial gradient,
+      shadow), `.cad-ribbon-bar` 38px, `.cad-dock-left/-right` (absolute
+      top:46px bottom:42px w:230px, backdrop-blur 12px), `.cad-status-bar`,
+      mono SVG text w/ 3.5px #060a12 halo, `.cad-viewcube-cad/-studio`,
+      `.cad-pane-3d/.cad-bim-host` positioning.
+      PART 2 ArchitectureCadViewer dual engine — 2D AutoCAD blueprint:
+      double-lined walls + `<pattern id="cad-wall-hatch">` 45° poché,
+      door leaf + 90° dashed swing arc, triple-line glazing + mullions,
+      procedural furniture CAD blocks (#94a3b8, never neon), MEP dashed +
+      junction nodes, dimension chains w/ 45° slash ticks, structural grid
+      axes A–D/1–4 + bubbles, anti-collision room-tag pills (name +
+      `m² · W×Hm` row). New `lib/cad/cadBlocks.ts` (452 lines:
+      offsetPolyline/hatchFillPath/doorSymbol/windowLines/furnitureBlock/
+      gridAxes/layoutRoomTags). Revit 3D BIM cutaway: extruded walls
+      (2.8m/0.2m), openings, 3D furniture, circulation tubes,
+      EdgesGeometry(geo,15) cyan LineSegments on every mesh, ViewCube
+      TOP/FRONT/RIGHT/ISO NE/ISO SW, Wall Height slider, X/Y/Z section
+      clipping.
+      PART 3 ThreeStudioViewer — compact single-row ribbon (Shading/Camera/
+      Transform/Overlays/Export) + ViewCube; grid at y=box.min.y; dark
+      ground + contact shadow; Bloom auto-on when emissive (HalfFloatType
+      composer); 3D contract forbidding lazy 4-primitive scenes (12–25
+      named sub-meshes, Extrude bevels, Lathe, Tube, emissive vents,
+      EdgesGeometry accents).
+      PART 4 `lib/skills/coreRouter.ts` ARCH_CONTRACT — double-lined walls,
+      explicit doors (hinge/width/swing) + windows (sill/mullions), rich
+      furniture categories, column grids, dimension chains.
+      PART 5 tests — `playwright.config.ts` slowMo:300;
+      `tests/studio-viewers-visible.spec.ts` (885 lines) 6 tests: drone,
+      kiosk, MECHA stress (17 named meshes, emissive visors, explode,
+      ViewCube), LAB stress (hatch, 5 doors, 6 windows, 18 furniture,
+      grid, pill non-overlap, BIM ≥40 meshes), CAD + studio button-coverage
+      checklists. HEADED run #4: **6 passed (1.6 m)** — 100% pass rate.
+      Unit gate `npx vitest run` 402 passed | 1 skipped; `tsc --noEmit`
+      clean. GOTCHAS (see docs/e2e-test-state.md): ribbon `cad-tool-*`
+      clicks re-scroll the chat container (~270px) → ALWAYS
+      `stage.scrollIntoViewIfNeeded()` + re-read `boundingBox()` AFTER
+      arming each tool; render-gated testids (timeline needs
+      `spec.animations`, sliders need `spec.sliders`, `cad-toggle-flows`
+      needs non-empty `spec.flows`, material inspector needs a selected
+      outliner row) → assert count 0 for code scenes.
 - [x] Viewer size + 16:9 + fullscreen (2026-10-17): both studio viewers were
       width-capped by the 768px chat column. `app/globals.css`: `.chat-messages-scroll`
       gets `container-type: inline-size`; `.scene3d-block, .cad-block` break out

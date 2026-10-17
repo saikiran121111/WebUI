@@ -1,5 +1,6 @@
 import { CAD_BUDGETS, type CadSpec } from "./cadSchema";
 import { normHex } from "../three3d/normalizeScene";
+import { FURNITURE_CATEGORIES, inferCategory } from "./cadBlocks";
 
 /**
  * Fault-tolerant ```cad normalizer.
@@ -21,12 +22,12 @@ export type CadNormalizeResult = CadNormalizeOk | CadNormalizeFail;
 
 /** Fallback palette matching the architecture output contract's layer ids. */
 const DEFAULT_LAYERS: Record<string, { name: string; color: string }> = {
-  "layer-structural": { name: "Structural", color: "#F87171" },
+  "layer-structural": { name: "Structural", color: "#E2E8F0" },
   "layer-architectural": { name: "Architectural", color: "#38BDF8" },
-  "layer-furniture": { name: "Furniture", color: "#34D399" },
-  "layer-mep": { name: "MEP", color: "#FBBF24" },
-  "layer-dimensions": { name: "Dimensions", color: "#94A3B8" },
-  "layer-annotations": { name: "Annotations", color: "#C084FC" },
+  "layer-furniture": { name: "Furniture", color: "#94A3B8" },
+  "layer-mep": { name: "MEP", color: "#F59E0B" },
+  "layer-dimensions": { name: "Dimensions", color: "#64748B" },
+  "layer-annotations": { name: "Annotations", color: "#CBD5E1" },
   "layer-flow": { name: "Flow", color: "#22D3EE" },
 };
 const FALLBACK_LAYER = "layer-architectural";
@@ -314,6 +315,102 @@ function normalizeFlow(raw: unknown, idx: number, used: Set<string>, warnings: s
   return out;
 }
 
+function normalizeDoor(raw: unknown, idx: number, used: Set<string>, warnings: string[]): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const d = raw as Record<string, unknown>;
+  let hinge = toPoints([d.hinge ?? d.position])[0];
+  if (!hinge) {
+    const x = numOpt(d.x ?? d.hingeX);
+    const y = numOpt(d.y ?? d.hingeY);
+    if (x != null && y != null) hinge = [x, y];
+  }
+  if (!hinge) { warnings.push(`door #${idx} without a hinge point — skipped`); return null; }
+  const out: Record<string, unknown> = {
+    id: sanitizeId(d.id ?? d.name, "door", used, warnings),
+    layer: pickLayer(d, warnings),
+    hinge,
+    width: clamp(num(d.width ?? d.w, 0.9), 0.1, 6),
+    angleDeg: clamp(num(d.angleDeg ?? d.angle, 0), -360, 360),
+    swingDeg: clamp(num(d.swingDeg ?? d.swing, 90), -180, 180),
+  };
+  const wall = str(d.wall ?? d.wallId);
+  if (wall) out.wall = wall.slice(0, 40);
+  return out;
+}
+
+function normalizeWindow(raw: unknown, idx: number, used: Set<string>, warnings: string[]): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const w = raw as Record<string, unknown>;
+  const ends = toPoints([w.from ?? w.a ?? w.start, w.to ?? w.b ?? w.end]);
+  if (ends.length < 2) { warnings.push(`window #${idx} without from/to endpoints — skipped`); return null; }
+  const out: Record<string, unknown> = {
+    id: sanitizeId(w.id ?? w.name, "window", used, warnings),
+    layer: pickLayer(w, warnings),
+    from: ends[0],
+    to: ends[1],
+    sillHeight: clamp(num(w.sillHeight ?? w.sill, 0.9), 0, 3),
+    headHeight: clamp(num(w.headHeight ?? w.head, 2.4), 0.3, 6),
+    mullions: clamp(Math.round(num(w.mullions ?? w.mullionCount, 1)), 0, 12),
+  };
+  if ((out.headHeight as number) <= (out.sillHeight as number)) {
+    out.headHeight = Math.min(6, (out.sillHeight as number) + 1.2);
+  }
+  const wall = str(w.wall ?? w.wallId);
+  if (wall) out.wall = wall.slice(0, 40);
+  return out;
+}
+
+function normalizeFurniture(raw: unknown, idx: number, used: Set<string>, warnings: string[]): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const f = raw as Record<string, unknown>;
+  const x = numOpt(f.x);
+  const y = numOpt(f.y);
+  if (x == null || y == null) { warnings.push(`furniture #${idx} without x/y — skipped`); return null; }
+  const w = clamp(Math.abs(numOpt(f.w ?? f.width) ?? 1), 0.05, 20);
+  const h = clamp(Math.abs(numOpt(f.h ?? f.height) ?? 1), 0.05, 20);
+  const label = str(f.label ?? f.name ?? f.title);
+  const catRaw = str(f.category);
+  const category =
+    catRaw && (FURNITURE_CATEGORIES as readonly string[]).includes(catRaw)
+      ? catRaw
+      : inferCategory(label ?? "", w, h);
+  const out: Record<string, unknown> = {
+    id: sanitizeId(f.id ?? f.name, "furn", used, warnings),
+    layer: pickLayer(f, warnings),
+    category,
+    x, y, w, h,
+    rotation: clamp(num(f.rotation ?? f.rot, 0), -360, 360),
+  };
+  if (label) out.label = label.slice(0, 60);
+  const room = str(f.room);
+  if (room) out.room = room.slice(0, 60);
+  return out;
+}
+
+function normalizeGrid(raw: unknown): { columns: { label: string; position: number }[]; rows: { label: string; position: number }[] } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const g = raw as Record<string, unknown>;
+  const parse = (v: unknown): { label: string; position: number }[] => {
+    if (!Array.isArray(v)) return [];
+    const out: { label: string; position: number }[] = [];
+    for (const item of v.slice(0, 30)) {
+      if (typeof item === "number" && Number.isFinite(item)) {
+        out.push({ label: String(out.length + 1), position: item });
+      } else if (item && typeof item === "object" && !Array.isArray(item)) {
+        const o = item as Record<string, unknown>;
+        const position = numOpt(o.position ?? o.x ?? o.y ?? o.pos);
+        if (position == null) continue;
+        out.push({ label: (str(o.label ?? o.name) ?? String(out.length + 1)).slice(0, 4), position });
+      }
+    }
+    return out;
+  };
+  const columns = parse(g.columns);
+  const rows = parse(g.rows);
+  if (!columns.length && !rows.length) return null;
+  return { columns, rows };
+}
+
 /**
  * Parse + repair a ```cad fence body. Never throws. The gate is intentionally
  * loose: any object carrying one of the CAD arrays is enough to try.
@@ -329,7 +426,7 @@ export function normalizeCad(source: string): CadNormalizeResult {
     return { ok: false, error: "CAD JSON must be an object" };
   }
   const r = root as Record<string, unknown>;
-  const hasAny = ["entities", "walls", "layers", "rooms", "slabs", "floors", "hotspots", "flows"].some(k => Array.isArray(r[k]));
+  const hasAny = ["entities", "walls", "layers", "rooms", "slabs", "floors", "hotspots", "flows", "doors", "windows", "furniture"].some(k => Array.isArray(r[k]));
   if (!hasAny) {
     return { ok: false, error: "CAD JSON has none of the entities/walls/layers/rooms/slabs/floors arrays" };
   }
@@ -416,6 +513,26 @@ export function normalizeCad(source: string): CadNormalizeResult {
     .map((f, i) => normalizeFlow(f, i, flowIds, warnings))
     .filter((f): f is Record<string, unknown> => !!f);
 
+  const doorIds = new Set<string>();
+  const doors = (Array.isArray(r.doors) ? r.doors : []).slice(0, CAD_BUDGETS.maxDoors)
+    .map((d, i) => normalizeDoor(d, i, doorIds, warnings))
+    .filter((d): d is Record<string, unknown> => !!d);
+  doors.forEach(d => referenced.add(String(d.layer)));
+
+  const windowIds = new Set<string>();
+  const windows = (Array.isArray(r.windows) ? r.windows : []).slice(0, CAD_BUDGETS.maxWindows)
+    .map((w, i) => normalizeWindow(w, i, windowIds, warnings))
+    .filter((w): w is Record<string, unknown> => !!w);
+  windows.forEach(w => referenced.add(String(w.layer)));
+
+  const furnitureIds = new Set<string>();
+  const furniture = (Array.isArray(r.furniture) ? r.furniture : []).slice(0, CAD_BUDGETS.maxFurniture)
+    .map((f, i) => normalizeFurniture(f, i, furnitureIds, warnings))
+    .filter((f): f is Record<string, unknown> => !!f);
+  furniture.forEach(f => referenced.add(String(f.layer)));
+
+  const grid = normalizeGrid(r.grid);
+
   referenced.forEach(id => {
     if (!layerMap.has(id)) {
       registerLayer(id);
@@ -440,8 +557,20 @@ export function normalizeCad(source: string): CadNormalizeResult {
     floors,
     hotspots,
     flows,
-    defaultView: r.defaultView === "3d" || r.defaultView === "isometric" || r.defaultView === "iso" ? (r.defaultView === "iso" ? "isometric" : r.defaultView) : "2d",
+    doors,
+    windows,
+    furniture,
+    // The BIM cutaway is the showcase view: a drawing with extrudable walls
+    // defaults to 3D unless the author pinned a view. "isometric" drift maps
+    // to the viewer's "iso" mode (never the invalid "isometric" string).
+    defaultView: (() => {
+      const dv = String(r.defaultView ?? "").toLowerCase();
+      if (dv === "iso" || dv === "isometric") return "iso";
+      if (dv === "2d" || dv === "3d" || dv === "split") return dv;
+      return walls.length ? "3d" : "2d";
+    })(),
   };
+  if (grid) spec.grid = grid;
 
   if (r.scale && typeof r.scale === "object" && !Array.isArray(r.scale)) {
     const ratio = numOpt((r.scale as Record<string, unknown>).ratio);

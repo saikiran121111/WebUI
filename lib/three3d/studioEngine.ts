@@ -31,7 +31,7 @@ export const SHADING_MODES: ShadingMode[] = [
 
 export type ProjectionMode = "perspective" | "orthographic";
 export type ToneMappingName = "ACESFilmic" | "Neutral" | "Reinhard" | "Linear";
-export type ViewName = "front" | "back" | "left" | "right" | "top" | "bottom" | "iso" | "reset";
+export type ViewName = "front" | "back" | "left" | "right" | "top" | "bottom" | "iso" | "iso-ne" | "iso-sw" | "reset";
 export type TransformMode = "translate" | "rotate" | "scale";
 
 export interface BackgroundSpec {
@@ -105,6 +105,8 @@ const VIEW_DIRS: Record<Exclude<ViewName, "reset">, [number, number, number]> = 
   top: [0, 1, 0],
   bottom: [0, -1, 0],
   iso: [0.55, 0.4, 0.75],
+  "iso-ne": [0.62, 0.5, -0.62],
+  "iso-sw": [-0.62, 0.5, 0.62],
 };
 
 const GIZMO_AXIS_TO_VIEW: Record<string, Exclude<ViewName, "reset">> = {
@@ -171,6 +173,8 @@ export class StudioViewer {
   private rimLight: any;
   private lightHelpers: any;
   private contactPlane: any = null;
+  private groundPlane: any = null;
+  private bgTransparent = false;
   private lightState: LightState;
 
   private envTexture: any = null;
@@ -190,6 +194,7 @@ export class StudioViewer {
 
   private composer: EffectComposer | null = null;
   private bloomOn = false;
+  private bloomUserSet = false;
   private bloomStrength = 0.7;
   private ssaoOn = false;
   private vignetteOn = false;
@@ -351,6 +356,48 @@ export class StudioViewer {
     this.activeCamera.position.copy(frame.position);
     this.controls.target.copy(frame.center);
     this.positionLights();
+
+    this.ensureGroundPlane();
+    if (this.groundPlane) this.groundPlane.visible = !this.bgTransparent;
+    this.autoBloomFor(root);
+  }
+
+  /** Soft dark studio ground plane under the model (scene-level: never enters
+   *  the outliner, stats, or exports). Receives the key light's shadow so the
+   *  asset visually plants itself instead of floating in void. */
+  private ensureGroundPlane(): void {
+    if (this.groundPlane || !this.root) return;
+    const three = this.three;
+    const plane = new three.Mesh(
+      new three.PlaneGeometry(1, 1),
+      new three.MeshStandardMaterial({ color: 0x0a0e17, roughness: 0.95, metalness: 0 }),
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.receiveShadow = true;
+    plane.visible = false;
+    this.groundPlane = plane;
+    this.scene.add(plane);
+    this.refreshBboxHelpers();
+  }
+
+  /** Auto-enable Bloom when the scene actually has emissive material (glowing
+   *  visors / arc cores), unless the user has toggled Bloom from the UI. */
+  private autoBloomFor(root: any): void {
+    if (this.bloomUserSet) return;
+    let emissive = false;
+    root.traverse((obj: any) => {
+      const mats = obj.isMesh ? (Array.isArray(obj.material) ? obj.material : [obj.material]) : [];
+      for (const m of mats) {
+        if (m?.emissive && m.emissiveIntensity > 0 && (m.emissive.getHex?.() ?? 0) !== 0) emissive = true;
+      }
+    });
+    if (emissive && !this.bloomOn) {
+      this.bloomOn = true;
+      this.rebuildComposer();
+    } else if (!emissive && this.bloomOn) {
+      this.bloomOn = false;
+      this.rebuildComposer();
+    }
   }
 
   getContent(): any {
@@ -406,6 +453,11 @@ export class StudioViewer {
     this.bboxDims = { w: size.x, h: size.y, d: size.z };
     if (this.contactPlane) this.contactPlane.position.y = box.min.y - 0.01;
     this.grid.position.y = box.min.y;
+    if (this.groundPlane) {
+      const g = Math.max(40, size.x, size.z) * 3;
+      this.groundPlane.scale.set(g, g, 1);
+      this.groundPlane.position.y = box.min.y - 0.02;
+    }
   }
 
   /* ── outliner / selection / visibility ─────────────────────────────── */
@@ -658,6 +710,8 @@ export class StudioViewer {
   }
 
   setBackground(spec: BackgroundSpec): void {
+    this.bgTransparent = spec.mode === "transparent";
+    if (this.groundPlane) this.groundPlane.visible = !this.bgTransparent;
     if (spec.mode === "transparent") {
       this.scene.background = null;
       this.renderer.setClearAlpha(0);
@@ -854,6 +908,7 @@ export class StudioViewer {
   /* ── post-processing ───────────────────────────────────────────────── */
 
   setBloom(enabled: boolean, strength = this.bloomStrength): void {
+    this.bloomUserSet = true;
     this.bloomOn = enabled;
     this.bloomStrength = strength;
     this.rebuildComposer();
@@ -887,7 +942,12 @@ export class StudioViewer {
     }
     if (!this.bloomOn && !this.ssaoOn && !this.vignetteOn) return;
     const three = this.three;
-    const composer = new EffectComposer(this.renderer);
+    // HalfFloat render target: HDR-safe so bloom on emissive parts never clips
+    // the whole frame to black on GPUs without float-buffer defaults.
+    const composer = new EffectComposer(
+      this.renderer,
+      new three.WebGLRenderTarget(Math.max(1, this.size.w), Math.max(1, this.size.h), { type: three.HalfFloatType }),
+    );
     if (this.ssaoOn) {
       const ssao = new SSAOPass(this.scene, this.activeCamera, this.size.w, this.size.h);
       ssao.kernelRadius = 8;
@@ -1170,6 +1230,12 @@ export class StudioViewer {
     this.transformControls.dispose();
     this.controls.dispose();
     this.composer?.dispose();
+    if (this.groundPlane) {
+      this.groundPlane.geometry.dispose();
+      this.groundPlane.material.dispose();
+      this.scene.remove(this.groundPlane);
+      this.groundPlane = null;
+    }
     this.envTexture?.dispose();
     this.matcapTexture?.dispose();
     this.checkerTexture?.dispose();

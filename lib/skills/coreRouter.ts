@@ -60,8 +60,15 @@ Produce a Three.js visual for this chat: one short intro sentence, then ONE fenc
 - Name every meaningful part (helmet_shell, eyes_emissive, sole_tread, logo_extrude...) — named THREE.Group/Mesh objects are auto-indexed into the Outliner, Part Inspector, Explode slider and every exporter (.glb/.gltf/.obj/.stl/.ply/.usdz).
 - Optional function onUpdate(delta, elapsed) runs in the render loop for animation.
 
+MODEL FIDELITY — NON-NEGOTIABLE (Blender-grade procedural detail, never a lazy toy):
+- Every asset MUST be 12-25 distinct named sub-meshes/groups (articulated parts, panels, trims), never 4 basic primitive blobs. A subject described with N named parts must actually build all N as separate named meshes.
+- Build real geometry: ExtrudeGeometry with bevelEnabled bevels for armor plates / shells / treads, LatheGeometry for barrels / pistons / vessels, TubeGeometry+CatmullRomCurve3 for hoses / cables / wiring, CylinderGeometry for pistons / bolts / actuators, TorusGeometry for rings / seals / gimbals.
+- Layer on the detail passes: armor plates over a base shell, panel-line trims (thin inset boxes/toruses), emissive vents and optic visors (MeshStandardMaterial emissive + emissiveIntensity 1.5-3 so Bloom picks them up), bolts/rivets (small instanced or looped cylinders/spheres along seams), procedural canvas bump/grid textures (document.createElement("canvas") → CanvasTexture) for surface micro-detail, and THREE.EdgesGeometry accents (LineSegments, cyan #38bdf8) on hard-surface meshes for the CAD/BIM silhouette.
+- Animate what was asked (idle breathing, glow pulse, rotation) inside onUpdate(delta, elapsed) using elapsed for phase.
+
 \`\`\`scene3d — one JSON object for primitive-composable subjects (all parameters optional — sensible defaults apply, never fail on missing fields):
-- kinds: box/sphere/cylinder/cone/torus/torusKnot/capsule/lathe/extrude/tube/ring/icosahedron/octahedron/dodecahedron/tetrahedron/plane/grid/arrow/group; 15-80 named parts parented into logical sub-assemblies.
+- kinds: box/sphere/cylinder/cone/torus/torusKnot/capsule/lathe/extrude/tube/ring/icosahedron/octahedron/dodecahedron/tetrahedron/plane/grid/arrow/group; 12-25 distinct named parts (up to 80 for large assemblies) parented into logical sub-assemblies — never fewer than 12 for any real subject.
+- Prefer extrude/lathe/tube/group compositions over bare box/sphere stacks; add trim rings, greebles, vents and emissive accents as their own named parts.
 - PBR materials (color/metalness/roughness/emissive/emissiveIntensity/wireframe/opacity) matching the requested look; emissive + bloom-friendly colors for glow/aura/arc-reactor/hologram parts.
 - labels/animations/sliders optional; sliders may bind rotation|position|scale|material.emissiveIntensity|material.roughness|material.metalness|material.opacity.
 Put every detail in the block, not in prose.
@@ -71,7 +78,11 @@ const ARCH_CONTRACT = `<output_contract_architecture>
 Produce an architecture / CAD visual for this chat: one short intro sentence, then a fenced block — \`\`\`anatomy JSON for exploded isometric cutaways, or \`\`\`cad / layered SVG for 2D plans, elevations and schematics:
 - Group every element into semantic CAD layers with these ids: layer-structural (walls/frames), layer-architectural (doors/windows/openings), layer-furniture, layer-mep (ducts/pipes/wiring), layer-dimensions (gridlines/dimensions), layer-annotations (labels/title block), layer-flow (flow paths).
 - Carry real-world scale metadata on the root: data-scale-meters-per-unit (e.g. "0.01"), data-floor-level and data-height per part/room — the Layer Manager, Ruler, 3D Massing Extruder and .dxf exporter depend on these.
-- Floor plans: real room dimensions in meters, wall thicknesses, door swings; label every room with name + area.
+- Floor plans: real room dimensions in meters; walls are DOUBLE-LINED with real thickness (0.1-0.3 m exterior, 0.1 m partitions) and height (2.6-3 m) on the walls array — the viewer offsets them into double lines + 45° poché hatch in 2D and extrudes them in 3D. Never draw walls as single fat lines.
+- Emit explicit openings: "doors" array [{id, layer, hinge:[x,y], width, angleDeg (wall direction the leaf points along), swingDeg (90 typical)}] and "windows" array [{id, layer, from:[x,y], to:[x,y], sillHeight (0.9), headHeight (2.4), mullions (2-4)}] — the viewer auto-draws door leaf + 90° swing arc, triple-line glazing + mullions, and cuts real openings in the 3D walls.
+- Emit "furniture" array [{id, layer, category, x, y, w, h, rotation, label}] with category from: sofa, table, dining_table, coffee_table, counter, sink, bed, wardrobe, toilet, shower, desk, chair, shelving, stairs, plant, server_rack, appliance, generic — the viewer renders authentic CAD block symbols (sofa back/arms, counter w/ double-basin sink + 4-burner cooktop, bed w/ pillows + blanket fold, WC + vanity + shower cross, stair treads + arrow) in 2D and extruded 3D BIM furniture.
+- Emit "grid" array {columns:[{label:"A",position:x}], rows:[{label:"1",position:y}]} for structural column grids — the viewer draws dashed grid axes ending in lettered/numbered bubbles outside the footprint.
+- Dimension chains on layer-dimensions (the viewer adds 45° slash ticks + haloed "8.00 m" text); label every room with name + area via annotation text entities at room centroids (the viewer renders collision-checked room tag pills).
 - The CAD viewer auto-normalizes common drift (text/label→content, missing layer→layer-architectural, rect w/h or width/height, line from/to or x1y1x2y2, circle cx/cy/r or x/y/radius) — emit the documented shape anyway.
 - Cutaway/anatomy: exploded layer stack with callouts and connections between layers.
 Keep prose to one short sentence; all geometry and metadata inside the fenced block.
