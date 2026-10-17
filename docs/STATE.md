@@ -1,6 +1,32 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] CAD "export sliced / right part cutting" report (2026-10-17, LOCKED,
+      browser-verified): (A) ribbon overflowed the 768 px chat column
+      (scrollWidth 1103 > 850, hidden scrollbar) burying Export off-card —
+      fixed via shorter view-tab labels (2D/Iso/3D + titles), zoom "1×/2×/
+      4×", removed "ARCHITECTURE CAD" ribbon span, tighter gaps + select
+      max-width, nowrap. (B) `fitView` in ArchitectureCadViewer.tsx is now
+      DOCK-AWARE (`{w,h,insetX:246}`; initial snap once via `initialFitDone`
+      ref after first ResizeObserver) so no geometry hides under the 230 px
+      absolute docks. Coverage test guards: ribbon no-overflow, Export
+      inside shell, layer shapes within dock-clear band. Gates: tsc clean,
+      vitest 402|1, headed suite 6/6 + guard run green. Details docs/ISSUES.md.
+- [x] CAD blob + "buttons not working" report (2026-10-17, LOCKED,
+      browser-verified): (1) Giant dark circles behind room-tag text =
+      `.cad-svg-canvas text` CSS halo painted in SVG USER UNITS (3.5 units
+      ≈ 126 px round-capped stroke/glyph, color #060a12). Fixed in
+      `app/cad-studio.css` with `vector-effect: non-scaling-stroke` (+
+      explanatory comment — do NOT remove). (2) Full live control audit
+      (playwright-cli `cadfix`, 28 checks): every ribbon/dock/export/view/
+      tool control functional, 0 page errors — perceived breakage was the
+      2D-disabled right-dock 3D controls with no affordance. Fixed in
+      `components/render/ArchitectureCadViewer.tsx`: `cad-dock-hint` banner
+      (2D only, styled in cad-studio.css) + `title` tooltips on Explode/
+      Wall Height/Sections/Sun/section-value sliders. (3) New E2E guards:
+      paint assertion (vectorEffect/stroke-width) in LAB stress, hint+
+      tooltip assertions in CAD coverage test. Gates: vitest 402|1 skip,
+      tsc clean, headed suite **6 passed run #5**. Details docs/ISSUES.md.
 - [x] 2000x studio upgrade vs Revit/AutoCAD Architecture 2026 (2026-10-17,
       ALL 5 PARTS LOCKED, browser-verified):
       PART 1 `app/cad-studio.css` — Autodesk/Blender workstation chrome:

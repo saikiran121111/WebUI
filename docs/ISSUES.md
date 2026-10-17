@@ -1,6 +1,54 @@
 # ISSUES
 
 ## Confirmed and fixed
+- CAD sheet "export sliced to half / right part cutting" (user screenshot,
+  Modern Tech Coffee Kiosk): TWO stacked layout defects, both measured live
+  (playwright-cli `cadfix`): (A) RIBBON OVERFLOW — `.cad-ribbon-bar`
+  scrollWidth 1103 > clientWidth 850 (chat column ~768 px) with
+  `scrollbar-width:none`, so the Export select+button sat at x=1372, off the
+  852 px card — literally sliced. FIX: view-tab labels "2D CAD/Iso Cutaway/
+  3D BIM" → "2D/Iso/3D" (+title tooltips), zoom "100%" → "1×", removed the
+  decorative "ARCHITECTURE CAD" ribbon span, tightened ribbon gaps/padding +
+  select max-width 128 px, `white-space:nowrap` on ribbon buttons →
+  scrollWidth == clientWidth == 850, Export fully on-card. (B) DOCK-HIDDEN
+  DRAWING — the docks are absolute 230 px overlays; `fitView` fit the bbox
+  against the FULL stage width, so ~127 px of the plan (right exterior wall)
+  sat under the near-opaque right dock. FIX: `fitView(bbox, {w,h,insetX})`
+  is now DOCK-AWARE (scale chosen against the visible band, viewBox sized to
+  stage/s so `meet` centering lands content between the docks); component
+  snaps the initial view to it once via `initialFitDone` ref after the first
+  ResizeObserver measurement (user pan/zoom untouched afterwards); zoom-fit +
+  100% reuse the same `fit`. Guards added to the CAD coverage test:
+  ribbon scrollWidth-clientWidth ≤ 0, Export box inside `.cad-workstation-
+  shell`, and every `g[data-layer]` shape's screen CTM within
+  [stage.x+238, stage.right-238].
+- CAD sheet "big circles around the text" (user screenshot, Sustainable
+  Innovation Lab): giant ~270-300 px dark blobs merging behind every room-tag
+  pill. ROOT CAUSE: `app/cad-studio.css` `.cad-svg-canvas text` halo rule
+  (`paint-order: stroke fill; stroke: #060a12; stroke-width: 3.5px;
+  stroke-linecap: round`) — SVG `stroke-width` is in USER UNITS, and the
+  viewBox is ~24 model units across an ~850 px stage (1 unit ≈ 36 px), so
+  "3.5px" painted as ~126 px of round-capped stroke per glyph; adjacent glyphs
+  fused into blobs (blob pixel = exactly #060a12, the stroke color). The SVG
+  DOM was 100% clean (pills w=4.48 h=0.72) which is why the geometry-based
+  e2e suite stayed green — bug was paint-only, found by pixel-sampling the
+  screenshot PNG. FIX: `vector-effect: non-scaling-stroke` on the text rule
+  (stroke-width then means device px, like the shapes' `vectorEffect` attr).
+  Regression guard added: paint assertion in the LAB stress test checks
+  `getComputedStyle(text).vectorEffect === "non-scaling-stroke"` + stroke ≤5.
+- User-reported "a lot of buttons and components are not working at all":
+  full live click-through audit (playwright-cli session `cadfix`, 28 checks)
+  → ALL controls functional, zero page/console errors (zoom fit/200/400
+  viewBox math, tool arm/disarm aria-pressed, snaps, theme select → inline
+  bg, layer hide/opacity 0.4/solo/lock-disables-opacity, DXF+SVG downloads,
+  2d/iso/3d/split stages, fullscreen, cursor readout `X: 8.8 Y: 5.8`).
+  Perceived breakage = right-dock 3D controls (Explode/Wall Height/Sections/
+  Sun) disabled by design in the default 2D view with NO explanation. FIX:
+  `cad-dock-hint` banner in the right dock (2D only) + `title` tooltips on
+  every disabled control; coverage test asserts hint visible+explode disabled
+  in 2D, hint gone+enabled in 3D. Audit false-fails were test artifacts:
+  `snapGrid` defaults ON (`useState(true)`), default theme is
+  `CAD_THEMES[0]` = autocad-dark, not thermal.
 - 3D canvas SOLID BLACK though HUD reported 180 FPS · 8 meshes: two stacked
   causes. (A) r186 `ViewHelper` (now `three/examples/jsm/helpers/ViewHelper.js`)
   `render()` has no scissor/clear guard — its inner `renderer.render()`

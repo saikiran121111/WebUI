@@ -16,10 +16,11 @@
   flex-direction: column; font-family: var(--cad-font-mono); color: var(--cad-text-primary);
   user-select: none; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65); }
 .cad-ribbon-bar { height: 38px; min-height: 38px; background: var(--cad-bg-ribbon);
-  border-bottom: 1px solid var(--cad-border); display: flex; align-items: center; gap: 4px;
-  padding: 0 10px; overflow-x: auto; scrollbar-width: none; z-index: 20; }
-.cad-ribbon-group { display: inline-flex; align-items: center; gap: 3px; padding-right: 8px;
-  margin-right: 4px; border-right: 1px solid var(--cad-border); }
+  border-bottom: 1px solid var(--cad-border); display: flex; align-items: center; gap: 2px;
+  padding: 0 6px; overflow-x: auto; scrollbar-width: none; z-index: 20; }
+.cad-ribbon-bar button { white-space: nowrap; }
+.cad-ribbon-group { display: inline-flex; align-items: center; gap: 2px; padding-right: 4px;
+  margin-right: 2px; border-right: 1px solid var(--cad-border); }
 .cad-btn { height: 26px; padding: 0 8px; font-size: 11px; font-family: var(--cad-font-mono);
   font-weight: 500; letter-spacing: 0.02em; color: var(--cad-text-primary);
   background: var(--cad-bg-control); border: 1px solid var(--cad-border-subtle); border-radius: 4px;
@@ -39,20 +40,26 @@
 .cad-status-bar { height: 30px; min-height: 30px; background: var(--cad-bg-ribbon);
   border-top: 1px solid var(--cad-border); padding: 0 12px; font-size: 11px;
   color: var(--cad-text-muted); display: flex; align-items: center; justify-content: space-between; z-index: 20; }
+/* NOTE: stroke-width here is in SVG USER UNITS unless non-scaling-stroke is on.
+   The viewBox is ~24 model units wide, so 3.5 user units = ~126 px halos that
+   merge into giant dark blobs behind room tags. Keep non-scaling-stroke. */
 .cad-svg-canvas text { font-family: var(--cad-font-mono); paint-order: stroke fill;
-  stroke: #060a12; stroke-width: 3.5px; stroke-linecap: round; stroke-linejoin: round; }
+  stroke: #060a12; stroke-width: 3.5px; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
 
 /* ── Compat layer: keeps the locked 16:9 / fullscreen sizing and the
    existing testids working while the workstation chrome is active. ───── */
 .cad-ribbon-bar { flex-wrap: nowrap; }
 .cad-ribbon-bar select { height: 26px; font-size: 11px; font-family: var(--cad-font-mono);
   background: var(--cad-bg-control); color: var(--cad-text-primary);
-  border: 1px solid var(--cad-border-subtle); border-radius: 4px; }
+  border: 1px solid var(--cad-border-subtle); border-radius: 4px; padding: 0 4px; max-width: 128px; }
 .cad-ribbon-title { font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--cad-text-muted); margin-right: 5px; white-space: nowrap; }
 .cad-workstation-shell:fullscreen { height: 100vh; min-height: 0; border-radius: 0; }
 .cad-workstation-shell .cad-body { max-height: none; }
 .cad-dock.cad-dock-left, .cad-dock.cad-dock-right { padding: 0; }
+.cad-dock-hint { padding: 6px 10px; font-size: 10px; line-height: 1.4; color: var(--cad-text-muted);
+  background: rgba(56, 189, 248, 0.07); border-bottom: 1px solid var(--cad-border); }
 .cad-dock-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0.4rem 0.5rem; scrollbar-width: thin; }
 .cad-viewcube { position: absolute; z-index: 16; display: flex; gap: 3px; }
 .cad-viewcube-studio { top: 6.7rem; right: 0.5rem; }

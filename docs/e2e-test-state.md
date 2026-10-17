@@ -7,7 +7,21 @@
   (user mandate). Each run wipes `test-results/` — view artifacts immediately.
 - Green suite (headed, watched): `npx playwright test
   tests/studio-viewers-visible.spec.ts --headed --workers=1 --reporter=list`
-  → **6 passed (1.6 m, run 2026-10-17 #4)**. Tests 1-2 as below; NEW:
+  → **6 passed (1.5 m, run 2026-10-17 #7, after text-halo CSS fix + dock-hint
+  UX fix + ribbon-overflow/dock-aware-fit fixes)**. Run #7 NEW guards (CAD
+  coverage test): `.cad-ribbon-bar` scrollWidth−clientWidth ≤ 0 (chat column
+  is ~768 px — ribbon must FIT, `scrollbar-width:none` hides overflow);
+  `cad-export` boundingBox inside `.cad-workstation-shell`; every
+  `g[data-layer]` shape's screen-CTM x within [stage.x+238, stage.right−238]
+  (docks are absolute 230 px overlays — `fitView(bbox,{w,h,insetX:246})` is
+  dock-aware, initial view snaps once via `initialFitDone` ref). Grid lines
+  are NOT in `g[data-layer]` so the band guard is safe. Ribbon labels are
+  now 2D/Iso/3D/Split + zoom 1×/2×/4× (testids unchanged). NEW guards in run #5: LAB stress paint assertion — room-tag
+  `text` computed `vectorEffect === "non-scaling-stroke"` + stroke-width ≤5
+  (catches the ~126 px user-unit halo blob regression that geometry-only
+  checks missed); coverage test — `cad-dock-hint` visible + `cad-explode`
+  disabled with `/Iso \/ 3D \/ Split/` title in 2D, hint count 0 + explode
+  enabled in 3D. Tests 1-2 as below; NEW:
   MECHA stress (17 named parts, ≥4 geo types, emissive visors ≥1.5,
   explode 100% part-distance, ViewCube 5 faces move camera >0.5),
   LAB stress (`#cad-wall-hatch` poché, 5 door arcs, 6 windows ×6 lines,

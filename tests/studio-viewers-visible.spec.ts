@@ -734,6 +734,17 @@ test.describe("Stress: ArchitectureCadViewer full lab blueprint + BIM (visible)"
     });
     expect(pillOverlaps, "room-tag pills must never overlap each other").toBe(0);
 
+    // Paint guard (blob regression 2026-10-17): the CSS text halo is 3.5 SVG
+    // USER units — without non-scaling-stroke that is ~126 px of round-capped
+    // stroke per glyph, merging into giant dark blobs behind every room tag.
+    const halo = await page.evaluate(() => {
+      const t = document.querySelector('[data-testid="cad-room-tag"] text');
+      const cs = getComputedStyle(t as Element);
+      return { vectorEffect: cs.vectorEffect || (t as SVGGraphicsElement).style?.vectorEffect || "", strokeWidth: cs.strokeWidth };
+    });
+    expect(halo.vectorEffect, "text halo must be device-pixel (non-scaling-stroke)").toBe("non-scaling-stroke");
+    expect(parseFloat(halo.strokeWidth), "halo stroke-width must stay in px range").toBeLessThanOrEqual(5);
+
     await step(page, "🧪 STRESS: Structural column grid axes A–D / 1–4 with bubble bubbles...");
     await expect(page.locator('[data-testid="cad-grid-axes"]')).toHaveCount(1);
     for (const label of ["A", "B", "C", "D", "1", "2", "3", "4"]) {
@@ -787,6 +798,37 @@ test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
     await sendPrompt(page, KIOSK_PROMPT);
     await expect(page.locator('[data-testid="cad-viewer"]')).toBeVisible({ timeout: 40000 });
 
+    // Slice regression guards (2026-10-17): (a) the ribbon must FIT the chat
+    // column — overflow-x silently buries the Export controls off-card;
+    // (b) the initial fit is dock-aware, so no drawing geometry may sit
+    // under the absolute 230 px docks.
+    const ribbon = page.locator(".cad-ribbon-bar");
+    expect(await ribbon.evaluate((el) => el.scrollWidth - el.clientWidth), "ribbon must not overflow").toBeLessThanOrEqual(0);
+    const exportBox = await page.locator('[data-testid="cad-export"]').boundingBox();
+    const shellBox = await page.locator(".cad-workstation-shell").boundingBox();
+    expect(exportBox!.x + exportBox!.width, "Export button inside the card").toBeLessThanOrEqual(shellBox!.x + shellBox!.width + 1);
+    const bandCheck = await page.evaluate(() => {
+      const svg = document.querySelector('[data-testid="cad-stage"]')!;
+      const r = svg.getBoundingClientRect();
+      const inset = 238; // dock 230 px + 8 px offset
+      let minX = Infinity, maxX = -Infinity;
+      for (const g of document.querySelectorAll("g[data-layer]")) {
+        for (const sh of g.querySelectorAll("line,rect,path,polyline,polygon,circle")) {
+          try {
+            const bb = (sh as SVGGraphicsElement).getBBox();
+            const ctm = sh.getScreenCTM()!;
+            for (const [px, py] of [[bb.x, bb.y], [bb.x + bb.width, bb.y + bb.height]]) {
+              const sx = ctm.a * px + ctm.c * py + ctm.e;
+              minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+            }
+          } catch { /* zero-size shapes */ }
+        }
+      }
+      return { minX, maxX, left: r.x + inset, right: r.right - inset };
+    });
+    expect(bandCheck.minX, "drawing left edge clear of left dock").toBeGreaterThanOrEqual(bandCheck.left - 2);
+    expect(bandCheck.maxX, "drawing right edge clear of right dock").toBeLessThanOrEqual(bandCheck.right + 2);
+
     await step(page, "🧪 CHECKLIST: Ribbon — view modes, themes, zoom, tools, fullscreen, exports...");
     for (const mode of ["2d", "iso", "3d", "split"]) {
       await expect(page.locator(`[data-testid="cad-view-${mode}"]`), `view mode ${mode}`).toHaveCount(1);
@@ -823,8 +865,14 @@ test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
     await expect(page.locator('[data-testid="cad-toggle-flows"]')).toHaveCount(0);
 
     await step(page, "🧪 CHECKLIST: 3D controls — explode, wall height, sections, sun, ViewCube, stats...");
+    // In 2D the 3D controls are disabled BY DESIGN — they must explain why
+    // (hint banner + tooltip), otherwise users read them as broken buttons.
+    await expect(page.locator('[data-testid="cad-dock-hint"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cad-explode"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="cad-explode"]')).toHaveAttribute("title", /Iso \/ 3D \/ Split/);
     await page.click('[data-testid="cad-view-3d"]');
     await expect(page.locator('[data-testid="cad-3d"] canvas')).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('[data-testid="cad-dock-hint"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="cad-explode"]')).toBeEnabled();
     await expect(page.locator('[data-testid="cad-wall-height"]')).toBeEnabled();
     await expect(page.locator('[data-testid="cad-sun"]')).toBeEnabled();

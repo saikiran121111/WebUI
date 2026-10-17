@@ -177,9 +177,27 @@ function slugify(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cad-drawing";
 }
 
-function fitView(bbox: BBox2): ViewState {
+/**
+ * Fit the model bbox into the stage viewport. When stage metrics are given,
+ * the fit is DOCK-AWARE: the layer/controls docks are absolute overlays
+ * (~238 px each side) that would otherwise hide the drawing's left/right
+ * edges, so the scale is chosen against the visible band between them.
+ */
+function fitView(bbox: BBox2, stage?: { w: number; h: number; insetX?: number }): ViewState {
   const padX = (bbox.maxX - bbox.minX) * 0.06 + 0.4;
   const padY = (bbox.maxY - bbox.minY) * 0.06 + 0.4;
+  if (stage && stage.w > 0 && stage.h > 0) {
+    const bw = bbox.maxX - bbox.minX + 2 * padX;
+    const bh = bbox.maxY - bbox.minY + 2 * padY;
+    const inset = stage.insetX ?? 0;
+    const visW = Math.max(stage.w * 0.5, stage.w - 2 * inset);
+    const s = Math.min(visW / bw, stage.h / bh);
+    const vw = stage.w / s;
+    const vh = stage.h / s;
+    const cx = (bbox.minX + bbox.maxX) / 2;
+    const cy = -(bbox.minY + bbox.maxY) / 2;
+    return { x: cx - vw / 2, y: cy - vh / 2, w: vw, h: vh };
+  }
   return {
     x: bbox.minX - padX,
     y: -(bbox.maxY + padY),
@@ -190,11 +208,11 @@ function fitView(bbox: BBox2): ViewState {
 
 function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text: string) => void }) {
   const bbox = useMemo(() => specBBox(spec), [spec]);
-  const fit = useMemo(() => fitView(bbox), [bbox]);
+  const fit0 = useMemo(() => fitView(bbox), [bbox]);
 
   const [viewMode, setViewMode] = useState<ViewMode>(spec.defaultView);
   const [theme, setTheme] = useState(CAD_THEMES[0]);
-  const [view, setView] = useState<ViewState>(fit);
+  const [view, setView] = useState<ViewState>(fit0);
   const [tool, setTool] = useState<CadTool>(null);
   const [pending, setPending] = useState<Point2[]>([]);
   const [measures, setMeasures] = useState<{ a: Point2; b: Point2 }[]>([]);
@@ -225,6 +243,24 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const [bimStats, setBimStats] = useState<{ meshes: number; vertices: number; triangles: number } | null>(null);
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // The docks are absolute overlays (230 px + 8 px offset each side); a fit
+  // computed against the FULL stage width hides the drawing's edges behind
+  // them, so reserve that band. In fullscreen the docks overlay too.
+  const DOCK_OVERLAY = 246;
+  const fit = useMemo(
+    () => fitView(bbox, stageSize.w > 0 ? { w: stageSize.w, h: stageSize.h, insetX: DOCK_OVERLAY } : undefined),
+    [bbox, stageSize],
+  );
+  // Snap the initial view to the dock-aware fit once the stage is measured
+  // (the first ResizeObserver callback fires before the user can interact).
+  const initialFitDone = useRef(false);
+  useEffect(() => {
+    if (!initialFitDone.current && stageSize.w > 0 && stageSize.h > 0) {
+      initialFitDone.current = true;
+      setView(fit);
+    }
+  }, [stageSize, fit]);
 
   // Fullscreen the whole sheet (toolbar + docks + status bar stay live); the
   // stage ResizeObserver re-renders the SVG at the new size automatically.
@@ -833,12 +869,12 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   return (
     <div ref={rootRef} className="cad-viewer cad-workstation-shell" data-testid="cad-viewer" style={{ background: theme.bg, color: theme.text }}>
       <div className="cad-toolbar cad-ribbon-bar">
-        <span className="cad-ribbon-title">ARCHITECTURE CAD</span>
         <div className="cad-seg cad-ribbon-group" role="group" aria-label="View mode">
           {(["2d", "iso", "3d", "split"] as ViewMode[]).map((mode) => (
             <button key={mode} type="button" data-testid={`cad-view-${mode}`} aria-pressed={viewMode === mode}
+              title={mode === "2d" ? "2D CAD plan" : mode === "iso" ? "Isometric cutaway" : mode === "3d" ? "3D BIM model" : "Split 2D + 3D"}
               className={viewMode === mode ? "is-active" : ""} onClick={() => setViewMode(mode)}>
-              {mode === "2d" ? "2D CAD" : mode === "iso" ? "Iso Cutaway" : mode === "3d" ? "3D BIM" : "Split"}
+              {mode === "2d" ? "2D" : mode === "iso" ? "Iso" : mode === "3d" ? "3D" : "Split"}
             </button>
           ))}
         </div>
@@ -850,7 +886,8 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
         <div className="cad-seg cad-ribbon-group">
           <button type="button" data-testid="cad-zoom-fit" onClick={() => setZoomPct(100)} title="Zoom fit"><Maximize2 size={14} /></button>
           {[100, 200, 400].map((pct) => (
-            <button key={pct} type="button" data-testid={`cad-zoom-${pct}`} onClick={() => setZoomPct(pct)}>{pct}%</button>
+            <button key={pct} type="button" data-testid={`cad-zoom-${pct}`} title={`${pct}% zoom`}
+              onClick={() => setZoomPct(pct)}>{pct / 100}×</button>
           ))}
         </div>
         <div className="cad-seg cad-ribbon-group">
@@ -1169,16 +1206,23 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
 
         <aside className="cad-dock cad-dock-right" aria-label="Drawing controls">
           <div className="cad-dock-header">VIEW CONTROLS</div>
+          {viewMode === "2d" && (
+            <div className="cad-dock-hint" data-testid="cad-dock-hint">
+              These 3D controls activate in the Iso, 3D or Split views (ribbon tabs above).
+            </div>
+          )}
           <div className="cad-dock-scroll">
           <label className="cad-control-row">
             <span>Explode</span>
             <input type="range" min={0} max={100} value={explode} data-testid="cad-explode" disabled={viewMode === "2d"}
+              title={viewMode === "2d" ? "Explode works in Iso / 3D / Split views — pick a view tab in the ribbon" : "Explode"}
               onChange={(e) => setExplode(Number(e.target.value))} />
             <b className="cad-control-value">{explode}%</b>
           </label>
           <label className="cad-control-row">
             <span>Wall Height</span>
             <input type="range" min={0.5} max={2.8} step={0.05} value={wallCut ?? 2.8} data-testid="cad-wall-height" disabled={viewMode === "2d"}
+              title={viewMode === "2d" ? "Wall height works in Iso / 3D / Split views — pick a view tab in the ribbon" : "Wall height"}
               onChange={(e) => { const v = Number(e.target.value); setWallCut(v >= 2.8 ? null : v); }} />
             <b className="cad-control-value">{wallCut === null ? "full" : `${wallCut.toFixed(2)} m`}</b>
           </label>
@@ -1186,18 +1230,21 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
             <label key={axis} className="cad-control-row">
               <span>
                 <input type="checkbox" data-testid={`cad-section-${axis}`} checked={sectionOn[axis]} disabled={viewMode === "2d"}
+                  title={viewMode === "2d" ? `Section ${axis.toUpperCase()} works in Iso / 3D / Split views — pick a view tab in the ribbon` : `Section ${axis.toUpperCase()}`}
                   onChange={(e) => setSectionOn((prev) => ({ ...prev, [axis]: e.target.checked }))} /> Section {axis.toUpperCase()}
               </span>
               <input type="range" min={axis === "z" ? 0 : (axis === "x" ? bbox.minX : bbox.minY)}
                 max={axis === "z" ? Math.max(...spec.walls.map((w) => w.z + w.height), 1) : (axis === "x" ? bbox.maxX : bbox.maxY)}
                 step={0.01} value={sectionVal[axis]} disabled={viewMode === "2d" || !sectionOn[axis]}
                 data-testid={`cad-section-val-${axis}`}
+                title={!sectionOn[axis] ? `Tick "Section ${axis.toUpperCase()}" first` : `Section ${axis.toUpperCase()} position`}
                 onChange={(e) => setSectionVal((prev) => ({ ...prev, [axis]: Number(e.target.value) }))} />
             </label>
           ))}
           <label className="cad-control-row">
             <span><Sun size={12} /> Sun {sunClock}</span>
             <input type="range" min={6} max={20} step={0.25} value={sunTime} data-testid="cad-sun" disabled={viewMode === "2d"}
+              title={viewMode === "2d" ? "Sun study works in Iso / 3D / Split views — pick a view tab in the ribbon" : "Sun time"}
               onChange={(e) => setSunTime(Number(e.target.value))} />
             <span className="cad-compass" title={`azimuth ${Math.round(sun.azimuthDeg)}°, altitude ${Math.round(sun.altitudeDeg)}°`}>
               <Compass size={14} style={{ transform: `rotate(${sun.azimuthDeg}deg)` }} />
