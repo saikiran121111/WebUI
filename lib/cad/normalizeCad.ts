@@ -354,9 +354,9 @@ export function normalizeCad(source: string): CadNormalizeResult {
         name: (str(l.name) ?? DEFAULT_LAYERS[id]?.name ?? id).slice(0, 60),
         color: normHex(l.color) ?? DEFAULT_LAYERS[id]?.color ?? "#38BDF8",
         ...(l.lineType === "dashed" || l.lineType === "dotted" || l.lineType === "solid" ? { lineType: l.lineType } : {}),
-        ...(typeof l.opacity === "number" && Number.isFinite(l.opacity) ? { opacity: clamp(l.opacity, 0.05, 1) } : {}),
-        ...(typeof l.locked === "boolean" ? { locked: l.locked } : {}),
-        ...(typeof l.visible === "boolean" ? { visible: l.visible } : {}),
+        opacity: typeof l.opacity === "number" && Number.isFinite(l.opacity) ? clamp(l.opacity, 0.05, 1) : 1,
+        locked: l.locked === true,
+        visible: l.visible !== false,
       });
     }
     return id;

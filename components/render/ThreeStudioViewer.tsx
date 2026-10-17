@@ -100,7 +100,7 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
   const [bboxOn, setBboxOn] = useState(false);
   const [cageOn, setCageOn] = useState(false);
   const [helpersOn, setHelpersOn] = useState(false);
-  const [transformMode, setTransformMode] = useState<TransformMode>("translate");
+  const [transformMode, setTransformMode] = useState<TransformMode | null>(null);
   const [transformSpace, setTransformSpace] = useState<"local" | "world">("local");
 
   const [envPreset, setEnvPreset] = useState(spec.lighting?.preset === "space" ? "deep-space" : "studio-soft");
@@ -165,6 +165,10 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
       }
       threeRef.current = three;
       viewerRef.current = viewer;
+      // Live engine handle for the visible Playwright suite: assertions read the
+      // real scene graph (mesh.visible, gizmo attach, explode offsets) not React state.
+      (window as any).__studioViewer = viewer;
+      cleanups.push(() => { if ((window as any).__studioViewer === viewer) delete (window as any).__studioViewer; });
       if (interactions.orbit === false) viewer.controls.enableRotate = false;
       if (interactions.pan === false) viewer.controls.enablePan = false;
       viewer.setLight({ shadows: spec.lighting?.shadows ?? false, ambientIntensity: spec.lighting?.ambientIntensity ?? viewer.getLights().ambientIntensity });
@@ -259,9 +263,11 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
 
       let downX = 0;
       let downY = 0;
+      const canvasEl: HTMLCanvasElement = viewer.renderer.domElement;
       const onPointerDown = (e: PointerEvent) => { downX = e.clientX; downY = e.clientY; };
       const onPointerUp = (e: PointerEvent) => {
         if (interactions.select === false) return;
+        if (e.target !== canvasEl) return; // dock/HUD clicks bubble here — they must never pick or clear the selection
         if (viewer.handleGizmoClick(e.clientX, e.clientY)) return; // ViewCube handled it
         if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 6) return; // orbit drag, not a pick
         const id = viewer.pick(e.clientX, e.clientY);
@@ -274,6 +280,7 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
       let hoverQueued = false;
       const onPointerMove = (e: PointerEvent) => {
         if (interactions.hover === false || hoverQueued) return;
+        if (e.target !== canvasEl) return; // no hover-picking through the dock chrome
         hoverQueued = true;
         requestAnimationFrame(() => {
           hoverQueued = false;
@@ -333,8 +340,9 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
     setPlaying(on);
   };
   const applyTransformMode = (mode: TransformMode) => {
-    setTransformMode(mode);
-    viewerRef.current?.setTransformMode(mode);
+    const next = transformMode === mode ? null : mode; // clicking the active mode detaches the gizmo
+    setTransformMode(next);
+    viewerRef.current?.setTransformMode(next);
   };
   const applyTransformSpace = (space: "local" | "world") => {
     setTransformSpace(space);

@@ -1,6 +1,23 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Black-canvas + live-control fix (2026-10-17): 3D viewport rendered
+      solid black and dock/toolbar buttons "only toggled React state". Root
+      causes + fixes: r186 ViewHelper full-canvas autoClear wipe →
+      `renderGizmo()` depth-cleared overlay with `autoClear=false`
+      (`lib/three3d/studioEngine.ts`); stage-bubbled pointerup deselected →
+      `e.target !== canvasEl` guards (`components/render/ThreeStudioViewer.tsx`);
+      normalizeCad always emits layer visible/opacity/locked defaults
+      (`lib/cad/normalizeCad.ts`); `axes.visible=false`; stage 520px #0b1020
+      wrapper + canvas inset:0 z:1 + docks z:10 + preserveDrawingBuffer +
+      scene.background + permanent light rig + frameCameraToScene (all prior).
+      Proven: `tests/studio-viewers-visible.spec.ts` 2/2 HEADED (drone pixels
+      non-black, shading/presets/FOV/projection/gizmos/overlays/Eye/Solo/
+      Material sliders/Explode/GLB+OBJ; kiosk CAD layers/themes/view modes/
+      Tape/Area/.dxf/.svg), `test-results/canvas-proof.png` visual proof,
+      `tsc --noEmit` clean, `npx vitest run` 402 passed | 1 skipped. Debug
+      probe files (`tests/_debug-probe.spec.ts`, `__tests__/tmp-cadnorm.test.ts`)
+      deleted. See docs/e2e-test-state.md + ISSUES.md.
 - [x] Step 8 fault-tolerant 3D/CAD pipeline (2026-10-17): the two UI failures
       ("3D scene data did not validate", "entities.12.content: Required
       (+115 more)") fixed at the root — strict all-or-nothing zod replaced by

@@ -90,11 +90,11 @@ export interface StudioOptions {
   onStats?: (stats: StudioStats) => void;
 }
 
-const LIGHT_PRESETS: Record<string, { key: number; fill: number; rim: number; ambient: number }> = {
-  studio: { key: 2.2, fill: 0.8, rim: 1.4, ambient: 0.45 },
-  dramatic: { key: 3.0, fill: 0.3, rim: 2.0, ambient: 0.2 },
-  blueprint: { key: 1.6, fill: 1.2, rim: 1.0, ambient: 0.8 },
-  space: { key: 1.2, fill: 0.5, rim: 1.8, ambient: 0.25 },
+const LIGHT_PRESETS: Record<string, { key: number; fill: number; rim: number; ambient: number; hemi: number }> = {
+  studio: { key: 3.5, fill: 2.0, rim: 1.4, ambient: 2.0, hemi: 1.8 },
+  dramatic: { key: 3.0, fill: 0.3, rim: 2.0, ambient: 0.2, hemi: 0.4 },
+  blueprint: { key: 1.6, fill: 1.2, rim: 1.0, ambient: 0.8, hemi: 1.0 },
+  space: { key: 1.2, fill: 0.5, rim: 1.8, ambient: 0.25, hemi: 0.5 },
 };
 
 const VIEW_DIRS: Record<Exclude<ViewName, "reset">, [number, number, number]> = {
@@ -165,6 +165,7 @@ export class StudioViewer {
   private duration = 1;
 
   private ambient: any;
+  private hemiLight: any;
   private keyLight: any;
   private fillLight: any;
   private rimLight: any;
@@ -180,6 +181,7 @@ export class StudioViewer {
   private selectionBox: any;
   private selectedId: string | null = null;
   private soloId: string | null = null;
+  private transformMode: TransformMode | null = null;
 
   private shadingMode: ShadingMode = "rendered";
   private matcapTexture: any = null;
@@ -215,7 +217,9 @@ export class StudioViewer {
     this.container = container;
     this.onStats = opts.onStats;
 
-    this.renderer = new three.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
+    // preserveDrawingBuffer is required for PNG export AND Playwright pixel
+    // inspection — without it canvas.toDataURL() reads back solid black.
+    this.renderer = new three.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = three.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = three.SRGBColorSpace;
@@ -224,7 +228,7 @@ export class StudioViewer {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new three.Scene();
-    this.scene.background = new three.Color("#0B0E14");
+    this.scene.background = new three.Color("#0b1020");
 
     const fov = opts.fov ?? 45;
     this.perspCamera = new three.PerspectiveCamera(fov, 1, 0.01, 2000);
@@ -249,16 +253,18 @@ export class StudioViewer {
       this.refreshBboxHelpers();
     });
 
-    // 3-point rig + ambient, driven by the right dock.
+    // Permanent Studio_Light_Rig: ambient + hemisphere ground fill + key/fill/rim
+    // directionals (cyan fill from below-behind), driven by the right dock.
     const preset = LIGHT_PRESETS[opts.lightingPreset ?? "studio"] ?? LIGHT_PRESETS.studio;
     this.ambient = new three.AmbientLight(0xffffff, preset.ambient);
+    this.hemiLight = new three.HemisphereLight(0xffffff, 0x334155, preset.hemi);
     this.keyLight = new three.DirectionalLight(0xffffff, preset.key);
-    this.fillLight = new three.DirectionalLight(0xbfd4ff, preset.fill);
+    this.fillLight = new three.DirectionalLight(0x38bdf8, preset.fill);
     this.rimLight = new three.DirectionalLight(0xffffff, preset.rim);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(1024, 1024);
     this.keyLight.shadow.bias = -0.0005;
-    this.scene.add(this.ambient, this.keyLight, this.fillLight, this.rimLight);
+    this.scene.add(this.ambient, this.hemiLight, this.keyLight, this.fillLight, this.rimLight);
     this.lightHelpers = new three.Group();
     for (const light of [this.keyLight, this.fillLight, this.rimLight]) {
       this.lightHelpers.add(new three.DirectionalLightHelper(light, 1, 0x38bdf8));
@@ -268,13 +274,14 @@ export class StudioViewer {
     this.lightState = {
       keyIntensity: preset.key, fillIntensity: preset.fill, rimIntensity: preset.rim,
       ambientIntensity: preset.ambient,
-      keyColor: "#ffffff", fillColor: "#bfd4ff", rimColor: "#ffffff",
+      keyColor: "#ffffff", fillColor: "#38bdf8", rimColor: "#ffffff",
       keyAzimuth: 39, fillAzimuth: 210, rimAzimuth: 300,
       shadows: true, contactShadows: false, helpers: false,
     };
 
     this.grid = new three.GridHelper(10, 10, 0x4a5568, 0x2a3140);
     this.axes = new three.AxesHelper(3);
+    this.axes.visible = false; // matches the toolbar default (axesOn = false)
     this.bboxHelper = new three.Box3Helper(new three.Box3(), 0x38bdf8);
     this.cageHelper = new three.Box3Helper(new three.Box3(), 0x64748b);
     this.selectionBox = new three.Box3Helper(new three.Box3(), 0xfbbf24);
@@ -328,6 +335,7 @@ export class StudioViewer {
 
     this.selectedId = null;
     this.soloId = null;
+    this.transformMode = null;
     this.transformControls.detach();
     this.selectionBox.visible = false;
     this.shadingMode = "rendered";
@@ -365,10 +373,9 @@ export class StudioViewer {
     const sphere = box.getBoundingSphere(new three.Sphere());
     let radius = sphere.radius;
     if (!Number.isFinite(radius) || radius < 0.5) radius = 5;
-    const fovRad = three.MathUtils.degToRad(this.perspCamera.fov);
-    const distance = Math.max(radius / Math.sin(fovRad / 2) * 1.35, 1.5);
-    const dir = new three.Vector3(0.55, 0.4, 0.75).normalize();
-    return { center, position: center.clone().add(dir.multiplyScalar(distance)) };
+    // frameCameraToScene: sit off-axis at fixed multiples of the model radius.
+    const offset = new three.Vector3(radius * 1.8, radius * 1.2, radius * 2.2);
+    return { center, position: center.clone().add(offset) };
   }
 
   private currentBox(): any {
@@ -398,6 +405,7 @@ export class StudioViewer {
     const size = box.getSize(new this.three.Vector3());
     this.bboxDims = { w: size.x, h: size.y, d: size.z };
     if (this.contactPlane) this.contactPlane.position.y = box.min.y - 0.01;
+    this.grid.position.y = box.min.y;
   }
 
   /* ── outliner / selection / visibility ─────────────────────────────── */
@@ -455,7 +463,10 @@ export class StudioViewer {
     if (id) {
       const node = this.nodesById.get(id);
       if (node) {
-        this.transformControls.attach(node);
+        if (this.transformMode) {
+          this.transformControls.mode = this.transformMode;
+          this.transformControls.attach(node);
+        }
         this.selectionBox.visible = true;
         this.refreshBboxHelpers();
         return;
@@ -469,8 +480,20 @@ export class StudioViewer {
     return this.selectedId;
   }
 
-  setTransformMode(mode: TransformMode): void {
+  /** null detaches the gizmo — Move/Rotate/Scale stay OFF until clicked. */
+  setTransformMode(mode: TransformMode | null): void {
+    this.transformMode = mode;
+    if (!mode) {
+      this.transformControls.detach();
+      return;
+    }
     this.transformControls.mode = mode;
+    const node = this.selectedId ? this.nodesById.get(this.selectedId) : null;
+    if (node) this.transformControls.attach(node);
+  }
+
+  getTransformMode(): TransformMode | null {
+    return this.transformMode;
   }
 
   setTransformSpace(space: "local" | "world"): void {
@@ -639,7 +662,7 @@ export class StudioViewer {
       this.scene.background = null;
       this.renderer.setClearAlpha(0);
     } else {
-      const color = spec.mode === "custom" ? spec.color ?? "#0B0E14" : "#0B0E14";
+      const color = spec.mode === "custom" ? spec.color ?? "#0b1020" : "#0b1020";
       this.scene.background = new this.three.Color(color);
       this.renderer.setClearAlpha(1);
     }
@@ -705,7 +728,7 @@ export class StudioViewer {
       light.target.updateMatrixWorld();
     };
     place(this.keyLight, this.lightState.keyAzimuth, 55);
-    place(this.fillLight, this.lightState.fillAzimuth, 18);
+    place(this.fillLight, this.lightState.fillAzimuth, -30);
     place(this.rimLight, this.lightState.rimAzimuth, 35);
     for (const helper of this.lightHelpers.children) (helper as any).update?.();
   }
@@ -765,10 +788,7 @@ export class StudioViewer {
     const center = box.getCenter(new this.three.Vector3());
     const size = box.getSize(new this.three.Vector3());
     const radius = Math.max(0.5, size.length() / 2);
-    const fovRad = this.activeCamera.isOrthographicCamera
-      ? this.three.MathUtils.degToRad(this.perspCamera.fov)
-      : this.three.MathUtils.degToRad(this.activeCamera.fov);
-    const distance = Math.max(radius / Math.sin(fovRad / 2) * 1.35, 1.5);
+    const distance = Math.max(radius * 2.5, 1.5);
     const dir = new this.three.Vector3(...VIEW_DIRS[name]).normalize();
     this.activeCamera.position.copy(center).add(dir.multiplyScalar(distance));
     if (name === "top") this.activeCamera.up.set(0, 0, -1);
@@ -815,7 +835,7 @@ export class StudioViewer {
     }
   }
 
-  setAutoRotate(on: boolean, speed = 2): void {
+  setAutoRotate(on: boolean, speed = 3): void {
     this.controls.autoRotate = on;
     this.controls.autoRotateSpeed = speed;
   }
@@ -996,8 +1016,8 @@ export class StudioViewer {
   }
 
   private applyExplode(): void {
-    if (this.explodePct <= 0) return;
-    const t = (this.explodePct / 100);
+    // Always applied: sliding back to 0% must restore every part to its base.
+    const t = this.explodePct / 100;
     for (const entry of this.explodeCache) {
       entry.node.position.copy(entry.base).addScaledVector(entry.dirLocal, t * entry.maxDist);
     }
@@ -1088,18 +1108,20 @@ export class StudioViewer {
         : 96;
       const renderer = this.renderer;
       const origViewport = renderer.setViewport.bind(renderer);
-      const origScissor = renderer.setScissor.bind(renderer);
+      const origAutoClear = renderer.autoClear;
       const dw = renderer.domElement.width;
       const dh = renderer.domElement.height;
+      // r186 ViewHelper.render() has no scissor guard: its internal renderer.render() would autoClear
+      // the WHOLE canvas (black, no scene.background) and wipe the main pass every frame. Render the
+      // gizmo as a depth-cleared overlay in the top-right corner instead (ViewHelper clears depth itself).
+      renderer.autoClear = false;
       renderer.setViewport = (x: number, y: number, w?: number, h?: number) =>
         origViewport(dw - (w ?? size), dh - (h ?? size), w, h);
-      renderer.setScissor = (x: number, y: number, w?: number, h?: number) =>
-        origScissor(dw - (w ?? size), dh - (h ?? size), w, h);
       try {
         this.viewHelper.render(renderer);
       } finally {
         renderer.setViewport = origViewport;
-        renderer.setScissor = origScissor;
+        renderer.autoClear = origAutoClear;
       }
     } catch {
       // ViewHelper API drift must never break the render loop.

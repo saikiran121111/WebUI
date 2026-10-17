@@ -1,6 +1,25 @@
 # ISSUES
 
 ## Confirmed and fixed
+- 3D canvas SOLID BLACK though HUD reported 180 FPS · 8 meshes: two stacked
+  causes. (A) r186 `ViewHelper` (now `three/examples/jsm/helpers/ViewHelper.js`)
+  `render()` has no scissor/clear guard — its inner `renderer.render()`
+  autoCleared the WHOLE canvas (black, no scene.background) each frame and
+  wiped the main pass. Fixed: `renderGizmo()` renders the gizmo as a
+  depth-cleared top-right overlay with `renderer.autoClear=false` (ViewHelper
+  clears depth itself; r186 never calls setScissor — an earlier setScissor
+  patch was dead code). (B) Selection deselected by dock clicks: pointerup
+  was on the stage WRAPPER, dock button clicks bubbled → pick → null. Fixed:
+  `e.target !== canvasEl` guards in ThreeStudioViewer onPointerUp/onPointerMove.
+  Proven headed: `tests/studio-viewers-visible.spec.ts` 2/2 +
+  `test-results/canvas-proof.png` shows the drone visibly rendered.
+- r186 API drift gotchas: `renderer.viewport` property REMOVED (use
+  `getViewport()`); a Promise/async-IIFE inside a `page.evaluate` return
+  object serializes to `{}` — keep evaluate returns synchronous.
+- CAD stage rendered empty: `lib/cad/normalizeCad.ts` omitted layer
+  `visible`/`opacity`/`locked` when the model didn't write them; the viewer
+  then treated layers as hidden. Fixed: always emit the defaults.
+- `this.axes.visible=false` in studioEngine (grid/axes default mismatch).
 - Model-authored COMPACT fences still hit random syntax holes (user's 2nd
   Aetherion attempt: "Expected ':' after property name in JSON at position
   17084") — emission discipline reduces but cannot guarantee error-free

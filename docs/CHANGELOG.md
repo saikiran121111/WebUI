@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 2026-10-17 — Fix: 3D viewport rendered solid black + dock controls only toggled React state
+- Two stacked root causes for the black canvas (HUD said 180 FPS · 180 meshes
+  yet pixels were all #000):
+  1. Buffer level: `preserveDrawingBuffer` was false and the scene had no
+     `scene.background` — fixed earlier (stage wrapper 520px `#0b1020`,
+     canvas absolute inset:0 z:1, docks z:10, permanent light rig).
+  2. On-screen: three r186 `ViewHelper` moved to
+     `three/examples/jsm/helpers/ViewHelper.js` and its `render()` has NO
+     scissor/clear guard — its internal `renderer.render()` autoCleared the
+     WHOLE canvas to black every frame, wiping the main pass. Fixed in
+     `lib/three3d/studioEngine.ts` `renderGizmo()`: render the gizmo as a
+     depth-cleared top-right overlay (`renderer.autoClear=false` + patched
+     `setViewport` to `dw-size, dh-size`; ViewHelper clears depth itself).
+- Selection died on every dock click (material sliders never bound): pointer
+  handlers were attached to the stage WRAPPER, so dock-button pointerups
+  bubbled in → raycast pick → null → deselect. Fixed in
+  `components/render/ThreeStudioViewer.tsx`: `if (e.target !== canvasEl)
+  return;` guards in `onPointerUp`/`onPointerMove`.
+- `lib/cad/normalizeCad.ts`: always emit layer `visible`/`opacity`/`locked`
+  defaults (omitting them left the CAD stage empty). `studioEngine.ts`:
+  `this.axes.visible=false` (grid/axes default mismatch).
+- Proven: new `tests/studio-viewers-visible.spec.ts` 2/2 HEADED
+  (`playwright.config.ts` headless:false + slowMo:350) — Test 1 cyberpunk
+  hover drone: canvas pixels non-black (all-black MUST fail), shading cycle,
+  presets/FOV/projection, gizmos, overlays, Eye/Solo, live Material sliders,
+  Explode 0→80→0, GLB+OBJ downloads >100 B; Test 2 coffee kiosk CAD: SVG
+  bbox+zone names, layer Eye/Solo, 2D/iso/BIM/split (BIM canvas non-black),
+  themes, Tape Measure, Area, .dxf contains SECTION/ENTITIES/LAYER + .svg.
+  Visual proof: `test-results/canvas-proof.png` shows the drone on screen.
+  `tsc --noEmit` clean, `npx vitest run` 402 passed | 1 skipped.
+
 ## 2026-10-17 — Fix: 3D/CAD fences stop rejecting valid model output (Step 8)
 - Root cause of "3D scene data did not validate" + "entities.12.content:
   Required (+115 more)": strict zod rejected drift (sphere segs 48 > old

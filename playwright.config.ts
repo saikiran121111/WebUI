@@ -18,8 +18,12 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium-headless",
-      use: { ...devices["Desktop Chrome"] },
+      // Visible suite: the on-screen step banner must be watchable by a human.
+      name: "chromium-visible",
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: { headless: false, slowMo: 350 },
+      },
     },
   ],
 });
