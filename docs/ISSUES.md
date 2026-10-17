@@ -1,6 +1,40 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Studio viewer "right side stripped / black space / stray TOP FRONT RIGHT
+  text" + collapsible docks feature (user screenshot, 2026-10-18, browser-
+  proven, app-dev session): THREE findings. (1) TOOLBAR CUTOFF — live probe
+  showed `.scene3d-toolbar.cad-ribbon-bar` scrollWidth 1891 > clientWidth
+  ≤1058 with `flex-wrap:nowrap` + `scrollbar-width:none`: the transform,
+  overlays, FULLSCREEN and EXPORT groups were unreachable off-card. FIX:
+  `.scene3d-toolbar.cad-ribbon-bar { flex-wrap: wrap; height: auto;
+  min-height: 38px; overflow-x: visible }` in `app/cad-studio.css` — the
+  studio ribbon wraps to 2 rows (h 94 px); the CAD ribbon stays nowrap and
+  fits (its `scrollWidth−clientWidth ≤ 0` e2e guard is CAD-only, still 0).
+  (2) STRAY VIEWCUBE TEXT — the HTML ViewCube buttons had NO styling at all,
+  so they read as floating raw text over the viewport. FIX: chip chrome on
+  `.cad-viewcube button` (20 px, mono 9 px, dark bg + subtle border, cyan
+  hover); position unchanged (below the in-canvas ViewHelper gizmo, above
+  the right dock) — all `scene3d-viewcube-*` / `cad-viewcube-*` testids
+  intact. (3) "BLACK SPACE bottom/left, content top/right" did NOT
+  reproduce as a render bug (canvas rect == stage rect == buffer, camera
+  aspect 1.7778, at 1472×950 AND 1744×1225) — it is the OPAQUE dock
+  overlays (left 190 px + right 224 px + bottom bar) covering the scene.
+  FIX = the requested COLLAPSIBLE DOCKS feature: chevron in every dock
+  header (`scene3d-dock-left-toggle`, `scene3d-dock-right-toggle`,
+  `cad-dock-left-toggle`, `cad-dock-right-toggle`) unmounts the dock and
+  shows a reopen chip (`scene3d-dock-left-open` "OUTLINER" top-left,
+  `scene3d-dock-right-open` "SCENE" bottom-right, `cad-dock-left-open`
+  "LAYERS" / `cad-dock-right-open` "CONTROLS" at top corners); default
+  OPEN, selection state survives collapse. Files: ThreeStudioViewer.tsx,
+  ArchitectureCadViewer.tsx (state + titlebars + conditional docks +
+  reopen chips), app/cad-studio.css (ribbon wrap + viewcube chips +
+  `.studio-dock-collapse`/`.cad-dock-collapse`/`*-dock-reopen` chrome).
+  Verified live: ribbon scrollW==clientW 1056 with Fullscreen+Export
+  visible; collapse→reopen round-trips in BOTH viewers; screenshots
+  `%TEMP%\webui-recon\fixed-{open,collapsed}.png` + `cad-collapsed.png`.
+  Gates: tsc clean, vitest 407|1, headed suite 6 passed run #10, then
+  run #11 GREEN with new collapse guards in both coverage tests.
 - Giant dark DISC behind the wrapped "CUSTOMER SEATING AREA" pill at fit
   zoom (found during live verification of the text-sizing fix below,
   2026-10-17, browser-proven): a ~150 px round dark blob + the first

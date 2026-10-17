@@ -7,7 +7,9 @@
   (user mandate). Each run wipes `test-results/` — view artifacts immediately.
 - Green suite (headed, watched): `npx playwright test
   tests/studio-viewers-visible.spec.ts --headed --workers=1 --reporter=list`
-  → **6 passed (1.6 m, run 2026-10-18 #9, after room-tag halo opt-out —
+  → **6 passed (1.6 m, run 2026-10-18 #11, after collapsible-dock guards +
+  studio ribbon wrap + viewcube chip fix — see ISSUES.md; run #9, after
+  room-tag halo opt-out —
   `.cad-svg-canvas g.cad-room-tag text { stroke:none }` kills the
   Chromium tspan-halo mis-paint (dark disc + dropped line at fit);
   run #8 also green after the text-sizing fix — wall-raycast rooms +

@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Axis3d, Box, ChevronDown, ChevronRight, Download, Eye, EyeOff,
-  Grid3x3, Maximize2, MessageSquarePlus, Minimize2, Move, Pause, Play, RotateCcw,
+  Axis3d, Box, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, EyeOff,
+  Grid3x3, Maximize2, MessageSquarePlus, Minimize2, Move, PanelLeft, PanelRight, Pause, Play, RotateCcw,
   RotateCw, Scale3d, Target,
 } from "lucide-react";
 import type { Scene3DSpec } from "../../lib/three3d/sceneSchema";
@@ -130,6 +130,8 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
   // Fullscreen takes the whole .scene3d-block (toolbar stays usable); the
   // stage flexes to fill the rest via the :fullscreen rules in globals.css.
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [leftDockOpen, setLeftDockOpen] = useState(true);
+  const [rightDockOpen, setRightDockOpen] = useState(true);
   useEffect(() => {
     const onFsChange = () => {
       const el = document.fullscreenElement;
@@ -613,14 +615,35 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
           </div>
         )}
 
-        <div className="studio-left-dock" data-testid="scene3d-outliner">
-          <div className="studio-dock-section">
-            <div className="studio-dock-title">Outliner</div>
-            {renderOutlinerRows(outliner, 0)}
+        {leftDockOpen ? (
+          <div className="studio-left-dock" data-testid="scene3d-outliner">
+            <div className="studio-dock-section">
+              <div className="studio-dock-titlebar">
+                <span className="studio-dock-title">Outliner</span>
+                <button type="button" className="studio-dock-collapse" data-testid="scene3d-dock-left-toggle"
+                  aria-label="Minimize outliner panel" title="Minimize panel" onClick={() => setLeftDockOpen(false)}>
+                  <ChevronLeft size={14} />
+                </button>
+              </div>
+              {renderOutlinerRows(outliner, 0)}
+            </div>
           </div>
-        </div>
+        ) : (
+          <button type="button" className="studio-dock-reopen studio-dock-reopen-left" data-testid="scene3d-dock-left-open"
+            title="Open outliner panel" onClick={() => setLeftDockOpen(true)}>
+            <PanelLeft size={13} /> Outliner
+          </button>
+        )}
 
-        <div className="studio-right-dock">
+        {rightDockOpen ? (
+          <div className="studio-right-dock">
+            <div className="studio-dock-titlebar">
+              <span className="studio-dock-title">Scene Controls</span>
+              <button type="button" className="studio-dock-collapse" data-testid="scene3d-dock-right-toggle"
+                aria-label="Minimize scene controls panel" title="Minimize panel" onClick={() => setRightDockOpen(false)}>
+                <ChevronRight size={14} />
+              </button>
+            </div>
           {selected && matForm && (
             <div className="studio-dock-section">
               <div className="studio-dock-title">Material — {selected.label}</div>
@@ -755,7 +778,13 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
               </div>
             </div>
           )}
-        </div>
+          </div>
+        ) : (
+          <button type="button" className="studio-dock-reopen studio-dock-reopen-right" data-testid="scene3d-dock-right-open"
+            title="Open scene controls panel" onClick={() => setRightDockOpen(true)}>
+            <PanelRight size={13} /> Scene
+          </button>
+        )}
 
         <div className="studio-bottom-dock">
           {hasAnimations && (

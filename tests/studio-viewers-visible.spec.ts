@@ -892,6 +892,20 @@ test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
     await expect(page.locator('[data-testid="cad-stats"]')).toContainText("meshes");
     await page.click('[data-testid="cad-view-2d"]');
     await expect(page.locator('[data-testid="cad-stage"]')).toBeVisible();
+
+    // Collapsible dock guard (2026-10-18): minimize hides the absolute dock
+    // overlay and shows a reopen chip; reopening restores the layer rows.
+    await step(page, "🧪 CHECKLIST: Collapsible docks — minimize / reopen...");
+    await page.click('[data-testid="cad-dock-left-toggle"]');
+    await page.click('[data-testid="cad-dock-right-toggle"]');
+    await expect(page.locator(".cad-dock-left")).toHaveCount(0);
+    await expect(page.locator(".cad-dock-right")).toHaveCount(0);
+    await expect(page.locator('[data-testid="cad-dock-left-open"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cad-dock-right-open"]')).toBeVisible();
+    await page.click('[data-testid="cad-dock-left-open"]');
+    await page.click('[data-testid="cad-dock-right-open"]');
+    await expect(page.locator('[data-testid="cad-layer-layer-structural"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cad-explode"]')).toBeVisible();
   });
 });
 
@@ -963,5 +977,20 @@ test.describe("Coverage: ThreeStudioViewer controls (visible)", () => {
     await expect(page.locator('[data-testid="scene3d-clip"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="scene3d-sliders"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="scene3d-stats"]')).toContainText("meshes");
+
+    // Collapsible dock guard (2026-10-18): minimize hides the overlay dock
+    // and shows a reopen chip; reopening restores the outliner rows and the
+    // scene-controls sections (selection state survives the collapse).
+    await step(page, "🧪 CHECKLIST: Collapsible docks — minimize / reopen...");
+    await page.click('[data-testid="scene3d-dock-left-toggle"]');
+    await page.click('[data-testid="scene3d-dock-right-toggle"]');
+    await expect(page.locator(".studio-left-dock")).toHaveCount(0);
+    await expect(page.locator(".studio-right-dock")).toHaveCount(0);
+    await expect(page.locator('[data-testid="scene3d-dock-left-open"]')).toBeVisible();
+    await expect(page.locator('[data-testid="scene3d-dock-right-open"]')).toBeVisible();
+    await page.click('[data-testid="scene3d-dock-left-open"]');
+    await page.click('[data-testid="scene3d-dock-right-open"]');
+    await expect(page.locator('[data-testid="scene3d-outliner-Drone_Body"]')).toBeVisible();
+    await expect(page.locator('[data-testid="scene3d-env"]')).toBeVisible();
   });
 });

@@ -28,6 +28,10 @@ import {
   Hexagon,
   Unlock,
   X,
+  ChevronLeft,
+  ChevronRight,
+  PanelLeft,
+  PanelRight,
 } from "lucide-react";
 import type { CadHotspot, CadSpec } from "../../lib/cad/cadSchema";
 import {
@@ -245,6 +249,8 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const [bimStats, setBimStats] = useState<{ meshes: number; vertices: number; triangles: number } | null>(null);
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [leftDockOpen, setLeftDockOpen] = useState(true);
+  const [rightDockOpen, setRightDockOpen] = useState(true);
 
   // The docks are absolute overlays (230 px + 8 px offset each side); a fit
   // computed against the FULL stage width hides the drawing's edges behind
@@ -950,10 +956,11 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
       </div>
 
       <div className="cad-body">
+        {leftDockOpen ? (
         <aside className="cad-dock cad-dock-left" aria-label="Layer manager">
           <div className="cad-dock-header"><Layers size={13} /> LAYERS {soloLayer && (
             <button type="button" data-testid="cad-solo-clear" className="cad-solo-clear" onClick={() => setSoloLayer(null)}>solo: {soloLayer} ✕</button>
-          )}</div>
+          )}<button type="button" className="cad-dock-collapse" data-testid="cad-dock-left-toggle" aria-label="Minimize layers panel" title="Minimize panel" onClick={() => setLeftDockOpen(false)}><ChevronLeft size={14} /></button></div>
           <div className="cad-dock-scroll">
           {spec.layers.map((layer) => {
             const state = layerState[layer.id];
@@ -990,6 +997,12 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           )}
           </div>
         </aside>
+        ) : (
+          <button type="button" className="cad-dock-reopen cad-dock-reopen-left" data-testid="cad-dock-left-open"
+            title="Open layers panel" onClick={() => setLeftDockOpen(true)}>
+            <PanelLeft size={13} /> Layers
+          </button>
+        )}
 
         <div className="cad-stage-wrap" ref={stageWrapRef}>
           {(viewMode === "2d" || viewMode === "split") && (
@@ -1235,8 +1248,9 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           )}
         </div>
 
+        {rightDockOpen ? (
         <aside className="cad-dock cad-dock-right" aria-label="Drawing controls">
-          <div className="cad-dock-header">VIEW CONTROLS</div>
+          <div className="cad-dock-header">VIEW CONTROLS<button type="button" className="cad-dock-collapse" data-testid="cad-dock-right-toggle" aria-label="Minimize view controls panel" title="Minimize panel" onClick={() => setRightDockOpen(false)}><ChevronRight size={14} /></button></div>
           {viewMode === "2d" && (
             <div className="cad-dock-hint" data-testid="cad-dock-hint">
               These 3D controls activate in the Iso, 3D or Split views (ribbon tabs above).
@@ -1306,6 +1320,12 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           )}
           </div>
         </aside>
+        ) : (
+          <button type="button" className="cad-dock-reopen cad-dock-reopen-right" data-testid="cad-dock-right-open"
+            title="Open view controls panel" onClick={() => setRightDockOpen(true)}>
+            <PanelRight size={13} /> Controls
+          </button>
+        )}
       </div>
 
       <div className="cad-status-bar" data-testid="cad-status">

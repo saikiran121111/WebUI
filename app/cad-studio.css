@@ -76,3 +76,45 @@
 @media (prefers-reduced-motion: reduce) { .cad-btn { transition: none; } }
 
 .cad-pane-3d{position:relative}.cad-bim-host{position:absolute;inset:0}
+
+/* ── Studio ribbon: the 3D studio carries ~1.9k px of tool groups in a
+   ≤1058 px block — wrap onto extra rows instead of hiding the tail behind
+   the hidden scrollbar (fullscreen/transform/overlay/export were cut off).
+   The CAD ribbon above stays nowrap + fits by design (e2e guard). ─────── */
+.scene3d-toolbar.cad-ribbon-bar { flex-wrap: wrap; height: auto; min-height: 38px;
+  overflow-x: visible; padding: 4px 6px; row-gap: 3px; }
+
+/* ViewCube HTML fallback chips — unstyled buttons read as stray floating
+   text over the viewport; give them real chip chrome. */
+.cad-viewcube button { height: 20px; padding: 0 6px; font-size: 9px; font-weight: 600;
+  letter-spacing: 0.05em; font-family: var(--cad-font-mono); color: var(--cad-text-muted);
+  background: rgba(11, 16, 27, 0.82); border: 1px solid var(--cad-border-subtle);
+  border-radius: 4px; cursor: pointer; transition: all 120ms ease; }
+.cad-viewcube button:hover { color: #fff; border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(2, 132, 199, 0.32); }
+
+/* ── Collapsible dock panels (studio + CAD workstations): minimize when
+   not needed, reopen chips restore them; scene stays live throughout. ── */
+.studio-dock-titlebar { display: flex; align-items: center; justify-content: space-between;
+  gap: 0.4rem; margin-bottom: 0.25rem; }
+.studio-right-dock > .studio-dock-titlebar { padding: 0.45rem 0.55rem 0.1rem; }
+.studio-dock-collapse, .cad-dock-collapse { display: inline-flex; align-items: center;
+  justify-content: center; width: 20px; height: 18px; padding: 0; flex: 0 0 auto;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--cad-text-muted); cursor: pointer; transition: all 120ms ease; }
+.studio-dock-collapse:hover, .cad-dock-collapse:hover { color: #fff;
+  background: var(--cad-bg-control-hover); border-color: rgba(56, 189, 248, 0.45); }
+.cad-dock-header { gap: 6px; }
+.studio-dock-reopen, .cad-dock-reopen { position: absolute; z-index: 16;
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  font-family: var(--cad-font-mono); color: var(--cad-text-muted);
+  background: var(--cad-bg-dock); backdrop-filter: blur(10px);
+  border: 1px solid var(--cad-border); border-radius: 6px; cursor: pointer;
+  transition: all 120ms ease; }
+.studio-dock-reopen:hover, .cad-dock-reopen:hover { color: #fff;
+  border-color: var(--cad-accent-cyan); }
+.studio-dock-reopen-left { left: 0.5rem; top: 2.1rem; }
+.studio-dock-reopen-right { right: 0.5rem; bottom: 3.4rem; }
+.cad-dock-reopen-left { left: 8px; top: 46px; }
+.cad-dock-reopen-right { right: 8px; top: 46px; }
