@@ -17,6 +17,12 @@
 - Probes: `canvasProbe` forces `studio.renderer.render(studio.scene,
   studio.activeCamera)` before `toDataURL`; `expectRealRender` minSize 300
   (BIM 240). Visual proof: `test-results/canvas-proof.png` (drone visible).
+- Size/16:9/fullscreen verification (2026-10-17): temp headless script mocked
+  ```cad + ```threejs fences, measured boxes + clicked both FS buttons — CAD
+  block 736→1136px, `.cad-body` and `.scene3d-stage` ratio 1.78, FS stages
+  990×821 / 1440×778; screenshots `test-results/size-check/` (kept). Script
+  deleted after use. Headless quirk: `Escape` does not exit fullscreen —
+  call `document.exitFullscreen()` from `page.evaluate`.
 - Known gotchas: r186 removed `renderer.viewport` (use `getViewport()`);
   async IIFE inside `page.evaluate` return serializes to `{}`; Playwright
   `CI=true` enables retries:2; `route.fulfill` delivers SSE in one chunk.

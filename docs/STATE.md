@@ -1,6 +1,37 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Viewer size + 16:9 + fullscreen (2026-10-17): both studio viewers were
+      width-capped by the 768px chat column. `app/globals.css`: `.chat-messages-scroll`
+      gets `container-type: inline-size`; `.scene3d-block, .cad-block` break out
+      to `--render-wide-w: min((100cqi - 2rem) * 0.882, 1058px)` (sidebar-aware, centered
+      via negative margin); `.scene3d-stage` + `.cad-body` get `aspect-ratio:
+      16/9` with `min-height: 420px` / `max-height: calc(100vh - 13rem|16rem)`
+      caps; `:fullscreen` rules override aspect in FS (`.scene3d-block:fullscreen`
+      is flex column, toolbar `flex:none`, stage `flex:1`; `.cad-viewer:fullscreen`
+      height 100vh, `.cad-body` `flex:1`). `app/page.tsx`: scroller gets
+      `chat-messages-scroll` class. `ThreeStudioViewer.tsx`: React fullscreen
+      state via `fullscreenchange` listener, `toggleStageFullscreen()` targets
+      the whole `.scene3d-block` (toolbar stays usable in FS), button icon/label
+      + `aria-pressed` sync (Minimize2/Exit fullscreen). `ArchitectureCadViewer.tsx`:
+      new `cad-fullscreen` toolbar button (Expand/Shrink, `aria-pressed`) +
+      `rootRef` on `.cad-viewer`. ResizeObservers already handle FS resize —
+      no engine changes. Proven: measured 1440×900 headless run — CAD block
+      736→1136px wide, CAD body + 3D stage ratio 1.78 (16:9), FS stage fills
+      viewport (CAD 990×821, 3D 1440×778), screenshots in
+      `test-results/size-check/` (chat + FS, both viewers, docks/toolbar/status
+      intact); `tests/studio-viewers-visible.spec.ts` 2/2; `tsc --noEmit` clean.
+      Headless quirk: `Escape` does NOT exit FS — scripts must call
+      `document.exitFullscreen()` (real browsers honor Esc).
+      FOLLOW-UP FIX (2026-10-17, user screenshot at 1920px): blocks overflowed
+      the right edge uncentered — the base `.scene3d-block`/`.cad-block` rules
+      used the `margin: 0.75rem 0` SHORTHAND after the breakout rule (same
+      specificity, later wins) → `margin-left` clobbered to 0. Fixed: base rules
+      now use `margin-block: 0.75rem` longhand; cap lowered 1600→1200px, gutter
+      1.5→2rem; then user asked −2% then −10% → `min((100cqi - 2rem) * 0.882,
+      1058px)` (1058 @1920, 995 @1440). Re-proven headless probe at 1920+1440: centerDelta 0, fits
+      scroller, zero h-scroll, stage ratio 1.78; visible suite 2/2. GOTCHA:
+      never use `margin` shorthand on breakout blocks — longhands only.
 - [x] Black-canvas + live-control fix (2026-10-17): 3D viewport rendered
       solid black and dock/toolbar buttons "only toggled React state". Root
       causes + fixes: r186 ViewHelper full-canvas autoClear wipe →

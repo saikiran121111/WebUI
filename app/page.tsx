@@ -290,7 +290,7 @@ export default function HomePage() {
         </header>
 
         {/* Scrollable message area */}
-        <div ref={messagesContainerRef} data-testid="messages-scroll" className="flex-1 overflow-y-auto">
+        <div ref={messagesContainerRef} data-testid="messages-scroll" className="chat-messages-scroll flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6 pb-36">
             {messages.length === 0 ? (
               <EmptyState

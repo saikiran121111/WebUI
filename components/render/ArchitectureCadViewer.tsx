@@ -14,6 +14,8 @@ import {
   CircleDot,
   Compass,
   Download,
+  Expand,
+  Shrink,
   Eye,
   EyeOff,
   Grid,
@@ -145,6 +147,24 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const [exportNote, setExportNote] = useState("");
   const [bimStats, setBimStats] = useState<{ meshes: number; vertices: number; triangles: number } | null>(null);
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Fullscreen the whole sheet (toolbar + docks + status bar stay live); the
+  // stage ResizeObserver re-renders the SVG at the new size automatically.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onFsChange = () => {
+      const el = document.fullscreenElement;
+      const root = rootRef.current;
+      setIsFullscreen(!!el && !!root && (el === root || el.contains(root)));
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+  function toggleSheetFullscreen() {
+    if (document.fullscreenElement) { void document.exitFullscreen(); return; }
+    void rootRef.current?.requestFullscreen?.();
+  }
 
   const svg2dRef = useRef<SVGSVGElement | null>(null);
   const stageWrapRef = useRef<HTMLDivElement | null>(null);
@@ -654,7 +674,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
     : "Drag to pan · scroll to zoom";
 
   return (
-    <div className="cad-viewer" data-testid="cad-viewer" style={{ background: theme.bg, color: theme.text }}>
+    <div ref={rootRef} className="cad-viewer" data-testid="cad-viewer" style={{ background: theme.bg, color: theme.text }}>
       <div className="cad-toolbar">
         <div className="cad-seg" role="group" aria-label="View mode">
           {(["2d", "iso", "3d", "split"] as ViewMode[]).map((mode) => (
@@ -698,6 +718,13 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           {tool === "area" && pending.length >= 3 && (
             <button type="button" data-testid="cad-area-finish" onClick={finishArea}>Finish</button>
           )}
+        </div>
+        <div className="cad-seg">
+          <button type="button" data-testid="cad-fullscreen" aria-pressed={isFullscreen}
+            title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen the sheet"}
+            onClick={toggleSheetFullscreen}>
+            {isFullscreen ? <Shrink size={14} /> : <Expand size={14} />}
+          </button>
         </div>
         <div className="cad-export-group">
           <select data-testid="cad-export-format" value={exportFmt} onChange={(e) => setExportFmt(e.target.value as ExportFormat)} aria-label="Export format">

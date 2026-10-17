@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Axis3d, Box, ChevronDown, ChevronRight, Download, Eye, EyeOff,
-  Grid3x3, Maximize2, MessageSquarePlus, Move, Pause, Play, RotateCcw,
+  Grid3x3, Maximize2, MessageSquarePlus, Minimize2, Move, Pause, Play, RotateCcw,
   RotateCw, Scale3d, Target,
 } from "lucide-react";
 import type { Scene3DSpec } from "../../lib/three3d/sceneSchema";
@@ -126,6 +126,25 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
   const [codeError, setCodeError] = useState<string | null>(null);
   const codeUpdateRef = useRef<((delta: number, elapsed: number) => void) | null>(null);
   const elapsedRef = useRef(0);
+
+  // Fullscreen takes the whole .scene3d-block (toolbar stays usable); the
+  // stage flexes to fill the rest via the :fullscreen rules in globals.css.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onFsChange = () => {
+      const el = document.fullscreenElement;
+      const stage = stageRef.current;
+      setIsFullscreen(!!el && !!stage && (el === stage || el.contains(stage)));
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+  function toggleStageFullscreen() {
+    if (document.fullscreenElement) { void document.exitFullscreen(); return; }
+    const stage = stageRef.current;
+    const target = stage?.closest(".scene3d-block") ?? stage;
+    void target?.requestFullscreen?.();
+  }
 
   const hasAnimations = (spec.animations?.length ?? 0) > 0;
   const exportFilename = useMemo(() => {
@@ -542,8 +561,9 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
           aria-pressed={helpersOn} onClick={() => { const on = !helpersOn; setHelpersOn(on); viewerRef.current?.setLightHelpers(on); }}>
           Light rig
         </button>
-        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-fullscreen" onClick={() => viewerRef.current?.enterFullscreen()}>
-          <Maximize2 size={13} /> Fullscreen
+        <button type="button" className="scene3d-tool-btn" data-testid="scene3d-fullscreen"
+          aria-pressed={isFullscreen} onClick={toggleStageFullscreen}>
+          {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
         </button>
         <select className="scene3d-format" data-testid="scene3d-export-format" value={exportFmt}
           aria-label="Export format" onChange={e => setExportFmt(e.target.value as StudioExportFormat)}>
