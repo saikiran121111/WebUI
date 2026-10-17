@@ -1,6 +1,36 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Studio viewer "view anchored top-right, black gap left+bottom, right side
+  stripped" + dead Fullscreen button (user screenshot 2026-10-18, pixel-
+  forensics on the screenshot via PIL — NOT a dock-overlay issue; this
+  DISPROVES finding (3) of the entry below, which had recorded the symptom
+  as "did NOT reproduce"). ROOT CAUSE: `renderGizmo()` in
+  `lib/three3d/studioEngine.ts` monkey-patched `renderer.setViewport` to a
+  corner-offset transform so the ViewHelper gizmo drew top-right. But
+  r186 `ViewHelper.render()` SAVES the viewport (`getViewport`) and
+  RESTORES it via `setViewport(viewport.x,viewport.y,viewport.z,viewport.w)`
+  — the patch mangled that restore too, leaving the renderer viewport at
+  `(dw−dim, dh−dim, dim, dim)`; every subsequent frame the MAIN scene
+  rendered into that top-right sub-viewport → pure-black (0,0,0) bands
+  left/bottom, right edge cut. Measured on the screenshot: buffer 1309×563,
+  rendered region exactly (330,14,979,549) = the patched-restore fixed
+  point (self-perpetuating; only a container-resize `setSize` repaired it).
+  Compounding bug: `new ViewHelper(camera, this.scene)` passed the SCENE as
+  domElement → `offsetWidth/Height` undefined → NaN gizmo coords (why the
+  patch seemed necessary). FIX (studioEngine.ts): pass
+  `renderer.domElement` as ViewHelper domElement (constructor + projection
+  switch), position the gizmo via the supported
+  `viewHelper.location = { top:12, right:12, bottom:0, left:null }`, DELETE
+  the setViewport monkey-patch, keep `autoClear=false`, and restore
+  `setViewport(0,0,size.w,size.h)` in `finally` + before every main render
+  in `tick()` (self-healing). FULLSCREEN: `void target.requestFullscreen()`
+  swallowed rejections (insecure context / sandboxed iframe → silent no-op);
+  ThreeStudioViewer.tsx now catches and falls back to a CSS maximized mode
+  (`.scene3d-block.is-maximized` fixed-inset rules in globals.css, toggled
+  by `isMaximized` state; button aria-pressed/label cover both modes).
+  Gates: tsc clean, vitest 407 passed | 1 skipped. No Playwright (user
+  constraint).
 - Studio viewer "right side stripped / black space / stray TOP FRONT RIGHT
   text" + collapsible docks feature (user screenshot, 2026-10-18, browser-
   proven, app-dev session): THREE findings. (1) TOOLBAR CUTOFF — live probe

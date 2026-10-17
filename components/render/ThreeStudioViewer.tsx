@@ -130,6 +130,10 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
   // Fullscreen takes the whole .scene3d-block (toolbar stays usable); the
   // stage flexes to fill the rest via the :fullscreen rules in globals.css.
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // CSS fallback when the Fullscreen API is unavailable (insecure context,
+  // sandboxed iframe, user gesture lost) — the rejection used to be swallowed
+  // by `void`, so the button appeared dead.
+  const [isMaximized, setIsMaximized] = useState(false);
   const [leftDockOpen, setLeftDockOpen] = useState(true);
   const [rightDockOpen, setRightDockOpen] = useState(true);
   useEffect(() => {
@@ -141,11 +145,19 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
+  useEffect(() => {
+    const block = stageRef.current?.closest(".scene3d-block");
+    if (!block) return;
+    block.classList.toggle("is-maximized", isMaximized);
+  }, [isMaximized]);
   function toggleStageFullscreen() {
-    if (document.fullscreenElement) { void document.exitFullscreen(); return; }
+    if (document.fullscreenElement) { document.exitFullscreen?.().catch(() => {}); return; }
+    if (isMaximized) { setIsMaximized(false); return; }
     const stage = stageRef.current;
     const target = stage?.closest(".scene3d-block") ?? stage;
-    void target?.requestFullscreen?.();
+    const req = target?.requestFullscreen?.();
+    if (req && typeof req.catch === "function") req.catch(() => setIsMaximized(true));
+    else if (!req) setIsMaximized(true);
   }
 
   const hasAnimations = (spec.animations?.length ?? 0) > 0;
@@ -574,8 +586,8 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
         </div>
         <div className="cad-ribbon-group">
           <button type="button" className="scene3d-tool-btn" data-testid="scene3d-fullscreen"
-            aria-pressed={isFullscreen} onClick={toggleStageFullscreen}>
-            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            aria-pressed={isFullscreen || isMaximized} onClick={toggleStageFullscreen}>
+            {(isFullscreen || isMaximized) ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {(isFullscreen || isMaximized) ? "Exit fullscreen" : "Fullscreen"}
           </button>
         </div>
         <div className="cad-ribbon-group">

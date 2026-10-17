@@ -244,8 +244,10 @@ export class StudioViewer {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
 
-    this.viewHelper = new ViewHelper(this.activeCamera, this.scene);
-    if (typeof (this.viewHelper as any).setSize === "function") (this.viewHelper as any).setSize(96);
+    // ViewHelper's 2nd arg is the DOM element it measures (offsetWidth/Height +
+    // getBoundingClientRect) — passing the scene here yielded NaN viewport coords.
+    this.viewHelper = new ViewHelper(this.activeCamera, this.renderer.domElement as any);
+    (this.viewHelper as any).location = { top: 12, right: 12, bottom: 0, left: null };
 
     this.transformControls = new TransformControls(this.activeCamera, this.renderer.domElement);
     this.transformHelper = this.transformControls.getHelper();
@@ -817,8 +819,8 @@ export class StudioViewer {
     this.activeCamera = next;
     (this.controls as any).object = next;
     this.transformControls.camera = next;
-    this.viewHelper = new ViewHelper(next, this.scene);
-    if (typeof (this.viewHelper as any).setSize === "function") (this.viewHelper as any).setSize(96);
+    this.viewHelper = new ViewHelper(next, this.renderer.domElement as any);
+    (this.viewHelper as any).location = { top: 12, right: 12, bottom: 0, left: null };
     this.controls.update();
     if (this.composer) this.rebuildComposer();
   }
@@ -1163,25 +1165,22 @@ export class StudioViewer {
 
   private renderGizmo(): void {
     try {
-      const size = typeof (this.viewHelper as any).getSize === "function"
-        ? (this.viewHelper as any).getSize()
-        : 96;
       const renderer = this.renderer;
-      const origViewport = renderer.setViewport.bind(renderer);
       const origAutoClear = renderer.autoClear;
-      const dw = renderer.domElement.width;
-      const dh = renderer.domElement.height;
       // r186 ViewHelper.render() has no scissor guard: its internal renderer.render() would autoClear
-      // the WHOLE canvas (black, no scene.background) and wipe the main pass every frame. Render the
-      // gizmo as a depth-cleared overlay in the top-right corner instead (ViewHelper clears depth itself).
+      // the WHOLE canvas (black, no scene.background) and wipe the main pass every frame. autoClear=false
+      // prevents that; the gizmo draws as a depth-cleared overlay in the corner set via `location`.
+      // NEVER monkey-patch setViewport: ViewHelper saves/restores the viewport internally, and a patched
+      // restore leaves the renderer viewport at (w-dim, h-dim, dim, dim) — the main scene then renders
+      // into a top-right sub-viewport with black bands on the left/bottom (self-perpetuating each frame).
       renderer.autoClear = false;
-      renderer.setViewport = (x: number, y: number, w?: number, h?: number) =>
-        origViewport(dw - (w ?? size), dh - (h ?? size), w, h);
       try {
         this.viewHelper.render(renderer);
       } finally {
-        renderer.setViewport = origViewport;
         renderer.autoClear = origAutoClear;
+        // Self-healing: guarantee the full-canvas viewport for the next main render regardless of
+        // whatever the helper left behind.
+        renderer.setViewport(0, 0, this.size.w, this.size.h);
       }
     } catch {
       // ViewHelper API drift must never break the render loop.
@@ -1197,6 +1196,7 @@ export class StudioViewer {
     for (const handler of this.frameHandlers) handler(dt);
     if (this.selectedId) this.refreshBboxHelpers();
     this.controls.update();
+    this.renderer.setViewport(0, 0, this.size.w, this.size.h);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.activeCamera);
     this.renderGizmo();
