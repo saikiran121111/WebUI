@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-geometry",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Building 3D shapes procedurally: primitives, curves, lathe/extrude/tube geometry, low-poly modeling of objects and parts.",
+  "triggerKeywords": ["geometry", "modeling", "box", "sphere", "cylinder", "cone", "torus", "lathe", "extrude", "low-poly", "procedural model", "sculpt"],
+  "blockedReason": null
+}

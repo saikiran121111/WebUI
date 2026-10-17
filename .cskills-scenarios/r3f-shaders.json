@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-shaders",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber shaders: ShaderMaterial/drei material shaders in JSX for glow, holograms and custom effects.",
+  "triggerKeywords": ["r3f shader", "fiber shader", "drei shader material"],
+  "blockedReason": null
+}

@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-shaders",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Writing GLSL/ShaderMaterial effects: glow, auras, arc reactors, coronas, holograms, neon, energy fields, particle shaders.",
+  "triggerKeywords": ["shader", "glsl", "glow", "aura", "arc reactor", "corona", "hologram", "neon", "force field", "energy field", "dissolve"],
+  "blockedReason": null
+}

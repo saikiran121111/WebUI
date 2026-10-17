@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-loaders",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Loading external 3D assets into a scene: GLTF/GLB, FBX, OBJ loaders, Draco compression, asset pipelines.",
+  "triggerKeywords": ["load glb", "load gltf", "import model", "load model", "draco", "fbx", "obj file", "asset pipeline"],
+  "blockedReason": null
+}

@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-interaction",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Making a 3D scene interactive: raycasting, click/hover selection, part picking, drag, OrbitControls.",
+  "triggerKeywords": ["clickable", "hover", "raycast", "drag", "orbit controls", "select part", "interactive", "pick", "inspect part"],
+  "blockedReason": null
+}

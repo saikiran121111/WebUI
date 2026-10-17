@@ -160,7 +160,7 @@ const interactionsSchema = z.object({
 
 const exportSchema = z.object({
   filename: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  formats: z.array(z.enum(["glb", "gltf"])).max(2).optional(),
+  formats: z.array(z.enum(["glb", "gltf", "obj", "stl", "ply", "usdz"])).max(6).optional(),
 }).strict();
 
 /* ── budgets ──────────────────────────────────────────────────────────── */

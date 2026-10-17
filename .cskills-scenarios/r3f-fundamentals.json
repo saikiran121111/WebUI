@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-fundamentals",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "The user asks for 3D built with React Three Fiber (R3F/drei) instead of raw Three.js.",
+  "triggerKeywords": ["react three fiber", "react-three-fiber", "r3f", "drei", "fiber"],
+  "blockedReason": null
+}

@@ -40,6 +40,39 @@ export async function exportScene(
   });
 }
 
+/**
+ * Extra real exporters for the Studio viewer, via the official three.js
+ * addon exporters — each loaded on demand so they stay out of the initial
+ * bundle. OBJ/STL/PLY/USDZ are all genuine client-side files, no server.
+ */
+export type MeshExportFormat = "obj" | "stl" | "ply" | "usdz";
+
+export async function exportMesh(root: any, format: MeshExportFormat): Promise<Blob> {
+  switch (format) {
+    case "obj": {
+      const { OBJExporter } = await import("three/examples/jsm/exporters/OBJExporter.js");
+      return new Blob([new OBJExporter().parse(root)], { type: "text/plain" });
+    }
+    case "stl": {
+      const { STLExporter } = await import("three/examples/jsm/exporters/STLExporter.js");
+      const data: any = new STLExporter().parse(root, { binary: true });
+      return new Blob([data instanceof DataView ? data.buffer : data], { type: "model/stl" });
+    }
+    case "ply": {
+      const { PLYExporter } = await import("three/examples/jsm/exporters/PLYExporter.js");
+      const text = await new Promise<string>(resolve => {
+        new PLYExporter().parse(root, resolve as (s: string) => void, { binary: false });
+      });
+      return new Blob([text], { type: "text/plain" });
+    }
+    case "usdz": {
+      const { USDZExporter } = await import("three/examples/jsm/exporters/USDZExporter.js");
+      const buffer = await new USDZExporter().parseAsync(root);
+      return new Blob([buffer], { type: "model/vnd.usdz+zip" });
+    }
+  }
+}
+
 /** Triggers a real browser download and revokes the object URL afterwards. */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

@@ -1,0 +1,9 @@
+{
+  "skillName": "diagram-design",
+  "sourceRepo": "cathrynlavery/diagram-design",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "General technical diagrams and schematics: CAD-style schematics, wiring/P&ID diagrams, engineering drawings and layout diagrams.",
+  "triggerKeywords": ["diagram", "schematic", "technical drawing", "wiring diagram", "p&id", "engineering drawing", "layout diagram"],
+  "blockedReason": null
+}

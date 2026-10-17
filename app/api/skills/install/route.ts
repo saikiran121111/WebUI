@@ -17,6 +17,15 @@ export async function POST(req: NextRequest) {
   if (typeof body?.repoOrCommand !== "string" || !body.repoOrCommand.trim()) {
     return NextResponse.json({ error: "repoOrCommand is required" }, { status: 400 });
   }
+  // Two-tier rule: this service installs into ./skills/ ONLY. The core hidden
+  // tier (./.cskills/) is developer-terminal only (npm run cskill:add) and can
+  // never be installed into, overwritten or deleted from the browser.
+  if (body.repoOrCommand.includes(".cskills")) {
+    return NextResponse.json(
+      { error: "The core skill tier (./.cskills/) is developer-only and cannot be modified from the browser" },
+      { status: 400 },
+    );
+  }
 
   try {
     const result = await installSkill(body);

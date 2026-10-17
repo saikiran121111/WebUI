@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-physics",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber physics: react-three-rapier/cannon bodies, collisions, simulated falling or bouncing 3D scenes.",
+  "triggerKeywords": ["r3f physics", "rapier", "cannon", "fiber physics", "collision simulation"],
+  "blockedReason": null
+}

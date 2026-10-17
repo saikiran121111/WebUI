@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { activateSkillFromToolCall, applySkillRouting } from "../../../lib/skills/lazy";
+import { applyCoreSkillRouting } from "../../../lib/skills/coreRouter";
 import { projectRoot } from "../../../lib/skills/registry";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
@@ -140,6 +141,15 @@ export async function POST(req: NextRequest) {
       toolLoopRequired = routing.toolLoopRequired;
     } catch (err: unknown) {
       console.error("[api/chat] skill routing failed:", err instanceof Error ? err.message : err);
+    }
+    // Core hidden tier: fires only through this router, never listed in the UI.
+    try {
+      const core = await applyCoreSkillRouting(payload);
+      if (core.usedSkills.length > 0) {
+        usedSkill = [usedSkill, ...core.usedSkills].filter(Boolean).join(",");
+      }
+    } catch (err: unknown) {
+      console.error("[api/chat] core skill routing failed:", err instanceof Error ? err.message : err);
     }
   }
 

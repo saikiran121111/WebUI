@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-interaction",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber interaction: pointer events on meshes, raycasting, controls and selection in JSX.",
+  "triggerKeywords": ["r3f interaction", "r3f click", "fiber hover", "drei controls"],
+  "blockedReason": null
+}

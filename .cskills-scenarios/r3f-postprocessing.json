@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-postprocessing",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber post-processing: @react-three/postprocessing bloom, SSAO, DOF effects in JSX.",
+  "triggerKeywords": ["r3f postprocessing", "react-three postprocessing", "fiber bloom"],
+  "blockedReason": null
+}

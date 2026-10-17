@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-materials",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber materials: drei materials, PBR, emissive and stylized material JSX.",
+  "triggerKeywords": ["r3f material", "drei material", "meshstandardmaterial jsx", "fiber material"],
+  "blockedReason": null
+}

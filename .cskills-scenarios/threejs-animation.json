@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-animation",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Adding motion to a 3D scene: orbits, rotation, walking/floating characters, looping procedural motion, animation clips and timelines.",
+  "triggerKeywords": ["animation", "animate", "orbit", "orbits", "rotating", "rotation", "walking", "floating", "moving", "motion", "timeline", "loop", "spin", "planetary", "turntable"],
+  "blockedReason": null
+}

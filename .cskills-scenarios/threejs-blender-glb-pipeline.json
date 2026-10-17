@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-blender-glb-pipeline",
+  "sourceRepo": "nicksonthc/ghibli-threejs",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Image-to-3D reconstruction, Blender/GLB authoring pipelines, and multi-part articulated models built from reference images.",
+  "triggerKeywords": ["blender", "glb pipeline", "image to 3d", "convert image to 3d", "reconstruct from image", "photo to 3d", "articulated", "multi-part", "rigged"],
+  "blockedReason": null
+}

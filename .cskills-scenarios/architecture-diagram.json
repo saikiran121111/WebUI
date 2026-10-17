@@ -1,0 +1,9 @@
+{
+  "skillName": "architecture-diagram",
+  "sourceRepo": "Cocoon-AI/architecture-diagram-generator",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Software/system architecture diagrams: microservices, network topology, database schema, cloud and data-flow diagrams.",
+  "triggerKeywords": ["architecture diagram", "system architecture", "microservices", "network topology", "db schema", "database schema", "data flow", "cloud architecture", "service diagram"],
+  "blockedReason": null
+}

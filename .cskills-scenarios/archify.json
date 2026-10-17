@@ -1,0 +1,9 @@
+{
+  "skillName": "archify",
+  "sourceRepo": "tt-a1i/archify",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Architectural floor plans, elevations, site plans and CAD-style building design: 1BHK/2BHK/3BHK, villas, duplexes, offices, skyscrapers.",
+  "triggerKeywords": ["architecture", "floor plan", "floorplan", "blueprint", "autocad", "cad", "dxf", "elevation", "site plan", "building design", "structural layout", "hvac layout", "electrical plan", "1bhk", "2bhk", "3bhk", "villa", "duplex", "skyscraper", "room dimensions", "office plan"],
+  "blockedReason": null
+}

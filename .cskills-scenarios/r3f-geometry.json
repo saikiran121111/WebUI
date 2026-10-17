@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-geometry",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber geometry: declarative primitives, shapes library, procedural meshes in JSX.",
+  "triggerKeywords": ["react three fiber geometry", "r3f geometry", "drei shapes", "fiber mesh"],
+  "blockedReason": null
+}

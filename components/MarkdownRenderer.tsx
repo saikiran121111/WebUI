@@ -18,6 +18,7 @@ import WidgetBlock from "./render/WidgetBlock";
 import Scene3DBlock from "./render/Scene3DBlock";
 import Asset3DBlock from "./render/Asset3DBlock";
 import AnatomyBlock from "./render/AnatomyBlock";
+import CadBlock from "./render/CadBlock";
 import TreeBlock from "./render/TreeBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import { fenceKind } from "../lib/render/registry";
@@ -216,6 +217,7 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   if (kind === "scene3d" && allowInteractive) return <Scene3DBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "asset3d" && allowInteractive) return <Asset3DBlock source={source} streaming={streaming} />;
   if (kind === "anatomy" && allowInteractive) return <AnatomyBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "cad" && allowInteractive) return <CadBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "widget" && allowInteractive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
   // Box-drawing trees arrive in plain/text fences — detect by content, not label.
   if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;

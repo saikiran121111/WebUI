@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-lighting",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Lighting a 3D scene: key/fill/rim three-point rigs, shadows, HDR environment maps, ambient and global illumination.",
+  "triggerKeywords": ["lighting", "light rig", "shadow", "ambient light", "hdr", "environment map", "three point lighting", "sun light"],
+  "blockedReason": null
+}

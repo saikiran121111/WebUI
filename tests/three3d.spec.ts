@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 
 // Integration coverage for the 3D design system: the procedural scene3d
-// viewer (toolbar, stats, labels, export re-import proof), the honest
-// unconfigured-provider path for asset3d, and the /api/3d contract.
+// Studio viewer (HUD, labels, outliner selection, shading/views/explode,
+// export re-import proof), the honest unconfigured-provider path for
+// asset3d, and the /api/3d contract.
 const DEMO_URL = "http://localhost:3000/?demo=ui";
 
-test("scene3d v2 viewer: stats, labels, toolbar toggles, GLB export re-import proof", async ({ page }) => {
+test("scene3d studio: HUD stats, labels, outliner, shading/views/explode, GLB re-import proof", async ({ page }) => {
   await page.route("**/api/3d/assets*", route => route.fulfill({
     status: 503,
     contentType: "application/json",
@@ -24,38 +25,58 @@ test("scene3d v2 viewer: stats, labels, toolbar toggles, GLB export re-import pr
   }
   test.skip(!webglOk, "no WebGL in this browser");
 
-  // Live stats render once content is set (real geometry, not primitives).
-  await expect(page.locator('[data-testid="scene3d-stats"]')).toContainText("meshes");
-  await expect(page.locator('[data-testid="scene3d-stats"]')).toContainText("tris");
+  // Live HUD renders once content is set (real geometry, not primitives).
+  const stats = page.locator('[data-testid="scene3d-stats"]');
+  await expect(stats).toContainText("FPS");
+  await expect(stats).toContainText("meshes");
+  await expect(stats).toContainText("tris");
 
   // HTML label tags follow their nodes.
   await expect(stage.locator(".scene3d-label-tag")).not.toHaveCount(0);
 
-  // Demo scene has an animation → playback control exists and toggles.
-  const play = page.locator('[data-testid="scene3d-tool-play"]');
+  // Demo scene has an animation → timeline play control exists and toggles.
+  const play = page.locator('[data-testid="scene3d-play"]');
   await expect(play).toHaveCount(1);
   await play.click();
   await expect(play).toContainText("Play");
   await play.click();
   await expect(play).toContainText("Pause");
 
-  // Grid/axes/wireframe toggles flip their pressed state.
-  for (const tool of ["scene3d-tool-grid", "scene3d-tool-axes", "scene3d-tool-wireframe"]) {
-    const btn = page.locator(`[data-testid="${tool}"]`);
-    const before = await btn.getAttribute("aria-pressed");
-    await btn.click();
-    await expect(btn).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
-    await btn.click();
-  }
+  // Overlay toggles flip their pressed state.
+  const grid = page.locator('[data-testid="scene3d-tool-grid"]');
+  const before = await grid.getAttribute("aria-pressed");
+  await grid.click();
+  await expect(grid).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
+  await grid.click();
+
+  // Shading modes and named views are live controls, not dead UI.
+  const shading = page.locator('[data-testid="scene3d-shading"]');
+  await expect(shading.locator("option")).not.toHaveCount(0);
+  await shading.selectOption("solid");
+  await shading.selectOption("rendered");
+  await page.locator('[data-testid="scene3d-view-top"]').click();
+  await page.locator('[data-testid="scene3d-view-reset"]').click();
+  await expect(stats).toContainText("meshes");
+
+  // Universal explode slider drives the engine.
+  const explode = page.locator('[data-testid="scene3d-explode"]');
+  await explode.fill("60");
+  await expect(explode).toHaveValue("60");
+
+  // Outliner click selects a part and opens the inspect bar.
+  await page.locator('[data-testid="scene3d-outliner"] .studio-outliner-name').first().click();
+  await expect(page.locator('[data-testid="scene3d-inspect"]')).toBeVisible();
 
   // Export GLB: the note proves the bytes were re-imported through GLTFLoader.
   await page.locator('[data-testid="scene3d-export-format"]').selectOption("glb");
   await page.locator('[data-testid="scene3d-export"]').click();
   await expect(page.locator('[data-testid="scene3d-export-note"]')).toContainText("re-import verified", { timeout: 30000 });
 
-  // Only genuinely supported scene formats are offered.
+  // Every offered format is genuinely implemented client-side.
   const formats = await page.locator('[data-testid="scene3d-export-format"] option').allTextContents();
-  expect(formats.map(f => f.trim()).sort()).toEqual(["GLB", "GLTF"]);
+  expect(formats.map(f => f.trim()).sort()).toEqual(
+    ["GLB", "GLTF", "HTML (standalone)", "OBJ", "PLY", "PNG 4K", "STL", "TSX (R3F)", "USDZ"],
+  );
 });
 
 test("asset3d: honest unconfigured-provider message, no fake generation", async ({ page }) => {

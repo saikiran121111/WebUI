@@ -1,6 +1,60 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Step 6 ArchitectureCadViewer (2026-10-17): AutoCAD/BIM-grade CAD
+      module. New `lib/cad/`: `cadSchema.ts` (strict zod `cad` fence +
+      CAD_BUDGETS), `cad2d.ts` (bbox/shoelace area/angle/iso projection/
+      sun position/thermal color + metric+imperial formatting), `svgToDxf.ts`
+      (real DXF R2000: LINE/LWPOLYLINE/CIRCLE/ARC/TEXT on L-* layers),
+      `pdfExport.ts` (hand-built vector PDF, spec-correct xref entries),
+      `cadStandalone.ts` (offline interactive HTML). New
+      `components/render/ArchitectureCadViewer.tsx` (2D/iso/3D/split views,
+      4 themes, layer dock eye/lock/color/opacity/Solo, pan/zoom/wheel,
+      Zoom Fit/100/200/400%, measure/area/protractor, snap grid/vertex,
+      crosshair + live X/Y, north arrow, scale bar, explode, X/Y/Z sections,
+      sun 06:00–20:00 + compass, hotspot inspector; exports DXF/SVG/PDF/PNG/
+      HTML/GLB/OBJ all real client-side) + `CadBlock.tsx`; `cad` fence kind
+      wired into registry/MarkdownRenderer/systemPrompt/demoShowcase/
+      globals.css. Fixed cad2d imperial length math (2.5 ft → 2'-6").
+      Proven: `__tests__/cad/` 5 files 31/31, `tests/cad.spec.ts` 9/9,
+      tsc clean.
+- [x] Step 7 final verification (2026-10-17): `.cskills/` = 27 core skills,
+      `.cskills-scenarios/` = 27 scenario JSONs, `./skills/` = humanizer
+      only; `tests/skills.spec.ts` 4/4 — core tier invisible in
+      GET /api/skills, Skills Modal and slash autocomplete.
+- [x] Step 5 ThreeStudioViewer (2026-10-17): the basic Scene3D viewer was
+      replaced by a Blender/Maya-grade studio. New `lib/three3d/studioEngine.ts`
+      (StudioViewer: 8 shading modes, persp/ortho + FOV 20–110 + named views +
+      ViewCube gizmo, outliner/hide/solo, TransformControls Q/G/R/S, material +
+      3-point-light + env-preset + postFX (bloom/SSAO/vignette/tonemap) docks,
+      timeline + universal Explode, HUD stats, 4K PNG capture) +
+      `lib/three3d/studioEnv.ts` (6 PMREM env presets) +
+      `lib/three3d/standaloneExport.ts` (standalone .html + R3F .tsx). New
+      `components/render/ThreeStudioViewer.tsx` + `Scene3DBlock.tsx` thin
+      wrapper. Export hub all real client-side: glb/gltf (GLB re-import
+      proven) + obj/stl/ply/usdz (official three/addons exporters) + html/
+      tsx/4K-png. Proven: `__tests__/three3d/{meshExporters,standaloneExport}.
+      test.ts` 10/10, `tests/three3d.spec.ts` 3/3, tsc clean.
+- [x] Two-tier skill architecture + Core Skill Intent Router (2026-10-17):
+      `CLAUDE.md`+`AGENTS.md` STRICT rules rewritten for two tiers — user tier
+      `./skills/`+`./skill-scenarios/` (humanizer only) visible in UI; core
+      hidden tier `./.cskills/`+`./.cskills-scenarios/` (27 real downloads:
+      11 threejs-*, 11 r3f-*, archify, anatomy, architecture-diagram,
+      diagram-design — every folder has a genuine SKILL.md) installable ONLY
+      via `npm run cskill:add` (`scripts/install-core-skill.mjs`);
+      `app/api/skills/install` rejects `.cskills` tampering (400). Core is
+      never in GET /api/skills, SkillsModal, slash autocomplete or the
+      load_skill enum (those read `./skills/` only). New
+      `lib/skills/coreRouter.ts` — the ONLY reader of the core tier: pure
+      `selectCoreSkills` (3d base/conditional bundles, R3F swap + twins,
+      image→blender-glb-pipeline, arch per-keyword) + `applyCoreSkillRouting`
+      injects one `<core_skill_routing>` system block (9 KB/skill, 56 KB
+      total) + `<output_contract_3d>`/`<output_contract_architecture>`;
+      wired into `app/api/chat/route.ts` (X-Used-Skill joined). All 27
+      scenario JSONs autoUse:true + whenToUse + triggerKeywords. Proven:
+      `__tests__/skills/coreRouter.test.ts` 13/13, tsc clean. NOTE:
+      `openai/plugins --skill three-webgl-game` does not exist upstream —
+      not installed, not fabricated.
 - [x] Universal Skill Installation & Lazy-Loading Engine (2026-10-17): fake
       packs archived to `archive/skills/**`, old `lib/skills/{intent,loader,
       anatomyIntent}.ts` + their 4 tests deleted. Engine `lib/skills/{types,

@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-textures",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber textures: useTexture hooks, loaders, procedural textures in JSX scenes.",
+  "triggerKeywords": ["r3f texture", "usetexture", "fiber texture"],
+  "blockedReason": null
+}

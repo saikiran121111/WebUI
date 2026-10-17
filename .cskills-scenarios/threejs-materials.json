@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-materials",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Choosing and tuning Three.js materials: PBR metalness/roughness, emissive, glass, metal, plastic, clay/MatCap looks.",
+  "triggerKeywords": ["material", "pbr", "metalness", "roughness", "emissive", "glass", "metal", "plastic", "matcap", "clay"],
+  "blockedReason": null
+}

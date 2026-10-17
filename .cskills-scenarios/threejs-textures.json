@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-textures",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Texturing 3D objects: UV mapping, procedural/canvas textures, normal and roughness maps, material surfaces like wood or marble.",
+  "triggerKeywords": ["texture", "uv map", "normal map", "procedural texture", "checkerboard", "wood", "marble", "roughness map"],
+  "blockedReason": null
+}

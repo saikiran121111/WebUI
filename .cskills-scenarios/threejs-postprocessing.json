@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-postprocessing",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Post-processing passes for a 3D scene: bloom, SSAO, vignette, depth of field, tone mapping for neon/glow/hologram looks.",
+  "triggerKeywords": ["postprocessing", "post-processing", "bloom", "ssao", "vignette", "depth of field", "tone mapping", "effectcomposer"],
+  "blockedReason": null
+}

@@ -1,5 +1,70 @@
 # CHANGELOG
 
+## 2026-10-17 — Feat: ArchitectureCadViewer (AutoCAD/BIM-grade CAD module, Step 6)
+- New `lib/cad/`: `cadSchema.ts` (strict zod `cad` fence contract +
+  CAD_BUDGETS), `cad2d.ts` (bbox / shoelace area / angle / iso projection /
+  sun position / thermal color + metric & imperial formatting), `svgToDxf.ts`
+  (real DXF R2000 with LINE/LWPOLYLINE/CIRCLE/ARC/TEXT on L-* layers),
+  `pdfExport.ts` (hand-built vector PDF, spec-correct xref entries),
+  `cadStandalone.ts` (offline interactive HTML).
+- New `components/render/ArchitectureCadViewer.tsx`: 2D/iso/3D/split views,
+  4 themes, layer manager dock (eye/lock/color/opacity/Solo), pan/zoom/wheel,
+  Zoom Fit/100/200/400%, measure/area/protractor, snap grid/vertex, crosshair
+  + live X/Y, north arrow, scale bar, explode, X/Y/Z section sliders, sun
+  06:00–20:00 + compass, hotspot inspector + Ask AI. Exports DXF/SVG/PDF/PNG/
+  HTML/GLB/OBJ — all genuine client-side. `CadBlock.tsx` + `cad` fence kind
+  wired into `lib/render/{registry,systemPrompt,demoShowcase}`,
+  `MarkdownRenderer.tsx`, `globals.css`.
+- Fixed `cad2d.ts` imperial length math (2.5 ft now renders 2'-6").
+- Proven: `__tests__/cad/` 5 files 31/31, `tests/cad.spec.ts` 9/9 (layer
+  hide/solo, measure label, zoom readout, hotspot inspector, iso faces,
+  DXF export note, WebGL 3D stats), `tsc --noEmit` clean.
+- Step 7 verified: `.cskills/` 27 skills + `.cskills-scenarios/` 27 JSONs,
+  `./skills/` = humanizer only, `tests/skills.spec.ts` 4/4.
+
+## 2026-10-17 — Feat: ThreeStudioViewer (Blender/Maya-grade 3D studio, Step 5)
+- New `lib/three3d/studioEngine.ts` (`StudioViewer`): shading modes (Rendered
+  PBR+postFX / Solid-MatCap / Wireframe / Wireframe-on-Shaded / Normals /
+  UV checker / Unlit / X-Ray), Perspective+Orthographic, FOV 20–110, named
+  views + top-right ViewCube gizmo, outliner tree with hide/solo, raycast
+  select + TransformControls (Q/G/R/S, Local/World), material editor, 6 env
+  presets (`studioEnv.ts`, PMREM), 3-point lighting sliders, bloom/SSAO/
+  vignette/tonemap, timeline + speed + clips + universal Explode (radial
+  bbox-center cache), HUD (FPS/meshes/verts/tris/calls/bbox), 4K PNG.
+- New `lib/three3d/standaloneExport.ts` (standalone .html w/ three CDN +
+  R3F .tsx component), `components/render/ThreeStudioViewer.tsx`,
+  `Scene3DBlock.tsx` now a thin wrapper; `exporters.ts` gains
+  `exportMesh` (obj/stl/ply/usdz via official addon exporters);
+  `sceneSchema.ts` export formats widened; `systemPrompt.ts` +
+  `globals.css` (`.studio-*`) updated.
+- Proven: `__tests__/three3d/meshExporters.test.ts` 4/4 +
+  `__tests__/three3d/standaloneExport.test.ts` 6/6, `tests/three3d.spec.ts`
+  3/3 (HUD, labels, outliner select, shading/views/explode, GLB re-import
+  note, 9 export formats), `tsc --noEmit` clean.
+
+## 2026-10-17 — Feat: Two-tier skill architecture + Core Skill Intent Router
+- `CLAUDE.md` + `AGENTS.md`: STRICT SKILL MANAGEMENT RULES now describe two
+  tiers — user skills (`./skills/` + `./skill-scenarios/`, visible in UI) and
+  core hidden skills (`./.cskills/` + `./.cskills-scenarios/`, installed ONLY
+  by the developer via `npm run cskill:add`), 100% invisible in GET
+  /api/skills, the Skills Modal, slash autocomplete and the load_skill enum.
+- `./skills/` + `./skill-scenarios/` reduced to humanizer only; new
+  `scripts/install-core-skill.mjs` wired as `"cskill:add"`;
+  `app/api/skills/install/route.ts` hardened to reject `.cskills` tampering.
+- 27 real core skills installed under `./.cskills/` (11 threejs-*, 11 r3f-*,
+  archify, anatomy, architecture-diagram, diagram-design) — every folder has
+  a genuine downloaded SKILL.md; all 27 `./.cskills-scenarios/*.json`
+  populated (autoUse true + whenToUse + triggerKeywords).
+- New `lib/skills/coreRouter.ts`: the only reader of the core tier. Pure
+  `selectCoreSkills` picks sub-skill bundles (3d base/conditional, R3F swap +
+  twins, image→blender-glb-pipeline, arch per-keyword); `applyCoreSkillRouting`
+  injects one `<core_skill_routing>` system block (9 KB/skill, 56 KB total)
+  + the matching output contract. Wired into `app/api/chat/route.ts`.
+- Proven: `__tests__/skills/coreRouter.test.ts` 13/13 (pure selection + real
+  `./.cskills/` injection + zero-token no-op + never routes humanizer),
+  `tsc --noEmit` clean. `openai/plugins` `three-webgl-game` does not exist
+  upstream — not installed, not fabricated.
+
 ## 2026-10-17 — Feat: Universal Skill Installation & Lazy-Loading Engine
 - Fake skill packs moved to `archive/skills/**`; deleted `lib/skills/{intent,
   loader,anatomyIntent}.ts` + `__tests__/{anatomy,three3d}/{intent,loader,

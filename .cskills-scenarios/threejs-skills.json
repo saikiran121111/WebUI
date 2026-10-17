@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-skills",
+  "sourceRepo": "sickn33/antigravity-awesome-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Umbrella Three.js reference used only as a fallback base when the focused threejs-* sub-skills are unavailable.",
+  "triggerKeywords": ["3d", "three.js", "threejs", "webgl"],
+  "blockedReason": null
+}

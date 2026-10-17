@@ -1,0 +1,9 @@
+{
+  "skillName": "anatomy",
+  "sourceRepo": "wheresryan22/anatomy",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Exploded isometric / cutaway technical illustrations of buildings, machines, reactors, engines, turbines, drones or server racks with labeled layers.",
+  "triggerKeywords": ["anatomy of", "exploded view", "exploded isometric", "isometric", "cutaway", "cross-section", "internals", "breakdown", "technical illustration", "server rack", "reactor", "engine", "turbine", "floor plan anatomy"],
+  "blockedReason": null
+}

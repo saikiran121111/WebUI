@@ -1,0 +1,9 @@
+{
+  "skillName": "r3f-lighting",
+  "sourceRepo": "EnzeD/r3f-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "React Three Fiber lighting: drei Environment/Lightformer rigs, shadows and HDR in JSX.",
+  "triggerKeywords": ["r3f lighting", "drei environment", "lightformer", "fiber lighting"],
+  "blockedReason": null
+}

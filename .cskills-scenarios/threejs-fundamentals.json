@@ -1,0 +1,9 @@
+{
+  "skillName": "threejs-fundamentals",
+  "sourceRepo": "CloudAI-X/threejs-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Any request for a 3D scene, model, logo, character, product, vehicle, world or simulation built with Three.js.",
+  "triggerKeywords": ["3d", "three.js", "threejs", "webgl", "3d model", "3d scene", "3d logo", "3d viewer", "3d asset", "glb", "gltf", "low-poly", "pbr", "mesh", "action figure"],
+  "blockedReason": null
+}
