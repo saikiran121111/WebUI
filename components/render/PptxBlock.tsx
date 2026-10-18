@@ -6,7 +6,7 @@
  * slides that share a morphGroup (layoutId), and count-up stats. Run
  * Slideshow opens a 60fps fullscreen player (arrow keys / click / Esc).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { normalizePptx, PptxSlide, safeName } from "../../lib/documents/schemas";
 import { chartSvg } from "../../lib/documents/chartHtml";
@@ -119,11 +119,24 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
   const [idx, setIdx] = useState(0);
   const [dir, setDir] = useState(1);
   const [show, setShow] = useState(false);
+  const showRef = useRef<HTMLDivElement>(null);
 
   const go = useCallback((d: number, n: number) => {
     setDir(d);
     setIdx((i) => Math.max(0, Math.min(n - 1, d === 0 ? n : i + d)));
   }, []);
+
+  // True fullscreen: the slideshow layer takes the whole screen via the
+  // native Fullscreen API (no browser URL bar / tabs). If the grant fails,
+  // the fixed-inset CSS layer (.pptx-show) is the fallback.
+  useEffect(() => {
+    if (!show) return;
+    const el = showRef.current;
+    if (el && !document.fullscreenElement) el.requestFullscreen?.().catch(() => { /* CSS fallback */ });
+    const onFsChange = () => { if (!document.fullscreenElement) setShow(false); };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, [show]);
 
   useEffect(() => {
     if (!show) return;
@@ -150,6 +163,7 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
     <AnimatePresence>
       {show && (
         <motion.div
+          ref={showRef}
           className="pptx-show"
           data-testid="pptx-slideshow"
           initial={{ opacity: 0 }}
@@ -191,6 +205,7 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
       endpoint="/api/documents/pptx"
       spec={spec}
       testId="pptx-block"
+      hideFullscreen
       actions={
         <button type="button" className="doc-card-btn" onClick={() => { setIdx(0); setShow(true); }} aria-label="Run Slideshow">
           Run Slideshow
@@ -198,18 +213,22 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
       }
     >
       <div className="pptx-stage-wrap" data-testid="pptx-preview">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div
-            key={idx}
-            className="pptx-stage"
-            initial={{ x: dir >= 0 ? 48 : -48, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: dir >= 0 ? -48 : 48, opacity: 0 }}
-            transition={{ duration: 0.35, ease: EASE }}
-          >
-            <SlideBody slide={slide} theme={spec.theme} />
-          </motion.div>
-        </AnimatePresence>
+        {/* Clip box: fast next/prev clicks make the exiting slide slide past
+            the stage edge — without this clip its text flickers outside. */}
+        <div className="pptx-stage-clip">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={idx}
+              className="pptx-stage"
+              initial={{ x: dir >= 0 ? 48 : -48, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: dir >= 0 ? -48 : 48, opacity: 0 }}
+              transition={{ duration: 0.35, ease: EASE }}
+            >
+              <SlideBody slide={slide} theme={spec.theme} />
+            </motion.div>
+          </AnimatePresence>
+        </div>
         <div className="pptx-nav">
           <button type="button" onClick={() => go(-1, n)} disabled={idx === 0} aria-label="Previous slide">‹</button>
           <span className="pptx-dots" role="tablist" aria-label="Slides">

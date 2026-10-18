@@ -1323,6 +1323,13 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
 .doc-card-error { color: #EF4444; font-size: 12.5px; padding: 8px 14px; }
 .doc-card-body { overflow: auto; }
 .doc-card--fullscreen .doc-card-body { flex: 1; }
+/* Fullscreen layout per modality: the XLSX grid fills all the way to the
+   bottom edge (was half-screen); the DOCX paper keeps true A4 proportions —
+   width derived from viewport height — instead of stretching edge-to-edge
+   and stranding dead space under the page. */
+.doc-card--fullscreen .doc-card-body:has(.xlsx-grid-wrap) { display: flex; flex-direction: column; overflow: hidden; }
+.doc-card--fullscreen .xlsx-grid-wrap { flex: 1; max-height: none; }
+.doc-card--fullscreen .docx-paper { max-height: none; height: 100%; width: min(100%, calc((100dvh - 64px) * 0.7071)); margin: 0 auto; }
 .doc-card-esc-hint {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   color: #A1A1AA; background: rgba(0, 0, 0, 0.7); border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1351,24 +1358,33 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
 }
 .html-artifact--fullscreen .html-artifact-frame { flex: 1; height: auto !important; border-radius: 0; border-left: none; border-right: none; border-top: none; }
 .html-artifact-iframe { width: 100%; height: 100%; border: 0; display: block; background: #000000; }
+/* Applied when the artifact's own background reads light (white reports with
+   black ink / white charts): invert keeps contrast and matches the dark app. */
+.html-artifact-iframe--invert { filter: invert(1) hue-rotate(180deg); }
 .html-artifact-actions { display: flex; gap: 8px; align-items: center; padding: 8px 2px 0; }
 
 /* --- Resume paper preview --- */
+/* Dark canvas matching the app chrome — the iframe srcDoc carries preview-only
+   dark overrides (ResumeBlock PREVIEW_CSS); the downloaded PDF stays white. */
 .resume-paper-wrap { padding: 18px; background: #141414; display: flex; justify-content: center; }
-.resume-paper { width: 720px; max-width: 100%; height: 1000px; border: 0; border-radius: 6px; background: #FFFFFF; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); }
+.resume-paper { width: 720px; max-width: 100%; height: 1000px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; background: #141414; }
+.doc-card--fullscreen .resume-paper-wrap { padding: 48px; }
+.doc-card--fullscreen .resume-paper { height: 100%; }
 
 /* --- DOCX paper preview --- */
-.docx-paper { background: #FAFAFA; color: #18181B; margin: 16px; padding: 34px 40px; border-radius: 8px; max-height: 640px; overflow: auto; }
-.docx-title { font-size: 26px; margin: 0 0 14px; color: #0A0A0A; }
-.docx-h { color: #0A0A0A; margin: 18px 0 8px; }
+/* Dark paper matching the app chrome in view mode; the DOCX download keeps
+   Word's own (system) colors — only this preview is dark-aligned. */
+.docx-paper { background: #141414; color: #E4E4E7; margin: 16px; padding: 34px 40px; border-radius: 8px; max-height: 640px; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+.docx-title { font-size: 26px; margin: 0 0 14px; color: #FAFAFA; }
+.docx-h { color: #FAFAFA; margin: 18px 0 8px; }
 .docx-h1 { font-size: 21px; } .docx-h2 { font-size: 17px; } .docx-h3 { font-size: 15px; } .docx-h4 { font-size: 13.5px; }
 .docx-p { font-size: 13.5px; line-height: 1.65; margin: 8px 0; }
 .docx-ul { margin: 8px 0 8px 20px; font-size: 13.5px; line-height: 1.6; }
 .docx-table { border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 13px; }
-.docx-table th, .docx-table td { border: 1px solid #D4D4D8; padding: 6px 10px; text-align: left; }
-.docx-table th { background: #F4F4F5; }
+.docx-table th, .docx-table td { border: 1px solid rgba(255, 255, 255, 0.16); padding: 6px 10px; text-align: left; }
+.docx-table th { background: #1F1F23; color: #FFFFFF; }
 .docx-chart { margin: 16px 0; }
-.docx-chart-title { font-size: 12.5px; color: #52525B; margin-bottom: 6px; }
+.docx-chart-title { font-size: 12.5px; color: #A1A1AA; margin-bottom: 6px; }
 .docx-chart-svg svg { max-width: 100%; height: auto; }
 
 /* --- XLSX grid preview --- */
@@ -1394,6 +1410,9 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
 
 /* --- PPTX preview + slideshow --- */
 .pptx-stage-wrap { padding: 16px; }
+/* Clips the exiting slide of fast next/prev clicks so its ±48px travel
+   never paints slide text outside the stage (the flicker bug). */
+.pptx-stage-clip { position: relative; overflow: hidden; }
 .pptx-stage {
   aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12);
   max-height: 460px; width: 100%;

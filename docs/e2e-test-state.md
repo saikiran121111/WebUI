@@ -128,6 +128,21 @@
   extended with scroll-visibility guard (scroll `conversation-list` to bottom →
   `select-mode-toggle` + `select-all` MUST stay visible) → 2/2 (9.4s). Toolbar
   now lives outside the scroll container in `components/ui/Sidebar.tsx`.
+- 2026-10-18 (document-modality fix batch, LOCKED): dark-preview/native-FS/
+  pagination/xlsx-recalc/CAD-layout fixes (see CHANGELOG top entry).
+  `regression_modalities.spec.ts` extended: resume preview `body`
+  toHaveCSS rgb(20,20,20) via `contentFrame()` — the iframe is `sandbox=""`
+  so the parent's `contentDocument` is NULL (never `locator.evaluate` into
+  it; FrameLocator + toHaveCSS is the way); xlsx Summary tab shows computed
+  "$215,000.00"/"$0.44" (the value column is CURRENCY format — the margin
+  average renders "$0.44", NOT "44.4%") and zero "=SUM(" td text; pptx card
+  has no Fullscreen button (slideshow itself is native FS); NEW test: html
+  invert class + `scrolling="yes"` when content > MAX_H. NATIVE FULLSCREEN
+  works HEADED: Escape exits via `fullscreenchange` (the headless Escape
+  quirk does NOT apply headed). Full headed suite: **314 passed / 0 failed**
+  across 9 batches — 6-spec batches TIME OUT the 10-min Bash cap
+  (file-reading alone is ~10 min: pair it only with reasoning-test).
+  Unit gate 445 | 1 skipped; `tsc --noEmit` clean.
 - playwright-cli `app-dev` browser verification (2026-10-18): use
   **project-local `npx playwright cli`** — the globally installed CLI expects
   chromium-1247 while the repo cache has chromium-1243. GOTCHAS: the

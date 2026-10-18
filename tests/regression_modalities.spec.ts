@@ -180,6 +180,23 @@ test("html artifact exports a real multi-page A4 PDF", async ({ page }) => {
   expect(await readPdfPages(file)).toBeGreaterThanOrEqual(2);
 });
 
+test("html artifact: light report inverts for the dark viewer; over-tall content scrolls", async ({ page }) => {
+  const tall =
+    '<!DOCTYPE html><html><head><style>html,body{margin:0;background:#FFFFFF;color:#111}</style></head>' +
+    '<body><h1>White paper report</h1><div style="height:3000px">taller than the MAX_H clamp</div></body></html>';
+  await mockStream(page, "```html\n" + tall + "\n```");
+  await page.goto("http://localhost:3000/");
+  await send(page, "white background status report");
+
+  const frame = page.locator(".html-artifact-iframe");
+  // White luma probe → invert+hue-rotate so the viewer matches the dark app;
+  // Download HTML / Export PDF stay white (paths untouched).
+  await expect(frame).toHaveClass(/html-artifact-iframe--invert/);
+  // 3000px content exceeds the 2400px clamp → the frame must scroll, or the
+  // tail of long split-page previews is unreachable.
+  await expect(frame).toHaveAttribute("scrolling", "yes");
+});
+
 // ------------------------------------------------------------------ resume
 
 const RESUME = JSON.stringify({
@@ -202,6 +219,14 @@ test("resume fence: ATS preview renders and the PDF download is 1-2 pages", asyn
   const block = page.locator('[data-testid="resume-block"]');
   await expect(block).toBeVisible();
   await expect(block.locator("iframe.resume-paper")).toBeVisible();
+
+  // Preview is dark-aligned with the app chrome (#141414 injected override);
+  // the DOWNLOAD path never sees that CSS (server uses raw resumeHtml = white).
+  const rframe = block.locator("iframe.resume-paper").contentFrame();
+  await expect(rframe.locator("body"), "resume preview background must match the dark viewer")
+    .toHaveCSS("background-color", "rgb(20, 20, 20)");
+  await expect(rframe.locator(".resume-name")).toHaveText(/Ada/);
+  await expect(rframe.locator(".resume-item-head").first()).toBeVisible(); // flex head/meta rows render
 
   const file = await downloadVia(page, block.getByRole("button", { name: "Download RESUME file" }));
   expect(path.basename(file)).toMatch(/Ada_Lovelace_Resume\.pdf$/);
@@ -293,6 +318,14 @@ test("xlsx fence: multi-sheet preview + download with live formulas and a zero-e
   await page.locator(".xlsx-tabs [role=tab]", { hasText: "Summary" }).click();
   await expect(preview.locator("thead th")).toHaveText(["Metric", "Value"]);
 
+  // View mode shows the RECALCULATED VALUES, never the formula source
+  // (SUM = 120000+95000+0 = $215,000.00; AVERAGE margin = 0.444, rendered in
+  // the Summary "value" column's currency format). The live formulas still
+  // ship in the downloaded workbook — asserted below.
+  await expect(preview.getByText("$215,000.00")).toBeVisible();
+  await expect(preview.getByText("$0.44")).toBeVisible();
+  await expect(preview.locator("td", { hasText: "=SUM(" })).toHaveCount(0);
+
   const block = page.locator('[data-testid="xlsx-block"]');
   const [resp, download] = await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/documents/xlsx"), { timeout: 120_000 }),
@@ -347,6 +380,10 @@ test("pptx fence: preview carousel, fullscreen slideshow nav, Morph + !! names i
   await expect(preview.getByText("Launch 2026")).toBeVisible();
   await preview.getByRole("button", { name: "Next slide" }).click();
   await expect(preview.getByText("Traction")).toBeVisible();
+
+  // The card-level Fullscreen button is gone: the slideshow itself takes
+  // native fullscreen (browser chrome hidden), so a separate FS is redundant.
+  await expect(page.locator('[data-testid="pptx-block"]').getByRole("button", { name: /fullscreen/i })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Run Slideshow" }).click();
   const show = page.locator('[data-testid="pptx-slideshow"]');

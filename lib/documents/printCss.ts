@@ -1,13 +1,19 @@
 /**
  * Mandatory A4 print stylesheet injected into every PDF render (PHASE 3).
- * Guarantees: no orphan headings, no sliced charts, no clipped table rows —
- * thead repeats on every page. The spec block below is verbatim-mandatory.
+ * Guarantees: no orphan headings, no sliced charts/figures, no clipped table
+ * rows — thead repeats on every page. Tables MAY split across pages (rows
+ * flow to fill each page; a whole-table break-inside:avoid left huge dead
+ * zones that inflated page count), but individual rows never break, and
+ * charts/flowcharts/figures are kept whole on one page.
  */
 export const PRINT_CSS = `
 @page { size: A4; margin: 14mm; }
-.card, .chart-container, table, tr, blockquote, pre, .resume-section-item { break-inside: avoid; page-break-inside: avoid; }
+.card, .chart-container, figure, tr, blockquote, pre, .resume-section-item { break-inside: avoid; page-break-inside: avoid; }
+table { break-inside: auto; page-break-inside: auto; }
 h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
 thead { display: table-header-group; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+p { orphans: 3; widows: 3; }
 `;
 
 /** Base document defaults so model HTML prints like a real report. */

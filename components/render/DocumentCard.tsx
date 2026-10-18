@@ -7,7 +7,7 @@
  * real file. The preview body renders client-side from the fence JSON, so
  * regeneration re-renders the preview in place with zero round-trips.
  */
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Mascot from "../ui/Mascot";
 import { useBuildProgress } from "../ui/RobotProgress";
 
@@ -57,20 +57,53 @@ interface DocumentCardProps {
   testId: string;
   /** Extra action buttons rendered before Fullscreen (e.g. Run Slideshow). */
   actions?: ReactNode;
+  /** Hides the Fullscreen button (PPTX: the native-FS slideshow replaces it). */
+  hideFullscreen?: boolean;
   children: ReactNode;
 }
 
-export default function DocumentCard({ badge, filename, endpoint, spec, testId, actions, children }: DocumentCardProps) {
+export default function DocumentCard({ badge, filename, endpoint, spec, testId, actions, hideFullscreen, children }: DocumentCardProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  // True once the native Fullscreen API actually owns the element — then the
+  // browser (not our Esc handler) handles exit, and fullscreenchange syncs us.
+  const nativeFsRef = useRef(false);
   // Robot toast: the download POST has no server progress channel, so the
   // staged ramp (lib/ui/stagedProgress) stands in visually until the blob lands.
   const { start, succeed, fail, toast } = useBuildProgress("Building " + badge);
 
+  const toggleFullscreen = useCallback(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) { void document.exitFullscreen(); return; }
+    if (document.fullscreenElement) return; // another element owns fullscreen
+    // The CSS class below is the fallback; requestFullscreen additionally
+    // hides the browser chrome (URL bar / tabs) when the grant succeeds.
+    el.requestFullscreen?.()
+      .then(() => { nativeFsRef.current = true; })
+      .catch(() => { nativeFsRef.current = false; });
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement && nativeFsRef.current) {
+        nativeFsRef.current = false;
+        setFullscreen(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
   useEffect(() => {
     if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      // Native fullscreen consumes Esc (browser exits FS → fullscreenchange
+      // syncs state); this handler only covers the CSS-fallback mode.
+      if (e.key === "Escape" && !nativeFsRef.current) setFullscreen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
@@ -92,20 +125,22 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
   }, [endpoint, spec, filename, start, succeed, fail]);
 
   return (
-    <div className={"doc-card" + (fullscreen ? " doc-card--fullscreen" : "")} data-testid={testId}>
+    <div ref={cardRef} className={"doc-card" + (fullscreen ? " doc-card--fullscreen" : "")} data-testid={testId}>
       <div className="doc-card-bar">
         <span className="doc-card-badge">{badge}</span>
         <span className="doc-card-filename">{filename}</span>
         <span className="doc-card-actions">
           {actions}
-          <button
-            type="button"
-            className="doc-card-btn"
-            onClick={() => setFullscreen((f) => !f)}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-          </button>
+          {!hideFullscreen && (
+            <button
+              type="button"
+              className="doc-card-btn"
+              onClick={toggleFullscreen}
+              aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            >
+              {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            </button>
+          )}
           <button
             type="button"
             className="doc-card-btn doc-card-btn--primary"

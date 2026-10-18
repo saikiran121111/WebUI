@@ -62,8 +62,10 @@ export default function DocxBlock({ source, streaming }: { source: string; strea
               <div
                 className="docx-chart-svg"
                 // chartSvg emits a self-contained static <svg> string (pure TS,
-                // no user scripts) — safe to inline.
-                dangerouslySetInnerHTML={{ __html: chartSvg(s.chart, { width: 620, height: 320, theme: "light" }) }}
+                // no user scripts) — safe to inline. Preview uses the DARK chart
+                // theme so the figure matches the dark paper (the DOCX download
+                // keeps the light print theme via docxEngine, untouched here).
+                dangerouslySetInnerHTML={{ __html: chartSvg(s.chart, { width: 620, height: 320, theme: "dark" }) }}
               />
             </figure>
           );

@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## 2026-10-18 — Fix: document-modality batch (dark viewers, pagination, native fullscreen, XLSX values, CAD layout)
+22-screenshot issue batch. Every dark override is PREVIEW-ONLY — download
+paths are untouched, so files stay professional white paper.
+- **PDF/Resume viewer** (`ResumeBlock.tsx`, `globals.css`): PREVIEW_CSS injected
+  into the iframe srcDoc — dark #141414 paper, light ink, 44/48 px inner
+  margins; fullscreen gets 48 px padding and full-height paper. Downloaded
+  PDF stays white (server renders raw `resumeHtml`).
+- **Resume certifications/jobs misalignment** (`lib/documents/resumeHtml.ts`):
+  `.resume-item-head` float:right → flex row (heading left, date/location
+  right, same line, baseline) — an issue date can never wrap under the NEXT
+  entry again.
+- **Downloaded-PDF pagination** (`lib/documents/printCss.ts`): tables MAY split
+  (`table { break-inside:auto }`) but `tr` never breaks and `thead` repeats on
+  every page (`display:table-header-group`); charts/flowcharts/figures/cards
+  stay whole; orphans/widows 3. Kills the dead-zone page inflation.
+- **HTML artifact** (`HtmlArtifactBlock.tsx`, `globals.css`): body-luma probe —
+  white reports get `invert(1) hue-rotate(180deg)` in the VIEWER only; content
+  taller than the 2400 px clamp now scrolls internally (`scrolling=yes`, fixes
+  unreachable split-page tails); fullscreen uses the native Fullscreen API.
+- **PPTX** (`PptxBlock.tsx`, `DocumentCard.tsx`, `globals.css`): card-level
+  Fullscreen button removed (`hideFullscreen` prop); Run Slideshow now takes
+  NATIVE fullscreen (browser chrome hidden; Esc exits via fullscreenchange);
+  preview carousel wrapped in `.pptx-stage-clip` (overflow:hidden) — fast
+  arrow-clicking can no longer flicker slide text outside the stage.
+- **XLSX** (`XlsxBlock.tsx`, `lib/documents/xlsxEngine.ts`, `globals.css`):
+  preview runs the SAME pure-JS recalc as the engine (`recalcWorkbook`) —
+  formula cells show computed VALUES (with an `fx` badge + formula tooltip),
+  never raw "=..." text; the downloaded workbook caches `{formula, result}` so
+  Excel/viewers show values immediately (no blank/"####" cells); column widths
+  are measured on the FORMATTED display text ("$12,345.67"), not the formula
+  source length; fullscreen stretches the grid to the bottom edge.
+- **DOCX** (`DocxBlock.tsx`, `globals.css`): preview paper dark #141414 with
+  light ink + dark table/chart chrome (download keeps the light print theme);
+  fullscreen paper keeps the A4 aspect ratio (width = (100dvh−64px)×0.7071,
+  centered) instead of stretching edge-to-edge with dead space below.
+- **Architecture CAD** (`ArchitectureCadViewer.tsx`): new `layoutFix` pass —
+  labels inside a box re-center (middle anchor + central baseline, so text no
+  longer grows right from the center), the box grows symmetrically to fit its
+  text, line/flow endpoints buried in a labeled box slide out to its edge
+  (slab-method `trimPointToRect`), hotspot rings move to the box's top-right
+  corner instead of covering the label. Maps keyed by entity OBJECT IDENTITY
+  (renderEntity's index key is layer-local). `lib/skills/coreRouter.ts`
+  ARCH_CONTRACT now instructs the model to author centered labels, fitted
+  boxes, edge-to-edge connectors and corner hotspots.
+- Proven HEADED: `regression_modalities.spec.ts` extended with new guards —
+  resume preview bg `rgb(20,20,20)` + flex item heads; xlsx Summary shows
+  computed "$215,000.00"/"$0.44" and zero "=SUM(" cell text; pptx card has NO
+  Fullscreen button; NEW test: html light-report invert + over-tall
+  `scrolling="yes"` → 8 passed + 1 skipped. Full headed suite re-run in
+  batches: **314 Playwright tests, 0 failures** (cad 13/13, studio CAD 3/3,
+  studio Three 3/3, render/interactive-ui/skills/chat-stream 28/28,
+  crud/edit-stop/inspect 13/13, file-reading+reasoning 216/216, live-chat
+  2/2, anatomy×3+three3d 28/28). Unit gate 445 passed | 1 skipped; tsc clean.
+
 ## 2026-10-18 — Fix: sidebar Select all / Delete toolbar scrolled out of view
 - `components/ui/Sidebar.tsx`: the select-mode toolbar (Select all / Delete N /
   Cancel / Select) lived INSIDE the `overflow-y-auto` conversation list, so

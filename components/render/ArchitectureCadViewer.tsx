@@ -213,6 +213,24 @@ function fitView(bbox: BBox2, stage?: { w: number; h: number; insetX?: number })
   };
 }
 
+/**
+ * Slide a point lying INSIDE box `r` out along the ray p→q to the box edge
+ * (slab method). Trims connector/flow endpoints the model buried inside a
+ * labeled box, so lines stop at the boundary instead of crossing under text.
+ */
+function trimPointToRect(p: Point2, q: Point2, r: { x: number; y: number; w: number; h: number }): Point2 {
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  if (dx === 0 && dy === 0) return p;
+  let t = 1;
+  if (dx > 0) t = Math.min(t, (r.x + r.w - p[0]) / dx);
+  else if (dx < 0) t = Math.min(t, (r.x - p[0]) / dx);
+  if (dy > 0) t = Math.min(t, (r.y + r.h - p[1]) / dy);
+  else if (dy < 0) t = Math.min(t, (r.y - p[1]) / dy);
+  t = Math.max(0, Math.min(1, t));
+  return [p[0] + dx * t, p[1] + dy * t];
+}
+
 function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text: string) => void }) {
   const bbox = useMemo(() => specBBox(spec), [spec]);
   const fit0 = useMemo(() => fitView(bbox), [bbox]);
@@ -337,6 +355,88 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const maxDim = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, 1);
   const dimTick = maxDim * 0.012;
   const bubbleR = maxDim * 0.014;
+
+  // ── 2D layout normalization pass ────────────────────────────────────────
+  // Model-authored plans often anchor labels "start" (text grows right from
+  // the box center), draw boxes narrower than their own text, bury connector
+  // endpoints inside boxes, and park hotspot rings on top of labels. This
+  // pass fixes all four: center each label in its box, grow the box
+  // symmetrically to fit the text, trim line/flow endpoints that start
+  // inside a labeled box out to its edge, and move hotspot rings into the
+  // box corner. Maps are keyed by entity OBJECT IDENTITY (entities are
+  // stable per spec) because renderEntity's index key is layer-local.
+  const layoutFix = useMemo(() => {
+    type Ent = (typeof spec.entities)[number];
+    type RectE = Extract<Ent, { kind: "rect" }>;
+    type Box = { x: number; y: number; w: number; h: number };
+    const pxPerFit = stageSize.w > 0 && fit0.w > 0 ? stageSize.w / fit0.w : 0;
+    const boxOf = new Map<RectE, Box>();
+    const textFix = new Map<Ent, { x: number; y: number }>();
+    const lineFix = new Map<Ent, { from: Point2; to: Point2 }>();
+    const flowFix = new Map<string, Point2[]>();
+    const hotspotFix = new Map<string, Point2>();
+    const rects = spec.entities.filter((e): e is RectE => e.kind === "rect");
+    // 1) boxes grow symmetrically around their center to fit contained labels
+    for (const e of spec.entities) {
+      if (e.kind !== "text" || e.rotation) continue;
+      const host = rects.find((r) => e.x >= r.x && e.x <= r.x + r.w && e.y >= r.y && e.y <= r.y + r.h);
+      if (!host) continue;
+      // Same cap renderEntity applies at the initial fit zoom, so the box is
+      // sized for the text as it is actually drawn on screen.
+      const fs = Math.min(e.height, pxPerFit > 0 ? 13 / pxPerFit : e.height);
+      const needW = e.content.length * fs * 0.62 + fs * 1.8;
+      const cur = boxOf.get(host) ?? { x: host.x, y: host.y, w: host.w, h: host.h };
+      const w = Math.max(cur.w, needW);
+      const h = Math.max(cur.h, fs * 1.9);
+      const cx = cur.x + cur.w / 2;
+      const cy = cur.y + cur.h / 2;
+      boxOf.set(host, { x: cx - w / 2, y: cy - h / 2, w, h });
+      textFix.set(e, { x: cx, y: cy });
+    }
+    // Only LABELED boxes participate in trimming — unlabeled furniture/slab
+    // rects must not chop MEP runs that legitimately pass over them.
+    const findBox = (p: Point2): Box | null => {
+      for (const r of rects) {
+        const b = boxOf.get(r);
+        if (b && p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h) return b;
+      }
+      return null;
+    };
+    // 2) line endpoints buried in a labeled box slide out to its edge
+    for (const e of spec.entities) {
+      if (e.kind !== "line") continue;
+      const bA = findBox(e.from);
+      const bB = findBox(e.to);
+      if (!bA && !bB) continue;
+      if (bA && bA === bB) continue;
+      lineFix.set(e, {
+        from: bA ? trimPointToRect(e.from, e.to, bA) : e.from,
+        to: bB ? trimPointToRect(e.to, e.from, bB) : e.to,
+      });
+    }
+    // 3) flow endpoints inside a labeled box slide out to its edge
+    for (const flow of spec.flows) {
+      const pts = flow.points;
+      if (pts.length < 2) continue;
+      const b0 = findBox(pts[0]);
+      const bN = findBox(pts[pts.length - 1]);
+      if (!b0 && !bN) continue;
+      const next = pts.slice();
+      if (b0) next[0] = trimPointToRect(pts[0], pts[1], b0);
+      if (bN) next[next.length - 1] = trimPointToRect(pts[pts.length - 1], pts[pts.length - 2], bN);
+      flowFix.set(flow.id, next);
+    }
+    // 4) hotspot rings move to the labeled box's top-right corner (model
+    // y-up) so they never sit on top of the centered label.
+    const hr = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, 1) * 0.008;
+    for (const h of spec.hotspots) {
+      const b = findBox([h.x, h.y]);
+      if (!b) continue;
+      const inset = hr * 1.8;
+      hotspotFix.set(h.id, [b.x + b.w - inset, b.y + b.h - inset]);
+    }
+    return { boxOf, textFix, lineFix, flowFix, hotspotFix };
+  }, [spec, fit0, stageSize.w, bbox]);
 
   const gridDeco = useMemo(
     () =>
@@ -764,13 +864,14 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
       const common = { stroke: color, strokeWidth: 1.2, fill: "none" as const, vectorEffect: "non-scaling-stroke" as const, strokeDasharray: dash };
       switch (entity.kind) {
         case "line": {
+          const lf = layoutFix.lineFix.get(entity) ?? entity;
           const ticks =
             entity.layer === "layer-dimensions"
-              ? (dimensionDecor(entity.from, entity.to, dimTick) as Extract<BlockPrim, { kind: "line" }>[])
+              ? (dimensionDecor(lf.from, lf.to, dimTick) as Extract<BlockPrim, { kind: "line" }>[])
               : ([] as Extract<BlockPrim, { kind: "line" }>[]);
           return (
             <g key={key}>
-              <line x1={entity.from[0]} y1={-entity.from[1]} x2={entity.to[0]} y2={-entity.to[1]} {...common} />
+              <line x1={lf.from[0]} y1={-lf.from[1]} x2={lf.to[0]} y2={-lf.to[1]} {...common} />
               {ticks.map((tick, i) => (
                 <line key={i} x1={tick.a[0]} y1={-tick.a[1]} x2={tick.b[0]} y2={-tick.b[1]}
                   stroke={color} strokeWidth={0.75} vectorEffect="non-scaling-stroke" />
@@ -778,11 +879,13 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
             </g>
           );
         }
-        case "rect":
+        case "rect": {
+          const b = layoutFix.boxOf.get(entity) ?? entity;
           return (
-            <rect key={key} x={entity.x} y={-(entity.y + entity.h)} width={entity.w} height={entity.h}
+            <rect key={key} x={b.x} y={-(b.y + b.h)} width={b.w} height={b.h}
               {...common} fill={entity.filled ? color : "none"} fillOpacity={entity.filled ? 0.18 : undefined} />
           );
+        }
         case "polyline": {
           const pts = entity.points.map((p) => `${p[0]},${-p[1]}`).join(" ");
           return entity.closed
@@ -804,20 +907,27 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           const y1 = -(entity.cy + entity.r * Math.sin(a1));
           return <path key={key} d={`M ${x0} ${y0} A ${entity.r} ${entity.r} 0 ${delta > 180 ? 1 : 0} 0 ${x1} ${y1}`} {...common} />;
         }
-        case "text":
+        case "text": {
           if (roomTags.tagged.has(`${entity.x}|${entity.y}|${entity.content}`)) return null;
+          const tf = layoutFix.textFix.get(entity);
+          const tx = tf ? tf.x : entity.x;
+          const ty = tf ? tf.y : entity.y;
           return (
             // Cap model-sized text at ~13 px on screen so zooming in never turns
             // labels into oversized blocks that spill out of their space.
-            <text key={key} x={entity.x} y={-entity.y} fill={color} fontSize={Math.min(entity.height, 13 / pxPerModel)}
-              textAnchor={entity.anchor === "middle" ? "middle" : entity.anchor === "end" ? "end" : "start"}
-              transform={entity.rotation ? `rotate(${-entity.rotation} ${entity.x} ${-entity.y})` : undefined}>
+            // Contained labels re-center in their (grown) box via middle anchor +
+            // central baseline, so text no longer grows right from the anchor.
+            <text key={key} x={tx} y={-ty} fill={color} fontSize={Math.min(entity.height, 13 / pxPerModel)}
+              textAnchor={tf ? "middle" : entity.anchor === "middle" ? "middle" : entity.anchor === "end" ? "end" : "start"}
+              dominantBaseline={tf ? "central" : undefined}
+              transform={entity.rotation ? `rotate(${-entity.rotation} ${tx} ${-ty})` : undefined}>
               {entity.content}
             </text>
           );
+        }
       }
     },
-    [layerColor, dashFor, spec.entities, dimTick, roomTags.tagged, pxPerModel],
+    [layerColor, dashFor, spec.entities, dimTick, roomTags.tagged, pxPerModel, layoutFix],
   );
 
   const hotspotR = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) * 0.008;
@@ -1109,30 +1219,37 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                           ))}
                         </g>
                       ))}
-                      {layer.id === "layer-mep" && (entitiesByLayer.get(layer.id) ?? []).flatMap((e, i) =>
-                        e.kind === "line"
-                          ? [
-                              <circle key={`jn${i}a`} cx={e.from[0]} cy={-e.from[1]} r={maxDim * 0.004} fill={layerColor(layer.id)} />,
-                              <circle key={`jn${i}b`} cx={e.to[0]} cy={-e.to[1]} r={maxDim * 0.004} fill={layerColor(layer.id)} />,
-                            ]
-                          : [],
-                      )}
+                      {layer.id === "layer-mep" && (entitiesByLayer.get(layer.id) ?? []).flatMap((e, i) => {
+                        if (e.kind !== "line") return [];
+                        const lf = layoutFix.lineFix.get(e) ?? e;
+                        return [
+                          <circle key={`jn${i}a`} cx={lf.from[0]} cy={-lf.from[1]} r={maxDim * 0.004} fill={layerColor(layer.id)} />,
+                          <circle key={`jn${i}b`} cx={lf.to[0]} cy={-lf.to[1]} r={maxDim * 0.004} fill={layerColor(layer.id)} />,
+                        ];
+                      })}
                     </g>
                   );
                 })}
                 {flowsOn && spec.flows.map((flow) => (
                   <polyline key={flow.id} data-testid={`cad-flow-${flow.id}`} className="cad-flow-dash"
-                    points={flow.points.map((p) => `${p[0]},${-p[1]}`).join(" ")}
+                    points={(layoutFix.flowFix.get(flow.id) ?? flow.points).map((p) => `${p[0]},${-p[1]}`).join(" ")}
                     fill="none" stroke={flow.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
                 ))}
-                {spec.hotspots.map((hotspot) => (
-                  <g key={hotspot.id}>
-                    <circle data-testid={`cad-hotspot-${hotspot.id}`} cx={hotspot.x} cy={-hotspot.y} r={hotspotR}
-                      fill={hotspotSel?.id === hotspot.id ? "#38BDF8" : "transparent"} stroke="#38BDF8" strokeWidth={1.4}
-                      vectorEffect="non-scaling-stroke" className="cad-hotspot-dot"
-                      onClick={() => setHotspotSel(hotspotSel?.id === hotspot.id ? null : hotspot)} />
-                  </g>
-                ))}
+                {spec.hotspots.map((hotspot) => {
+                  // layoutFix parks hotspots inside labeled boxes at the box
+                  // corner so the ring never covers the centered label.
+                  const hp = layoutFix.hotspotFix.get(hotspot.id);
+                  const hx = hp ? hp[0] : hotspot.x;
+                  const hy = hp ? hp[1] : hotspot.y;
+                  return (
+                    <g key={hotspot.id}>
+                      <circle data-testid={`cad-hotspot-${hotspot.id}`} cx={hx} cy={-hy} r={hotspotR}
+                        fill={hotspotSel?.id === hotspot.id ? "#38BDF8" : "transparent"} stroke="#38BDF8" strokeWidth={1.4}
+                        vectorEffect="non-scaling-stroke" className="cad-hotspot-dot"
+                        onClick={() => setHotspotSel(hotspotSel?.id === hotspot.id ? null : hotspot)} />
+                    </g>
+                  );
+                })}
                 {gridDeco && (
                   <g data-testid="cad-grid-axes" pointerEvents="none">
                     {gridDeco.lines.map((gl, i) => (

@@ -10,6 +10,23 @@ import { normalizeResume, safeName } from "../../lib/documents/schemas";
 import { resumeHtml } from "../../lib/documents/resumeHtml";
 import DocumentCard, { FenceBroken, FencePending } from "./DocumentCard";
 
+/**
+ * PREVIEW-ONLY overrides injected into the iframe srcDoc: the app chrome is
+ * dark, so the paper matches it (dark canvas, light ink) instead of glaring
+ * white. The DOWNLOAD path never sees this — resumeHtml output goes to the
+ * print engine untouched, so the PDF stays professional white-on-paper.
+ * The padding mirrors the print @page 14mm margins so the preview shows the
+ * real edge spacing instead of text hugging the paper borders.
+ */
+const PREVIEW_CSS =
+  "<style>" +
+  "html,body{background:#141414!important;color:#E4E4E7!important}" +
+  "body{margin:0!important;padding:44px 48px!important}" +
+  ".resume-title{color:#E4E4E7!important}" +
+  ".resume-contact,.resume-meta,.resume-keywords{color:#A1A1AA!important}" +
+  ".resume-section h2{color:#FAFAFA!important;border-bottom-color:#3F3F46!important}" +
+  "</style>";
+
 export default function ResumeBlock({ source, streaming }: { source: string; streaming: boolean }) {
   const spec = useMemo(() => {
     try {
@@ -23,6 +40,7 @@ export default function ResumeBlock({ source, streaming }: { source: string; str
   if (!spec) return <FenceBroken label="resume" />;
 
   const filename = safeName(spec.basics.name) + "_Resume.pdf";
+  const srcDoc = resumeHtml(spec).replace(/<\/head>/i, PREVIEW_CSS + "</head>");
 
   return (
     <DocumentCard
@@ -36,7 +54,7 @@ export default function ResumeBlock({ source, streaming }: { source: string; str
         <iframe
           title="Resume preview"
           className="resume-paper"
-          srcDoc={resumeHtml(spec)}
+          srcDoc={srcDoc}
           sandbox=""
         />
       </div>

@@ -33,6 +33,21 @@ function sanitizeValue(v: unknown, col: XlsxColumn): string | number {
   return isFinite(n) ? n : 0;
 }
 
+/** Approximate on-screen text for width fitting (mirrors the client preview). */
+function previewText(v: unknown, col: XlsxColumn): string {
+  if (v == null || v === "") return col.format === "text" || col.format === "date" ? "N/A" : "0";
+  if (col.format === "text" || col.format === "date") return String(v);
+  const n = typeof v === "number" ? v : Number(String(v).replace(/[$,%\s]/g, ""));
+  if (!isFinite(n)) return String(v);
+  switch (col.format) {
+    case "currency": return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    case "percent": return (n <= 1.5 ? (n * 100).toFixed(1) : n.toFixed(1)) + "%";
+    case "integer": return Math.round(n).toLocaleString("en-US");
+    case "number": return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+    default: return String(n);
+  }
+}
+
 export interface XlsxBuildResult {
   buffer: Buffer;
   filename: string;
@@ -53,6 +68,12 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Local AI WebUI";
   const recalcSheets: RecalcSheet[] = [];
+  // Per-sheet geometry kept for the post-recalc width pass; formula cells are
+  // tracked so the recalc RESULT can be cached into them (Excel/preview then
+  // shows values immediately instead of blank "###" placeholders).
+  interface SheetCtx { ws: ExcelJS.Worksheet; sheet: (typeof spec.sheets)[number]; dataStart: number; dataEnd: number; totalRowIdx: number | null }
+  const sheetCtx: SheetCtx[] = [];
+  const formulaCells: { cell: ExcelJS.Cell; key: string; f: string }[] = [];
 
   for (const sheet of spec.sheets) {
     const ws = wb.addWorksheet(sheet.name);
@@ -83,6 +104,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
         if (isFormula(raw)) {
           const f = String(raw).trim().slice(1);
           cell.value = { formula: f };
+          formulaCells.push({ cell, key: sheet.name + "!" + addr(ci + 1, r), f });
           cells.set(addr(ci + 1, r), { formula: "=" + f });
         } else {
           const v = sanitizeValue(raw, col);
@@ -110,6 +132,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
         } else if (col.format !== "text" && col.format !== "date") {
           const f = `SUM(${letter}${dataStart}:${letter}${dataEnd})`;
           cell.value = { formula: f };
+          formulaCells.push({ cell, key: sheet.name + "!" + addr(ci + 1, totalRowIdx), f });
           cells.set(addr(ci + 1, totalRowIdx), { formula: "=" + f });
           cell.numFmt = NUMFMT[col.format] ?? NUMFMT.number;
         } else {
@@ -121,26 +144,47 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
       });
     }
 
-    // Auto-fit widths (no ###): label + sample content, clamped
-    sheet.columns.forEach((col, ci) => {
-      let maxLen = String(col.label).length;
-      for (const row of sheet.rows.slice(0, 200)) {
-        const v = row?.[col.key];
-        const len = isFormula(v) ? 12 : String(v ?? "").length;
-        if (len > maxLen) maxLen = len;
-      }
-      ws.getColumn(ci + 1).width = col.width ?? Math.min(48, Math.max(10, Math.round(maxLen * 1.15) + 3));
-    });
-
     // freeze_panes = "A2"
     if (sheet.freezeHeader) ws.views = [{ state: "frozen", ySplit: 1, xSplit: 0 }];
 
     recalcSheets.push({ name: sheet.name, rowCount, colCount, cells });
+    sheetCtx.push({ ws, sheet, dataStart, dataEnd, totalRowIdx });
   }
 
   // MANDATORY headless recalculation: errors_found must equal 0.
   const recalc = recalcWorkbook(recalcSheets);
   if (recalc.errors.length > 0) throw new XlsxRecalcError(recalc.errors);
+
+  // Cache each formula's computed result into the cell: Excel, LibreOffice
+  // and viewers show the VALUE immediately — no blank/error placeholders and
+  // no "###" until the app recalculates on open. The live formula is kept.
+  for (const fc of formulaCells) {
+    const r = recalc.computed.get(fc.key);
+    fc.cell.value = r === undefined || r === null
+      ? { formula: fc.f }
+      : { formula: fc.f, result: r as string | number | boolean | Date };
+  }
+
+  // Auto-fit widths (no ###): measured on the FORMATTED display text — for
+  // formula cells that is the recalc result ("$12,345.67"), never the raw
+  // formula source length, which is what produced the too-narrow columns.
+  for (const ctx of sheetCtx) {
+    ctx.sheet.columns.forEach((col, ci) => {
+      let maxLen = String(col.label).length;
+      ctx.sheet.rows.slice(0, 200).forEach((row, ri) => {
+        const raw = row?.[col.key];
+        const text = isFormula(raw)
+          ? previewText(recalc.computed.get(ctx.sheet.name + "!" + addr(ci + 1, ctx.dataStart + ri)), col)
+          : previewText(sanitizeValue(raw, col), col);
+        if (text.length > maxLen) maxLen = text.length;
+      });
+      if (ctx.totalRowIdx) {
+        const cv = recalc.computed.get(ctx.sheet.name + "!" + addr(ci + 1, ctx.totalRowIdx));
+        maxLen = Math.max(maxLen, cv === undefined ? 5 : previewText(cv, col).length);
+      }
+      ctx.ws.getColumn(ci + 1).width = col.width ?? Math.min(48, Math.max(10, Math.round(maxLen * 1.15) + 3));
+    });
+  }
 
   const out = await wb.xlsx.writeBuffer();
   return {

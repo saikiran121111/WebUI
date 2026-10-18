@@ -42,8 +42,10 @@ export function resumeHtml(spec: ResumeSpec): string {
   .resume-contact { font-size: 9.5pt; color: #374151; margin: 4pt 0 0; }
   .resume-section h2 { font-size: 11.5pt; text-transform: uppercase; letter-spacing: 0.6pt; border-bottom: 1px solid #9ca3af; padding-bottom: 2pt; margin: 12pt 0 6pt; }
   .resume-section-item { margin: 0 0 8pt; }
-  .resume-item-head { margin: 0; font-weight: 700; }
-  .resume-meta { float: right; font-weight: 400; color: #374151; font-size: 9.5pt; }
+  /* Flex row (not float): heading left, date/location right on the SAME line,
+     so each certification/job's meta can never wrap under the next entry. */
+  .resume-item-head { margin: 0; font-weight: 700; display: flex; justify-content: space-between; gap: 10pt; align-items: baseline; }
+  .resume-meta { flex: 0 1 auto; text-align: right; font-weight: 400; color: #374151; font-size: 9.5pt; }
   .resume-keywords { margin: 2pt 0; font-size: 9.5pt; color: #374151; }
   ul { margin: 2pt 0 0; padding-left: 16pt; }
   li { margin: 0 0 2pt; }

@@ -8,7 +8,7 @@
  * source, clamps the height, and animates the fit smoothly. All pointer and
  * keyboard input passes straight through to the artifact at 60fps.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isBrokenHtmlFence } from "../../lib/documents/schemas";
 import { downloadDocument, FenceBroken, FencePending, saveBlob } from "./DocumentCard";
 import { useBuildProgress } from "../ui/RobotProgress";
@@ -37,13 +37,34 @@ function buildSrcDoc(source: string): string {
 
 export default function HtmlArtifactBlock({ source, streaming }: { source: string; streaming: boolean }) {
   const [height, setHeight] = useState(420);
+  const [clamped, setClamped] = useState(false);
+  const [invert, setInvert] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const nativeFsRef = useRef(false);
 
   const broken = !streaming && isBrokenHtmlFence(source);
   const srcDoc = useMemo(() => (streaming || broken ? null : buildSrcDoc(source)), [source, streaming, broken]);
+
+  // Light-background artifacts (white reports/charts with black ink) get an
+  // invert+hue-rotate filter so the viewer matches the app's dark chrome —
+  // the Download HTML / Export PDF paths are untouched (still white paper).
+  const probeLuma = useCallback(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    try {
+      const doc = frame.contentDocument;
+      if (!doc || !doc.body) return;
+      const bg = getComputedStyle(doc.body).backgroundColor;
+      const m = /rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(bg);
+      if (!m) return;
+      const luma = (0.2126 * Number(m[1]) + 0.7152 * Number(m[2]) + 0.0722 * Number(m[3])) / 255;
+      setInvert(luma > 0.5);
+    } catch { /* sandboxed cross-origin — leave colors as authored */ }
+  }, []);
 
   useEffect(() => {
     const onMessage = (ev: MessageEvent) => {
@@ -52,14 +73,43 @@ export default function HtmlArtifactBlock({ source, streaming }: { source: strin
       const d = ev.data as { type?: string; height?: number } | null;
       if (!d || d.type !== "HTML_VIEWER_RESIZE" || typeof d.height !== "number" || !isFinite(d.height)) return;
       setHeight(Math.min(MAX_H, Math.max(MIN_H, Math.round(d.height))));
+      // Content taller than the clamp: the frame must scroll internally, or
+      // the tail of long split-page PDF previews is unreachable.
+      setClamped(d.height > MAX_H);
+      probeLuma();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
+  }, [probeLuma]);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) { void document.exitFullscreen(); return; }
+    if (document.fullscreenElement) return;
+    // Native FS hides the browser chrome; the fixed-inset CSS class remains
+    // as the fallback when the API is unavailable or the grant fails.
+    el.requestFullscreen?.()
+      .then(() => { nativeFsRef.current = true; })
+      .catch(() => { nativeFsRef.current = false; });
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement && nativeFsRef.current) {
+        nativeFsRef.current = false;
+        setFullscreen(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
   useEffect(() => {
     if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !nativeFsRef.current) setFullscreen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
@@ -88,6 +138,7 @@ export default function HtmlArtifactBlock({ source, streaming }: { source: strin
 
   return (
     <div
+      ref={rootRef}
       className={"html-artifact" + (fullscreen ? " html-artifact--fullscreen" : "")}
       data-testid="html-artifact-block"
     >
@@ -96,10 +147,11 @@ export default function HtmlArtifactBlock({ source, streaming }: { source: strin
         <iframe
           ref={frameRef}
           title="Interactive HTML artifact"
-          className="html-artifact-iframe"
+          className={"html-artifact-iframe" + (invert ? " html-artifact-iframe--invert" : "")}
           sandbox="allow-scripts allow-same-origin"
           srcDoc={srcDoc ?? ""}
-          scrolling="no"
+          scrolling={clamped || fullscreen ? "yes" : "no"}
+          onLoad={probeLuma}
         />
       </div>
       <div className="html-artifact-actions">
@@ -118,7 +170,7 @@ export default function HtmlArtifactBlock({ source, streaming }: { source: strin
         <button
           type="button"
           className="doc-card-btn"
-          onClick={() => setFullscreen((f) => !f)}
+          onClick={toggleFullscreen}
           aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
         >
           {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
