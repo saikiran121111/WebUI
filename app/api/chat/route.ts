@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { activateSkillFromToolCall, applySkillRouting } from "../../../lib/skills/lazy";
-import { applyCoreSkillRouting } from "../../../lib/skills/coreRouter";
-import { projectRoot } from "../../../lib/skills/registry";
+import {
+  applySlashSkillRouting,
+  extractUserText,
+  injectSystemBefore,
+  lastUserIndex,
+} from "../../../lib/skills/lazy";
+import { getDecision } from "../../../lib/decision/client";
+import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
+import {
+  MODE_FENCE,
+  MODE_SKILL,
+  RENDERER_MODES,
+  isRendererMode,
+  type DecisionEnvelope,
+  type RendererMode,
+} from "../../../lib/decision/types";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
@@ -31,14 +44,21 @@ function upstreamHeaders(): Record<string, string> {
   };
 }
 
-function streamHeaders(contentType: string | null, usedSkill: string | null): Record<string, string> {
+function streamHeaders(
+  contentType: string | null,
+  usedSkill: string | null,
+  decisionMode: RendererMode,
+): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": contentType ?? "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
+    // The ONE mode the UI may render/validate for this turn. Core-tier skill
+    // names never travel to the browser (invisibility rule); the mode does.
+    "x-decision-mode": decisionMode,
   };
-  // Skill metadata for the UI: the client reads this and shows the pill.
+  // User-tier skill metadata for the UI: the client reads this and shows the pill.
   if (usedSkill) headers["X-Used-Skill"] = usedSkill;
   return headers;
 }
@@ -51,7 +71,11 @@ function upstreamErrorResponse(status: number, errText: string): NextResponse {
 }
 
 /** Stream the upstream SSE byte-for-byte through the think-tag scrubber. */
-function streamUpstream(upstream: Response, usedSkill: string | null): Response {
+function streamUpstream(
+  upstream: Response,
+  usedSkill: string | null,
+  decisionMode: RendererMode,
+): Response {
   const scrubber = new TransformStream({
     transform(chunk, controller) {
       const text = new TextDecoder().decode(chunk);
@@ -60,16 +84,20 @@ function streamUpstream(upstream: Response, usedSkill: string | null): Response 
   });
   return new Response(upstream.body!.pipeThrough(scrubber), {
     status: 200,
-    headers: streamHeaders(upstream.headers.get("Content-Type"), usedSkill),
+    headers: streamHeaders(upstream.headers.get("Content-Type"), usedSkill, decisionMode),
   });
 }
 
-async function forwardStream(body: string, usedSkill: string | null): Promise<Response> {
+async function forwardStream(
+  body: string,
+  usedSkill: string | null,
+  decisionMode: RendererMode,
+): Promise<Response> {
   try {
     const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body });
     if (!upstream.ok) return upstreamErrorResponse(upstream.status, await upstream.text().catch(() => ""));
     if (!upstream.body) return NextResponse.json({ error: "No response body from model" }, { status: 502 });
-    return streamUpstream(upstream, usedSkill);
+    return streamUpstream(upstream, usedSkill, decisionMode);
   } catch {
     return NextResponse.json(
       { error: "Could not reach the model server. Is it running on port 8080?" },
@@ -78,50 +106,72 @@ async function forwardStream(body: string, usedSkill: string | null): Promise<Re
   }
 }
 
-/** Pull a load_skill(skill_name) call out of a buffered SSE round. */
-function extractLoadSkillCall(sseText: string): string | null {
-  const names = new Map<number, string>();
-  const args = new Map<number, string>();
-  for (const line of sseText.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("data:")) continue;
-    const data = trimmed.slice(5).trim();
-    if (!data || data === "[DONE]") continue;
-    let event: any;
-    try { event = JSON.parse(data); } catch { continue; }
-    for (const call of event?.choices?.[0]?.delta?.tool_calls ?? []) {
-      const idx = typeof call.index === "number" ? call.index : 0;
-      if (typeof call.function?.name === "string") names.set(idx, (names.get(idx) ?? "") + call.function.name);
-      if (typeof call.function?.arguments === "string") args.set(idx, (args.get(idx) ?? "") + call.function.arguments);
-    }
+/**
+ * Fence-repair follow-ups already know their mode (it is pinned to the failed
+ * deliverable): re-running the Decision Engine on an error message could
+ * misroute it and stripping would destroy the exact error text. So the client
+ * passes decision_mode through and we build a passthrough envelope instead.
+ */
+function passthroughEnvelope(mode: RendererMode, text: string): DecisionEnvelope {
+  return {
+    active_mode: mode,
+    confidence: 1,
+    decided_by: "repair-passthrough",
+    stripped_prompt: text,
+    skill_to_load: MODE_SKILL[mode],
+    allowed_code_fence: MODE_FENCE[mode],
+    disable_validators: RENDERER_MODES.filter((m) => m !== mode) as RendererMode[],
+    enable_validator: mode,
+    task_constraints: [],
+    extracted_entities: [],
+    needle_latency_ms: 0,
+    lfm_latency_ms: 0,
+  };
+}
+
+function historyBefore(messages: any[], lastUserIdx: number): { role: string; content: string }[] {
+  const history: { role: string; content: string }[] = [];
+  for (let i = 0; i < lastUserIdx; i++) {
+    const role = messages[i]?.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = extractUserText(messages[i]?.content);
+    if (content.trim()) history.push({ role, content });
   }
-  for (const [idx, name] of names) {
-    if (name !== "load_skill") continue;
-    try {
-      const parsed = JSON.parse(args.get(idx) ?? "{}");
-      if (typeof parsed.skill_name === "string" && parsed.skill_name) return parsed.skill_name;
-    } catch {
-      // Malformed arguments: treat as no tool call.
-    }
+  return history;
+}
+
+/** Swap the last user turn's text for the engine's stripped_prompt in place. */
+function replaceLastUserText(messages: any[], index: number, text: string): void {
+  const message = messages[index];
+  if (!message) return;
+  if (typeof message.content === "string") {
+    message.content = text;
+    return;
   }
-  return null;
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (typeof part?.text === "string") { part.text = text; return; }
+    }
+    message.content.unshift({ type: "text", text });
+  }
 }
 
 /**
- * Proxies chat completions to the local LLM, streaming SSE byte-for-byte,
- * with the Universal Skill Engine's strict lazy loading applied first:
+ * Proxies chat completions to the local LLM, streaming SSE byte-for-byte.
+ * The Hybrid Decision Engine runs BEFORE the main LLM on every turn:
  *
- *  - "/<skill-name> ..."  -> strip the prefix, inject that skill's SKILL.md
- *    (+ linked .md files) as <active_skill> for this turn only.
- *  - autoUse skills        -> keyword pre-router injects the body directly on
- *    a strong match; otherwise a <skill_router> block (name + whenToUse only,
- *    never the body) plus a load_skill tool is offered. A tool call triggers
- *    a buffered round 1, then the skill body is injected for round 2. If the
- *    local model skips the tool call, round 1's SSE is replayed untouched.
- *  - everything else       -> forwarded byte-for-byte, zero skill tokens.
+ *  1. Explicit "/<skill-name>" (user tier) strips the prefix and injects that
+ *     skill's body — the only keyword-free user-tier trigger left.
+ *  2. getDecision() classifies the turn into one RendererMode (Needle 3 prior
+ *     -> LFM2.5 gate), strips conversational noise and names the ONE core
+ *     skill + output contract to inject.
+ *  3. The last user message is replaced by the stripped_prompt; exactly one
+ *     skill block rides ahead of it.
+ *  4. active_mode travels back via the x-decision-mode header; the UI renders
+ *     and validates ONLY that mode's renderer — every other validator is
+ *     disabled for this stream, no matter what the text contains.
  *
- * The fired skill name travels back via the X-Used-Skill response header so
- * the chat UI can show the "Used skill" pill.
+ * No keyword routers, no load_skill tool loop, no core-skill name in headers.
  */
 export async function POST(req: NextRequest) {
   const raw = await req.text();
@@ -129,63 +179,67 @@ export async function POST(req: NextRequest) {
   try {
     payload = JSON.parse(raw);
   } catch {
-    // Not JSON: forward as-is (no routing possible).
+    // Not JSON: forward as-is (no decision possible).
   }
 
   let usedSkill: string | null = null;
-  let toolLoopRequired = false;
-  if (payload) {
+  let decisionMode: RendererMode = "standard_chat";
+
+  if (payload && Array.isArray(payload.messages) && payload.messages.length > 0) {
+    // 1) user-tier slash skill (explicit intent, zero tokens otherwise)
     try {
-      const routing = await applySkillRouting(payload);
-      usedSkill = routing.usedSkill;
-      toolLoopRequired = routing.toolLoopRequired;
+      usedSkill = await applySlashSkillRouting(payload);
     } catch (err: unknown) {
-      console.error("[api/chat] skill routing failed:", err instanceof Error ? err.message : err);
+      console.error("[api/chat] slash skill routing failed:", err instanceof Error ? err.message : err);
     }
-    // Core hidden tier: fires only through this router, never listed in the UI.
-    // Its name is deliberately NOT merged into X-Used-Skill — the ⚡ "Used
-    // skill" badge stays reserved for the user tier (./skills/).
-    try {
-      await applyCoreSkillRouting(payload);
-    } catch (err: unknown) {
-      console.error("[api/chat] core skill routing failed:", err instanceof Error ? err.message : err);
-    }
-  }
 
-  if (!toolLoopRequired) {
-    return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill);
-  }
+    const lastUserIdx = lastUserIndex(payload.messages);
+    if (lastUserIdx !== -1) {
+      const fullText = extractUserText(payload.messages[lastUserIdx]?.content);
 
-  // ---- load_skill tool loop (round 1 is buffered, not streamed) ----------
-  try {
-    const round1 = await fetch(LLM_URL, {
-      method: "POST",
-      headers: upstreamHeaders(),
-      body: JSON.stringify(payload),
-    });
-    if (!round1.ok) return upstreamErrorResponse(round1.status, await round1.text().catch(() => ""));
-
-    const sseText = round1.body ? await new Response(round1.body).text() : "";
-    const requestedSkill = extractLoadSkillCall(sseText);
-    if (requestedSkill) {
-      const activated = await activateSkillFromToolCall(payload, requestedSkill, projectRoot());
-      if (activated) {
-        usedSkill = activated;
-        const round2 = await fetch(LLM_URL, {
-          method: "POST",
-          headers: upstreamHeaders(),
-          body: JSON.stringify(payload),
-        });
-        if (round2.ok && round2.body) return streamUpstream(round2, usedSkill);
+      // 2) decision: repair passthrough (mode pinned by the client) or engine
+      const passthrough = isRendererMode(payload.decision_mode) ? payload.decision_mode : null;
+      delete payload.decision_mode;
+      let env: DecisionEnvelope;
+      if (passthrough) {
+        env = passthroughEnvelope(passthrough, fullText);
+      } else {
+        const history = historyBefore(payload.messages, lastUserIdx);
+        env = await getDecision(fullText.trim() ? fullText : "", history);
       }
-    }
+      decisionMode = env.active_mode;
 
-    // Model skipped the tool call (or round 2 failed): replay round 1 verbatim.
-    return new Response(scrubThinkTags(sseText), { status: 200, headers: streamHeaders(null, usedSkill) });
-  } catch {
-    // Round 1 never reached the model: retry once without the tool contract.
-    delete payload.tools;
-    delete payload.tool_choice;
-    return forwardStream(JSON.stringify(payload), null);
+      // 3) noise-stripped task reaches the main LLM. BEFORE the block insert —
+      // injectSystemBefore shifts lastUserIdx, so replacing after it would
+      // overwrite the skill block instead of the user turn.
+      if (!passthrough && env.stripped_prompt.trim() && env.stripped_prompt !== fullText) {
+        // task_constraints must never be dropped: append any constraint the
+        // model listed that isn't already present verbatim in the stripped text.
+        const constraints = (env.task_constraints ?? []).filter(
+          (c) => c.trim() && !env.stripped_prompt.toLowerCase().includes(c.trim().toLowerCase()),
+        );
+        const forwarded = constraints.length
+          ? `${env.stripped_prompt}\n\nRequired Specs: ${constraints.join("; ")}`
+          : env.stripped_prompt;
+        replaceLastUserText(payload.messages, lastUserIdx, forwarded);
+      }
+
+      // 4) exactly ONE skill block for this turn (slash user skill wins)
+      if (!usedSkill) {
+        try {
+          const block = await buildDecisionSkillBlock(env);
+          if (block) injectSystemBefore(payload.messages, lastUserIdx, block);
+        } catch (err: unknown) {
+          console.error("[api/chat] decision skill load failed:", err instanceof Error ? err.message : err);
+        }
+      }
+
+      console.log(
+        `[api/chat] decision: mode=${env.active_mode} conf=${env.confidence} by=${env.decided_by} ` +
+          `skill=${usedSkill ?? env.skill_to_load ?? "none"} slash=${usedSkill ?? "-"}`,
+      );
+    }
   }
+
+  return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode);
 }

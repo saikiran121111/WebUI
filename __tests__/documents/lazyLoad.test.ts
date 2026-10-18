@@ -1,69 +1,78 @@
 /**
- * PHASE 6 (lazy-load exclusivity): the browser E2E mocks /api/chat so the
- * Core Skill Intent Router never runs there — exclusivity is proven HERE,
- * against the REAL .cskills/ + .cskills-scenarios/ trees in this repo.
- * A PDF request must inject ONLY the pdf skill bundle: zero tokens from
- * xlsx/pptx/docx/powerbi/resume-builder, and vice-versa.
+ * Decision Engine skill-loader exclusivity: against the REAL ./.cskills/ tree
+ * in this repo, each mode loads its ONE core skill + ONE output contract and
+ * zero tokens from any other modality's skill. standard_chat loads nothing.
  */
 import { describe, it, expect } from "vitest";
 import path from "node:path";
-import { applyCoreSkillRouting } from "@/lib/skills/coreRouter";
+import { buildDecisionSkillBlock, loadCoreSkillBundle } from "@/lib/decision/skill-loader";
+import {
+  MODE_FENCE,
+  MODE_SKILL,
+  RENDERER_MODES,
+  type DecisionEnvelope,
+  type RendererMode,
+} from "@/lib/decision/types";
 
 const ROOT = path.resolve(__dirname, "../..");
 
-async function route(prompt: string): Promise<{ names: string[]; category: string | null }> {
-  const payload = { model: "test", messages: [{ role: "user", content: prompt }] };
-  const res = await applyCoreSkillRouting(payload, ROOT);
-  const injected = payload.messages
-    .filter((m: { role: string }) => m.role === "system")
-    .map((m: { content: string }) => m.content)
-    .find((c: string) => c.includes("<core_skill_routing"));
-  const names = [...(injected ?? "").matchAll(/<core_skill name="([^"]+)"/g)].map((m) => m[1]);
-  return { names, category: res.category };
+function envelope(mode: RendererMode): DecisionEnvelope {
+  return {
+    active_mode: mode,
+    confidence: 0.97,
+    decided_by: "test",
+    stripped_prompt: "task",
+    skill_to_load: MODE_SKILL[mode],
+    allowed_code_fence: MODE_FENCE[mode],
+    disable_validators: RENDERER_MODES.filter((m) => m !== mode),
+    enable_validator: mode,
+    task_constraints: [],
+    extracted_entities: [],
+    needle_latency_ms: 1,
+    lfm_latency_ms: 1,
+  };
 }
 
-const MODALITY_SKILLS = ["pdf", "resume-builder", "docx", "xlsx", "pptx", "powerbi", "html-viewer"];
+const MODALITY_SKILLS = ["pdf", "docx", "xlsx", "pptx", "html-viewer", "threejs-skills", "archify"];
 
-describe("core skill lazy loading — zero cross-modality contamination", () => {
-  it("PDF prompt loads ONLY the pdf skill", async () => {
-    const { names } = await route("Generate a PDF report of our Q3 performance, printable and export to pdf");
-    expect(names).toContain("pdf");
-    expect(names.filter((n) => MODALITY_SKILLS.includes(n))).toEqual(["pdf"]);
+const MODE_SKILL_TESTS: [RendererMode, string][] = [
+  ["excel", "xlsx"],
+  ["docs", "docx"],
+  ["pdf", "pdf"],
+  ["ppt", "pptx"],
+  ["3d_asset", "threejs-skills"],
+  ["cad_blueprint", "archify"],
+  ["html_render", "html-viewer"],
+];
+
+describe("decision skill loader — one skill per mode, zero cross-modality contamination", () => {
+  for (const [mode, skill] of MODE_SKILL_TESTS) {
+    it(`${mode} loads ONLY the ${skill} skill + its contract`, async () => {
+      const block = await buildDecisionSkillBlock(envelope(mode), ROOT);
+      expect(block).not.toBeNull();
+      expect(block).toContain(`<core_skill name="${skill}"`);
+      expect(block).toContain(`<decision_skill mode="${mode}"`);
+      const others = MODALITY_SKILLS.filter((s) => s !== skill);
+      for (const other of others) {
+        expect(block).not.toContain(`<core_skill name="${other}"`);
+      }
+    });
+  }
+
+  it("chart injects only the chart contract (no core skill)", async () => {
+    const block = await buildDecisionSkillBlock(envelope("chart"), ROOT);
+    expect(block).not.toBeNull();
+    expect(block).toContain("<output_contract_chart>");
+    expect(block).not.toContain("<core_skill");
   });
 
-  it("Power BI prompt loads powerbi + its companions, never other modalities", async () => {
-    const { names } = await route("Build a power bi dashboard from this CSV dataset with business intelligence measures");
-    expect(names).toContain("powerbi");
-    expect(names).toContain("d3-js-visualization");
-    expect(names.filter((n) => ["pdf", "resume-builder", "docx", "xlsx", "pptx", "html-viewer"].includes(n))).toEqual([]);
+  it("standard_chat injects nothing at all", async () => {
+    const block = await buildDecisionSkillBlock(envelope("standard_chat"), ROOT);
+    expect(block).toBeNull();
   });
 
-  it("resume prompt loads resume-builder + pdf only", async () => {
-    const { names } = await route("Build me a resume for a senior frontend job application");
-    expect(names).toContain("resume-builder");
-    expect(names.filter((n) => ["docx", "xlsx", "pptx", "powerbi", "html-viewer"].includes(n))).toEqual([]);
-  });
-
-  it("presentation prompt loads ONLY pptx", async () => {
-    const { names } = await route("Make a pitch deck slide deck presentation for investors");
-    expect(names).toContain("pptx");
-    expect(names.filter((n) => MODALITY_SKILLS.includes(n))).toEqual(["pptx"]);
-  });
-
-  it("excel prompt loads ONLY xlsx", async () => {
-    const { names } = await route("Create an excel spreadsheet workbook with a financial model");
-    expect(names).toContain("xlsx");
-    expect(names.filter((n) => MODALITY_SKILLS.includes(n))).toEqual(["xlsx"]);
-  });
-
-  it("interactive HTML prompt loads html-viewer + design companions, no file modalities", async () => {
-    const { names } = await route("Make an interactive bill splitter calculator as an animated html artifact");
-    expect(names).toContain("html-viewer");
-    expect(names.filter((n) => ["pdf", "resume-builder", "docx", "xlsx", "pptx", "powerbi"].includes(n))).toEqual([]);
-  });
-
-  it("routing category carries the exclusive modality", async () => {
-    const { category } = await route("Export this as a word document docx file");
-    expect(category).toBe("documents");
+  it("bundle reader refuses path-unsafe names and missing skills", async () => {
+    expect(await loadCoreSkillBundle(ROOT, "../evil")).toBeNull();
+    expect(await loadCoreSkillBundle(ROOT, "no-such-skill-xyz")).toBeNull();
   });
 });

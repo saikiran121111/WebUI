@@ -28,7 +28,10 @@ const VALID_BODY = JSON.stringify({
 // The user's real-world failure mode: a dropped colon inside the fence.
 const BROKEN_BODY = VALID_BODY.replace('"r":22', '"r" 22');
 
-async function mockReplies(page: Page, replies: string[]) {
+// x-decision-mode: cad_blueprint is what lets the ```anatomy fence mount and
+// be validated at all — without the header the fence stays plain code and the
+// repair loop never triggers (zero-collision gating).
+async function mockReplies(page: Page, replies: string[], decisionMode = "cad_blueprint") {
   const requests: any[] = [];
   let calls = 0;
   await page.route("**/api/chat", async (route) => {
@@ -40,7 +43,11 @@ async function mockReplies(page: Page, replies: string[]) {
       frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: content.slice(i, i + 14) } }] })}\n\n`);
     }
     frames.push("data: [DONE]\n\n");
-    await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: frames.join("") });
+    await route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "x-decision-mode": decisionMode },
+      body: frames.join(""),
+    });
   });
   return { requests, calls: () => calls };
 }
@@ -71,6 +78,9 @@ test("a broken anatomy fence is silently repaired and the figure renders", async
   // The repair request carried the exact validation error back to the model.
   await expect.poll(() => mock.calls(), { timeout: 20_000 }).toBe(2);
   const repairReq = mock.requests[1];
+  // The repair turn pins the mode instead of re-running the Decision Engine
+  // on an error message (passthrough contract).
+  expect(repairReq.decision_mode).toBe("cad_blueprint");
   const repairTurn = repairReq.messages[repairReq.messages.length - 1];
   expect(repairTurn.role).toBe("user");
   expect(repairTurn.content).toContain("failed validation");

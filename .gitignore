@@ -10,3 +10,10 @@ build/
 *.gguf
 .data/
 tests/fixtures/
+
+# Decision Engine: heavy artifacts stay out of git; worker code + setup
+# scripts under .decision-engine/ ARE tracked (100% project-local runtime).
+.decision-engine/.venv/
+.decision-engine/.cache/
+.decision-engine/bin/
+.decision-engine/models/

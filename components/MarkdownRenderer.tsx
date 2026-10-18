@@ -32,6 +32,7 @@ import { fenceKind } from "../lib/render/registry";
 import { looksLikeTree } from "../lib/render/treeParse";
 import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
+import type { RendererMode } from "../lib/decision/types";
 
 interface MathModule {
   mathPlugins(): {
@@ -47,6 +48,8 @@ interface RenderOptions {
   allowInteractive: boolean;
   /** A fence failed at runtime (```threejs code threw in the viewer) — route to auto-repair. */
   onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
+  /** Decision Engine mode: the ONLY renderer kind allowed to mount. */
+  decisionMode?: RendererMode | null;
 }
 
 const RenderContext = createContext<RenderOptions>({ streaming: false, allowInteractive: true });
@@ -57,6 +60,29 @@ export interface MarkdownRendererProps {
   onSend?: (text: string) => void;
   allowInteractive?: boolean;
   onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
+  decisionMode?: RendererMode | null;
+}
+
+/**
+ * Interactive renderer kinds per Decision Engine mode (zero-collision rule):
+ * a viewer mounts ONLY when its kind matches the turn's active_mode — even if
+ * the stream contains other fence types. No mode = no interactive renderer.
+ */
+const MODE_RENDER_KINDS: Record<RendererMode, string[]> = {
+  excel: ["xlsx"],
+  docs: ["docx"],
+  pdf: ["html"],
+  ppt: ["pptx"],
+  "3d_asset": ["scene3d", "asset3d", "threejs"],
+  cad_blueprint: ["cad", "anatomy"],
+  chart: ["chart"],
+  html_render: ["html"],
+  standard_chat: [],
+};
+
+function kindAllowed(kind: string, decisionMode: RendererMode | null | undefined): boolean {
+  if (!decisionMode) return false;
+  return (MODE_RENDER_KINDS[decisionMode] ?? []).includes(kind);
 }
 
 /**
@@ -72,6 +98,7 @@ export default memo(function MarkdownRenderer({
   onSend,
   allowInteractive = true,
   onFenceRuntimeError,
+  decisionMode,
 }: MarkdownRendererProps) {
   const [mathMod, setMathMod] = useState<MathModule | null>(null);
 
@@ -94,8 +121,8 @@ export default memo(function MarkdownRenderer({
   }, [mathMod]);
 
   const options = useMemo<RenderOptions>(
-    () => ({ streaming, onSend, allowInteractive, onFenceRuntimeError }),
-    [streaming, onSend, allowInteractive, onFenceRuntimeError],
+    () => ({ streaming, onSend, allowInteractive, onFenceRuntimeError, decisionMode }),
+    [streaming, onSend, allowInteractive, onFenceRuntimeError, decisionMode],
   );
 
   const source = useMemo(
@@ -204,7 +231,7 @@ const MD_COMPONENTS = {
  * never mislabeled, never rendered as inline code.
  */
 function FencedBlock({ children }: { children?: ReactNode }) {
-  const { streaming, onSend, allowInteractive, onFenceRuntimeError } = useContext(RenderContext);
+  const { streaming, onSend, allowInteractive, onFenceRuntimeError, decisionMode } = useContext(RenderContext);
 
   // react-markdown renders the inner <code> through our own `code` override,
   // so the child's type is that component — not the string "code".
@@ -224,25 +251,33 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   const source = flattenText(childProps.children).replace(/\n$/, "");
 
   const kind = fenceKind(language);
-  if (kind === "mermaid" && allowInteractive) return <MermaidBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "chart" && allowInteractive) return <ChartBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "scene3d" && allowInteractive) return <Scene3DBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "asset3d" && allowInteractive) return <Asset3DBlock source={source} streaming={streaming} />;
-  if (kind === "anatomy" && allowInteractive) return <AnatomyBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "cad" && allowInteractive) return <CadBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "threejs" && allowInteractive) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={onFenceRuntimeError ? error => onFenceRuntimeError({ lang: "threejs", body: source, error }) : undefined} />;
-  if (kind === "widget" && allowInteractive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
+  // The Decision Engine's active_mode is the ONLY gate: a viewer mounts when
+  // (and only when) its kind matches this turn's mode. Off-mode fences stay
+  // plain code no matter what they contain — no cross-mode validation ever.
+  const interactive = allowInteractive && kindAllowed(kind, decisionMode);
+  const threeOk = allowInteractive && kindAllowed("threejs", decisionMode);
+  const runtimeError = onFenceRuntimeError
+    ? (error: string) => onFenceRuntimeError({ lang: "threejs", body: source, error })
+    : undefined;
+  if (kind === "mermaid" && interactive) return <MermaidBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "chart" && interactive) return <ChartBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "scene3d" && interactive) return <Scene3DBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "asset3d" && interactive) return <Asset3DBlock source={source} streaming={streaming} />;
+  if (kind === "anatomy" && interactive) return <AnatomyBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "cad" && interactive) return <CadBlock source={source} streaming={streaming} onSend={onSend} />;
+  if (kind === "threejs" && interactive) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={runtimeError} />;
+  if (kind === "widget" && interactive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
   // Document modality fences (PHASE 2–5): preview-before-download viewers.
-  if (kind === "html" && allowInteractive) return <HtmlArtifactBlock source={source} streaming={streaming} />;
-  if (kind === "resume" && allowInteractive) return <ResumeBlock source={source} streaming={streaming} />;
-  if (kind === "docx" && allowInteractive) return <DocxBlock source={source} streaming={streaming} />;
-  if (kind === "xlsx" && allowInteractive) return <XlsxBlock source={source} streaming={streaming} />;
-  if (kind === "pptx" && allowInteractive) return <PptxBlock source={source} streaming={streaming} />;
-  if (kind === "powerbi" && allowInteractive) return <PowerBiBlock source={source} streaming={streaming} />;
+  if (kind === "html" && interactive) return <HtmlArtifactBlock source={source} streaming={streaming} />;
+  if (kind === "resume" && interactive) return <ResumeBlock source={source} streaming={streaming} />;
+  if (kind === "docx" && interactive) return <DocxBlock source={source} streaming={streaming} />;
+  if (kind === "xlsx" && interactive) return <XlsxBlock source={source} streaming={streaming} />;
+  if (kind === "pptx" && interactive) return <PptxBlock source={source} streaming={streaming} />;
+  if (kind === "powerbi" && interactive) return <PowerBiBlock source={source} streaming={streaming} />;
   // Box-drawing trees arrive in plain/text fences — detect by content, not label.
   if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;
   // Executable Three.js arriving in a plain js fence still gets the studio viewer.
-  if (kind === "code" && allowInteractive && looksLikeThreeCode(source)) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={onFenceRuntimeError ? error => onFenceRuntimeError({ lang: "threejs", body: source, error }) : undefined} />;
+  if (kind === "code" && threeOk && looksLikeThreeCode(source)) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={runtimeError} />;
   return <CodeBlock code={source} lang={language} streaming={streaming} />;
 }
 

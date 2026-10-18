@@ -19,6 +19,7 @@ import {
   normalizeResume,
   normalizeXlsx,
 } from "../documents/schemas";
+import type { RendererMode } from "../decision/types";
 
 /** Silent repair rounds per message before the honest error fallback stays. */
 export const MAX_FENCE_REPAIRS = 2;
@@ -74,30 +75,59 @@ export function findBrokenAnatomyFences(content: string): BrokenFence[] {
 }
 
 /**
- * Broken 3D/CAD fences, checked against the SAME normalizers the viewer
- * blocks use — a fence only counts as broken when the viewer itself would
- * refuse to mount it. Anatomy fences keep their strict schema check.
+ * Fence languages the validator of each Decision Engine mode may inspect.
+ * A mode NEVER scans another mode's fences — even if the stream text
+ * contains them (zero-collision rule from the DecisionEnvelope).
  */
-export function findBrokenRenderFences(content: string): BrokenFence[] {
-  return [
-    ...findBrokenAnatomyFences(content),
-    ...scanBrokenFences(content, "scene3d", body => {
+const MODE_SCAN_LANGS: Record<RendererMode, string[]> = {
+  excel: ["xlsx"],
+  docs: ["docx"],
+  pdf: ["html"],
+  ppt: ["pptx"],
+  "3d_asset": ["scene3d"],
+  cad_blueprint: ["cad", "anatomy"],
+  chart: [],
+  html_render: ["html"],
+  standard_chat: [],
+};
+
+/**
+ * Broken fences for the ACTIVE mode only, checked against the SAME normalizers
+ * the viewer blocks use — a fence only counts as broken when the viewer itself
+ * would refuse to mount it. With no active mode (engine down, legacy history)
+ * NO validator runs at all.
+ */
+export function findBrokenRenderFences(
+  content: string,
+  activeMode: RendererMode | null | undefined,
+): BrokenFence[] {
+  if (!activeMode) return [];
+  const langs = new Set(MODE_SCAN_LANGS[activeMode] ?? []);
+  const broken: BrokenFence[] = [];
+  if (langs.has("anatomy")) broken.push(...findBrokenAnatomyFences(content));
+  if (langs.has("scene3d")) {
+    broken.push(...scanBrokenFences(content, "scene3d", body => {
       const r = normalizeScene3d(body);
       return r.ok ? null : r.error;
-    }, true),
-    ...scanBrokenFences(content, "cad", body => {
+    }, true));
+  }
+  if (langs.has("cad")) {
+    broken.push(...scanBrokenFences(content, "cad", body => {
       const r = normalizeCad(body);
       return r.ok ? null : r.error;
-    }, true),
-    // Document modality fences: broken when the JSON won't parse or the SAME
-    // lenient normalizer the preview block uses refuses the spec.
-    ...scanBrokenFences(content, "html", body => (isBrokenHtmlFence(body) ? "the fence contains no HTML markup" : null), true),
-    ...docFenceScans(content, "resume", normalizeResume),
-    ...docFenceScans(content, "docx", normalizeDocx),
-    ...docFenceScans(content, "xlsx", normalizeXlsx),
-    ...docFenceScans(content, "pptx", normalizePptx),
-    ...docFenceScans(content, "powerbi", normalizePowerbi),
-  ];
+    }, true));
+  }
+  // Document modality fences: broken when the JSON won't parse or the SAME
+  // lenient normalizer the preview block uses refuses the spec.
+  if (langs.has("html")) {
+    broken.push(...scanBrokenFences(content, "html", body => (isBrokenHtmlFence(body) ? "the fence contains no HTML markup" : null), true));
+  }
+  if (langs.has("resume")) broken.push(...docFenceScans(content, "resume", normalizeResume));
+  if (langs.has("docx")) broken.push(...docFenceScans(content, "docx", normalizeDocx));
+  if (langs.has("xlsx")) broken.push(...docFenceScans(content, "xlsx", normalizeXlsx));
+  if (langs.has("pptx")) broken.push(...docFenceScans(content, "pptx", normalizePptx));
+  if (langs.has("powerbi")) broken.push(...docFenceScans(content, "powerbi", normalizePowerbi));
+  return broken;
 }
 
 function docFenceScans(content: string, lang: string, normalize: (raw: unknown) => unknown | null): BrokenFence[] {

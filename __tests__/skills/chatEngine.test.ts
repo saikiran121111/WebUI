@@ -1,18 +1,25 @@
 /**
- * Integration test for the lazy skill engine inside POST /api/chat.
- * A mock llama.cpp server captures every upstream payload so we can assert
- * exactly what got injected (or not) and when the tool loop fires.
+ * Integration test for the Decision Engine pipeline inside POST /api/chat.
+ * A mock server plays BOTH roles — llama.cpp upstream (captures every payload
+ * so we can assert exactly what was injected) and the decision worker
+ * (/health + /decision). Keyword routers and the load_skill tool loop are
+ * gone: slash skills, envelope injection, stripped_prompt and the
+ * x-decision-mode header are what this pins down.
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import http from "http";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { RENDERER_MODES, type RendererMode } from "@/lib/decision/types";
 
 let mockServer: http.Server;
 let upstreamPayloads: any[] = [];
+let decisionHits = 0;
 let fixtureRoot: string;
-let mockAnswersToolCall = true;
+let mockDecision: { active_mode: RendererMode; skill: string | null; fence: string | null; stripped: string | null } = {
+  active_mode: "standard_chat", skill: null, fence: null, stripped: null,
+};
 
 function sse(obj: unknown): string {
   return "data: " + JSON.stringify(obj) + "\n\n";
@@ -23,19 +30,36 @@ beforeAll(async () => {
     let raw = "";
     req.on("data", (chunk) => { raw += chunk; });
     req.on("end", () => {
+      if (req.url === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, lfm: true }));
+        return;
+      }
+      if (req.url === "/decision") {
+        decisionHits++;
+        const body = JSON.parse(raw);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          active_mode: mockDecision.active_mode,
+          confidence: 0.97,
+          decided_by: "mock",
+          stripped_prompt: mockDecision.stripped ?? body.message,
+          skill_to_load: mockDecision.skill,
+          allowed_code_fence: mockDecision.fence,
+          disable_validators: RENDERER_MODES.filter((m) => m !== mockDecision.active_mode),
+          enable_validator: mockDecision.active_mode,
+          task_constraints: [],
+          extracted_entities: [],
+          needle_latency_ms: 1,
+          lfm_latency_ms: 1,
+        }));
+        return;
+      }
       const payload = JSON.parse(raw);
       upstreamPayloads.push(payload);
       res.writeHead(200, { "Content-Type": "text/event-stream" });
-      if (payload.tools && mockAnswersToolCall) {
-        res.write(sse({ choices: [{ delta: { tool_calls: [{
-          index: 0, id: "call_1",
-          function: { name: "load_skill", arguments: JSON.stringify({ skill_name: "test-skill" }) },
-        }] } }] }));
-        res.write(sse({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }));
-      } else {
-        res.write(sse({ choices: [{ delta: { content: "final answer" } }] }));
-        res.write(sse({ choices: [{ delta: {}, finish_reason: "stop" }] }));
-      }
+      res.write(sse({ choices: [{ delta: { content: "final answer" } }] }));
+      res.write(sse({ choices: [{ delta: {}, finish_reason: "stop" }] }));
       res.write("data: [DONE]\n\n");
       res.end();
     });
@@ -48,9 +72,10 @@ afterAll(async () => {
   if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
-beforeEach(async () => {
+beforeEach(() => {
   upstreamPayloads = [];
-  mockAnswersToolCall = true;
+  decisionHits = 0;
+  mockDecision = { active_mode: "standard_chat", skill: null, fence: null, stripped: null };
   if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
   fixtureRoot = mkdtempSync(join(tmpdir(), "webui-chat-engine-"));
 
@@ -67,7 +92,6 @@ beforeEach(async () => {
     triggerKeywords: ["summarize"],
     blockedReason: null,
   }));
-
   mkdirSync(join(fixtureRoot, "skills", "disabled-skill"), { recursive: true });
   writeFileSync(join(fixtureRoot, "skills", "disabled-skill", "SKILL.md"), "# Disabled");
   writeFileSync(join(fixtureRoot, "skill-scenarios", "disabled-skill.json"), JSON.stringify({
@@ -80,9 +104,16 @@ beforeEach(async () => {
     blockedReason: null,
   }));
 
+  // Core tier fixture: the engine's excel mode must load ONLY this bundle.
+  mkdirSync(join(fixtureRoot, ".cskills", "xlsx"), { recursive: true });
+  writeFileSync(join(fixtureRoot, ".cskills", "xlsx", "SKILL.md"),
+    "# XLSX Core Skill\nEmit one xlsx fence with live formulas.");
+
+  const base = "http://127.0.0.1:" + (mockServer.address() as any).port;
   process.env.WEBUI_SKILLS_ROOT = fixtureRoot;
-  process.env.LLM_API_URL =
-    "http://127.0.0.1:" + (mockServer.address() as any).port + "/v1/chat/completions";
+  process.env.LLM_API_URL = base + "/v1/chat/completions";
+  process.env.DECISION_ENGINE_URL = base;
+  process.env.DECISION_ENGINE_AUTOSPAWN = "0";
 });
 
 async function importChatRoute() {
@@ -91,24 +122,82 @@ async function importChatRoute() {
   return await import("../../app/api/chat/route");
 }
 
-async function postChat(text: string) {
+async function postChat(text: string, extra: Record<string, unknown> = {}) {
   const { POST } = await importChatRoute();
   const request = new Request("http://localhost/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "test", stream: true, messages: [{ role: "user", content: text }] }),
+    body: JSON.stringify({ model: "test", stream: true, messages: [{ role: "user", content: text }], ...extra }),
   });
   const res = await (POST as any)(request);
   return { res, body: await res.text() };
 }
 
-function injectedSkillBodies(payload: any): string[] {
+function systemBlocks(payload: any, marker: string): string[] {
   return payload.messages
+    .filter((m: any) => m.role === "system")
     .map((m: any) => (typeof m.content === "string" ? m.content : ""))
-    .filter((c: string) => c.includes("<active_skill"));
+    .filter((c: string) => c.includes(marker));
 }
 
-describe("POST /api/chat — Mode 1: explicit /skill-name", () => {
+describe("POST /api/chat — Decision Engine pipeline", () => {
+  it("runs the engine first, injects ONE skill block + stripped_prompt, streams x-decision-mode", async () => {
+    mockDecision = { active_mode: "excel", skill: "xlsx", fence: "xlsx", stripped: "500-row transaction tracker with SUMIFS alerts" };
+    const { res, body } = await postChat("hey please can you build me a 500-row transaction tracker with SUMIFS alerts thanks");
+    expect(decisionHits).toBe(1);
+    expect(res.headers.get("x-decision-mode")).toBe("excel");
+    expect(res.headers.get("X-Used-Skill")).toBeNull(); // core tier never surfaces
+    expect(body).toContain("final answer");
+
+    const payload = upstreamPayloads[0];
+    const last = payload.messages[payload.messages.length - 1];
+    expect(last.role).toBe("user");
+    expect(last.content).toBe("500-row transaction tracker with SUMIFS alerts");
+
+    const decision = systemBlocks(payload, "<decision_skill");
+    expect(decision).toHaveLength(1);
+    expect(decision[0]).toContain('<core_skill name="xlsx"');
+    expect(decision[0]).toContain("Emit one xlsx fence with live formulas.");
+    expect(decision[0]).toContain("<output_contract_xlsx>");
+    // No standing visual-router prompt, no skill_router block, no tools.
+    expect(payload.messages.some((m: any) => typeof m.content === "string" && m.content.includes("skill_router"))).toBe(false);
+    expect(payload.tools).toBeUndefined();
+  });
+
+  it("standard_chat injects nothing and keeps the turn verbatim", async () => {
+    const { res } = await postChat("why is my useEffect firing twice");
+    expect(res.headers.get("x-decision-mode")).toBe("standard_chat");
+    const payload = upstreamPayloads[0];
+    expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
+    expect(systemBlocks(payload, "<active_skill")).toHaveLength(0);
+    expect(payload.messages[payload.messages.length - 1].content).toBe("why is my useEffect firing twice");
+  });
+
+  it("engine down -> standard_chat fallback, every renderer stays off", async () => {
+    process.env.DECISION_ENGINE_URL = "http://127.0.0.1:9/"; // nothing listens
+    const { res, body } = await postChat("hello there");
+    process.env.DECISION_ENGINE_URL = "http://127.0.0.1:" + (mockServer.address() as any).port;
+    expect(res.headers.get("x-decision-mode")).toBe("standard_chat");
+    expect(body).toContain("final answer");
+    const payload = upstreamPayloads[0];
+    expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
+    expect(payload.messages[payload.messages.length - 1].content).toBe("hello there");
+  });
+
+  it("decision_mode passthrough (fence repair) skips the engine entirely", async () => {
+    const { res } = await postChat("Your previous ```xlsx fence failed validation: #REF!", { decision_mode: "excel" });
+    expect(decisionHits).toBe(0);
+    expect(res.headers.get("x-decision-mode")).toBe("excel");
+    const payload = upstreamPayloads[0];
+    expect(payload.decision_mode).toBeUndefined(); // never leaks upstream
+    // Repair text reaches the model UNstripped, mode skill still loaded.
+    expect(payload.messages[payload.messages.length - 1].content)
+      .toBe("Your previous ```xlsx fence failed validation: #REF!");
+    expect(systemBlocks(payload, "<decision_skill")).toHaveLength(1);
+  });
+});
+
+describe("POST /api/chat — user-tier slash skills (only surviving user trigger)", () => {
   it("strips the slash prefix and injects the SKILL.md body for this turn", async () => {
     const { res, body } = await postChat("/test-skill explain recursion");
     expect(res.headers.get("X-Used-Skill")).toBe("test-skill");
@@ -118,68 +207,26 @@ describe("POST /api/chat — Mode 1: explicit /skill-name", () => {
     const last = payload.messages[payload.messages.length - 1];
     expect(last.role).toBe("user");
     expect(last.content).toBe("explain recursion");
-    expect(injectedSkillBodies(payload)).toHaveLength(1);
-    expect(injectedSkillBodies(payload)[0]).toContain("<active_skill name=\"test-skill\"");
-    expect(injectedSkillBodies(payload)[0]).toContain("Always answer in exactly one sentence.");
+    expect(systemBlocks(payload, "<active_skill")).toHaveLength(1);
+    expect(systemBlocks(payload, "<active_skill")[0]).toContain("<active_skill name=\"test-skill\"");
+    expect(systemBlocks(payload, "<active_skill")[0]).toContain("Always answer in exactly one sentence.");
+    // Slash skill wins: the decision engine never stacks a second skill block.
+    expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
   });
 
   it("does not intercept a disabled skill", async () => {
-    const { res, body } = await postChat("/disabled-skill hello");
+    const { res } = await postChat("/disabled-skill hello");
     expect(res.headers.get("X-Used-Skill")).toBeNull();
-    expect(body).toContain("final answer");
     const payload = upstreamPayloads[0];
     expect(payload.messages[payload.messages.length - 1].content).toBe("/disabled-skill hello");
-    expect(injectedSkillBodies(payload)).toHaveLength(0);
-  });
-});
-
-describe("POST /api/chat — Mode 2: auto-use scenario routing", () => {
-  it("pre-router keyword hit injects the body directly (no tool round-trip)", async () => {
-    const { res, body } = await postChat("please summarize this report for me");
-    expect(res.headers.get("X-Used-Skill")).toBe("test-skill");
-    expect(body).toContain("final answer");
-    expect(upstreamPayloads).toHaveLength(1);
-    expect(injectedSkillBodies(upstreamPayloads[0])).toHaveLength(1);
-    expect(upstreamPayloads[0].tools).toBeUndefined();
+    expect(systemBlocks(payload, "<active_skill")).toHaveLength(0);
   });
 
-  it("missed pre-router offers the load_skill tool and follows the tool call", async () => {
-    const { res, body } = await postChat("what is the tallest mountain on earth");
-    expect(res.headers.get("X-Used-Skill")).toBe("test-skill");
-    expect(body).toContain("final answer");
-    expect(upstreamPayloads).toHaveLength(2);
-
-    const round1 = upstreamPayloads[0];
-    expect(round1.tools?.[0]?.function?.name).toBe("load_skill");
-    const routerMsg = round1.messages.map((m: any) => m.content ?? "").join("\n");
-    expect(routerMsg).toContain("<skill_router>");
-    expect(routerMsg).toContain("Use when the user asks to summarize text.");
-    // The router block carries only name + whenToUse — never the SKILL.md body.
-    expect(routerMsg).not.toContain("Always answer in exactly one sentence.");
-
-    const round2 = upstreamPayloads[1];
-    expect(injectedSkillBodies(round2)).toHaveLength(1);
-    expect(round2.tools).toBeUndefined();
-  });
-
-  it("replays the model's plain answer when it skips the tool call", async () => {
-    mockAnswersToolCall = false;
-    const { res, body } = await postChat("what is the tallest mountain on earth");
+  it("no keyword routing: an autoUse scenario no longer fires without the slash", async () => {
+    const { res } = await postChat("please summarize this report for me");
     expect(res.headers.get("X-Used-Skill")).toBeNull();
-    expect(body).toContain("final answer");
-    expect(upstreamPayloads).toHaveLength(1);
-    expect(injectedSkillBodies(upstreamPayloads[0])).toHaveLength(0);
-  });
-
-  it("unmatched turns pay only the tiny router block, never the SKILL.md body", async () => {
-    mockAnswersToolCall = false; // model ignores the load_skill offer
-    const { res, body } = await postChat("write a haiku about the sea");
-    expect(res.headers.get("X-Used-Skill")).toBeNull();
-    expect(body).toContain("final answer");
-    expect(upstreamPayloads).toHaveLength(1);
-    expect(injectedSkillBodies(upstreamPayloads[0])).toHaveLength(0);
-    const round1Text = upstreamPayloads[0].messages.map((m: any) => m.content ?? "").join("\n");
-    expect(round1Text).toContain("<skill_router>");
-    expect(round1Text).not.toContain("Always answer in exactly one sentence.");
+    const payload = upstreamPayloads[0];
+    expect(systemBlocks(payload, "<active_skill")).toHaveLength(0);
+    expect(payload.tools).toBeUndefined();
   });
 });

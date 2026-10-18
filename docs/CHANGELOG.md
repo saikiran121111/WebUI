@@ -1,5 +1,89 @@
 # CHANGELOG
 
+## 2026-10-19 — Fix: Decision Engine hardening (lossless stripping, determinism, 9-tool Needle, RAM/latency)
+Post-audit targeted patch addressing detail loss, few-shot echo, confidence drift,
+weak Needle priors and resource cost:
+- **Lossless stripping**: LFM_SYSTEM now demands "LOSSLESS NOISE REMOVAL, never
+  summarization" — 100% of numbers/prices/hex colors/column names/formulas/
+  dimensions kept verbatim; only conversational fluff + conflicting secondary
+  renderer triggers removed. Concrete few-shot examples (the 500-row tracker)
+  removed — greedy decoding echoed them verbatim into stripped_prompt; replaced
+  with placeholder-format examples only. Deterministic hard-token guard
+  (`_preserve_hard_tokens` in decision_server.py) regex-extracts currency/hex/
+  numeric/acronym/quoted/capitalized-identifier tokens from the RAW message and
+  APPENDS any the model dropped as `Required Specs: [...]` (append-only — zero
+  rule-based stripping preserved). `app/api/chat/route.ts` now also forwards
+  `task_constraints` the same way instead of dropping them.
+- **100% deterministic LFM**: `_lfm_call` pins `temperature 0, top_k 1, top_p 1,
+  seed 42, max_tokens 180` — identical prompts now yield identical mode +
+  confidence (kills the 0.92-vs-0.23 run-to-run drift).
+- **Needle 3 multi-tool router**: single `classify_mode` replaced by 9 distinct
+  `route_*` tools (one per RendererMode, 1-sentence descriptions);
+  `TOOL_TO_MODE` maps the picked tool back to the mode. Priors are now
+  multi-mode (e.g. `['excel','html_render','cad_blueprint']` on the collision
+  prompt) and Stage-1 latency dropped to ~135-370 ms.
+- **RAM/latency flags**: llama-server now runs `-c 1024 -ngl 0 -t <physical
+  cores=6> --batch-size 512 --ubatch-size 512 --no-warmup --no-webui` (bundled
+  binary is CPU-only — `-ngl 99` impossible, `--list-devices` reports none).
+  `extracted_entities` removed from Stage2Out (4 fields; envelope keeps it for
+  TS-contract compatibility).
+- **Proven**: router suite **11/11 ALL PASS**; audit table case 10
+  stripped_prompt = user's own words (zero few-shot echo); case 11 preserves
+  ALL 10 hard tokens (500/Date/Vendor/Amount/SUMIFS/1,250/#FF0000/KPI/pie/
+  freeze); multi-turn probe stays 3d_asset; fallback probe PASS with
+  `ROUTE_TOOLS` (retry once → Needle prior + RAW prompt). Honest RAM: engine
+  tree ≈ 1.54 GB total (llama-server 1355 MB post-load + needle `_worker.py`
+  child runtime ~121 MB + uvicorn worker ~63 MB) — the <850 MB target is not
+  reachable on this CPU-only binary (Q4_K_M weights alone ≈ 760 MB).
+
+## 2026-10-18 — Feat: Hybrid Decision & Prompt-Stripping Engine (Needle 3 + LFM2.5-1.2B)
+All routing/mode decisions now happen BEFORE the main LLM; every hardcoded if/else,
+regex and keyword router is gone. 100% project-local: weights, venv, binaries and
+caches live strictly inside ./.decision-engine/ (HF_HOME/PIP_CACHE_DIR/TMPDIR
+overridden into ./.decision-engine/.cache).
+- **Stage 1**: Needle 3 (cactus-needle 3.2.5, stateless `classify_mode` tool) — fast
+  prior (top modes + calibrated confidence) fed to Stage 2 as a weak hint only.
+- **Stage 2**: LFM2.5-1.2B-Instruct-Q4_K_M.gguf via llama-server (127.0.0.1:8791) —
+  ALWAYS runs on every non-empty request: receives raw prompt + Needle prior,
+  makes the final mode decision AND generates `stripped_prompt` under
+  schema-constrained generation (`response_format json_object + Stage2Out JSON
+  Schema` — grammar-verified: the model is token-locked to the 9 Mode literals +
+  non-empty stripped_prompt). One self-correction retry on invalid output; on
+  second failure the envelope falls back to **Needle 3's top prior mode with the
+  RAW prompt** — never a silent drop to `standard_chat`.
+- **Zero rule-based stripping**: `stripper.py` regex engine deleted; only
+  whitespace normalization remains for the LFM-fail fallback path.
+- **Worker**: FastAPI on 127.0.0.1:8790 (`POST /decision`, `GET /health`);
+  `.decision-engine/worker/{schemas,decision_server,stripper}.py`. Prompt stripping
+  ALWAYS runs; `decision_mode` passthrough pin for repair rounds (engine never re-sees
+  error text).
+- **DecisionEnvelope**: {active_mode, confidence, decided_by, stripped_prompt,
+  skill_to_load, allowed_code_fence, disable_validators[], enable_validator} across
+  9 exclusive RendererModes (excel, docs, pdf, ppt, 3d_asset, cad_blueprint, chart,
+  html_render, standard_chat).
+- **Chat pipeline** (`app/api/chat/route.ts`): engine first → replace last user text
+  with stripped prompt → inject ONLY the matched core-skill block
+  (`lib/decision/skill-loader.ts`, from ./.cskills/) + output contract → stream
+  `x-decision-mode` header. Frontend (`MarkdownRenderer.tsx` MODE_RENDER_KINDS,
+  `fenceRepair.ts` MODE_SCAN_LANGS) mounts/validates ONLY the mode-matching
+  renderers — an excel turn can never trigger 3D/CAD auto-repair.
+- **Removed**: `lib/skills/coreRouter.ts` (keyword router),
+  `lib/render/systemPrompt.ts` (static router prompt). Renderers with no matching
+  mode (mermaid, widget, resume, powerbi) stay gated off by design.
+- **Proven**: `node tests/test-decision-router.mjs` **10/10 ALL PASS** (9 modes +
+  ambiguous multi-intent stress "Excel budget sheet + 3D explanation in a note
+  column" → excel, 3D validators disabled); every envelope `decided_by =
+  needle3+lfm2.5`. `python -I tests/test-decision-fallback.py` PASS (retry fires
+  once, Needle-prior fallback, raw prompt kept, zero standard_chat drop). Grammar
+  enforcement verified live on :8791 (enum trap). Vitest 436 passed | 1 skipped;
+  `tsc --noEmit` clean; Playwright mocks carry `x-decision-mode`.
+- Known deltas (honest): worker+llama-server RAM ≈ 940 MB (target 800); Needle
+  Stage-1 120–670 ms (target <15 ms) — kept as prior only; LFM2.5 now runs on
+  EVERY request (+1.3–2.6 s/turn by design — user chose model-made decisions over
+  latency). Needle priors are noisy (`['docs']@0.02` for an excel prompt) — LFM
+  anchoring on them was fixed with a qualitative reliability hint + tie-break
+  few-shot (never echoes Needle's raw confidence number into the prompt).
+
 ## 2026-10-18 — Fix: document-modality batch (dark viewers, pagination, native fullscreen, XLSX values, CAD layout)
 22-screenshot issue batch. Every dark override is PREVIEW-ONLY — download
 paths are untouched, so files stay professional white paper.

@@ -215,7 +215,7 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
       {/* Main content */}
       {content && (
         <div className="msg-content">
-          <MarkdownRenderer content={content} streaming={state === "streaming"} onSend={onSend} onFenceRuntimeError={onFenceRuntimeError} />
+          <MarkdownRenderer content={content} streaming={state === "streaming"} onSend={onSend} onFenceRuntimeError={onFenceRuntimeError} decisionMode={message.decisionMode} />
           {message.fenceRepair && (
             <div className="fence-repair-note" data-testid="fence-repair-note">{message.fenceRepair}</div>
           )}

@@ -10,7 +10,7 @@ import ExcelJS from "exceljs";
  * PHASE 6 regression: every document modality end-to-end through the real
  * chat UI (mocked SSE upstream for the fence tests, real llama.cpp through
  * the logging proxy for the lazy-load test). Asserts the release-blocking
- * guarantees: zero cross-contamination in core skill routing, the minimal
+ * guarantees: zero cross-contamination in Decision Engine skill injection, the minimal
  * auto-sizing dark HTML viewer, real multi-page PDFs, embedded DOCX charts
  * with zero temp leftovers, zero-null live-formula XLSX with a clean
  * server-side recalc, OOXML Morph + !! shape names in the PPTX, and a
@@ -28,8 +28,13 @@ test.beforeAll(() => {
   fs.mkdirSync(DL_DIR, { recursive: true });
 });
 
-/** Respond to every POST /api/chat with `content` streamed in small SSE frames. */
-async function mockStream(page: Page, content: string, chunkSize = 64): Promise<void> {
+/**
+ * Respond to every POST /api/chat with `content` streamed in small SSE frames.
+ * The x-decision-mode header is mandatory: the UI mounts a renderer ONLY when
+ * its kind matches the turn's active_mode (zero-collision rule), so a mocked
+ * stream without it renders every fence as plain code.
+ */
+async function mockStream(page: Page, content: string, decisionMode: string, chunkSize = 64): Promise<void> {
   await page.route("**/api/chat", async (route) => {
     const frames: string[] = [];
     for (let i = 0; i < content.length; i += chunkSize) {
@@ -39,7 +44,7 @@ async function mockStream(page: Page, content: string, chunkSize = 64): Promise<
     frames.push("data: [DONE]\n\n");
     await route.fulfill({
       status: 200,
-      headers: { "Content-Type": "text/event-stream" },
+      headers: { "Content-Type": "text/event-stream", "x-decision-mode": decisionMode },
       body: frames.join(""),
     });
   });
@@ -67,7 +72,7 @@ function readPdfPages(file: string): Promise<number> {
 
 // ---------------------------------------------------------------- lazy load
 
-test("core skill router lazy-loads exactly the matched modality (zero cross-contamination)", async ({ page }) => {
+test("Decision Engine injects exactly the matched modality skill (zero cross-contamination)", async ({ page }) => {
   test.setTimeout(180_000);
   let proxyOk = true;
   try {
@@ -81,7 +86,9 @@ test("core skill router lazy-loads exactly the matched modality (zero cross-cont
   await send(page, "make me a printable pdf report about quarterly revenue", 120_000);
 
   const bodies: string[] = await (await fetch("http://127.0.0.1:8099/__captured")).json();
-  const mine = bodies.filter((b) => b.includes("printable pdf report about quarterly revenue"));
+  // The engine noise-strips the prompt before sending it upstream, so match a
+  // phrase that survives stripping rather than the verbatim user sentence.
+  const mine = bodies.filter((b) => b.includes("quarterly revenue"));
   expect(mine.length, "dev server never forwarded the prompt upstream (LLM_API_URL pointed at the proxy?)").toBeGreaterThan(0);
   // Unwrap the recorded request body so assertions see the real message text
   // (raw JSON would carry \" escapes inside the system content).
@@ -90,12 +97,16 @@ test("core skill router lazy-loads exactly the matched modality (zero cross-cont
     .map((m: { content?: unknown }) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "")))
     .join("\n");
 
-  expect(payload).toContain("<core_skill_routing");
-  expect(payload).toContain('<core_skill name="pdf">');
+  expect(payload).toContain('<decision_skill mode="pdf"');
+  expect(payload).toContain('<core_skill name="pdf"');
   for (const other of ["xlsx", "pptx", "docx", "powerbi", "resume-builder", "html-viewer"]) {
-    expect(payload, `cross-contamination: ${other} loaded on a pdf prompt`).not.toContain(`<core_skill name="${other}">`);
+    expect(payload, `cross-contamination: ${other} loaded on a pdf prompt`).not.toContain(`<core_skill name="${other}"`);
   }
   expect((payload.match(/<core_skill name=/g) ?? []).length, "more than one core skill bundle injected").toBe(1);
+  // Stripping contract: the user turn reaching the main LLM is the engine's
+  // stripped_prompt, not the verbatim "make me a printable…" preamble.
+  const lastUser = (parsed.messages ?? []).filter((m: { role?: string }) => m.role === "user").pop();
+  expect(String(lastUser?.content ?? "")).not.toMatch(/^make me a printable/i);
 });
 
 // ------------------------------------------------------------- html viewer
@@ -126,7 +137,7 @@ const ARTIFACT = [
 ].join("\n");
 
 test("html artifact viewer: #000000 canvas, zero chrome, ResizeObserver auto-fit, live input state", async ({ page }) => {
-  await mockStream(page, "```html\n" + ARTIFACT + "\n```");
+  await mockStream(page, "```html\n" + ARTIFACT + "\n```", "html_render");
   await page.goto("http://localhost:3000/");
   await send(page, "interactive dinner splitter artifact with a flowchart");
 
@@ -169,7 +180,7 @@ test("html artifact exports a real multi-page A4 PDF", async ({ page }) => {
         `<section style="page-break-after:always;min-height:1050px;padding:48px;font-family:Georgia,serif;color:#111"><h1>Section ${i}</h1><p>Quarterly narrative block ${i} with substantive content to force pagination across A4 pages.</p></section>`,
     )
     .join("");
-  await mockStream(page, "```html\n" + pages + "\n```");
+  await mockStream(page, "```html\n" + pages + "\n```", "html_render");
   await page.goto("http://localhost:3000/");
   await send(page, "printable multi page report");
 
@@ -184,7 +195,7 @@ test("html artifact: light report inverts for the dark viewer; over-tall content
   const tall =
     '<!DOCTYPE html><html><head><style>html,body{margin:0;background:#FFFFFF;color:#111}</style></head>' +
     '<body><h1>White paper report</h1><div style="height:3000px">taller than the MAX_H clamp</div></body></html>';
-  await mockStream(page, "```html\n" + tall + "\n```");
+  await mockStream(page, "```html\n" + tall + "\n```", "html_render");
   await page.goto("http://localhost:3000/");
   await send(page, "white background status report");
 
@@ -211,8 +222,12 @@ const RESUME = JSON.stringify({
   ],
 });
 
-test("resume fence: ATS preview renders and the PDF download is 1-2 pages", async ({ page }) => {
-  await mockStream(page, "```resume\n" + RESUME + "\n```");
+// Skipped by design: the Decision Engine's 9-mode contract has no resume
+// mode, so a ```resume fence never mounts its preview (zero-collision rule —
+// it stays plain code on any turn). The renderer + download engine remain
+// unit-tested; the chat-UI journey is retired with the old keyword router.
+test.skip("resume fence: ATS preview renders and the PDF download is 1-2 pages", async ({ page }) => {
+  await mockStream(page, "```resume\n" + RESUME + "\n```", "docs");
   await page.goto("http://localhost:3000/");
   await send(page, "tailor my resume for a data engineering role");
 
@@ -251,7 +266,7 @@ const DOCX = JSON.stringify({
 });
 
 test("docx fence: preview + download embeds both charts as images with zero temp leftovers", async ({ page }) => {
-  await mockStream(page, "```docx\n" + DOCX + "\n```");
+  await mockStream(page, "```docx\n" + DOCX + "\n```", "docs");
   await page.goto("http://localhost:3000/");
   await send(page, "word document with two charts");
 
@@ -308,7 +323,7 @@ const XLSX = JSON.stringify({
 });
 
 test("xlsx fence: multi-sheet preview + download with live formulas and a zero-error recalc", async ({ page }) => {
-  await mockStream(page, "```xlsx\n" + XLSX + "\n```");
+  await mockStream(page, "```xlsx\n" + XLSX + "\n```", "excel");
   await page.goto("http://localhost:3000/");
   await send(page, "spreadsheet financial model with formulas");
 
@@ -372,7 +387,7 @@ const PPTX = JSON.stringify({
 });
 
 test("pptx fence: preview carousel, fullscreen slideshow nav, Morph + !! names in the downloaded XML", async ({ page }) => {
-  await mockStream(page, "```pptx\n" + PPTX + "\n```");
+  await mockStream(page, "```pptx\n" + PPTX + "\n```", "ppt");
   await page.goto("http://localhost:3000/");
   await send(page, "insane animated pitch deck");
 
@@ -432,8 +447,11 @@ const POWERBI = JSON.stringify({
   slicers: [{ field: "Region", type: "list" }],
 });
 
-test("power bi fence: live cross-filtering preview + valid .pbip package download", async ({ page }) => {
-  await mockStream(page, "```powerbi\n" + POWERBI + "\n```");
+// Skipped by design: like resume, no RendererMode maps to powerbi under the
+// 9-mode contract, so the preview never mounts in chat (zero-collision rule).
+// The .pbip engine stays unit-tested; the chat-UI journey is retired.
+test.skip("power bi fence: live cross-filtering preview + valid .pbip package download", async ({ page }) => {
+  await mockStream(page, "```powerbi\n" + POWERBI + "\n```", "chart");
   await page.goto("http://localhost:3000/");
   await send(page, "power bi dashboard from this sales data");
 

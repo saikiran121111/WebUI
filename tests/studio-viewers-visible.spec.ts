@@ -91,10 +91,17 @@ function sseFrames(content: string): string {
   return frames;
 }
 
-async function mockChat(page: Page, fenceLang: string, body: string) {
+// decisionMode carries the Decision Engine's x-decision-mode header — the UI
+// mounts a viewer ONLY when the mode allows its fence kind (```threejs needs
+// 3d_asset, ```cad needs cad_blueprint); without it the stage never appears.
+async function mockChat(page: Page, fenceLang: string, body: string, decisionMode: string) {
   const content = `Here is your build.\n\n\`\`\`${fenceLang}\n${body}\n\`\`\`\n\nEvery control in the viewer is wired live into the scene.`;
   await page.route("**/api/chat", (route) =>
-    route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: sseFrames(content) }),
+    route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "x-decision-mode": decisionMode },
+      body: sseFrames(content),
+    }),
   );
 }
 
@@ -188,7 +195,7 @@ async function downloadText(page: Page, formatTestId: string, format: string, ex
 test.describe("ThreeStudioViewer live scene (visible)", () => {
   test("cyberpunk hover drone renders pixels and every control mutates the live scene", async ({ page }) => {
     test.setTimeout(180000);
-    await mockChat(page, "threejs", DRONE_CODE);
+    await mockChat(page, "threejs", DRONE_CODE, "3d_asset");
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 TESTING: Submitting the Cyberpunk Hover Drone prompt to the chat...");
     await sendPrompt(page, DRONE_PROMPT);
@@ -354,7 +361,7 @@ test.describe("ThreeStudioViewer live scene (visible)", () => {
 test.describe("ArchitectureCadViewer live sheet (visible)", () => {
   test("coffee kiosk blueprint: layers, themes, view modes, drafting tools, exports", async ({ page }) => {
     test.setTimeout(180000);
-    await mockChat(page, "cad", JSON.stringify(KIOSK_SPEC, null, 2));
+    await mockChat(page, "cad", JSON.stringify(KIOSK_SPEC, null, 2), "cad_blueprint");
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 TESTING: Submitting the Modern Tech Coffee Kiosk CAD prompt to the chat...");
     await sendPrompt(page, KIOSK_PROMPT);
@@ -496,7 +503,7 @@ const MECHA_CODE = [
 test.describe("Stress: ThreeStudioViewer mecha bust fidelity (visible)", () => {
   test("17 named articulated parts, emissive visors, explode slider, ViewCube", async ({ page }) => {
     test.setTimeout(240000);
-    await mockChat(page, "threejs", MECHA_CODE);
+    await mockChat(page, "threejs", MECHA_CODE, "3d_asset");
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 STRESS: Submitting the Mecha Strike Helmet & Arc Core Bust prompt...");
     await sendPrompt(page, MECHA_PROMPT);
@@ -696,7 +703,7 @@ const LAB_SPEC = {
 test.describe("Stress: ArchitectureCadViewer full lab blueprint + BIM (visible)", () => {
   test("hatched double walls, door swings, mullions, furniture blocks, room-tag pills, grid axes, BIM cutaway", async ({ page }) => {
     test.setTimeout(300000);
-    await mockChat(page, "cad", JSON.stringify(LAB_SPEC, null, 2));
+    await mockChat(page, "cad", JSON.stringify(LAB_SPEC, null, 2), "cad_blueprint");
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 STRESS: Submitting the 18m×12m Innovation Lab blueprint prompt...");
     await sendPrompt(page, LAB_PROMPT);
@@ -809,7 +816,7 @@ test.describe("Stress: ArchitectureCadViewer full lab blueprint + BIM (visible)"
 test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
   test("full ribbon, layer dock, tools and 3D control checklist", async ({ page }) => {
     test.setTimeout(240000);
-    await mockChat(page, "cad", JSON.stringify(KIOSK_SPEC, null, 2));
+    await mockChat(page, "cad", JSON.stringify(KIOSK_SPEC, null, 2), "cad_blueprint");
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 CHECKLIST: Loading the Coffee Kiosk for the CAD control sweep...");
     await sendPrompt(page, KIOSK_PROMPT);
@@ -927,7 +934,7 @@ test.describe("Coverage: ArchitectureCadViewer controls (visible)", () => {
 test.describe("Coverage: ThreeStudioViewer controls (visible)", () => {
   test("full ribbon, outliner, material inspector, post-fx and ViewCube checklist", async ({ page }) => {
     test.setTimeout(240000);
-    await mockChat(page, "threejs", DRONE_CODE);
+    await mockChat(page, "threejs", DRONE_CODE, "3d_asset");
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 CHECKLIST: Loading the Hover Drone for the studio control sweep...");
     await sendPrompt(page, DRONE_PROMPT);

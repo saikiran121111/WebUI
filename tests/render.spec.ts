@@ -5,8 +5,10 @@ import type { AddressInfo } from "node:net";
 /**
  * Rendering e2e: drives the real chat UI against a mocked SSE upstream so no
  * model is required. Verifies the release-blocking paths: colored code,
- * character-for-character copy fidelity, tables, diagrams, charts, widgets,
- * and streaming safety.
+ * character-for-character copy fidelity, tables, charts, and streaming safety.
+ * Interactive renderers are Decision Engine mode-gated: mocks carry
+ * x-decision-mode, and renderers with no matching RendererMode (mermaid,
+ * widget) are skipped — their fences stay plain code by design.
  *
  * Requires the dev server on http://localhost:3000 (npm run dev).
  */
@@ -15,8 +17,11 @@ test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
 const ASSISTANT_DONE = '[data-testid="assistant-message"][data-state="complete"]';
 
-/** Respond to every POST /api/chat with `content` streamed in small SSE frames. */
-async function mockStream(page: Page, content: string, chunkSize = 14): Promise<void> {
+/** Respond to every POST /api/chat with `content` streamed in small SSE frames.
+ *  `decisionMode` carries the Decision Engine's x-decision-mode header: the UI
+ *  mounts an interactive renderer ONLY when its kind matches that mode
+ *  (```chart needs "chart"). Plain code/markdown paths are unaffected. */
+async function mockStream(page: Page, content: string, decisionMode = "standard_chat", chunkSize = 14): Promise<void> {
   await page.route("**/api/chat", async (route) => {
     const frames: string[] = [];
     for (let i = 0; i < content.length; i += chunkSize) {
@@ -26,7 +31,7 @@ async function mockStream(page: Page, content: string, chunkSize = 14): Promise<
     frames.push("data: [DONE]\n\n");
     await route.fulfill({
       status: 200,
-      headers: { "Content-Type": "text/event-stream" },
+      headers: { "Content-Type": "text/event-stream", "x-decision-mode": decisionMode },
       body: frames.join(""),
     });
   });
@@ -635,7 +640,10 @@ test("a streaming table renders as a table immediately, never as raw pipe text",
   server.close();
 });
 
-test("valid mermaid renders an interactive diagram stage", async ({ page }) => {
+// Retired by the Hybrid Decision Engine (2026-10-18): the 9-mode contract has
+// no mermaid mode, so MODE_RENDER_KINDS never allows the "mermaid" kind — the
+// fence stays plain code and the diagram stage can never mount by design.
+test.skip("valid mermaid renders an interactive diagram stage", async ({ page }) => {
   const diagram = "graph TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Done]\n  B -->|no| A";
   await mockStream(page, "```mermaid\n" + diagram + "\n```");
   await page.goto("http://localhost:3000/");
@@ -652,7 +660,9 @@ test("valid mermaid renders an interactive diagram stage", async ({ page }) => {
   await expect(stage.locator("svg")).toBeVisible();
 });
 
-test("invalid mermaid falls back to preserved source without crashing", async ({ page }) => {
+// Retired with the valid-mermaid test: no mode enables the mermaid renderer,
+// so the mermaid-error fallback branch never runs (fence stays plain code).
+test.skip("invalid mermaid falls back to preserved source without crashing", async ({ page }) => {
   const broken = "```mermaid\nthis is %%% not a valid diagram (((\n```";
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -673,7 +683,7 @@ test("chart fence renders an svg chart with a data table toggle", async ({ page 
     categories: ["Jan", "Feb", "Mar"],
     series: [{ name: "2025", data: [10, 20, 30] }],
   });
-  await mockStream(page, "```chart\n" + spec + "\n```");
+  await mockStream(page, "```chart\n" + spec + "\n```", "chart");
   await page.goto("http://localhost:3000/");
   await send(page, "chart this");
 
@@ -686,14 +696,17 @@ test("chart fence renders an svg chart with a data table toggle", async ({ page 
 });
 
 test("invalid chart fence shows a readable fallback, never invented data", async ({ page }) => {
-  await mockStream(page, "```chart\n{ not valid json\n```");
+  await mockStream(page, "```chart\n{ not valid json\n```", "chart");
   await page.goto("http://localhost:3000/");
   await send(page, "bad chart");
   await expect(page.locator('[data-testid="chart-error"]')).toBeVisible();
   await expect(page.locator('[data-testid="code-block"]')).toContainText("not valid json");
 });
 
-test("widget form validates and sends only the submitted values", async ({ page }) => {
+// Retired by the Hybrid Decision Engine (2026-10-18): the 9-mode contract has
+// no widget mode, so MODE_RENDER_KINDS never allows the "widget" kind — the
+// form fence stays plain code and WidgetBlock can never mount by design.
+test.skip("widget form validates and sends only the submitted values", async ({ page }) => {
   const spec = JSON.stringify({
     kind: "form",
     title: "Booking",
@@ -729,7 +742,7 @@ test("streaming a partial fence never crashes and settles into a highlighted blo
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   const full = "Here:\n\n```js\nconst x = [1, 2, 3];\nconsole.log(x);\n```\n\nDone.";
-  await mockStream(page, full, 5); // tiny chunks split fences mid-token
+  await mockStream(page, full, "standard_chat", 5); // tiny chunks split fences mid-token
   await page.goto("http://localhost:3000/");
 
   const box = page.locator("textarea").first();

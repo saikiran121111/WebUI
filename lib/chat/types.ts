@@ -1,4 +1,5 @@
 import type { Attachment } from "../types";
+import type { RendererMode } from "../decision/types";
 
 export interface ChatRequest {
   messages: OpenAIMessage[];
@@ -10,6 +11,8 @@ export interface ChatRequest {
   reasoning_effort?: string;
   tools?: any[];
   attachments?: Attachment[];
+  /** Pin the mode for a follow-up round (fence repair) — skips re-deciding. */
+  decision_mode?: RendererMode;
 }
 
 /**

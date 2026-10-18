@@ -12,8 +12,11 @@ import { test, expect, type Page } from "@playwright/test";
 const ASSISTANT_DONE = '[data-testid="assistant-message"][data-state="complete"]';
 
 /** Respond to POST /api/chat with `content` in SSE frames, optionally held
- *  back for `delayMs` first so the prefill status line is observable. */
-async function mockStream(page: Page, content: string, delayMs = 0, chunkSize = 64): Promise<void> {
+ *  back for `delayMs` first so the prefill status line is observable.
+ *  `decisionMode` carries the Decision Engine's x-decision-mode header: the UI
+ *  mounts/validates renderers ONLY for that mode, so fence-based assertions
+ *  need the matching mode or the preview never appears. */
+async function mockStream(page: Page, content: string, decisionMode = "standard_chat", delayMs = 0, chunkSize = 64): Promise<void> {
   await page.route("**/api/chat", async (route) => {
     if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
     const frames: string[] = [];
@@ -21,7 +24,11 @@ async function mockStream(page: Page, content: string, delayMs = 0, chunkSize = 
       frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: content.slice(i, i + chunkSize) } }] })}\n\n`);
     }
     frames.push("data: [DONE]\n\n");
-    await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: frames.join("") });
+    await route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "x-decision-mode": decisionMode },
+      body: frames.join(""),
+    });
   });
 }
 
@@ -34,7 +41,7 @@ async function send(page: Page, text: string): Promise<void> {
 
 test.describe("stage-aware progress", () => {
   test("prefill status line shows before the first token, then clears", async ({ page }) => {
-    await mockStream(page, "Here is the answer you asked for.", 1500);
+    await mockStream(page, "Here is the answer you asked for.", "standard_chat", 1500);
     await page.goto("http://localhost:3000/");
     await send(page, "slow hello");
 
@@ -54,7 +61,7 @@ test.describe("stage-aware progress", () => {
         { type: "paragraph", text: "Progress toast regression." },
       ],
     });
-    await mockStream(page, "```docx\n" + docx + "\n```");
+    await mockStream(page, "```docx\n" + docx + "\n```", "docs");
     await page.route("**/api/documents/docx", (route) =>
       route.fulfill({
         status: 200,

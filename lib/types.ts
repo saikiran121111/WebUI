@@ -6,6 +6,7 @@
  */
 
 import type { FileCategory } from "./files/extensions";
+import type { RendererMode } from "./decision/types";
 
 export type Role = "user" | "assistant" | "system" | "tool";
 
@@ -156,6 +157,8 @@ export interface Message {
   usedSkill?: string;
   /** Visible auto-repair status while a broken 3D/CAD fence is being fixed. */
   fenceRepair?: string;
+  /** Decision Engine mode for this reply: the ONLY renderer/validator allowed. */
+  decisionMode?: RendererMode;
 }
 
 /* ── Conversations ───────────────────────────────────────────────────────── */

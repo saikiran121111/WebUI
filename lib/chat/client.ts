@@ -1,6 +1,5 @@
 import type { Attachment, ChatRequest, ChatStreamCallback, ToolDef } from "./types";
 import { createStreamParser, StreamHandle, StreamOptions } from "../stream/parser";
-import { VISUAL_ROUTER_SYSTEM_PROMPT } from "../render/systemPrompt";
 
 const DEFAULT_URL = "/api/chat";
 
@@ -44,9 +43,8 @@ export class ChatClient {
 
   private buildBody(req: ChatRequest) {
     const messages: any[] = [];
-    // Visual-router instructions first: the model only emits chart/mermaid/
-    // scene3d/widget fences because this system turn teaches it the formats.
-    messages.push({ role: "system", content: VISUAL_ROUTER_SYSTEM_PROMPT });
+    // No standing system prompt: the Decision Engine injects the ONE matched
+    // skill + output contract per turn server-side (app/api/chat/route.ts).
     for (const m of req.messages) {
       // Attachments ride on the message they belong to, so a follow-up
       // question still has the file content in front of the model.
@@ -70,6 +68,9 @@ export class ChatClient {
       body.reasoning_effort = req.reasoning_effort;
     }
     if (req.tools?.length) body.tools = req.tools;
+    // Fence-repair follow-ups pin their mode so the chat route skips the
+    // Decision Engine for that round (mode is already known).
+    if (req.decision_mode) body.decision_mode = req.decision_mode;
     if (body.stream) {
       body.stream_options = { include_usage: true };
     }

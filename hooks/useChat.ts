@@ -13,6 +13,7 @@ import {
   findFenceByLang,
   type BrokenFence,
 } from "../lib/render/fenceRepair";
+import { isRendererMode, type RendererMode } from "../lib/decision/types";
 import {
   calibratePrefillTps,
   estimatePromptTokens,
@@ -87,6 +88,8 @@ export function useChat({
   const sendBusyRef = useRef(false);
   /** Shared abort controller so `stop` can cancel an in-flight stream. */
   const abortRef = useRef<AbortController | null>(null);
+  /** Decision Engine mode of the in-flight turn (x-decision-mode header). */
+  const decisionModeRef = useRef<RendererMode | null>(null);
 
   const load = useCallback((conversation: Conversation) => {
     setMessages(conversation.messages ?? []);
@@ -192,6 +195,7 @@ export function useChat({
     history: any[],
     effort: EffortLevel,
     controller: AbortController,
+    decisionMode: RendererMode | null,
     locate: (content: string) => BrokenFence[],
     stopAfterFirstApply = false,
   ) => {
@@ -222,6 +226,9 @@ export function useChat({
             model,
             stream: true,
             reasoning_effort: effort === "off" ? undefined : effort,
+            // Pin the mode: the repair round belongs to the failed fence's
+            // mode; re-deciding on an error message could misroute it.
+            decision_mode: decisionMode ?? undefined,
           },
           (ev) => { if (ev.content) reply += ev.content; },
           controller.signal,
@@ -260,6 +267,9 @@ export function useChat({
     attempts.set(assistantId, used + 1);
 
     const message = messagesRef.current[idx];
+    // Zero-collision: runtime fence repair only runs when this message's
+    // Decision Engine mode actually owns that fence family.
+    if (message.decisionMode !== "3d_asset") return;
     const history = messagesRef.current.slice(0, idx);
     streamContentRef.current = message.content;
     const controller = new AbortController();
@@ -268,6 +278,7 @@ export function useChat({
       history,
       effortRef.current,
       controller,
+      message.decisionMode ?? null,
       content => {
         const fence = findFenceByLang(content, info.lang);
         if (!fence) return [];
@@ -331,6 +342,7 @@ export function useChat({
       setIsThinking(!!curEffort && curEffort !== "off");
       assistantIdRef.current = assistantMsg.id;
       streamContentRef.current = "";
+      decisionModeRef.current = null;
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -361,8 +373,16 @@ export function useChat({
         { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
-        // Skill engine metadata: the proxy names the fired skill via header.
+        // Metadata headers: user-tier skill pill + the Decision Engine's
+        // active_mode, which gates every renderer/validator for this reply.
         (headers) => {
+          const mode = headers.get("x-decision-mode");
+          if (mode && isRendererMode(mode)) {
+            decisionModeRef.current = mode;
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, decisionMode: mode } : m
+            ));
+          }
           const skill = headers.get("X-Used-Skill");
           if (skill) {
             setMessages(prev => prev.map(m =>
@@ -375,10 +395,19 @@ export function useChat({
         throw e;
       });
 
-      // Broken anatomy/3D/CAD fences get repaired before the bubble is
-      // finalized — the user sees the finished visual, not the error.
+      // Broken fences of the ACTIVE mode only get repaired before the bubble
+      // is finalized — the user sees the finished visual, not the error.
+      // Off-mode fences are never even scanned (zero-collision rule).
       if (!controller.signal.aborted) {
-        await runRepairRounds(assistantMsg.id, requestHistory, curEffort, controller, findBrokenRenderFences);
+        const mode = decisionModeRef.current;
+        await runRepairRounds(
+          assistantMsg.id,
+          requestHistory,
+          curEffort,
+          controller,
+          mode,
+          (content) => findBrokenRenderFences(content, mode),
+        );
       }
 
       console.log("[send] after client.chat - was it aborted?", controller.signal.aborted);
