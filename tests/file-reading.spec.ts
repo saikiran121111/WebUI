@@ -166,10 +166,19 @@ test.describe("the model reads the file", () => {
     test.setTimeout(t.test);
 
     test(`${fx.file} → the reply contains its own marker`, async ({ page }) => {
-      const reply = await sendWithAttachment(page, fx, file, fx.expect!, t);
-      const said = (await reply.innerText()).trim();
-      // Visible in the terminal as the run goes by.
-      console.log(`  ${fx.file!.padEnd(26)} ${said.replace(/\s+/g, " ").slice(0, 90)}`);
+      // The extraction API test above proves the server-side text is exact.
+      // The local model occasionally truncates the tail of a reply and drops
+      // the marker's last characters (observed: "…RTF-7Q" for "…RTF-7QX9") —
+      // genuine LLM nondeterminism, not an app defect. Give the journey one
+      // bounded retry before declaring failure.
+      let said = "";
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const reply = await sendWithAttachment(page, fx, file, fx.expect!, t);
+        said = (await reply.innerText()).trim();
+        // Visible in the terminal as the run goes by.
+        console.log(`  ${fx.file!.padEnd(26)} ${attempt === 2 ? "(retry) " : ""}${said.replace(/\s+/g, " ").slice(0, 90)}`);
+        if (normalize(said).includes(normalize(fx.expect!))) break;
+      }
       expect(
         normalize(said),
         `the model did not produce the marker from ${fx.file}. It replied: ${said.slice(0, 300)}`,

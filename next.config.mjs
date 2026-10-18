@@ -10,6 +10,11 @@ const nextConfig = {
       "@huggingface/transformers",
       "onnxruntime-node",
       "unpdf",
+      "docx",
+      "exceljs",
+      "pptxgenjs",
+      "playwright",
+      "playwright-core",
     ],
   },
 };

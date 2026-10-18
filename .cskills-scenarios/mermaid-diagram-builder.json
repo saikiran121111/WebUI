@@ -1,0 +1,18 @@
+{
+  "skillName": "mermaid-diagram-builder",
+  "sourceRepo": "mermaid2img/mermaid-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for a flowchart, sequence diagram, gantt, ER or UML diagram.",
+  "triggerKeywords": [
+    "flowchart",
+    "sequence diagram",
+    "gantt",
+    "er diagram",
+    "uml",
+    "state diagram",
+    "class diagram",
+    "mermaid diagram"
+  ],
+  "blockedReason": null
+}

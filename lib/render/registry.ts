@@ -3,7 +3,9 @@
  * Adding a new fence type means adding one entry here plus its component —
  * no conditionals in the chat or markdown components.
  */
-export type FenceKind = "mermaid" | "chart" | "widget" | "scene3d" | "asset3d" | "threejs" | "anatomy" | "cad" | "code";
+export type FenceKind =
+  | "mermaid" | "chart" | "widget" | "scene3d" | "asset3d" | "threejs" | "anatomy" | "cad" | "code"
+  | "html" | "resume" | "docx" | "xlsx" | "pptx" | "powerbi";
 
 const FENCE_OWNERS: Record<string, FenceKind> = {
   mermaid: "mermaid",
@@ -14,6 +16,12 @@ const FENCE_OWNERS: Record<string, FenceKind> = {
   threejs: "threejs",
   anatomy: "anatomy",
   cad: "cad",
+  html: "html",
+  resume: "resume",
+  docx: "docx",
+  xlsx: "xlsx",
+  pptx: "pptx",
+  powerbi: "powerbi",
 };
 
 export function fenceKind(rawLang: string): FenceKind {

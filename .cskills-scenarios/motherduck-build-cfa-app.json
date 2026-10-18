@@ -1,0 +1,9 @@
+{
+  "skillName": "motherduck-build-cfa-app",
+  "sourceRepo": "motherduckdb/agent-skills",
+  "enabled": true,
+  "autoUse": false,
+  "whenToUse": "",
+  "triggerKeywords": [],
+  "blockedReason": null
+}

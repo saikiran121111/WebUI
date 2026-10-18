@@ -230,7 +230,10 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const [soloLayer, setSoloLayer] = useState<string | null>(null);
   const [layerState, setLayerState] = useState<Record<string, LayerState>>(() =>
     Object.fromEntries(
-      spec.layers.map((l) => [l.id, { visible: l.visible, opacity: l.opacity, locked: l.locked }]),
+      // Fallbacks matter: a cad spec layer may omit visible/opacity/locked, and
+      // undefined * 100 = NaN trips React's "Received NaN for the `value`" warning
+      // on the opacity range input.
+      spec.layers.map((l) => [l.id, { visible: l.visible ?? true, opacity: l.opacity ?? 1, locked: l.locked ?? false }]),
     ),
   );
   const [flowsOn, setFlowsOn] = useState(spec.flows.length > 0);

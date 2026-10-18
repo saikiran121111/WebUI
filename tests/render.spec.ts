@@ -495,7 +495,10 @@ test("a wide table stays collapsed while it is still generating", async ({ page 
     .join("\n");
   // Paced SSE: route.fulfill delivers the whole body in one chunk, so the
   // table would only ever be observed complete. This server writes a frame
-  // every 15ms so the mid-generation state is observable for seconds.
+  // every 40ms (~4.5s of streaming) so the mid-generation state stays
+  // observable even when the first paint lags behind the stream on a cold
+  // dev-server compile — at 15ms the whole stream finished before the wrap
+  // had rendered and the sampler only ever saw the completed message.
   const frames: string[] = [];
   for (let i = 0; i < table.length; i += 40) {
     frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: table.slice(i, i + 40) } }] })}\n\n`);
@@ -507,7 +510,7 @@ test("a wide table stays collapsed while it is still generating", async ({ page 
     const pump = setInterval(() => {
       if (frameIndex >= frames.length) { clearInterval(pump); res.end(); return; }
       res.write(frames[frameIndex++]);
-    }, 15);
+    }, 40);
     req.on("close", () => clearInterval(pump));
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
@@ -521,7 +524,7 @@ test("a wide table stays collapsed while it is still generating", async ({ page 
   await box.press("Enter");
 
   const wrap = page.locator('[data-testid="md-table-wrap"]');
-  await wrap.waitFor({ timeout: 10_000 });
+  await wrap.waitFor({ timeout: 15_000 });
   await wrap.hover(); // the user's cursor was over the bubble mid-generation
 
   // Sample the live DOM while the message is still streaming: no row may
@@ -821,10 +824,15 @@ test("folder-structure fence renders an interactive IDE-style tree", async ({ pa
     .first();
   await appRow.click();
   const collapsedWrap = treeBlock.locator(".tree-children.is-collapsed").first();
-  await expect(collapsedWrap).toBeVisible();
+  // A collapsed wrapper is legitimately zero-height (minmax(0, 0fr)), which
+  // Playwright reports as "hidden" — assert the stable end-state contract
+  // instead of visibility (the 250ms transition window is not observable).
+  await expect(collapsedWrap).toHaveCount(1);
   // Computed grid tracks are always reported in used px, so the collapsed
   // target minmax(0, 0fr) reads as "0px".
   await expect(collapsedWrap).toHaveCSS("grid-template-rows", "0px");
+  const collapsedBox = await collapsedWrap.boundingBox();
+  expect(collapsedBox?.height).toBeLessThan(2);
 
   await appRow.click();
   const leafBox = await treeBlock.getByText("base.html").boundingBox();

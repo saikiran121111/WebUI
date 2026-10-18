@@ -78,9 +78,37 @@
   `scene3d-sliders` likewise requires `spec.sliders`; `cad-toggle-flows`
   requires non-empty `spec.flows`; the `scene3d-material-*` inspector
   requires a selected mesh (click the outliner row first).
+- **IntersectionObserver parking family (root-caused 2026-10-18):** both the
+  ThreeStudio render loop (studioEngine `parked`) and the anatomy liveEngine
+  loop (`inView`) park when the element is off-viewport; Playwright
+  `toBeVisible()` ≠ viewport intersection. Any assertion on animation-driven
+  state (scene3d HUD stats, anatomy readouts/explode transforms, canvas pixel
+  probes) MUST be preceded by `locator.scrollIntoViewIfNeeded()`. Applied in
+  three3d.spec, anatomy.spec (slider+explode), mecha stress. Anatomy also
+  exposes `data-anatomy-live="1"` on the block root once the async engine
+  mount attaches listeners — wait for it before dispatching slider events.
+- **`__studioViewer` publish race:** ThreeStudioViewer assigns
+  `window.__studioViewer` BEFORE the async codeRunner import applies fence
+  content — under full-suite load a post-visibility `page.evaluate` can see
+  `undefined`. Gate with `page.waitForFunction` on scene + named-mesh count
+  (mecha stress does this now).
+- **waitForResponse race:** register the promise BEFORE the click that
+  triggers it — a local GET+POST round trip (~20 ms) can complete inside the
+  `click()` await (conversations unarchive).
+- **Zero-height collapsed wrappers read as "hidden":** `.tree-children.is-collapsed`
+  uses `minmax(0,0fr)` → legitimately 0 px tall. Assert the end-state contract
+  (`toHaveCount(1)` + `toHaveCSS("grid-template-rows","0px")` + boundingBox
+  height < 2), not visibility.
+- **Streaming-timing flakes:** the streaming-table test pumps SSE chunks at
+  40 ms (~4.5 s stream); at 15 ms the stream finished before the wrap
+  rendered and the sampler only saw the completed message.
+- **Real-model nondeterminism (file-reading):** llama.cpp occasionally
+  truncates a reply tail ("…RTF-7Q" for "…RTF-7QX9"). The extraction-API
+  test proves server text is exact; the model-echo test now retries the
+  journey once on marker miss. Windows display scaling 125% multiplies
+  Playwright wheel deltaY ×1.25 — assert zoom direction, not exact factor.
 - Dev-server port conflicts: stale hung Next servers squat :3000/:3001/:3002
   (curl times out, exit 28) — `taskkill //PID <pid> //F //T` each, restart.
-- Unit gate: `npx vitest run` → 35 files, 407 passed | 1 skipped (adds
-  `__tests__/cad/cadRoomTags.test.ts` ×5: raycastRoomRect enclosure/null
-  cases, 2-line wrap + textContent intact, fontScale floor, pill-inside-
-  room, obstacle ring-nudge). `tsc --noEmit` clean.
+- Unit gate: `npx vitest run` → 42 files, 429 passed | 1 skipped (document
+  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags etc.).
+  `tsc --noEmit` clean.

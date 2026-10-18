@@ -21,6 +21,12 @@ import AnatomyBlock from "./render/AnatomyBlock";
 import CadBlock from "./render/CadBlock";
 import ThreeCodeBlock from "./render/ThreeCodeBlock";
 import TreeBlock from "./render/TreeBlock";
+import HtmlArtifactBlock from "./render/HtmlArtifactBlock";
+import ResumeBlock from "./render/ResumeBlock";
+import DocxBlock from "./render/DocxBlock";
+import XlsxBlock from "./render/XlsxBlock";
+import PptxBlock from "./render/PptxBlock";
+import PowerBiBlock from "./render/PowerBiBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import { fenceKind } from "../lib/render/registry";
 import { looksLikeTree } from "../lib/render/treeParse";
@@ -226,6 +232,13 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   if (kind === "cad" && allowInteractive) return <CadBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "threejs" && allowInteractive) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={onFenceRuntimeError ? error => onFenceRuntimeError({ lang: "threejs", body: source, error }) : undefined} />;
   if (kind === "widget" && allowInteractive) return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
+  // Document modality fences (PHASE 2–5): preview-before-download viewers.
+  if (kind === "html" && allowInteractive) return <HtmlArtifactBlock source={source} streaming={streaming} />;
+  if (kind === "resume" && allowInteractive) return <ResumeBlock source={source} streaming={streaming} />;
+  if (kind === "docx" && allowInteractive) return <DocxBlock source={source} streaming={streaming} />;
+  if (kind === "xlsx" && allowInteractive) return <XlsxBlock source={source} streaming={streaming} />;
+  if (kind === "pptx" && allowInteractive) return <PptxBlock source={source} streaming={streaming} />;
+  if (kind === "powerbi" && allowInteractive) return <PowerBiBlock source={source} streaming={streaming} />;
   // Box-drawing trees arrive in plain/text fences — detect by content, not label.
   if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;
   // Executable Three.js arriving in a plain js fence still gets the studio viewer.

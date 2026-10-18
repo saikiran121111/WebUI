@@ -1,0 +1,15 @@
+{
+  "skillName": "docx",
+  "sourceRepo": "anthropics/skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for a Word document / .docx deliverable.",
+  "triggerKeywords": [
+    "docx",
+    "word document",
+    "word file",
+    "ms word",
+    "word doc"
+  ],
+  "blockedReason": null
+}

@@ -16,6 +16,10 @@ test("scene3d studio: HUD stats, labels, outliner, shading/views/explode, GLB re
 
   const scene = page.locator('[data-testid="scene3d-block"]');
   await expect(scene).toBeVisible();
+  // The studio render loop parks itself via IntersectionObserver when the
+  // stage is off-screen; the HUD stats only tick once the loop runs, so
+  // scroll the viewer into view like a real user would.
+  await scene.scrollIntoViewIfNeeded();
   const stage = page.locator('[data-testid="scene3d-stage"]');
   let webglOk = true;
   try {

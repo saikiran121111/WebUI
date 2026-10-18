@@ -1,0 +1,25 @@
+{
+  "skillName": "html-viewer",
+  "sourceRepo": "composite",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for an interactive in-chat HTML artifact (calculator, splitter, simulator, animated explainer, live chart tool) with no file deliverable.",
+  "triggerKeywords": [
+    "interactive",
+    "calculator",
+    "splitter",
+    "bill splitter",
+    "tip splitter",
+    "simulator",
+    "what-if",
+    "animated explainer",
+    "visually explain",
+    "html artifact",
+    "interactive tool",
+    "interactive dashboard",
+    "converter",
+    "timer",
+    "widget"
+  ],
+  "blockedReason": null
+}

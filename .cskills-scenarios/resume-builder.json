@@ -1,0 +1,16 @@
+{
+  "skillName": "resume-builder",
+  "sourceRepo": "amruthpillai/reactive-resume",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for a resume, CV or curriculum vitae (ATS-friendly 1-2 page PDF).",
+  "triggerKeywords": [
+    "resume",
+    "cv",
+    "curriculum vitae",
+    "vitae",
+    "job application",
+    "resume builder"
+  ],
+  "blockedReason": null
+}

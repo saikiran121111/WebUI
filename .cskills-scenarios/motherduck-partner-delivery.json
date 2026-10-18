@@ -1,0 +1,9 @@
+{
+  "skillName": "motherduck-partner-delivery",
+  "sourceRepo": "motherduckdb/agent-skills",
+  "enabled": true,
+  "autoUse": false,
+  "whenToUse": "",
+  "triggerKeywords": [],
+  "blockedReason": null
+}

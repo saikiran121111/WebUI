@@ -201,9 +201,13 @@ test.describe("conversation CRUD", () => {
     // before reloading — otherwise navigation aborts the in-flight save and
     // the reload reads back the stale archived state.
     await openMenuFor(page, title);
-    await page.getByRole("button", { name: "Unarchive", exact: true }).click();
-    await page.waitForResponse(r =>
+    // Register the listener BEFORE the click: the local GET+POST round trip
+    // can finish inside the click() await, so a post-click waitForResponse
+    // would miss the response it is waiting for.
+    const unarchiveSave = page.waitForResponse(r =>
       r.url().includes("/api/conversations") && r.request().method() === "POST" && r.ok());
+    await page.getByRole("button", { name: "Unarchive", exact: true }).click();
+    await unarchiveSave;
     await page.reload();
     await expect(itemByTitle(page, title)).toBeVisible();
     // The Archived section button is global state — leftovers from other runs

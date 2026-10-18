@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mermaid Diagram Builder"
+  short_description: "Turn requirements into focused Mermaid diagrams"
+  default_prompt: "Use $mermaid-diagram-builder to create a focused diagram from these requirements."

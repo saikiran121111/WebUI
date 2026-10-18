@@ -1,0 +1,15 @@
+{
+  "skillName": "web-artifacts-builder",
+  "sourceRepo": "anthropics/skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Self-contained single-page web artifacts (companion of html-viewer).",
+  "triggerKeywords": [
+    "web artifact",
+    "react artifact",
+    "single page app",
+    "spa",
+    "interactive web app"
+  ],
+  "blockedReason": null
+}

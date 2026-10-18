@@ -1,0 +1,18 @@
+{
+  "skillName": "pdf",
+  "sourceRepo": "anthropics/skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for a PDF / printable document / report to download (not a resume).",
+  "triggerKeywords": [
+    "pdf",
+    "pdf report",
+    "printable",
+    "print-ready",
+    "print document",
+    "export to pdf",
+    "save as pdf",
+    "pdf document"
+  ],
+  "blockedReason": null
+}

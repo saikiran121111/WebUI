@@ -1,0 +1,17 @@
+{
+  "skillName": "xlsx",
+  "sourceRepo": "anthropics/skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for an Excel workbook / spreadsheet / financial model deliverable.",
+  "triggerKeywords": [
+    "excel",
+    "spreadsheet",
+    "xlsx",
+    "workbook",
+    "financial model",
+    "budget model",
+    "worksheet"
+  ],
+  "blockedReason": null
+}

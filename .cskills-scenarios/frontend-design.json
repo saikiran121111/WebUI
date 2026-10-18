@@ -1,0 +1,15 @@
+{
+  "skillName": "frontend-design",
+  "sourceRepo": "anthropics/skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Design quality for HTML artifacts and web pages (companion of html-viewer).",
+  "triggerKeywords": [
+    "landing page",
+    "styled page",
+    "marketing page",
+    "portfolio page",
+    "web design"
+  ],
+  "blockedReason": null
+}

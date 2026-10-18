@@ -1,0 +1,15 @@
+{
+  "skillName": "motherduck-duckdb-sql",
+  "sourceRepo": "motherduckdb/agent-skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "SQL/DuckDB analysis over the dataset during a Power BI build.",
+  "triggerKeywords": [
+    "duckdb",
+    "sql query",
+    "query the data",
+    "analyze the csv",
+    "sql"
+  ],
+  "blockedReason": null
+}

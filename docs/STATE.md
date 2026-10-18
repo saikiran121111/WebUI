@@ -496,6 +496,40 @@
       0 up-jumps) + new `check-upscroll.mjs` PASS (60px wheel-up mid-stream stays
       free: 0 down-yanks, minDist 231px, pill shown).
 
+- [x] MASTER MODALITY UPGRADE (2026-10-18, all 6 phases locked): Core document,
+      presentation, Power BI & interactive-HTML engine.
+      - Phase 1: core-tier skills in `./.cskills/` (pdf, docx, xlsx, pptx,
+        frontend-design, web-artifacts-builder, resume-builder,
+        d3-js-visualization, mermaid-diagram-builder, 22× motherduck-*) via
+        `npm run cskill:add`; user-ordered composites `./.cskills/powerbi/` +
+        `./.cskills/html-viewer/` (only hand-authored exceptions). Modality
+        isolation via `./.cskills-scenarios/` — zero cross-contamination,
+        router `lib/skills/coreRouter.ts`.
+      - Phase 2: `components/HtmlArtifactBlock.tsx` + auto-sizing dark
+        `<HtmlArtifactViewer/>` (1px rgba(255,255,255,.12) border, 16px radius,
+        #000 bg, zero chrome, sandboxed iframe + ResizeObserver
+        `HTML_VIEWER_RESIZE` postMessage). html-viewer palette enforced.
+      - Phase 3: `lib/documents/` — pdfEngine (semantic HTML+inline SVG →
+        Playwright page.pdf A4 + printCss), resumeHtml (resume-builder JSON →
+        ATS 1–2 page), docxEngine (docx-js + Playwright 2× chart screenshots,
+        temp cleanup), xlsxEngine + pure-JS `recalc.ts` (LibreOffice absent;
+        zero blank cells, live formulas, dropdowns, freeze A2, errors_found 0),
+        http + schemas + 6 API routes under /api/documents.
+      - Phase 4: INSANE-tier PPTX default — pptxgenjs + OOXML Morph
+        `<p159:morph option="byObject"/>` in mc:AlternateContent, `!!`-paired
+        shape names, 3 viral patterns, tiers insane/normal/simple,
+        `scripts/pptx_morph_injector.py`.
+      - Phase 5: Power BI CSV → .pbip zip (TMDL + PBIR + dark theme) + .pbit,
+        60fps WebUI preview; unified Preview-Before-Download viewers for every
+        modality (`components/render/DocumentCard.tsx`).
+      - Phase 6: `tests/regression_modalities.spec.ts` 8/8 green; full
+        Playwright suite hardened to 100% (see e2e-test-state.md gotchas:
+        IntersectionObserver parking, `__studioViewer` publish race,
+        waitForResponse-before-click, zero-height collapsed wrappers,
+        streaming pump timing, real-model marker retry).
+      - Unit gate now `npx vitest run` 42 files, 429 passed | 1 skipped;
+        `tsc --noEmit` clean. Playwright pinned 1.63.0.
+
 ## Rendering upgrade verification (2026-10-15)
 - [x] Deps installed (user ran npm install). Prism fully removed: package.json +
       `types/prismjs.d.ts` deleted.

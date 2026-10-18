@@ -1,0 +1,16 @@
+{
+  "skillName": "pptx",
+  "sourceRepo": "anthropics/skills",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for a PowerPoint / slide deck / presentation deliverable.",
+  "triggerKeywords": [
+    "powerpoint",
+    "pptx",
+    "slide deck",
+    "slides",
+    "presentation",
+    "pitch deck"
+  ],
+  "blockedReason": null
+}

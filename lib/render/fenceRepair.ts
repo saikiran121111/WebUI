@@ -11,6 +11,14 @@ import { anatomySpecSchema } from "../anatomy/anatomySchema";
 import { parseJsonFence } from "./schemas";
 import { normalizeScene3d } from "../three3d/normalizeScene";
 import { normalizeCad } from "../cad/normalizeCad";
+import {
+  isBrokenHtmlFence,
+  normalizeDocx,
+  normalizePptx,
+  normalizePowerbi,
+  normalizeResume,
+  normalizeXlsx,
+} from "../documents/schemas";
 
 /** Silent repair rounds per message before the honest error fallback stays. */
 export const MAX_FENCE_REPAIRS = 2;
@@ -81,7 +89,27 @@ export function findBrokenRenderFences(content: string): BrokenFence[] {
       const r = normalizeCad(body);
       return r.ok ? null : r.error;
     }, true),
+    // Document modality fences: broken when the JSON won't parse or the SAME
+    // lenient normalizer the preview block uses refuses the spec.
+    ...scanBrokenFences(content, "html", body => (isBrokenHtmlFence(body) ? "the fence contains no HTML markup" : null), true),
+    ...docFenceScans(content, "resume", normalizeResume),
+    ...docFenceScans(content, "docx", normalizeDocx),
+    ...docFenceScans(content, "xlsx", normalizeXlsx),
+    ...docFenceScans(content, "pptx", normalizePptx),
+    ...docFenceScans(content, "powerbi", normalizePowerbi),
   ];
+}
+
+function docFenceScans(content: string, lang: string, normalize: (raw: unknown) => unknown | null): BrokenFence[] {
+  return scanBrokenFences(content, lang, body => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch (e) {
+      return "invalid JSON: " + (e as Error).message;
+    }
+    return normalize(parsed) ? null : "the spec did not validate against the " + lang + " contract";
+  }, true);
 }
 
 /**

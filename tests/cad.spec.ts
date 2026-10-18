@@ -41,8 +41,11 @@ test.describe("ArchitectureCAD viewer", () => {
   test("measure tool labels a point-to-point distance", async ({ page }) => {
     await openCadViewer(page);
     const stage = page.locator('[data-testid="cad-stage"]');
-    await stage.scrollIntoViewIfNeeded();
     await page.click('[data-testid="cad-tool-measure"]');
+    // The tool click auto-scrolls the toolbar into view, which can push this
+    // tall stage below the fold; re-center it before reading its box so the
+    // raw mouse coordinates land inside the viewport.
+    await stage.scrollIntoViewIfNeeded();
     const box = await stage.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.click(box!.x + box!.width * 0.3, box!.y + box!.height * 0.5);

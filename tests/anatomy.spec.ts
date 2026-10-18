@@ -21,6 +21,13 @@ test.describe("Anatomy illustration blocks", () => {
     await page.goto(ANATOMY_URL);
     const first = page.locator('[data-testid="anatomy-block"]').first();
     await expect(first).toBeVisible({ timeout: 20000 });
+    // The live engine attaches via an async dynamic import; wait for its
+    // readiness marker before dispatching input events at the slider.
+    await expect(first).toHaveAttribute("data-anatomy-live", "1", { timeout: 20000 });
+    // The engine's animation loop (which drives the readout) parks itself
+    // via IntersectionObserver when the plate is off-viewport — scroll it in
+    // view like a real user before expecting slider input to animate.
+    await first.scrollIntoViewIfNeeded();
     const readout = first.locator('[data-anatomy-readout="pos"]');
     await expect(readout).toHaveText("30.0", { timeout: 10000 });
     const slider = first.locator('input[type="range"]').first();
@@ -37,6 +44,8 @@ test.describe("Anatomy illustration blocks", () => {
     await page.goto(ANATOMY_URL);
     const first = page.locator('[data-testid="anatomy-block"]').first();
     await expect(first).toBeVisible({ timeout: 20000 });
+    await expect(first).toHaveAttribute("data-anatomy-live", "1", { timeout: 20000 });
+    await first.scrollIntoViewIfNeeded();
     const explode = first.locator('[data-testid="anatomy-explode"]');
     await expect(explode).toHaveAttribute("aria-pressed", "false");
     await explode.click();
@@ -198,7 +207,10 @@ test.describe("Architectural cutaway runtime (advanced profile)", () => {
     await expect(viewport).not.toHaveAttribute("transform");
     await arch.locator("svg.anatomy-svg").hover();
     await page.mouse.wheel(0, -400);
-    await expect(viewport).toHaveAttribute("transform", /scale\(1\.\d/);
+    // Zoom-in factor is exp(0.0015 × effective deltaY); Windows display
+    // scaling (125% on this machine) multiplies the wheel delta, so the
+    // factor can exceed 2 — assert direction (k ≥ 1), not the exact decade.
+    await expect(viewport).toHaveAttribute("transform", /scale\([1-9]/);
     await arch.locator("button.anatomy-button", { hasText: "Reset" }).click();
     await expect(viewport).not.toHaveAttribute("transform");
   });

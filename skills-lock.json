@@ -25,11 +25,173 @@
       "skillPath": "skills/diagram-design/SKILL.md",
       "computedHash": "382c5f8a1cbec25bca96fc8d48d106bff52e1d1f4f94c4aeea923d7e12ff0c2a"
     },
+    "docx": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docx/SKILL.md",
+      "computedHash": "3b8f8cf1ca7a427607c78312655e95e21b5f8f2b06a1aad4dc5554cc90eb095c"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "106acf230014cbb43ca34e6410371321b56ca742f9ee0442e8ec05bf02eb0384"
+    },
     "humanizer": {
       "source": "blader/humanizer",
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "4c7af5b1efdd897dcad56390d3c5f8708f6ddc11431fbf668e13ceb12ff583ce"
+    },
+    "mermaid-diagram-builder": {
+      "source": "mermaid2img/mermaid-skills",
+      "sourceType": "github",
+      "skillPath": "skills/mermaid-diagram-builder/SKILL.md",
+      "computedHash": "f30aae280f7fa37a5704e00cfb8a448700aafe2233f9a16961a47263a59e7251"
+    },
+    "motherduck-build-cfa-app": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-build-cfa-app/SKILL.md",
+      "computedHash": "5a2a4c7b7ff2542fd73cb2db3e4b6b58d1e0397a61ba236f33d1bcff156144bf"
+    },
+    "motherduck-build-dashboard": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-build-dashboard/SKILL.md",
+      "computedHash": "1db058186d09c9e06009e2c5c8b81fa09ebd71bc234b5e595879289e862dcfd5"
+    },
+    "motherduck-build-data-pipeline": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-build-data-pipeline/SKILL.md",
+      "computedHash": "e864c0653cbe7eb3b2cc5649eb79c286cd746788a96e1846e6d19d30b53c6b38"
+    },
+    "motherduck-cli": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-cli/SKILL.md",
+      "computedHash": "a17ad256feb7dfed66ee01f8db1f5b358958c7a211c644ba32ce1871e90b4645"
+    },
+    "motherduck-connect": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-connect/SKILL.md",
+      "computedHash": "29350b9d96689201cd95779f107f693a27edde7f193271a045c208cbc3992432"
+    },
+    "motherduck-create-dive": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-create-dive/SKILL.md",
+      "computedHash": "ee5880e1125f03fdb080ed8f6595497ed846201cc734ab0bb520891d62a7a73d"
+    },
+    "motherduck-create-flight": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-create-flight/SKILL.md",
+      "computedHash": "1a8dc662831bfc8681b341bfd3206b22cfcdb72e3d79298441c3db009b812bc3"
+    },
+    "motherduck-design-dive": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-design-dive/SKILL.md",
+      "computedHash": "3e0da81fa99c5efd929e2c27a9fd721d9ecb7595fb7747c0b24f79a6453c91a0"
+    },
+    "motherduck-duckdb-sql": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-duckdb-sql/SKILL.md",
+      "computedHash": "fbbec717e5b1b20e71026aa17999e50dea4c2d62b9f54dc8854984f1398ad6f6"
+    },
+    "motherduck-ducklake": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-ducklake/SKILL.md",
+      "computedHash": "984111472f8f581fb918adbbcc932c8ab429d02c1f4a44f9be622e52bbbb2385"
+    },
+    "motherduck-enable-self-serve-analytics": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-enable-self-serve-analytics/SKILL.md",
+      "computedHash": "e41d6d54168da7f1156d373986dd98730fb1687ede5560dfb51f80556c8e3312"
+    },
+    "motherduck-explore": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-explore/SKILL.md",
+      "computedHash": "98b5b38e8af0cd33a6bc29e28924865fb4be2e580d5a6307a140b210ebe4de97"
+    },
+    "motherduck-load-data": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-load-data/SKILL.md",
+      "computedHash": "01df593b4278e3fa52d0c6e9223374feecfe8674e53788e9abda51e505823bd4"
+    },
+    "motherduck-manage-guides": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-manage-guides/SKILL.md",
+      "computedHash": "10c33dd58e0d581f4a4d51a8f6ec79867bbcde1c16dcb90adc9c25a6fe3c77cf"
+    },
+    "motherduck-migrate-to-motherduck": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-migrate-to-motherduck/SKILL.md",
+      "computedHash": "fa1c1a1fccedd184ec57f0fa0a85591624a4d7a9b97831ddf1c5ddadf27e2ec1"
+    },
+    "motherduck-model-data": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-model-data/SKILL.md",
+      "computedHash": "1c06258f6a41595a1d6e694ab1d1d1801c16efdd2d952a1eb05bce34bf375355"
+    },
+    "motherduck-partner-delivery": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-partner-delivery/SKILL.md",
+      "computedHash": "94e76cd44fac41d5c5ab44bd253db8cd01d2859877fd632162d8d6b483a8e72f"
+    },
+    "motherduck-pricing-roi": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-pricing-roi/SKILL.md",
+      "computedHash": "6f86587ec263ac69f9f2e8e977312cc43be56c514cf01d029c2f4e6f8f99b9b1"
+    },
+    "motherduck-query": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-query/SKILL.md",
+      "computedHash": "412a83d0c888691302ff508535da4ad523206e8de45a553dfb0e1f6b41035661"
+    },
+    "motherduck-rest-api": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-rest-api/SKILL.md",
+      "computedHash": "5e78c06430aea4f549f18d663ef452a141ada4c198f543cc72609373e26dfcf8"
+    },
+    "motherduck-security-governance": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-security-governance/SKILL.md",
+      "computedHash": "a556fd255d6f964b4f8386aec852a0efb8a201c6beeeb1b798946f98ef44bf4f"
+    },
+    "motherduck-share-data": {
+      "source": "motherduckdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/motherduck-share-data/SKILL.md",
+      "computedHash": "c6ec8598fea6eda9599ba75064c395096188e1a261fd05fe481471cc5979aea8"
+    },
+    "pdf": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/pdf/SKILL.md",
+      "computedHash": "37226d4220d844377e6b2a386c51a011df4cd130855ff0b80bcc22f9c28abd57"
+    },
+    "pptx": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/pptx/SKILL.md",
+      "computedHash": "d6198c2f85d5d1c737d451b98ebacc3bbc187730c9a79252aa738ddb8d818455"
     },
     "r3f-animation": {
       "source": "EnzeD/r3f-skills",
@@ -96,6 +258,12 @@
       "sourceType": "github",
       "skillPath": "skills/r3f-textures/SKILL.md",
       "computedHash": "ee30d6ac4e455d79cf3cc4226cb2933f84a55e528eb22e936b6afe37b1a5f226"
+    },
+    "resume-builder": {
+      "source": "amruthpillai/reactive-resume",
+      "sourceType": "github",
+      "skillPath": "plugins/reactive-resume/skills/resume-builder/SKILL.md",
+      "computedHash": "3461c49f892d20c73e1e8fe36990074ad25368d113d461baa521ea7b6f2a7c36"
     },
     "threejs-animation": {
       "source": "CloudAI-X/threejs-skills",
@@ -168,6 +336,18 @@
       "sourceType": "github",
       "skillPath": "skills/threejs-textures/SKILL.md",
       "computedHash": "5afbbaa048507fcbb76adca76cdc2fa58f7edb68383c0c48785756fecb68a2d0"
+    },
+    "web-artifacts-builder": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-artifacts-builder/SKILL.md",
+      "computedHash": "fdddbe9bb720ea1aea9292ee513ec10b2a8f4912e2c343bdc246ab3febd7c9b3"
+    },
+    "xlsx": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/xlsx/SKILL.md",
+      "computedHash": "cbaaabead69c5e03643f116cde6a396ad53f6da058da6eaa7bad6c4fbafe6026"
     }
   }
 }

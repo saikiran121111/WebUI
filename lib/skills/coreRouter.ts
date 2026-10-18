@@ -88,7 +88,83 @@ Produce an architecture / CAD visual for this chat: one short intro sentence, th
 Keep prose to one short sentence; all geometry and metadata inside the fenced block.
 </output_contract_architecture>`;
 
-export type CoreCategory = "3d" | "architecture" | null;
+/**
+ * Document modality router (Phase 1.2). Exactly ONE file modality fires per
+ * turn — "Zero Cross-Contamination": a PDF request loads ONLY the pdf skill,
+ * never xlsx/pptx/docx. Resume pairs resume-builder + pdf. The html-viewer
+ * modality only fires when NO file modality matched (interactive in-chat
+ * artifact, no download deliverable).
+ */
+export type DocModality = "powerbi" | "pptx" | "xlsx" | "docx" | "resume" | "pdf";
+
+const DOC_MODALITIES: { modality: DocModality; primary: string; companions: string[] }[] = [
+  { modality: "powerbi", primary: "powerbi", companions: ["d3-js-visualization", "motherduck-duckdb-sql"] },
+  { modality: "pptx", primary: "pptx", companions: [] },
+  { modality: "xlsx", primary: "xlsx", companions: [] },
+  { modality: "docx", primary: "docx", companions: [] },
+  { modality: "resume", primary: "resume-builder", companions: ["pdf"] },
+  { modality: "pdf", primary: "pdf", companions: [] },
+];
+
+const HTML_COMPANIONS = ["frontend-design", "web-artifacts-builder"];
+
+const PDF_CONTRACT = `<output_contract_pdf>
+Produce a printable PDF document: one short intro sentence, then ONE \`\`\`html fence containing a complete self-contained HTML document (inline CSS, inline SVG charts; no external CDN unless a chart library truly needs it).
+- Semantic structure: <h1> title, <h2>/<h3> sections, .card blocks, .chart-container wrappers, real <table> with <thead>.
+- The engine injects mandatory A4 print CSS (@page size A4 margin 14mm; break-inside:avoid on .card/.chart-container/table/tr/blockquote/pre; break-after:avoid on h1-h4; thead table-header-group) — never fight page breaks with fixed heights or absolute positioning.
+- Charts: inline SVG sized in %/viewBox inside .chart-container so they never clip or orphan.
+- The viewer shows the document live; Download renders A4 PDF via headless Chromium. On an edit request re-emit the whole corrected \`\`\`html fence.
+</output_contract_pdf>`;
+
+const RESUME_CONTRACT = `<output_contract_resume>
+Produce an ATS-friendly 1-2 page resume: one short intro sentence, then ONE \`\`\`resume fence with ONE JSON object:
+{"basics":{"name","title","email","phone","location","links":[{"label","url"}],"summary"},"sections":[{"id","title","items":[{"heading","subheading","dateLocation","keywords":[...],"bullets":[...]}]}]}
+- NEVER invent facts — ask for missing contact/employment details first. Section order: summary, experience, education, skills.
+- The engine renders ATS-clean single-column text HTML (no graphics/columns/tables) and exports A4 PDF. On an edit request re-emit the whole corrected \`\`\`resume fence.
+</output_contract_resume>`;
+
+const DOCX_CONTRACT = `<output_contract_docx>
+Produce a Word (.docx) deliverable: one short intro sentence, then ONE \`\`\`docx fence with ONE JSON object:
+{"filename","title","author","sections":[{"type":"heading","level":1,"text"},{"type":"paragraph","text"},{"type":"bullets","items":[...]},{"type":"table","headers":[...],"rows":[[...]]},{"type":"chart","title","chart":{"type":"bar|line|pie|donut|area","categories":[...],"series":[{"name","data":[...]}]}}]}
+- Real HeadingLevel hierarchy; table header shading (ShadingType.CLEAR); charts become high-res 2x images with keepLines/keepNext so captions never orphan from them.
+- The engine enforces 1440 DXA/inch page geometry and explicit cell padding. On an edit request re-emit the whole corrected \`\`\`docx fence.
+</output_contract_docx>`;
+
+const XLSX_CONTRACT = `<output_contract_xlsx>
+Produce an Excel (.xlsx) workbook: one short intro sentence, then ONE \`\`\`xlsx fence with ONE JSON object:
+{"filename","sheets":[{"name","freezeHeader":true,"totalRow":true,"columns":[{"key","label","width","format":"currency|percent|date|number|integer|text","validation":{"type":"list","values":[...]}},{"key","label","format":"number","validation":{"type":"decimal","min":0,"max":1}}],"rows":[{"<key>":value}]}]}
+- ZERO null/blank cells: numeric columns default 0, text defaults "N/A".
+- 100% live formulas: every computed cell MUST be a formula string starting with "=" (SUM/AVERAGE/IF/IFERROR/ROUND/INDEX/MATCH/SUMIF...); never hardcode a result. Post-2007 functions need the _xlfn. prefix (e.g. _xlfn.IFS).
+- The engine adds freeze panes A2, auto-fit column widths, number formats ($#,##0.00 / 0.0% / yyyy-mm-dd) and runs a headless recalculation: any #REF!/#DIV/0!/#VALUE!/#NAME?/#N/A fails the build — keep ranges and refs correct the first time.
+</output_contract_xlsx>`;
+
+const PPTX_CONTRACT = `<output_contract_pptx>
+Produce a PowerPoint (.pptx) deck at the INSANE animation tier BY DEFAULT — only use "normal" or "simple" if the user explicitly says simple / low animations / more text. One short intro sentence, then ONE \`\`\`pptx fence with ONE JSON object:
+{"filename","title","tier":"insane","theme":{"bg":"#0A0A0A","accent":"#38E8FF","positive":"#22C55E"},"slides":[{"layout":"title|hero|stats|split|spotlight|chart|table|bullets","title","subtitle","bullets":[...],"stats":[{"label","value","suffix"}],"chart":{"type":"bar|line|area|donut","categories":[...],"series":[{"name","data":[...]}]},"table":{"headers":[...],"rows":[[...]]},"morphGroup":"hero"}]}
+- 8-14 slides, one big idea per slide, huge type, dark executive theme, real numbers from the conversation.
+- Tag shapes that should morph across consecutive slides with the SAME "morphGroup" value; the engine injects <p159:morph option="byObject"/> transitions, !!-paired shape names and the signature patterns: split-mask entry (rot 270→0), stat crop-fill (srcRect 100%→target), moving spotlight cutout + camera pan 100%→108%.
+</output_contract_pptx>`;
+
+const POWERBI_CONTRACT = `<output_contract_powerbi>
+Follow the powerbi core skill for the full \`\`\`powerbi fence spec. Emit exactly ONE \`\`\`powerbi fence: sanitized dataset (columns+rows), DAX measures (base SUM measure, Margin % via DIVIDE, YoY Growth % via CALCULATE+DATEADD), visuals (kpi/bar/area/donut/waterfall/table), slicers, "theme":"dark". The engine builds the .pbip/.pbit package (TMDL + PBIR) and the live 60fps cross-filtering preview. On an edit request re-emit the whole corrected \`\`\`powerbi fence.
+</output_contract_powerbi>`;
+
+const HTML_CONTRACT = `<output_contract_html>
+Produce ONE interactive HTML artifact: one short intro sentence, then ONE \`\`\`html fence — a complete self-contained document following the html-viewer skill (page #000000, cards #0D0D0D-#141414 with 1px #262626 borders, text #FFFFFF/#A1A1AA, positive #22C55E, highlight #38E8FF; body margin 0; NO fixed height on html/body; animate ONLY transform/opacity at 60fps — Framer Motion ESM CDN or hardware-accelerated CSS springs; zero layout shift).
+- The artifact renders in a chrome-less auto-sizing dark viewer with full pass-through interactivity; Download offers HTML + PDF.
+- On an edit request re-emit the whole corrected \`\`\`html fence so the preview regenerates in place.
+</output_contract_html>`;
+
+const DOC_CONTRACTS: Record<DocModality, string> = {
+  powerbi: POWERBI_CONTRACT,
+  pptx: PPTX_CONTRACT,
+  xlsx: XLSX_CONTRACT,
+  docx: DOCX_CONTRACT,
+  resume: RESUME_CONTRACT,
+  pdf: PDF_CONTRACT,
+};
+
+export type CoreCategory = "3d" | "architecture" | "documents" | "html" | null;
 
 export interface CoreRoutingResult {
   usedSkills: string[];
@@ -218,6 +294,10 @@ async function loadCoreBundle(root: string, skillName: string): Promise<string |
 export interface CoreSelection {
   skillNames: string[];
   categories: Exclude<CoreCategory, null>[];
+  /** The single file modality that fired (documents category), if any. */
+  modality: DocModality | null;
+  /** Output-contract blocks to inject (one per fired category). */
+  contracts: string[];
 }
 
 /**
@@ -246,12 +326,14 @@ export function selectCoreSkills(
 
   const categories: Exclude<CoreCategory, null>[] = [];
   const skillNames: string[] = [];
+  const contracts: string[] = [];
   const push = (name: string) => {
     if (installed.has(name) && !skillNames.includes(name)) skillNames.push(name);
   };
 
   if (r3fScore > 0 || threeScore > 0) {
     categories.push("3d");
+    contracts.push(THREE_CONTRACT);
     if (r3fScore > 0) {
       R3F_BASE.forEach(push);
       for (const name of R3F_CONDITIONAL) {
@@ -275,12 +357,46 @@ export function selectCoreSkills(
 
   if (archScore > 0) {
     categories.push("architecture");
+    contracts.push(ARCH_CONTRACT);
     for (const name of ARCH_SKILLS) {
       if (matchCount(name) > 0) push(name);
     }
   }
 
-  return { skillNames, categories };
+  // --- Document modality: exactly ONE file modality per turn (Zero
+  // Cross-Contamination: a PDF request loads ONLY pdf, never xlsx/pptx).
+  // Highest keyword score wins; DOC_MODALITIES order breaks ties
+  // (powerbi > pptx > xlsx > docx > resume > pdf).
+  let modality: DocModality | null = null;
+  let bestScore = 0;
+  for (const m of DOC_MODALITIES) {
+    const score = matchCount(m.primary);
+    if (score > bestScore) {
+      bestScore = score;
+      modality = m.modality;
+    }
+  }
+  if (modality) {
+    const spec = DOC_MODALITIES.find((m) => m.modality === modality)!;
+    categories.push("documents");
+    push(spec.primary);
+    spec.companions.forEach(push);
+    contracts.push(DOC_CONTRACTS[modality]);
+  } else if (matchCount("html-viewer") > 0) {
+    // Interactive in-chat artifact, no file deliverable.
+    categories.push("html");
+    push("html-viewer");
+    HTML_COMPANIONS.forEach(push);
+    if (matchCount("d3-js-visualization") > 0) push("d3-js-visualization");
+    if (matchCount("mermaid-diagram-builder") > 0) push("mermaid-diagram-builder");
+    contracts.push(HTML_CONTRACT);
+  } else if (matchCount("mermaid-diagram-builder") > 0) {
+    // Standalone diagram request: mermaid fence, no document/html contract.
+    categories.push("architecture");
+    push("mermaid-diagram-builder");
+  }
+
+  return { skillNames, categories, modality, contracts };
 }
 
 /** Insert after the leading run of system messages so chat templates keep it. */
@@ -326,10 +442,10 @@ export async function applyCoreSkillRouting(
   }
   if (usedSkills.length === 0) return { usedSkills: [], category: null };
 
-  for (const category of selection.categories) {
-    blocks.push(category === "3d" ? THREE_CONTRACT : ARCH_CONTRACT);
-  }
-  const categoryLabel = selection.categories.join("+");
+  for (const contract of selection.contracts) blocks.push(contract);
+  const categoryLabel = selection.modality
+    ? selection.categories.join("+") + ":" + selection.modality
+    : selection.categories.join("+");
   insertSystemMessage(payload, '<core_skill_routing category="' + categoryLabel + '" lazy="true">\n' + blocks.join("\n\n") + "\n</core_skill_routing>");
 
   return { usedSkills, category: selection.categories[0] ?? null };

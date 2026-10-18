@@ -500,8 +500,23 @@ test.describe("Stress: ThreeStudioViewer mecha bust fidelity (visible)", () => {
     await page.goto("http://localhost:3000/");
     await step(page, "🧪 STRESS: Submitting the Mecha Strike Helmet & Arc Core Bust prompt...");
     await sendPrompt(page, MECHA_PROMPT);
-    await expect(page.locator('[data-testid="scene3d-stage"]')).toBeVisible({ timeout: 40000 });
+    const stage = page.locator('[data-testid="scene3d-stage"]');
+    await expect(stage).toBeVisible({ timeout: 40000 });
     await expect(page.locator('[data-testid="threejs-code-error"]')).toHaveCount(0);
+    // Keep the stage inside the viewport so the render loop stays unparked
+    // (IntersectionObserver parks it off-screen; the pixel probe needs live frames).
+    await stage.scrollIntoViewIfNeeded();
+    // The engine handle is published mid-mount, BEFORE the async codeRunner
+    // import applies the fence content — under full-suite load the first
+    // evaluate could hit `__studioViewer === undefined`. Gate on the scene
+    // actually carrying the contract's named meshes before reading it.
+    await page.waitForFunction(() => {
+      const v = (window as any).__studioViewer;
+      if (!v?.scene) return false;
+      let named = 0;
+      v.scene.traverse((o: any) => { if (o.isMesh && o.name) named++; });
+      return named >= 16;
+    }, null, { timeout: 60000 });
 
     await step(page, "🧪 STRESS: Counting named sub-meshes — the 3D contract demands 12–25 distinct parts...");
     const named = await page.evaluate(() => {

@@ -1,0 +1,15 @@
+{
+  "skillName": "d3-js-visualization",
+  "sourceRepo": "chrisvoncsefalvay/claude-d3js-skill",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "Custom interactive D3 charts inside an HTML artifact or Power BI preview.",
+  "triggerKeywords": [
+    "d3",
+    "d3.js",
+    "custom chart",
+    "interactive chart",
+    "data visualization"
+  ],
+  "blockedReason": null
+}

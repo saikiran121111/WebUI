@@ -1,0 +1,18 @@
+{
+  "skillName": "powerbi",
+  "sourceRepo": "composite",
+  "enabled": true,
+  "autoUse": true,
+  "whenToUse": "User asks for a Power BI report / dashboard / semantic model from data (CSV or dataset).",
+  "triggerKeywords": [
+    "power bi",
+    "powerbi",
+    "pbix",
+    "pbip",
+    "pbit",
+    "business intelligence",
+    "bi dashboard",
+    "semantic model"
+  ],
+  "blockedReason": null
+}
