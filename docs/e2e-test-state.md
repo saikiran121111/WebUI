@@ -124,6 +124,10 @@
   KNOWN FLAKE: conversations-live-chat "New does not duplicate" timed out
   once inside a 6-spec batch (sidebar row vanished after toHaveCount(1) —
   load-induced re-render under slowMo-300 batch pressure); passes solo.
+- 2026-10-18 (sticky select toolbar fix, LOCKED): `multi-select-delete.spec.ts`
+  extended with scroll-visibility guard (scroll `conversation-list` to bottom →
+  `select-mode-toggle` + `select-all` MUST stay visible) → 2/2 (9.4s). Toolbar
+  now lives outside the scroll container in `components/ui/Sidebar.tsx`.
 - playwright-cli `app-dev` browser verification (2026-10-18): use
   **project-local `npx playwright cli`** — the globally installed CLI expects
   chromium-1247 while the repo cache has chromium-1243. GOTCHAS: the

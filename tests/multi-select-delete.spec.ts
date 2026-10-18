@@ -41,6 +41,14 @@ test.describe("sidebar multi-select delete", () => {
     await expect(modeButton).toHaveText(`Delete ${total}`);
     await expect(page.locator('[data-testid="select-all"]')).toHaveText("Deselect all");
 
+    // The toolbar (Select all / Delete) stays visible while the list scrolls —
+    // no need to scroll back to the top to delete.
+    const list = page.getByTestId("conversation-list");
+    await list.evaluate(el => el.scrollTo({ top: el.scrollHeight }));
+    await expect(modeButton).toBeVisible();
+    await expect(page.locator('[data-testid="select-all"]')).toBeVisible();
+    await list.evaluate(el => el.scrollTo({ top: 0 }));
+
     // Delete → confirm dialog → Cancel keeps everything.
     await modeButton.click();
     const dialog = page.locator("text=/Delete .* conversation/");

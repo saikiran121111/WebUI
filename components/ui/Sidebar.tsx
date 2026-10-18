@@ -102,38 +102,39 @@ export default function Sidebar({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
-          <div className="flex items-center justify-between px-2 pt-1.5 min-h-[24px]">
-            {selectMode && (
-              <button
-                onClick={toggleSelectAll}
-                data-testid="select-all"
-                className="flex items-center gap-1.5 text-[11px] font-medium
-                  text-white/45 hover:text-white/75 transition-colors"
-              >
-                <SelectCheckbox checked={allSelected} />
-                {allSelected ? "Deselect all" : "Select all"}
-              </button>
-            )}
+        <div className="flex items-center justify-between px-4 pb-1.5 min-h-[24px]">
+          {selectMode && (
             <button
-              data-testid="select-mode-toggle"
-              onClick={() => {
-                if (!selectMode) { setSelectMode(true); return; }
-                if (selected.size === 0) { exitSelectMode(); return; }
-                onDeleteSelected([...selected]);
-              }}
-              className={cn(
-                "ml-auto text-[11px] font-medium px-2 py-1 rounded-md transition-colors",
-                selectMode && selected.size > 0
-                  ? "text-red-400 hover:bg-red-500/10"
-                  : "text-white/45 hover:text-white/75",
-              )}
+              onClick={toggleSelectAll}
+              data-testid="select-all"
+              className="flex items-center gap-1.5 text-[11px] font-medium
+                text-white/45 hover:text-white/75 transition-colors"
             >
-              {selectMode && selected.size > 0
-                ? `Delete ${selected.size}`
-                : selectMode ? "Cancel" : "Select"}
+              <SelectCheckbox checked={allSelected} />
+              {allSelected ? "Deselect all" : "Select all"}
             </button>
-          </div>
+          )}
+          <button
+            data-testid="select-mode-toggle"
+            onClick={() => {
+              if (!selectMode) { setSelectMode(true); return; }
+              if (selected.size === 0) { exitSelectMode(); return; }
+              onDeleteSelected([...selected]);
+            }}
+            className={cn(
+              "ml-auto text-[11px] font-medium px-2 py-1 rounded-md transition-colors",
+              selectMode && selected.size > 0
+                ? "text-red-400 hover:bg-red-500/10"
+                : "text-white/45 hover:text-white/75",
+            )}
+          >
+            {selectMode && selected.size > 0
+              ? `Delete ${selected.size}`
+              : selectMode ? "Cancel" : "Select"}
+          </button>
+        </div>
+
+        <div data-testid="conversation-list" className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
           {pinned.length > 0 && (
             <div className="px-2 py-1.5 mt-1 text-[10px] font-semibold text-white/30 uppercase tracking-widest">
               Pinned

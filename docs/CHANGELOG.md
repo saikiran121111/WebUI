@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-10-18 — Fix: sidebar Select all / Delete toolbar scrolled out of view
+- `components/ui/Sidebar.tsx`: the select-mode toolbar (Select all / Delete N /
+  Cancel / Select) lived INSIDE the `overflow-y-auto` conversation list, so
+  after scrolling down to tick items users had to scroll back up to delete.
+  Toolbar moved OUT of the scroll container, pinned directly under the search
+  box (same fixed position as search). Scroll container now carries
+  `data-testid="conversation-list"` as an explicit test contract.
+- `tests/multi-select-delete.spec.ts`: new assertion — scroll list to bottom,
+  `select-mode-toggle` + `select-all` MUST stay visible. Proven: 2/2 HEADED
+  (`npx playwright test tests/multi-select-delete.spec.ts`, 9.4s).
+
 ## 2026-10-17 — Fix: 3D viewport rendered solid black + dock controls only toggled React state
 - Two stacked root causes for the black canvas (HUD said 180 FPS · 180 meshes
   yet pixels were all #000):
