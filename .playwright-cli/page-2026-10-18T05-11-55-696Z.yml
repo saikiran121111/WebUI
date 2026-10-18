@@ -1,0 +1,296 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - button "New conversation" [ref=f1e5] [cursor=pointer]
+        - textbox "Search…" [ref=f1e12]
+      - generic [ref=f1e13]:
+        - button "Select" [ref=f1e15] [cursor=pointer]
+        - generic [ref=f1e69]: Conversations
+        - generic [ref=f1e70] [cursor=pointer]:
+          - generic [ref=f1e73]: Create a clean 1-page ATS-friendly AI En
+          - button "More actions" [ref=f1e75]
+        - generic [ref=f1e80] [cursor=pointer]:
+          - generic [ref=f1e83]: Create an insane animated PowerPoint pre
+          - button "More actions" [ref=f1e85]
+        - generic [ref=f1e90] [cursor=pointer]:
+          - generic [ref=f1e93]: Build an Excel financial model for a Saa
+          - button "More actions" [ref=f1e95]
+        - generic [ref=f1e100] [cursor=pointer]:
+          - generic [ref=f1e103]: Show a clean dark-mode routing architect
+          - button "More actions" [ref=f1e105]
+        - generic [ref=f1e110] [cursor=pointer]:
+          - generic [ref=f1e113]: Give me a Word document analyzing Q3 clo
+          - button "More actions" [ref=f1e115]
+        - generic [ref=f1e120] [cursor=pointer]:
+          - generic [ref=f1e123]: "Here is a quarterly sales CSV: [paste CS"
+          - button "More actions" [ref=f1e125]
+        - generic [ref=f1e130] [cursor=pointer]:
+          - generic [ref=f1e133]: Generate a 3-page AI Infrastructure Benc
+          - button "More actions" [ref=f1e135]
+      - generic [ref=f1e17]: Local-first — your data stays on this device
+    - main [ref=f1e19]:
+      - generic [ref=f1e20]:
+        - generic [ref=f1e21]:
+          - button "Toggle sidebar" [ref=f1e22] [cursor=pointer]
+          - button "New conversation" [ref=f1e25] [cursor=pointer]: New
+        - generic [ref=f1e28]:
+          - generic [ref=f1e29]: "Reasoning: medium"
+          - generic [ref=f1e31]: Local
+      - generic [ref=f1e33]:
+        - generic [ref=f1e143]:
+          - paragraph [ref=f1e146]: Generate a 3-page AI Infrastructure Benchmark PDF report with latency vs. throughput charts, quantization comparison tables, and executive summary.
+          - button "Edit message" [ref=f1e147] [cursor=pointer]
+        - generic [ref=f1e152]:
+          - generic [ref=f1e153]: Thought for <1s
+          - button "View reasoning" [ref=f1e159] [cursor=pointer]
+          - generic [ref=f1e165]:
+            - paragraph [ref=f1e166]: "Here is the 3-page benchmark report. Note: the figures shown are illustrative sample data — swap in your own run results where marked."
+            - generic [ref=f1e167]:
+              - iframe [ref=f1e169]:
+                - generic [ref=f2e1]:
+                  - generic [ref=f2e2]:
+                    - heading "AI Infrastructure Benchmark Report" [level=1] [ref=f2e3]
+                    - generic [ref=f2e4]: "LLM Serving Performance: Latency, Throughput & Quantization Efficiency"
+                    - generic [ref=f2e5]:
+                      - generic [ref=f2e6]:
+                        - text: Report ID
+                        - generic [ref=f2e7]: BENCH-2025-Q3-014
+                      - generic [ref=f2e8]:
+                        - text: Test Window
+                        - generic [ref=f2e9]: Jul 1 – Aug 15, 2025
+                      - generic [ref=f2e10]:
+                        - text: Hardware
+                        - generic [ref=f2e11]: NVIDIA H100 SXM (80 GB)
+                      - generic [ref=f2e12]:
+                        - text: Serving Stack
+                        - generic [ref=f2e13]: vLLM 0.6 · TensorRT-LLM 0.15
+                  - heading "1. Executive Summary" [level=2] [ref=f2e14]
+                  - generic [ref=f2e15]:
+                    - paragraph [ref=f2e16]:
+                      - text: This benchmark evaluates seven model/precision configurations across two model classes (70B-class dense/MoE and 8B dense) on H100 SXM hardware, measuring time-to-first-token (TTFT) latency and sustained decode throughput at batch size 64 with 2K input / 1K output token workloads.
+                      - emphasis [ref=f2e17]: Figures below are illustrative sample data pending final run confirmation.
+                    - generic [ref=f2e18]:
+                      - generic [ref=f2e19]:
+                        - generic [ref=f2e20]: 3.6×
+                        - generic [ref=f2e21]: Throughput gain FP16→INT4 (70B)
+                        - generic [ref=f2e22]: ▲ 210 → 760 tok/s
+                      - generic [ref=f2e23]:
+                        - generic [ref=f2e24]: −58%
+                        - generic [ref=f2e25]: TTFT reduction (70B FP8)
+                        - generic [ref=f2e26]: ▲ 620 → 340 ms
+                      - generic [ref=f2e27]:
+                        - generic [ref=f2e28]: −1.8%
+                        - generic [ref=f2e29]: Avg. MMLU drop (INT4 AWQ)
+                        - generic [ref=f2e30]: ▼ vs FP16 baseline
+                      - generic [ref=f2e31]:
+                        - generic [ref=f2e32]: $0.41
+                        - generic [ref=f2e33]: Cost / 1M tokens (70B INT4)
+                        - generic [ref=f2e34]: ▲ vs $1.87 FP16
+                    - generic [ref=f2e35]: "Headline finding: FP8 serving of 70B-class models hits the best latency/quality balance (−58% TTFT, <0.5% quality delta), while INT4 AWQ delivers the lowest cost per token at an acceptable 1–2% quality cost. MXFP4 on MoE architectures (GPT-OSS-120B) outperforms same-size dense INT4 on latency and should be preferred for new MoE deployments."
+                    - heading "Key Recommendations" [level=3] [ref=f2e36]
+                    - list [ref=f2e37]:
+                      - listitem [ref=f2e38]: "Production chat (70B-class): standardize on FP8 — near-lossless quality, 2.3× throughput, halves GPU count vs FP16."
+                      - listitem [ref=f2e39]: "High-volume batch / offline: INT4 AWQ for 70B where a 1–2% eval delta is tolerable; 4.6× cost efficiency vs FP16."
+                      - listitem [ref=f2e40]: "Latency-critical agents: 8B-class INT4 (70 ms TTFT, 1,380 tok/s) or distill; avoid 70B FP16 in interactive paths."
+                      - listitem [ref=f2e41]: Retire INT8 W8A8 for decoder-only LLMs — dominated by FP8 on every axis measured.
+                  - heading "2. Test Methodology" [level=2] [ref=f2e42]
+                  - table [ref=f2e44]:
+                    - rowgroup [ref=f2e45]:
+                      - row [ref=f2e46]:
+                        - columnheader "Parameter" [ref=f2e47]
+                        - columnheader "Setting" [ref=f2e48]
+                        - columnheader "Parameter" [ref=f2e49]
+                        - columnheader "Setting" [ref=f2e50]
+                    - rowgroup [ref=f2e51]:
+                      - row [ref=f2e52]:
+                        - cell "Hardware" [ref=f2e53]
+                        - cell "H100 SXM 80 GB (1× or 8×, NVLink)" [ref=f2e54]
+                        - cell "Batch size" [ref=f2e55]
+                        - cell "64 continuous batching" [ref=f2e56]
+                      - row [ref=f2e57]:
+                        - cell "Workload" [ref=f2e58]
+                        - cell "2,048 in / 1,024 out tokens" [ref=f2e59]
+                        - cell "Concurrency ramp" [ref=f2e60]
+                        - cell "1 → 128 requests" [ref=f2e61]
+                      - row [ref=f2e62]:
+                        - cell "Frameworks" [ref=f2e63]
+                        - cell "vLLM 0.6, TensorRT-LLM 0.15" [ref=f2e64]
+                        - cell "Metrics" [ref=f2e65]
+                        - cell "TTFT (p50), decode tok/s, VRAM" [ref=f2e66]
+                      - row [ref=f2e67]:
+                        - cell "Quality suites" [ref=f2e68]
+                        - cell "MMLU, HumanEval, GSM8K" [ref=f2e69]
+                        - cell "Duration" [ref=f2e70]
+                        - cell "6 h sustained per config" [ref=f2e71]
+                  - heading "3. Latency vs. Throughput" [level=2] [ref=f2e72]
+                  - generic [ref=f2e73]:
+                    - generic [ref=f2e74]:
+                      - img "Scatter plot of TTFT latency versus decode throughput per configuration" [ref=f2e75]:
+                        - generic [ref=f2e76]: TTFT (p50, ms) vs. Sustained Decode Throughput (tok/s)
+                        - generic [ref=f2e78]:
+                          - generic [ref=f2e79]: "0"
+                          - generic [ref=f2e80]: "300"
+                          - generic [ref=f2e81]: "600"
+                          - generic [ref=f2e82]: "900"
+                          - generic [ref=f2e83]: "1200"
+                          - generic [ref=f2e84]: "1500"
+                          - generic [ref=f2e85]: "0"
+                          - generic [ref=f2e86]: "175"
+                          - generic [ref=f2e87]: "350"
+                          - generic [ref=f2e88]: "525"
+                          - generic [ref=f2e89]: "700"
+                          - generic [ref=f2e90]: Decode throughput (tokens/sec, aggregate)
+                          - generic [ref=f2e91]: TTFT p50 (ms)
+                        - generic [ref=f2e100]:
+                          - generic [ref=f2e101]: 70B FP16
+                          - generic [ref=f2e102]: 70B FP8
+                          - generic [ref=f2e103]: 70B INT4
+                          - generic [ref=f2e104]: Mixtral FP8
+                          - generic [ref=f2e105]: GPT-OSS MXFP4
+                          - generic [ref=f2e106]: 8B FP16
+                          - generic [ref=f2e107]: 8B INT4
+                      - generic [ref=f2e108]:
+                        - generic [ref=f2e109]: 70B FP16 (8×H100)
+                        - generic [ref=f2e110]: 70B FP8 (8×H100)
+                        - generic [ref=f2e111]: 70B INT4 AWQ (4×H100)
+                        - generic [ref=f2e112]: Mixtral 8×7B FP8
+                        - generic [ref=f2e113]: GPT-OSS-120B MXFP4
+                        - generic [ref=f2e114]: 8B dense (1×H100)
+                      - generic [ref=f2e115]: Dashed line marks the Pareto frontier — configurations below/right dominate on both axes. 70B FP16 sits far off the frontier; quantization moves every 70B config onto it.
+                    - generic [ref=f2e116]: "Reading the frontier: moving 70B from FP16 → FP8 buys 270 ms of TTFT and +270 tok/s at zero measurable quality cost. The next step to INT4 adds another +280 tok/s but crosses into the 1–2% quality-delta zone (Section 4)."
+                  - heading "4. Throughput by Quantization Format" [level=2] [ref=f2e117]
+                  - generic [ref=f2e119]:
+                    - img "Grouped bar chart of decode throughput by quantization format for 70B and 8B models" [ref=f2e120]:
+                      - generic [ref=f2e121]: Aggregate Decode Throughput (tok/s) by Precision — Batch 64
+                      - generic [ref=f2e123]:
+                        - generic [ref=f2e124]: "0"
+                        - generic [ref=f2e125]: "500"
+                        - generic [ref=f2e126]: "1000"
+                        - generic [ref=f2e127]: "1500"
+                        - generic [ref=f2e128]: "2000"
+                        - generic [ref=f2e129]: "2500"
+                      - generic [ref=f2e142]:
+                        - generic [ref=f2e143]: "210"
+                        - generic [ref=f2e144]: "480"
+                        - generic [ref=f2e145]: "430"
+                        - generic [ref=f2e146]: "760"
+                        - generic [ref=f2e147]: "690"
+                        - generic [ref=f2e148]: "1250"
+                        - generic [ref=f2e149]: "1980"
+                        - generic [ref=f2e150]: "1740"
+                        - generic [ref=f2e151]: "2450"
+                        - generic [ref=f2e152]: "2260"
+                      - generic [ref=f2e153]:
+                        - generic [ref=f2e154]: FP16
+                        - generic [ref=f2e155]: FP8
+                        - generic [ref=f2e156]: INT8
+                        - generic [ref=f2e157]: INT4
+                        - generic [ref=f2e158]: MXFP4
+                        - generic [ref=f2e159]: FP16
+                        - generic [ref=f2e160]: FP8
+                        - generic [ref=f2e161]: INT8
+                        - generic [ref=f2e162]: INT4
+                        - generic [ref=f2e163]: MXFP4
+                        - generic [ref=f2e164]: 70B-class (8×H100; INT4 on 4×H100)
+                        - generic [ref=f2e165]: 8B dense (1×H100)
+                    - generic [ref=f2e166]: "Quantization gains are super-linear at 70B scale (memory-bandwidth bound): INT4 yields 3.6× FP16 throughput while using half the GPUs."
+                  - heading "5. Quantization Comparison Matrix" [level=2] [ref=f2e167]
+                  - generic [ref=f2e168]:
+                    - table [ref=f2e169]:
+                      - rowgroup [ref=f2e170]:
+                        - row [ref=f2e171]:
+                          - columnheader "Format" [ref=f2e172]
+                          - columnheader "Weights" [ref=f2e173]
+                          - columnheader "70B VRAM" [ref=f2e174]
+                          - columnheader "MMLU Δ" [ref=f2e175]
+                          - columnheader "HumanEval Δ" [ref=f2e176]
+                          - columnheader "GSM8K Δ" [ref=f2e177]
+                          - columnheader "70B tok/s" [ref=f2e178]
+                          - columnheader "TTFT p50" [ref=f2e179]
+                          - columnheader "Verdict" [ref=f2e180]
+                      - rowgroup [ref=f2e181]:
+                        - row [ref=f2e182]:
+                          - cell "FP16 / BF16" [ref=f2e183]
+                          - cell "16-bit" [ref=f2e184]
+                          - cell "141 GB" [ref=f2e185]
+                          - cell "baseline" [ref=f2e186]
+                          - cell "baseline" [ref=f2e187]
+                          - cell "baseline" [ref=f2e188]
+                          - cell "210" [ref=f2e189]
+                          - cell "620 ms" [ref=f2e190]
+                          - cell "Baseline only" [ref=f2e191]
+                        - row [ref=f2e193]:
+                          - cell "FP8 (E4M3)" [ref=f2e194]
+                          - cell "8-bit float" [ref=f2e195]
+                          - cell "71 GB" [ref=f2e196]
+                          - cell "−0.3%" [ref=f2e197]
+                          - cell "−0.5%" [ref=f2e198]
+                          - cell "−0.4%" [ref=f2e199]
+                          - cell "480" [ref=f2e200]
+                          - cell "340 ms" [ref=f2e201]
+                          - cell "Best balance" [ref=f2e202]
+                        - row [ref=f2e204]:
+                          - cell "INT8 (W8A8)" [ref=f2e205]
+                          - cell "8-bit int" [ref=f2e206]
+                          - cell "71 GB" [ref=f2e207]
+                          - cell "−0.9%" [ref=f2e208]
+                          - cell "−1.6%" [ref=f2e209]
+                          - cell "−1.8%" [ref=f2e210]
+                          - cell "430" [ref=f2e211]
+                          - cell "365 ms" [ref=f2e212]
+                          - cell "Dominated" [ref=f2e213]
+                        - row [ref=f2e215]:
+                          - cell "INT4 (AWQ)" [ref=f2e216]
+                          - cell "4-bit int" [ref=f2e217]
+                          - cell "38 GB" [ref=f2e218]
+                          - cell "−1.8%" [ref=f2e219]
+                          - cell "−3.9%" [ref=f2e220]
+                          - cell "−2.7%" [ref=f2e221]
+                          - cell "760" [ref=f2e222]
+                          - cell "260 ms" [ref=f2e223]
+                          - cell "Cost-optimized" [ref=f2e224]
+                        - row [ref=f2e226]:
+                          - cell "MXFP4 (MoE)" [ref=f2e227]
+                          - cell "4-bit microscaling" [ref=f2e228]
+                          - cell "62 GB*" [ref=f2e229]
+                          - cell "−0.7%" [ref=f2e230]
+                          - cell "−1.1%" [ref=f2e231]
+                          - cell "−1.2%" [ref=f2e232]
+                          - cell "690" [ref=f2e233]
+                          - cell "180 ms" [ref=f2e234]
+                          - cell "Best for MoE" [ref=f2e235]
+                    - generic [ref=f2e237]: "*GPT-OSS-120B MoE: 62 GB active-weight footprint after expert offload policy. Δ values vs FP16 baseline on same checkpoint. Sample data — replace with final run figures."
+                  - heading "6. Findings & Risk Notes" [level=2] [ref=f2e238]
+                  - generic [ref=f2e239]:
+                    - heading "What the data shows" [level=3] [ref=f2e240]
+                    - list [ref=f2e241]:
+                      - listitem [ref=f2e242]: FP8 is effectively free. Quality deltas (<0.5%) fall within run-to-run variance; 2.3× throughput and halved VRAM make it the default for 70B-class serving.
+                      - listitem [ref=f2e243]: INT4 trades reasoning for speed. HumanEval drops 3.9% — the largest regression in the matrix. Acceptable for retrieval-heavy and extraction workloads; not recommended for code-generation paths.
+                      - listitem [ref=f2e244]: MoE + microscaling is the latency winner. GPT-OSS-120B MXFP4 posts the lowest 70B-class TTFT (180 ms) despite more total parameters, because active-parameter decode is bandwidth-cheap.
+                      - listitem [ref=f2e245]: INT8 W8A8 has no winning region. Slower and lower-quality than FP8 at identical memory cost on Hopper hardware.
+                    - heading "Risks & caveats" [level=3] [ref=f2e246]
+                    - list [ref=f2e247]:
+                      - listitem [ref=f2e248]: "INT4 calibration sensitivity: AWQ quality delta ranged 1.2–2.4% across calibration sets; re-calibrate per domain before rollout."
+                      - listitem [ref=f2e249]: Long-context (>32K) results not covered here; KV-cache quantization (FP8 KV) is a separate track, planned for Q4.
+                      - listitem [ref=f2e250]: All figures are illustrative sample data from the pilot window; final certified numbers will be published in BENCH-2025-Q3-014-FINAL.
+                    - generic [ref=f2e251]: "Next steps: (1) promote FP8 to production fleet by Oct 15; (2) pilot INT4 AWQ on the batch-extraction pipeline; (3) schedule FP8-KV-cache long-context benchmark for Nov."
+                    - generic [ref=f2e252]: Prepared by the AI Platform Performance Team · Confidential — internal use only · Data marked illustrative must be replaced before external distribution.
+              - generic [ref=f1e170]:
+                - button "Download HTML file" [ref=f1e171] [cursor=pointer]: Download HTML
+                - button "Export as PDF" [ref=f1e172] [cursor=pointer]: Export PDF
+                - button "Fullscreen" [ref=f1e173] [cursor=pointer]
+            - paragraph [ref=f1e174]: "The document flows to exactly three A4 pages: (1) header, executive summary with KPI cards, and methodology; (2) the latency-vs-throughput scatter with Pareto frontier plus the grouped throughput-by-precision bar chart; (3) the quantization comparison matrix with verdict pills, findings, risks, and next steps. All numbers are clearly flagged as illustrative — send me your real benchmark figures and I'll swap them in."
+          - button "Copy" [ref=f1e176] [cursor=pointer]
+      - generic [ref=f1e184]:
+        - generic [ref=f1e185]:
+          - textbox "Message…" [ref=f1e186]
+          - generic [ref=f1e187]:
+            - button "Skills" [ref=f1e188] [cursor=pointer]
+            - button "Attach file" [ref=f1e192] [cursor=pointer]
+            - button "Reasoning effort" [ref=f1e197] [cursor=pointer]
+            - button [disabled] [ref=f1e201]
+        - generic [ref=f1e205]:
+          - generic [ref=f1e206]: Enter to send · Shift+Enter for newline
+          - button "Chat" [ref=f1e207] [cursor=pointer]
+  - alert [ref=f1e68]

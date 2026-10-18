@@ -68,9 +68,19 @@ export default function HomePage() {
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
 
+  // Snapshot of the messages exactly as last loaded from / saved to disk for
+  // the active conversation. Merely *opening* a chat must not count as an
+  // update: without this guard the persist effect below re-saves on load,
+  // bumping updatedAt and yanking the row to the top of the sidebar.
+  const syncedMessagesRef = useRef<string>("");
+
   // Persist current messages on every change.
   useEffect(() => {
     if (messages.length === 0) return;
+    const snapshot = JSON.stringify(messages);
+    // Opened but not edited — skip the save so updatedAt (and the sidebar
+    // row order, which sorts by it) stays untouched until a real change.
+    if (snapshot === syncedMessagesRef.current) return;
     const convId = activeId ?? uid("c_");
     if (!activeId) setActiveId(convId);
 
@@ -88,6 +98,7 @@ export default function HomePage() {
       preview: messages[messages.length - 1]?.content?.slice(0, 80) ?? "",
       messageCount: messages.length,
     };
+    syncedMessagesRef.current = snapshot;
     saveConversation({ id: convId, meta, messages }).then(refreshList);
   }, [messages, activeId, refreshList]);
 
@@ -173,6 +184,9 @@ export default function HomePage() {
   const handleSelect = useCallback(async (id: string) => {
     const conv = await getConversation(id);
     if (conv) {
+      // Mark the loaded messages as "in sync" so the persist effect doesn't
+      // treat opening the chat as an edit (which would reorder the sidebar).
+      syncedMessagesRef.current = JSON.stringify(conv.messages ?? []);
       load(conv);
       setActiveId(id);
       setHasScrolledUp(false);

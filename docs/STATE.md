@@ -1,6 +1,16 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Sidebar reorder-on-select fix (2026-10-18, LOCKED, browser-verified):
+      selecting a conversation re-saved it via the persist effect (app/page.tsx),
+      bumping file mtime → API list (sorted by mtime desc, lib/persistence/disk.ts)
+      yanked the row to the top. Fix: `syncedMessagesRef` JSON snapshot — set in
+      handleSelect from `conv.messages`; persist effect skips save when current
+      messages stringify equal (open ≠ edit). Real changes (send/edit) still save
+      + bump to top. Verified in chromium (playwright-cli, session app-dev):
+      mid-list select stays in row & activates; send bumps to top; then test data
+      cleaned from disk (c_qsfguf2rimvdbkjcp.json junk msgs removed, mtime restored).
+      Specs green: conversations-crud (7), conversations-live-chat (2).
 - [x] CAD "text too big / going out of its box" report (2026-10-17, LOCKED,
       browser-verified): kiosk room labels rendered as RAW model-sized text
       (fontSize = entity.height → scales with zoom, spills over walls)
