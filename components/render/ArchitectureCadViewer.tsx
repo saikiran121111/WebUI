@@ -56,6 +56,7 @@ import { cadToDxf } from "../../lib/cad/svgToDxf";
 import { cadToPdf } from "../../lib/cad/pdfExport";
 import { buildCadStandaloneHtml } from "../../lib/cad/cadStandalone";
 import type { CadBimViewer } from "../../lib/cad/cadEngine";
+import Mascot from "../ui/Mascot";
 import {
   deg2rad,
   dimensionDecor,
@@ -249,6 +250,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
   const [hotspotSel, setHotspotSel] = useState<CadHotspot | null>(null);
   const [exportFmt, setExportFmt] = useState<ExportFormat>("dxf");
   const [exportNote, setExportNote] = useState("");
+  const [exportBusy, setExportBusy] = useState(false);
   const [bimStats, setBimStats] = useState<{ meshes: number; vertices: number; triangles: number } | null>(null);
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -656,6 +658,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
 
   const runExport = useCallback(async () => {
     setExportNote("");
+    setExportBusy(true);
     const { downloadBlob } = await import("../../lib/three3d/exporters");
     try {
       switch (exportFmt) {
@@ -716,6 +719,8 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
       }
     } catch (error) {
       setExportNote(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setExportBusy(false);
     }
   }, [exportFmt, spec, filename, viewMode, rasterize2d, withBim]);
 
@@ -952,7 +957,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
           <select data-testid="cad-export-format" value={exportFmt} onChange={(e) => setExportFmt(e.target.value as ExportFormat)} aria-label="Export format">
             {EXPORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <button type="button" data-testid="cad-export" className="cad-export-btn" onClick={runExport}>
+          <button type="button" data-testid="cad-export" className="cad-export-btn" onClick={runExport} disabled={exportBusy}>
             <Download size={14} /> Export
           </button>
         </div>
@@ -1337,6 +1342,9 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
         </span>
         <span>{zoomPct}% · {formatScaleLabel(scaleRatio)} · units {spec.units}</span>
         <span className="cad-status-hint">{toolHint}</span>
+        {exportBusy && (
+          <span className="cad-export-busy" data-testid="cad-export-busy"><Mascot size={18} state="working" /> Exporting…</span>
+        )}
         {exportNote && <span className="cad-export-note" data-testid="cad-export-note">{exportNote}</span>}
       </div>
     </div>

@@ -137,7 +137,7 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
     return () => window.removeEventListener("keydown", onKey);
   }, [show, spec, go]);
 
-  if (streaming) return <FencePending label="PPTX" />;
+  if (streaming) return <FencePending label="PPTX" chars={source.length} />;
   if (!spec) return <FenceBroken label="pptx" />;
 
   const n = spec.slides.length;

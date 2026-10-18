@@ -8,6 +8,8 @@
  * regeneration re-renders the preview in place with zero round-trips.
  */
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import Mascot from "../ui/Mascot";
+import { useBuildProgress } from "../ui/RobotProgress";
 
 export async function downloadDocument(endpoint: string, spec: unknown, fallbackName: string): Promise<void> {
   const res = await fetch(endpoint, {
@@ -62,6 +64,9 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
   const [fullscreen, setFullscreen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Robot toast: the download POST has no server progress channel, so the
+  // staged ramp (lib/ui/stagedProgress) stands in visually until the blob lands.
+  const { start, succeed, fail, toast } = useBuildProgress("Building " + badge);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -73,14 +78,18 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
   const onDownload = useCallback(async () => {
     setBusy(true);
     setError(null);
+    start();
     try {
       await downloadDocument(endpoint, spec, filename);
+      succeed();
     } catch (e) {
-      setError((e as Error).message);
+      const msg = (e as Error).message;
+      setError(msg);
+      fail(msg);
     } finally {
       setBusy(false);
     }
-  }, [endpoint, spec, filename]);
+  }, [endpoint, spec, filename, start, succeed, fail]);
 
   return (
     <div className={"doc-card" + (fullscreen ? " doc-card--fullscreen" : "")} data-testid={testId}>
@@ -111,16 +120,28 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
       {error && <div className="doc-card-error" role="alert">{error}</div>}
       <div className="doc-card-body">{children}</div>
       {fullscreen && <div className="doc-card-esc-hint">Press Esc to exit</div>}
+      {toast}
     </div>
   );
 }
 
 /** Shared placeholder shown while a JSON document fence is still streaming. */
-export function FencePending({ label }: { label: string }) {
+export function FencePending({ label, chars }: { label: string; chars?: number }) {
+  // The bar tracks how much of the JSON fence has streamed in (saturating at
+  // 90% — the spec only becomes valid once the fence closes).
+  const pct = chars != null && chars > 0
+    ? Math.min(90, Math.round(90 * (1 - Math.exp(-chars / 1500))))
+    : null;
   return (
     <div className="doc-pending" role="status">
+      <Mascot size={20} state="working" />
       <span className="doc-pending-dot" aria-hidden="true" />
-      Building {label} preview…
+      <span className="doc-pending-text">Building {label} preview…</span>
+      {pct != null && (
+        <span className="fence-pending-bar" aria-hidden="true">
+          <span className="fence-pending-fill" style={{ width: `${pct}%` }} />
+        </span>
+      )}
     </div>
   );
 }

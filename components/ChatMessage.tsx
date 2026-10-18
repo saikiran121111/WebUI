@@ -5,7 +5,8 @@ import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle, Zap } from "lucide-r
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { copyText } from "../lib/render/clipboard";
-import type { Message } from "../lib/types";
+import { GenerationStatus } from "./ui/RobotProgress";
+import type { ChatPhase, Message } from "../lib/types";
 
 // A user message pasted longer than this starts collapsed to a few lines —
 // people rarely re-read their own prompts, but they can expand on demand.
@@ -19,9 +20,12 @@ interface ChatMessageProps {
   onSend?: (text: string) => void;
   /** A 3D code fence reported a runtime failure — ask useChat to auto-repair it. */
   onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
+  /** Generation stage from useChat — drives the prefill/thinking status line. */
+  phase?: ChatPhase;
+  prefillEstTokens?: number | null;
 }
 
-export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRuntimeError }: ChatMessageProps) {
+export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRuntimeError, phase, prefillEstTokens }: ChatMessageProps) {
   const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error, usedSkill } = message;
   const isUser = role === "user";
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -226,15 +230,13 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         <span className="inline-block w-[2px] h-4 ml-0.5 bg-white/80 animate-pulse" />
       )}
 
-      {/* Loading dots when waiting for first token */}
-      {state === "streaming" && !content && !reasoning && (
-        <div className="flex items-center gap-1.5 py-4">
-          {[0, 1, 2].map(i => (
-            <motion.span key={i} className="w-1.5 h-1.5 rounded-full bg-white/40"
-              animate={{ scale: [1, 1.3, 1], opacity: [0.3, 0.8, 0.3] }}
-              transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }} />
-          ))}
-        </div>
+      {/* Stage-aware wait line: "Analysing the prompt…" % then "Thinking…" */}
+      {state === "streaming" && !content && (
+        <GenerationStatus
+          phase={reasoning ? "thinking" : (phase ?? "prefill")}
+          startedAt={message.createdAt}
+          estTokens={prefillEstTokens ?? null}
+        />
       )}
 
       {/* Actions */}

@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isBrokenHtmlFence } from "../../lib/documents/schemas";
 import { downloadDocument, FenceBroken, FencePending, saveBlob } from "./DocumentCard";
+import { useBuildProgress } from "../ui/RobotProgress";
 
 const MIN_H = 120;
 const MAX_H = 2400;
@@ -63,16 +64,23 @@ export default function HtmlArtifactBlock({ source, streaming }: { source: strin
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
 
-  if (streaming) return <FencePending label="HTML artifact" />;
+  // Robot toast for the slow PDF export (headless Chromium render + screenshot).
+  const { start, succeed, fail, toast: pdfToast } = useBuildProgress("Exporting PDF");
+
+  if (streaming) return <FencePending label="HTML artifact" chars={source.length} />;
   if (broken) return <FenceBroken label="html" />;
 
   const onExportPdf = async () => {
     setBusy(true);
     setError(null);
+    start();
     try {
       await downloadDocument("/api/documents/pdf", source, "artifact.pdf");
+      succeed();
     } catch (e) {
-      setError((e as Error).message);
+      const msg = (e as Error).message;
+      setError(msg);
+      fail(msg);
     } finally {
       setBusy(false);
     }
@@ -83,6 +91,7 @@ export default function HtmlArtifactBlock({ source, streaming }: { source: strin
       className={"html-artifact" + (fullscreen ? " html-artifact--fullscreen" : "")}
       data-testid="html-artifact-block"
     >
+      {pdfToast}
       <div className="html-artifact-frame" style={{ height }}>
         <iframe
           ref={frameRef}

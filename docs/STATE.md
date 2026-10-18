@@ -1,6 +1,56 @@
 # STATE
 
 ## Done (locked — do not re-read)
+- [x] Stage-aware progress + robot mascot for all waits (2026-10-18, LOCKED,
+      browser-verified): kills "looks stuck" dead time.
+      (A) PREFILL: backend emits no prefill events → client-estimated,
+      self-calibrating. `lib/ui/prefillCalibration.ts` (pure): EMA tok/s in
+      localStorage `webui.prefillTpsV1` (α=0.3, clamp 10–5000, default 200),
+      `estimatePrefillPct` saturating 0–95% cap, `estimatePromptTokens`
+      (~4 chars/token). `hooks/useChat.ts` exposes `phase: ChatPhase`
+      ("idle"|"prefill"|"thinking"|"writing", lib/types.ts) +
+      `prefillEstTokens`; send()→prefill, first ev.reasoning→thinking
+      (measures prefillMs), first ev.content→writing, ev.usage→calibrate EMA.
+      `hooks/usePrefillProgress.ts` 200ms tick. `components/ui/RobotProgress.tsx`
+      `GenerationStatus` (data-testid="generation-status", role=status) replaces
+      the 3-dot block in ChatMessage.tsx: "Analysing the prompt… N%" bar →
+      "Thinking… (Ns)" indeterminate shimmer. page.tsx passes phase/prefillEstTokens.
+      (B) MASCOT: `components/ui/Mascot.tsx` — vendored MIT Fluent-Emoji Robot
+      SVG (public/mascot/robot_flat.svg + LICENSE-mascot.txt, sanitized, no
+      scripts), states idle/thinking/working/done/error, rAF eye-tracking +
+      click-wave, reduced-motion gated. CSS keyframes in app/globals.css
+      (bob/blink/antenna/weld/hop/sparkle + gen-shimmer + .robot-toast* +
+      .fence-pending-bar).
+      (C) FILE BUILDS: `lib/ui/stagedProgress.ts` honest time ramp (30@400ms,
+      70@1.5s, 90@4s, crawl→97 asymptote, snap 100 on resolve) + stage labels.
+      `useBuildProgress(title)` in RobotProgress.tsx drives a bottom-right
+      portal toast (data-testid="robot-toast", z-60, AnimatePresence,
+      role=status aria-live=polite; success→100%+celebrate+auto-close 1400ms;
+      error→red, persists). Wired: DocumentCard.onDownload ("Building DOCX"
+      etc.), HtmlArtifactBlock.onExportPdf (hook BEFORE early return —
+      hook-order rule), FencePending mini-mascot + chars bar (exact text
+      "Building {label} preview…" kept verbatim in .doc-pending-text span;
+      chars={source.length} at all 6 call sites), Asset3DBlock mini-mascot
+      beside real bar, ArchitectureCadViewer NEW exportBusy state +
+      cad-export-busy span + disabled cad-export, ThreeStudioViewer
+      scene3d-export-busy span.
+      GUARDRAILS held: no /api/documents/* or SSE contract changes; all
+      existing testids/labels intact.
+      TESTS: `__tests__/ui/prefillCalibration.test.ts` + `stagedProgress.test.ts`
+      (vitest **445 passed | 1 skipped**), `tests/progress-status.spec.ts` (2/2).
+      Headed suite batches all green: 37+1skip (+1 flake that passes solo:
+      conversations-live-chat sidebar re-render under batch pressure, unrelated),
+      43/43 viewers, 217 file-reading/interactive-ui/inspect-dup, 13
+      multi-select/skills/crud. Browser-verified via playwright-cli `app-dev`
+      (project-local `npx playwright cli` — global CLI wants chromium-1247,
+      repo cache has 1243): live prefill status line w/ mascot + 95% cap
+      against REAL backend :8080; toast lifecycle JSON {title:"Building DOCX
+      ready", stage:"Saved to your downloads.", pct:"100%", mascot:1,
+      autoDismissed:true}; screenshots confirmed both. Console clean (only
+      favicon 404 + self-inflicted AbortError from a stop-click).
+      GOTCHA: playwright-cli `run-code` sandbox has NO setTimeout — use
+      page.waitForTimeout; routes registered in run-code do NOT persist
+      across CLI commands — do the whole flow in ONE run-code call.
 - [x] Sidebar reorder-on-select fix (2026-10-18, LOCKED, browser-verified):
       selecting a conversation re-saved it via the persist effect (app/page.tsx),
       bumping file mtime → API list (sorted by mtime desc, lib/persistence/disk.ts)

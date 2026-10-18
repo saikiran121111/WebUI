@@ -109,6 +109,25 @@
   Playwright wheel deltaY ×1.25 — assert zoom direction, not exact factor.
 - Dev-server port conflicts: stale hung Next servers squat :3000/:3001/:3002
   (curl times out, exit 28) — `taskkill //PID <pid> //F //T` each, restart.
-- Unit gate: `npx vitest run` → 42 files, 429 passed | 1 skipped (document
-  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags etc.).
-  `tsc --noEmit` clean.
+- Unit gate: `npx vitest run` → 44 files, **445 passed | 1 skipped** (document
+  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags + ui/prefillCalibration
+  + ui/stagedProgress). `tsc --noEmit` clean.
+- 2026-10-18 (progress-mascot feature, LOCKED): NEW spec
+  `tests/progress-status.spec.ts` → 2/2 (prefill status line via 1500 ms
+  delayed SSE mock; DOCX toast lifecycle via /api/documents/docx mock).
+  Full headed suite re-run in batches (10-min Bash cap — split, do NOT run
+  all 20 specs in one command): chat-stream/reasoning/edit-stop-collapse/
+  conversations-live-chat/regression_modalities/render → 37 passed + 1 skip;
+  cad/three3d/studio-viewers-visible/anatomy×3 → 43/43; file-reading/
+  interactive-ui/inspect-dup → 217 passed (file-reading is the slow file,
+  ~9 min alone); multi-select-delete/skills/conversations-crud → 13/13.
+  KNOWN FLAKE: conversations-live-chat "New does not duplicate" timed out
+  once inside a 6-spec batch (sidebar row vanished after toHaveCount(1) —
+  load-induced re-render under slowMo-300 batch pressure); passes solo.
+- playwright-cli `app-dev` browser verification (2026-10-18): use
+  **project-local `npx playwright cli`** — the globally installed CLI expects
+  chromium-1247 while the repo cache has chromium-1243. GOTCHAS: the
+  `run-code` sandbox has NO `setTimeout` (use `page.waitForTimeout`);
+  routes registered via `run-code` do NOT persist across CLI commands
+  (`route-list` shows empty) — register mocks AND drive the flow inside ONE
+  run-code call, or a crashed handler leaves the request hanging forever.

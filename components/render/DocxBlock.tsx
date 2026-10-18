@@ -19,7 +19,7 @@ export default function DocxBlock({ source, streaming }: { source: string; strea
     }
   }, [source]);
 
-  if (streaming) return <FencePending label="DOCX" />;
+  if (streaming) return <FencePending label="DOCX" chars={source.length} />;
   if (!spec) return <FenceBroken label="docx" />;
 
   const filename = safeName(spec.filename) + ".docx";
