@@ -113,7 +113,7 @@ export default function XlsxBlock({ source, streaming }: { source: string; strea
     }
   }, [spec]);
 
-  if (streaming) return <FencePending label="XLSX" chars={source.length} />;
+  if (streaming) return <FencePending label="XLSX" />;
   if (!spec) return <FenceBroken label="xlsx" />;
 
   const sheet = spec.sheets[Math.min(active, spec.sheets.length - 1)];

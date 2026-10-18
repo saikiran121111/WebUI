@@ -8,8 +8,6 @@
  * regeneration re-renders the preview in place with zero round-trips.
  */
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import Mascot from "../ui/Mascot";
-import { useBuildProgress } from "../ui/RobotProgress";
 
 export async function downloadDocument(endpoint: string, spec: unknown, fallbackName: string): Promise<void> {
   const res = await fetch(endpoint, {
@@ -70,9 +68,6 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
   // True once the native Fullscreen API actually owns the element — then the
   // browser (not our Esc handler) handles exit, and fullscreenchange syncs us.
   const nativeFsRef = useRef(false);
-  // Robot toast: the download POST has no server progress channel, so the
-  // staged ramp (lib/ui/stagedProgress) stands in visually until the blob lands.
-  const { start, succeed, fail, toast } = useBuildProgress("Building " + badge);
 
   const toggleFullscreen = useCallback(() => {
     const el = cardRef.current;
@@ -111,18 +106,14 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
   const onDownload = useCallback(async () => {
     setBusy(true);
     setError(null);
-    start();
     try {
       await downloadDocument(endpoint, spec, filename);
-      succeed();
     } catch (e) {
-      const msg = (e as Error).message;
-      setError(msg);
-      fail(msg);
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [endpoint, spec, filename, start, succeed, fail]);
+  }, [endpoint, spec, filename]);
 
   return (
     <div ref={cardRef} className={"doc-card" + (fullscreen ? " doc-card--fullscreen" : "")} data-testid={testId}>
@@ -155,28 +146,16 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
       {error && <div className="doc-card-error" role="alert">{error}</div>}
       <div className="doc-card-body">{children}</div>
       {fullscreen && <div className="doc-card-esc-hint">Press Esc to exit</div>}
-      {toast}
     </div>
   );
 }
 
 /** Shared placeholder shown while a JSON document fence is still streaming. */
-export function FencePending({ label, chars }: { label: string; chars?: number }) {
-  // The bar tracks how much of the JSON fence has streamed in (saturating at
-  // 90% — the spec only becomes valid once the fence closes).
-  const pct = chars != null && chars > 0
-    ? Math.min(90, Math.round(90 * (1 - Math.exp(-chars / 1500))))
-    : null;
+export function FencePending({ label }: { label: string }) {
   return (
     <div className="doc-pending" role="status">
-      <Mascot size={20} state="working" />
       <span className="doc-pending-dot" aria-hidden="true" />
-      <span className="doc-pending-text">Building {label} preview…</span>
-      {pct != null && (
-        <span className="fence-pending-bar" aria-hidden="true">
-          <span className="fence-pending-fill" style={{ width: `${pct}%` }} />
-        </span>
-      )}
+      Building {label} preview…
     </div>
   );
 }

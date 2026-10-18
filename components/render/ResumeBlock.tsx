@@ -36,7 +36,7 @@ export default function ResumeBlock({ source, streaming }: { source: string; str
     }
   }, [source]);
 
-  if (streaming) return <FencePending label="resume" chars={source.length} />;
+  if (streaming) return <FencePending label="resume" />;
   if (!spec) return <FenceBroken label="resume" />;
 
   const filename = safeName(spec.basics.name) + "_Resume.pdf";

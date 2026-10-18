@@ -146,7 +146,7 @@ export default function PowerBiBlock({ source, streaming }: { source: string; st
     });
   }, [spec, slices, dateRange, cross]);
 
-  if (streaming) return <FencePending label="Power BI report" chars={source.length} />;
+  if (streaming) return <FencePending label="Power BI report" />;
   if (!spec) return <FenceBroken label="powerbi" />;
 
   const measureDax = (name?: string) =>

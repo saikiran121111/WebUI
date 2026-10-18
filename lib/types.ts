@@ -132,9 +132,6 @@ export interface Usage {
 
 export type MessageState = "streaming" | "complete" | "error" | "aborted";
 
-/** Generation stage for the stage-aware progress UI: prefill = waiting for the first token. */
-export type ChatPhase = "idle" | "prefill" | "thinking" | "writing";
-
 export interface Message {
   id: string;
   conversationId: string;

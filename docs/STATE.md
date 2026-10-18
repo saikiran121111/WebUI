@@ -15,6 +15,11 @@ llama-server -c 1024/-t 6/batch512/no-warmup, Stage2Out 4 fields. Router suite
 fallback probe PASS. Playwright browser re-run remains the optional final gate.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 2026-10-19 (REVERT): progress-mascot feature (commit 5b94540) fully reverted —
+  Mascot/RobotProgress/usePrefillProgress/prefillCalibration/stagedProgress +
+  their tests + public/mascot/** removed. Progress UI to be re-architected later;
+  do NOT assume any mascot/progress-bar UI exists. Unit gate now 41 files,
+  420 passed | 1 skipped; tsc clean.
 - ./.decision-engine/ fully self-contained: setup scripts, artifacts (libneedle.dll,
   needle3.cact, whistle.cact, LFM2.5-1.2B-Instruct-Q4_K_M.gguf, bin/llama-server.exe,
   Python venv), .gitignore appended. HF_HOME / PIP_CACHE_DIR / TMPDIR all point inside
@@ -152,7 +157,7 @@ fallback probe PASS. Playwright browser re-run remains the optional final gate.
 - All /api/chat mocks in tests/*.spec.ts MUST send x-decision-mode or renderers gate
   off (previews never mount). Plain code fences/tables/lists are NOT gated.
 - Specs patched + compile (tsc clean) but NOT re-executed in a browser this segment:
-  progress-status, studio-viewers-visible, render, anatomy-repair,
+  studio-viewers-visible, render, anatomy-repair,
   regression_modalities. Skipped-by-design: 2 mermaid + 1 widget tests in render.spec.
 
 [8.6 OPEN BUGS / BLOCKERS]
@@ -182,6 +187,6 @@ fallback probe PASS. Playwright browser re-run remains the optional final gate.
 
 [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
 1. (Optional verification gate) Re-run patched Playwright specs against :3000:
-   `npx playwright test tests/progress-status.spec.ts tests/studio-viewers-visible.spec.ts tests/render.spec.ts tests/anatomy-repair.spec.ts tests/regression_modalities.spec.ts`.
+   `npx playwright test tests/studio-viewers-visible.spec.ts tests/render.spec.ts tests/anatomy-repair.spec.ts tests/regression_modalities.spec.ts`.
 2. (Optional) vitest full pass after route.ts task_constraints change (tsc clean).
 3. If user approves, commit the decision-engine change set (nothing committed yet).

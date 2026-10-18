@@ -26,7 +26,7 @@ export default function HomePage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
-    messages, status, error, isThinking, reasoningContent, phase, prefillEstTokens,
+    messages, status, error, isThinking, reasoningContent,
     send, stop, retry, edit, load, clear, setEffort, effort, requestFenceRepair,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
 
@@ -331,8 +331,6 @@ export default function HomePage() {
                       onEdit={edit}
                       onSend={(text) => runSend(text)}
                       onFenceRuntimeError={(info) => requestFenceRepair(m.id, info)}
-                      phase={phase}
-                      prefillEstTokens={prefillEstTokens}
                     />
                   </motion.div>
                 ))}

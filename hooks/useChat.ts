@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMode, ChatPhase, Conversation, EffortLevel, Message } from "../lib/types";
+import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import type { BrowserTool } from "../lib/browser/agentBrowser";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
 import { ResearchOrchestrator } from "../lib/research/orchestrator";
@@ -14,12 +14,6 @@ import {
   type BrokenFence,
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
-import {
-  calibratePrefillTps,
-  estimatePromptTokens,
-  readPrefillTps,
-  writePrefillTps,
-} from "../lib/ui/prefillCalibration";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
@@ -35,10 +29,6 @@ export interface UseChatReturn {
   error: string | null;
   isThinking: boolean;
   reasoningContent: string;
-  /** Generation stage for the stage-aware progress UI. */
-  phase: ChatPhase;
-  /** Estimated prompt tokens for the in-flight send (prefill % denominator). */
-  prefillEstTokens: number | null;
   /** Swap the conversation entirely. */
   load: (conversation: Conversation) => void;
   /** Drop all messages (new chat / after deleting the active one). */
@@ -68,8 +58,6 @@ export function useChat({
   const [error, setError]     = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [reasoningContent, setReasoningContent] = useState("");
-  const [phase, setPhase] = useState<ChatPhase>("idle");
-  const [prefillEstTokens, setPrefillEstTokens] = useState<number | null>(null);
   const [effort, setEffort] = useState<EffortLevel>("medium");
 
   const messagesRef = useRef(messages);
@@ -81,9 +69,6 @@ export function useChat({
   const streamContentRef = useRef<string>("");
   /** Tracks when reasoning started so reasoningMs can be set on the message. */
   const reasoningStartRef = useRef<number | null>(null);
-  /** Stage-aware prefill timing: send start + measured time-to-first-token. */
-  const sendStartRef = useRef<number | null>(null);
-  const prefillMsRef = useRef<number | null>(null);
   /** Guards send() against double-fire from rapid calls (e.g. edit + save). */
   const sendBusyRef = useRef(false);
   /** Shared abort controller so `stop` can cancel an in-flight stream. */
@@ -100,8 +85,6 @@ export function useChat({
     setIsThinking(false);
     setReasoningContent("");
     reasoningStartRef.current = null;
-    setPhase("idle");
-    setPrefillEstTokens(null);
   }, []);
 
   const clear = useCallback(() => {
@@ -117,8 +100,6 @@ export function useChat({
     setIsThinking(false);
     setReasoningContent("");
     reasoningStartRef.current = null;
-    setPhase("idle");
-    setPrefillEstTokens(null);
   }, []);
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
@@ -126,10 +107,6 @@ export function useChat({
     console.log("[handleEvent]", JSON.stringify(ev).slice(0, 200));
 
     if (ev.reasoning) {
-      if (prefillMsRef.current == null && sendStartRef.current != null) {
-        prefillMsRef.current = Date.now() - sendStartRef.current;
-      }
-      setPhase("thinking");
       if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
       setReasoningContent(prev => prev + ev.reasoning);
       setIsThinking(true);
@@ -142,10 +119,6 @@ export function useChat({
       }
     }
     if (ev.content) {
-      if (prefillMsRef.current == null && sendStartRef.current != null) {
-        prefillMsRef.current = Date.now() - sendStartRef.current;
-      }
-      setPhase("writing");
       streamContentRef.current += ev.content;
       // Close out the reasoningMs when the first content chunk arrives.
       if (reasoningStartRef.current != null && assistantIdRef.current) {
@@ -163,16 +136,6 @@ export function useChat({
           : m
       ));
       setIsThinking(false);
-    }
-    // Ground-truth calibration: the parser's usage event carries the real
-    // promptTokens; paired with the measured time-to-first-token it tightens
-    // the prefill tok/s estimate behind the "Analysing the prompt…" bar.
-    if (ev.usage && prefillMsRef.current != null) {
-      const pt = (ev.usage as { promptTokens?: number }).promptTokens;
-      if (typeof pt === "number" && pt > 0) {
-        writePrefillTps(calibratePrefillTps(readPrefillTps(), pt, prefillMsRef.current));
-      }
-      prefillMsRef.current = null;
     }
     if (ev.finishReason === "abort" || ev.finishReason === "error") {
       setStatus(ev.finishReason === "abort" ? "aborted" : "error");
@@ -355,20 +318,6 @@ export function useChat({
       // replay the exact conversation the broken reply was generated from.
       const requestHistory = [...messagesRef.current, userMsg];
 
-      // Stage-aware progress: prefill begins now. Estimate the prompt size
-      // (content + inlined attachment text) so the bar has a denominator.
-      const estText = requestHistory.reduce((acc: string, m: any) => {
-        const text = typeof m?.content === "string" ? m.content : "";
-        const attText = Array.isArray(m?.attachments)
-          ? m.attachments.map((at: any) => String(at?.text ?? at?.transcript ?? "")).join("")
-          : "";
-        return acc + text + attText;
-      }, "");
-      setPrefillEstTokens(estimatePromptTokens(estText));
-      sendStartRef.current = Date.now();
-      prefillMsRef.current = null;
-      setPhase("prefill");
-
       await client.chat(
         { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
@@ -442,8 +391,6 @@ export function useChat({
       setReasoningContent("");
     } finally {
       setIsThinking(false);
-      setPhase("idle");
-      setPrefillEstTokens(null);
       abortRef.current = null;
       sendBusyRef.current = false;
     }
@@ -465,8 +412,6 @@ export function useChat({
     setStatus("aborted");
     setError(null);
     setIsThinking(false);
-    setPhase("idle");
-    setPrefillEstTokens(null);
   }, []);
 
   const retry = useCallback(() => {
@@ -514,7 +459,7 @@ export function useChat({
   }, [send]);
 
   return {
-    messages, status, error, isThinking, reasoningContent, phase, prefillEstTokens,
+    messages, status, error, isThinking, reasoningContent,
     load, clear, send, stop, retry, edit,
     clearError: () => setError(null),
     setEffort, effort, requestFenceRepair,

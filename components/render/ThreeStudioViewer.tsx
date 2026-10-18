@@ -12,7 +12,6 @@ import type {
   ShadingMode, StudioStats, TransformMode,
 } from "../../lib/three3d/studioEngine";
 import { fenceFixRequest } from "../../lib/render/fenceRepair";
-import Mascot from "../ui/Mascot";
 
 /**
  * ThreeStudioViewer — the Blender/Maya-grade studio front-end for ```scene3d
@@ -838,10 +837,6 @@ export default function ThreeStudioViewer({ spec: specIn, code, onSend, onRuntim
           </label>
         </div>
       </div>
-
-      {exportBusy && (
-        <div className="scene3d-export-busy" data-testid="scene3d-export-busy"><Mascot size={18} state="working" /> Exporting…</div>
-      )}
 
       {exportNote && <div className="scene3d-export-note" data-testid="scene3d-export-note">{exportNote}</div>}
 

@@ -109,21 +109,14 @@
   Playwright wheel deltaY ×1.25 — assert zoom direction, not exact factor.
 - Dev-server port conflicts: stale hung Next servers squat :3000/:3001/:3002
   (curl times out, exit 28) — `taskkill //PID <pid> //F //T` each, restart.
-- Unit gate: `npx vitest run` → 44 files, **445 passed | 1 skipped** (document
-  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags + ui/prefillCalibration
-  + ui/stagedProgress). `tsc --noEmit` clean.
-- 2026-10-18 (progress-mascot feature, LOCKED): NEW spec
-  `tests/progress-status.spec.ts` → 2/2 (prefill status line via 1500 ms
-  delayed SSE mock; DOCX toast lifecycle via /api/documents/docx mock).
-  Full headed suite re-run in batches (10-min Bash cap — split, do NOT run
-  all 20 specs in one command): chat-stream/reasoning/edit-stop-collapse/
-  conversations-live-chat/regression_modalities/render → 37 passed + 1 skip;
-  cad/three3d/studio-viewers-visible/anatomy×3 → 43/43; file-reading/
-  interactive-ui/inspect-dup → 217 passed (file-reading is the slow file,
-  ~9 min alone); multi-select-delete/skills/conversations-crud → 13/13.
-  KNOWN FLAKE: conversations-live-chat "New does not duplicate" timed out
-  once inside a 6-spec batch (sidebar row vanished after toHaveCount(1) —
-  load-induced re-render under slowMo-300 batch pressure); passes solo.
+- Unit gate: `npx vitest run` → 41 files, **420 passed | 1 skipped** (document
+  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags etc.).
+  `tsc --noEmit` clean. Counts re-baselined after the 2026-10-19
+  progress-mascot revert (see below).
+- 2026-10-19 (REVERT): progress-mascot feature (commit 5b94540) reverted —
+  Mascot/RobotProgress/usePrefillProgress/prefillCalibration/stagedProgress,
+  its unit tests and `tests/progress-status.spec.ts` removed. To be
+  re-architected later; do NOT treat any mascot/progress-bar UI as existing.
 - 2026-10-18 (sticky select toolbar fix, LOCKED): `multi-select-delete.spec.ts`
   extended with scroll-visibility guard (scroll `conversation-list` to bottom →
   `select-mode-toggle` + `select-all` MUST stay visible) → 2/2 (9.4s). Toolbar

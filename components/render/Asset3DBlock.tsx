@@ -4,7 +4,6 @@ import { AlertTriangle, Download, Grid3x3, Maximize2, RotateCcw, Box, Sparkles }
 import CodeBlock from "./CodeBlock";
 import { parseJsonFence } from "../../lib/render/schemas";
 import { asset3dSpecSchema, type Asset3DSpec } from "../../lib/three3d/sceneSchema";
-import Mascot from "../ui/Mascot";
 
 /**
  * Renders ```asset3d fences: genuine provider-generated meshes (Mode B).
@@ -196,7 +195,6 @@ function Asset3DView({ spec }: { spec: Asset3DSpec }) {
       {phase !== "succeeded" && (
         <div className="asset3d-status" data-testid="asset3d-status">
           {job?.thumbnailUrl && <img className="asset3d-thumb" src={job.thumbnailUrl} alt="Generation preview" />}
-          {(phase === "starting" || phase === "working") && <Mascot size={26} state="working" />}
           <div className="asset3d-progress">
             {phase === "starting" && <span>Requesting generation…</span>}
             {phase === "working" && <span>Generating mesh — {job?.status ?? "queued"}…</span>}
