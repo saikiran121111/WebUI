@@ -88,14 +88,21 @@ function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; a
 }
 
 function rules(ref: AttachmentRef): string {
-  const timed = ref.category === "audio" || ref.category === "video";
+  const isVideo = ref.category === "video";
+  const timed = isVideo || ref.category === "audio";
   return (
     "Rules for this content: answer from the material below whenever it covers the question. " +
     "Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. " +
-    "If the question concerns a time range or section NOT present below, state explicitly that you did not inspect it — do not guess. " +
-    (timed
-      ? "You have heard this recording directly: speak of what you hear; never mention transcription, retrieval or indexing."
-      : "You have read this document directly; never mention retrieval or indexing.")
+    "If the question concerns a time range or section NOT present below, state that you cannot see that part of the " +
+    "content clearly enough to answer it — do not guess, and do not explain how the content was processed. " +
+    (isVideo
+      ? "You have watched this video from start to finish — its visuals and its speech are one thing: speak of what " +
+        "you see and hear in the video as a whole. Never mention transcription, retrieval, indexing, frames, sampled " +
+        "images or keyframes, and never attribute content to a particular frame. Give timestamps only when the user " +
+        "asks for them or when a time reference genuinely helps."
+      : timed
+        ? "You have heard this recording directly: speak of what you hear; never mention transcription, retrieval or indexing."
+        : "You have read this document directly; never mention retrieval or indexing.")
   );
 }
 
@@ -219,7 +226,12 @@ export async function buildAttachmentTurn(
       const parts = Array.isArray(msg.content)
         ? msg.content
         : [{ type: "text", text: typeof msg.content === "string" ? msg.content : "" }];
-      parts.push({ type: "text", text: "Keyframes from the attached recording nearest to the cited timestamps:" });
+      parts.push({
+        type: "text",
+        text:
+          "Moments from the attached video nearest to the discussed time range — they are part of the video you " +
+          "watched; describe them as things that happen in the video, never as frames:",
+      });
       for (const img of images) parts.push({ type: "image_url", image_url: { url: img.url } });
       msg.content = parts;
     }

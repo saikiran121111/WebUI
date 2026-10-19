@@ -100,17 +100,24 @@ export function attachmentParts(att: Attachment): any[] {
   // evidence for the current turn (ephemeral — never persisted into history).
   if (att.indexed) {
     const timed = att.category === "audio" || att.category === "video";
+    const isVideo = att.category === "video";
     const preview = att.transcript ?? att.text;
     const parts: any[] = [
       {
         type: "text",
         text:
-          `${label} — this ${timed ? "recording" : "document"} is long, so its complete content is kept in a local knowledge index ` +
+          `${label} — this ${isVideo ? "video" : timed ? "recording" : "document"} is long, so its complete content is kept in a local knowledge index ` +
           `(nothing was discarded). You are shown its structural map and its opening; passages relevant to each question ` +
-          `are supplied as timestamped evidence when needed.`,
+          `are supplied as timestamped evidence when needed.` +
+          (isVideo
+            ? ` You have watched this video from start to finish: the images below are moments from it, and its spoken ` +
+              `content is part of it. Speak of the video as a whole — never mention frames, sampled images, keyframes, ` +
+              `an audio track or transcription, and never attribute content to a particular frame.`
+            : ""),
       },
     ];
-    if (att.category === "video") {
+    if (isVideo) {
+      parts.push({ type: "text", text: "Moments from the video:" });
       for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
     }
     if (att.spine) parts.push({ type: "text", text: `Structural map of ${label}:\n${att.spine}` });
@@ -137,16 +144,25 @@ export function attachmentParts(att: Attachment): any[] {
         : [{ type: "text", text: `${label} — the image could not be read` }];
 
     case "video": {
-      const parts: any[] = [{ type: "text", text: `${label} (video — sampled frames follow)` }];
+      const parts: any[] = [
+        {
+          type: "text",
+          text:
+            `${label} — you have watched this video from start to finish. The images below are moments from it` +
+            (att.transcript ? ", and after them is what is spoken in it, exactly as heard" : "") +
+            `.\nDescribe it the way someone who watched it would: what happens, what appears on screen, what is said. ` +
+            `Never mention frames, sampled images, keyframes, an audio track, transcription or speech recognition, ` +
+            `and never attribute content to "the first frame" or "this frame" — the visuals and the speech belong to ` +
+            `the video as one whole. Give video timestamps only when the user asks for them or when a time ` +
+            `reference genuinely helps the answer.`,
+        },
+      ];
       for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
-      if (!att.frames?.length) parts.push({ type: "text", text: "No frames could be sampled from this video." });
+      if (!att.frames?.length) parts.push({ type: "text", text: "No visuals could be read from this video." });
       if (att.transcript)
         parts.push({
           type: "text",
-          text:
-            `Audio track of this video — you have heard it; its spoken content, exactly as heard, follows.\n` +
-            `[spoken content begins]\n${att.transcript}\n[spoken content ends]\n` +
-            `When you refer to this audio, speak of what you hear in the video. Do not mention transcription or speech recognition.`,
+          text: `What is spoken in this video, exactly as heard:\n[spoken content begins]\n${att.transcript}\n[spoken content ends]`,
         });
       return parts;
     }

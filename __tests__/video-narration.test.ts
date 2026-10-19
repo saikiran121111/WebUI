@@ -109,18 +109,26 @@ function videoAtt(extra: Partial<Attachment>): Attachment {
 }
 
 describe("video prompt parts", () => {
-  it("puts the transcript in front of the model alongside the frames", () => {
+  it("frames the video as one watched whole: spoken content rides with the images, never as a separate audio track", () => {
     const parts = attachmentParts(videoAtt({ transcript: "the codeword is zephyr" }));
     const texts = parts.filter(p => p.type === "text").map(p => p.text as string);
-    expect(texts.some(t => t.includes("Audio track") && t.includes("zephyr"))).toBe(true);
+    const joined = texts.join("\n");
+    expect(joined).toContain("zephyr");
+    expect(joined).toContain("[spoken content begins]");
+    expect(joined).toContain("you have watched this video");
+    expect(joined).toContain("never attribute content to");
+    // The old split-perception wording must be gone.
+    expect(joined).not.toContain("Audio track");
+    expect(joined).not.toContain("sampled frames");
     expect(parts.some(p => p.type === "image_url")).toBe(true);
   });
 
-  it("silent video prompt carries no transcript section", () => {
+  it("silent video prompt carries no spoken-content section", () => {
     const texts = attachmentParts(videoAtt({}))
       .filter(p => p.type === "text")
       .map(p => p.text as string);
-    expect(texts.some(t => t.includes("Audio track"))).toBe(false);
+    expect(texts.some(t => t.includes("spoken content begins"))).toBe(false);
+    expect(texts.some(t => t.includes("you have watched this video"))).toBe(true);
   });
 });
 
