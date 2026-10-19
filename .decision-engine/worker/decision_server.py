@@ -26,6 +26,11 @@ patch):
   * threading.Lock around Needle + llama-server calls (concurrent /decision
     requests must never corrupt the shared slot or 500 on KV overflow).
   * PID lockfiles so hot reloads reuse :8790/:8791 and never spawn duplicates.
+  * Parent-PID watchdog: when spawned by the WebUI (DECISION_ENGINE_PARENT_PID)
+    the worker kills its llama-server child and exits once the dev server dies,
+    so stopping `npm run dev` never leaves python/llama-server holding RAM.
+  * CREATE_NO_WINDOW on every subprocess launch: a detached worker popping a
+    console window for llama-server/tasklist/powershell is a user-facing bug.
   * Head+tail truncation of >3000-char prompts so llama-server -c 2048 never
     overflows on 8,000-char inputs.
 
@@ -67,6 +72,29 @@ from stripper import strip_prompt  # noqa: E402
 
 DECISION_PORT = int(os.environ.get("DECISION_PORT", "8790"))
 LFM_PORT = int(os.environ.get("LFM_PORT", "8791"))
+
+# ---- Lifecycle: parent watchdog + hidden subprocess windows -----------------
+# lib/decision/client.ts spawns us detached with DECISION_ENGINE_PARENT_PID =
+# the Next dev server's PID. When that process dies (Ctrl+C, terminal closed,
+# crash) the watchdog kills our llama-server child and exits, so stopping
+# `npm run dev` never leaves python/llama-server orphaned in the background.
+# Manual launches (no env var) stay independent. On Windows the watchdog holds
+# a SYNCHRONIZE handle to the parent: it signals when the ORIGINAL process
+# exits, immune to PID reuse. CREATE_NO_WINDOW stops Windows from allocating
+# a visible console for each console-subsystem child (llama-server, tasklist,
+# powershell) when we ourselves run without a console.
+_PARENT_PID = int(os.environ.get("DECISION_ENGINE_PARENT_PID", "0") or "0")
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+    _kernel32 = ctypes.windll.kernel32
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    _kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    _WAIT_OBJECT_0 = 0x00000000
+    _SYNCHRONIZE = 0x00100000
 
 # ---- Stage 1: Needle 3 ----------------------------------------------------
 CLASSIFY_SYSTEM = (
@@ -427,7 +455,8 @@ def _pid_alive(pid: int) -> bool:
     try:
         if os.name == "nt":
             out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                                 capture_output=True, text=True, timeout=5).stdout
+                                 capture_output=True, text=True, timeout=5,
+                                 creationflags=_NO_WINDOW).stdout
             return str(pid) in out
         os.kill(pid, 0)
         return True
@@ -470,7 +499,8 @@ def _thread_count() -> int:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              "(Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfCores -Sum).NumberOfCores"],
-            capture_output=True, text=True, timeout=10).stdout
+            capture_output=True, text=True, timeout=10,
+            creationflags=_NO_WINDOW).stdout
         cores = int(out.strip())
         if cores >= 1:
             return cores
@@ -507,6 +537,7 @@ def ensure_llama_server() -> None:
              "--batch-size", "512", "--ubatch-size", "512", "--no-warmup", "--no-webui"],
             cwd=str(DE / ".cache" / "tmp"),  # never run from inside the extracted bin dir
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=_NO_WINDOW,  # no console window popped for llama-server
         )
         _write_pid(pidfile)
         for _ in range(120):
@@ -514,6 +545,53 @@ def ensure_llama_server() -> None:
                 return
             time.sleep(1)
         raise RuntimeError("llama-server failed to become healthy within 120s")
+
+
+def _shutdown_llama() -> None:
+    """Terminate the llama-server child WE spawned (never a reused foreign one)."""
+    proc = _llm_proc
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
+def _parent_watchdog() -> None:
+    """Exit once the spawning WebUI dev-server PID dies (see _PARENT_PID).
+    This is the ONLY teardown path for a detached spawn: closing the terminal
+    or crashing the dev server sends no signal to us, so polling the parent is
+    what keeps `npm run dev` stopped == engine stopped. os._exit is fine here:
+    uvicorn is single-threaded on the main thread and no request state needs
+    flushing; llama-server is terminated first so nothing outlives us."""
+    handle = None
+    if os.name == "nt":
+        handle = _kernel32.OpenProcess(_SYNCHRONIZE, False, _PARENT_PID)
+        if not handle:
+            return  # parent unopenable — stay alive (safe default for manual spawns)
+    while True:
+        if os.name == "nt":
+            if _kernel32.WaitForSingleObject(handle, 0) == _WAIT_OBJECT_0:
+                break
+        else:
+            try:
+                os.kill(_PARENT_PID, 0)
+            except OSError:
+                break
+        time.sleep(2)
+    print(f"[decision-engine] parent pid {_PARENT_PID} exited — shutting down", flush=True)
+    _shutdown_llama()
+    try:
+        pidfile = DE / ".cache" / "decision_server.pid"
+        if _read_pid(pidfile) == os.getpid():
+            pidfile.unlink()
+    except Exception:
+        pass
+    os._exit(0)
 
 
 def _lfm_call(msgs: list[dict]) -> str:
@@ -635,6 +713,13 @@ def warm() -> None:
           f"lfm2.5 on :{LFM_PORT}, needle on :{DECISION_PORT}", flush=True)
 
 
+@app.on_event("shutdown")
+def _cool() -> None:
+    # Graceful uvicorn stop (e.g. Ctrl+C on a manual terminal launch): never
+    # leave our llama-server child behind.
+    _shutdown_llama()
+
+
 @app.get("/health")
 def health():
     return {"ok": _agent is not None and _health(LFM_PORT), "lfm": _health(LFM_PORT)}
@@ -733,5 +818,7 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
 
 if __name__ == "__main__":
     _guard_single_instance()
+    if _PARENT_PID > 0:
+        threading.Thread(target=_parent_watchdog, daemon=True).start()
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=DECISION_PORT, log_level="warning")

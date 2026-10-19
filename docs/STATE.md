@@ -203,4 +203,21 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
    UI_Stress_Test.xlsx, Decision Engine Auto-Boot, 50/50 Extreme Edge Cases,
    Vitest, and Playwright E2E all passed 100% and committed. Shutting down
    in 60s (run 'shutdown /a' to cancel)."
-</content>
+
+[ADDENDUM 2026-10-19b — DECISION ENGINE LIFECYCLE (LOCKED-DONE)]
+- client.ts spawn now passes DECISION_ENGINE_PARENT_PID=<next server pid>;
+  TS must NOT child.kill() the worker (that orphans llama-server).
+- decision_server.py: `_parent_watchdog` daemon thread (Windows SYNCHRONIZE
+  handle via ctypes — PID-reuse-immune; POSIX os.kill poll; 2 s interval).
+  On parent death: `_shutdown_llama()` + decision_server.pid cleanup +
+  `os._exit(0)`. Manual spawns (no env var) stay independent.
+  `@app.on_event("shutdown")` also kills our llama child on graceful stop.
+- Every subprocess launch (llama-server, tasklist, powershell) now uses
+  CREATE_NO_WINDOW — fixes the visible black console window (title = venv
+  python.exe path) users saw when the detached worker spawned llama-server.
+- Verified: py_compile OK; functional watchdog test (fake parent died →
+  worker exited 0, printed "parent pid … exited — shutting down");
+  `tsc --noEmit` clean. No Playwright run (process-lifecycle change, no UI).
+- Effect: closing/Ctrl+C-ing the `npm run dev` terminal stops worker +
+  llama-server within ~2 s; first heavy prompt after a dev restart pays the
+  cold start again (engine lifetime is now tied to the dev server).

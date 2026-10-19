@@ -60,7 +60,12 @@ async function ensureWorker(): Promise<boolean> {
           detached: true,
           windowsHide: true,
           stdio: "ignore",
-          env: { ...process.env, DECISION_ENGINE_SPAWNED_BY: "webui" },
+          // DECISION_ENGINE_PARENT_PID: the worker runs a watchdog on THIS
+          // process's PID and shuts itself + llama-server down when we exit
+          // (Ctrl+C, terminal closed, crash) — stopping `npm run dev` stops
+          // the engine. Do NOT child.kill() from here: that would orphan
+          // llama-server; the watchdog shuts the whole tree down gracefully.
+          env: { ...process.env, DECISION_ENGINE_SPAWNED_BY: "webui", DECISION_ENGINE_PARENT_PID: String(process.pid) },
         });
         child.unref();
       } catch {
