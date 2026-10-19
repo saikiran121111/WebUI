@@ -105,12 +105,30 @@ export function attachmentParts(att: Attachment): any[] {
       const parts: any[] = [{ type: "text", text: `${label} (video — sampled frames follow)` }];
       for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
       if (!att.frames?.length) parts.push({ type: "text", text: "No frames could be sampled from this video." });
-      if (att.transcript) parts.push({ type: "text", text: `Audio transcript:\n${att.transcript}` });
+      if (att.transcript)
+        parts.push({
+          type: "text",
+          text:
+            `Audio track of this video — you have heard it; its spoken content, exactly as heard, follows.\n` +
+            `[spoken content begins]\n${att.transcript}\n[spoken content ends]\n` +
+            `When you refer to this audio, speak of what you hear in the video. Do not mention transcription or speech recognition.`,
+        });
       return parts;
     }
 
     case "audio":
-      return [{ type: "text", text: `${label} (audio)\nTranscript:\n${att.transcript ?? "[no speech detected]"}` }];
+      if (!att.transcript)
+        return [{ type: "text", text: `${label} (audio) — this recording contains no speech.` }];
+      return [
+        {
+          type: "text",
+          text:
+            `${label} (audio recording — you have listened to this audio; its spoken content, exactly as heard, follows)\n` +
+            `[spoken content begins]\n${att.transcript}\n[spoken content ends]\n` +
+            `Treat this as audio you heard directly: answer in terms of what the recording says and what the speakers say. ` +
+            `Never mention a transcript or speech recognition, and never tell the user you cannot hear audio.`,
+        },
+      ];
 
     default: {
       if (!att.text) return [{ type: "text", text: `${label} — no readable text was found` }];

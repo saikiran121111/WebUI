@@ -90,7 +90,7 @@ describe("video prompt parts", () => {
   it("puts the transcript in front of the model alongside the frames", () => {
     const parts = attachmentParts(videoAtt({ transcript: "the codeword is zephyr" }));
     const texts = parts.filter(p => p.type === "text").map(p => p.text as string);
-    expect(texts.some(t => t.includes("Audio transcript") && t.includes("zephyr"))).toBe(true);
+    expect(texts.some(t => t.includes("Audio track") && t.includes("zephyr"))).toBe(true);
     expect(parts.some(p => p.type === "image_url")).toBe(true);
   });
 
@@ -98,6 +98,36 @@ describe("video prompt parts", () => {
     const texts = attachmentParts(videoAtt({}))
       .filter(p => p.type === "text")
       .map(p => p.text as string);
-    expect(texts.some(t => t.includes("Audio transcript"))).toBe(false);
+    expect(texts.some(t => t.includes("Audio track"))).toBe(false);
+  });
+});
+
+function audioAtt(extra: Partial<Attachment>): Attachment {
+  return {
+    id: "att_2", name: "clip.mp3", kind: "audio", mime: "audio/mpeg", size: 1024,
+    status: "ready", category: "audio",
+    ...extra,
+  } as Attachment;
+}
+
+describe("audio prompt parts", () => {
+  it("frames the transcript as audio the model heard, never as a transcript", () => {
+    const texts = attachmentParts(audioAtt({ transcript: "the codeword is zephyr" }))
+      .filter(p => p.type === "text")
+      .map(p => p.text as string);
+    const joined = texts.join("\n");
+    expect(joined).toContain("zephyr");
+    expect(joined).toContain("you have listened");
+    expect(joined).toContain("[spoken content begins]");
+    expect(joined).not.toContain("Transcript");
+    expect(joined).toContain("never tell the user you cannot hear audio");
+  });
+
+  it("silent audio reports no speech without a transcript section", () => {
+    const texts = attachmentParts(audioAtt({}))
+      .filter(p => p.type === "text")
+      .map(p => p.text as string);
+    expect(texts.some(t => t.includes("no speech"))).toBe(true);
+    expect(texts.some(t => t.includes("spoken content begins"))).toBe(false);
   });
 });
