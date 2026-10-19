@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## 2026-10-19 — Fix: stopping `npm run dev` now guarantees the contained engine dies (watchdog hardening + orphan reclaim)
+Three teardown holes in `.decision-engine/worker/decision_server.py` closed:
+(1) startup `_reclaim_orphan_llama()` — a llama-server orphaned by a worker
+that died uncleanly used to be ADOPTED via the `/health` early-return
+(`_llm_proc` stays None → `_shutdown_llama()` no-op → it outlived every
+future worker); now any live :8791 listener at boot is killed (netstat/taskkill
+scoped to LFM_PORT only — Strata :8080 is never touched) and replaced by our
+own child the watchdog can guarantee to kill; (2) watchdog `OpenProcess`
+failure (parent already dead race) now shuts down instead of lingering
+forever, and the wait tick dropped 2s→1s; (3) `llama_server.pid` now stores
+the LLAMA pid, not the worker's. Plus `atexit.register(_shutdown_llama)` for
+manual Ctrl+C. Verified: 2-phase lifecycle script (parent-death watchdog;
+taskkill-/F orphan → startup reclaim → new worker's llama watchdog-killed on
+parent death) ALL PASS, and a real `npm run dev` boot → `taskkill /T` →
+node/worker/llama all gone, :8790/:8791 DOWN, Strata :8080 untouched.
+
 ## 2026-10-19 — Fix: folder-structure trees stay interactive at any size, zero mid-stream flicker
 `looksLikeTree` counted `│`-only spacer lines as non-tree lines (tolerance
 2), so trees with 3+ spacers fell back to a plain CodeBlock (collapsed body

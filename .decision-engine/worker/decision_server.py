@@ -53,6 +53,13 @@ container-classifier patch):
   * Parent-PID watchdog: when spawned by the WebUI (DECISION_ENGINE_PARENT_PID)
     the worker kills its llama-server child and exits once the dev server dies,
     so stopping `npm run dev` never leaves python/llama-server holding RAM.
+    An unopenable parent handle means the parent already died (spawn->watchdog
+    race) — we shut down then too instead of lingering forever.
+  * Startup reclaim: any llama-server already listening on LFM_PORT when we
+    boot (orphaned by a worker that died uncleanly, so its watchdog never ran)
+    is killed before we spawn OUR OWN child — the only llama the watchdog can
+    guarantee to kill. Without this, an orphan gets adopted via the /health
+    early-return, _llm_proc stays None, and it outlives every future worker.
   * CREATE_NO_WINDOW on every subprocess launch: a detached worker popping a
     console window for llama-server/tasklist/powershell is a user-facing bug.
   * Head+tail truncation of >3000-char prompts so llama-server -c 2048 never
@@ -62,6 +69,7 @@ Every weight, binary, cache and venv lives inside ./.decision-engine/.
 Start:  .decision-engine/.venv/Scripts/python.exe .decision-engine/worker/decision_server.py
 Serves: http://127.0.0.1:8790  POST /decision {message, conversationHistory?}
 """
+import atexit
 import json
 import os
 import re
@@ -482,10 +490,10 @@ def _read_pid(path: Path) -> int:
         return -1
 
 
-def _write_pid(path: Path) -> None:
+def _write_pid(path: Path, pid: int | None = None) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(str(os.getpid()))
+        path.write_text(str(pid if pid is not None else os.getpid()))
     except Exception:
         pass
 
@@ -499,6 +507,54 @@ def _guard_single_instance() -> None:
         print(f"[decision-engine] another worker (pid {other}) owns :{DECISION_PORT} — exiting", flush=True)
         sys.exit(0)
     _write_pid(pidfile)
+
+
+def _kill_port_holder(port: int) -> None:
+    """Force-kill every process LISTENING on 127.0.0.1:port. Used ONLY to
+    reclaim our own contained engine port (LFM_PORT) from an orphaned
+    llama-server — never for foreign backends like Strata on :8080."""
+    if os.name != "nt":
+        return
+    try:
+        out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True,
+                             text=True, timeout=10, creationflags=_NO_WINDOW).stdout
+        pids = set()
+        for line in out.splitlines():
+            parts = line.split()
+            # TCP  127.0.0.1:8791  0.0.0.0:0  LISTENING  <pid>
+            if (len(parts) >= 5 and parts[0].upper() == "TCP"
+                    and parts[1].endswith(f":{port}") and parts[3].upper() == "LISTENING"):
+                pids.add(int(parts[4]))
+        for pid in pids:
+            if pid != os.getpid():
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                               capture_output=True, timeout=10, creationflags=_NO_WINDOW)
+    except Exception:
+        pass
+
+
+def _reclaim_orphan_llama() -> None:
+    """Run right after _guard_single_instance(): we are the only live worker,
+    so any llama-server already answering on LFM_PORT is NOT ours — an orphan
+    from a worker that died uncleanly (watchdog never ran) or a stale manual
+    launch. ensure_llama_server() would ADOPT it via the /health early-return,
+    leaving _llm_proc None so _shutdown_llama() is a no-op forever: the orphan
+    would outlive every future worker and every watchdog. Kill it; the llama we
+    spawn next is OUR child and therefore always killable by our watchdog."""
+    if not _health(LFM_PORT):
+        return
+    _kill_port_holder(LFM_PORT)
+    for _ in range(10):  # port must actually free before we bind it again
+        if not _health(LFM_PORT):
+            break
+        time.sleep(0.5)
+    pidfile = DE / ".cache" / "llama_server.pid"
+    try:
+        if pidfile.exists():
+            pidfile.unlink()
+    except Exception:
+        pass
+    print(f"[decision-engine] reclaimed orphaned llama-server on :{LFM_PORT}", flush=True)
 
 
 def _thread_count() -> int:
@@ -550,7 +606,7 @@ def ensure_llama_server() -> None:
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=_NO_WINDOW,  # no console window popped for llama-server
         )
-        _write_pid(pidfile)
+        _write_pid(pidfile, _llm_proc.pid)  # the LLAMA pid, not ours — ownership must be truthful
         for _ in range(120):
             if _health(LFM_PORT):
                 return
@@ -583,17 +639,25 @@ def _parent_watchdog() -> None:
     if os.name == "nt":
         handle = _kernel32.OpenProcess(_SYNCHRONIZE, False, _PARENT_PID)
         if not handle:
-            return  # parent unopenable — stay alive (safe default for manual spawns)
+            # We were spawned BY that PID (manual spawns have _PARENT_PID 0 and
+            # never reach this thread), so an unopenable handle means the
+            # parent already exited before the watchdog started (spawn->watchdog
+            # race). Lingering "just in case" is exactly the orphan bug users
+            # hit: dev server stopped but python stays up. Shut down instead.
+            print(f"[decision-engine] parent pid {_PARENT_PID} already gone — shutting down", flush=True)
+            _shutdown_llama()
+            os._exit(0)
     while True:
         if os.name == "nt":
-            if _kernel32.WaitForSingleObject(handle, 0) == _WAIT_OBJECT_0:
+            # Blocking wait with 1s tick: fires within ~1s of the parent dying.
+            if _kernel32.WaitForSingleObject(handle, 1000) == _WAIT_OBJECT_0:
                 break
         else:
             try:
                 os.kill(_PARENT_PID, 0)
             except OSError:
                 break
-        time.sleep(2)
+            time.sleep(1)
     print(f"[decision-engine] parent pid {_PARENT_PID} exited — shutting down", flush=True)
     _shutdown_llama()
     try:
@@ -826,6 +890,8 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
 
 if __name__ == "__main__":
     _guard_single_instance()
+    _reclaim_orphan_llama()  # any live :8791 llama now is OURS to spawn and kill
+    atexit.register(_shutdown_llama)  # covers manual Ctrl+C / clean uvicorn exits
     if _PARENT_PID > 0:
         threading.Thread(target=_parent_watchdog, daemon=True).start()
     import uvicorn

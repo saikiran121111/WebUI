@@ -25,6 +25,15 @@ REMAINING: full Playwright via .cache/run-playwright.ps1, then final
 STATE/CHANGELOG sync + git commit.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- ENGINE TEARDOWN HARDENING (2026-10-19, LOCKED): decision_server.py —
+  `_kill_port_holder` + `_reclaim_orphan_llama` (startup kills any orphan
+  llama on LFM_PORT :8791 ONLY, never Strata :8080); `_parent_watchdog`
+  OpenProcess-fail → `_shutdown_llama()+os._exit(0)`, 1s wait tick;
+  `_write_pid(path, pid)` — llama_server.pid holds the llama pid;
+  `atexit.register(_shutdown_llama)` in __main__. Strata lifecycle stays
+  the user's (run-iq3_s.bat) by explicit decision — WebUI never spawns or
+  kills it. VERIFIED: lifecycle script ALL PASS + real `npm run dev` →
+  taskkill /T → node+worker+llama gone, :8790/:8791 DOWN, :8080 alive.
 - NEEDLE 3 REMOVAL (2026-10-19d, LOCKED — NEVER reintroduce needle code,
   deps, weights or env vars):
   decision_server.py — no needle import, no CLASSIFY_SYSTEM/ROUTE_TOOLS/
