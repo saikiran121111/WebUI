@@ -1,22 +1,52 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-19 — MASTER E2E ARCHITECTURAL FIX (Excel stress engine, execution bridge, auto-boot, 50 extreme edge cases) — PARTS 1-4 LOCKED, PART 5 final full Playwright run in progress, PART 6 (commit→shutdown) pending
+Synced: 2026-10-19 — FINAL MASTER ARCHITECTURE FIX (single-field LFM2.5 container classifier, zero prompt rewriting, Needle-3 decoupled) — ALL 6 PHASES LOCKED-DONE: 4/4 probes, vitest 439|1, router 11/11, fallback PASS, extreme 64/64, audit 12/12, Playwright 309|4 skipped|0 failed exit 0; docs updated, commit + 60 s shutdown next
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
-Six-part master mission: make the heavy "Create and execute a Python script …
-UI_Stress_Test.xlsx (6 sheets, 500 rows…)" prompt EXECUTE instead of being
-refused, then verify everything 100% green, commit cleanly, and trigger a
-60 s delayed Windows shutdown. PARTS 1-4 LOCKED-DONE (execution bridge in the
-decision engine; xlsx stress-test engine proven end-to-end via
-UI_Stress_Test.xlsx; Next auto-boot of the decision engine + 7 codebase fixes;
-50/50 extreme edge-case suite). PART 5: server-500 fixed, 3 Playwright
-regressions root-caused + fixed, tsc clean, vitest 434|1 skipped, decision
-suites all green; FINAL full headed Playwright run IN PROGRESS
-(.cache/pw-final2.log, 313 tests, workers:1, ~1.4 h — first restart at
-pw-final.log:161 had exactly 1 failure: conversations-live-chat timeout, now
-fixed via test.setTimeout(180_000)). Then: docs done (this file + CHANGELOG +
-ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
+FINAL MASTER ARCHITECTURE FIX (6 phases) — COMPLETE. Replaced the 4-field
+Stage-2 generation (mode collapse/echo/hallucinated constraints) and PRIOR
+injection with a single-field LFM2.5 container classifier: Stage2Out = ONLY
+active_mode (max_tokens 24), lfm_input = optional prev-mode prefix + RAW
+message (Needle 3 never injected), verbatim DEFAULT-chat LFM_SYSTEM, conf
+0.95, constraints/entities []. standard_chat forwards the user message 100%
+verbatim; studio modes use the deterministic _clean_artifact_prompt (refusal
+traps stripped, lead-in → "Generate ", every hard token preserved) behind a
+STRICT container-noun gate + hard coding override + NEW explicit-artifact
+promotion guard (deviation: the DEFAULT-chat prompt made the 1.2B answer
+standard_chat even for explicit deliverable asks). FastAPI lifespan. PHASE 4
+verified already satisfied (per-message decisionMode, execution bridge,
+skill-loader). All verification green: 4/4 live probes on a FRESH worker,
+vitest 439|1 skipped, router 11/11, fallback PASS, extreme 64/64, audit
+12/12, full headed Playwright 309|4 skipped|0 failed exit 0 (23.4 m).
+Remaining this session: git commit (docs updated) + 60 s shutdown.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- FINAL MASTER ARCHITECTURE FIX (2026-10-19c, ALL PHASES LOCKED):
+  schemas.py — Mode Literal with "standard_chat" FIRST; single-field
+  Stage2Out(active_mode: Mode); DecisionEnvelope untouched.
+  decision_server.py — LFM_SYSTEM = verbatim DEFAULT-chat container prompt
+  (8 studio containers only when explicitly requested; multi-turn rule keyed
+  on "[Previous turn artifact mode: <prev>]" prefix; JSON-only reply);
+  _lfm_call max_tokens 24; lfm_input = prefix + raw message, PRIOR NEVER
+  injected (Needle 3 still runs for needle_prior/latency/fallback); conf
+  0.95 on LFM success (needle_conf on lfm-fail); task_constraints=[] +
+  extracted_entities=[]; _clean_artifact_prompt (refusal-trap sentences
+  stripped, "Create and execute a Python script using openpyxl to generate "
+  → "Generate " + docx/pptx/reportlab equivalents, everything else verbatim);
+  _STRICT_CONTAINER_RX strict nouns (never python/code/calculator/math/
+  table/formula for excel); _hard_coding_override (code verb+noun+language
+  AND zero container nouns → standard_chat); _RX_EXPLICIT_ARTIFACT promotion
+  guard 5 (chat→studio when a container appears in deliverable position;
+  extended excel with sumifs/vlookup/xlookup/transaction tracker); stripped
+  recompute when a guard flips the mode; FastAPI @asynccontextmanager
+  lifespan (zero DeprecationWarning). PHASE 4 verified-no-change:
+  x-decision-mode per-message (useChat/ChatMessage/MarkdownRenderer),
+  execution bridge + rowGenerator, skill-loader clean.
+  tests/test-decision-extreme-edge-cases.mjs — cases #51-64 added (greeting,
+  scientific calculator, round robin, C++/Java/TS/Rust/Go/C#/SQL/JS/React,
+  multi-turn, xlsx stress) → 64/64. Live probes 4/4 (.cache/
+  probe-2026-10-19.mjs, fresh worker after killing stale :8790/:8791).
+  Full Playwright via .cache/run-playwright.ps1 lock launcher: 309|4 skip|0
+  fail, EXIT=0, 23.4 m (.cache/playwright-run.log).
 - PART 1 (execution bridge, decision_server.py + TS): Target-Deliverable
   Routing + deterministic `_strip_execution_meta` post-filter; contracts.ts
   EXECUTION BRIDGE MANDATE in output contracts; skill-loader.ts strips
@@ -104,17 +134,22 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
 - MODE_MAP/MODE_SKILL: excel:(xlsx,xlsx) docs:(docx,docx) pdf:(pdf,html)
   ppt:(pptx,pptx) 3d_asset:(threejs-skills,scene3d) cad_blueprint:(archify,
   cad) chart:(None,chart) html_render:(html-viewer,html) standard_chat:(None,None).
-- _lfm_call LOCKED: temp 0.0, top_k 1, top_p 1.0, seed 42, max_tokens 180,
-  json_object + Stage2Out grammar. LFM_SYSTEM greedy-sensitive — ANY edit
-  changes ALL outputs → must re-run router+audit+fallback+extreme after every
-  change (deterministic post-processing additions do NOT require LFM re-tune
-  but DO require suite re-runs since routing guards act on outputs).
-- Worker deterministic post-guards (in order): _salvage_stage2,
-  _preserve_hard_tokens(raw, stripped, coverage, extra=artifact_nouns)
-  skip-set ".!?\n", _routing_guards (question/chat/evidence, earliest wins,
-  silent switch + print log, decided_by unchanged), _multi_turn_rule,
-  trivial-chat passthrough (standard_chat && len<120 → verbatim, no
-  constraints), MAX_LFM_CHARS=2_600.
+- _lfm_call LOCKED (2026-10-19c): temp 0.0, top_k 1, top_p 1.0, seed 42,
+  max_tokens 24, json_schema grammar on single-field Stage2Out(active_mode:
+  Mode). LFM_SYSTEM = verbatim DEFAULT-chat container prompt —
+  greedy-sensitive, ANY edit → re-run router+audit+fallback+extreme.
+  lfm_input = optional "[Previous turn artifact mode: <prev>]\n" + RAW
+  message; Needle PRIOR NEVER in LFM input. LFM success → conf 0.95,
+  constraints [] + entities [].
+- Worker deterministic post-guards (in order, 2026-10-19c):
+  _hard_coding_override → _routing_guards (1 question gate, 2 chat gate via
+  LOOSE _artifact_modes, 3 evidence switch via STRICT _STRICT_CONTAINER_RX
+  earliest-match-wins, 4 sheet-beats-invoice, 5 _RX_EXPLICIT_ARTIFACT
+  chat→studio promotion) → _multi_turn_rule → stripped recompute if the
+  mode flipped (chat=verbatim, studio=_clean_artifact_prompt) → trivial-chat
+  passthrough (standard_chat && len<120 → verbatim) → _remember.
+  _preserve_hard_tokens REMOVED (lossless cleaner); _salvage_stage2 kept as
+  truncated-JSON safety net. MAX_LFM_CHARS=2_600.
 - Chat route order (locked): applySlashSkillRouting -> lastUserIdx ->
   fullText -> passthrough check (decision_mode pin, then delete) ->
   getDecision -> rewrite SKIPPED if passthrough OR hasAttachmentParts ->
@@ -153,6 +188,15 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
   0 failed (30.0 m), exit code 0** — FULL suite 100% green. Post-fix vitest
   re-run vs final code: 434 passed | 1 skipped. 4 skips = intentional
   widget form test + documented manifest skips.
+  2026-10-19c FINAL MASTER FIX run (.cache/playwright-run.log, via
+  .cache/run-playwright.ps1 §1.3 lock launcher, detached Start-Process +
+  §1.2 foreground wait loops): **309 passed | 4 skipped | 0 failed,
+  EXIT=0 (23.4 m)** — same 4 intentional skips (regression_modalities
+  :75/:229/:453 + render :710). Launcher gotcha: PowerShell
+  $ErrorActionPreference="Stop" turns npm's stderr "npm notice" into a
+  terminating NativeCommandError — run the suite via
+  `cmd /c "npx playwright test > log 2>&1"`-style redirection inside the
+  launcher.
 - NEW PROJECT RULE (CLAUDE.md §1, replaces old launch/poll pattern): CODE /
   TEST / ANALYZE phases mutually exclusive; lock file
   `.ai-coordination/playwright.lock` created before launch + removed in
@@ -194,15 +238,16 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
   JSONs own routing; browser can never touch ./.cskills/.
 
 [8.8 IMMEDIATE NEXT ATOMIC ACTIONS]
-1. DONE: pw-final5 full suite 309|4 skipped|0 failed, exit 0; vitest 434|1
-   vs final code; decision suites green; tsc clean.
+1. DONE (2026-10-19c): all 6 phases complete — 4/4 live probes on fresh
+   worker, vitest 439|1 skipped, router 11/11, fallback PASS, extreme
+   64/64, audit 12/12, Playwright 309|4 skipped|0 failed EXIT=0; docs
+   (STATE.md + CHANGELOG.md) updated.
 2. `git add -A` + commit (message ends "Co-Authored-By: Claude Code
    <noreply@anthropic.com>"); verify `git status` clean.
-3. PART 6 (ONLY after 2 done): stop temp servers (Next :3000; worker/
-   llama-server), then run EXACTLY: shutdown /s /t 60 /c "Claude Code:
-   UI_Stress_Test.xlsx, Decision Engine Auto-Boot, 50/50 Extreme Edge Cases,
-   Vitest, and Playwright E2E all passed 100% and committed. Shutting down
-   in 60s (run 'shutdown /a' to cancel)."
+3. PHASE 6 (ONLY after 2 done): run EXACTLY: shutdown /s /t 60 /c "Claude
+   Code: single-field container classifier verified — probes 4/4, vitest
+   439, extreme edge 64/64, Playwright E2E 309/309 green and committed.
+   Shutting down in 60s (run 'shutdown /a' to cancel)."
 
 [ADDENDUM 2026-10-19b — DECISION ENGINE LIFECYCLE (LOCKED-DONE)]
 - client.ts spawn now passes DECISION_ENGINE_PARENT_PID=<next server pid>;

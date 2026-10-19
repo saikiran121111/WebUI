@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## 2026-10-19 — Feat+Fix: FINAL MASTER ARCHITECTURE FIX (single-field LFM2.5 container classifier, zero prompt rewriting, clean Needle-3 decoupling)
+Six-phase mission: replace the 4-field Stage-2 generation (mode collapse, echo,
+hallucinated constraints) and PRIOR-injection pollution with a pure container
+classifier; standard_chat forwards the user's message 100% verbatim.
+- **PHASE 1 — Single-field classifier (`schemas.py` + `decision_server.py`)**:
+  `Mode` Literal lists `"standard_chat"` FIRST; `Stage2Out` is now ONLY
+  `active_mode: Mode` (grammar-constrained single-field json-schema, `_lfm_call`
+  max_tokens 24). `lfm_input` = optional `[Previous turn artifact mode: <prev>]`
+  prefix + the RAW message — the Needle-3 PRIOR string is NEVER injected (Needle 3
+  still runs for needle_prior/latency/fallback). `LFM_SYSTEM` replaced with the
+  verbatim DEFAULT-chat prompt (chat/Q&A/math/ALL programming default; 8 STUDIO
+  containers only when explicitly requested; multi-turn rule keyed on the
+  prev-mode prefix; `Reply with JSON only: {"active_mode": "<mode>"}`). LFM
+  success → confidence 0.95, `task_constraints=[]`, `extracted_entities=[]`.
+  DecisionEnvelope contract UNCHANGED (12 + 3 diagnostic fields).
+- **PHASE 2 — Deterministic cleaner + strict container gate**: standard_chat →
+  `" ".join(raw.split())` (100% untouched). Studio modes → `_clean_artifact_prompt`
+  keeps every spec/number/formula/sheet-name/color verbatim, strips only hostile
+  sandbox-refusal sentences and replaces the "Create and execute a Python script
+  using openpyxl to generate " lead-in (docx/pptx/reportlab equivalents) with
+  "Generate ". Strict container nouns per mode (`_STRICT_CONTAINER_RX` — never
+  generic "python/code/calculator/math/table/formula" for excel) + hard coding
+  override (code verb + code noun + language/CS term AND zero studio container
+  nouns → force standard_chat). NEW promotion guard (deviation, required):
+  `_RX_EXPLICIT_ARTIFACT` (routing guard 5) — the verbatim DEFAULT-chat prompt
+  made the 1.2B return standard_chat even for explicit deliverable asks
+  ("downloadable Excel file named UI_Stress_Test.xlsx…"), and every existing
+  guard only DEMOTES; when Stage 2 says chat but the message names a studio
+  container in deliverable position, promote back to that studio mode. A guard
+  flip also flips the cleaning policy (stripped recompute).
+- **PHASE 3 — FastAPI lifespan**: `@app.on_event` → `@asynccontextmanager
+  async def lifespan(app)` — zero DeprecationWarning.
+- **PHASE 4 — VERIFIED already satisfied (no changes)**: per-message
+  `decisionMode` from `x-decision-mode` (useChat.ts → ChatMessage.tsx →
+  MarkdownRenderer.tsx; standard_chat renders code fences in shiki CodeBlock,
+  never artifact viewers); XLSX_CONTRACT EXECUTION BRIDGE MANDATE + rowGenerator
+  in force; skill-loader injects no conflicting openpyxl CLI instructions.
+- **PHASE 5 — Fresh-in-RAM verification**: killed old worker (:8790) +
+  llama-server (:8791) before probing so the new code loaded fresh. 4/4 live
+  probes pass (greeting verbatim + empty constraints; python scientific
+  calculator → standard_chat 0B skills; round robin → standard_chat 0B;
+  UI_Stress_Test.xlsx → excel + core:xlsx skill, refusal trap stripped, all 6
+  sheet names preserved, "Generate" lead-in). Suites: vitest **439 passed | 1
+  skipped**; router 11/11; LFM-fail fallback PASS; extreme edge cases extended
+  to **64/64** (new #51–64: greeting, scientific calculator, round robin, 10
+  coding languages, multi-turn pivots, xlsx stress prompt); audit 12/12 + ALL
+  10 hard tokens preserved.
+- **PHASE 6 — Full E2E + commit**: headed full suite under the §1 lock protocol
+  (`.cache/run-playwright.ps1` owns `.ai-coordination/playwright.lock`):
+  **309 passed | 4 skipped | 0 failed, exit 0 (23.4 m)** — 100% green.
+- Known deviation to be aware of: for the UI_Stress_Test prompt the 1.2B LFM
+  itself still answers `standard_chat`; the excel mode comes from promotion
+  guard 5 (the DEFAULT-chat paragraph over-corrects on explicit asks).
+
 ## 2026-10-19 — Feat+Fix: MASTER E2E ARCHITECTURAL FIX (Excel stress-test engine, execution bridge, auto-boot, 50 extreme edge cases)
 Six-part mission: make the heavy "Create and execute a Python script … UI_Stress_Test.xlsx"
 prompt EXECUTE instead of being refused, and harden the whole stack around it.

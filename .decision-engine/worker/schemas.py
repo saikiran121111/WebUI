@@ -2,12 +2,14 @@
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
+# standard_chat FIRST: it is the default container — the grammar's literal
+# ordering nudges the 1.2B model toward the safe default on ambiguous turns.
 MODES = [
-    "excel", "docs", "pdf", "ppt", "3d_asset",
-    "cad_blueprint", "chart", "html_render", "standard_chat",
+    "standard_chat", "excel", "docs", "pdf", "ppt", "3d_asset",
+    "cad_blueprint", "chart", "html_render",
 ]
-Mode = Literal["excel", "docs", "pdf", "ppt", "3d_asset",
-               "cad_blueprint", "chart", "html_render", "standard_chat"]
+Mode = Literal["standard_chat", "excel", "docs", "pdf", "ppt", "3d_asset",
+               "cad_blueprint", "chart", "html_render"]
 
 # mode -> (core skill in ./.cskills/ or None, allowed code fence or None)
 MODE_MAP: dict[str, tuple[Optional[str], Optional[str]]] = {
@@ -29,14 +31,13 @@ class DecisionRequest(BaseModel):
 
 
 class Stage2Out(BaseModel):
-    """LFM2.5-1.2B deep-decision JSON. This schema is passed to llama-server as
-    response_format json_object+schema, so generation is grammar-constrained to
-    exactly these fields: one of the 9 Mode literals, a bounded confidence and a
-    NON-EMPTY model-generated stripped_prompt (no rule-based stripping exists)."""
+    """LFM2.5-1.2B container classification — ONE field only. Passed to
+    llama-server as response_format json_object+schema, so generation is
+    grammar-constrained to {"active_mode": <one of 9 literals>}: ~5 decoded
+    tokens instead of ~80. The 1.2B model can no longer echo the system
+    prompt, rewrite the user's words or hallucinate constraints — prompt
+    cleaning is deterministic Python in decision_server.py, not model output."""
     active_mode: Mode
-    confidence: float = Field(ge=0.0, le=1.0)
-    stripped_prompt: str = Field(min_length=1)
-    task_constraints: list[str] = Field(default_factory=list)
 
 
 class DecisionEnvelope(BaseModel):

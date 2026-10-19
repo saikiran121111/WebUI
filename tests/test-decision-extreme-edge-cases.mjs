@@ -170,6 +170,41 @@ const CASES = [
     message: "### ``` === <<< >>> *** &&&" },
   { id: 50, name: "5x concurrent burst all route excel", mode: "excel", burst: true,
     message: "Generate a downloadable Excel file named Burst_Test.xlsx with 6 sheets and 500 rows", mustHave: ["burst_test"] },
+
+  // ---- #51–64: single-field container classifier regression set (2026-10-19)
+  // The old routing let generic words ("python", "calculator") count as excel
+  // evidence, so plain chat and coding requests in ANY language collapsed
+  // into studio modes. Every one of these must stay standard_chat with the
+  // user's words forwarded verbatim (the hard coding override + strict
+  // container nouns make studio modes unreachable without an explicit ask).
+  { id: 51, name: "greeting stays standard_chat verbatim", mode: "standard_chat",
+    message: "Hey there how are you", mustHave: ["hey there how are you"] },
+  { id: 52, name: "python scientific calculator -> standard_chat", mode: "standard_chat",
+    message: "Can you write a python code to create a scientific calculator", mustHave: ["scientific calculator"] },
+  { id: 53, name: "round robin code -> standard_chat", mode: "standard_chat",
+    message: "give me round robin code", mustHave: ["round robin"] },
+  { id: 54, name: "C++ binary search -> standard_chat", mode: "standard_chat",
+    message: "Write a C++ program to implement binary search over a sorted vector", mustHave: ["binary search"] },
+  { id: 55, name: "Java linked list class -> standard_chat", mode: "standard_chat",
+    message: "Give me a Java class that implements a linked list", mustHave: ["linked list"] },
+  { id: 56, name: "TypeScript debounce function -> standard_chat", mode: "standard_chat",
+    message: "Write a TypeScript function to debounce API calls", mustHave: ["debounce"] },
+  { id: 57, name: "Rust CSV parser -> standard_chat", mode: "standard_chat",
+    message: "Create a Rust program that parses CSV files", mustHave: ["csv"] },
+  { id: 58, name: "Go web scraper -> standard_chat", mode: "standard_chat",
+    message: "Write a Go program for a concurrent web scraper", mustHave: ["scraper"] },
+  { id: 59, name: "C# banking class -> standard_chat", mode: "standard_chat",
+    message: "Write a C# class for a bank account with deposit and withdraw methods", mustHave: ["deposit"] },
+  { id: 60, name: "SQL join query -> standard_chat", mode: "standard_chat",
+    message: "Write a SQL query to join orders and customers and sum the totals", mustHave: ["join"] },
+  { id: 61, name: "JavaScript sort function -> standard_chat", mode: "standard_chat",
+    message: "Write a JavaScript function that sorts an array of objects by date", mustHave: ["sort"] },
+  { id: 62, name: "React useEffect hook -> standard_chat", mode: "standard_chat",
+    message: "Write a React useEffect hook that fetches data on mount", mustHave: ["useeffect"] },
+  { id: 63, name: "Python Dijkstra algorithm -> standard_chat", mode: "standard_chat",
+    message: "Implement Dijkstra's algorithm in Python to find the shortest path", mustHave: ["dijkstra"] },
+  { id: 64, name: "Python scraper script -> standard_chat", mode: "standard_chat",
+    message: "Write a Python script to scrape Wikipedia article titles", mustHave: ["wikipedia"] },
 ];
 
 // 8,000-char prompt: artifact request at head AND tail so head+tail truncation

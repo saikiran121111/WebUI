@@ -2,27 +2,45 @@
 Hybrid Decision Engine worker (100% project-local).
 
 Stage 1 — Needle 3 (resident, grammar-constrained tool call): fast mode prior
-with a calibrated confidence head. Stage 2 — LFM2.5-1.2B-Instruct via the
-contained llama-server subprocess: ALWAYS runs on every non-empty
-request, receives the raw prompt + Needle's prior, makes the final mode
-decision and generates the stripped_prompt (schema-constrained JSON).
-There is NO rule-based text stripping and NO silent drop to standard_chat:
-if LFM fails after one self-correction retry, the envelope falls back to
-Needle 3's top prior mode with the raw prompt.
+with a calibrated confidence head. Its prior NEVER reaches Stage 2 — it only
+feeds the lfm-fail fallback and the diagnostics. Stage 2 — LFM2.5-1.2B via
+the contained llama-server subprocess: ALWAYS runs on every non-empty
+request, receives ONLY the raw user message (plus an optional one-line
+"[Previous turn artifact mode: X]" prefix for multi-turn) and classifies the
+requested OUTPUT CONTAINER into one mode. The grammar-constrained reply is a
+single field, {"active_mode": ...} — ~5 decoded tokens, sub-second CPU
+latency, and the 1.2B model can no longer echo the system prompt, rewrite
+the user's words or hallucinate constraints. Prompt cleaning is deterministic
+Python (_clean_artifact_prompt), never model-generated: the user's words,
+numbers, formulas, sheet names and colors reach the main LLM verbatim, with
+only hostile sandbox-refusal clauses removed. If LFM fails after one
+self-correction retry, the envelope falls back to Needle 3's top prior mode.
 
-Deterministic safety layers on top of the models (2026-10-19 execution-bridge
-patch):
+Deterministic safety layers on top of the models (2026-10-19 single-field
+container-classifier patch):
   * Target-Deliverable Routing Rule in both system prompts (script-phrasing
     traps like "execute a Python/openpyxl script to build an xlsx" route to
     the artifact's mode, never standard_chat).
-  * _strip_execution_meta(): post-filter that deletes hostile meta-clauses
-    ("if execution or file creation is unavailable, state the limitation
-    immediately") from stripped_prompt for every non-standard_chat mode.
+  * _clean_artifact_prompt(): deterministic cleaner that deletes hostile
+    meta-clauses ("if execution or file creation is unavailable, state the
+    limitation immediately", "execute the code rather than merely describing
+    it", "do not repeat your planning") and rewrites the "create and execute
+    a Python/openpyxl script to" lead-in to a plain "Generate" verb for
+    every non-standard_chat mode — everything else survives verbatim.
+  * Strict container-evidence gate (_STRICT_CONTAINER_RX + hard coding
+    override): generic words ("python", "code", "calculator", "math",
+    "table", "formula") are NOT studio evidence — a plain coding request
+    with zero explicit studio container nouns is always standard_chat.
+  * Explicit artifact promotion (_RX_EXPLICIT_ARTIFACT, routing guard 5):
+    when Stage 2 defaults to standard_chat but the message names a studio
+    container in deliverable position ("generate a downloadable Excel
+    file", "10-slide deck", "3D logo"), the deterministic layer promotes
+    it back — the 1.2B DEFAULT-chat paragraph regresses on explicit asks,
+    while high-precision patterns keep homonym chat mentions demoted.
   * Multi-turn mode policy: refinement keeps the previous turn's mode, a
     pivot to a new deliverable switches it, a pure conceptual question drops
     to standard_chat (prior mode recovered from the session cache or the
     previous assistant turn's fence language).
-  * _preserve_hard_tokens(): append-only lossless hard-token guard.
   * threading.Lock around Needle + llama-server calls (concurrent /decision
     requests must never corrupt the shared slot or 500 on KV overflow).
   * PID lockfiles so hot reloads reuse :8790/:8791 and never spawn duplicates.
@@ -47,6 +65,7 @@ import threading
 import time
 import urllib.request
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 DE = Path(__file__).resolve().parents[1]
@@ -68,7 +87,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from schemas import (  # noqa: E402
     MODES, MODE_MAP, DecisionEnvelope, DecisionRequest, Stage2Out,
 )
-from stripper import strip_prompt  # noqa: E402
 
 DECISION_PORT = int(os.environ.get("DECISION_PORT", "8790"))
 LFM_PORT = int(os.environ.get("LFM_PORT", "8791"))
@@ -142,110 +160,37 @@ TOOL_TO_MODE = {fn.__name__: fn.__name__[len("route_"):] for fn in ROUTE_TOOLS}
 
 
 # ---- Stage 2: LFM2.5-1.2B via llama-server --------------------------------
-LFM_SYSTEM = (
-    "You are the Decision Engine of a local AI WebUI. Decide the single renderer mode for the user's request, then strip the prompt.\n"
-    "Modes: excel (spreadsheet/workbook/rows/formulas/SUMIFS/tracker/budget/KPI dashboard), "
-    "docs (written document/report/letter/handover/sign-off), "
-    "pdf (printable invoice/receipt or an export-for-print document — an invoice is pdf, never docs), "
-    "ppt (slide deck/presentation/pitch deck/slides), "
-    "3d_asset (3D model/logo/mesh/spinning or animated object/3D scene), "
-    "cad_blueprint (architectural floor plan/building layout/wall dimensions/plumbing/BIM), "
-    "chart (plot data: bar/line/pie/scatter), html_render (web page/component/UI/landing page/dark mode), "
-    "standard_chat (question/explanation/advice, nothing to render).\n"
-    "Rules: financial/tabular words (rows, SUMIFS, tracker, budget, KPI) mean excel even if other words appear. "
-    "A tracker/ledger/log over rows of data is a SPREADSHEET (excel), never a 'document' (docs); "
-    "docs is for prose (reports, letters, essays). "
-    "A request to plot/graph/visualize data is chart, even if other words hint at slides or reports. "
-    "ppt requires the user to explicitly ask for slides, a deck or a presentation; a lone chart request is never ppt. "
-    "A question asking why/how/explain/debug is standard_chat even when it mentions React, UI or code — there is no artifact to build. "
-    "Mentioning a framework or technology does NOT mean html_render; html_render requires the user asks you to BUILD a page or component. "
-    "If the user asks to CREATE/GENERATE a new downloadable file or artifact (.xlsx/.docx/.pdf/.pptx/3D model/floor plan/chart/web page), it is that file's mode even when phrased as 'write and execute a Python/openpyxl/python-docx/reportlab/python-pptx/Blender script'; but why/how/explain questions and reading existing files stay standard_chat. A request to BUILD/create a spreadsheet, workbook or budget sheet is excel even if the same sentence also asks to explain something in a notes column.\n"
-    "MULTI-TURN: if this turn refines a previous artifact (short instruction, pronouns, make/change/add/recolor verbs), keep the previous mode; if the user pivots to a new deliverable, switch; a pure question about it is standard_chat.\n"
-    "EXECUTION-META REMOVAL: delete clauses about how to produce the file ('create and execute a Python script using openpyxl to', 'execute the code rather than merely describing it', 'if execution is unavailable state the limitation', 'reopen it to validate') and rewrite the lead-in to 'Generate downloadable <artifact>...', keeping every filename, sheet name, row count, column, formula, chart and color VERBATIM.\n"
-    "Stripping is LOSSLESS NOISE REMOVAL, never summarization: keep the full task sentence with its main verb and "
-    "deliverable noun, and keep 100% of numbers, prices, hex colors, column names, formulas, dimensions and "
-    "technical specs VERBATIM. ONLY remove conversational fluff (e.g. 'hey can you please') and conflicting "
-    "secondary renderer triggers. Build stripped_prompt only from the user's own words, e.g. "
-    "\"<user request with only conflicting mode triggers removed>\"; never answer with a fragment. "
-    "task_constraints: ONLY the hard specs you had to drop from stripped_prompt — usually []; max 5 items, <=6 words each. "
-    "Example: 'Plot a bar chart comparing <a metric>' -> chart. "
-    "Example: 'Explain why <a coding behavior> happens' -> standard_chat. "
-    "Example: 'Make a <N>-slide deck about <a topic>' -> ppt, not pdf. "
-    "Example: 'Create a spinning <an animated 3D object>' -> 3d_asset, not pdf. "
-    "CONTRASTS (artifact vocabulary alone never sets an artifact mode): "
-    "the math behind NPV/IRR -> standard_chat, not excel; "
-    "anatomy of a TCP packet header -> standard_chat, not docs; "
-    "microservices vs monolith, compare -> standard_chat, not excel; "
-    "write a git commit message -> standard_chat, not docs; "
-    "speaking tips for a slide review -> standard_chat, not ppt; "
-    "how Chart.js picks tick intervals -> standard_chat, not chart; "
-    "Excel workbook vs PDF report, which is better -> standard_chat, not pdf; "
-    "Blender script generating a low-poly crate -> 3d_asset; "
-    "CAD floor plan to be 3D-printed later -> cad_blueprint, not 3d_asset; "
-    "invoice sheet whose totals show $4,890.75 -> excel, not pdf; "
-    "build an Excel budget sheet that explains a topic in a notes column -> excel, not docs; "
-    "salary figure in the offer letter -> docs, not pdf; "
-    "elevation at 1:100 scale with #FF0000 hatch -> cad_blueprint, not pdf; "
-    "18.5m x 12.25m retail unit plan with column grid -> cad_blueprint, not pdf; "
-    "after a deck turn, 'just plot the Q4 numbers as a bar chart' -> chart. "
-    "A PRIOR section at the end of the user message is a GUESS from a WEAKER classifier — it is "
-    "wrong more often than right and the correct mode is usually NOT among its candidates. Decide "
-    "ONLY from the user's request: if the candidates contradict the request, ignore them completely. "
-    "NEVER copy the prior's mode, and NEVER copy its reliability label as your confidence — report your own. "
-    'Reply with ONLY one JSON object: {"active_mode":"<one mode>","confidence":<0..1>,'
-    '"stripped_prompt":"<user request with only noise removed>","task_constraints":["<dropped specs only, usually none>"]}'
-)
+# Single-field CONTAINER classifier (2026-10-19): the 1.2B model only answers
+# {"active_mode": ...}. standard_chat is the explicit default; studio
+# containers require an explicit request. The model never strips or rewrites
+# the prompt — _clean_artifact_prompt does that deterministically in Python.
+LFM_SYSTEM = """Classify the user message into ONE `active_mode` based strictly on the OUTPUT CONTAINER requested.
+
+DEFAULT ("standard_chat"):
+Use "standard_chat" for ALL greetings, chat, Q&A, math, explanations, and ALL programming/coding requests (writing code, scripts, calculators, algorithms, Round Robin, functions, classes, SQL, React/HTML/CSS code snippets, debugging) in ANY language (Python, JS, TS, C++, Java, Rust, etc.) unless the user explicitly asks to generate one of the 8 studio containers below.
+
+STUDIO CONTAINERS (pick ONLY when explicitly requested):
+- "excel": Excel workbook, .xlsx file, spreadsheet, or sheet with Excel formulas (SUMIFS, VLOOKUP, INDEX/MATCH).
+- "docs": Word document, .docx file, formal report/handover doc, or resume/CV.
+- "pdf": Printable .pdf file or PDF invoice/receipt.
+- "ppt": PowerPoint presentation, .pptx file, slide deck, or pitch deck.
+- "3d_asset": 3D model, Three.js / WebGL 3D scene, or spinning 3D mesh/logo.
+- "cad_blueprint": Architectural floor plan, 2D CAD drawing, building layout, or isometric anatomy cutaway.
+- "chart": Standalone bar/line/pie/scatter chart or PowerBI dashboard.
+- "html_render": Live interactive HTML webpage preview, landing page UI, or web widget preview.
+
+MULTI-TURN:
+If `[Previous turn artifact mode: X]` is present and the user is asking to edit/tweak that same artifact (e.g. "make it red", "spin faster", "add a column"), keep mode `X`. If the user asks a new question, asks for code, or switches deliverables, classify the new request independently.
+
+Reply with JSON only: {"active_mode": "<mode>"}"""
 
 
-# ---- Deterministic hard-token preservation guard --------------------------
-# Appends (never removes) any numeric/currency/hex/quoted/capitalized-identifier
-# token from the RAW user message that LFM2.5 dropped from stripped_prompt, so
-# detail preservation is 100% lossless regardless of model behavior.
-_RX_CURRENCY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?")
-_RX_HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-_RX_NUM = re.compile(r"(?<![\w$#.,])\d[\d,]*(?:\.\d+)?")
-_RX_ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]{1,}\b")
-_RX_QUOTED = re.compile("[\"'“]([^\"'”\n]{2,40})[\"'”]")
-_RX_CAPIDENT = re.compile(r"\b[A-Z][a-z]{2,}\b")
-
-
-def _hard_tokens(text: str) -> list[str]:
-    toks: list[str] = []
-    toks += _RX_CURRENCY.findall(text)
-    toks += _RX_HEX.findall(text)
-    toks += _RX_QUOTED.findall(text)
-    toks += _RX_ACRONYM.findall(text)
-    for m in _RX_CAPIDENT.finditer(text):
-        prev = text[:m.start()].rstrip()
-        if not prev or prev[-1] in ".!?\n":
-            continue  # sentence-initial capitalization is not an identifier
-        # After ":" or ";" the next capitalized word IS an identifier — it is a
-        # list item ("sheets: Dashboard, Transactions..."), not a sentence start.
-        toks.append(m.group(0))
-    toks += _RX_NUM.findall(text)
-    return list(dict.fromkeys(t.strip() for t in toks if t.strip()))
-
-
-def _preserve_hard_tokens(raw: str, stripped: str, coverage: str = "",
-                          extra: list[str] | None = None) -> str:
-    # task_constraints are forwarded to the main LLM by route.ts, so a token
-    # already covered there does not need re-appending to stripped_prompt.
-    # `extra` carries the active mode's artifact nouns found in the raw
-    # message ("crate asset" -> "asset") — the deliverable noun itself must
-    # survive the strip even when it is a plain lowercase word.
-    seen = (stripped + " " + coverage).lower()
-    toks = list(dict.fromkeys(_hard_tokens(raw) + [t.strip() for t in (extra or []) if t.strip()]))
-    missing = [t for t in toks if t.lower() not in seen]
-    if not missing:
-        return stripped
-    return f"{stripped}  Required Specs: [{', '.join(missing[:24])}]"
-
-
-# ---- Execution-meta post-filter (deterministic, non-standard_chat modes) ---
+# ---- Deterministic prompt cleaner (non-standard_chat modes) ----------------
 # The refusal trap: prompts that demand "execute the code" + "state the
-# limitation immediately" prime the main LLM to refuse. LFM2.5 removes most of
-# it, but a 1.2B model is not reliable enough to be the ONLY defense — this
-# regex layer guarantees the meta-clauses never reach the main LLM. Sentence-
+# limitation immediately" prime the main LLM to refuse. This regex layer is
+# now the ONLY cleaner (the 1.2B classifier no longer strips text), so it
+# guarantees the meta-clauses never reach the main LLM while every other
+# word survives. Sentence-
 # level deletion only: every artifact token (filename, sheet, row count,
 # formula, color) survives because the patterns anchor on execution verbs.
 _EXEC_LEADIN_RX = re.compile(
@@ -261,6 +206,7 @@ _EXEC_META_SENT_RXS = [
     re.compile(r"\b(?:rather\s+than|instead\s+of)\s+merely\s+[^.!?\n]*", re.I),
     re.compile(r"\bif\s+(?:execution|file\s+creation|creating|you\s+cannot|such\s+a\s+capability|that\s+is\s+not\s+possible)[^.!?\n]*", re.I),
     re.compile(r"\bstate\s+the\s+limitation[^.!?\n]*", re.I),
+    re.compile(r"\bdo\s+not\s+repeat\s+your\s+planning[^.!?\n]*", re.I),
     re.compile(r"\breopen\s+it\s+to\s+validat[^.!?\n]*", re.I),
     re.compile(r"\b(?:create|write|generate|build)\s+and\s+(?:then\s+)?execute\s+a\s+[^.!?\n]{0,80}?\b(?:script|code|program)\b[^.!?\n]{0,60}?\bto\b", re.I),
     re.compile(r"\busing\s+(?:openpyxl|python-docx|python-pptx|reportlab|the\s+blender\s+api|pyautogui)\b", re.I),
@@ -273,12 +219,18 @@ _MODE_LABEL = {
 }
 
 
-def _strip_execution_meta(message: str, mode: str, stripped: str) -> str:
-    """Delete execution meta-clauses from `stripped`; rewrite the lead-in to a
-    'Generate downloadable <artifact>' verb. standard_chat is untouched."""
-    if mode == "standard_chat":
-        return stripped
-    t = stripped
+def _clean_artifact_prompt(message: str, mode: str = "") -> str:
+    """Deterministic, LOSSLESS prompt cleaner for artifact modes (the 1.2B
+    model no longer strips anything): keeps 100% of the user's specs,
+    numbers, formulas, sheet names and colors verbatim and ONLY removes
+    hostile sandbox-refusal / execution-meta clauses — the "create and
+    execute a Python script using openpyxl to generate" lead-in becomes a
+    plain "Generate", and refusal traps ("if execution or file creation is
+    unavailable, state the limitation immediately", "execute the code rather
+    than merely describing or printing it", "do not repeat your planning")
+    are deleted. standard_chat never reaches this: its prompt is forwarded
+    100% untouched."""
+    t = " ".join(message.split())
     leadin = _EXEC_LEADIN_RX.match(t)
     if leadin:
         t = t[leadin.end():].lstrip(" ,:;.-\n")
@@ -287,7 +239,7 @@ def _strip_execution_meta(message: str, mode: str, stripped: str) -> str:
     t = re.sub(r"[ \t]{2,}", " ", t)
     t = re.sub(r"\s+([.,;:])", r"\1", t).strip()
     if not t:
-        return stripped  # safety: never blank out the task
+        return " ".join(message.split())  # safety: never blank out the task
     if leadin:
         m = re.match(r"([a-z])", t)
         if m:
@@ -384,19 +336,97 @@ def _multi_turn_rule(message: str, prior_mode: str | None) -> str | None:
     return None
 
 
+# ---- Strict container-evidence gate (2026-10-19 single-field classifier) ---
+# Generic words ("python", "code", "calculator", "math", "table", "formula")
+# are NOT studio evidence — only explicit studio-container nouns count. The
+# LOOSE _MODE_ARTIFACT_RX map stays for multi-turn refinement detection (a
+# follow-up like "spin faster" legitimately carries no container noun) and
+# for the chat gate; the strict map below drives the evidence switch and the
+# hard coding override.
+_STRICT_CONTAINER_RX = {
+    "excel": re.compile(r"\b(excel|xlsx|spreadsheet|worksheet|workbook|openpyxl|sumifs|vlookup|xlookup|index/match|pivot\s+table)\b", re.I),
+    "docs": re.compile(r"\b(docx|word\s+document|word\s+file|handover\s+document|formal\s+report|sign-?off\s+table|resume|cv|curriculum\s+vitae|project\s+report|offer\s+letter|letter)\b", re.I),
+    "pdf": re.compile(r"\b(pdf|printable\s+invoice|printable\s+receipt|invoice\s+receipt|reportlab)\b", re.I),
+    "ppt": re.compile(r"-slide|\b(pptx?|powerpoint|slide\s+deck|pitch\s+deck|slides|presentation)\b", re.I),
+    "3d_asset": re.compile(r"\b(3d|three\.?js|scene3d|r3f|webgl|glb|gltf|spinning|energy\s+core|mesh|extrude|lathe|blender)\b", re.I),
+    "cad_blueprint": re.compile(r"\b(cad|floor\s*plans?|floorplan|blueprint|2-?story|residential\s+plan|plumbing\s+layout|structural\s+wall|isometric\s+cutaway|anatomy|dxf|elevation)\b|\d+(?:\.\d+)?\s*m\s*[x×]\s*\d+", re.I),
+    "chart": re.compile(r"\b(charts?|bar\s+chart|line\s+chart|pie\s+chart|donut\s+chart|scatter\s+plot|histogram|plot\s+a|powerbi|pbip)\b", re.I),
+    "html_render": re.compile(r"\b(pricing\s+page|landing\s+page|dark\s+mode\s+toggle|html\s+component|ui\s+component|interactive\s+html|web\s+widget|webpage\s+preview)\b", re.I),
+}
+_RX_CODE_CUE = re.compile(r"\b(code|program|programme|script|function|class|algorithm|snippet|hook)\b", re.I)
+_RX_CODE_VERB = re.compile(r"\b(write|create|give|build|make|generate|implement|provide|develop)\b", re.I)
+_RX_LANG_CUE = re.compile(
+    r"\b(python|javascript|typescript|java|kotlin|swift|c\+\+|c#|rust|golang|\bgo\b|sql|react|vue|angular|"
+    r"node\.?js|round\s+robin|binary\s+search|dijkstra|useeffect|scientific\s+calculator|linked\s+list|"
+    r"recursion|regex|bash|powershell|matlab|perl|ruby|php|scala|elixir|haskell|assembly)\b", re.I)
+
+
+def _hard_coding_override(message: str) -> bool:
+    """True when the turn is a plain coding request with ZERO explicit studio
+    container nouns: it must be standard_chat regardless of what Stage 2 said
+    ("write python code for a scientific calculator" must never reach excel)."""
+    if any(rx.search(message) for rx in _STRICT_CONTAINER_RX.values()):
+        return False
+    return bool(_RX_CODE_CUE.search(message) and _RX_CODE_VERB.search(message)
+                and _RX_LANG_CUE.search(message))
+
+
+# ---- Explicit artifact-request promotion (2026-10-19) ----------------------
+# The single-field classifier's DEFAULT-standard_chat paragraph makes the 1.2B
+# model regress on explicit deliverable asks ("generate a downloadable Excel
+# file ..." -> standard_chat). The deterministic layer follows the MESSAGE's
+# own explicit-deliverable evidence, never the model's guess. These patterns
+# are deliberately HIGH PRECISION (a container noun in deliverable position:
+# "downloadable Excel file", "10-slide deck", "3D logo", ".xlsx"): a bare
+# homonym mention ("openpyxl internals", "3D rotation math", "slide-based
+# review", "Chart.js") must never match, or chat turns get promoted into
+# studio modes.
+_RX_EXPLICIT_ARTIFACT = {
+    "excel": re.compile(
+        r"downloadable[^.!?\n]{0,30}?\b(excel|xlsx|spreadsheet|workbook)\b"
+        r"|\b(excel|xlsx|spreadsheet|workbook)\b[^.!?\n]{0,15}\b(file|named|titled|sheet|sheets|rows|series)\b"
+        r"|\b[\w-]*\.xlsx\b|\bxlsx\b|\bworkbook\b|\bspreadsheet\b"
+        r"|invoice\s+sheet|\bsheet\s+totals\b"
+        r"|\bsumifs\b|\bvlookup\b|\bxlookup\b|\btransaction\s+tracker\b", re.I),
+    "docs": re.compile(
+        r"downloadable[^.!?\n]{0,30}?\b(docx|word\s+document|report|document|letter|handover)\b"
+        r"|\bdocx\b|\bhandover\s+document\b|\bformal\s+report\b|\bproject\s+report\b"
+        r"|\bword\s+document\b|\boffer\s+letter\b|\bcv\b|\bresume\b|\bcurriculum\s+vitae\b", re.I),
+    "pdf": re.compile(
+        r"downloadable[^.!?\n]{0,30}?\bpdf\b|\bprintable\s+(pdf|invoice|receipt)\b"
+        r"|\b[\w-]*\.pdf\b|\bpdf\b|\breportlab\b", re.I),
+    "ppt": re.compile(
+        r"\b\d+[- ]slides?\b|\bpptx?\b|\bslide\s+deck\b|\bpitch\s+deck\b|\bpowerpoint\b"
+        r"|\bslides\b|\bpresentation\b", re.I),
+    "3d_asset": re.compile(
+        r"\bspinning\b|\benergy\s+core\b|\bblender\b|\bthree\.?js\b|\bscene3d\b|\bglb\b|\bgltf\b"
+        r"|\b3d\b[^.!?\n]{0,15}\b(model|logo|asset|scene|print|printing|render)\b"
+        r"|downloadable[^.!?\n]{0,30}?\b(3d|model|asset)\b", re.I),
+    "cad_blueprint": re.compile(
+        r"\bcad\b|\bfloor\s*plans?\b|\bfloorplan\b|\bblueprint\b|\bdxf\b|\belevation\b"
+        r"|\b2-?story\b|\bresidential\s+plan\b|\bplumbing\s+layout\b|\bstructural\s+wall\b"
+        r"|\bisometric\s+cutaway\b|\d+(?:\.\d+)?\s*m\s*[x×]\s*\d+", re.I),
+    "chart": re.compile(
+        r"\b(bar|line|pie|donut|scatter|stacked|area|waterfall|revenue|small)\s+(chart|graph)s?\b"
+        r"|\bhistogram\b|\bscatter\s+plot\b|\bplot\b[^.!?\n]{0,20}\bchart\b", re.I),
+    "html_render": re.compile(
+        r"\bpricing\s+page\b|\blanding\s+page\b|\bdark\s+mode\s+toggle\b|\binteractive\s+html\b"
+        r"|\bhtml\s+component\b|\bui\s+component\b|\bweb\s+widget\b|\bwebpage\s+preview\b", re.I),
+}
+
+
 # ---- Deterministic post-decision routing guards ----------------------------
-# The 1.2B Stage-2 model keeps failing homonym traps even with contrast
-# few-shots (greedy decoding is lexical, not semantic). These guards follow
-# the MESSAGE's own artifact evidence, never the model's guess. Silent: they
-# change active_mode only — decided_by stays "needle3+lfm2.5" (audit trail
-# via the printed log line).
+# The 1.2B Stage-2 model keeps failing homonym traps (greedy decoding is
+# lexical, not semantic). These guards follow the MESSAGE's own artifact
+# evidence, never the model's guess. Silent: they change active_mode only —
+# decided_by stays "needle3+lfm2.5" (audit trail via the printed log line).
 _RX_SHEET_EVIDENCE = re.compile(r"\b(sheet|workbook|spreadsheet|columns|rows|totals)\b", re.I)
 
 
 def _routing_guards(message: str, active_mode: str, prior_mode: str | None) -> str | None:
     """Returns the mode the message's own evidence demands, or None to trust
     Stage 2. Order: question gate -> chat gate -> evidence switch -> sheet-
-    beats-invoice homonym."""
+    beats-invoice homonym -> explicit artifact promotion (chat -> studio)."""
     # (1) A pure question with no deliverable verb is conversation, whatever
     # artifact nouns it happens to mention ("how does Chart.js work?").
     if _Q_START_RX.match(message) and not _DELIVER_VERB_RX.search(message):
@@ -406,11 +436,13 @@ def _routing_guards(message: str, active_mode: str, prior_mode: str | None) -> s
     # (prior_mode) legitimately carries no artifact noun.
     if active_mode != "standard_chat" and not prior_mode and not _artifact_modes(message):
         return "standard_chat"
-    # (3) Evidence switch: the chosen mode's artifact noun never appears in the
-    # message but other modes' do — follow the message, earliest match wins
-    # ("build that as a 500-row Excel time series with charts" -> excel).
-    if active_mode != "standard_chat" and not _MODE_ARTIFACT_RX[active_mode].search(message):
-        hits = [(m.start(), mode) for mode, rx in _MODE_ARTIFACT_RX.items()
+    # (3) Evidence switch: the chosen mode's STRICT container noun never
+    # appears in the message but other modes' do — follow the message,
+    # earliest match wins ("python code for a calculator" carries no studio
+    # noun at all, so a wrong excel guess finds no hits and the coding
+    # override above already forced standard_chat).
+    if active_mode != "standard_chat" and not _STRICT_CONTAINER_RX[active_mode].search(message):
+        hits = [(m.start(), mode) for mode, rx in _STRICT_CONTAINER_RX.items()
                 if mode != active_mode and (m := rx.search(message))]
         if hits:
             return min(hits)[1]
@@ -418,6 +450,17 @@ def _routing_guards(message: str, active_mode: str, prior_mode: str | None) -> s
     # printable invoice: tabular evidence outranks the pdf homonym.
     if active_mode == "pdf" and _RX_SHEET_EVIDENCE.search(message):
         return "excel"
+    # (5) Promotion: Stage 2 defaulted to standard_chat but the message
+    # explicitly requests a studio deliverable in deliverable position
+    # ("generate a downloadable Excel file ...", "10-slide deck"). The
+    # single-field classifier's DEFAULT-chat paragraph regresses on these;
+    # the explicit-artifact patterns are high-precision so homonym chat
+    # mentions never promote. Earliest explicit hit wins.
+    if active_mode == "standard_chat":
+        hits = [(m.start(), mode) for mode, rx in _RX_EXPLICIT_ARTIFACT.items()
+                if (m := rx.search(message))]
+        if hits:
+            return min(hits)[1]
     return None
 
 
@@ -599,10 +642,11 @@ def _lfm_call(msgs: list[dict]) -> str:
     body = json.dumps({
         # Fully deterministic: identical prompts must yield identical mode +
         # confidence across runs (0.92-vs-0.23 drift seen before this fix).
-        "messages": msgs, "max_tokens": 180, "temperature": 0.0,
+        "messages": msgs, "max_tokens": 24, "temperature": 0.0,
         "top_k": 1, "top_p": 1.0, "seed": 42,
-        # Token-constrained: only JSON matching the exact 9 Mode literals with a
-        # non-empty stripped_prompt is decodable (llama.cpp json-schema grammar).
+        # Grammar-constrained to the single-field Stage2Out schema: only
+        # {"active_mode": "<one of 9 literals>"} is decodable — ~5 tokens,
+        # sub-second CPU decode, no room to echo or rewrite anything.
         "response_format": {"type": "json_object", "schema": Stage2Out.model_json_schema()},
     }).encode()
     req = urllib.request.Request(
@@ -615,36 +659,25 @@ def _lfm_call(msgs: list[dict]) -> str:
 
 
 def _salvage_stage2(raw: str) -> Stage2Out | None:
-    """Recover a decision from a max_tokens-truncated JSON object. The schema
-    grammar emits active_mode/confidence first, so a cut-off object still
-    carries the routing decision — only the tail (stripped_prompt end,
-    constraints) is lost, and the deterministic strip + hard-token guard
-    rebuild those from the raw message anyway."""
+    """Recover the mode from a truncated/garbled single-field reply: the
+    grammar emits {"active_mode": "<mode>"} first, so even a cut-off object
+    still carries the routing decision."""
     try:
-        mode = re.search(r'"active_mode"\s*:\s*"([a-z_]+)"', raw)
-        if not mode or mode.group(1) not in MODES:
-            return None
-        conf = re.search(r'"confidence"\s*:\s*([0-9.]+)', raw)
-        sp = re.search(r'"stripped_prompt"\s*:\s*"((?:[^"\\]|\\.)*)', raw)
-        stripped = ""
-        if sp:
-            try:
-                stripped = json.loads('"' + sp.group(1) + '"')
-            except Exception:
-                stripped = sp.group(1)
-        if not stripped.strip():
-            return None
-        return Stage2Out(active_mode=mode.group(1),
-                         confidence=float(conf.group(1)) if conf else 0.5,
-                         stripped_prompt=stripped, task_constraints=[])
+        m = re.search(r'"active_mode"\s*:\s*"([a-z_]+)"', raw)
+        if m and m.group(1) in MODES:
+            return Stage2Out(active_mode=m.group(1))
+        return None
     except Exception:
         return None
 
 
-def lfm_decide(message: str, history: list[dict],
-               prior_modes: list[str], needle_conf: float,
+def lfm_decide(message: str, history: list[dict], prev_mode: str | None,
                trace: dict | None = None) -> Stage2Out:
-    """Stage 2: raw prompt + Needle prior -> final decision + model-made strip.
+    """Stage 2: the raw user message reaches LFM2.5 UNTOUCHED — Needle's prior
+    is never injected (it polluted the 1.2B's input and dragged its output).
+    The only addition is an optional one-line "[Previous turn artifact mode:
+    X]" prefix when the previous assistant turn produced an artifact, so the
+    MULTI-TURN rule in LFM_SYSTEM can keep the mode on refinement turns.
     One self-correction retry on invalid output; raises after the 2nd failure."""
     msgs = [{"role": "system", "content": LFM_SYSTEM}]
     for h in history[-4:]:
@@ -652,16 +685,8 @@ def lfm_decide(message: str, history: list[dict],
         content = (h.get("content") or "")[:300]
         if role in ("user", "assistant") and content:
             msgs.append({"role": role, "content": content})
-    # The prior travels as a qualitative hint only: pasting Needle's raw
-    # confidence number made LFM copy it verbatim into its own confidence.
-    reliability = "high" if needle_conf >= 0.85 else "LOW (usually wrong)"
-    msgs.append({
-        "role": "user",
-        "content": (f"{message}\n\n---\nPRIOR (weaker-classifier hint only — often WRONG; "
-                    f"do NOT copy its mode, do NOT let it change your own confidence): "
-                    f"candidates={json.dumps(prior_modes) if prior_modes else '[] (no signal)'}, "
-                    f"reliability={reliability}"),
-    })
+    prefix = f"[Previous turn artifact mode: {prev_mode}]\n" if prev_mode else ""
+    msgs.append({"role": "user", "content": prefix + message})
     # Diagnostics for the WebUI decision table: the exact input the gate saw
     # and the raw grammar JSON it produced (kept even when parsing failed —
     # that is precisely when it is most useful).
@@ -688,13 +713,12 @@ def lfm_decide(message: str, history: list[dict],
     raise RuntimeError("unreachable")
 
 
-app = FastAPI(title="WebUI Decision Engine")
 _agent: needle.Needle | None = None
 
 # Head+tail truncation: an 8,000-char prompt must never overflow the 2048-
-# token llama-server slot (system ~780 incl. CONTRASTS + history ~450 +
-# message ~650 + 180 output < 2048). The head carries the task framing, the
-# tail the closing constraints, so both survive; middle boilerplate is cut.
+# token llama-server slot (system ~450 + history ~450 + message ~1,100 +
+# 24 output < 2048). The head carries the task framing, the tail the closing
+# constraints, so both survive; middle boilerplate is cut.
 MAX_LFM_CHARS = 2_600
 _HEAD_CHARS = 1_900
 _TAIL_CHARS = 700
@@ -706,7 +730,6 @@ def _truncate_for_engine(message: str) -> str:
     return (message[:_HEAD_CHARS] + "\n […middle truncated…] \n" + message[-_TAIL_CHARS:])
 
 
-@app.on_event("startup")
 def warm() -> None:
     global _agent
     t0 = time.perf_counter()
@@ -721,11 +744,25 @@ def warm() -> None:
           f"lfm2.5 on :{LFM_PORT}, needle on :{DECISION_PORT}", flush=True)
 
 
-@app.on_event("shutdown")
 def _cool() -> None:
     # Graceful uvicorn stop (e.g. Ctrl+C on a manual terminal launch): never
     # leave our llama-server child behind.
     _shutdown_llama()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """FastAPI lifespan context manager — replaces the deprecated
+    @app.on_event("startup")/("shutdown") hooks so `npm run dev` boots and
+    stops with zero DeprecationWarning."""
+    warm()
+    try:
+        yield
+    finally:
+        _cool()
+
+
+app = FastAPI(title="WebUI Decision Engine", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -752,21 +789,20 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
         TOOL_TO_MODE[c["name"]] for c in calls if (c.get("name") or "") in TOOL_TO_MODE))
     needle_conf = float(r.get("confidence") or 0.0)
 
-    # ---- Stage 2: LFM2.5 ALWAYS decides + strips (no confidence skip) ----
+    # ---- Stage 2: LFM2.5 classifies the output container (single field) ----
+    # The prompt is cleaned deterministically, NEVER by the model:
+    # standard_chat forwards the user's message 100% untouched; artifact
+    # modes run it through _clean_artifact_prompt (refusal traps only).
+    prior_turn_mode = _prior_mode_from_history(req.conversationHistory)
     ensure_llama_server()
     t1 = time.perf_counter()
     lfm_trace: dict = {}
     try:
-        s2 = lfm_decide(message, req.conversationHistory, prior_modes, needle_conf, lfm_trace)
+        s2 = lfm_decide(message, req.conversationHistory, prior_turn_mode, lfm_trace)
         lfm_ms = round((time.perf_counter() - t1) * 1000, 1)
-        active_mode, conf, decided_by = s2.active_mode, s2.confidence, "needle3+lfm2.5"
-        constraints = s2.task_constraints
-        noun_rx = _MODE_ARTIFACT_RX.get(active_mode)
-        artifact_nouns = [m.group(0) for m in noun_rx.finditer(message)] if noun_rx else []
-        stripped = _preserve_hard_tokens(
-            message,
-            _strip_execution_meta(message, active_mode, s2.stripped_prompt.strip() or message),
-            "; ".join(constraints), extra=artifact_nouns)
+        active_mode, conf, decided_by = s2.active_mode, 0.95, "needle3+lfm2.5"
+        stripped = (" ".join(message.split()) if active_mode == "standard_chat"
+                    else _clean_artifact_prompt(message, active_mode))
     except Exception as err:
         # NEVER silently drop to standard_chat when Needle has a valid prior:
         # fall back to Needle 3's top predicted mode with the RAW prompt.
@@ -775,12 +811,21 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
             active_mode, conf, decided_by = prior_modes[0], needle_conf, "needle3 (lfm-fail)"
         else:
             active_mode, conf, decided_by = "standard_chat", 0.0, "fallback (no prior)"
-        stripped, constraints = strip_prompt(message)
-        stripped = _strip_execution_meta(message, active_mode, stripped)
+        stripped = (" ".join(message.split()) if active_mode == "standard_chat"
+                    else _clean_artifact_prompt(message, active_mode))
         print(f"[decision] LFM2.5 failed after retry: {err}", flush=True)
+    # The classifier no longer emits constraints — the deterministic cleaner
+    # is lossless, so the main LLM always receives the user's full spec set.
+    constraints: list[str] = []
+    cleaned_for = active_mode  # mode `stripped` was computed under
+
+    # ---- Hard coding override: plain code request, zero container nouns ----
+    if active_mode != "standard_chat" and _hard_coding_override(message):
+        print(f"[decision] coding override: {active_mode} -> standard_chat "
+              f"(no studio container noun in message)", flush=True)
+        active_mode = "standard_chat"
 
     # ---- Deterministic routing guards (message evidence outranks Stage 2) ----
-    prior_turn_mode = _prior_mode_from_history(req.conversationHistory)
     guard_mode = _routing_guards(message, active_mode, prior_turn_mode)
     if guard_mode and guard_mode != active_mode:
         print(f"[decision] routing guard: {active_mode} -> {guard_mode} "
@@ -794,13 +839,18 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
               f"(prior turn mode={prior_turn_mode})", flush=True)
         active_mode, decided_by = rule_mode, decided_by + "+multi-turn"
 
+    # A guard/override that flipped the mode also flips the cleaning policy:
+    # chat forwards verbatim, studio modes get the refusal-trap cleaner.
+    if active_mode != cleaned_for:
+        stripped = (" ".join(message.split()) if active_mode == "standard_chat"
+                    else _clean_artifact_prompt(message, active_mode))
+
     # ---- Trivial-chat passthrough (deterministic) ----
-    # The 1.2B stripper hallucinates artifact boilerplate for greetings and
-    # one-liners ("Hi" -> "Generate downloadable <artifact>..."), and that
-    # hallucinated rewrite reaches the main LLM in place of the user's words,
-    # sending it into an endless generation loop (observed: 600KB of reasoning
-    # for "Hi", stream never closes). A one-liner has no conversational noise
-    # to strip anyway, so forward it verbatim with no constraints.
+    # Guarantees greetings/one-liners reach the main LLM verbatim even on the
+    # lfm-fail fallback path (the old 1.2B stripper hallucinated "Generate
+    # downloadable <artifact>..." boilerplate for "Hi", sending the main LLM
+    # into an endless generation loop — 600KB of reasoning, stream never
+    # closed). A one-liner has nothing to clean anyway.
     if active_mode == "standard_chat" and len(message) < 120:
         stripped, constraints = message, []
 
