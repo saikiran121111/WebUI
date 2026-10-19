@@ -246,3 +246,8 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
   model traffic): pino pretty lines render, conversations GET/POST log once each,
   decision fallback envelope logged with by=fallback. Test server killed,
   c_logtest.json removed from ~/.local-intelligence/conversations.
+
+### 2026-10-19 (later) — Stale-bundle follow-up [LOCKED-DONE]
+- User still saw conversations GET/POST flood: browser tab ran the OLD client bundle (next.config.mjs change needs dev restart; a parallel verification dev server sharing .next broke HMR mid-session).
+- Purged .next, fresh compile on isolated :3799 (autospawn off, zero model traffic), served app/page.js chunk verified to contain `if (status === "streaming") return;` + snapshot dedup gate. Server killed, no artifacts.
+- User action: restart `npm run dev`, hard-reload tab (Ctrl+Shift+R). Expect exactly one POST + one GET per turn.
