@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cskill:add": "node scripts/install-core-skill.mjs"
+    "cskill:add": "node scripts/install-core-skill.mjs",
+    "titles:backfill": "node scripts/backfill-titles.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",

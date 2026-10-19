@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## 2026-10-20 — Feat+Fix: Conversation titles — full-conversation semantic auto-titles
+Sidebar titles are no longer copies of the first message ("Can you watch
+this video an..."). Root cause: the persist effect in `app/page.tsx` froze
+`messages[0].content.slice(0,40)` into `meta.title` forever.
+- **Server-owned generation** (`lib/server/titles/`): titles come from the
+  SAME main conversation model as chat (`LLM_API_URL` :8080 — never the
+  LFM2.5 JEV router; JEV routing untouched). The model sees the FULL
+  chronological conversation (user+assistant turns, attachment names;
+  never system prompts, inlined file content, or reasoning). Long
+  histories use chronological chunk summaries → final title (map-reduce);
+  never a first/last-only fallback. Writing rules enforced by
+  `normalizeTitle` (3–7 words preferred, hard 60-char word-boundary cut,
+  quotes/"Title:" prefixes/intros/prose/refusals stripped or rejected —
+  an explanation can never reach the sidebar). Tiny budget: 24 output
+  tokens (48 per summary), non-streaming, `reasoning_effort:"none"`
+  (mandatory: the main model is a thinking model — without it the budget
+  goes to reasoning and `content` comes back null).
+- **Background queue** (`queue.ts`): serial global chain + per-conversation
+  coalescing; initial title once a meaningful assistant reply exists,
+  refresh every 4 new messages (`REFRESH_MESSAGE_DELTA`); jobs survive
+  navigation, bounded retries (2, 3 s apart); failures keep the last
+  valid title; a stale job can never overwrite a newer title
+  (`titleGenCount` guard). Title writes never bump `updatedAt`.
+- **Inference-slot preemption** (`lib/server/inference-busy.ts`): the chat
+  route brackets every user turn; starting a turn aborts all in-flight
+  title calls, and title jobs wait for an idle slot first — background
+  titling never competes with (or starves) the user's stream. Chat route
+  now releases its slot on every path via `pipeTo(...).finally`.
+- **Ownership & merge protection**: `meta.titleSource` auto|manual;
+  user-renamed titles are never auto-overwritten; `mergeProtectedTitle`
+  (`lib/persistence/merge.ts`) stops PUT payloads from clobbering
+  server-owned titles. `POST /api/conversations/[id]/title?force=1`
+  regenerates on demand.
+- **Backfill**: `npm run titles:backfill` (`scripts/backfill-titles.mjs`)
+  re-runnable over the HTTP API; corrected 4/4 existing conversations
+  with first-message copies, skipped manual ones; never deletes messages,
+  recreates conversations, or changes IDs.
+- **UI**: sidebar updates live (no reload) via the save-triggered
+  `requestTitleGeneration` helper; selection/search/sorting/history
+  unaffected.
+- **Tests**: 48 new vitest title tests (fake transport — no real
+  inference) + 5 Playwright tests (`conversation-title.spec.ts`);
+  `conversations-live-chat.spec.ts` locators moved to
+  `data-conversation-id` (title text now legitimately changes). Full
+  results in `docs/STATE.md` 8.5: vitest 545|1; targeted Playwright
+  batches 14 passed / 9 passed, both EXIT=0.
+
 ## 2026-10-20 — Hardening: parallel keyframes, 3-stage Whisper VRAM lifecycle, retrieval payload guards
 Production hardening pass over `lib/server/extract/{ffmpeg,audio,index}.ts` +
 `lib/server/attachindex/turn.ts`:

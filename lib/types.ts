@@ -183,6 +183,13 @@ export interface ConversationMeta {
   /** Last message preview, so the sidebar never needs to load messages. */
   preview: string;
   messageCount: number;
+  /** "manual" = user renamed it (never auto-overwritten); "auto" = machine
+   * title; absent = legacy document (title may be the first-message copy). */
+  titleSource?: "auto" | "manual";
+  /** Message count the current auto title was derived from — lets a newer
+   * generation win the race against an older in-flight title job. */
+  titleGenCount?: number;
+  titleGenAt?: number;
 }
 
 export interface Conversation {

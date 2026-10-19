@@ -8,6 +8,7 @@ import {
   lastUserIndex,
 } from "../../../lib/skills/lazy";
 import { getDecision } from "../../../lib/decision/client";
+import { beginUserTurn, endUserTurn } from "../../../lib/server/inference-busy";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
 import {
@@ -81,6 +82,7 @@ function streamUpstream(
   usedSkill: string | null,
   decisionMode: RendererMode,
   model: string,
+  onSettled: () => void,
 ): Response {
   const started = Date.now();
   let chunks = 0;
@@ -99,7 +101,14 @@ function streamUpstream(
       );
     },
   });
-  return new Response(upstream.body!.pipeThrough(scrubber), {
+  // pipeTo (not pipeThrough) so the busy-slot release fires on EVERY path:
+  // normal completion, upstream error, and client disconnect (the pipe
+  // rejects when the Response cancels the readable side).
+  upstream
+    .body!.pipeTo(scrubber.writable)
+    .catch(() => {})
+    .finally(onSettled);
+  return new Response(scrubber.readable, {
     status: 200,
     headers: streamHeaders(upstream.headers.get("Content-Type"), usedSkill, decisionMode),
   });
@@ -112,6 +121,17 @@ async function forwardStream(
   signal?: AbortSignal,
   model = "default",
 ): Promise<Response> {
+  // Claim the shared inference slot for the user's turn: this aborts any
+  // in-flight background title call (user traffic always wins) and blocks
+  // new title jobs until this stream settles. Released exactly once, when
+  // the stream completes, errors, or the client disconnects.
+  beginUserTurn();
+  let settled = false;
+  const release = () => {
+    if (settled) return;
+    settled = true;
+    endUserTurn();
+  };
   try {
     // req.signal: when the browser walks away mid-stream (page close, Stop
     // generating, a test navigating on), the upstream generation MUST die
@@ -125,13 +145,15 @@ async function forwardStream(
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
       log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
+      release();
       return upstreamErrorResponse(upstream.status, errText);
     }
     if (!upstream.body) {
       log.error({ model }, "llm upstream returned no body");
+      release();
       return NextResponse.json({ error: "No response body from model" }, { status: 502 });
     }
-    return streamUpstream(upstream, usedSkill, decisionMode, model);
+    return streamUpstream(upstream, usedSkill, decisionMode, model, release);
   } catch (err) {
     // AbortError is the browser walking away mid-stream — expected, not a fault.
     if ((err as Error)?.name === "AbortError") {
@@ -139,6 +161,7 @@ async function forwardStream(
     } else {
       log.error({ model, err: (err as Error).message }, "llm server unreachable");
     }
+    release();
     return NextResponse.json(
       { error: "Could not reach the model server. Is it running on port 8080?" },
       { status: 503 },

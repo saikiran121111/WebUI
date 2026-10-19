@@ -4,6 +4,7 @@ import {
   getConversationOnDisk,
   saveConversationOnDisk,
 } from "../../../lib/persistence/disk";
+import { mergeProtectedTitle } from "../../../lib/persistence/merge";
 
 export async function GET() {
   const items = listConversationsOnDisk();
@@ -31,6 +32,10 @@ export async function POST(req: NextRequest) {
   if (!body.id || typeof body.json !== "string") {
     return NextResponse.json({ error: "id and json required" }, { status: 400 });
   }
-  saveConversationOnDisk(body.id, body.json);
+  // Auto titles are server-owned: a whole-document save from the sidebar (its
+  // meta may predate a finished title job) keeps the STORED title unless the
+  // save explicitly marks the title manual (a user rename). See merge.ts.
+  const storedRaw = getConversationOnDisk(body.id);
+  saveConversationOnDisk(body.id, mergeProtectedTitle(storedRaw, body.json));
   return NextResponse.json({ ok: true });
 }

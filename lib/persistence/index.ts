@@ -29,6 +29,24 @@ export async function deleteConversation(id: string): Promise<boolean> {
   return res.ok;
 }
 
+/**
+ * Ask the server to (re)generate this conversation's auto title from its
+ * full stored history. Best-effort background work: the job runs server-side
+ * (surviving this request), the queue serialises it behind active inference,
+ * and any failure simply keeps the last valid title — so errors are silent.
+ */
+export async function requestTitleGeneration(id: string, model?: string): Promise<void> {
+  try {
+    await fetch(`/api/conversations/${encodeURIComponent(id)}/title`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: model || undefined }),
+    });
+  } catch {
+    // title generation is best-effort — never surface to the conversation
+  }
+}
+
 export async function updateConversationMeta(id: string, patch: Partial<ConversationMeta>): Promise<void> {
   const conv = await getConversation(id);
   if (!conv) return;

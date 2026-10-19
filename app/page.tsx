@@ -8,7 +8,7 @@ import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
-import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv } from "../lib/persistence";
+import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
 import { buildAnatomyDemoConversation } from "../lib/render/anatomyDemoShowcase";
 
@@ -96,7 +96,14 @@ export default function HomePage() {
     const existing = conversationsRef.current.find(c => c.id === convId);
     const meta: ConversationMeta = {
       id: convId,
+      // Placeholder title for brand-new chats only — the server-side title
+      // job replaces it with a full-conversation semantic title once a
+      // meaningful reply exists. Title bookkeeping fields ride along so a
+      // client save never erases the server's generation state.
       title: existing?.title ?? (messages[0]?.content?.slice(0, 40) || "New conversation"),
+      titleSource: existing?.titleSource,
+      titleGenCount: existing?.titleGenCount,
+      titleGenAt: existing?.titleGenAt,
       createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
       pinned: existing?.pinned ?? false,
@@ -106,7 +113,18 @@ export default function HomePage() {
       messageCount: messages.length,
     };
     syncedMessagesRef.current = snapshot;
-    saveConversation({ id: convId, meta, messages }).then(refreshList);
+    // One title nudge per settled turn, after the save lands. The SERVER
+    // decides eligibility (debounced cadence, manual guard) and does the
+    // generation from the full stored history through the shared model queue
+    // — this call only re-syncs the sidebar when the new title arrives.
+    // A title failure can never affect the conversation itself.
+    saveConversation({ id: convId, meta, messages })
+      .then(() => {
+        refreshList();
+        return requestTitleGeneration(convId, process.env.NEXT_PUBLIC_MODEL_ID ?? "");
+      })
+      .then(refreshList)
+      .catch(() => {});
   }, [messages, activeId, status, refreshList]);
 
   // Follow the stream by pinning the container to the bottom. A smooth
@@ -264,6 +282,9 @@ export default function HomePage() {
     const next = window.prompt("Rename:", conv.meta.title);
     if (next && next.trim()) {
       conv.meta.title = next.trim();
+      // Manual ownership: the server's title job and merge rule both refuse
+      // to overwrite a title the user renamed.
+      conv.meta.titleSource = "manual";
       await saveConversation(conv);
       listConversations().then(setConversations);
     }
