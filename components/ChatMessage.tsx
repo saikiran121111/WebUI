@@ -260,6 +260,56 @@ function ReasoningBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
 
+  // Stream-following inside the reasoning box, mirroring the chat list's
+  // direction-aware pin in app/page.tsx: while the viewport sits at the
+  // bottom, streamed reasoning pins scrollTop to scrollHeight (one rAF per
+  // frame). Any upward movement unpins; scrolling back within 8px of the
+  // bottom re-pins and the trail resumes.
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const pinnedRef = useRef(true);
+  const pinRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const c = boxRef.current;
+    if (!c) return;
+    pinnedRef.current = true;
+    let lastScrollTop = c.scrollTop;
+    const onScroll = () => {
+      const wentUp = c.scrollTop < lastScrollTop - 1;
+      lastScrollTop = c.scrollTop;
+      const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (wentUp && dist > 8) pinnedRef.current = false;
+      else if (dist <= 8) pinnedRef.current = true;
+    };
+    const onWheel = (e: WheelEvent) => {
+      // Synchronous unpin: a rAF pin scheduled earlier this frame must not
+      // yank the user back up before the scroll event fires.
+      if (e.deltaY < 0) pinnedRef.current = false;
+      else onScroll();
+    };
+    c.addEventListener("scroll", onScroll, { passive: true });
+    c.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      c.removeEventListener("scroll", onScroll);
+      c.removeEventListener("wheel", onWheel);
+      if (pinRafRef.current != null) {
+        cancelAnimationFrame(pinRafRef.current);
+        pinRafRef.current = null;
+      }
+    };
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded || !pinnedRef.current) return;
+    if (pinRafRef.current != null) return;
+    pinRafRef.current = requestAnimationFrame(() => {
+      pinRafRef.current = null;
+      const c = boxRef.current;
+      if (c && pinnedRef.current) c.scrollTop = c.scrollHeight;
+    });
+  }, [text, expanded]);
+
   const handleCopy = useCallback(async () => {
     const ok = await copyText(text);
     setCopyStatus(ok ? "copied" : "failed");
@@ -285,6 +335,7 @@ function ReasoningBlock({ text }: { text: string }) {
       </button>
       {expanded && (
         <motion.div
+          ref={boxRef}
           initial={{ opacity: 0, height: 0, marginTop: 0 }}
           animate={{ opacity: 1, height: "auto", marginTop: 8 }}
           transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
