@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-10-19 — Fix: folder-structure trees stay interactive at any size, zero mid-stream flicker
+`looksLikeTree` counted `│`-only spacer lines as non-tree lines (tolerance
+2), so trees with 3+ spacers fell back to a plain CodeBlock (collapsed body
+= raw text) and the streaming counts crossing that threshold remounted
+CodeBlock↔TreeBlock every few tokens. Detection now treats guide-only and
+`...` lines as neutral, `parseTree` skips them, and a monotonic
+`looksLikeTreeStart` fast-path mounts the interactive TreeBlock the moment
+the first branch line completes — it never flips back mid-generation.
+Guarded by 9 new vitest cases (incl. a character-by-character monotonicity
+walk) and a new render.spec.ts watcher test asserting no flicker mid-stream.
+
 ## 2026-10-19 — Feat+Fix: COMPLETE NEEDLE 3 REMOVAL — single-model LFM2.5-1.2B decision engine
 Needle 3 (`cactus-needle` / `needle3.cact`) is dropped from the project
 entirely: it cost ~185 MB of resident `_worker.py --child` processes and

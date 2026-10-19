@@ -854,6 +854,146 @@ test("folder-structure fence renders an interactive IDE-style tree", async ({ pa
   expect(leafBox!.height).toBeGreaterThan(5);
 });
 
+test("large folder tree with │ spacers renders interactive and never flickers to plain code mid-stream", async ({ page }) => {
+  // Regression: trees with several `│`-only spacer lines failed content
+  // detection (spacers counted as non-tree lines), so big trees rendered as
+  // a plain CodeBlock — and mid-stream the counts crossed the threshold
+  // back and forth, remounting TreeBlock/CodeBlock (visible flicker).
+  const tree = [
+    "my-app/",
+    "├── public/                 # Static assets (images, fonts, favicons)",
+    "│   ├── images/",
+    "│   └── fonts/",
+    "│",
+    "├── src/",
+    "│   ├── app/                # App Router (file-based routing)",
+    "│   │   ├── (auth)/         # Route group (no URL segment)",
+    "│   │   │   ├── login/",
+    "│   │   │   │   └── page.tsx",
+    "│   │   │   └── register/",
+    "│   │   │       └── page.tsx",
+    "│   │   ├── (dashboard)/    # Route group",
+    "│   │   │   ├── layout.tsx  # Shared layout for dashboard",
+    "│   │   │   └── page.tsx    # /dashboard",
+    "│   │   ├── settings/",
+    "│   │   │   └── page.tsx",
+    "│   │   └── users/",
+    "│   │       ├── page.tsx    # /users (list)",
+    "│   │       └── [id]/",
+    "│   │           └── page.tsx # /users/:id (dynamic)",
+    "│   ",
+    "│   ├── api/",
+    "│   │   ├── auth/",
+    "│   │   │   └── route.ts",
+    "│   │   ",
+    "│   └── components/",
+    "│       ├── ui/",
+    "│       └── forms/",
+    "│",
+    "├── tests/",
+    "│   └── e2e/",
+    "│",
+    "└── package.json",
+  ].join("\n");
+
+  // Paced SSE (not route.fulfill) so the stream stays open long enough to
+  // observe the mid-stream renderer state.
+  const fullSource = "```\n" + tree + "\n```";
+  const frames: string[] = [];
+  for (let i = 0; i < fullSource.length; i += 14) {
+    frames.push(`data: ${JSON.stringify({ choices: [{ delta: { content: fullSource.slice(i, i + 14) } }] })}\n\n`);
+  }
+  frames.push("data: [DONE]\n\n");
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "x-decision-mode": "standard_chat",
+    });
+    let frameIndex = 0;
+    const pump = setInterval(() => {
+      if (frameIndex >= frames.length) {
+        clearInterval(pump);
+        res.end();
+        return;
+      }
+      res.write(frames[frameIndex++]);
+    }, 20);
+    req.on("close", () => clearInterval(pump));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  await page.route("**/api/chat", route => void route.continue({ url: `http://127.0.0.1:${port}/chat` }));
+
+  // Watch every DOM mutation while streaming: the tree must appear while the
+  // message is still streaming, must never vanish, and a plain code block
+  // for the fence must never appear after it (the flicker signature).
+  await page.addInitScript(() => {
+    const state: Record<string, unknown> = {
+      installed: false, mutations: 0, error: "", treeSeen: false,
+      treeSeenWhileStreaming: false, treeVanished: false, codeBlockAfterTree: false,
+    };
+    (window as unknown as { __treeWatch: Record<string, unknown> }).__treeWatch = state;
+    try {
+      const scan = () => {
+        const streaming = document.querySelector('[data-testid="assistant-message"][data-state="streaming"]');
+        const tree = document.querySelector('[data-testid="tree-block"]');
+        if (tree) {
+          if (!state.treeSeen) {
+            state.treeSeen = true;
+            state.treeSeenWhileStreaming = streaming !== null;
+          }
+        } else if (state.treeSeen && streaming) {
+          state.treeVanished = true;
+        }
+        if (state.treeSeen && streaming && streaming.querySelector('[data-testid="code-block"]')) {
+          state.codeBlockAfterTree = true;
+        }
+      };
+      // Observe `document` itself: init scripts run before documentElement
+      // exists, and observing the document node covers everything added later.
+      new MutationObserver(() => { (state.mutations as number)++; scan(); })
+        .observe(document, { subtree: true, childList: true, characterData: true });
+      state.installed = true;
+    } catch (e) {
+      state.error = String(e);
+    }
+  });
+
+  await page.goto("http://localhost:3000/");
+  const box = page.locator("textarea").first();
+  await box.click();
+  await box.fill("show the big tree");
+  await box.press("Enter");
+
+  await page.locator(ASSISTANT_DONE).first().waitFor({ timeout: 30_000 });
+  server.close();
+
+  const watch = await page.evaluate(() => ({
+    ...(window as unknown as { __treeWatch: Record<string, unknown> }).__treeWatch,
+    treeNow: document.querySelectorAll('[data-testid="tree-block"]').length,
+    frames: document.querySelectorAll('[data-testid="assistant-message"]').length,
+  }));
+  expect(watch.treeSeen, `tree never rendered — watcher: ${JSON.stringify(watch)}`).toBe(true);
+  expect(watch.treeSeenWhileStreaming, "tree only appeared after the stream ended").toBe(true);
+  expect(watch.treeVanished, "tree block vanished mid-stream (flicker to plain text)").toBe(false);
+  expect(watch.codeBlockAfterTree, "plain code block appeared after the tree (flicker)").toBe(false);
+
+  // Completed message: interactive tree, not a plain fence.
+  const treeBlock = page.locator('[data-testid="tree-block"]');
+  await expect(treeBlock).toBeVisible();
+  await expect(treeBlock.locator(".code-block-lang")).toHaveText("Structure");
+  await expect(treeBlock.getByText("package.json")).toBeVisible();
+  expect(await treeBlock.locator(".tree-icon-dir").count()).toBeGreaterThanOrEqual(10);
+  await expect(page.locator('[data-testid="code-block"]')).toHaveCount(0);
+
+  // Collapse-all keeps the interactive tree (the reported bug: big trees
+  // were plain CodeBlocks whose collapsed body was raw text).
+  await treeBlock.locator('button[aria-label="Collapse all folders"]').click();
+  await expect(treeBlock.locator(".tree-children.is-collapsed").first()).toHaveCount(1);
+  await expect(treeBlock.locator(".tree-icon-dir").first()).toBeVisible();
+});
+
 test("highlighting and indentation apply mid-stream, not only when the fence closes", async ({ page }) => {
   const blockSource = Array.from(
     { length: 80 },

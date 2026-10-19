@@ -29,7 +29,7 @@ import PptxBlock from "./render/PptxBlock";
 import PowerBiBlock from "./render/PowerBiBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import { fenceKind } from "../lib/render/registry";
-import { looksLikeTree } from "../lib/render/treeParse";
+import { looksLikeTree, looksLikeTreeStart } from "../lib/render/treeParse";
 import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
 import type { RendererMode } from "../lib/decision/types";
@@ -282,8 +282,14 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   if (kind === "pptx" && interactive) return <PptxBlock source={source} streaming={streaming} />;
   if (kind === "powerbi" && interactive) return <PowerBiBlock source={source} streaming={streaming} />;
   // Box-drawing trees arrive in plain/text fences — detect by content, not
-  // label; the "tree" render kind (standard_chat) is the mode gate.
-  if (kind === "code" && treeOk && looksLikeTree(source)) return <TreeBlock source={source} />;
+  // label; the "tree" render kind (standard_chat) is the mode gate. While
+  // streaming, looksLikeTreeStart fires on the first complete branch line
+  // and is monotonic, so the fence mounts as a TreeBlock immediately and
+  // never flips back to a code block mid-generation.
+  const treeSource = streaming
+    ? looksLikeTree(source) || looksLikeTreeStart(source)
+    : looksLikeTree(source);
+  if (kind === "code" && treeOk && treeSource) return <TreeBlock source={source} />;
   // Executable Three.js arriving in a plain js fence still gets the studio viewer.
   if (kind === "code" && threeOk && looksLikeThreeCode(source)) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={runtimeError} />;
   return <CodeBlock code={source} lang={language} streaming={streaming} />;

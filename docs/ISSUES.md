@@ -1,6 +1,26 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Large folder-structure fences rendered as PLAIN TEXT and flickered
+  CodeBlock↔TreeBlock mid-stream (2026-10-19). ROOT CAUSE:
+  `looksLikeTree` counted every non-branch line against a tolerance of 2,
+  but real trees carry many `│`-only spacer lines — with ≥3 of them
+  `branchLines >= lines.length - 2` fails, so big trees fell to CodeBlock
+  (whose collapse is raw text) while small trees stayed interactive;
+  mid-stream the spacer/partial-line counts crossed the threshold back and
+  forth, remounting renderers (visible flicker). FIX (lib/render/treeParse.ts):
+  guide-only lines (`│`, `│   `, half-typed `├`/`├─`) and `...`/`…` lines are
+  neutral in detection (`branch >= 2 && plain <= 2`); parseTree skips them
+  (no junk `│` nodes) and skips name-less `├── ` (mid-stream); new
+  `looksLikeTreeStart` streaming fast-path fires on the first complete
+  branch line and is monotonic, so the fence mounts as TreeBlock instantly
+  and never flips back (components/MarkdownRenderer.tsx uses
+  `looksLikeTree || looksLikeTreeStart` while streaming). Verified: vitest
+  447|1 skipped (15 treeParse incl. monotonic prefix walk); render.spec.ts
+  21 passed | 1 skipped EXIT=0 incl. NEW test "large folder tree with │
+  spacers renders interactive and never flickers to plain code mid-stream"
+  (MutationObserver watcher: tree seen while streaming, never vanished,
+  zero code-block after it; collapse-all keeps the interactive tree).
 - Next dev server `GET /` → 500 `ModuleBuildError` / `UnhandledSchemeError:
   Reading from "node:child_process" is not supported` (2026-10-19, PART 5;
   import trace `./lib/decision/client.ts ← instrumentation.ts`). ROOT CAUSE:
