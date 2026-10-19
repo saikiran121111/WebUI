@@ -1,5 +1,5 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-19d — NEEDLE 3 FULLY REMOVED (single-model LFM2.5-1.2B router) — code/tests/docs/setup-scripts done; tsc clean, vitest 439|1, fallback PASS (lfm-fail-guard), router 11/11, extreme 64/64, audit 12/12; FULL PLAYWRIGHT GREEN: 309 passed | 4 skipped | 0 failed, EXIT=0 (22.4 m, .cache/run-playwright.ps1)
+Synced: 2026-10-19f — ALL UPLOAD SIZE/DURATION LIMITS REMOVED (unbounded uploads, whole-track audio decode; see 8.2 + ISSUES.md/CHANGELOG.md top entries) — vitest 450|1, extraction-API Playwright 106 passed EXIT=0, live-browser 660 MB ready, curl 240 s audio full whisper pass. Prior: 2026-10-19e LARGE-UPLOAD FIX (raw-bytes streaming extract; vitest 449|1, 106 passed, 660 MB ready). Prior: 2026-10-19d NEEDLE 3 FULLY REMOVED (single-model LFM2.5-1.2B router) — code/tests/docs/setup-scripts done; tsc clean, vitest 439|1, fallback PASS (lfm-fail-guard), router 11/11, extreme 64/64, audit 12/12; FULL PLAYWRIGHT GREEN: 309 passed | 4 skipped | 0 failed, EXIT=0 (22.4 m, .cache/run-playwright.ps1)
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
 NEEDLE 3 REMOVAL & SINGLE-MODEL LFM2.5-1.2B REWIRING — Needle 3
@@ -25,6 +25,32 @@ REMAINING: full Playwright via .cache/run-playwright.ps1, then final
 STATE/CHANGELOG sync + git commit.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- ALL UPLOAD LIMITS REMOVED (2026-10-19f, LOCKED — supersedes the 4 GB/180 s
+  guards in the entry below; ISSUES.md+CHANGELOG.md top entries):
+  MAX_ATTACHMENT_BYTES DELETED (no client gate, no server 413 — unbounded
+  stream, limit = disk free; empty still 400); MAX_AUDIO_SECONDS DELETED —
+  audioPcmFromPath decodes whole track (ffmpeg → scratch .f32 → zero-copy
+  Float32Array view); sizeLimitLabel(bytes) now param-required (only user =
+  MAX_PARSED_BYTES 512 MB doc guard, KEPT; TEXT_CHAR_LIMIT KEPT). VERIFIED:
+  vitest 450|1 (NEW 200 s decode test, video-narration 7/7); curl 240 s
+  wav → 200 full whisper 2.2 s; extraction-API 106 passed EXIT=0 (lock);
+  live browser 660 MB → data-status=ready; tsc only 4 pre-existing
+  render.spec errors.
+- LARGE-UPLOAD FIX (2026-10-19e, LOCKED — full detail ISSUES.md/CHANGELOG.md
+  top entries): MAX_ATTACHMENT_BYTES 32 MB → 4 GB + sizeLimitLabel()
+  (lib/files/extensions.ts); app/api/files/extract/route.ts = RAW-BYTES
+  contract `POST /api/files/extract?name=` (no multipart), Readable.fromWeb
+  + pipeline → .data/tmp scratch, mid-stream 413 destroy, finally rmSync;
+  lib/server/extract/index.ts core = extractFileFromPath (TEXT_READ_BYTES
+  2 MB head; MAX_PARSED_BYTES 512 MB guard; extractFile(name,buf) kept as
+  b_<hex> wrapper); lib/server/extract/ffmpeg.ts path cores
+  videoFramesFromPath/audioPcmFromPath/imageToDataUrlFromPath (buffer fns
+  now withTemp wrappers); lib/files/docProcessor.ts extractOnServer posts
+  `body: file`; tests/file-reading.spec.ts extraction block raw-bytes.
+  VERIFIED: curl 40 MB 200 / 660 MB video 200 in 2.1 s / empty 400;
+  playwright-cli 660 MB → chip data-status=ready; vitest 449|1; extraction
+  block 106 passed EXIT=0. PRE-EXISTING tsc errors tests/render.spec.ts
+  :977-980 (treeWatch typing, commit 12020fd) — NOT ours, untouched.
 - ENGINE TEARDOWN HARDENING (2026-10-19, LOCKED): decision_server.py —
   `_kill_port_holder` + `_reclaim_orphan_llama` (startup kills any orphan
   llama on LFM_PORT :8791 ONLY, never Strata :8080); `_parent_watchdog`

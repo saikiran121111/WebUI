@@ -108,8 +108,18 @@ export function classifyFile(name: string, mime?: string): FileCategory {
  */
 export const TEXT_CHAR_LIMIT = 48000;
 
-/** Largest file the UI will accept as an attachment. */
-export const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
+/**
+ * Human-readable size label for error messages ("512 MB", "1.5 GB").
+ * There is deliberately NO attachment size cap: this is a local app, the
+ * upload streams straight to disk, and ffmpeg/whisper read media from that
+ * path — the only real limit is the user's free disk space.
+ */
+export function sizeLimitLabel(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1024) return `${Math.round(mb)} MB`;
+  const gb = mb / 1024;
+  return `${gb % 1 ? gb.toFixed(1) : Math.round(gb)} GB`;
+}
 
 /** True when the category's content can be shown to the model as text. */
 export function isTextual(cat: FileCategory): boolean {

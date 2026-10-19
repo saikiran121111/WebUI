@@ -50,6 +50,30 @@
   Test 2 coffee kiosk 8m×6m CAD: SVG bbox+zone names, layer Eye/Solo,
   2D/iso/3D-BIM/split (BIM canvas non-black, minSize 240), themes, Tape
   Measure, Area, .dxf SECTION/ENTITIES/LAYER + .svg.
+- 2026-10-19 (large-upload fix, LOCKED): extraction-API block of
+  tests/file-reading.spec.ts now posts RAW BYTES
+  (`request.post('/api/files/extract?name=…', { data: fs.readFileSync(f),
+  headers:{'content-type':'application/octet-stream'} })`) — multipart
+  contract retired with the route rewrite (see ISSUES.md top entry).
+  `npx playwright test tests/file-reading.spec.ts -g "extraction API"
+  --headed --workers=1` → **106 passed (12.5 s) EXIT=0**. Live-browser
+  check (playwright-cli, session closed after): 660 MB silent video via the
+  real file input → `POST /api/files/extract` 200, chip
+  `data-status="ready"` (poll `data-status`, NOT `data-state`), console
+  only the known favicon.ico 404. Lock protocol honored both times
+  (`.ai-coordination/playwright.lock` created/cleared). Layer-2
+  model-echo half NOT re-run (only the upload transport changed;
+  extraction-API proves the server text). vitest re-baseline: **449
+  passed | 1 skipped** (was 434|1).
+- 2026-10-19f (ALL LIMITS REMOVED, LOCKED): no byte cap (client gate +
+  server 413 deleted) and no 180 s audio cut (whole-track decode).
+  Re-verified under lock: extraction-API block **106 passed (10.9 s)
+  EXIT=0**; live browser (playwright-cli session `up-fix`, closed after)
+  660 MB video → chip `data-status="ready"`, console only favicon 404;
+  curl 240 s wav → 200 (full-length whisper pass, 2.2 s). vitest
+  re-baseline: **450 passed | 1 skipped** (NEW unit: 200 s decode whole).
+  GOTCHA: playwright-cli run-code paths — use FORWARD SLASHES
+  ('C:/Users/...'), backslash-escaping gets mangled through bash+JS.
 - Probes: `canvasProbe` forces `studio.renderer.render(studio.scene,
   studio.activeCamera)` before `toDataURL`; `expectRealRender` minSize 300
   (BIM 240). Visual proof: `test-results/canvas-proof.png` (drone visible).

@@ -9,8 +9,6 @@ const execFileP = promisify(execFile);
 /** Scratch space for decode/encode jobs — always inside the codebase. */
 const TMP_DIR = path.join(process.cwd(), ".data", "tmp");
 
-/** Longest audio we transcribe (whisper on CPU is slow; longer clips get cut). */
-export const MAX_AUDIO_SECONDS = 180;
 /** Frames sampled out of every video clip. */
 const VIDEO_FRAMES = 2;
 /** Images/frames are downscaled to this before they reach the model. */
@@ -91,28 +89,38 @@ function toDataUrl(png: Buffer): string {
 /**
  * Decode an image the browser could not (tif/heic/avif/ico/…) to a PNG data
  * URL. ffmpeg reads whatever the container actually holds and rescales it.
+ * Reads from a path on disk — the upload never round-trips through memory.
  */
-export async function imageToDataUrl(buf: Buffer, ext: string): Promise<string> {
+export async function imageToDataUrlFromPath(src: string): Promise<string> {
   const out = tmpName(".png");
-  return withTemp("." + ext, async src => {
-    fs.writeFileSync(src, buf);
+  try {
     await runFFmpeg(["-hide_banner", "-loglevel", "error", "-y", "-i", src,
       "-frames:v", "1", "-vf", SCALE_FILTER, out]);
     return toDataUrl(fs.readFileSync(out));
-  }, [out]);
+  } finally {
+    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
+  }
+}
+
+/** Buffer convenience wrapper (tests, small callers). */
+export async function imageToDataUrl(buf: Buffer, ext: string): Promise<string> {
+  return withTemp("." + ext, async src => {
+    fs.writeFileSync(src, buf);
+    return imageToDataUrlFromPath(src);
+  });
 }
 
 /**
  * Sample still frames out of a video clip. Frames are taken at 20% and 70% of
  * the duration (title cards at the start, content in the middle).
+ * Reads the clip straight from its path on disk — a multi-GB video never
+ * sits in memory; ffmpeg just seeks inside the file.
  */
-export async function videoFrames(
-  buf: Buffer,
-  ext: string,
+export async function videoFramesFromPath(
+  src: string,
 ): Promise<{ frames: { dataUrl: string; at: number }[]; durationSec: number }> {
   const out = tmpName(".png");
-  return withTemp("." + ext, async src => {
-    fs.writeFileSync(src, buf);
+  try {
     const duration = parseDuration(await probeInfo(src));
 
     // Clips without a duration header (some mkv/webm) fall back to fixed marks.
@@ -133,26 +141,52 @@ export async function videoFrames(
     }
     if (!frames.length) throw new Error("Could not read any frames from the video");
     return { frames, durationSec: duration };
-  }, [out]);
+  } finally {
+    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
+  }
+}
+
+/** Buffer convenience wrapper (tests, small callers). */
+export async function videoFrames(
+  buf: Buffer,
+  ext: string,
+): Promise<{ frames: { dataUrl: string; at: number }[]; durationSec: number }> {
+  return withTemp("." + ext, async src => {
+    fs.writeFileSync(src, buf);
+    return videoFramesFromPath(src);
+  });
 }
 
 /**
  * Decode audio to raw 32-bit float PCM (16 kHz mono) — the exact layout the
- * whisper pipeline expects.
+ * whisper pipeline expects. Reads from a path on disk and decodes the WHOLE
+ * track (no duration cap): ffmpeg writes the PCM to a scratch file instead of
+ * piping it through a RAM buffer, so hour-long recordings cost disk, not a
+ * maxBuffer ceiling. The file is then mapped into a Float32Array with a
+ * zero-copy view (f32le on disk == native little-endian float32).
+ * Whisper itself processes the PCM in 30 s chunks, so transcription time
+ * scales with the recording's length — long audio just takes longer.
  */
+export async function audioPcmFromPath(src: string): Promise<Float32Array> {
+  const out = tmpName(".f32");
+  try {
+    const ff = await ffmpegPath();
+    await execFileP(ff, ["-hide_banner", "-loglevel", "error", "-y", "-i", src,
+      "-f", "f32le", "-ac", "1", "-ar", "16000", out]);
+    if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
+      throw new Error("Audio decoded to nothing");
+    }
+    const raw = fs.readFileSync(out);
+    return new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
+  } finally {
+    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
+  }
+}
+
+/** Buffer convenience wrapper (tests, small callers). */
 export async function audioPcm(buf: Buffer, ext: string): Promise<Float32Array> {
   return withTemp("." + ext, async src => {
     fs.writeFileSync(src, buf);
-    const raw = await runFFmpeg(
-      ["-hide_banner", "-loglevel", "error", "-y", "-i", src,
-        "-t", String(MAX_AUDIO_SECONDS),
-        "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
-      { maxBuffer: 256 * 1024 * 1024 },
-    );
-    if (!raw.length) throw new Error("Audio decoded to nothing");
-    // The Buffer may reuse a pooled ArrayBuffer — copy into its own one.
-    const pcm = new Float32Array(raw.length / 4);
-    for (let i = 0; i < pcm.length; i++) pcm[i] = raw.readFloatLE(i * 4);
-    return pcm;
+    return audioPcmFromPath(src);
   });
 }

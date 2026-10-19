@@ -128,16 +128,15 @@ test.describe("extraction API", () => {
     test.setTimeout(t.test);
 
     test(`${fx.file} → text reaches the server`, async ({ request }) => {
-      const resp = await request.post("/api/files/extract", {
-        multipart: {
-          file: {
-            name: fx.file!,
-            mimeType: "application/octet-stream",
-            buffer: fs.readFileSync(file),
-          },
+      // Raw-bytes contract: filename via ?name=, body is the file itself.
+      const resp = await request.post(
+        `/api/files/extract?name=${encodeURIComponent(fx.file!)}`,
+        {
+          data: fs.readFileSync(file),
+          headers: { "content-type": "application/octet-stream" },
+          timeout: t.extract,
         },
-        timeout: t.extract,
-      });
+      );
 
       const body = await resp.json().catch(() => null);
       expect(resp.status(), `extract failed: ${body?.error ?? "(no response body)"}`).toBe(200);

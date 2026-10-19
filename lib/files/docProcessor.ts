@@ -1,7 +1,6 @@
 import type { Attachment } from "../types";
 import {
   classifyFile,
-  MAX_ATTACHMENT_BYTES,
   TEXT_CHAR_LIMIT,
   type FileCategory,
 } from "./extensions";
@@ -44,11 +43,11 @@ function cap(text: string): { text: string; truncated: boolean } {
   return { text: clean.slice(0, TEXT_CHAR_LIMIT), truncated: true };
 }
 
-/** Cheap, synchronous gate run the moment a file is picked. */
+/**
+ * Cheap, synchronous gate run the moment a file is picked. No size limit —
+ * uploads stream straight to disk (local app); only an empty file is refused.
+ */
 export function validateAttachment(file: File): Attachment {
-  if (file.size > MAX_ATTACHMENT_BYTES) {
-    throw new Error(`${file.name} is larger than ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB`);
-  }
   if (file.size === 0) throw new Error(`${file.name} is empty`);
 
   const category = classifyFile(file.name, file.type);
@@ -95,10 +94,17 @@ export async function processAttachment(file: File, base: Attachment): Promise<A
 }
 
 async function extractOnServer(file: File, att: Attachment): Promise<Attachment> {
-  const form = new FormData();
-  form.append("file", file, file.name);
-
-  const res = await fetch("/api/files/extract", { method: "POST", body: form });
+  // Raw bytes, not multipart: the browser streams the File straight off disk
+  // and the server streams it straight to its scratch file — multi-GB media
+  // never sit whole in memory on either side.
+  const res = await fetch(
+    `/api/files/extract?name=${encodeURIComponent(file.name)}`,
+    {
+      method: "POST",
+      body: file,
+      headers: { "content-type": file.type || "application/octet-stream" },
+    },
+  );
   const data = (await res.json().catch(() => null)) as ExtractResponse | null;
   if (!res.ok || !data || data.error) {
     throw new Error(data?.error ?? `Extraction failed (${res.status})`);

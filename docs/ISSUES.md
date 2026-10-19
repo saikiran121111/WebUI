@@ -1,6 +1,49 @@
 # ISSUES
 
 ## Confirmed and fixed
+- (SUPERSEDES the 4 GB cap + 180 s audio cut in the entry below, 2026-10-19,
+  per user request "no file size or duration limits"): ALL attachment
+  limits removed. `MAX_ATTACHMENT_BYTES` + `sizeLimitLabel()` default gone
+  (client gate + server 413 deleted — unbounded stream, only limit is disk
+  free space; empty files still 400). `MAX_AUDIO_SECONDS` gone —
+  `audioPcmFromPath` decodes the whole track: ffmpeg → scratch .f32 file
+  (no maxBuffer ceiling) → zero-copy `new Float32Array(buf.buffer,
+  buf.byteOffset, len/4)` view (f32le == native LE); whisper chunks at
+  30 s so long audio just takes longer. KEPT: 512 MB MAX_PARSED_BYTES
+  guard (buffer pdf/office/archive/legacy OOM protection — not media) and
+  TEXT_CHAR_LIMIT (prompt budget). Verified: NEW vitest case decodes 200 s
+  whole (7/7 file, 450|1 full); curl 240 s wav → 200 full whisper pass
+  2.2 s; extraction-API block 106 passed EXIT=0 (lock honored); live
+  browser 660 MB → chip data-status=ready, console clean.
+- Large video/media uploads rejected ("File is larger than 32 MB"), big files
+  OOM-risky (2026-10-19). ROOT CAUSE: the app's own
+  `MAX_ATTACHMENT_BYTES = 32 MB` gate (client `validateAttachment` + server
+  413) — NOT Next.js (verified: a 40 MB raw body reaches the handler fine;
+  `experimental.serverActions.bodySizeLimit` only covers Server Actions) —
+  plus full in-memory buffering: `req.formData()` → `arrayBuffer()` →
+  `Buffer` → `writeFileSync`, then ffmpeg copied to ANOTHER temp file.
+  FIX: `MAX_ATTACHMENT_BYTES` → 4 GB (local app; cap is a fat-finger guard;
+  `sizeLimitLabel()` prints "4 GB"); upload contract is now RAW BYTES
+  (`POST /api/files/extract?name=<file>`, no multipart) streamed via
+  `Readable.fromWeb` + `pipeline` straight to a `.data/tmp` scratch file
+  (mid-stream size guard destroys the source); extract core is path-based
+  (`extractFileFromPath`) with path ffmpeg helpers (`videoFramesFromPath`,
+  `audioPcmFromPath`, `imageToDataUrlFromPath`) — multi-GB video is seeked
+  inside the file, never buffered whole; text-like reads only a 2 MB head
+  (`TEXT_READ_BYTES`); buffer parsers (pdf/office/archive/legacy) guard at
+  `MAX_PARSED_BYTES` 512 MB. `extractFile(name,buf)` kept as a wrapper
+  (tests untouched). The user's original file is NEVER moved — browsers
+  cannot expose absolute paths, so bytes cross the local HTTP boundary once,
+  streamed both ends. Verified: curl 40 MB text 200 (was 413), 660 MB silent
+  video 200 in 2.1 s (2 frames, 60 s duration, scratch cleaned), empty 400;
+  real-browser (playwright-cli chromium) 660 MB upload → chip
+  `data-status="ready"`, request 200, console clean (only favicon 404);
+  vitest 449|1 (video-narration 6/6 incl. whisper "zephyr"); extraction-API
+  Playwright block 106 passed EXIT=0 (raw-bytes contract in
+  tests/file-reading.spec.ts). NOTE: 4 PRE-EXISTING tsc errors in
+  tests/render.spec.ts:977-980 (`treeSeen` etc. missing from `{treeNow,
+  frames}` — `__treeWatch` spread typing from commit 12020fd) — unrelated,
+  untouched.
 - Large folder-structure fences rendered as PLAIN TEXT and flickered
   CodeBlock↔TreeBlock mid-stream (2026-10-19). ROOT CAUSE:
   `looksLikeTree` counted every non-branch line against a tolerance of 2,

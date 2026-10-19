@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## 2026-10-19 — Feat: ALL attachment size/duration limits removed (unbounded uploads + full-length transcription)
+Follow-up to the large-upload fix, per user request ("no file size or
+duration limits for video or audio"). `MAX_ATTACHMENT_BYTES` deleted: the
+client gate (`validateAttachment`) and the server 413 guard are gone — the
+upload stream is unbounded and the only real limit is free disk space for
+the `.data/tmp` scratch file (empty files still refused). `MAX_AUDIO_SECONDS
+(180)` deleted: `audioPcmFromPath` now decodes the WHOLE track — ffmpeg
+writes f32le PCM to a scratch file (no maxBuffer ceiling) and the file is
+mapped into a Float32Array with a zero-copy view (f32le == native LE
+float32); whisper processes it in 30 s chunks, so transcription time simply
+scales with recording length. Kept deliberately: the 512 MB guard on the
+buffer-based pdf/office/archive/legacy parsers (OOM protection, not media),
+and TEXT_CHAR_LIMIT (prompt budget, not extraction). Verified: NEW unit
+test "decodes a 200 s track whole — past the old 180 s ceiling" (7/7 in
+video-narration); curl 240 s wav → 200 with full-length whisper pass in
+2.2 s; extraction-API Playwright block 106 passed (10.9 s) EXIT=0 under
+lock; live browser 660 MB video → chip `data-status="ready"`, console only
+favicon 404; vitest 450|1; tsc: only the 4 pre-existing render.spec errors.
+Files: lib/files/{extensions,docProcessor}.ts, app/api/files/extract/
+route.ts, lib/server/extract/ffmpeg.ts, __tests__/video-narration.test.ts.
+
+## 2026-10-19 — Fix: large video/media uploads (32 MB wall removed, uploads stream to disk)
+Attachments over 32 MB were rejected ("File is larger than 32 MB") and the
+extract route buffered the whole upload twice in RAM (`formData()` →
+`arrayBuffer()` → `Buffer`) before ffmpeg copied it to a temp file again.
+Now the upload is POSTed as RAW BYTES (`POST /api/files/extract?name=<file>`,
+no multipart) and streamed straight to a scratch file under `.data/tmp`;
+ffmpeg/whisper read media from that path (`videoFramesFromPath`,
+`audioPcmFromPath`, `imageToDataUrlFromPath`) — a multi-GB video is seeked
+inside the file, never buffered whole. Text-like files read only a 2 MB head
+(prompt caps at 48k chars anyway); buffer-based parsers (pdf/office/archive/
+legacy) guard at 512 MB. `MAX_ATTACHMENT_BYTES` raised 32 MB → 4 GB (local
+app: the cap is a fat-finger guard, not a hosting limit); `sizeLimitLabel()`
+formats the message ("4 GB"). The original file on disk is never moved —
+browsers cannot expose a picked file's absolute path, so the bytes cross the
+local HTTP boundary exactly once, streamed both ends. Buffer contract
+`extractFile(name, buf)` kept as a wrapper (tests unaffected). Verified:
+curl 40 MB text 200 (was 413), 660 MB silent video 200 in 2.1 s (2 frames,
+60 s duration, scratch cleaned), empty → 400; real-browser upload of the
+660 MB clip → chip `data-status=ready`, extract request 200; vitest 449|1
+(6/6 video-narration incl. whisper "zephyr"); extraction-API Playwright
+block 106/106 exit 0. Files: app/api/files/extract/route.ts,
+lib/server/extract/{index,ffmpeg}.ts, lib/files/{extensions,docProcessor}.ts,
+tests/file-reading.spec.ts.
+
 ## 2026-10-19 — Fix: stopping `npm run dev` now guarantees the contained engine dies (watchdog hardening + orphan reclaim)
 Three teardown holes in `.decision-engine/worker/decision_server.py` closed:
 (1) startup `_reclaim_orphan_llama()` — a llama-server orphaned by a worker

@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractFile } from "../lib/server/extract";
+import { audioPcm } from "../lib/server/extract/ffmpeg";
 import { attachmentParts } from "../lib/chat/client";
 import type { Attachment } from "../lib/types";
 
@@ -74,6 +75,27 @@ describe("video extraction keeps the audio track", () => {
     expect(res.error, "silent video should not error").toBeUndefined();
     expect(res.frames?.length, "video produced no frames").toBeGreaterThan(0);
     expect(res.transcript || "").toBe("");
+  }, 120_000);
+});
+
+describe("audio decode has no duration cap", () => {
+  it("decodes a 200 s track whole — past the old 180 s ceiling", async () => {
+    const ff = await ffmpegPath();
+    const out = path.join(process.cwd(), ".data", "tmp", "long_tone.wav");
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    try {
+      await execFileP(ff, [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=200",
+        "-ar", "16000", "-ac", "1", out,
+      ]);
+      const pcm = await audioPcm(fs.readFileSync(out), "wav");
+      // 200 s at 16 kHz mono: the old cap would have stopped at 180 * 16000.
+      expect(pcm.length).toBeGreaterThanOrEqual(199 * 16000);
+      expect(pcm.length).toBeLessThanOrEqual(201 * 16000);
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
   }, 120_000);
 });
 
