@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Search, Pin, Archive, MessageSquarePlus, Check,
   MoreHorizontal, ChevronRight,
@@ -256,6 +256,25 @@ function ConversationItem({
   onToggleSelect: (id: string) => void;
 }) {
   const open = menuOpen === c.id;
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss on any outside click / Escape so this menu and the composer's
+  // effort menu can never be open at the same time. The trigger button lives
+  // inside menuRef, so clicking it again still toggles through onClick.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(null); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, setMenuOpen]);
+
   return (
     <div
       data-testid="conversation-item"
@@ -276,7 +295,7 @@ function ConversationItem({
         : <MessageSquarePlus className="w-3.5 h-3.5 flex-shrink-0 opacity-40" />}
       <span className="flex-1 text-sm truncate">{c.title}</span>
       {c.pinned && !selectMode && <Pin className="w-3 h-3 flex-shrink-0 text-white/40" />}
-      {!selectMode && <div className="relative">
+      {!selectMode && <div className="relative" ref={menuRef}>
         <button
           onClick={e => { e.stopPropagation(); setMenuOpen(open ? null : c.id); }}
           className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"

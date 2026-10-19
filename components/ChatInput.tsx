@@ -45,6 +45,7 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
+  const effortMenuRef = useRef<HTMLDivElement>(null);
 
   const refreshSkills = useCallback(() => {
     fetch("/api/skills")
@@ -78,6 +79,23 @@ export default function ChatInput({
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, variant === "hero" ? 180 : 200) + "px";
   }, [value, variant]);
+
+  // Dismiss the effort menu on any outside click / Escape so it never lingers
+  // open while another menu is being used. The trigger button lives inside
+  // effortMenuRef, so clicking it again still toggles through onClick.
+  useEffect(() => {
+    if (!showEffortMenu) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!effortMenuRef.current?.contains(e.target as Node)) setShowEffortMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowEffortMenu(false); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showEffortMenu]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -300,7 +318,7 @@ export default function ChatInput({
                 <Paperclip className="w-4 h-4" />
               </button>
 
-              <div className="relative">
+              <div className="relative" ref={effortMenuRef}>
                 <button onClick={() => setShowEffortMenu(!showEffortMenu)}
                   className={cn(
                     "p-2 rounded-lg transition-colors",
