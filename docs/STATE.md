@@ -221,3 +221,28 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
 - Effect: closing/Ctrl+C-ing the `npm run dev` terminal stops worker +
   llama-server within ~2 s; first heavy prompt after a dev restart pays the
   cold start again (engine lifetime is now tied to the dev server).
+
+## 2026-10-19 — Logging refactor: pino + per-token persist flood fix [LOCKED-DONE]
+- Flood root cause: app/page.tsx persist effect fired saveConversation (POST) +
+  refreshList (GET) on EVERY streamed token. Fix: effect now returns early while
+  `status === "streaming"`; exactly ONE save+refresh per turn, when the stream
+  settles (complete/error/aborted). `status` added to the effect deps.
+- Server logging: new lib/server/logger.ts (pino + pino-pretty as a SYNC
+  transform destination — no transport worker thread; safe under Next webpack).
+  LOG_LEVEL env (default debug dev / info prod). pino + pino-pretty added to
+  experimental.serverComponentsExternalPackages.
+- Pino call sites (server-only): app/api/chat/route.ts, app/api/decision/route.ts,
+  app/api/files/extract/route.ts, lib/decision/client.ts.
+- Needle3/LFM2.5 visibility: chat route logs
+  "decision: needle3 prior → lfm2.5 gate" with needleMs/lfmMs/mode/conf/by/skill/
+  stripped; llm stream start/complete (model, ms, sseChunks) + abort/error logs.
+  Decision worker spawned with stdio pipe (was "ignore") and relayed line-by-line
+  into pino — its [decision]/[decision-engine] prints now appear in npm run dev.
+- Client debug spam removed (no pino in browser bundle): 9 console.log in
+  hooks/useChat.ts, 4 in lib/stream/parser.ts. Kept console.error/warn in
+  client code (parser error, highlight, ChatInput, docProcessor).
+- Verified: tsc clean; vitest 434 passed/1 skipped; live isolated dev server on
+  :3799 (DECISION_ENGINE_AUTOSPAWN=0, engine URL pointed at dead port — zero
+  model traffic): pino pretty lines render, conversations GET/POST log once each,
+  decision fallback envelope logged with by=fallback. Test server killed,
+  c_logtest.json removed from ~/.local-intelligence/conversations.

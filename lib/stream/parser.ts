@@ -43,7 +43,6 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
   let error: unknown = null;
 
   const pump = async () => {
-    console.log("[PARSER] pump started, url:", opts.url);
     try {
       const res = await fetch(opts.url, {
         method: "POST",
@@ -55,7 +54,6 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
         body: JSON.stringify(opts.body),
         signal: controller.signal,
       });
-      console.log("[PARSER] response status:", res.status, "ok:", res.ok);
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error("Upstream returned " + res.status + ": " + text.slice(0, 300));
@@ -121,11 +119,9 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
     const finish = choice?.finish_reason;
 
     if (delta?.reasoning_content) {
-      console.log("[STREAM] reasoning:", JSON.stringify(delta.reasoning_content.slice(0, 40)));
       push({ reasoning: delta.reasoning_content });
     }
     if (delta?.content) {
-      console.log("[STREAM] content:", JSON.stringify(delta.content.slice(0, 40)));
       const split = splitter(delta.content);
       if (split.reasoning) push({ reasoning: split.reasoning });
       if (split.content)   push({ content:   split.content });

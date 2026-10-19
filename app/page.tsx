@@ -74,9 +74,16 @@ export default function HomePage() {
   // bumping updatedAt and yanking the row to the top of the sidebar.
   const syncedMessagesRef = useRef<string>("");
 
-  // Persist current messages on every change.
+  // Persist messages when they settle — NOT on every streamed token.
+  // While a reply is streaming, `messages` changes on every SSE chunk; saving
+  // there fired a POST /api/conversations + GET refresh per token (log flood +
+  // disk thrash). Gating on `status` means exactly ONE save (and one list
+  // refresh) per turn, written when the stream completes, errors, or aborts.
+  // A tab closed mid-stream loses only the partial reply — same as before,
+  // since the old per-token saves were racing the stream anyway.
   useEffect(() => {
     if (messages.length === 0) return;
+    if (status === "streaming") return;
     const snapshot = JSON.stringify(messages);
     // Opened but not edited — skip the save so updatedAt (and the sidebar
     // row order, which sorts by it) stays untouched until a real change.
@@ -100,7 +107,7 @@ export default function HomePage() {
     };
     syncedMessagesRef.current = snapshot;
     saveConversation({ id: convId, meta, messages }).then(refreshList);
-  }, [messages, activeId, refreshList]);
+  }, [messages, activeId, status, refreshList]);
 
   // Follow the stream by pinning the container to the bottom. A smooth
   // scrollIntoView per chunk cancels the previous in-flight animation and

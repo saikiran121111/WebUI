@@ -6,6 +6,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getDecision } from "../../../lib/decision/client";
+import { childLogger } from "../../../lib/server/logger";
+
+const log = childLogger("api/decision");
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -24,9 +27,16 @@ export async function POST(req: NextRequest) {
 
   const t0 = Date.now();
   const env = await getDecision(message, history);
-  console.log(
-    `[api/decision] mode=${env.active_mode} conf=${env.confidence} by=${env.decided_by} ` +
-      `needle=${env.needle_latency_ms}ms lfm=${env.lfm_latency_ms}ms total=${Date.now() - t0}ms`,
+  log.info(
+    {
+      needleMs: env.needle_latency_ms,
+      lfmMs: env.lfm_latency_ms,
+      totalMs: Date.now() - t0,
+      mode: env.active_mode,
+      conf: env.confidence,
+      by: env.decided_by,
+    },
+    "decision: needle3 prior → lfm2.5 gate",
   );
   return NextResponse.json(env);
 }

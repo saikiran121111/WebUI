@@ -18,6 +18,10 @@ const nextConfig = {
       "pptxgenjs",
       "playwright",
       "playwright-core",
+      // Structured server logging: pino's dynamic requires + pino-pretty's
+      // color deps must resolve at runtime, not through the webpack bundle.
+      "pino",
+      "pino-pretty",
     ],
   },
 };

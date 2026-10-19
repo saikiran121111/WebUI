@@ -104,7 +104,6 @@ export function useChat({
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
-    console.log("[handleEvent]", JSON.stringify(ev).slice(0, 200));
 
     if (ev.reasoning) {
       if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
@@ -252,7 +251,6 @@ export function useChat({
   }, [runRepairRounds]);
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
-    console.log("[send] called with:", text.slice(0, 30), "effort:", effortRef.current);
     // sendBusyRef is the real concurrency guard — `status` here would be a
     // stale closure value (it isn't a dep of this useCallback).
     if (!text.trim() || sendBusyRef.current) return;
@@ -262,7 +260,6 @@ export function useChat({
     try {
       const mode = opts.mode ?? "chat";
       const curEffort = effortRef.current;
-      console.log("[send] curEffort:", curEffort);
       lastInputRef.current = { text, mode, attachments: opts.attachments ?? [] };
 
       const userMsg: Message = {
@@ -312,7 +309,6 @@ export function useChat({
 
       const client = new ChatClient(apiUrl, apiKey, model);
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
-      console.log("[send] calling client.chat with effort:", curEffort === "off" ? undefined : curEffort);
 
       // Snapshot the request history BEFORE the stream: a repair round must
       // replay the exact conversation the broken reply was generated from.
@@ -340,7 +336,6 @@ export function useChat({
           }
         },
       ).catch((e: any) => {
-        console.log("[send] client.chat threw:", e?.message, e?.name);
         throw e;
       });
 
@@ -359,16 +354,13 @@ export function useChat({
         );
       }
 
-      console.log("[send] after client.chat - was it aborted?", controller.signal.aborted);
       if (!controller.signal.aborted) {
-        console.log("[send] stream completed normally");
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now() } : m
         ));
         setStatus("complete");
         setReasoningContent("");
       } else {
-        console.log("[send] stream was aborted");
         // Finalize the partial bubble: stop the blinking cursor and bring
         // back the actions row even though the stream never finished.
         setMessages(prev => prev.map(m =>
@@ -379,7 +371,6 @@ export function useChat({
         setStatus("aborted");
       }
     } catch (e: any) {
-      console.log("[send] stream error:", e?.message);
       if (e?.name !== "AbortError") {
         const msg = e?.message ?? "Generation failed";
         setError(msg);

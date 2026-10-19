@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { childLogger } from "../../../lib/server/logger";
 import {
   applySlashSkillRouting,
   extractUserText,
@@ -18,6 +19,8 @@ import {
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
+
+const log = childLogger("api/chat");
 
 const OPEN  = "<think>";
 const CLOSE = "</think>";
@@ -75,11 +78,23 @@ function streamUpstream(
   upstream: Response,
   usedSkill: string | null,
   decisionMode: RendererMode,
+  model: string,
 ): Response {
+  const started = Date.now();
+  let chunks = 0;
   const scrubber = new TransformStream({
     transform(chunk, controller) {
+      chunks++;
       const text = new TextDecoder().decode(chunk);
       controller.enqueue(new TextEncoder().encode(scrubThinkTags(text)));
+    },
+    flush() {
+      // Main-model turn finished (or the pipe closed): one honest line per
+      // generation with the real wall-clock the shared backend spent.
+      log.info(
+        { model, mode: decisionMode, ms: Date.now() - started, sseChunks: chunks },
+        "llm stream complete",
+      );
     },
   });
   return new Response(upstream.body!.pipeThrough(scrubber), {
@@ -93,6 +108,7 @@ async function forwardStream(
   usedSkill: string | null,
   decisionMode: RendererMode,
   signal?: AbortSignal,
+  model = "default",
 ): Promise<Response> {
   try {
     // req.signal: when the browser walks away mid-stream (page close, Stop
@@ -102,11 +118,25 @@ async function forwardStream(
     // following turn on the single inference slot (observed in three full
     // Playwright runs: an abandoned chart stream left the next real-model
     // test's two turns hanging with empty replies).
+    log.info({ model, mode: decisionMode, url: LLM_URL }, "llm stream start");
     const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body, signal });
-    if (!upstream.ok) return upstreamErrorResponse(upstream.status, await upstream.text().catch(() => ""));
-    if (!upstream.body) return NextResponse.json({ error: "No response body from model" }, { status: 502 });
-    return streamUpstream(upstream, usedSkill, decisionMode);
-  } catch {
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => "");
+      log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
+      return upstreamErrorResponse(upstream.status, errText);
+    }
+    if (!upstream.body) {
+      log.error({ model }, "llm upstream returned no body");
+      return NextResponse.json({ error: "No response body from model" }, { status: 502 });
+    }
+    return streamUpstream(upstream, usedSkill, decisionMode, model);
+  } catch (err) {
+    // AbortError is the browser walking away mid-stream — expected, not a fault.
+    if ((err as Error)?.name === "AbortError") {
+      log.warn({ model }, "llm stream aborted by client");
+    } else {
+      log.error({ model, err: (err as Error).message }, "llm server unreachable");
+    }
     return NextResponse.json(
       { error: "Could not reach the model server. Is it running on port 8080?" },
       { status: 503 },
@@ -198,7 +228,7 @@ export async function POST(req: NextRequest) {
     try {
       usedSkill = await applySlashSkillRouting(payload);
     } catch (err: unknown) {
-      console.error("[api/chat] slash skill routing failed:", err instanceof Error ? err.message : err);
+      log.error({ err: err instanceof Error ? err.message : err }, "slash skill routing failed");
     }
 
     const lastUserIdx = lastUserIndex(payload.messages);
@@ -245,16 +275,30 @@ export async function POST(req: NextRequest) {
           const block = await buildDecisionSkillBlock(env);
           if (block) injectSystemBefore(payload.messages, lastUserIdx, block);
         } catch (err: unknown) {
-          console.error("[api/chat] decision skill load failed:", err instanceof Error ? err.message : err);
+          log.error({ err: err instanceof Error ? err.message : err }, "decision skill load failed");
         }
       }
 
-      console.log(
-        `[api/chat] decision: mode=${env.active_mode} conf=${env.confidence} by=${env.decided_by} ` +
-          `skill=${usedSkill ?? env.skill_to_load ?? "none"} slash=${usedSkill ?? "-"}`,
+      // What the two decision models actually did this turn:
+      //   Needle 3  — fast prior (always runs, stage 1)
+      //   LFM2.5    — deep gate + noise-strip (stage 2; decided_by shows whether
+      //               it decided, failed, or a guard/multi-turn override moved it)
+      log.info(
+        {
+          needleMs: env.needle_latency_ms,
+          lfmMs: env.lfm_latency_ms,
+          mode: env.active_mode,
+          conf: env.confidence,
+          by: env.decided_by,
+          skill: usedSkill ?? env.skill_to_load ?? null,
+          stripped: env.stripped_prompt.slice(0, 140),
+          constraints: env.task_constraints.length ? env.task_constraints : undefined,
+        },
+        "decision: needle3 prior → lfm2.5 gate",
       );
     }
   }
 
-  return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode, req.signal);
+  const model = typeof payload?.model === "string" && payload.model ? payload.model : "default";
+  return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode, req.signal, model);
 }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractFile } from "../../../../lib/server/extract";
 import { MAX_ATTACHMENT_BYTES } from "../../../../lib/files/extensions";
+import { childLogger } from "../../../../lib/server/logger";
+
+const log = childLogger("api/files/extract");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Extraction failed";
-    console.error("[api/files/extract]", name, "-", msg);
+    log.error({ file: name }, `extraction failed: ${msg}`);
     return NextResponse.json({ error: msg }, { status: 422 });
   }
 }

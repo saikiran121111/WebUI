@@ -14,7 +14,10 @@ import { spawn } from "child_process";
 import fsSync from "fs";
 import path from "path";
 import { projectRoot } from "../skills/registry";
+import { childLogger } from "../server/logger";
 import { RENDERER_MODES, isRendererMode, type DecisionEnvelope, type RendererMode } from "./types";
+
+const log = childLogger("decision");
 
 const DEFAULT_URL = "http://127.0.0.1:8790";
 
@@ -59,7 +62,10 @@ async function ensureWorker(): Promise<boolean> {
           cwd: projectRoot(), // never run from inside the engine dir
           detached: true,
           windowsHide: true,
-          stdio: "ignore",
+          // Pipe (not ignore) so the worker's own [decision] / [decision-engine]
+          // lines — Needle warm-up, LFM2.5 failures, routing guards — surface
+          // in the `npm run dev` terminal through pino instead of vanishing.
+          stdio: ["ignore", "pipe", "pipe"],
           // DECISION_ENGINE_PARENT_PID: the worker runs a watchdog on THIS
           // process's PID and shuts itself + llama-server down when we exit
           // (Ctrl+C, terminal closed, crash) — stopping `npm run dev` stops
@@ -68,6 +74,26 @@ async function ensureWorker(): Promise<boolean> {
           env: { ...process.env, DECISION_ENGINE_SPAWNED_BY: "webui", DECISION_ENGINE_PARENT_PID: String(process.pid) },
         });
         child.unref();
+        // Relay worker output line-by-line into the dev terminal. unref() the
+        // pipes so a long-lived worker can never hold the web server's event
+        // loop open on shutdown.
+        const relay = (stream: NodeJS.ReadableStream | null, level: "info" | "warn") => {
+          if (!stream) return;
+          (stream as NodeJS.ReadableStream & { unref?: () => void }).unref?.();
+          let buf = "";
+          stream.setEncoding("utf8");
+          stream.on("data", (chunk: string) => {
+            buf += chunk;
+            const lines = buf.split(/\r?\n/);
+            buf = lines.pop() ?? "";
+            for (const line of lines) {
+              if (line.trim()) log[level](line.trim());
+            }
+          });
+          stream.on("end", () => { if (buf.trim()) log[level](buf.trim()); buf = ""; });
+        };
+        relay(child.stdout, "info");
+        relay(child.stderr, "warn");
       } catch {
         return false;
       }
@@ -92,7 +118,8 @@ async function ensureWorker(): Promise<boolean> {
 export function warmupDecisionEngine(): void {
   if (!autoSpawnEnabled()) return;
   void ensureWorker().then((ok) => {
-    console.log(ok ? "[decision] engine warm on " + decisionEngineUrl() : "[decision] warmup did not reach /health");
+    if (ok) log.info(`engine warm on ${decisionEngineUrl()}`);
+    else log.warn("warmup did not reach /health");
   });
 }
 
@@ -133,7 +160,7 @@ export async function getDecision(
     if (!isRendererMode(env.active_mode)) throw new Error(`bad active_mode: ${env.active_mode}`);
     return env;
   } catch (err) {
-    console.warn("[decision] engine unavailable, falling back to standard_chat:", (err as Error).message);
+    log.warn({ err: (err as Error).message }, "engine unavailable — falling back to standard_chat");
     return fallbackEnvelope(trimmed);
   }
 }
