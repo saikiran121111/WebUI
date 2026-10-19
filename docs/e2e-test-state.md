@@ -239,3 +239,12 @@
   by the spec itself.
 - Lock protocol honored: `.ai-coordination/playwright.lock` created before each run,
   removed on exit (trap), foreground, no polling.
+
+## 2026-10-20 — Hardening pass verification (headed, §1 lock) [GREEN]
+- `npx playwright test tests/file-reading.spec.ts -g "extraction API" --workers=1`
+  → 106 passed (13.1 s), EXIT=0. Exercises the changed transcription stack on
+  real fixtures (q8 CPU whisper + nvidia-smi stage probe; live log showed the
+  stage-3 WARN fallback firing: "GPU whisper unavailable — falling back to CPU").
+- vitest: 497 passed | 1 skipped (46 files) — +16 hardening tests, zero regressions.
+- tsc --noEmit: EXIT=2, only the 4 pre-existing tests/render.spec.ts:977-980 errors.
+- Lock created before the run, removed via trap on exit; foreground, no polling.

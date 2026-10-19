@@ -436,3 +436,28 @@ STATE/CHANGELOG sync + git commit.
   index of the last user message (chat route passes lastUserIdx+1 after the skill block).
 - Notes: one non-streaming Strata call per spine block, max_tokens 700, temp 0.2,
   req.signal honored (AbortError → 499), fallback = opening…closing sentence.
+
+## 2026-10-20 — Extraction/Whisper hardening pass [LOCKED-DONE]
+[8.2 LOCKED]
+- ffmpeg.ts videoKeyframesFromPath: fast-decode variant chain (-hwaccel auto
+  -skip_frame nokey → -skip_frame nokey → full decode), partial frames cleared
+  between variants; fill pass + 150 cap unchanged.
+- index.ts video branch: keyframes start eagerly (only when att) and run
+  concurrently with audio decode+transcribe; framesDir rm -Sync when the
+  transcript needs no index. Verified by extraction-API E2E 106 passed.
+- audio.ts rewritten: 3-stage VRAM lifecycle (getFreeVramMb nvidia-smi 2 s;
+  cuda/fp16 batch 8; LLM_UNLOAD_URL/LLM_RELOAD_URL dance with finally-reload;
+  CPU fallback + cudaBroken one-shot), gpuAsr.dispose(), RMS silence window
+  skip (≥20% silent → windowed decode, else single stride call),
+  normalizeSegmentTimeline (shift when start < prevEnd-6).
+- turn.ts: anchorQuery() exported + wired into routeQuery/embedOne/
+  retrieveEvidence (short/pronoun follow-ups inherit prev user question).
+- Tests: __tests__/hardening-audio.test.ts (9, transformers mocked, probe
+  seams DI), __tests__/hardening-payload.test.ts (7, incl. route source-order
+  contract strip < forwardStream + frame-fixture image placement).
+[8.4 CONTRACTS]
+- transcribePcmSegments(pcm, opts?: {probe?, unload?, reload?}) — test seams.
+- Env: WHISPER_VRAM_FLOOR_MB 1500, WHISPER_SILENCE_RMS 0.004, LLM_UNLOAD_URL,
+  LLM_RELOAD_URL (optional; reload falls back to 1-token warmup on LLM_API_URL).
+- CPU whisper singleton requests dtype "q8"; GPU per-job cuda/fp16 disposed.
+- anchorQuery(question, messages, userIdx) exported from turn.ts.

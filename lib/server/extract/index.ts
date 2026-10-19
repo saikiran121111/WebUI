@@ -274,6 +274,14 @@ export async function extractFileFromPath(
       const { frames, durationSec } = await videoFramesFromPath(srcPath);
       // The audio track carries narration — transcribe it when the clip has
       // one so the model hears the video, not just its sampled frames.
+      // Keyframes run CONCURRENTLY with audio decode + transcription: on a
+      // multi-hour lecture the keyframe pass is pure wall-clock we would
+      // otherwise pay after whisper finishes. It is only started when an
+      // index could actually use the frames (att present), and it is cleaned
+      // up below whenever the transcript turns out not to need an index.
+      const kfPromise: Promise<{ at: number; name: string }[] | null> = att
+        ? videoKeyframesFromPath(srcPath, framesDir(att)).catch(() => null)
+        : Promise.resolve(null);
       let transcript: string | undefined;
       let segments: AsrSegment[] = [];
       try {
@@ -281,17 +289,19 @@ export async function extractFileFromPath(
         transcript = r.text || undefined;
         segments = r.segments;
       } catch { /* no (decodable) audio track — frames only */ }
-      if (!transcript) return { name, category, frames, durationSec };
+      const key = await kfPromise;
+      if (!transcript) {
+        if (att) try { fs.rmSync(framesDir(att), { recursive: true, force: true }); } catch { /* ignore */ }
+        return { name, category, frames, durationSec };
+      }
 
       if (att && transcript.length > TEXT_CHAR_LIMIT) {
-        // Long lecture: keep scene-change keyframes on disk next to the index
-        // so visual questions about a time window can pull the right frame.
-        let keyframes: FrameEntry[] = [];
-        try {
-          keyframes = (await videoKeyframesFromPath(srcPath, framesDir(att))).map(
-            f => ({ at: f.at, file: "frames/" + f.name }),
-          );
-        } catch { /* keyframes are best-effort — the transcript index still works */ }
+        // Long lecture: the scene-change keyframes already extracted next to
+        // the index let visual questions about a time window pull the right
+        // frame. Best-effort: a null key result still yields a working index.
+        const keyframes: FrameEntry[] = (key ?? []).map(
+          f => ({ at: f.at, file: "frames/" + f.name }),
+        );
         const indexed = await indexContent(name, category, att, transcript, {
           segments: asSegments(segments),
           durationSec,
@@ -303,6 +313,8 @@ export async function extractFileFromPath(
           truncated: true,
         };
       }
+      // Small transcript: the eagerly-extracted keyframes are not needed.
+      if (att) try { fs.rmSync(framesDir(att), { recursive: true, force: true }); } catch { /* ignore */ }
       const capped = cap(transcript);
       return { name, category, frames, durationSec, transcript: capped.text, truncated: capped.truncated };
     }

@@ -175,19 +175,37 @@ export async function videoKeyframesFromPath(
 
   // Scene pass: select fires on each cut; showinfo prints pts_time per frame
   // on stderr, which is how we learn WHEN each saved image was taken.
+  // Fast-decode chain: -skip_frame nokey decodes ONLY container I-frames, so
+  // a 3-6 h 60 fps lecture costs a fraction of a full decode; -hwaccel auto
+  // uses the GPU when one is available. Both are tried before the classic
+  // full-decode pass, which stays as the last resort for odd containers.
   const pattern = path.join(outDir, "f_%05d.jpg");
   let stderr = "";
-  try {
-    const r = await execFileP(
-      ff,
-      ["-hide_banner", "-y", "-i", src,
-        "-vf", `select='gt(scene,0.3)',showinfo,${SCALE_FILTER}`,
-        "-vsync", "vfr", "-frames:v", "150", "-f", "image2", pattern],
-      { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
-    );
-    stderr = r.stderr;
-  } catch (err: any) {
-    stderr = String(err?.stderr ?? "");
+  for (const pre of [
+    ["-hwaccel", "auto", "-skip_frame", "nokey"],
+    ["-skip_frame", "nokey"],
+    [],
+  ] as string[][]) {
+    try {
+      const r = await execFileP(
+        ff,
+        ["-hide_banner", "-y", ...pre, "-i", src,
+          "-vf", `select='gt(scene,0.3)',showinfo,${SCALE_FILTER}`,
+          "-vsync", "vfr", "-frames:v", "150", "-f", "image2", pattern],
+        { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+      );
+      stderr = r.stderr;
+      break;
+    } catch (err: any) {
+      stderr = String(err?.stderr ?? "");
+      // A failed variant may have written partial frames — clear them so the
+      // next attempt's f_%05d.jpg numbering never mixes with stale output.
+      try {
+        for (const f of fs.readdirSync(outDir)) {
+          if (/^f_\d+\.jpg$/.test(f)) fs.rmSync(path.join(outDir, f), { force: true });
+        }
+      } catch { /* ignore */ }
+    }
   }
   const times = [...stderr.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)].map(m => parseFloat(m[1]));
   for (let i = 0; i < times.length; i++) {

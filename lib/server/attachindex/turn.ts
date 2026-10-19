@@ -99,6 +99,38 @@ function rules(ref: AttachmentRef): string {
   );
 }
 
+const FOLLOWUP_MAX = 60;
+const PRONOUN_RE = /\b(why|how come|that|this|these|those|it|its|they|them|there|here)\b/gi;
+
+/**
+ * Multi-turn follow-up guard: a short ("why does that happen?") or
+ * pronoun-heavy prompt carries few topic words, so BM25 and the embedding
+ * drift off the active subject. Anchor those to the PREVIOUS user question
+ * (the first text part of it — attachment/spine parts come after the
+ * question) so retrieval stays on topic. Questions long enough to carry
+ * their own subject are used verbatim.
+ */
+export function anchorQuery(question: string, messages: any[], userIdx: number): string {
+  const q = (question ?? "").trim();
+  if (!q) return q;
+  const pronouns = (q.match(PRONOUN_RE) ?? []).length;
+  const followup = q.length < FOLLOWUP_MAX || (q.length < 140 && pronouns >= 2);
+  if (!followup) return q;
+
+  for (let i = userIdx - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || m.role !== "user") continue;
+    const prev = typeof m.content === "string"
+      ? m.content
+      : Array.isArray(m.content)
+        ? String(m.content.find((p: any) => p?.type === "text" && p.text)?.text ?? "")
+        : "";
+    const t = prev.trim();
+    if (t) return `${t.slice(0, 300)} ${q}`;
+  }
+  return q;
+}
+
 /**
  * Build and inject this turn's evidence. `userIdx` is the CURRENT index of
  * the last user message in `messages` (callers that already injected a
@@ -117,6 +149,10 @@ export async function buildAttachmentTurn(
 
   const blocks: string[] = [];
   const images: { url: string; at: number }[] = [];
+  // Retrieval runs on the anchored query (short follow-ups inherit the
+  // previous question's topic); the injected blocks still answer the user's
+  // actual wording.
+  const rq = anchorQuery(question, messages, userIdx);
 
   for (const ref of refs) {
     const index = readIndex(ref.attId);
@@ -129,7 +165,7 @@ export async function buildAttachmentTurn(
       continue;
     }
 
-    const routed: RoutedQuery = routeQuery(question);
+    const routed: RoutedQuery = routeQuery(rq);
 
     if (routed.mode === "whole_video") {
       let notes = readNotes(ref.attId);
@@ -147,7 +183,7 @@ export async function buildAttachmentTurn(
 
     let queryVec: number[] = [];
     try {
-      queryVec = await embedOne(question);
+      queryVec = await embedOne(rq);
     } catch {
       // Embed model unavailable: BM25 alone still ranks the passages.
     }
@@ -160,7 +196,7 @@ export async function buildAttachmentTurn(
         : { mode: "point_qa" }; // "module 9" in a 3-block spine → best-effort hybrid
     }
 
-    const ev = retrieveEvidence(index, question, queryVec, opts);
+    const ev = retrieveEvidence(index, rq, queryVec, opts);
     if (!ev.text) continue;
 
     blocks.push(

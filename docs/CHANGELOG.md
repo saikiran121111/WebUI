@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 2026-10-20 — Hardening: parallel keyframes, 3-stage Whisper VRAM lifecycle, retrieval payload guards
+Production hardening pass over `lib/server/extract/{ffmpeg,audio,index}.ts` +
+`lib/server/attachindex/turn.ts`:
+- **Keyframes parallel + fast-decode**: `videoKeyframesFromPath()` scene pass now
+  tries `-hwaccel auto -skip_frame nokey` → `-skip_frame nokey` → full decode
+  (partial frames cleared between variants), so a 3-6 h 60 fps lecture decodes
+  only container I-frames. In `extractFileFromPath()` the keyframe pass runs
+  CONCURRENTLY with audio decode+transcription (`Promise.all`-style eager start
+  when `att` present; framesDir cleaned up when the transcript needs no index) —
+  zero added sequential wait. 120 s fast-seek fill + 150-frame cap unchanged.
+- **3-stage GPU/VRAM Whisper lifecycle** (`audio.ts`): `getFreeVramMb()` via
+  nvidia-smi (2 s timeout, null without NVIDIA). Stage 1 ≥1500 MB free →
+  cuda/fp16 + `batch_size:8`; Stage 2 GPU busy → optional `LLM_UNLOAD_URL`
+  unload, re-probe, and ALWAYS `LLM_RELOAD_URL`/1-token warmup in a `finally`;
+  Stage 3 no GPU / still tight / any CUDA error → clean CPU fallback (never
+  crashes; one `cudaBroken` flag per process). GPU pipeline `dispose()`d after
+  every job — whisper never hogs VRAM during chat. CPU singleton now requests
+  `dtype:"q8"` (verified: video-narration "zephyr" still passes).
+- **Silence skip + continuous timeline**: pure-silence 30 s windows skipped via
+  RMS probe (`WHISPER_SILENCE_RMS` 0.004; windowed decode only when ≥20% silent,
+  else single stride call); `normalizeSegmentTimeline()` repairs per-chunk
+  0..30 s resets onto one continuous master timeline (6 s stride tolerance).
+- **Payload guards**: `attachment_ref` strip verified immediately before
+  `forwardStream` (contract test pins the order); keyframe `image_url` parts
+  proven user-turn-only (never inside the system block); NEW `anchorQuery()` —
+  short (<60 ch) or pronoun-heavy follow-ups inherit the previous user question
+  for BM25/vector retrieval.
+- New env: `WHISPER_VRAM_FLOOR_MB` 1500, `WHISPER_SILENCE_RMS` 0.004,
+  `LLM_UNLOAD_URL`, `LLM_RELOAD_URL` (all optional).
+VERIFIED: vitest 497 passed | 1 skipped (46 files, +16 new hardening tests);
+tsc only the 4 pre-existing render.spec.ts errors; extraction-API Playwright
+(headed, §1 lock) 106 passed EXIT=0.
+
 ## 2026-10-20 — Feat: Timestamp-aware knowledge index for oversized attachments (zero knowledge loss)
 Long content (3 h course video ≈ 900k chars) used to be hard-truncated at
 TEXT_CHAR_LIMIT (48k) AT EXTRACTION — the rest was destroyed. Now anything over
