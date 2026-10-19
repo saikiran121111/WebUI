@@ -642,7 +642,8 @@ def _salvage_stage2(raw: str) -> Stage2Out | None:
 
 
 def lfm_decide(message: str, history: list[dict],
-               prior_modes: list[str], needle_conf: float) -> Stage2Out:
+               prior_modes: list[str], needle_conf: float,
+               trace: dict | None = None) -> Stage2Out:
     """Stage 2: raw prompt + Needle prior -> final decision + model-made strip.
     One self-correction retry on invalid output; raises after the 2nd failure."""
     msgs = [{"role": "system", "content": LFM_SYSTEM}]
@@ -661,8 +662,15 @@ def lfm_decide(message: str, history: list[dict],
                     f"candidates={json.dumps(prior_modes) if prior_modes else '[] (no signal)'}, "
                     f"reliability={reliability}"),
     })
+    # Diagnostics for the WebUI decision table: the exact input the gate saw
+    # and the raw grammar JSON it produced (kept even when parsing failed —
+    # that is precisely when it is most useful).
+    if trace is not None:
+        trace["input"] = msgs[-1]["content"]
     for attempt in (0, 1):
         raw = _lfm_call(msgs)
+        if trace is not None:
+            trace["raw"] = raw
         try:
             return Stage2Out(**json.loads(raw))
         except Exception as err:
@@ -747,8 +755,9 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
     # ---- Stage 2: LFM2.5 ALWAYS decides + strips (no confidence skip) ----
     ensure_llama_server()
     t1 = time.perf_counter()
+    lfm_trace: dict = {}
     try:
-        s2 = lfm_decide(message, req.conversationHistory, prior_modes, needle_conf)
+        s2 = lfm_decide(message, req.conversationHistory, prior_modes, needle_conf, lfm_trace)
         lfm_ms = round((time.perf_counter() - t1) * 1000, 1)
         active_mode, conf, decided_by = s2.active_mode, s2.confidence, "needle3+lfm2.5"
         constraints = s2.task_constraints
@@ -810,9 +819,15 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
         task_constraints=constraints,
         needle_latency_ms=needle_ms,
         lfm_latency_ms=lfm_ms,
+        needle_prior={"modes": prior_modes, "confidence": round(needle_conf, 3)},
+        lfm_input=lfm_trace.get("input"),
+        lfm_raw=lfm_trace.get("raw"),
     )
-    print(f"[decision] mode={active_mode} conf={env.confidence} by={decided_by} "
-          f"needle={needle_ms}ms lfm={lfm_ms}ms prior={prior_modes}@{needle_conf:.2f}", flush=True)
+    # The per-turn [decision] summary line is replaced by the WebUI's pino
+    # decision table (lib/server/decision-log.ts): mode, conf, latencies,
+    # Needle prior and the raw LFM JSON in one readable block. The exception
+    # prints above (routing guard, multi-turn override, salvage, LFM failure)
+    # stay — they are the signal, not the routine noise.
     return env
 
 

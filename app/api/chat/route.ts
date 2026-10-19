@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { childLogger } from "../../../lib/server/logger";
+import { logDecisionTable } from "../../../lib/server/decision-log";
 import {
   applySlashSkillRouting,
   extractUserText,
@@ -220,6 +221,7 @@ export async function POST(req: NextRequest) {
     // Not JSON: forward as-is (no decision possible).
   }
 
+  const model = typeof payload?.model === "string" && payload.model ? payload.model : "default";
   let usedSkill: string | null = null;
   let decisionMode: RendererMode = "standard_chat";
 
@@ -270,35 +272,26 @@ export async function POST(req: NextRequest) {
       }
 
       // 4) exactly ONE skill block for this turn (slash user skill wins)
+      let skillBlockBytes = 0;
       if (!usedSkill) {
         try {
           const block = await buildDecisionSkillBlock(env);
-          if (block) injectSystemBefore(payload.messages, lastUserIdx, block);
+          if (block) {
+            injectSystemBefore(payload.messages, lastUserIdx, block);
+            skillBlockBytes = block.length;
+          }
         } catch (err: unknown) {
           log.error({ err: err instanceof Error ? err.message : err }, "decision skill load failed");
         }
       }
 
-      // What the two decision models actually did this turn:
-      //   Needle 3  — fast prior (always runs, stage 1)
-      //   LFM2.5    — deep gate + noise-strip (stage 2; decided_by shows whether
-      //               it decided, failed, or a guard/multi-turn override moved it)
-      log.info(
-        {
-          needleMs: env.needle_latency_ms,
-          lfmMs: env.lfm_latency_ms,
-          mode: env.active_mode,
-          conf: env.confidence,
-          by: env.decided_by,
-          skill: usedSkill ?? env.skill_to_load ?? null,
-          stripped: env.stripped_prompt.slice(0, 140),
-          constraints: env.task_constraints.length ? env.task_constraints : undefined,
-        },
-        "decision: needle3 prior → lfm2.5 gate",
-      );
+      // The full routing story in one readable terminal block: Needle 3
+      // prior (in/out), LFM2.5 gate (exact input + raw JSON out), the skill
+      // actually injected, the UI component that will render this reply,
+      // and what the main LLM finally receives.
+      logDecisionTable(log, { input: fullText, env, usedSkill, skillBlockBytes, model });
     }
   }
 
-  const model = typeof payload?.model === "string" && payload.model ? payload.model : "default";
   return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode, req.signal, model);
 }

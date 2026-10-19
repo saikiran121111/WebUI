@@ -7,8 +7,9 @@
  *   - the excel-vs-3D/CAD collision stress prompt
  *   - a detail-preservation probe (numbers, SUMIFS, hex colors must survive)
  *   - a multi-turn follow-up probe (turn 2 pronoun-only must stay 3d_asset)
- * Needle priors are NOT in the envelope — read them from the worker log
- * ([decision] ... prior=[...]@conf) after the run.
+ * Needle priors + the raw LFM2.5 JSON now ride in the envelope itself
+ * (needle_prior / lfm_input / lfm_raw) — the WebUI prints them in its
+ * decision table (lib/server/decision-log.ts); no worker-log scraping needed.
  */
 const BASE = (process.env.DECISION_ENGINE_URL ?? "http://127.0.0.1:8790").replace(/\/+$/, "");
 

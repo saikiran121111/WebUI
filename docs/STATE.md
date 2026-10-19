@@ -251,3 +251,9 @@ ISSUES + e2e-test-state updated), git add -A + commit, PART 6 shutdown.
 - User still saw conversations GET/POST flood: browser tab ran the OLD client bundle (next.config.mjs change needs dev restart; a parallel verification dev server sharing .next broke HMR mid-session).
 - Purged .next, fresh compile on isolated :3799 (autospawn off, zero model traffic), served app/page.js chunk verified to contain `if (status === "streaming") return;` + snapshot dedup gate. Server killed, no artifacts.
 - User action: restart `npm run dev`, hard-reload tab (Ctrl+Shift+R). Expect exactly one POST + one GET per turn.
+
+### 2026-10-19 — Decision table logging [LOCKED-DONE]
+- lib/server/decision-log.ts: per-turn pino block — Needle 3 in/out, LFM2.5 exact input + raw grammar JSON, skills (core/user + injected bytes), mode→UI COMPONENT, stripped LLM prompt, constraints/entities, validators, fence.
+- Envelope +3 diagnostic fields (schemas.py + types.ts): needle_prior{modes,confidence}, lfm_input, lfm_raw. Worker lfm_decide(trace) captures them; redundant [decision] summary print removed (guard/salvage/failure prints kept).
+- chat + decision routes call logDecisionTable; chat route tracks skillBlockBytes. audit-decision-table.mjs header updated.
+- __tests__/decision/decision-log.test.ts 5/5. tsc clean, py_compile clean. Live fallback table verified on :3799 (autospawn=0). Full Needle/LFM rows verified by unit test only — live engine path unverified (no model load).
