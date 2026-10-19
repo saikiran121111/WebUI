@@ -224,8 +224,8 @@ function check(c, env) {
   const problems = [];
   if (!MODES.includes(env.active_mode)) problems.push(`active_mode=${env.active_mode} not a RendererMode`);
   if (c.mode && env.active_mode !== c.mode) problems.push(`active_mode=${env.active_mode} (want ${c.mode})`);
-  if (c.multiTurn && !String(env.decided_by).startsWith("needle3+lfm2.5")) problems.push(`decided_by=${env.decided_by} (want needle3+lfm2.5[+multi-turn])`);
-  if (!c.multiTurn && !c.empty && !c.blank && !c.burst && env.decided_by !== "needle3+lfm2.5") problems.push(`decided_by=${env.decided_by} (want needle3+lfm2.5)`);
+  if (c.multiTurn && !String(env.decided_by).startsWith("lfm2.5")) problems.push(`decided_by=${env.decided_by} (want lfm2.5[+multi-turn])`);
+  if (!c.multiTurn && !c.empty && !c.blank && !c.burst && env.decided_by !== "lfm2.5") problems.push(`decided_by=${env.decided_by} (want lfm2.5)`);
   if (env.enable_validator !== env.active_mode) problems.push(`enable_validator=${env.enable_validator}`);
   const comb = combined(env);
   for (const tok of c.mustHave ?? []) if (!comb.includes(tok)) problems.push(`missing token "${tok}" in stripped+constraints`);

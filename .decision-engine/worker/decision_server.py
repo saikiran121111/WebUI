@@ -1,24 +1,30 @@
 """
-Hybrid Decision Engine worker (100% project-local).
+Decision Engine worker (100% project-local) — SINGLE-MODEL LFM2.5-1.2B router.
 
-Stage 1 — Needle 3 (resident, grammar-constrained tool call): fast mode prior
-with a calibrated confidence head. Its prior NEVER reaches Stage 2 — it only
-feeds the lfm-fail fallback and the diagnostics. Stage 2 — LFM2.5-1.2B via
-the contained llama-server subprocess: ALWAYS runs on every non-empty
-request, receives ONLY the raw user message (plus an optional one-line
-"[Previous turn artifact mode: X]" prefix for multi-turn) and classifies the
-requested OUTPUT CONTAINER into one mode. The grammar-constrained reply is a
-single field, {"active_mode": ...} — ~5 decoded tokens, sub-second CPU
-latency, and the 1.2B model can no longer echo the system prompt, rewrite
-the user's words or hallucinate constraints. Prompt cleaning is deterministic
-Python (_clean_artifact_prompt), never model-generated: the user's words,
-numbers, formulas, sheet names and colors reach the main LLM verbatim, with
-only hostile sandbox-refusal clauses removed. If LFM fails after one
-self-correction retry, the envelope falls back to Needle 3's top prior mode.
+LFM2.5-1.2B via the contained llama-server subprocess is the SOLE decision
+model: it ALWAYS runs on every non-empty request, receives ONLY the raw user
+message (plus an optional one-line "[Previous turn artifact mode: X]" prefix
+for multi-turn) and classifies the requested OUTPUT CONTAINER into one mode.
+The grammar-constrained reply is a single field, {"active_mode": ...} — ~5
+decoded tokens, sub-second CPU latency, and the 1.2B model can no longer echo
+the system prompt, rewrite the user's words or hallucinate constraints.
+Prompt cleaning is deterministic Python (_clean_artifact_prompt), never
+model-generated: the user's words, numbers, formulas, sheet names and colors
+reach the main LLM verbatim, with only hostile sandbox-refusal clauses
+removed. If LFM fails validation on BOTH attempts (original + 1
+self-correction retry), the envelope falls back to the deterministic
+container-evidence resolver (_fallback_mode_from_evidence) with the raw
+prompt untouched — never a silent drop to standard_chat when the message
+names an explicit studio container.
 
-Deterministic safety layers on top of the models (2026-10-19 single-field
+Needle 3 (cactus-needle) was FULLY REMOVED on 2026-10-19: it cost ~185 MB of
+resident _worker.py --child processes and 150–900 ms of CPU latency per turn
+while producing low-confidence priors (@0.01–0.04). LFM2.5-1.2B decides
+directly.
+
+Deterministic safety layers on top of the model (2026-10-19 single-field
 container-classifier patch):
-  * Target-Deliverable Routing Rule in both system prompts (script-phrasing
+  * Target-Deliverable Routing Rule in the system prompt (script-phrasing
     traps like "execute a Python/openpyxl script to build an xlsx" route to
     the artifact's mode, never standard_chat).
   * _clean_artifact_prompt(): deterministic cleaner that deletes hostile
@@ -41,8 +47,8 @@ container-classifier patch):
     pivot to a new deliverable switches it, a pure conceptual question drops
     to standard_chat (prior mode recovered from the session cache or the
     previous assistant turn's fence language).
-  * threading.Lock around Needle + llama-server calls (concurrent /decision
-    requests must never corrupt the shared slot or 500 on KV overflow).
+  * threading.Lock around llama-server calls (concurrent /decision requests
+    must never corrupt the shared slot or 500 on KV overflow).
   * PID lockfiles so hot reloads reuse :8790/:8791 and never spawn duplicates.
   * Parent-PID watchdog: when spawned by the WebUI (DECISION_ENGINE_PARENT_PID)
     the worker kills its llama-server child and exits once the dev server dies,
@@ -70,16 +76,12 @@ from pathlib import Path
 
 DE = Path(__file__).resolve().parents[1]
 
-# ---- Containment: force every Needle/HF path inside ./.decision-engine/ ----
-os.environ.setdefault("NEEDLE3_LIB_PATH", str(DE / ".cache" / "needle-engine" / "libneedle.dll"))
-os.environ.setdefault("NEEDLE_WHISTLE_WEIGHTS", str(DE / "models" / "whistle" / "whistle.cact"))
-os.environ.setdefault("NEEDLE_TELEMETRY", "0")
+# ---- Containment: force every HF/temp path inside ./.decision-engine/ ------
 os.environ.setdefault("DO_NOT_TRACK", "1")
 os.environ.setdefault("HF_HOME", str(DE / ".cache" / "hf"))
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TMPDIR", str(DE / ".cache" / "tmp"))
 
-import needle  # noqa: E402
 from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
@@ -114,52 +116,7 @@ if os.name == "nt":
     _WAIT_OBJECT_0 = 0x00000000
     _SYNCHRONIZE = 0x00100000
 
-# ---- Stage 1: Needle 3 ----------------------------------------------------
-CLASSIFY_SYSTEM = (
-    "Route the request's PRIMARY deliverable by calling exactly one route_* tool.\n"
-    "Route by the DELIVERABLE the user wants, never by the tools/languages they "
-    "mention: 'execute a Python/openpyxl script to build an xlsx' is still excel.\n"
-    "standard_chat only when nothing new is produced: reading/parsing an existing "
-    "file, or a conceptual question.\n"
-    "excel: spreadsheet/workbook/rows/formulas/SUMIFS/tracker/budget/ledger/KPI over tabular data.\n"
-    "docs: document/report/letter/handover/essay. pdf: printable invoice/receipt/export.\n"
-    "ppt: slide deck/presentation. 3d_asset: 3D model/logo/mesh/animated object.\n"
-    "cad_blueprint: floor plan/building layout/wall dimensions/plumbing/BIM.\n"
-    "chart: plot data (bar/line/pie). html_render: web page/component/UI.\n"
-    "standard_chat: question/explanation/debugging, nothing to render."
-)
-
-
-# Needle 3 is a multi-tool router: one crisp tool per RendererMode. The tool
-# Needle picks IS the prior; the route_* name maps back to the mode by prefix.
-# Each tool carries a required `task` parameter (the one-line deliverable) so
-# the grammar forces an explicit slot fill, and its docstring lists distinct
-# trigger keywords — overlapping vocabulary made Needle collapse modes before.
-def route_excel(task: str) -> None:
-    """Pick when a NEW spreadsheet, workbook, xlsx, tracker or ledger over rows of data is to be built: formulas, SUMIFS, budget, KPI dashboard, 500-row table, an invoice sheet. A finance question (NPV/IRR math) or reading an existing CSV is standard_chat, not excel."""
-def route_docs(task: str) -> None:
-    """Pick when the deliverable is a written document, docx, report, letter, offer letter, handover, essay, memo or sign-off doc. A git commit message or text answer is standard_chat, not docs."""
-def route_pdf(task: str) -> None:
-    """Pick when the deliverable is a printable or exportable file: pdf, printable invoice, receipt, print-ready document. A sheet with totals is excel; an offer letter is docs; a drawing with scale/hatch is cad_blueprint."""
-def route_ppt(task: str) -> None:
-    """Pick only when the user explicitly asks for slides, a slide deck, a presentation, powerpoint or pptx."""
-def route_3d_asset(task: str) -> None:
-    """Pick when the deliverable is a 3D model, logo, mesh, animated or spinning object, 3D scene, Blender or Three.js asset."""
-def route_cad_blueprint(task: str) -> None:
-    """Pick when the deliverable is an architectural floor plan, building layout, wall dimensions, elevation, scale (1:100), hatch, column grid, plumbing, BIM, dxf or CAD blueprint — even if it will later be 3D-printed."""
-def route_chart(task: str) -> None:
-    """Pick when the deliverable is a plot of data: bar chart, line chart, pie chart, graph, histogram or scatter plot."""
-def route_html_render(task: str) -> None:
-    """Pick only when the user asks to BUILD a web page, webpage, landing page, html page, component, widget or UI."""
-def route_standard_chat(task: str) -> None:
-    """Pick when the turn is a question, explanation, debugging help, comparison, advice/tips or parsing an existing file, with nothing new to render — even when it mentions spreadsheets, charts, slides, invoices, CSS or scripts."""
-
-ROUTE_TOOLS = [route_excel, route_docs, route_pdf, route_ppt, route_3d_asset,
-               route_cad_blueprint, route_chart, route_html_render, route_standard_chat]
-TOOL_TO_MODE = {fn.__name__: fn.__name__[len("route_"):] for fn in ROUTE_TOOLS}
-
-
-# ---- Stage 2: LFM2.5-1.2B via llama-server --------------------------------
+# ---- Decision model: LFM2.5-1.2B via llama-server --------------------------
 # Single-field CONTAINER classifier (2026-10-19): the 1.2B model only answers
 # {"active_mode": ...}. standard_chat is the explicit default; studio
 # containers require an explicit request. The model never strips or rewrites
@@ -371,6 +328,18 @@ def _hard_coding_override(message: str) -> bool:
                 and _RX_LANG_CUE.search(message))
 
 
+def _fallback_mode_from_evidence(message: str) -> str:
+    """lfm-fail-guard resolver: when LFM2.5 fails validation on BOTH attempts,
+    follow the message's OWN explicit container evidence instead of guessing —
+    the earliest STRICT container-noun hit wins ("Build a 500-row transaction
+    tracker with SUMIFS ..." names SUMIFS, so it resolves to excel and never
+    silently drops to standard_chat). standard_chat is returned ONLY when no
+    studio container noun appears anywhere in the message."""
+    hits = [(m.start(), mode) for mode, rx in _STRICT_CONTAINER_RX.items()
+            if (m := rx.search(message))]
+    return min(hits)[1] if hits else "standard_chat"
+
+
 # ---- Explicit artifact-request promotion (2026-10-19) ----------------------
 # The single-field classifier's DEFAULT-standard_chat paragraph makes the 1.2B
 # model regress on explicit deliverable asks ("generate a downloadable Excel
@@ -416,10 +385,10 @@ _RX_EXPLICIT_ARTIFACT = {
 
 
 # ---- Deterministic post-decision routing guards ----------------------------
-# The 1.2B Stage-2 model keeps failing homonym traps (greedy decoding is
-# lexical, not semantic). These guards follow the MESSAGE's own artifact
-# evidence, never the model's guess. Silent: they change active_mode only —
-# decided_by stays "needle3+lfm2.5" (audit trail via the printed log line).
+# The 1.2B router keeps failing homonym traps (greedy decoding is lexical,
+# not semantic). These guards follow the MESSAGE's own artifact evidence,
+# never the model's guess. Silent: they change active_mode only —
+# decided_by stays "lfm2.5" (audit trail via the printed log line).
 _RX_SHEET_EVIDENCE = re.compile(r"\b(sheet|workbook|spreadsheet|columns|rows|totals)\b", re.I)
 
 
@@ -450,7 +419,7 @@ def _routing_guards(message: str, active_mode: str, prior_mode: str | None) -> s
     # printable invoice: tabular evidence outranks the pdf homonym.
     if active_mode == "pdf" and _RX_SHEET_EVIDENCE.search(message):
         return "excel"
-    # (5) Promotion: Stage 2 defaulted to standard_chat but the message
+    # (5) Promotion: the router defaulted to standard_chat but the message
     # explicitly requests a studio deliverable in deliverable position
     # ("generate a downloadable Excel file ...", "10-slide deck"). The
     # single-field classifier's DEFAULT-chat paragraph regresses on these;
@@ -465,7 +434,6 @@ def _routing_guards(message: str, active_mode: str, prior_mode: str | None) -> s
 
 
 _llm_proc: subprocess.Popen | None = None
-_NEEDLE_LOCK = threading.Lock()   # cactus-needle runtime is not reentrant-safe
 _LFM_LOCK = threading.Lock()      # llama-server :8791 runs one slot at -c 2048
 
 
@@ -673,12 +641,12 @@ def _salvage_stage2(raw: str) -> Stage2Out | None:
 
 def lfm_decide(message: str, history: list[dict], prev_mode: str | None,
                trace: dict | None = None) -> Stage2Out:
-    """Stage 2: the raw user message reaches LFM2.5 UNTOUCHED — Needle's prior
-    is never injected (it polluted the 1.2B's input and dragged its output).
-    The only addition is an optional one-line "[Previous turn artifact mode:
-    X]" prefix when the previous assistant turn produced an artifact, so the
-    MULTI-TURN rule in LFM_SYSTEM can keep the mode on refinement turns.
-    One self-correction retry on invalid output; raises after the 2nd failure."""
+    """The raw user message reaches LFM2.5 UNTOUCHED. The only addition is an
+    optional one-line "[Previous turn artifact mode: X]" prefix when the
+    previous assistant turn produced an artifact, so the MULTI-TURN rule in
+    LFM_SYSTEM can keep the mode on refinement turns. One self-correction
+    retry on invalid output; raises after the 2nd failure — the caller then
+    runs the deterministic _fallback_mode_from_evidence guard."""
     msgs = [{"role": "system", "content": LFM_SYSTEM}]
     for h in history[-4:]:
         role = h.get("role")
@@ -713,8 +681,6 @@ def lfm_decide(message: str, history: list[dict], prev_mode: str | None,
     raise RuntimeError("unreachable")
 
 
-_agent: needle.Needle | None = None
-
 # Head+tail truncation: an 8,000-char prompt must never overflow the 2048-
 # token llama-server slot (system ~450 + history ~450 + message ~1,100 +
 # 24 output < 2048). The head carries the task framing, the tail the closing
@@ -731,17 +697,8 @@ def _truncate_for_engine(message: str) -> str:
 
 
 def warm() -> None:
-    global _agent
-    t0 = time.perf_counter()
-    _agent = needle.Needle(
-        tools=ROUTE_TOOLS,
-        weights=str(DE / "models" / "needle3" / "needle3.cact"),
-        system=CLASSIFY_SYSTEM,
-        stateless=True,
-    )
     ensure_llama_server()
-    print(f"[decision-engine] warm: needle3 in {round((time.perf_counter()-t0)*1000)}ms, "
-          f"lfm2.5 on :{LFM_PORT}, needle on :{DECISION_PORT}", flush=True)
+    print(f"[decision-engine] warm: lfm2.5 on :{LFM_PORT}, worker on :{DECISION_PORT}", flush=True)
 
 
 def _cool() -> None:
@@ -767,29 +724,17 @@ app = FastAPI(title="WebUI Decision Engine", lifespan=lifespan)
 
 @app.get("/health")
 def health():
-    return {"ok": _agent is not None and _health(LFM_PORT), "lfm": _health(LFM_PORT)}
+    return {"ok": _health(LFM_PORT), "lfm": _health(LFM_PORT)}
 
 
 @app.post("/decision")
 def decision(req: DecisionRequest) -> DecisionEnvelope:
-    if _agent is None:
-        raise HTTPException(503, "engine warming")
     message = req.message.strip()
     if not message:
         raise HTTPException(400, "empty message")
     message = _truncate_for_engine(message)
 
-    # ---- Stage 1: Needle 3 fast prior ----
-    t0 = time.perf_counter()
-    with _NEEDLE_LOCK:
-        r = _agent.complete(message)
-    needle_ms = round((time.perf_counter() - t0) * 1000, 1)
-    calls = (r.get("function_calls") or []) + (r.get("suppressed_calls") or [])
-    prior_modes = list(dict.fromkeys(
-        TOOL_TO_MODE[c["name"]] for c in calls if (c.get("name") or "") in TOOL_TO_MODE))
-    needle_conf = float(r.get("confidence") or 0.0)
-
-    # ---- Stage 2: LFM2.5 classifies the output container (single field) ----
+    # ---- LFM2.5-1.2B classifies the output container (single field) ----
     # The prompt is cleaned deterministically, NEVER by the model:
     # standard_chat forwards the user's message 100% untouched; artifact
     # modes run it through _clean_artifact_prompt (refusal traps only).
@@ -800,20 +745,20 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
     try:
         s2 = lfm_decide(message, req.conversationHistory, prior_turn_mode, lfm_trace)
         lfm_ms = round((time.perf_counter() - t1) * 1000, 1)
-        active_mode, conf, decided_by = s2.active_mode, 0.95, "needle3+lfm2.5"
+        active_mode, conf, decided_by = s2.active_mode, 0.95, "lfm2.5"
         stripped = (" ".join(message.split()) if active_mode == "standard_chat"
                     else _clean_artifact_prompt(message, active_mode))
     except Exception as err:
-        # NEVER silently drop to standard_chat when Needle has a valid prior:
-        # fall back to Needle 3's top predicted mode with the RAW prompt.
+        # 2-strike LFM failure (original + 1 self-correction retry both
+        # invalid): NEVER silently drop to standard_chat — resolve the mode
+        # from the message's own container evidence and keep the RAW prompt.
         lfm_ms = round((time.perf_counter() - t1) * 1000, 1)
-        if prior_modes:
-            active_mode, conf, decided_by = prior_modes[0], needle_conf, "needle3 (lfm-fail)"
-        else:
-            active_mode, conf, decided_by = "standard_chat", 0.0, "fallback (no prior)"
+        active_mode = _fallback_mode_from_evidence(message)
+        conf = 0.0 if active_mode == "standard_chat" else 0.5
+        decided_by = "lfm-fail-guard"
         stripped = (" ".join(message.split()) if active_mode == "standard_chat"
                     else _clean_artifact_prompt(message, active_mode))
-        print(f"[decision] LFM2.5 failed after retry: {err}", flush=True)
+        print(f"[decision] LFM2.5 failed after retry: {err} — evidence guard -> {active_mode}", flush=True)
     # The classifier no longer emits constraints — the deterministic cleaner
     # is lossless, so the main LLM always receives the user's full spec set.
     constraints: list[str] = []
@@ -867,15 +812,13 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
         disable_validators=[m for m in MODES if m != active_mode],
         enable_validator=active_mode,
         task_constraints=constraints,
-        needle_latency_ms=needle_ms,
         lfm_latency_ms=lfm_ms,
-        needle_prior={"modes": prior_modes, "confidence": round(needle_conf, 3)},
         lfm_input=lfm_trace.get("input"),
         lfm_raw=lfm_trace.get("raw"),
     )
     # The per-turn [decision] summary line is replaced by the WebUI's pino
-    # decision table (lib/server/decision-log.ts): mode, conf, latencies,
-    # Needle prior and the raw LFM JSON in one readable block. The exception
+    # decision table (lib/server/decision-log.ts): mode, conf, latency and
+    # the raw LFM JSON in one readable block. The exception
     # prints above (routing guard, multi-turn override, salvage, LFM failure)
     # stay — they are the signal, not the routine noise.
     return env

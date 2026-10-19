@@ -6,8 +6,8 @@
  * Verifies for every envelope:
  *   - exact active_mode
  *   - non-empty stripped_prompt
- *   - decided_by === "needle3+lfm2.5" (LFM2.5 ALWAYS decides + strips — the
- *     Needle-confidence skip is gone; zero rule-based stripping)
+ *   - decided_by === "lfm2.5" (LFM2.5-1.2B is the SOLE decision model — it
+ *     always decides; zero rule-based stripping)
  *   - enable_validator === active_mode
  *   - disable_validators === exact complement (all 8 other modes)
  *   - skill_to_load / allowed_code_fence match the mode table
@@ -61,7 +61,7 @@ for (const [mode, prompt, skill, fence] of CASES) {
     problems.push("request failed: " + error);
   } else {
     if (env.active_mode !== mode) problems.push(`active_mode=${env.active_mode} (want ${mode})`);
-    if (env.decided_by !== "needle3+lfm2.5") problems.push(`decided_by=${env.decided_by} (want needle3+lfm2.5 — LFM must always run)`);
+    if (env.decided_by !== "lfm2.5") problems.push(`decided_by=${env.decided_by} (want lfm2.5 — LFM2.5 is the sole router)`);
     if (!env.stripped_prompt || !env.stripped_prompt.trim()) problems.push("stripped_prompt empty");
     if (env.enable_validator !== env.active_mode) problems.push(`enable_validator=${env.enable_validator}`);
     const wantDisabled = MODES.filter((m) => m !== mode).sort().join(",");
@@ -78,7 +78,6 @@ for (const [mode, prompt, skill, fence] of CASES) {
     mode,
     decided_by: env?.decided_by ?? "-",
     conf: env ? env.confidence.toFixed(2) : "-",
-    needle_ms: env?.needle_latency_ms ?? "-",
     lfm_ms: env?.lfm_latency_ms ?? "-",
     stripped: env ? (env.stripped_prompt.length > 46 ? env.stripped_prompt.slice(0, 43) + "..." : env.stripped_prompt) : "-",
     problems: problems.join("; "),
@@ -87,10 +86,10 @@ for (const [mode, prompt, skill, fence] of CASES) {
 
 const pad = (s, n) => String(s).padEnd(n);
 console.log("\nDecision Engine router — 9 modes + multi-intent stress @ " + BASE + "\n");
-console.log(pad("STATUS", 7) + pad("MODE", 14) + pad("DECIDED_BY", 17) + pad("CONF", 6) + pad("NEEDLEms", 9) + pad("LFMms", 7) + "STRIPPED_PROMPT");
-console.log("-".repeat(110));
+console.log(pad("STATUS", 7) + pad("MODE", 14) + pad("DECIDED_BY", 17) + pad("CONF", 6) + pad("LFMms", 7) + "STRIPPED_PROMPT");
+console.log("-".repeat(100));
 for (const r of rows) {
-  console.log(pad(r.status, 7) + pad(r.mode, 14) + pad(r.decided_by, 17) + pad(r.conf, 6) + pad(r.needle_ms, 9) + pad(r.lfm_ms, 7) + r.stripped);
+  console.log(pad(r.status, 7) + pad(r.mode, 14) + pad(r.decided_by, 17) + pad(r.conf, 6) + pad(r.lfm_ms, 7) + r.stripped);
   if (r.problems) console.log("        ↳ " + r.problems);
 }
 console.log("-".repeat(110));

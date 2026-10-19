@@ -163,7 +163,6 @@ function passthroughEnvelope(mode: RendererMode, text: string): DecisionEnvelope
     enable_validator: mode,
     task_constraints: [],
     extracted_entities: [],
-    needle_latency_ms: 0,
     lfm_latency_ms: 0,
   };
 }
@@ -201,9 +200,9 @@ function replaceLastUserText(messages: any[], index: number, text: string): void
  *
  *  1. Explicit "/<skill-name>" (user tier) strips the prefix and injects that
  *     skill's body — the only keyword-free user-tier trigger left.
- *  2. getDecision() classifies the turn into one RendererMode (Needle 3 prior
- *     -> LFM2.5 gate), strips conversational noise and names the ONE core
- *     skill + output contract to inject.
+ *  2. getDecision() classifies the turn into one RendererMode (LFM2.5-1.2B
+ *     single-model router), strips conversational noise and names the ONE
+ *     core skill + output contract to inject.
  *  3. The last user message is replaced by the stripped_prompt; exactly one
  *     skill block rides ahead of it.
  *  4. active_mode travels back via the x-decision-mode header; the UI renders
@@ -285,10 +284,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // The full routing story in one readable terminal block: Needle 3
-      // prior (in/out), LFM2.5 gate (exact input + raw JSON out), the skill
-      // actually injected, the UI component that will render this reply,
-      // and what the main LLM finally receives.
+      // The full routing story in one readable terminal block: LFM2.5-1.2B
+      // router (exact input + raw JSON out), the skill actually injected,
+      // the UI component that will render this reply, and what the main LLM
+      // finally receives.
       logDecisionTable(log, { input: fullText, env, usedSkill, skillBlockBytes, model });
     }
   }

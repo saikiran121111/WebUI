@@ -59,13 +59,11 @@ export interface DecisionEnvelope {
   enable_validator: RendererMode;
   task_constraints: string[];
   extracted_entities: string[];
-  needle_latency_ms: number;
   lfm_latency_ms: number;
   /**
    * Diagnostics for the dev-terminal decision table (lib/server/decision-log.ts).
    * Never used for routing; absent on fallback/passthrough envelopes.
    */
-  needle_prior?: { modes: RendererMode[]; confidence: number } | null;
   lfm_input?: string | null;
   lfm_raw?: string | null;
 }

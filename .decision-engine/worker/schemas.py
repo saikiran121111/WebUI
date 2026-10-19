@@ -51,10 +51,8 @@ class DecisionEnvelope(BaseModel):
     enable_validator: Mode
     task_constraints: list[str] = Field(default_factory=list)
     extracted_entities: list[str] = Field(default_factory=list)
-    needle_latency_ms: float = 0.0
     lfm_latency_ms: float = 0.0
     # Diagnostics for the WebUI dev-terminal decision table
     # (lib/server/decision-log.ts). Never used for routing.
-    needle_prior: Optional[dict] = None   # {"modes": [...], "confidence": float}
     lfm_input: Optional[str] = None       # last user message actually sent to LFM2.5
     lfm_raw: Optional[str] = None         # raw grammar-constrained JSON from LFM2.5

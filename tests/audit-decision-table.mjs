@@ -7,8 +7,8 @@
  *   - the excel-vs-3D/CAD collision stress prompt
  *   - a detail-preservation probe (numbers, SUMIFS, hex colors must survive)
  *   - a multi-turn follow-up probe (turn 2 pronoun-only must stay 3d_asset)
- * Needle priors + the raw LFM2.5 JSON now ride in the envelope itself
- * (needle_prior / lfm_input / lfm_raw) — the WebUI prints them in its
+ * The raw LFM2.5 JSON rides in the envelope itself
+ * (lfm_input / lfm_raw) — the WebUI prints it in its
  * decision table (lib/server/decision-log.ts); no worker-log scraping needed.
  */
 const BASE = (process.env.DECISION_ENGINE_URL ?? "http://127.0.0.1:8790").replace(/\/+$/, "");
@@ -53,12 +53,12 @@ for (const [want, prompt] of CASES) {
 const mt = await decide(MULTI_TURN.message, MULTI_TURN.conversationHistory);
 
 const esc = (s) => String(s).replace(/\|/g, "\\|").replace(/\n/g, " ");
-console.log("\n| # | Prompt | Final mode (want) | Conf | decided_by | Needle ms | LFM ms | stripped_prompt |");
-console.log("|---|--------|-------------------|------|------------|-----------|--------|-----------------|");
+console.log("\n| # | Prompt | Final mode (want) | Conf | decided_by | LFM ms | stripped_prompt |");
+console.log("|---|--------|-------------------|------|------------|--------|-----------------|");
 rows.forEach((r, i) => {
-  console.log(`| ${i + 1} | ${esc(r.prompt)} | ${r.env.active_mode} (${r.want})${r.env.active_mode === r.want ? " ✅" : " ❌"} | ${r.env.confidence} | ${r.env.decided_by} | ${r.env.needle_latency_ms} | ${r.env.lfm_latency_ms} | ${esc(r.env.stripped_prompt)} |`);
+  console.log(`| ${i + 1} | ${esc(r.prompt)} | ${r.env.active_mode} (${r.want})${r.env.active_mode === r.want ? " ✅" : " ❌"} | ${r.env.confidence} | ${r.env.decided_by} | ${r.env.lfm_latency_ms} | ${esc(r.env.stripped_prompt)} |`);
 });
-console.log(`| 12 | [multi-turn] "Make the outer ring spin faster and change it to red" (history: turn-1 sci-fi core, scene3d fence) | ${mt.active_mode} (3d_asset)${mt.active_mode === "3d_asset" ? " ✅" : " ❌"} | ${mt.confidence} | ${mt.decided_by} | ${mt.needle_latency_ms} | ${mt.lfm_latency_ms} | ${esc(mt.stripped_prompt)} |`);
+console.log(`| 12 | [multi-turn] "Make the outer ring spin faster and change it to red" (history: turn-1 sci-fi core, scene3d fence) | ${mt.active_mode} (3d_asset)${mt.active_mode === "3d_asset" ? " ✅" : " ❌"} | ${mt.confidence} | ${mt.decided_by} | ${mt.lfm_latency_ms} | ${esc(mt.stripped_prompt)} |`);
 
 // Detail-preservation check on case 11: every hard token must survive the
 // strip. Checked against the END-TO-END forwarded view — stripped_prompt plus

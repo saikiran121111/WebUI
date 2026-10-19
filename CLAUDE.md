@@ -167,7 +167,7 @@ Core skills under `./.cskills/` must never be:
 - Offered in `/` slash autocomplete.
 - Installed, edited, or deleted through the browser.
 
-Core skills are activated only through the Hybrid Decision Engine (`.decision-engine/` worker and `lib/decision/`). When Stage 1 and Stage 2 classification determine a `RendererMode`, that mode's `skill_to_load` specifies the appropriate core skill.
+Core skills are activated only through the Hybrid Decision Engine (`.decision-engine/` worker and `lib/decision/`). When the LFM2.5-1.2B single-model router determines a `RendererMode`, that mode's `skill_to_load` specifies the appropriate core skill.
 
 The mode-to-skill table is `MODE_MAP` in `.decision-engine/worker/schemas.py`, mirrored by `MODE_SKILL` in `lib/decision/types.ts`.
 

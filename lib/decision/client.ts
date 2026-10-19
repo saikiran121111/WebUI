@@ -63,7 +63,7 @@ async function ensureWorker(): Promise<boolean> {
           detached: true,
           windowsHide: true,
           // Pipe (not ignore) so the worker's own [decision] / [decision-engine]
-          // lines — Needle warm-up, LFM2.5 failures, routing guards — surface
+          // lines — engine warm-up, LFM2.5 failures, routing guards — surface
           // in the `npm run dev` terminal through pino instead of vanishing.
           stdio: ["ignore", "pipe", "pipe"],
           // DECISION_ENGINE_PARENT_PID: the worker runs a watchdog on THIS
@@ -136,7 +136,6 @@ export function fallbackEnvelope(message: string): DecisionEnvelope {
     enable_validator: "standard_chat",
     task_constraints: [],
     extracted_entities: [],
-    needle_latency_ms: 0,
     lfm_latency_ms: 0,
   };
 }

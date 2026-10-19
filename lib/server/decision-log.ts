@@ -3,8 +3,8 @@
  *
  * One pino message per chat turn, rendered as an aligned block so the whole
  * routing story is readable at a glance:
- *   - Needle 3  (stage-1 prior): what it was asked, what it predicted
- *   - LFM2.5    (stage-2 gate): the exact input it got + its raw JSON output
+ *   - LFM2.5-1.2B (the sole decision router): the exact input it got + its
+ *     raw grammar-constrained JSON output
  *   - the skill actually injected (user tier / core tier, bytes)
  *   - the UI component that will render the reply (3d_asset -> 3D viewer, …)
  *   - what the main LLM finally receives (stripped prompt, constraints)
@@ -57,20 +57,11 @@ export function logDecisionTable(log: Logger, o: DecisionTableInput): void {
   r.push(`│ USER      "${flat(o.input, 200)}"`);
   r.push("│");
 
-  r.push(`│ NEEDLE 3 · stage-1 prior · ${e.needle_latency_ms}ms`);
+  r.push(`│ LFM2.5-1.2B · decision router · ${e.lfm_latency_ms}ms`);
   if (passthrough) {
     r.push("│   IN/OUT  skipped — fence-repair round, mode pinned by the client");
-  } else if (fallback || !e.needle_prior) {
+  } else if (fallback) {
     r.push("│   IN/OUT  not called — engine unavailable (fallback envelope)");
-  } else {
-    r.push(`│   IN      "${flat(o.input, 160)}"`);
-    r.push(`│   OUT     candidates: ${e.needle_prior.modes.length ? e.needle_prior.modes.join(", ") : "(none)"} · conf ${e.needle_prior.confidence}`);
-  }
-  r.push("│");
-
-  r.push(`│ LFM2.5-1.2B · stage-2 gate + noise-strip · ${e.lfm_latency_ms}ms`);
-  if (passthrough || fallback) {
-    r.push("│   IN/OUT  not called");
   } else {
     r.push(`│   IN      "${flat(e.lfm_input, 200)}"`);
     r.push(`│   OUT     ${flat(e.lfm_raw, 300)}`);
@@ -88,7 +79,7 @@ export function logDecisionTable(log: Logger, o: DecisionTableInput): void {
   if (e.extracted_entities.length) r.push(`│   ENTITIES    ${flat(e.extracted_entities.join(", "), 180)}`);
   r.push(`│   VALIDATORS  ${e.enable_validator} ON · ${RENDERER_MODES.length - 1} others OFF · fence \`${e.allowed_code_fence ?? "none"}\``);
   if (o.model) r.push(`│   MAIN LLM    model "${o.model}"`);
-  r.push(`└─ ${o.totalMs != null ? `${o.totalMs}ms total` : `${Math.round(e.needle_latency_ms + e.lfm_latency_ms)}ms (needle+lfm)`}`);
+  r.push(`└─ ${o.totalMs != null ? `${o.totalMs}ms total` : `${e.lfm_latency_ms}ms (lfm)`}`);
 
   log.info(r.join("\n"));
 }

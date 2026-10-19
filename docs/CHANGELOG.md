@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## 2026-10-19 — Feat+Fix: COMPLETE NEEDLE 3 REMOVAL — single-model LFM2.5-1.2B decision engine
+Needle 3 (`cactus-needle` / `needle3.cact`) is dropped from the project
+entirely: it cost ~185 MB of resident `_worker.py --child` processes and
+150–900 ms of CPU latency per turn while producing low-confidence priors
+(0.01–0.04). **LFM2.5-1.2B-Instruct is now the sole, direct decision
+model.** (Supersedes the Needle references in every entry below — those
+remain as the historical record.)
+- **Worker rewired** (`.decision-engine/worker/decision_server.py`): the
+  Needle import, `NEEDLE_*` env vars, `CLASSIFY_SYSTEM`, the 9 `route_*`
+  tool functions, `ROUTE_TOOLS`, `TOOL_TO_MODE`, `_agent` and
+  `_NEEDLE_LOCK` are deleted. `warm()` only ensures llama-server and logs
+  `[decision-engine] warm: lfm2.5 on :8791, worker on :8790`;
+  `decision()` calls `lfm_decide()` directly with `decided_by = "lfm2.5"`.
+- **2-strike failure guard**: the one self-correction retry is kept; when
+  both attempts fail validation, the mode resolves deterministically via
+  new `_fallback_mode_from_evidence(message)` — the earliest STRICT
+  container-noun hit wins ("Build a 500-row transaction tracker with
+  SUMIFS …" → `excel`), `standard_chat` only when no container noun
+  appears anywhere. `decided_by = "lfm-fail-guard"`, the raw prompt stays
+  untouched — never a silent drop to `standard_chat`.
+- **Contract slimmed**: `needle_latency_ms` + `needle_prior` removed from
+  `DecisionEnvelope` (schemas.py + `lib/decision/types.ts` + every
+  envelope builder and test fixture). `lib/server/decision-log.ts` renders
+  a single-model box: `LFM2.5-1.2B · decision router · <ms>` with IN/OUT,
+  then `ROUTE → WHAT THE UI DOES`. `app/api/decision/route.ts` logs
+  `decision: mode=… by=… lfm=…ms total=…ms`.
+- **Setup + disk purge**: `setup-engine.sh`/`.bat` now install only
+  huggingface_hub/fastapi/uvicorn/pydantic and download the LFM2.5 GGUF —
+  no needle mkdir/fetch/download/copy. Deleted: `models/needle3` (34 MB),
+  HF needle cache (~35 MB), whistle weights (17 MB, referenced only by the
+  removed `NEEDLE_WHISTLE_WEIGHTS`), `site-packages/needle` remnants;
+  `pip uninstall cactus-needle` (verified `import needle` fails).
+- **Resource win**: engine tree ≈1.54 GB → ≈1.36 GB (llama-server only);
+  −150–900 ms/turn; decision latency now ~0.3–1.2 s.
+- **Tests re-green**: `decision-log.test.ts` LFM-only fixtures +
+  `not.toContain("NEEDLE")`; `tests/test-decision-fallback.py` rewritten
+  (stubbed `_lfm_call` fails twice on the SUMIFS prompt → asserts 2
+  attempts, `lfm-fail-guard`, `excel`, raw prompt verbatim); router
+  11/11, extreme-edge 64/64, audit 12/12 all with `decided_by=lfm2.5`;
+  `tsc --noEmit` clean; vitest 439 passed | 1 skipped. Zero needle /
+  `_worker.py --child` processes on the live machine.
+
 ## 2026-10-19 — Feat+Fix: FINAL MASTER ARCHITECTURE FIX (single-field LFM2.5 container classifier, zero prompt rewriting, clean Needle-3 decoupling)
 Six-phase mission: replace the 4-field Stage-2 generation (mode collapse, echo,
 hallucinated constraints) and PRIOR-injection pollution with a pure container

@@ -7,7 +7,7 @@ function envelope(over: Partial<DecisionEnvelope> = {}): DecisionEnvelope {
   return {
     active_mode: "3d_asset",
     confidence: 0.88,
-    decided_by: "needle3+lfm2.5",
+    decided_by: "lfm2.5",
     stripped_prompt: "3D heart model with labeled chambers",
     skill_to_load: "threejs-skills",
     allowed_code_fence: "scene3d",
@@ -15,11 +15,9 @@ function envelope(over: Partial<DecisionEnvelope> = {}): DecisionEnvelope {
     enable_validator: "3d_asset",
     task_constraints: ["labeled chambers"],
     extracted_entities: ["heart"],
-    needle_latency_ms: 12,
     lfm_latency_ms: 340,
-    needle_prior: { modes: ["3d_asset"], confidence: 0.91 },
-    lfm_input: "Create a 3D heart model with labeled chambers\n---\nPRIOR candidates=[\"3d_asset\"]",
-    lfm_raw: '{"active_mode":"3d_asset","confidence":0.88,"stripped_prompt":"3D heart model with labeled chambers"}',
+    lfm_input: "Create a 3D heart model with labeled chambers",
+    lfm_raw: '{"active_mode":"3d_asset"}',
     ...over,
   };
 }
@@ -32,13 +30,12 @@ function table(o: Parameters<typeof logDecisionTable>[1]): string {
 }
 
 describe("logDecisionTable", () => {
-  it("renders the full Needle + LFM input/output story for a decided turn", () => {
+  it("renders the single-model LFM2.5 input/output story for a decided turn", () => {
     const t = table({ input: "Create a 3D heart model with labeled chambers", env: envelope(), usedSkill: null, skillBlockBytes: 8192, model: "default" });
-    expect(t).toContain("NEEDLE 3 · stage-1 prior · 12ms");
-    expect(t).toContain("candidates: 3d_asset · conf 0.91");
-    expect(t).toContain("LFM2.5-1.2B · stage-2 gate + noise-strip · 340ms");
-    expect(t).toContain('OUT     {"active_mode":"3d_asset"');
-    expect(t).toContain("MODE        3d_asset · conf 0.88 · by needle3+lfm2.5");
+    expect(t).toContain("LFM2.5-1.2B · decision router · 340ms");
+    expect(t).toContain('IN      "Create a 3D heart model with labeled chambers"');
+    expect(t).toContain('OUT     {"active_mode":"3d_asset"}');
+    expect(t).toContain("MODE        3d_asset · conf 0.88 · by lfm2.5");
     expect(t).toContain(MODE_COMPONENT["3d_asset"]);
     expect(t).toContain("core:threejs-skills · user:— · 8192B block injected");
     expect(t).toContain('LLM PROMPT  "3D heart model with labeled chambers"');
@@ -46,6 +43,7 @@ describe("logDecisionTable", () => {
     expect(t).toContain("ENTITIES    heart");
     expect(t).toContain("3d_asset ON · 8 others OFF · fence `scene3d`");
     expect(t).toContain('MAIN LLM    model "default"');
+    expect(t).not.toContain("NEEDLE");
   });
 
   it("shows the user-tier slash skill when one was used", () => {
@@ -59,11 +57,11 @@ describe("logDecisionTable", () => {
       env: envelope({
         active_mode: "standard_chat", decided_by: "fallback", confidence: 0,
         skill_to_load: null, allowed_code_fence: null, enable_validator: "standard_chat",
-        needle_latency_ms: 0, lfm_latency_ms: 0, needle_prior: null, lfm_input: null, lfm_raw: null,
+        lfm_latency_ms: 0, lfm_input: null, lfm_raw: null,
       }),
     });
     expect(t).toContain("not called — engine unavailable (fallback envelope)");
-    expect(t).toContain("LFM2.5-1.2B · stage-2 gate + noise-strip · 0ms");
+    expect(t).toContain("LFM2.5-1.2B · decision router · 0ms");
     expect(t).toContain("IN/OUT  not called");
     expect(t).toContain(MODE_COMPONENT.standard_chat);
   });
@@ -71,10 +69,9 @@ describe("logDecisionTable", () => {
   it("marks fence-repair passthrough rounds as skipped", () => {
     const t = table({
       input: "repair the broken scene3d fence",
-      env: envelope({ decided_by: "repair-passthrough", needle_latency_ms: 0, lfm_latency_ms: 0, needle_prior: null }),
+      env: envelope({ decided_by: "repair-passthrough", lfm_latency_ms: 0 }),
     });
     expect(t).toContain("skipped — fence-repair round, mode pinned by the client");
-    expect(t).toContain("IN/OUT  not called");
   });
 
   it("collapses newlines and caps long values so rows stay single-line", () => {

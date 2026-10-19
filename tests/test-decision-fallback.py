@@ -4,10 +4,12 @@ Decision Engine failure-path probe (run with the contained venv python):
     .decision-engine/.venv/Scripts/python.exe -I tests/test-decision-fallback.py
 
 Forces LFM2.5 to emit INVALID output twice (malformed JSON from the model,
-not a transport error) and asserts the envelope falls back to Needle 3's top
-prior mode with the RAW prompt — NEVER a silent drop to standard_chat when
-Needle has a valid prior. Also proves the one-time self-correction retry
-actually fires (2 model attempts: original + correction round).
+not a transport error) and asserts the envelope resolves via the deterministic
+container-evidence guard (decided_by="lfm-fail-guard") to the mode the
+message's OWN evidence names — NEVER a silent drop to standard_chat when a
+studio container noun appears anywhere. Also proves the one-time
+self-correction retry actually fires (2 model attempts: original +
+correction round).
 """
 import sys
 from pathlib import Path
@@ -31,12 +33,6 @@ def boom(*_a, **_k):
 
 
 def main() -> int:
-    ds._agent = ds.needle.Needle(
-        tools=ds.ROUTE_TOOLS,
-        weights=str(ds.DE / "models" / "needle3" / "needle3.cact"),
-        system=ds.CLASSIFY_SYSTEM,
-        stateless=True,
-    )
     ds.ensure_llama_server = lambda: None  # skip the live server; _lfm_call is stubbed
     ds._lfm_call = boom
 
@@ -45,10 +41,11 @@ def main() -> int:
     problems = []
     if len(attempts) != 2:
         problems.append(f"retry attempts={len(attempts)} (want 2: original + 1 self-correction)")
-    if not env.decided_by.startswith("needle3 (lfm-fail)"):
-        problems.append(f"decided_by={env.decided_by}")
-    if env.active_mode == "standard_chat":
-        problems.append("SILENT DROP to standard_chat — forbidden with a valid Needle prior")
+    if env.decided_by != "lfm-fail-guard":
+        problems.append(f"decided_by={env.decided_by} (want lfm-fail-guard)")
+    if env.active_mode != "excel":
+        problems.append(f"active_mode={env.active_mode} (want excel — the message names SUMIFS; "
+                        "a standard_chat drop is forbidden when container evidence exists)")
     if env.stripped_prompt != " ".join(PROMPT.split()):
         problems.append("stripped_prompt was rewritten on the fallback path (must be RAW prompt)")
     if env.enable_validator != env.active_mode:
@@ -59,7 +56,7 @@ def main() -> int:
     if problems:
         print("FAIL:", "; ".join(problems))
         return 1
-    print("PASS: LFM failure -> Needle prior mode + raw prompt, zero standard_chat drop, retry fired once")
+    print("PASS: LFM 2-strike failure -> evidence-guard mode + raw prompt, zero standard_chat drop, retry fired once")
     return 0
 
 

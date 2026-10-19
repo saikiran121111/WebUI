@@ -50,7 +50,6 @@ beforeAll(async () => {
           enable_validator: mockDecision.active_mode,
           task_constraints: [],
           extracted_entities: [],
-          needle_latency_ms: 1,
           lfm_latency_ms: 1,
         }));
         return;

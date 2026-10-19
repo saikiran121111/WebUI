@@ -1,25 +1,62 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-19 — FINAL MASTER ARCHITECTURE FIX (single-field LFM2.5 container classifier, zero prompt rewriting, Needle-3 decoupled) — ALL 6 PHASES LOCKED-DONE: 4/4 probes, vitest 439|1, router 11/11, fallback PASS, extreme 64/64, audit 12/12, Playwright 309|4 skipped|0 failed exit 0; docs updated, commit + 60 s shutdown next
+Synced: 2026-10-19d — NEEDLE 3 FULLY REMOVED (single-model LFM2.5-1.2B router) — code/tests/docs/setup-scripts done; tsc clean, vitest 439|1, fallback PASS (lfm-fail-guard), router 11/11, extreme 64/64, audit 12/12; FULL PLAYWRIGHT GREEN: 309 passed | 4 skipped | 0 failed, EXIT=0 (22.4 m, .cache/run-playwright.ps1)
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
-FINAL MASTER ARCHITECTURE FIX (6 phases) — COMPLETE. Replaced the 4-field
-Stage-2 generation (mode collapse/echo/hallucinated constraints) and PRIOR
-injection with a single-field LFM2.5 container classifier: Stage2Out = ONLY
-active_mode (max_tokens 24), lfm_input = optional prev-mode prefix + RAW
-message (Needle 3 never injected), verbatim DEFAULT-chat LFM_SYSTEM, conf
-0.95, constraints/entities []. standard_chat forwards the user message 100%
-verbatim; studio modes use the deterministic _clean_artifact_prompt (refusal
-traps stripped, lead-in → "Generate ", every hard token preserved) behind a
-STRICT container-noun gate + hard coding override + NEW explicit-artifact
-promotion guard (deviation: the DEFAULT-chat prompt made the 1.2B answer
-standard_chat even for explicit deliverable asks). FastAPI lifespan. PHASE 4
-verified already satisfied (per-message decisionMode, execution bridge,
-skill-loader). All verification green: 4/4 live probes on a FRESH worker,
-vitest 439|1 skipped, router 11/11, fallback PASS, extreme 64/64, audit
-12/12, full headed Playwright 309|4 skipped|0 failed exit 0 (23.4 m).
-Remaining this session: git commit (docs updated) + 60 s shutdown.
+NEEDLE 3 REMOVAL & SINGLE-MODEL LFM2.5-1.2B REWIRING — Needle 3
+(cactus-needle / needle3.cact) dropped completely: ~185 MB of resident
+_worker.py --child processes + 150-900 ms/turn CPU latency for low-conf
+(0.01-0.04) priors. LFM2.5-1.2B-Instruct (contained llama-server :8791,
+grammar-constrained single-field Stage2Out) is now the SOLE decision model.
+DONE: worker rewired (Stage-1 block, _agent, _NEEDLE_LOCK, needle env vars
+deleted; warm() = ensure_llama_server + "[decision-engine] warm: lfm2.5 on
+:8791, worker on :8790"; decided_by "lfm2.5"; 2-strike failure ->
+deterministic _fallback_mode_from_evidence + decided_by "lfm-fail-guard",
+raw prompt untouched); needle_latency_ms + needle_prior removed from
+DecisionEnvelope (schemas.py + types.ts + every envelope builder);
+decision-log.ts renders the single-model box; app/api/decision/route.ts
+logs "decision: mode=… by=… lfm=…ms total=…ms"; setup-engine.sh/.bat now
+install only huggingface_hub/fastapi/uvicorn/pydantic + download the LFM
+GGUF; needle3 model dir + HF needle cache + whistle weights +
+site-packages/needle remnants deleted; cactus-needle pip-uninstalled.
+Verification so far: worker LIVE {"ok":true,"lfm":true}, ZERO needle/
+_worker.py --child processes; tsc clean; vitest 439|1 skipped; fallback
+probe PASS; router 11/11; extreme 64/64; audit 12/12 + 10/10 tokens.
+REMAINING: full Playwright via .cache/run-playwright.ps1, then final
+STATE/CHANGELOG sync + git commit.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- NEEDLE 3 REMOVAL (2026-10-19d, LOCKED — NEVER reintroduce needle code,
+  deps, weights or env vars):
+  decision_server.py — no needle import, no CLASSIFY_SYSTEM/ROUTE_TOOLS/
+  TOOL_TO_MODE, no _agent/_NEEDLE_LOCK, no NEEDLE_* env vars; health() =
+  _health(LFM_PORT); decision() runs LFM only (decided_by "lfm2.5");
+  except path = _fallback_mode_from_evidence (earliest STRICT container
+  hit wins; standard_chat ONLY with zero container nouns) + conf 0.5/0.0 +
+  decided_by "lfm-fail-guard" + print "LFM2.5 failed after retry: … —
+  evidence guard -> <mode>".
+  schemas.py + lib/decision/types.ts DecisionEnvelope: needle_latency_ms +
+  needle_prior DELETED (11 fields). client.ts fallbackEnvelope, chat route
+  passthroughEnvelope, lazyLoad/chatEngine test fixtures: fields removed.
+  lib/server/decision-log.ts: NEEDLE 3 section deleted; single box
+  "LFM2.5-1.2B · decision router · <ms>" (IN/OUT, or "skipped — fence-
+  repair…", or "not called — engine unavailable (fallback envelope)");
+  footer "<n>ms (lfm)" when totalMs absent.
+  Setup scripts: .sh 4 steps / .bat 5 steps; pip install huggingface_hub
+  fastapi "uvicorn[standard]" pydantic ONLY; no needle mkdir/fetch/
+  download/copy; sanity import fastapi,uvicorn,pydantic.
+  Deleted from disk: .decision-engine/models/needle3 (34 MB), HF needle
+  cache (~35 MB), whistle weights (17 MB — referenced only by the removed
+  NEEDLE_WHISTLE_WEIGHTS env var), site-packages/needle remnants; pip
+  uninstall cactus-needle (verified `import needle` fails, fastapi/
+  uvicorn/pydantic/huggingface_hub import OK).
+  Tests updated + green: decision-log.test.ts (LFM-only fixtures,
+  not.toContain("NEEDLE")); test-decision-fallback.py REWRITTEN (stub
+  _lfm_call=boom x2, PROMPT names SUMIFS, asserts attempts==2,
+  decided_by=="lfm-fail-guard", active_mode=="excel", raw prompt verbatim,
+  enable_validator==active_mode); test-decision-router.mjs (decided_by
+  "lfm2.5", NEEDLEms column gone); audit-decision-table.mjs (Needle ms
+  column gone); extreme-edge :227-228 (lfm2.5[+multi-turn]);
+  conversations-live-chat.spec.ts comment.
 - FINAL MASTER ARCHITECTURE FIX (2026-10-19c, ALL PHASES LOCKED):
   schemas.py — Mode Literal with "standard_chat" FIRST; single-field
   Stage2Out(active_mode: Mode); DecisionEnvelope untouched.
@@ -27,8 +64,8 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   (8 studio containers only when explicitly requested; multi-turn rule keyed
   on "[Previous turn artifact mode: <prev>]" prefix; JSON-only reply);
   _lfm_call max_tokens 24; lfm_input = prefix + raw message, PRIOR NEVER
-  injected (Needle 3 still runs for needle_prior/latency/fallback); conf
-  0.95 on LFM success (needle_conf on lfm-fail); task_constraints=[] +
+  injected (Needle 3 since REMOVED 2026-10-19d — see entry above); conf
+  0.95 on LFM success (0.5/0.0 on lfm-fail-guard); task_constraints=[] +
   extracted_entities=[]; _clean_artifact_prompt (refusal-trap sentences
   stripped, "Create and execute a Python script using openpyxl to generate "
   → "Generate " + docx/pptx/reportlab equivalents, everything else verbatim);
@@ -121,10 +158,13 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   turns, 180 s timeouts.
 
 [8.4 IMMUTABLE CODE CONTRACTS]
-- DecisionEnvelope 12 fields (schemas.py + lib/decision/types.ts):
+- DecisionEnvelope 11 fields (schemas.py + lib/decision/types.ts):
   {active_mode, confidence, decided_by, stripped_prompt, skill_to_load,
   allowed_code_fence, disable_validators[], enable_validator,
-  task_constraints[], extracted_entities[], needle_latency_ms, lfm_latency_ms}.
+  task_constraints[], extracted_entities[], lfm_latency_ms} (+ optional
+  lfm_input/lfm_raw diagnostics). decided_by values: "lfm2.5" (sole
+  router), "lfm2.5+multi-turn", "lfm-fail-guard" (2-strike evidence
+  guard), "fallback", "repair-passthrough".
 - RENDERER_MODES (9): excel, docs, pdf, ppt, 3d_asset, cad_blueprint, chart,
   html_render, standard_chat. MODE_RENDER_KINDS NOW: excel:["xlsx"],
   docs:["docx","resume"], pdf:["html"], ppt:["pptx"], 3d_asset:["scene3d",
@@ -139,8 +179,8 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   Mode). LFM_SYSTEM = verbatim DEFAULT-chat container prompt —
   greedy-sensitive, ANY edit → re-run router+audit+fallback+extreme.
   lfm_input = optional "[Previous turn artifact mode: <prev>]\n" + RAW
-  message; Needle PRIOR NEVER in LFM input. LFM success → conf 0.95,
-  constraints [] + entities [].
+  message; no prior string EVER in LFM input (Needle 3 removed). LFM
+  success → conf 0.95, constraints [] + entities [].
 - Worker deterministic post-guards (in order, 2026-10-19c):
   _hard_coding_override → _routing_guards (1 question gate, 2 chat gate via
   LOOSE _artifact_modes, 3 evidence switch via STRICT _STRICT_CONTAINER_RX
@@ -150,6 +190,12 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   passthrough (standard_chat && len<120 → verbatim) → _remember.
   _preserve_hard_tokens REMOVED (lossless cleaner); _salvage_stage2 kept as
   truncated-JSON safety net. MAX_LFM_CHARS=2_600.
+  LFM 2-strike failure path (2026-10-19d): _fallback_mode_from_evidence
+  (message) = earliest STRICT _STRICT_CONTAINER_RX hit wins; standard_chat
+  ONLY when zero container nouns; conf 0.5 (0.0 for standard_chat);
+  decided_by "lfm-fail-guard"; stripped = raw prompt (chat: whitespace-
+  collapse; studio: _clean_artifact_prompt). 1 self-correction retry kept
+  (2 _lfm_call attempts total).
 - Chat route order (locked): applySlashSkillRouting -> lastUserIdx ->
   fullText -> passthrough check (decision_mode pin, then delete) ->
   getDecision -> rewrite SKIPPED if passthrough OR hasAttachmentParts ->
@@ -197,6 +243,12 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   terminating NativeCommandError — run the suite via
   `cmd /c "npx playwright test > log 2>&1"`-style redirection inside the
   launcher.
+  2026-10-19d NEEDLE-REMOVAL run (.cache/playwright-run.log, same §1.3
+  launcher, detached Start-Process + §1.2 foreground wait loops — harness
+  10-min tool cap forces chunked waits; suite itself untouched): **309
+  passed | 4 skipped | 0 failed, EXIT=0 (22.4 m)** — identical 4
+  intentional skips; zero "needle" strings anywhere in the run log; slow
+  file file-reading.spec.ts 15.8 m (pre-existing, informational).
 - NEW PROJECT RULE (CLAUDE.md §1, replaces old launch/poll pattern): CODE /
   TEST / ANALYZE phases mutually exclusive; lock file
   `.ai-coordination/playwright.lock` created before launch + removed in
@@ -215,7 +267,8 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   Scripts\python.exe' -ArgumentList 'decision_server.py' -WorkingDirectory
   'D:\Projects\WebUI\WebUI\.decision-engine\worker' -WindowStyle Hidden
   -RedirectStandardOutput/Error to .decision-engine/.cache/worker.*.log; poll
-  /health. System python → ModuleNotFoundError: needle.
+  /health. System python lacks fastapi/uvicorn — venv python only (all
+  needle remnants purged).
 - Next dev restart: kill :3000 PID, rm -rf .next/cache/webpack,
   powershell Start-Process cmd '/c npm run dev > .cache/next-dev.out.log 2>&1'.
 - Kill Playwright: powershell -NoProfile -Command 'Get-CimInstance
@@ -227,9 +280,10 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
 - None failing. Watch items for the final run: real-model specs are the only
   flake source (timeouts bumped: conversations-live-chat 180 s, chat-stream
   probe 180 s, file-reading per-category 480/300/200 s, reasoning-test own).
-- Honest deltas (documented, not bugs): engine tree ~1.54 GB RAM (CPU-only
-  binary floor); LFM latency 1.4-2.5 s on EVERY turn (user chose always-model
-  over latency); Needle priors low-conf but multi-mode, LFM overrides.
+- Honest deltas (documented, not bugs): engine tree ~1.36 GB RAM
+  (llama-server only — Needle 3's ~185 MB of _worker.py --child processes
+  gone); LFM decision latency ~0.3-1.2 s per turn (no Needle 150-900 ms
+  stage; user chose always-model over latency).
 
 [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
 - No Tier 1/Tier 2 skill reference files preloaded. Two-tier rules in force:
@@ -238,16 +292,15 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
   JSONs own routing; browser can never touch ./.cskills/.
 
 [8.8 IMMEDIATE NEXT ATOMIC ACTIONS]
-1. DONE (2026-10-19c): all 6 phases complete — 4/4 live probes on fresh
-   worker, vitest 439|1 skipped, router 11/11, fallback PASS, extreme
-   64/64, audit 12/12, Playwright 309|4 skipped|0 failed EXIT=0; docs
-   (STATE.md + CHANGELOG.md) updated.
-2. `git add -A` + commit (message ends "Co-Authored-By: Claude Code
+1. Full Playwright via .cache/run-playwright.ps1 (§1.3 lock launcher owns
+   .ai-coordination/playwright.lock; harness background task + §1.2 wait;
+   log .cache/playwright-run.log, exit .cache/playwright-exit.txt). NO
+   coding / no competing inference while the lock exists.
+2. ANALYZE: record real pass/fail + exit code in STATE.md line 2 + 8.5;
+   add CHANGELOG.md top entry "2026-10-19 — Feat+Fix: COMPLETE NEEDLE 3
+   REMOVAL — single-model LFM2.5-1.2B decision engine".
+3. `git add -A` + commit (message ends "Co-Authored-By: Claude Code
    <noreply@anthropic.com>"); verify `git status` clean.
-3. PHASE 6 (ONLY after 2 done): run EXACTLY: shutdown /s /t 60 /c "Claude
-   Code: single-field container classifier verified — probes 4/4, vitest
-   439, extreme edge 64/64, Playwright E2E 309/309 green and committed.
-   Shutting down in 60s (run 'shutdown /a' to cancel)."
 
 [ADDENDUM 2026-10-19b — DECISION ENGINE LIFECYCLE (LOCKED-DONE)]
 - client.ts spawn now passes DECISION_ENGINE_PARENT_PID=<next server pid>;
@@ -302,3 +355,13 @@ Remaining this session: git commit (docs updated) + 60 s shutdown.
 - Envelope +3 diagnostic fields (schemas.py + types.ts): needle_prior{modes,confidence}, lfm_input, lfm_raw. Worker lfm_decide(trace) captures them; redundant [decision] summary print removed (guard/salvage/failure prints kept).
 - chat + decision routes call logDecisionTable; chat route tracks skillBlockBytes. audit-decision-table.mjs header updated.
 - __tests__/decision/decision-log.test.ts 5/5. tsc clean, py_compile clean. Live fallback table verified on :3799 (autospawn=0). Full Needle/LFM rows verified by unit test only — live engine path unverified (no model load).
+- SUPERSEDED 2026-10-19d: Needle 3 fully removed — decision-log.ts now renders the single-model LFM2.5 box (no NEEDLE rows) and the envelope lost needle_latency_ms/needle_prior. See the NEEDLE 3 REMOVAL entry in [8.2].
+
+### 2026-10-19d — NEEDLE 3 REMOVAL & single-model LFM2.5 rewiring [LOCKED-DONE]
+- Stage-1 Needle 3 deleted from decision_server.py (import, env vars, CLASSIFY_SYSTEM, 9 route_* tools, ROUTE_TOOLS, TOOL_TO_MODE, _agent, _NEEDLE_LOCK). LFM2.5-1.2B is the sole router: decided_by "lfm2.5"; warm() prints "[decision-engine] warm: lfm2.5 on :8791, worker on :8790"; health() {"ok":true,"lfm":true}.
+- 2-strike failure guard: 1 self-correction retry kept, then _fallback_mode_from_evidence (earliest STRICT container noun wins — "…SUMIFS…" → excel, never a silent standard_chat drop), decided_by "lfm-fail-guard", RAW prompt untouched.
+- Envelope: needle_latency_ms + needle_prior deleted (Python + TS + all builders + test fixtures). decision-log.ts single-model box; decision route adds "decision: mode=… by=… lfm=…ms total=…ms".
+- Disk/deps purge: models/needle3, HF needle cache, whistle weights, site-packages/needle remnants deleted; cactus-needle uninstalled; setup-engine.sh/.bat install only the 4 core deps + LFM GGUF.
+- Verified: zero needle/_worker.py --child processes; tsc clean; vitest 439|1 skipped; fallback probe PASS (attempts=2, lfm-fail-guard, excel, raw prompt); router 11/11; extreme 64/64; audit 12/12 + ALL 10 hard tokens. Playwright FINAL: 309 passed | 4 skipped |
+  0 failed, EXIT=0 (22.4 m) — full suite 100% green post-needle-removal; see
+  [8.5].
