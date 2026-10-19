@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractFileFromPath } from "../../../../lib/server/extract";
+import { removeIndex } from "../../../../lib/server/attachindex/store";
 import { fileExtension } from "../../../../lib/files/extensions";
 import { childLogger } from "../../../../lib/server/logger";
 import fs from "node:fs";
@@ -49,6 +50,11 @@ function tmpPathFor(name: string): string {
  */
 export async function POST(req: NextRequest) {
   const name = safeName(req.nextUrl.searchParams.get("name"));
+  // The client's attachment id keys the on-disk knowledge index for oversized
+  // content. Anything malformed is dropped — extraction just falls back to the
+  // classic capped path and nothing is ever written outside the index root.
+  const attRaw = req.nextUrl.searchParams.get("att");
+  const att = attRaw && /^att_[a-z0-9]{4,32}$/.test(attRaw) ? attRaw : undefined;
   let tmp: string | null = null;
   try {
     if (!req.body) {
@@ -65,11 +71,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File is empty" }, { status: 400 });
     }
 
-    const result = await extractFileFromPath(name, tmp);
+    const result = await extractFileFromPath(name, tmp, att);
     return NextResponse.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Extraction failed";
     log.error({ file: name }, `extraction failed: ${msg}`);
+    if (att) removeIndex(att); // cancellation/crash: never leave a partial index
     return NextResponse.json({ error: msg }, { status: 422 });
   } finally {
     if (tmp) {

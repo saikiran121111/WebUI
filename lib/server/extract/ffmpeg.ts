@@ -158,6 +158,63 @@ export async function videoFrames(
 }
 
 /**
+ * Scene-change keyframes for the attachment index: one JPEG per visual cut
+ * (slide changes in lectures), written straight into the index's frames dir.
+ * If the scene pass is sparse (static webcam lectures), top up with a seek
+ * sample every 120 s. Hard cap 150 frames so a 6-hour course stays bounded.
+ * Returns frames with their timestamp and file name inside `outDir`.
+ */
+export async function videoKeyframesFromPath(
+  src: string,
+  outDir: string,
+): Promise<{ at: number; name: string }[]> {
+  fs.mkdirSync(outDir, { recursive: true });
+  const ff = await ffmpegPath();
+  const duration = parseDuration(await probeInfo(src));
+  const frames: { at: number; name: string }[] = [];
+
+  // Scene pass: select fires on each cut; showinfo prints pts_time per frame
+  // on stderr, which is how we learn WHEN each saved image was taken.
+  const pattern = path.join(outDir, "f_%05d.jpg");
+  let stderr = "";
+  try {
+    const r = await execFileP(
+      ff,
+      ["-hide_banner", "-y", "-i", src,
+        "-vf", `select='gt(scene,0.3)',showinfo,${SCALE_FILTER}`,
+        "-vsync", "vfr", "-frames:v", "150", "-f", "image2", pattern],
+      { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+    );
+    stderr = r.stderr;
+  } catch (err: any) {
+    stderr = String(err?.stderr ?? "");
+  }
+  const times = [...stderr.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)].map(m => parseFloat(m[1]));
+  for (let i = 0; i < times.length; i++) {
+    const name = `f_${String(i + 1).padStart(5, "0")}.jpg`;
+    if (fs.existsSync(path.join(outDir, name))) frames.push({ at: times[i], name });
+  }
+
+  // Sparse scene detection (lectures barely cut): fill with fixed-interval seeks.
+  const target = Math.min(150, Math.max(2, Math.ceil(duration / 120)));
+  let seq = frames.length;
+  for (let t = 60; frames.length < target && t < duration; t += 120) {
+    if (frames.some(f => Math.abs(f.at - t) < 30)) continue;
+    const name = `f_${String(seq + 1).padStart(5, "0")}.jpg`;
+    try {
+      await execFileP(ff, ["-hide_banner", "-loglevel", "error", "-y",
+        "-ss", t.toFixed(3), "-i", src, "-frames:v", "1", "-vf", SCALE_FILTER,
+        path.join(outDir, name)], { encoding: "utf8" });
+      if (fs.existsSync(path.join(outDir, name)) && fs.statSync(path.join(outDir, name)).size > 0) {
+        frames.push({ at: t, name });
+        seq++;
+      }
+    } catch { /* unseekable spot — skip */ }
+  }
+  return frames;
+}
+
+/**
  * Decode audio to raw 32-bit float PCM (16 kHz mono) — the exact layout the
  * whisper pipeline expects. Reads from a path on disk and decodes the WHOLE
  * track (no duration cap): ffmpeg writes the PCM to a scratch file instead of

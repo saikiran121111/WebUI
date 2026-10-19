@@ -490,3 +490,15 @@
   conversation to `~/.local-intelligence/conversations` (page.tsx persist
   effect). Clean test artifacts by id prefix (`c_arch_`, `c_del_`,
   `c_new_`, `c_pin_`, `c_ren_`, …) and by content `demo-anatomy`.
+
+## 2026-10-20 — Knowledge index: known limitations (not bugs)
+- Timestamped `[HH:MM:SS]` citations verified at the EVIDENCE layer (integration
+  test asserts headers) and honesty rule verified live; a live VIDEO answer with
+  on-screen timestamp citations is unverified — no narrated fixture is long enough
+  to exceed 48k chars (would need ~40+ min of speech to index).
+- First index build downloads MiniLM (~23 MB → `.data/models`), one-time, same
+  precedent as whisper.
+- whole_video notes cost = one Strata call per spine block (≤40) — lazy by design,
+  cached in notes.json, `?force=1` regenerates.
+- Embedding a multi-MB .log takes minutes (~50 chunks/s); chip stays `processing`
+  — "long just takes longer", same as audio.

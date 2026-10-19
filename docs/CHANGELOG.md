@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## 2026-10-20 — Feat: Timestamp-aware knowledge index for oversized attachments (zero knowledge loss)
+Long content (3 h course video ≈ 900k chars) used to be hard-truncated at
+TEXT_CHAR_LIMIT (48k) AT EXTRACTION — the rest was destroyed. Now anything over
+48k chars is INDEXED instead: full text preserved forever under
+`.data/attach-index/<attId>/` (full.txt byte-identical to source), sentence-aware
+~1200-char chunks (±150 overlap) with whisper timestamps, local MiniLM vectors
+(@huggingface/transformers, `.data/models` cache) + BM25, hybrid retrieval fused
+via RRF with ±1 neighbor expansion, chronological packing ≤ ATTACH_RETRIEVE_CHARS
+(24k). A zero-LLM "spine" TOC + ≤4k-char preview + an invisible `attachment_ref`
+content part ride in the prompt every turn; per-turn evidence is injected
+EPHEMERALLY into the server-side payload copy only (client history stays slim —
+verified: 0 `knowledge_index` blocks in persisted conversations). Regex query
+router (0 LLM): point_qa / time_range / sequential / exhaustive / whole_video;
+whole_video lazily generates LLM course notes (cached notes.json). Scene-change
+keyframes for video (ffmpeg, fallback 120 s seek, cap 150) — nearest ≤4 frames
+attach to visual questions. `[HH:MM:SS - HH:MM:SS]` citation headers + explicit
+"not inspected" honesty rule. Index GC on conversation DELETE (verified).
+INVARIANT: files ≤ 48k chars are byte-identical to the old path. New chip badge
+"indexed · N chunks". Env (all optional): EMBED_MODEL, ATTACH_INDEX_CHUNK(1200),
+ATTACH_INDEX_OVERLAP(150), ATTACH_RETRIEVE_CHARS(24000), ATTACH_TOP_K(8),
+ATTACH_SPINE_BLOCKS(40). Verified: vitest 481|1 (26 unit + 5 recall-integration
+incl. head/middle/tail marker recall + time-range window + timestamp headers);
+tsc only the 4 pre-existing render.spec errors; curl extract 60k doc → indexed
+59 chunks, full.txt byte-identical; curl chat marker turn HTTP 200 marker echoed
+through Strata (ref stripped upstream cleanly); whole_video live → notes.json
+11.8k chars generated + injected, model summarized from notes and honestly
+declared no timestamped citations for an un-timed text doc; DELETE GC removed the
+index; Playwright under §1 lock: extraction-API regression 106 passed EXIT=0
+(12.4 s) + NEW tests/long-doc-retrieval.spec.ts 3 passed EXIT=0 (32.1 s) —
+indexed badge visible, deep marker (58k chars in) answered turn 1, answered AGAIN
+turn 2 with no re-attach via history ref. Files: lib/server/attachindex/*
+(types/chunk/bm25/embed/spine/router/retrieve/store/build/turn/notes),
+lib/server/extract/{audio,ffmpeg,index}.ts, app/api/files/extract/route.ts,
+app/api/attach/[id]/notes/route.ts, app/api/chat/route.ts,
+app/api/conversations/[id]/route.ts, lib/chat/client.ts, lib/files/docProcessor.ts,
+lib/types.ts, components/ChatInput.tsx, __tests__/attach-index.test.ts,
+__tests__/attach-retrieval-integration.test.ts, tests/long-doc-retrieval.spec.ts.
+
 ## 2026-10-19 — Feat: ALL attachment size/duration limits removed (unbounded uploads + full-length transcription)
 Follow-up to the large-upload fix, per user request ("no file size or
 duration limits for video or audio"). `MAX_ATTACHMENT_BYTES` deleted: the

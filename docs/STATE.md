@@ -400,3 +400,39 @@ STATE/CHANGELOG sync + git commit.
 - Verified: zero needle/_worker.py --child processes; tsc clean; vitest 439|1 skipped; fallback probe PASS (attempts=2, lfm-fail-guard, excel, raw prompt); router 11/11; extreme 64/64; audit 12/12 + ALL 10 hard tokens. Playwright FINAL: 309 passed | 4 skipped |
   0 failed, EXIT=0 (22.4 m) — full suite 100% green post-needle-removal; see
   [8.5].
+
+## 2026-10-20 — Timestamp-aware knowledge index (long attachments) [LOCKED-DONE]
+### [8.2 LOCKED — do not re-read/re-do]
+- lib/server/attachindex/ (types, format, chunk, bm25, embed, spine, router,
+  retrieve, store, build, turn, notes) — 26 unit + 5 recall-integration tests green.
+- Extraction wiring: extractFileFromPath indexes >48k content when `att` id present
+  (text/pdf/office/archive/legacy full parsed text; audio/video whisper SEGMENTS with
+  timestamps; video also scene keyframes via videoKeyframesFromPath → frames/*.jpg).
+  Failure/cancellation → removeIndex (partial cleanup).
+- Chat turn: buildAttachmentTurn (turn.ts) + stripAttachmentRefs in app/api/chat/route.ts
+  §5; decision fullText = firstTextPart only; historyBefore sliced to 500.
+- Notes route app/api/attach/[id]/notes/route.ts (GET cached / POST generate, ?force=1).
+- GC: DELETE /api/conversations/[id] sweeps att ids from stored JSON → removeIndex.
+- UI: ChatInput chip badge data-testid="indexed-badge" ("indexed · N chunks").
+- Verified live: curl extract (indexed 59 chunks, full.txt byte-identical), curl chat
+  marker turn (Strata echoed marker, refs stripped), whole_video notes (11.8k chars,
+  honest no-timestamps note), GC removed index, ephemerality (persisted conversation:
+  0 knowledge_index blocks; attachment parts rebuilt client-side each send).
+- Playwright (headed, §1 lock): file-reading "extraction API" 106 passed EXIT=0;
+  tests/long-doc-retrieval.spec.ts 3 passed EXIT=0 (badge + marker turn1 + marker turn2
+  no re-attach). vitest 481|1; tsc = 4 pre-existing render.spec errors only.
+
+### [8.4 CONTRACTS now in force]
+- Content part: {type:"attachment_ref", att_id, name, category} — client-built,
+  invisible to extractUserText, STRIPPED by stripAttachmentRefs before upstream
+  (llama-server template rejects unknown part types).
+- Index layout: .data/attach-index/<attId>/{full.txt, chunks.jsonl, meta.json,
+  notes.json?, frames/*.jpg}; attId ^att_[a-z0-9]{4,32}$; store LRU = last 3.
+- Extract response: indexed?, indexId?, chunkCount?, spine? (Attachment + same fields).
+- Env (optional): EMBED_MODEL (Xenova/all-MiniLM-L6-v2, 384-d, dot==cosine),
+  ATTACH_INDEX_CHUNK 1200, ATTACH_INDEX_OVERLAP 150, ATTACH_RETRIEVE_CHARS 24000,
+  ATTACH_TOP_K 8, ATTACH_SPINE_BLOCKS 40. Injection budget: spine+preview+evidence ≤ 48k.
+- turn.ts buildAttachmentTurn(messages, userIdx, question, signal): userIdx = CURRENT
+  index of the last user message (chat route passes lastUserIdx+1 after the skill block).
+- Notes: one non-streaming Strata call per spine block, max_tokens 700, temp 0.2,
+  req.signal honored (AbortError → 499), fallback = opening…closing sentence.

@@ -4,6 +4,7 @@ import {
   saveConversationOnDisk,
   deleteConversationOnDisk,
 } from "../../../../lib/persistence/disk";
+import { removeIndex } from "../../../../lib/server/attachindex/store";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const raw = getConversationOnDisk(params.id);
@@ -18,6 +19,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  // Index GC: an indexed attachment's knowledge index lives under
+  // .data/attach-index/<attId>/ — it must die with the conversation that
+  // references it. The att ids are collected straight from the stored JSON
+  // (removeIndex tolerates unknown/malformed ids and never throws).
+  const raw = getConversationOnDisk(params.id);
+  if (raw) {
+    const ids = new Set(raw.match(/att_[a-z0-9]{4,32}/g) ?? []);
+    for (const id of ids) removeIndex(id);
+  }
   deleteConversationOnDisk(params.id);
   return NextResponse.json({ ok: true });
 }

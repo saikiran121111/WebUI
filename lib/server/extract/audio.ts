@@ -39,3 +39,32 @@ export async function transcribePcm(pcm: Float32Array): Promise<string> {
   const text = typeof out === "string" ? out : out?.text ?? "";
   return String(text).trim();
 }
+
+export interface AsrSegment {
+  text: string;
+  start: number;
+  end: number | null;
+}
+
+/**
+ * Same transcription, but keeps per-chunk timestamps (whisper's chunked ASR
+ * returns one segment per 30 s window). The attachment index needs them so
+ * retrieved passages can cite [HH:MM:SS] positions in the recording.
+ */
+export async function transcribePcmSegments(
+  pcm: Float32Array,
+): Promise<{ text: string; segments: AsrSegment[] }> {
+  const asr = await getAsr();
+  const out = await asr(pcm, { return_timestamps: true } as any);
+  const text = String(typeof out === "string" ? out : out?.text ?? "").trim();
+  const segments: AsrSegment[] = Array.isArray(out?.chunks)
+    ? out.chunks
+        .map((c: any) => ({
+          text: String(c?.text ?? "").trim(),
+          start: Number(c?.timestamp?.[0] ?? 0),
+          end: c?.timestamp?.[1] ?? null,
+        }))
+        .filter((s: AsrSegment) => s.text)
+    : [];
+  return { text, segments };
+}

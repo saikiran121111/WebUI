@@ -223,3 +223,19 @@
   routes registered via `run-code` do NOT persist across CLI commands
   (`route-list` shows empty) — register mocks AND drive the flow inside ONE
   run-code call, or a crashed handler leaves the request hanging forever.
+
+## 2026-10-20 — Knowledge-index specs (headed, §1 lock) [GREEN]
+- `npx playwright test tests/file-reading.spec.ts -g "extraction API" --headed
+  --workers=1` → **106 passed (12.4 s) EXIT=0** (regression after extract wiring).
+- NEW `tests/long-doc-retrieval.spec.ts` → **3 passed (32.1 s) EXIT=0**:
+  1. oversized text + att id → indexed:true, chunkCount>20, spine, preview ≤4.1k
+     WITHOUT the deep marker, full.txt byte-identical (marker at ~58k/60k chars);
+  2. no att id → classic cap path untouched (truncated:true, ≤48k, no indexed);
+  3. real UI + Strata: chip ready + indexed-badge visible → marker question answered
+     turn 1 ("YES Verdanthill-42") → answered AGAIN turn 2 with NO re-attach
+     (history attachment_ref rebuilds retrieval; evidence is per-turn).
+  Timeouts: test 660k, chip-ready 180k, model 150k/turn. Fixture doc generated into
+  `.data/tmp/` (NOT /tmp — git-bash /tmp ≠ curl/node /tmp gotcha); index dirs cleaned
+  by the spec itself.
+- Lock protocol honored: `.ai-coordination/playwright.lock` created before each run,
+  removed on exit (trap), foreground, no polling.

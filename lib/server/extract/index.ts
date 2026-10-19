@@ -18,8 +18,12 @@ import {
   audioPcmFromPath,
   imageToDataUrlFromPath,
   videoFramesFromPath,
+  videoKeyframesFromPath,
 } from "./ffmpeg";
-import { transcribePcm } from "./audio";
+import { transcribePcmSegments, type AsrSegment } from "./audio";
+import { buildAttachmentIndex } from "../attachindex/build";
+import { framesDir, removeIndex } from "../attachindex/store";
+import type { FrameEntry, TranscriptSegment } from "../attachindex/types";
 
 export interface ExtractResult {
   name: string;
@@ -36,6 +40,74 @@ export interface ExtractResult {
   frames?: { dataUrl: string; at: number }[];
   durationSec?: number;
   error?: string;
+
+  /**
+   * Set when the content exceeded the prompt budget and was indexed instead
+   * of truncated: the full text lives under .data/attach-index/<attId>/ and
+   * relevant passages are retrieved per question. text/transcript then carry
+   * only a small preview.
+   */
+  indexed?: boolean;
+  chunkCount?: number;
+  spine?: string;
+}
+
+/** Client-generated attachment ids — anything else falls back to the cap path. */
+const ATT_ID_RE = /^att_[a-z0-9]{4,32}$/;
+
+/** Head of the content shown inline for indexed attachments. */
+const PREVIEW_CHARS = 4000;
+
+function asSegments(segments: AsrSegment[]): TranscriptSegment[] {
+  return segments.map(s => ({ text: s.text, start: s.start, end: s.end }));
+}
+
+/**
+ * The classic cap path — or the index path when the parsed text overflows
+ * the prompt budget and we have a valid attachment id to key the index by.
+ */
+async function cappedOrIndexed(
+  name: string,
+  category: FileCategory,
+  att: string | undefined,
+  raw: string,
+): Promise<ExtractResult> {
+  const clean = (raw ?? "").replace(/\r\n/g, "\n").trim();
+  if (att && clean.length > TEXT_CHAR_LIMIT) {
+    const indexed = await indexContent(name, category, att, clean);
+    return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
+  }
+  return { name, category, ...cap(clean) };
+}
+
+/**
+ * Index oversized content. Any failure (including a full disk) cleans up the
+ * partial index and surfaces as a normal extraction error — the caller never
+ * sees half-written state.
+ */
+async function indexContent(
+  name: string,
+  category: FileCategory,
+  attId: string,
+  fullText: string,
+  extra: { segments?: TranscriptSegment[]; durationSec?: number; frames?: FrameEntry[] } = {},
+): Promise<Pick<ExtractResult, "indexed" | "chunkCount" | "spine">> {
+  try {
+    const { chunkCount, spine } = await buildAttachmentIndex({
+      attId,
+      name,
+      category,
+      fullText,
+      ...extra,
+    });
+    return { indexed: true, chunkCount, spine };
+  } catch (err: unknown) {
+    removeIndex(attId);
+    if ((err as NodeJS.ErrnoException)?.code === "ENOSPC") {
+      throw new Error(`Out of disk space while indexing ${name} — free some space and retry`);
+    }
+    throw err;
+  }
 }
 
 function cap(text: string, limit = TEXT_CHAR_LIMIT): { text: string; truncated: boolean } {
@@ -98,15 +170,46 @@ function textLikeResult(
  * scratch file, and ffmpeg/whisper read the media straight from that path —
  * a multi-GB video is seeked inside the file, never buffered whole in RAM.
  */
-export async function extractFileFromPath(name: string, srcPath: string): Promise<ExtractResult> {
+export async function extractFileFromPath(
+  name: string,
+  srcPath: string,
+  attId?: string,
+): Promise<ExtractResult> {
   const category = classifyFile(name);
   const ext = fileExtension(name).toLowerCase();
+  const att = attId && ATT_ID_RE.test(attId) ? attId : undefined;
 
   switch (category) {
     case "text":
     case "rtf":
     case "notebook": {
+      // Indexing needs the WHOLE file; the 2 MB head read only ever existed to
+      // fill the prompt cap, which indexed content no longer uses.
+      const size = fs.statSync(srcPath).size;
+      if (att && size > TEXT_READ_BYTES) {
+        const raw = fs.readFileSync(srcPath, "utf8");
+        const clean = (category === "rtf" ? rtfToText(raw) : category === "notebook" ? notebookText(raw) : raw)
+          .replace(/\r\n/g, "\n")
+          .trim();
+        if (!clean) return { name, category, text: "", truncated: false };
+        const indexed = await indexContent(name, category, att, clean);
+        return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
+      }
       const { buf, partial } = readHead(srcPath, TEXT_READ_BYTES);
+      if (att && !partial) {
+        // Fully in hand but over the prompt budget (multi-byte text): index
+        // the WHOLE decoded text, not the capped one textLikeResult would cut.
+        const utf8 = buf.toString("utf8");
+        const raw =
+          category === "rtf" ? rtfToText(utf8) :
+          category === "notebook" ? notebookText(utf8) :
+          utf8;
+        const clean = raw.replace(/\r\n/g, "\n").trim();
+        if (clean.length > TEXT_CHAR_LIMIT) {
+          const indexed = await indexContent(name, category, att, clean);
+          return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
+        }
+      }
       return textLikeResult(name, category, buf, partial);
     }
 
@@ -125,23 +228,24 @@ export async function extractFileFromPath(name: string, srcPath: string): Promis
 
       if (category === "pdf") {
         const { text, pages } = await pdfText(buf);
-        return { name, category, pages, ...cap(text) };
+        const r = await cappedOrIndexed(name, category, att, text);
+        return { ...r, pages };
       }
       if (category === "office") {
         const text = officeText(buf, ext);
         if (!text.trim()) throw new Error("No readable text found in this document");
-        return { name, category, ...cap(text) };
+        return await cappedOrIndexed(name, category, att, text);
       }
       if (category === "archive") {
         // The uploaded name is passed along because bare .bz2/.xz streams store
         // no filenames — the inner name only exists in the file name itself.
-        return { name, category, ...cap(await archiveText(buf, ext, name)) };
+        return await cappedOrIndexed(name, category, att, await archiveText(buf, ext, name));
       }
       // Legacy .doc/.xls/.ppt/.mat have no public parser here — recover the
       // printable runs, which is what those formats store text as anyway.
       const text = extractStrings(buf);
       if (!text.trim()) throw new Error("No readable text found in this file");
-      return { name, category, ...cap(text) };
+      return await cappedOrIndexed(name, category, att, text);
     }
 
     case "image":
@@ -149,8 +253,20 @@ export async function extractFileFromPath(name: string, srcPath: string): Promis
 
     case "audio": {
       const pcm = await audioPcmFromPath(srcPath);
-      const transcript = await transcribePcm(pcm);
+      const { text: transcript, segments } = await transcribePcmSegments(pcm);
       if (!transcript) throw new Error("No speech detected in this audio file");
+      if (att && transcript.length > TEXT_CHAR_LIMIT) {
+        const indexed = await indexContent(name, category, att, transcript, {
+          segments: asSegments(segments),
+          durationSec: pcm.length / 16000,
+        });
+        return {
+          name, category, ...indexed,
+          transcript: transcript.slice(0, PREVIEW_CHARS),
+          truncated: true,
+          durationSec: pcm.length / 16000,
+        };
+      }
       return { name, category, transcript, ...cap(transcript) };
     }
 
@@ -159,10 +275,34 @@ export async function extractFileFromPath(name: string, srcPath: string): Promis
       // The audio track carries narration — transcribe it when the clip has
       // one so the model hears the video, not just its sampled frames.
       let transcript: string | undefined;
+      let segments: AsrSegment[] = [];
       try {
-        transcript = (await transcribePcm(await audioPcmFromPath(srcPath))) || undefined;
+        const r = await transcribePcmSegments(await audioPcmFromPath(srcPath));
+        transcript = r.text || undefined;
+        segments = r.segments;
       } catch { /* no (decodable) audio track — frames only */ }
       if (!transcript) return { name, category, frames, durationSec };
+
+      if (att && transcript.length > TEXT_CHAR_LIMIT) {
+        // Long lecture: keep scene-change keyframes on disk next to the index
+        // so visual questions about a time window can pull the right frame.
+        let keyframes: FrameEntry[] = [];
+        try {
+          keyframes = (await videoKeyframesFromPath(srcPath, framesDir(att))).map(
+            f => ({ at: f.at, file: "frames/" + f.name }),
+          );
+        } catch { /* keyframes are best-effort — the transcript index still works */ }
+        const indexed = await indexContent(name, category, att, transcript, {
+          segments: asSegments(segments),
+          durationSec,
+          frames: keyframes,
+        });
+        return {
+          name, category, ...indexed, frames, durationSec,
+          transcript: transcript.slice(0, PREVIEW_CHARS),
+          truncated: true,
+        };
+      }
       const capped = cap(transcript);
       return { name, category, frames, durationSec, transcript: capped.text, truncated: capped.truncated };
     }

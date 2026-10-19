@@ -72,6 +72,18 @@ export interface Attachment {
 
   /* Audio metadata */
   transcript?: string;
+
+  /*
+   * Knowledge index (server-side). Set when the content exceeded the prompt
+   * budget: the full text + embeddings live under .data/attach-index/<id>/,
+   * `spine` is the always-injected table of contents, and `text`/`transcript`
+   * carry only a small preview. Retrieval happens per question in the chat
+   * route via the attachment_ref part — nothing here is ever truncated away.
+   */
+  indexed?: boolean;
+  indexId?: string;
+  chunkCount?: number;
+  spine?: string;
 }
 
 /* ── Tool calls ──────────────────────────────────────────────────────────── */

@@ -94,6 +94,41 @@ function messageContent(text: string | null, atts?: Attachment[]): unknown {
 export function attachmentParts(att: Attachment): any[] {
   const label = `Attached file: ${att.name}`;
 
+  // Indexed content: the full text lives in the server-side knowledge index,
+  // never truncated away. History carries only the structural map + opening
+  // preview + a reference part the chat route uses to retrieve timestamped
+  // evidence for the current turn (ephemeral — never persisted into history).
+  if (att.indexed) {
+    const timed = att.category === "audio" || att.category === "video";
+    const preview = att.transcript ?? att.text;
+    const parts: any[] = [
+      {
+        type: "text",
+        text:
+          `${label} — this ${timed ? "recording" : "document"} is long, so its complete content is kept in a local knowledge index ` +
+          `(nothing was discarded). You are shown its structural map and its opening; passages relevant to each question ` +
+          `are supplied as timestamped evidence when needed.`,
+      },
+    ];
+    if (att.category === "video") {
+      for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+    }
+    if (att.spine) parts.push({ type: "text", text: `Structural map of ${label}:\n${att.spine}` });
+    if (preview) {
+      parts.push({
+        type: "text",
+        text: `Opening of the content:\n[content begins]\n${preview}\n[content continues — the remainder is indexed, not shown]`,
+      });
+    }
+    parts.push({
+      type: "attachment_ref",
+      att_id: att.indexId ?? att.id,
+      name: att.name,
+      category: att.category ?? "text",
+    });
+    return parts;
+  }
+
   switch (att.category) {
     case "image":
       return att.dataUrl

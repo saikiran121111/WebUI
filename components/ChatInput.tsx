@@ -234,6 +234,12 @@ export default function ChatInput({
                   {att.name}
                 </span>
                 <span className="text-white/25 text-[10px]">{(att.size / 1024).toFixed(0)}K</span>
+                {att.indexed && (
+                  <span data-testid="indexed-badge"
+                    className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/25 text-emerald-300/80 text-[10px] whitespace-nowrap">
+                    indexed · {att.chunkCount ?? 0} chunks
+                  </span>
+                )}
                 <button onClick={() => removeAttachment(att.id)}
                   className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors">
                   <X className="w-3 h-3" />

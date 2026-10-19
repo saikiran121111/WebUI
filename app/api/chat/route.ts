@@ -9,6 +9,7 @@ import {
 } from "../../../lib/skills/lazy";
 import { getDecision } from "../../../lib/decision/client";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
+import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
 import {
   MODE_FENCE,
   MODE_SKILL,
@@ -173,9 +174,26 @@ function historyBefore(messages: any[], lastUserIdx: number): { role: string; co
     const role = messages[i]?.role;
     if (role !== "user" && role !== "assistant") continue;
     const content = extractUserText(messages[i]?.content);
-    if (content.trim()) history.push({ role, content });
+    // The LFM router only needs the gist of prior turns — attachment
+    // spine/preview blocks can be long, so each entry is capped.
+    if (content.trim()) history.push({ role, content: content.slice(0, 500) });
   }
   return history;
+}
+
+/**
+ * The user's actual question: the FIRST text part. messageContent() puts the
+ * typed text first and attachment parts after, so the 1.2B router never sees
+ * an attachment's spine/preview block (which would pollute classification).
+ */
+function firstTextPart(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (typeof part?.text === "string" && part.text.trim()) return part.text;
+    }
+  }
+  return "";
 }
 
 /** Swap the last user turn's text for the engine's stripped_prompt in place. */
@@ -234,7 +252,7 @@ export async function POST(req: NextRequest) {
 
     const lastUserIdx = lastUserIndex(payload.messages);
     if (lastUserIdx !== -1) {
-      const fullText = extractUserText(payload.messages[lastUserIdx]?.content);
+      const fullText = firstTextPart(payload.messages[lastUserIdx]?.content);
 
       // 2) decision: repair passthrough (mode pinned by the client) or engine
       const passthrough = isRendererMode(payload.decision_mode) ? payload.decision_mode : null;
@@ -284,6 +302,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // 5) attachment knowledge retrieval (ephemeral): timestamped passages
+      // for THIS question are injected into this turn's payload copy only —
+      // the client's stored conversation never sees them, so retrieved
+      // evidence never duplicates across historical turns. The user turn now
+      // sits at lastUserIdx + 1 (the skill block above shifted it).
+      try {
+        const injected = await buildAttachmentTurn(payload.messages, lastUserIdx + 1, fullText, req.signal);
+        if (injected) log.info({ blocks: injected }, "attachment evidence injected (this turn only)");
+      } catch (err: unknown) {
+        log.error({ err: err instanceof Error ? err.message : err }, "attachment retrieval failed");
+      }
+
       // The full routing story in one readable terminal block: LFM2.5-1.2B
       // router (exact input + raw JSON out), the skill actually injected,
       // the UI component that will render this reply, and what the main LLM
@@ -291,6 +321,11 @@ export async function POST(req: NextRequest) {
       logDecisionTable(log, { input: fullText, env, usedSkill, skillBlockBytes, model });
     }
   }
+
+  // attachment_ref is an internal routing hint for this process; the
+  // upstream chat template only accepts text/image_url parts, so every ref
+  // must be gone before the payload leaves (indexed turn or not).
+  if (payload && Array.isArray(payload.messages)) stripAttachmentRefs(payload.messages);
 
   return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode, req.signal, model);
 }

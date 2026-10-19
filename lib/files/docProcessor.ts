@@ -24,6 +24,9 @@ interface ExtractResponse {
   dataUrl?: string;
   frames?: { dataUrl: string; at: number }[];
   durationSec?: number;
+  indexed?: boolean;
+  chunkCount?: number;
+  spine?: string;
   error?: string;
 }
 
@@ -72,6 +75,10 @@ export async function processAttachment(file: File, base: Attachment): Promise<A
   try {
     switch (att.category) {
       case "text":
+        // Bytes ≥ characters, so anything at or under the budget is safe to
+        // read in the browser. Bigger files go to the server, where oversized
+        // content is indexed instead of truncated (the browser path can't).
+        if (file.size > TEXT_CHAR_LIMIT) return await extractOnServer(file, att);
         return { ...att, ...cap(await file.text()), status: "ready" };
 
       case "image":
@@ -98,7 +105,7 @@ async function extractOnServer(file: File, att: Attachment): Promise<Attachment>
   // and the server streams it straight to its scratch file — multi-GB media
   // never sit whole in memory on either side.
   const res = await fetch(
-    `/api/files/extract?name=${encodeURIComponent(file.name)}`,
+    `/api/files/extract?name=${encodeURIComponent(file.name)}&att=${encodeURIComponent(att.id)}`,
     {
       method: "POST",
       body: file,
@@ -120,6 +127,12 @@ async function extractOnServer(file: File, att: Attachment): Promise<Attachment>
     dataUrl: data.dataUrl,
     frames: data.frames,
     durationSec: data.durationSec,
+    // Knowledge-index markers: the full content lives on the server, and the
+    // chat route retrieves passages per question from these.
+    indexed: data.indexed,
+    indexId: data.indexed ? att.id : undefined,
+    chunkCount: data.chunkCount,
+    spine: data.spine,
     status: "ready",
   };
 }
