@@ -59,8 +59,11 @@ rows.forEach((r, i) => {
 });
 console.log(`| 12 | [multi-turn] "Make the outer ring spin faster and change it to red" (history: turn-1 sci-fi core, scene3d fence) | ${mt.active_mode} (3d_asset)${mt.active_mode === "3d_asset" ? " ✅" : " ❌"} | ${mt.confidence} | ${mt.decided_by} | ${mt.needle_latency_ms} | ${mt.lfm_latency_ms} | ${esc(mt.stripped_prompt)} |`);
 
-// Detail-preservation check on case 11: every hard token must survive the strip.
+// Detail-preservation check on case 11: every hard token must survive the
+// strip. Checked against the END-TO-END forwarded view — stripped_prompt plus
+// the Required Specs constraints the chat route appends (app/api/chat/route.ts)
+// — which is exactly what the main LLM sees.
 const keep = ["500", "Date", "Vendor", "Amount", "SUMIFS", "1,250", "#FF0000", "KPI", "pie", "freeze"];
-const stripped11 = rows[10].env.stripped_prompt;
-const lost = keep.filter((t) => !stripped11.includes(t));
+const forwarded11 = (rows[10].env.stripped_prompt ?? "") + " " + (rows[10].env.task_constraints ?? []).join(" ");
+const lost = keep.filter((t) => !forwarded11.includes(t));
 console.log("\nDetail-preservation (case 11): " + (lost.length ? "LOST -> " + lost.join(", ") : "ALL 10 hard tokens preserved ✅"));

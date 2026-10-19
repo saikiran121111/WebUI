@@ -1,6 +1,63 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Next dev server `GET /` → 500 `ModuleBuildError` / `UnhandledSchemeError:
+  Reading from "node:child_process" is not supported` (2026-10-19, PART 5;
+  import trace `./lib/decision/client.ts ← instrumentation.ts`). ROOT CAUSE:
+  Next 14.2.35 `experimental.instrumentationHook` builds the instrumentation
+  entry for the EDGE runtime variant too, and that webpack bundle has NO node
+  externals at all — `node:` scheme throws UnhandledSchemeError AND bare
+  `'child_process'` throws "Module not found: Can't resolve". The ONLY
+  documented-reliable fix is compile-time DCE via the EXACT literal guard
+  `if (process.env.NEXT_RUNTIME === "nodejs") { await import(...) }` — the
+  earlier `if (process.env.NEXT_RUNTIME !== "nodejs") return;` form does NOT
+  get DCE'd (Next string-replaces only the `===` comparison form). Also
+  converted `lib/decision/client.ts` + `lib/skills/registry.ts` to bare
+  built-in specifiers (belt-and-braces for the node bundle). Verified: log
+  shows "Compiled /instrumentation (30 modules)" + "[decision] engine warm
+  on http://127.0.0.1:8790", GET / → 200, auto-boot intact.
+- 31 demo-showcase Playwright tests red (anatomy 18, anatomy-export 4,
+  cad 9; 2026-10-19, PART 5): `?demo=anatomy`/`?demo=ui` showcases lost their
+  interactive viewers. ROOT CAUSE: PART 3's `kindAllowed` returned FALSE for
+  `decisionMode == null`, but demo conversations
+  (`lib/render/anatomyDemoShowcase.ts` demoMessage) set `mode:"chat"` and no
+  decisionMode. FIX (components/MarkdownRenderer.tsx): `if (!decisionMode)
+  return true;` — pre-PART-3 permissive rendering for null-mode messages
+  (demos + legacy stored messages). Real chat turns ALWAYS carry a mode
+  (engine-down fallback = standard_chat), so the zero-collision guarantee is
+  preserved for every model-generated reply. Verified: 57 passed on the
+  anatomy+cad+three3d+render batch.
+- 13 file-reading E2E flips YES→NO (2026-10-19, PART 5): attachment journeys
+  ("Read the attached file and reply YES + marker") regressed after the
+  decision engine went live. ROOT CAUSE: the chat route replaced the user
+  turn with the LFM's stripped_prompt, but for attachment turns the inlined
+  `[file content]` block rides in extra parts and the 180-token LFM summary
+  DROPS it while inventing constraint filler ("financial/tabular words",
+  garbage hard tokens like `[PY, 7]` in Required Specs) — the small main
+  model then answered NO. FIX (app/api/chat/route.ts): skip the
+  stripped_prompt rewrite when the last user message content is a parts
+  array (`hasAttachmentParts`) — user text forwarded VERBATIM; the decision
+  still selects the render mode + skill block. Verified: .toml/.py/.m
+  targeted 4 passed; full file-reading batch green.
+- `chat-stream.spec.ts` "direct API call to /api/chat" timed out (test hung
+  ~10 min; 2026-10-19, PART 5). ROOT CAUSE: worker `strip("Hi")` → the 1.2B
+  stripper HALLUCINATED "Generate downloadable <artifact>…" boilerplate for
+  the greeting; that rewrite reached the main LLM in place of "Hi" and sent
+  qwen3.8-flash into an endless reasoning loop (618 KB SSE, stream never
+  closes; direct "Hi" to :8080 completes in 1.2 s). FIX (decision_server.py):
+  deterministic trivial-chat passthrough — after routing guards,
+  `if active_mode == "standard_chat" and len(message) < 120: stripped,
+  constraints = message, []` (a one-liner has no noise to strip anyway).
+  Also bumped the diagnostic probe to `test.setTimeout(180_000)` (the local
+  model reasons by default; same patience the file-reading journey grants).
+  Verified: proxied curl "Hi" closes in 2.3 s with [DONE]; all 4 decision
+  suites re-green after the worker change (LFM_SYSTEM untouched — only
+  deterministic post-processing added).
+- Worker restart trap (2026-10-19): relaunching decision_server.py with the
+  SYSTEM python.exe → `ModuleNotFoundError: No module named 'needle'`,
+  health poll hangs. MUST use the venv interpreter:
+  `.decision-engine/.venv/Scripts/python.exe decision_server.py` (cwd
+  `.decision-engine/worker`) → healthy in ~3 s, llama-server :8791 stays warm.
 - Studio viewer "view anchored top-right, black gap left+bottom, right side
   stripped" + dead Fullscreen button (user screenshot 2026-10-18, pixel-
   forensics on the screenshot via PIL — NOT a dock-overlay issue; this

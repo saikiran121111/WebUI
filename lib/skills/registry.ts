@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
-import fsSync from "node:fs";
-import path from "node:path";
+import { spawn } from "child_process";
+import { promises as fs } from "fs";
+import fsSync from "fs";
+import path from "path";
 import { parseFrontmatter } from "./frontmatter";
 import { detectBlockedReason } from "./modality";
 import type { InstallRequestBody, SkillScenario } from "./types";

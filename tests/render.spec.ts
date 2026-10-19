@@ -7,8 +7,9 @@ import type { AddressInfo } from "node:net";
  * model is required. Verifies the release-blocking paths: colored code,
  * character-for-character copy fidelity, tables, charts, and streaming safety.
  * Interactive renderers are Decision Engine mode-gated: mocks carry
- * x-decision-mode, and renderers with no matching RendererMode (mermaid,
- * widget) are skipped — their fences stay plain code by design.
+ * x-decision-mode, and renderers with no matching RendererMode (widget)
+ * are skipped — their fences stay plain code by design. Mermaid mounts in
+ * standard_chat (PART 3), so its tests are active again.
  *
  * Requires the dev server on http://localhost:3000 (npm run dev).
  */
@@ -640,10 +641,10 @@ test("a streaming table renders as a table immediately, never as raw pipe text",
   server.close();
 });
 
-// Retired by the Hybrid Decision Engine (2026-10-18): the 9-mode contract has
-// no mermaid mode, so MODE_RENDER_KINDS never allows the "mermaid" kind — the
-// fence stays plain code and the diagram stage can never mount by design.
-test.skip("valid mermaid renders an interactive diagram stage", async ({ page }) => {
+// Re-enabled by PART 3: standard_chat's MODE_RENDER_KINDS includes "mermaid",
+// so the diagram stage mounts again on chat turns (mockStream defaults to
+// standard_chat).
+test("valid mermaid renders an interactive diagram stage", async ({ page }) => {
   const diagram = "graph TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Done]\n  B -->|no| A";
   await mockStream(page, "```mermaid\n" + diagram + "\n```");
   await page.goto("http://localhost:3000/");
@@ -660,9 +661,9 @@ test.skip("valid mermaid renders an interactive diagram stage", async ({ page })
   await expect(stage.locator("svg")).toBeVisible();
 });
 
-// Retired with the valid-mermaid test: no mode enables the mermaid renderer,
-// so the mermaid-error fallback branch never runs (fence stays plain code).
-test.skip("invalid mermaid falls back to preserved source without crashing", async ({ page }) => {
+// Re-enabled with the valid-mermaid test: the mermaid-error fallback branch
+// runs again under standard_chat.
+test("invalid mermaid falls back to preserved source without crashing", async ({ page }) => {
   const broken = "```mermaid\nthis is %%% not a valid diagram (((\n```";
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));

@@ -88,6 +88,10 @@ test.describe("chat streaming", () => {
   });
 
   test("direct API call to /api/chat", async ({ request }) => {
+    // Diagnostic probe (no assertions): the local model reasons by default,
+    // so even "Hi" can stream for over a minute — same patience the
+    // file-reading journey grants its model turns.
+    test.setTimeout(180_000);
     // First check what the API actually returns
     const resp = await request.post("http://localhost:3000/api/chat", {
       headers: { "Content-Type": "application/json" },

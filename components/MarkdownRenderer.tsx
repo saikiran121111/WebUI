@@ -70,18 +70,24 @@ export interface MarkdownRendererProps {
  */
 const MODE_RENDER_KINDS: Record<RendererMode, string[]> = {
   excel: ["xlsx"],
-  docs: ["docx"],
+  docs: ["docx", "resume"],
   pdf: ["html"],
   ppt: ["pptx"],
   "3d_asset": ["scene3d", "asset3d", "threejs"],
   cad_blueprint: ["cad", "anatomy"],
-  chart: ["chart"],
+  chart: ["chart", "powerbi", "mermaid"],
   html_render: ["html"],
-  standard_chat: [],
+  // standard_chat renders ONLY the lightweight diagram kinds (PART 3):
+  // mermaid diagrams and box-drawing trees. No document viewers, no repair.
+  standard_chat: ["mermaid", "tree"],
 };
 
 function kindAllowed(kind: string, decisionMode: RendererMode | null | undefined): boolean {
-  if (!decisionMode) return false;
+  // No envelope at all (demo showcases, legacy stored messages) => pre-PART-3
+  // permissive rendering. Real chat turns ALWAYS carry a mode — even the
+  // engine-down fallback returns standard_chat — so the collision guard below
+  // still covers every model-generated reply.
+  if (!decisionMode) return true;
   return (MODE_RENDER_KINDS[decisionMode] ?? []).includes(kind);
 }
 
@@ -256,6 +262,7 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   // plain code no matter what they contain — no cross-mode validation ever.
   const interactive = allowInteractive && kindAllowed(kind, decisionMode);
   const threeOk = allowInteractive && kindAllowed("threejs", decisionMode);
+  const treeOk = allowInteractive && kindAllowed("tree", decisionMode);
   const runtimeError = onFenceRuntimeError
     ? (error: string) => onFenceRuntimeError({ lang: "threejs", body: source, error })
     : undefined;
@@ -274,8 +281,9 @@ function FencedBlock({ children }: { children?: ReactNode }) {
   if (kind === "xlsx" && interactive) return <XlsxBlock source={source} streaming={streaming} />;
   if (kind === "pptx" && interactive) return <PptxBlock source={source} streaming={streaming} />;
   if (kind === "powerbi" && interactive) return <PowerBiBlock source={source} streaming={streaming} />;
-  // Box-drawing trees arrive in plain/text fences — detect by content, not label.
-  if (kind === "code" && looksLikeTree(source)) return <TreeBlock source={source} />;
+  // Box-drawing trees arrive in plain/text fences — detect by content, not
+  // label; the "tree" render kind (standard_chat) is the mode gate.
+  if (kind === "code" && treeOk && looksLikeTree(source)) return <TreeBlock source={source} />;
   // Executable Three.js arriving in a plain js fence still gets the studio viewer.
   if (kind === "code" && threeOk && looksLikeThreeCode(source)) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={runtimeError} />;
   return <CodeBlock code={source} lang={language} streaming={streaming} />;

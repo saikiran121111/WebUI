@@ -7,9 +7,12 @@
  * standard_chat fallback envelope so chat keeps working with ALL renderer
  * validators disabled (zero-collision default).
  */
-import { spawn } from "node:child_process";
-import fsSync from "node:fs";
-import path from "node:path";
+// NOTE: bare built-in specifiers (not "node:…") — Next 14's experimental
+// instrumentationHook webpack bundle does not externalize the node: scheme
+// and fails the whole server build with UnhandledSchemeError.
+import { spawn } from "child_process";
+import fsSync from "fs";
+import path from "path";
 import { projectRoot } from "../skills/registry";
 import { RENDERER_MODES, isRendererMode, type DecisionEnvelope, type RendererMode } from "./types";
 
@@ -47,7 +50,7 @@ async function ensureWorker(): Promise<boolean> {
   if (await health()) return true;
   if (!autoSpawnEnabled()) return false;
   if (!spawnPromise) {
-    spawnPromise = (async () => {
+    const attempt = (async () => {
       const py = workerPython();
       const script = path.join(projectRoot(), ".decision-engine", "worker", "decision_server.py");
       if (!py || !fsSync.existsSync(script)) return false;
@@ -69,8 +72,23 @@ async function ensureWorker(): Promise<boolean> {
       }
       return false;
     })();
+    spawnPromise = attempt;
+    // Reset on failure so a later turn (or a restarted worker) can retry —
+    // a one-time cold-start failure must not poison the whole server process.
+    void attempt.then((ok) => { if (!ok && spawnPromise === attempt) spawnPromise = null; });
   }
   return spawnPromise;
+}
+
+/**
+ * Fire-and-forget engine warmup (called from instrumentation.ts on server
+ * boot): spawns the worker if cold and waits for /health in the background.
+ */
+export function warmupDecisionEngine(): void {
+  if (!autoSpawnEnabled()) return;
+  void ensureWorker().then((ok) => {
+    console.log(ok ? "[decision] engine warm on " + decisionEngineUrl() : "[decision] warmup did not reach /health");
+  });
 }
 
 /** Engine unreachable: keep chat alive, standard_chat with every renderer off. */

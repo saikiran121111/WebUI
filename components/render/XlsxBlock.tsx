@@ -7,9 +7,10 @@
  * numeric cells render 0, empty text cells N/A, mirroring the engine's
  * no-null guarantee.
  */
-import { useMemo, useState } from "react";
-import { normalizeXlsx, safeName, XlsxColumn, XlsxSheet } from "../../lib/documents/schemas";
+import { useMemo, useState, type CSSProperties } from "react";
+import { normalizeXlsx, safeName, cfColors, type XlsxColumn, type XlsxSheet, type XlsxConditionalFormat } from "../../lib/documents/schemas";
 import { recalcWorkbook, idxToCol, type RecalcSheet } from "../../lib/documents/recalc";
+import { chartSvg } from "../../lib/documents/chartHtml";
 import DocumentCard, { FenceBroken, FencePending } from "./DocumentCard";
 
 const isFormulaStr = (v: unknown): boolean => typeof v === "string" && v.trim().startsWith("=");
@@ -45,6 +46,36 @@ function fmtCell(v: unknown, col: XlsxColumn): string {
     return isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : String(v);
   }
   return String(v);
+}
+
+// ---------- conditional formatting (mirrors the engine's rules) ----------
+const cfColIdx = (letters: string): number => { let n = 0; for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+function cfCovers(cf: XlsxConditionalFormat, ci: number, rowNum: number, col: XlsxColumn): boolean {
+  if (cf.range) {
+    const m = /^([A-Za-z]{1,3})(\d+):([A-Za-z]{1,3})(\d+)$/.exec(cf.range);
+    if (!m) return false;
+    return ci >= cfColIdx(m[1]) && ci <= cfColIdx(m[3]) && rowNum >= +m[2] && rowNum <= +m[4];
+  }
+  return cf.columnKey === col.key;
+}
+function cfMatches(cf: XlsxConditionalFormat, v: unknown): boolean {
+  const num = Number(v);
+  switch (cf.rule) {
+    case "greaterThan": return isFinite(num) && num > Number(cf.value);
+    case "lessThan": return isFinite(num) && num < Number(cf.value);
+    case "equal": return (typeof v === "number" || (v !== "" && isFinite(num))) ? num === Number(cf.value) : String(v ?? "").toLowerCase() === String(cf.value ?? "").toLowerCase();
+    case "between": return isFinite(num) && num >= (cf.min ?? -Infinity) && num <= (cf.max ?? Infinity);
+    case "containsText": return String(v ?? "").toLowerCase().includes(String(cf.value ?? "").toLowerCase());
+    default: return false;
+  }
+}
+function cfStyle(sheet: XlsxSheet, col: XlsxColumn, ci: number, rowNum: number, v: unknown): CSSProperties | undefined {
+  for (const cf of sheet.conditionalFormatting ?? []) {
+    if (!cfCovers(cf, ci, rowNum, col) || !cfMatches(cf, v)) continue;
+    const c = cfColors(cf);
+    return { backgroundColor: c.fill, color: c.fontColor };
+  }
+  return undefined;
 }
 
 function totalFormula(sheet: XlsxSheet, col: XlsxColumn, idx: number): string {
@@ -153,10 +184,11 @@ export default function XlsxBlock({ source, streaming }: { source: string; strea
                   const raw = r[c.key];
                   const isF = isFormulaStr(raw);
                   const cv = isF ? computedAt(ci, ri + 2) : undefined;
+                  const disp = isF && cv !== undefined ? cv : raw;
                   return (
-                    <td key={ci} className={c.format === "text" ? "" : "xlsx-num"}>
+                    <td key={ci} className={c.format === "text" ? "" : "xlsx-num"} style={cfStyle(sheet, c, ci, ri + 2, disp)}>
                       {isF && <span className="xlsx-fx" title={String(raw).trim()}>fx</span>}
-                      {isF && cv !== undefined ? fmtCell(cv, c) : fmtCell(raw, c)}
+                      {isF ? fmtCell(disp, c) : fmtCell(raw, c)}
                     </td>
                   );
                 })}
@@ -179,6 +211,22 @@ export default function XlsxBlock({ source, streaming }: { source: string; strea
           </tbody>
         </table>
       </div>
+      {sheet.charts?.length ? (
+        <div className="xlsx-charts" data-testid="xlsx-charts">
+          {sheet.charts.map((ch, i) => (
+            <figure key={i} className="xlsx-chart">
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: chartSvg(
+                    { type: ch.type, title: ch.title || undefined, categories: ch.categories, series: ch.series },
+                    { width: 640, height: 360, theme: "dark" },
+                  ),
+                }}
+              />
+            </figure>
+          ))}
+        </div>
+      ) : null}
     </DocumentCard>
   );
 }

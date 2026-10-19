@@ -59,12 +59,16 @@ function promptFor(fx: Fixture, marker: string): string {
   }
 }
 
-/** Per-category patience: whisper on first use and video frame sampling are slow. */
+/** Per-category patience: whisper on first use and video frame sampling are slow.
+ *  Model deadlines also cover the bounded retry (2 attempts), and the local
+ *  model occasionally streams a pathologically long turn under suite load
+ *  (observed: text turn >120 s, video turn >150 s — stream still healthy,
+ *  just slow). Budgets below are 2x model deadline + extraction + slack. */
 function timeoutsFor(fx: Fixture) {
-  if (fx.category === "audio") return { extract: 300_000, model: 180_000, test: 480_000 };
-  if (fx.category === "video") return { extract: 120_000, model: 150_000, test: 300_000 };
-  if (fx.category === "image") return { extract: 60_000, model: 120_000, test: 200_000 };
-  return { extract: 60_000, model: 120_000, test: 200_000 };
+  if (fx.category === "audio") return { extract: 300_000, model: 180_000, test: 600_000 };
+  if (fx.category === "video") return { extract: 120_000, model: 180_000, test: 520_000 };
+  if (fx.category === "image") return { extract: 60_000, model: 150_000, test: 380_000 };
+  return { extract: 60_000, model: 150_000, test: 380_000 };
 }
 
 /**
@@ -173,7 +177,17 @@ test.describe("the model reads the file", () => {
       // bounded retry before declaring failure.
       let said = "";
       for (let attempt = 1; attempt <= 2; attempt++) {
-        const reply = await sendWithAttachment(page, fx, file, fx.expect!, t);
+        // A slow turn (deadline expired, stream healthy but unfinished) is the
+        // same nondeterminism family as a truncated marker — retry it once.
+        // Genuine failures ("chat failed", "extraction failed") still throw.
+        let reply;
+        try {
+          reply = await sendWithAttachment(page, fx, file, fx.expect!, t);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg === "the assistant never finished answering" && attempt < 2) continue;
+          throw err;
+        }
         said = (await reply.innerText()).trim();
         // Visible in the terminal as the run goes by.
         console.log(`  ${fx.file!.padEnd(26)} ${attempt === 2 ? "(retry) " : ""}${said.replace(/\s+/g, " ").slice(0, 90)}`);

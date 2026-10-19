@@ -7,9 +7,10 @@
  * #NAME?, #N/A) before the workbook is returned.
  */
 import ExcelJS from "exceljs";
-import { normalizeXlsx, type XlsxSpec, type XlsxColumn } from "./schemas";
+import { normalizeXlsx, cfColors, type XlsxSpec, type XlsxColumn, type XlsxConditionalFormat } from "./schemas";
 import { recalcWorkbook, type RecalcSheet } from "./recalc";
-import { safeName } from "./pdfEngine";
+import { safeName, renderChartPng } from "./pdfEngine";
+import { chartHtmlDocument } from "./chartHtml";
 
 const NUMFMT: Record<string, string> = {
   currency: '$#,##0.00',
@@ -62,7 +63,10 @@ export class XlsxRecalcError extends Error {
 }
 
 export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
-  const spec: XlsxSpec = (rawSpec as XlsxSpec)?.sheets ? (rawSpec as XlsxSpec) : normalizeXlsx(rawSpec)!;
+  // Always normalize: rowGenerator expansion + chart/CF parsing happen there.
+  // normalizeXlsx is idempotent (generator cleared post-expansion), so an
+  // already-normalized spec passes through unchanged.
+  const spec: XlsxSpec | null = normalizeXlsx(rawSpec) ?? ((rawSpec as XlsxSpec)?.sheets ? (rawSpec as XlsxSpec) : null);
   if (!spec) throw new Error("Invalid xlsx spec");
 
   const wb = new ExcelJS.Workbook();
@@ -144,6 +148,38 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
       });
     }
 
+    // AutoFilter on every header row.
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, dataEnd), column: colCount } };
+
+    // Conditional formatting: explicit colors win; status words
+    // (OVERSPEND/REORDER/FAIL/OK/PASS) get the default red/amber/green.
+    for (const cf of sheet.conditionalFormatting ?? []) {
+      const ref = resolveCfRange(cf, sheet.columns, dataStart, dataEnd);
+      if (!ref) continue;
+      try { ws.addConditionalFormatting({ ref, rules: [cfRuleToExcel(cf)] }); } catch { /* malformed range from a local model — skip the rule, never the workbook */ }
+    }
+
+    // Native charts: headless-Chromium PNG embed (primary). If Chromium is
+    // unavailable the workbook still builds — the interactive XlsxBlock
+    // preview renders the same spec as inline SVG.
+    let chartRow = dataEnd + 2;
+    for (const chart of sheet.charts ?? []) {
+      try {
+        const html = chartHtmlDocument({ type: chart.type, title: chart.title || undefined, categories: chart.categories, series: chart.series }, { width: 640, height: 360, theme: "light" });
+        const shot = await renderChartPng(html, { width: 640, height: 360, scale: 2 });
+        // Casts: exceljs's bundled Buffer/range typings lag Node 24 (same
+        // pattern as the test suite's wb.xlsx.load(buffer) cast).
+        const id = wb.addImage({ buffer: shot.buffer, extension: "png" } as unknown as Parameters<typeof wb.addImage>[0]);
+        const cell = chart.anchor ? /^([A-Za-z]{1,3})([1-9][0-9]*)$/.exec(chart.anchor.toUpperCase()) : null;
+        ws.addImage(id, {
+          type: "oneCell",
+          tl: cell ? { col: colToIdx0(cell[1]), row: parseInt(cell[2], 10) - 1 } : { col: 0, row: chartRow - 1 },
+          ext: { width: 640, height: 360 },
+        } as unknown as Parameters<typeof ws.addImage>[1]);
+        if (!cell) chartRow += 20;
+      } catch { /* skip embed; preview SVG fallback covers it */ }
+    }
+
     // freeze_panes = "A2"
     if (sheet.freezeHeader) ws.views = [{ state: "frozen", ySplit: 1, xSplit: 0 }];
 
@@ -202,3 +238,41 @@ function colLetter(idx1: number): string {
   return s;
 }
 function addr(col1: number, row1: number): string { return colLetter(col1) + row1; }
+function colToIdx0(letters: string): number {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+function hexArgb(hex: string): string {
+  const h = String(hex).replace(/^#/, "");
+  return /^[0-9a-fA-F]{6}$/.test(h) ? "FF" + h.toUpperCase() : "FF000000";
+}
+function resolveCfRange(cf: XlsxConditionalFormat, columns: XlsxColumn[], dataStart: number, dataEnd: number): string | null {
+  if (cf.range && /^[A-Za-z]{1,3}[1-9][0-9]*:[A-Za-z]{1,3}[1-9][0-9]*$/.test(cf.range)) return cf.range.toUpperCase();
+  if (cf.columnKey) {
+    const ci = columns.findIndex((c) => c.key === cf.columnKey);
+    if (ci >= 0) return `${colLetter(ci + 1)}${dataStart}:${colLetter(ci + 1)}${Math.max(dataStart, dataEnd)}`;
+  }
+  return null;
+}
+function cfRuleToExcel(cf: XlsxConditionalFormat): ExcelJS.ConditionalFormattingRule {
+  const c = cfColors(cf);
+  // Partial style/rule objects: exceljs's full Style type demands numFmt/
+  // alignment/protection/border and every rule demands priority, but the
+  // runtime writer happily emits partial styles (verified by round-trip test).
+  const style = {
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: hexArgb(c.fill) } },
+    font: { color: { argb: hexArgb(c.fontColor) } },
+  } as unknown as ExcelJS.Style;
+  const rule = ((): object => {
+    switch (cf.rule) {
+      case "greaterThan": return { type: "cellIs", operator: "greaterThan", formulae: [Number(cf.value) || 0], style };
+      case "lessThan": return { type: "cellIs", operator: "lessThan", formulae: [Number(cf.value) || 0], style };
+      case "equal": return { type: "cellIs", operator: "equal", formulae: [typeof cf.value === "number" ? cf.value : `"${String(cf.value ?? "")}"`], style };
+      case "between": return { type: "cellIs", operator: "between", formulae: [cf.min ?? -1e12, cf.max ?? 1e12], style };
+      case "containsText": return { type: "containsText", operator: "containsText", text: String(cf.value ?? ""), style };
+    }
+  })();
+  return rule as unknown as ExcelJS.ConditionalFormattingRule;
+}

@@ -8,8 +8,10 @@
  * sees the finished visual instead of a validation error they cannot act on.
  */
 import { anatomySpecSchema } from "../anatomy/anatomySchema";
-import { parseJsonFence } from "./schemas";
+import { parseJsonFence, chartSpecSchema } from "./schemas";
 import { normalizeScene3d } from "../three3d/normalizeScene";
+import { asset3dSpecSchema } from "../three3d/sceneSchema";
+import { looksLikeThreeCode } from "../three3d/codeRunner";
 import { normalizeCad } from "../cad/normalizeCad";
 import {
   isBrokenHtmlFence,
@@ -81,13 +83,15 @@ export function findBrokenAnatomyFences(content: string): BrokenFence[] {
  */
 const MODE_SCAN_LANGS: Record<RendererMode, string[]> = {
   excel: ["xlsx"],
-  docs: ["docx"],
-  pdf: ["html"],
+  docs: ["docx", "resume"],
+  pdf: ["html", "resume"],
   ppt: ["pptx"],
-  "3d_asset": ["scene3d"],
+  "3d_asset": ["threejs", "scene3d", "asset3d"],
   cad_blueprint: ["cad", "anatomy"],
-  chart: [],
+  chart: ["chart", "powerbi", "mermaid"],
   html_render: ["html"],
+  // standard_chat stays []: heavy validators/auto-repair are strictly disabled
+  // for it (PART 3) — a chat turn must never trigger a repair round-trip.
   standard_chat: [],
 };
 
@@ -110,6 +114,31 @@ export function findBrokenRenderFences(
       const r = normalizeScene3d(body);
       return r.ok ? null : r.error;
     }, true));
+  }
+  if (langs.has("asset3d")) {
+    broken.push(...scanBrokenFences(content, "asset3d", body => {
+      const parsed = parseJsonFence(body, asset3dSpecSchema);
+      return parsed.ok ? null : parsed.error;
+    }, true));
+  }
+  if (langs.has("threejs")) {
+    // Static gate only: the viewer executes the code, so a fence counts as
+    // broken only when it isn't Three.js scene code at all. Runtime failures
+    // route through onFenceRuntimeError (same repair prompt).
+    broken.push(...scanBrokenFences(content, "threejs", body =>
+      looksLikeThreeCode(body) ? null : "the fence does not contain executable Three.js scene code", true));
+  }
+  if (langs.has("chart")) {
+    broken.push(...scanBrokenFences(content, "chart", body => {
+      const parsed = parseJsonFence(body, chartSpecSchema);
+      return parsed.ok ? null : parsed.error;
+    }, true));
+  }
+  if (langs.has("mermaid")) {
+    // Mermaid grammar is validated asynchronously by the renderer; the sync
+    // scan only catches structurally-dead fences (empty bodies).
+    broken.push(...scanBrokenFences(content, "mermaid", body =>
+      body.length > 0 ? null : "the mermaid fence is empty", true));
   }
   if (langs.has("cad")) {
     broken.push(...scanBrokenFences(content, "cad", body => {

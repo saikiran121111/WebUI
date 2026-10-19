@@ -17,3 +17,10 @@ tests/fixtures/
 .decision-engine/.cache/
 .decision-engine/bin/
 .decision-engine/models/
+
+# playwright-cli transient page snapshots (regenerated every session)
+.playwright-cli/page-*.yml
+
+# transient dev/test artifacts (Playwright coordination lock + run logs)
+.cache/
+.ai-coordination/

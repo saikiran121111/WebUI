@@ -17,6 +17,12 @@ async function waitForStreamDone(page: Page) {
 }
 
 test.describe("live chat lifecycle", () => {
+  // Real-model turns: every send pays the Decision Engine round trip (~2-3 s
+  // Needle+LFM) plus the local model's reasoning. The assertions here are
+  // about CRUD correctness, not speed — grant the same patience the
+  // file-reading journey gives its model turns.
+  test.setTimeout(180_000);
+
   test("send → delete → reload leaves nothing behind", async ({ page }) => {
     const marker = "E2EMarker" + Date.now();
 

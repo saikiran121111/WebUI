@@ -109,10 +109,66 @@
   Playwright wheel deltaY ×1.25 — assert zoom direction, not exact factor.
 - Dev-server port conflicts: stale hung Next servers squat :3000/:3001/:3002
   (curl times out, exit 28) — `taskkill //PID <pid> //F //T` each, restart.
-- Unit gate: `npx vitest run` → 41 files, **420 passed | 1 skipped** (document
-  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags etc.).
+- Unit gate: `npx vitest run` → **434 passed | 1 skipped (435)** (document
+  engines: pdf/docx/xlsx/recalc/powerbi/pptx + cadRoomTags etc.; xlsxEngine
+  500-row determinism + recalc 48-fn whitelist tests added 2026-10-19).
   `tsc --noEmit` clean. Counts re-baselined after the 2026-10-19
   progress-mascot revert (see below).
+- 2026-10-19 (MASTER E2E run, LOCKED): full headed suite `npx playwright test`
+  (313 tests, workers:1, ~1.4 h) — run it via `powershell Start-Process cmd`
+  background + poll `.cache/pw-final.log` (foreground exceeds the 10-min Bash
+  cap, exit 143). First full run: 46 failed → all root-caused + fixed (see
+  ISSUES.md top 4 entries: instrumentation DCE guard, kindAllowed null-mode,
+  attachment-turn verbatim forwarding, trivial-chat passthrough) → targeted
+  re-runs green (demo batch 57 passed; file-reading+reasoning+chat-stream
+  batch 218 passed / 0 failed; .py/.toml 4 passed). Run pw-final2 completed
+  306|4 skipped|3 failed — all 3 = real-model PATIENCE family, fixed
+  test-only: file-reading budgets sized for 2 attempts (text/image 150 s
+  model / 380 s test; video 180/520; audio 180/600) + slow-turn timeout is
+  now retryable once (never-finished-answering ≠ chat-failed), reasoning-test
+  WINDOW 150 s + test 240 s (old WINDOW==TEST==60 s starved the assertion).
+  PATIENCE RULE for real-model specs: per-test timeout MUST exceed
+  (assertion window + overhead); never set window == test timeout.
+  Run pw-final3 completed 308|4 skipped|1 failed — only reasoning-test:
+  logs prove the decision was fast but `POST /api/chat 200 in 150536ms`:
+  the model rambled in its thinking block the whole window (unterminated
+  think → scrubber keeps the answer area empty; same prompt standalone
+  finishes in ~1.4 s). FIXED test-only: journey retries ONCE on window
+  expiry (fresh "New conversation", new UNIQUE token, test 420 s).
+  Run pw-final4 completed 308|4 skipped|1 failed (36.4 m, exit 1) — the
+  retry did NOT save reasoning-test (both attempts hit the 150 s window →
+  systematic, not random). DEEPER ROOT CAUSE: ABANDONED UPSTREAM STREAMS.
+  When a test navigates away mid-stream, the route's fetch to :8080 had no
+  abort signal, so llama.cpp kept generating for the dead request (log
+  proof: a chart decision with NO matching `POST /api/chat` completion
+  line right before each victim run). APP FIX (app/api/chat/route.ts):
+  `req.signal` is passed into forwardStream → upstream fetch aborts when
+  the browser walks away; llama.cpp cancels on socket close. VERIFIED:
+  abandon a chart stream at 6 s → next turn closes in 2.0 s (was starved);
+  targeted neighborhood run (inspect-dup + interactive-ui +
+  multi-select-delete + reasoning-test) **5 passed, exit 0** —
+  reasoning-test passed FIRST attempt (turn closed in 125.6 s < 150 s).
+  FINAL RUN pw-final5 (§1 lock protocol): **309 passed | 4 skipped |
+  0 failed, exit 0** (30.0 m) — full headed suite 100% green. Post-fix
+  vitest vs final code: 434 passed | 1 skipped.
+- 2026-10-19 NEW COORDINATION PROTOCOL (project CLAUDE.md §1 — supersedes
+  the "Start-Process background + poll" pattern above): CODE/TEST/ANALYZE
+  mutually exclusive; `.ai-coordination/playwright.lock` created before
+  launch and removed in `finally`; while the lock exists the agent waits in
+  the §1.2 FOREGROUND loop and does NOTHING else; the run's real exit code
+  is preserved; never kill a run, never edit app code mid-run. The 10-min
+  Bash foreground cap < 33-45 m suite is bridged by a launcher script that
+  owns the lock (§1.3 contemplates separate launchers); between wait-loop
+  calls the agent performs no other work and no polling reasoning turns.
+  Decision-engine CLI suites
+  (all hit live worker :8790): `node tests/test-decision-router.mjs` 11/11,
+  `node tests/audit-decision-table.mjs` 12/12 + ALL 10 hard tokens,
+  `node tests/test-decision-extreme-edge-cases.mjs` **50/50**,
+  `.decision-engine/.venv/Scripts/python.exe -I tests/test-decision-fallback.py`
+  PASS. Worker restarts MUST use the venv python (system python →
+  ModuleNotFoundError: needle). Auto-boot: `npm run dev` now warms the engine
+  itself ("[decision] engine warm on http://127.0.0.1:8790") — no manual
+  worker launch needed after a Next restart.
 - 2026-10-19 (REVERT): progress-mascot feature (commit 5b94540) reverted —
   Mascot/RobotProgress/usePrefillProgress/prefillCalibration/stagedProgress,
   its unit tests and `tests/progress-status.spec.ts` removed. To be

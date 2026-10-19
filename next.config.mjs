@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
+    // Auto-boot hook: instrumentation.ts warms the Decision Engine on server
+    // start (required flag on Next 14; native in 15).
+    instrumentationHook: true,
     // Native/binary server deps used by the file-extraction routes. Keeping
     // them external stops webpack from trying to bundle ffmpeg/onnxruntime.
     serverComponentsExternalPackages: [

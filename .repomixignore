@@ -1,0 +1,18 @@
+# Repomix packing exclusions (PART 3 repo hygiene): heavy, binary or
+# machine-local artifacts that add noise (and tokens) to a repo snapshot.
+.decision-engine/**
+.cskills/**/examples/**
+.cskills/**/assets/**
+.cskills/**/schemas/**
+graphify-out/**
+test-results/**
+.playwright-cli/**
+.data/**
+.next/**
+node_modules/**
+*.gguf
+*.xlsx
+*.dxf
+*.svg
+*.png
+*.woff2

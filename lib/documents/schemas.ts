@@ -119,11 +119,195 @@ export interface XlsxColumn {
   key: string; label: string; width?: number; format: CellFormat;
   validation?: { type: "list"; values: string[] } | { type: "decimal"; min?: number; max?: number };
 }
+/**
+ * Bulk-row generator: the LLM emits ONE compact descriptor (~40 tokens) and
+ * the engine materializes the full grid deterministically — a 500-row sheet
+ * costs ~1,500 prompt tokens, never 15,000. Expansion runs inside
+ * normalizeXlsx so the server engine AND the client preview see identical
+ * materialized rows. Documented in XLSX_CONTRACT (lib/decision/contracts.ts).
+ */
+export interface XlsxRowGenColumn {
+  key: string;
+  /** Precedence: formulaTemplate > pattern > cycle > dateRange > numberRange > sequence > value. */
+  formulaTemplate?: string;   // "{row}" → real spreadsheet row number: "=ROUND(D{row}*E{row},2)"
+  pattern?: string;           // "TXN-{1001..1500}" → TXN-1001, TXN-1002, ...
+  cycle?: unknown[];          // repeats: ["Food","Rent",...]
+  dateRange?: { start: string; end: string }; // evenly spaced ISO dates
+  numberRange?: { min: number; max: number; decimals?: number }; // deterministic per (sheet,key,row) hash
+  sequence?: { start: number; step: number };
+  value?: string | number | boolean;
+}
+export interface XlsxRowGenerator {
+  count: number;
+  /** Spreadsheet row of the FIRST generated row (default: right after existing rows, min 2). */
+  startRow?: number;
+  columns: XlsxRowGenColumn[];
+}
+export interface XlsxChart {
+  type: "bar" | "line" | "pie" | "donut" | "area";
+  title: string;
+  categories: string[];
+  series: { name: string; data: number[] }[];
+  /** Cell anchor like "H2"; default: stacked below the data block. */
+  anchor?: string;
+}
+export interface XlsxConditionalFormat {
+  range?: string;             // "G2:G501" — takes precedence over columnKey
+  columnKey?: string;         // resolved to the column's data range
+  rule: "greaterThan" | "lessThan" | "equal" | "containsText" | "between";
+  value?: string | number;
+  min?: number;
+  max?: number;
+  fill?: string;              // #RRGGBB; default per rule (status words get red/amber/green)
+  fontColor?: string;         // #RRGGBB
+}
 export interface XlsxSheet {
   name: string; columns: XlsxColumn[]; rows: Record<string, unknown>[];
   freezeHeader: boolean; totalRow: boolean;
+  rowGenerator?: XlsxRowGenerator;
+  charts?: XlsxChart[];
+  conditionalFormatting?: XlsxConditionalFormat[];
 }
 export interface XlsxSpec { filename: string; sheets: XlsxSheet[] }
+
+/** Default status colors: FAIL/OVERSPEND red, REORDER amber, OK/PASS green. */
+export const CF_STATUS_COLORS: Record<string, { fill: string; fontColor: string }> = {
+  OVERSPEND: { fill: "#FEE2E2", fontColor: "#B91C1C" },
+  FAIL: { fill: "#FEE2E2", fontColor: "#B91C1C" },
+  REORDER: { fill: "#FEF3C7", fontColor: "#B45309" },
+  OK: { fill: "#DCFCE7", fontColor: "#15803D" },
+  PASS: { fill: "#DCFCE7", fontColor: "#15803D" },
+};
+
+// Deterministic PRNG (FNV-1a hash → mulberry32): same spec ⇒ same rows on
+// server build and client preview, byte-for-byte. No Math.random anywhere.
+function fnv1a(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const CF_RULES = new Set(["greaterThan", "lessThan", "equal", "containsText", "between"]);
+
+/** Effective colors for a CF rule: explicit win; status words get the
+ *  default red/amber/green; everything else amber. Shared by the xlsx engine
+ *  (ExcelJS styles) and the client preview (inline styles) — identical output. */
+export function cfColors(cf: XlsxConditionalFormat): { fill: string; fontColor: string } {
+  const status = (typeof cf.value === "string" ? cf.value : "").toUpperCase();
+  const d = (cf.rule === "equal" || cf.rule === "containsText") && CF_STATUS_COLORS[status]
+    ? CF_STATUS_COLORS[status]
+    : { fill: "#FEF3C7", fontColor: "#B45309" };
+  return { fill: cf.fill || d.fill, fontColor: cf.fontColor || d.fontColor };
+}
+
+function normalizeRowGenColumn(c: any): XlsxRowGenColumn | null {
+  if (!c || typeof c !== "object") return null;
+  const key = str(c.key ?? c.id ?? c.name);
+  if (!key) return null;
+  const out: XlsxRowGenColumn = { key };
+  if (c.formulaTemplate != null) out.formulaTemplate = str(c.formulaTemplate);
+  if (c.pattern != null) out.pattern = str(c.pattern);
+  if (Array.isArray(c.cycle) && c.cycle.length) out.cycle = c.cycle;
+  if (c.dateRange && typeof c.dateRange === "object") {
+    const s = str(c.dateRange.start ?? c.dateRange.from), e = str(c.dateRange.end ?? c.dateRange.to);
+    if (s && e) out.dateRange = { start: s, end: e };
+  }
+  if (c.numberRange && typeof c.numberRange === "object") {
+    const min = Number(c.numberRange.min), max = Number(c.numberRange.max);
+    if (isFinite(min) && isFinite(max)) {
+      const dec = c.numberRange.decimals == null ? 2 : Number(c.numberRange.decimals) || 0;
+      out.numberRange = { min, max, decimals: Math.max(0, Math.min(6, dec)) };
+    }
+  }
+  if (c.sequence && typeof c.sequence === "object") {
+    const start = Number(c.sequence.start ?? c.sequence.from) || 0;
+    const step = c.sequence.step == null ? 1 : Number(c.sequence.step);
+    out.sequence = { start, step: isFinite(step) ? step : 1 };
+  }
+  if (c.value !== undefined && !out.formulaTemplate && !out.pattern && !out.cycle && !out.numberRange && !out.sequence && !out.dateRange) {
+    out.value = typeof c.value === "boolean" ? c.value : typeof c.value === "number" ? c.value : str(c.value);
+  }
+  return out;
+}
+
+/** Materialize gen.rows into sheet.rows (deterministic; runs inside normalizeXlsx). */
+function expandRowGenerator(sheet: XlsxSheet): void {
+  const gen = sheet.rowGenerator;
+  if (!gen || !Array.isArray(gen.columns) || !gen.columns.length) return;
+  const count = Math.max(0, Math.min(5000, Number(gen.count) || 0));
+  const base = sheet.rows.length;
+  const firstRow = Math.max(2, Number(gen.startRow) || 2 + base);
+  const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+  for (let i = 0; i < count; i++) {
+    const rowNum = firstRow + i;
+    const row: Record<string, unknown> = {};
+    for (const gc of gen.columns) {
+      if (gc.formulaTemplate) {
+        row[gc.key] = gc.formulaTemplate.replace(/\{row\}/g, String(rowNum));
+      } else if (gc.pattern) {
+        const m = /^(.*?)\{(\d+)\s*\.\.\s*(\d+)\}(.*)$/.exec(gc.pattern);
+        if (m) {
+          const start = parseInt(m[2], 10);
+          const width = Math.max(m[2].length, m[3].length);
+          row[gc.key] = m[1] + String(start + i).padStart(width, "0") + m[4];
+        } else {
+          row[gc.key] = gc.pattern;
+        }
+      } else if (gc.cycle && gc.cycle.length) {
+        row[gc.key] = gc.cycle[i % gc.cycle.length];
+      } else if (gc.dateRange) {
+        const t0 = Date.parse(gc.dateRange.start), t1 = Date.parse(gc.dateRange.end);
+        if (isFinite(t0) && isFinite(t1)) {
+          const step = count > 1 ? (t1 - t0) / (count - 1) : 0;
+          row[gc.key] = isoDay(new Date(Math.round(t0 + step * i)));
+        } else row[gc.key] = gc.dateRange.start;
+      } else if (gc.numberRange) {
+        const rnd = mulberry32(fnv1a(sheet.name + "|" + gc.key + "|" + rowNum));
+        const { min, max, decimals = 2 } = gc.numberRange;
+        const v = min + rnd() * (max - min);
+        const f = Math.pow(10, decimals);
+        row[gc.key] = Math.round(v * f) / f;
+      } else if (gc.sequence) {
+        row[gc.key] = gc.sequence.start + gc.sequence.step * i;
+      } else {
+        row[gc.key] = gc.value ?? 0;
+      }
+    }
+    sheet.rows.push(row);
+  }
+}
+
+function normalizeXlsxChart(c: any): XlsxChart | null {
+  const lite = normalizeChartLite(c);
+  if (!lite) return null;
+  const type = lite.type as XlsxChart["type"];
+  return { type, title: str(c?.title), categories: lite.categories, series: lite.series, anchor: str(c?.anchor) || undefined };
+}
+
+function normalizeConditionalFormat(cf: any): XlsxConditionalFormat | null {
+  if (!cf || typeof cf !== "object") return null;
+  const rule = str(cf.rule ?? cf.type).replace(/^cell(is)?$/i, "greaterThan");
+  if (!CF_RULES.has(rule)) return null;
+  const out: XlsxConditionalFormat = { rule: rule as XlsxConditionalFormat["rule"] };
+  if (cf.range != null) out.range = str(cf.range).toUpperCase();
+  if (cf.columnKey != null) out.columnKey = str(cf.columnKey ?? cf.column);
+  if (cf.value != null) out.value = typeof cf.value === "number" ? cf.value : str(cf.value);
+  if (cf.min != null && isFinite(Number(cf.min))) out.min = Number(cf.min);
+  if (cf.max != null && isFinite(Number(cf.max))) out.max = Number(cf.max);
+  if (cf.fill != null) out.fill = str(cf.fill);
+  if (cf.fontColor != null || cf.font_color != null) out.fontColor = str(cf.fontColor ?? cf.font_color);
+  if (!out.range && !out.columnKey) return null;
+  return out;
+}
 
 const FORMATS = new Set<CellFormat>(["currency", "percent", "date", "number", "integer", "text"]);
 
@@ -152,14 +336,28 @@ export function normalizeXlsx(raw: any): XlsxSpec | null {
       }
       return r && typeof r === "object" ? r : {};
     });
-    sheets.push({
+    const sheet: XlsxSheet = {
       name: str(sh.name, "Sheet" + (sheets.length + 1)).slice(0, 31),
       columns, rows,
       freezeHeader: sh.freezeHeader !== false,
       totalRow: sh.totalRow === true,
-    });
+    };
+    if (sh.rowGenerator && typeof sh.rowGenerator === "object") {
+      const genCols = arr(sh.rowGenerator.columns ?? sh.rowGenerator.cols).map(normalizeRowGenColumn).filter((c): c is XlsxRowGenColumn => !!c);
+      if (genCols.length) sheet.rowGenerator = { count: Number(sh.rowGenerator.count ?? sh.rowGenerator.rows) || 0, startRow: sh.rowGenerator.startRow == null ? undefined : Number(sh.rowGenerator.startRow), columns: genCols };
+    }
+    const shCharts = arr(sh.charts ?? sh.graphs).map(normalizeXlsxChart).filter((c): c is XlsxChart => !!c);
+    if (shCharts.length) sheet.charts = shCharts;
+    const shCf = arr(sh.conditionalFormatting ?? sh.condFormatting ?? sh.cf).map(normalizeConditionalFormat).filter((c): c is XlsxConditionalFormat => !!c);
+    if (shCf.length) sheet.conditionalFormatting = shCf;
+    expandRowGenerator(sheet); // deterministic materialization — engine + preview identical
+    sheet.rowGenerator = undefined; // cleared: re-normalizing must NOT duplicate rows
+    sheets.push(sheet);
   }
   if (!sheets.length) return null;
+  // Workbook-level charts land on the first sheet (Dashboard convention).
+  const wbCharts = arr(raw.charts).map(normalizeXlsxChart).filter((c): c is XlsxChart => !!c);
+  if (wbCharts.length) sheets[0].charts = [...(sheets[0].charts ?? []), ...wbCharts];
   return { filename: str(raw.filename, "workbook"), sheets };
 }
 

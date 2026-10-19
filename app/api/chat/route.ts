@@ -92,9 +92,17 @@ async function forwardStream(
   body: string,
   usedSkill: string | null,
   decisionMode: RendererMode,
+  signal?: AbortSignal,
 ): Promise<Response> {
   try {
-    const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body });
+    // req.signal: when the browser walks away mid-stream (page close, Stop
+    // generating, a test navigating on), the upstream generation MUST die
+    // with it. Without it the local llama.cpp server keeps generating for
+    // the abandoned request — a zombie turn that starves/pollutes every
+    // following turn on the single inference slot (observed in three full
+    // Playwright runs: an abandoned chart stream left the next real-model
+    // test's two turns hanging with empty replies).
+    const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body, signal });
     if (!upstream.ok) return upstreamErrorResponse(upstream.status, await upstream.text().catch(() => ""));
     if (!upstream.body) return NextResponse.json({ error: "No response body from model" }, { status: 502 });
     return streamUpstream(upstream, usedSkill, decisionMode);
@@ -212,7 +220,14 @@ export async function POST(req: NextRequest) {
       // 3) noise-stripped task reaches the main LLM. BEFORE the block insert —
       // injectSystemBefore shifts lastUserIdx, so replacing after it would
       // overwrite the skill block instead of the user turn.
-      if (!passthrough && env.stripped_prompt.trim() && env.stripped_prompt !== fullText) {
+      // Attachment turns forward the user's text VERBATIM: the inlined file
+      // content rides in extra parts, and the LFM's 180-token summary of a
+      // long [file content] block drops it while inventing constraint filler
+      // ("financial/tabular words") — which derails the small main model on
+      // read-the-file journeys (observed: YES -> NO). The decision still
+      // selects the render mode; only the rewrite is skipped.
+      const hasAttachmentParts = Array.isArray(payload.messages[lastUserIdx]?.content);
+      if (!passthrough && !hasAttachmentParts && env.stripped_prompt.trim() && env.stripped_prompt !== fullText) {
         // task_constraints must never be dropped: append any constraint the
         // model listed that isn't already present verbatim in the stripped text.
         const constraints = (env.task_constraints ?? []).filter(
@@ -241,5 +256,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode);
+  return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode, req.signal);
 }
