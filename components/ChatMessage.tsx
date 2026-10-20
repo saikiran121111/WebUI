@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle, Zap } from "lucide-react";
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
+import ResearchTrailCard from "./render/ResearchTrailCard";
 import { copyText } from "../lib/render/clipboard";
 import type { Message } from "../lib/types";
 
@@ -208,10 +209,22 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         </div>
       )}
 
+      {/* Research trail: collapsible LFM decision + source cards */}
+      {message.webCitations && Object.keys(message.webCitations).length > 0 && (
+        <ResearchTrailCard message={message} />
+      )}
+
       {/* Main content */}
       {content && (
         <div className="msg-content">
-          <MarkdownRenderer content={content} streaming={state === "streaming"} onSend={onSend} onFenceRuntimeError={onFenceRuntimeError} decisionMode={message.decisionMode} />
+          <MarkdownRenderer
+            content={content}
+            streaming={state === "streaming"}
+            onSend={onSend}
+            onFenceRuntimeError={onFenceRuntimeError}
+            decisionMode={message.decisionMode}
+            citationMap={message.webCitations}
+          />
           {message.fenceRepair && (
             <div className="fence-repair-note" data-testid="fence-repair-note">{message.fenceRepair}</div>
           )}

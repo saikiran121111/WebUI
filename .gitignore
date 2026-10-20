@@ -24,3 +24,8 @@ tests/fixtures/
 # transient dev/test artifacts (Playwright coordination lock + run logs)
 .cache/
 .ai-coordination/
+
+# Web Search & Research Engine: all local storage (SQLite caches, scraped-page
+# caches, vendor fallback lists) lives under .local-search/ and stays out of
+# git. The directory is auto-created on first use.
+.local-search/

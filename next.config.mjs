@@ -22,6 +22,13 @@ const nextConfig = {
       // color deps must resolve at runtime, not through the webpack bundle.
       "pino",
       "pino-pretty",
+      // Web-search engine native deps: impit's Rust N-API binding +
+      // better-sqlite3's C++ binding must load from node_modules, not
+      // through the webpack bundle (both are required at runtime).
+      "impit",
+      "better-sqlite3",
+      // linkedom's CJS parser must also resolve at runtime.
+      "linkedom",
     ],
   },
 };

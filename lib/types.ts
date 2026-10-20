@@ -155,6 +155,27 @@ export interface Message {
   attachments: Attachment[];
   toolCalls: ToolCall[];
   citations: Citation[];
+  /**
+   * Web-research citations from the LFM-gated search pipeline:
+   * keyed by sourceId ("S1", "S2", ...), passed to MarkdownRenderer
+   * so [S#] markers in the reply become clickable pills.
+   */
+  webCitations?: Record<string, {
+    sourceId: string;
+    url: string;
+    title: string;
+    domain: string;
+    publishedAt?: string;
+  }>;
+  /**
+   * LFM decision summary shown in the Research Trail card:
+   * which queries were generated and at what depth/freshness.
+   */
+  researchLfm?: {
+    depth: string;
+    freshness: string;
+    queries: { query: string; intent: string }[];
+  };
   usage?: Usage;
   createdAt: number;
   finishedAt?: number;

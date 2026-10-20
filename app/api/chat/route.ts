@@ -19,6 +19,7 @@ import {
   type DecisionEnvelope,
   type RendererMode,
 } from "../../../lib/decision/types";
+import { runWebResearch, buildMainModelContext } from "../../../src/lib/web-search/pipeline";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
@@ -54,6 +55,8 @@ function streamHeaders(
   contentType: string | null,
   usedSkill: string | null,
   decisionMode: RendererMode,
+  webCitations?: Record<string, any> | null,
+  researchLfm?: { depth: string; freshness: string; queries: { query: string; intent: string }[] } | null,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": contentType ?? "text/event-stream",
@@ -66,6 +69,15 @@ function streamHeaders(
   };
   // User-tier skill metadata for the UI: the client reads this and shows the pill.
   if (usedSkill) headers["X-Used-Skill"] = usedSkill;
+  // Web-research citations: the [S1]…[Sn] marker map the UI uses to turn
+  // inline citations into clickable pills + the Research Trail card.
+  if (webCitations && Object.keys(webCitations).length > 0) {
+    headers["X-Web-Citations"] = encodeURIComponent(JSON.stringify(webCitations));
+  }
+  // LFM decision summary: shown collapsed in the Research Trail card.
+  if (researchLfm) {
+    headers["X-Research-Lfm"] = encodeURIComponent(JSON.stringify(researchLfm));
+  }
   return headers;
 }
 
@@ -83,6 +95,8 @@ function streamUpstream(
   decisionMode: RendererMode,
   model: string,
   onSettled: () => void,
+  webCitations?: Record<string, any> | null,
+  researchLfm?: { depth: string; freshness: string; queries: { query: string; intent: string }[] } | null,
 ): Response {
   const started = Date.now();
   let chunks = 0;
@@ -110,7 +124,13 @@ function streamUpstream(
     .finally(onSettled);
   return new Response(scrubber.readable, {
     status: 200,
-    headers: streamHeaders(upstream.headers.get("Content-Type"), usedSkill, decisionMode),
+    headers: streamHeaders(
+      upstream.headers.get("Content-Type"),
+      usedSkill,
+      decisionMode,
+      webCitations,
+      researchLfm,
+    ),
   });
 }
 
@@ -120,6 +140,8 @@ async function forwardStream(
   decisionMode: RendererMode,
   signal?: AbortSignal,
   model = "default",
+  webCitations?: Record<string, any> | null,
+  researchLfm?: { depth: string; freshness: string; queries: { query: string; intent: string }[] } | null,
 ): Promise<Response> {
   // Claim the shared inference slot for the user's turn: this aborts any
   // in-flight background title call (user traffic always wins) and blocks
@@ -153,7 +175,15 @@ async function forwardStream(
       release();
       return NextResponse.json({ error: "No response body from model" }, { status: 502 });
     }
-    return streamUpstream(upstream, usedSkill, decisionMode, model, release);
+    return streamUpstream(
+      upstream,
+      usedSkill,
+      decisionMode,
+      model,
+      release,
+      webCitations,
+      researchLfm,
+    );
   } catch (err) {
     // AbortError is the browser walking away mid-stream — expected, not a fault.
     if ((err as Error)?.name === "AbortError") {
@@ -264,6 +294,12 @@ export async function POST(req: NextRequest) {
   const model = typeof payload?.model === "string" && payload.model ? payload.model : "default";
   let usedSkill: string | null = null;
   let decisionMode: RendererMode = "standard_chat";
+  let webCitationMap: Record<string, any> | null = null;
+  let researchLfmMeta: {
+    depth: string;
+    freshness: string;
+    queries: { query: string; intent: string }[];
+  } | null = null;
 
   if (payload && Array.isArray(payload.messages) && payload.messages.length > 0) {
     // 1) user-tier slash skill (explicit intent, zero tokens otherwise)
@@ -281,10 +317,11 @@ export async function POST(req: NextRequest) {
       const passthrough = isRendererMode(payload.decision_mode) ? payload.decision_mode : null;
       delete payload.decision_mode;
       let env: DecisionEnvelope;
+      let history: { role: string; content: string }[] = [];
       if (passthrough) {
         env = passthroughEnvelope(passthrough, fullText);
       } else {
-        const history = historyBefore(payload.messages, lastUserIdx);
+        history = historyBefore(payload.messages, lastUserIdx);
         env = await getDecision(fullText.trim() ? fullText : "", history);
       }
       decisionMode = env.active_mode;
@@ -337,6 +374,70 @@ export async function POST(req: NextRequest) {
         log.error({ err: err instanceof Error ? err.message : err }, "attachment retrieval failed");
       }
 
+      // 6) Mandatory LFM web-search gate: every prompt is classified by the
+      //    LFM router BEFORE the main model sees it. If a live search is
+      //    required, the full research pipeline (parallel metasearch →
+      //    3-tier extraction → CPU BM25 rerank) runs now and the resulting
+      //    evidence block is injected as a system message just ahead of the
+      //    user turn — so the main model can only answer from what was
+      //    actually retrieved, and is instructed to cite [S#] inline.
+      let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
+      try {
+        researchBundle = await runWebResearch(
+          { userPrompt: fullText, history },
+          (p) => {
+            // surface pipeline progress in the dev terminal
+            log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
+          },
+        );
+        if (researchBundle) {
+          const { systemBlock } = buildMainModelContext(researchBundle);
+          injectSystemBefore(
+            payload.messages,
+            lastUserIdx + 1,
+            systemBlock,
+          );
+          // Build the [S#] → {url, title, domain} map the browser UI uses
+          // to turn inline citation markers into clickable pills.
+          webCitationMap = {};
+          for (const packet of researchBundle.packets) {
+            webCitationMap[packet.sourceId] = {
+              sourceId: packet.sourceId,
+              url: packet.url,
+              title: packet.title,
+              domain: packet.domain,
+              publishedAt: packet.publishedAt,
+            };
+          }
+          researchLfmMeta = {
+            depth: researchBundle.lfm.decision.depth,
+            freshness: researchBundle.lfm.decision.freshness,
+            queries: researchBundle.lfm.decision.queries.map((q) => ({
+              query: q.query,
+              intent: q.intent,
+            })),
+          };
+          log.info(
+            {
+              passages: researchBundle.topPassages.length,
+              results: researchBundle.searchResults.length,
+              lfmSource: researchBundle.lfm.source,
+              fromCache: researchBundle.fromCache,
+              citations: Object.keys(webCitationMap).length,
+            },
+            "web research evidence injected",
+          );
+        }
+      } catch (err: unknown) {
+        // A failed research run must not kill the chat turn: the main model
+        // still answers from its own knowledge (with a note that the web
+        // search failed).
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          "web research pipeline failed — proceeding without web evidence",
+        );
+      }
+
       // The full routing story in one readable terminal block: LFM2.5-1.2B
       // router (exact input + raw JSON out), the skill actually injected,
       // the UI component that will render this reply, and what the main LLM
@@ -350,5 +451,13 @@ export async function POST(req: NextRequest) {
   // must be gone before the payload leaves (indexed turn or not).
   if (payload && Array.isArray(payload.messages)) stripAttachmentRefs(payload.messages);
 
-  return forwardStream(payload ? JSON.stringify(payload) : raw, usedSkill, decisionMode, req.signal, model);
+  return forwardStream(
+    payload ? JSON.stringify(payload) : raw,
+    usedSkill,
+    decisionMode,
+    req.signal,
+    model,
+    webCitationMap,
+    (webCitationMap ? researchLfmMeta : null),
+  );
 }

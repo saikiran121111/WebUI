@@ -334,6 +334,32 @@ export function useChat({
               m.id === assistantMsg.id ? { ...m, usedSkill: skill } : m
             ));
           }
+          // Web-research citations: the [S#] map the LFM-gated pipeline
+          // produces, used by ResearchTrailCard + the citation pills.
+          const raw = headers.get("X-Web-Citations");
+          if (raw) {
+            try {
+              const webCitations = JSON.parse(decodeURIComponent(raw));
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsg.id ? { ...m, webCitations } : m
+              ));
+            } catch {
+              // Malformed header — the pills simply won't render, the
+              // answer itself is unaffected.
+            }
+          }
+          // LFM decision summary: shown collapsed in the Research Trail card.
+          const rawLfm = headers.get("X-Research-Lfm");
+          if (rawLfm) {
+            try {
+              const researchLfm = JSON.parse(decodeURIComponent(rawLfm));
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsg.id ? { ...m, researchLfm } : m
+              ));
+            } catch {
+              /* ignore */
+            }
+          }
         },
       ).catch((e: any) => {
         throw e;

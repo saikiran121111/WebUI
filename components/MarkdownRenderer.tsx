@@ -33,6 +33,7 @@ import { looksLikeTree, looksLikeTreeStart } from "../lib/render/treeParse";
 import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
 import type { RendererMode } from "../lib/decision/types";
+import { remarkCitations } from "./render/citations";
 
 interface MathModule {
   mathPlugins(): {
@@ -61,6 +62,8 @@ export interface MarkdownRendererProps {
   allowInteractive?: boolean;
   onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
   decisionMode?: RendererMode | null;
+  /** Web-research citation map: [S1]…[Sn] markers become clickable pills. */
+  citationMap?: Record<string, { url: string; title: string; domain: string; publishedAt?: string }>;
 }
 
 /**
@@ -105,6 +108,7 @@ export default memo(function MarkdownRenderer({
   allowInteractive = true,
   onFenceRuntimeError,
   decisionMode,
+  citationMap,
 }: MarkdownRendererProps) {
   const [mathMod, setMathMod] = useState<MathModule | null>(null);
 
@@ -118,13 +122,21 @@ export default memo(function MarkdownRenderer({
   }, [content, mathMod]);
 
   const plugins = useMemo(() => {
-    if (!mathMod) return { remarkPlugins: [remarkGfm], rehypePlugins: undefined as unknown[] | undefined };
-    const math = mathMod.mathPlugins();
+    const base: unknown[] = [remarkGfm];
+    if (mathMod) {
+      const math = mathMod.mathPlugins();
+      base.push(...math.remarkPlugins);
+    }
+    // Web-research citation pills: only mount when the content actually
+    // carries [S#] markers AND a map is provided — zero work otherwise.
+    if (citationMap && Object.keys(citationMap).length > 0) {
+      base.push(remarkCitations(citationMap as any));
+    }
     return {
-      remarkPlugins: [remarkGfm, ...math.remarkPlugins],
-      rehypePlugins: math.rehypePlugins,
+      remarkPlugins: base,
+      rehypePlugins: (mathMod ? mathMod.mathPlugins().rehypePlugins : undefined) as unknown[] | undefined,
     };
-  }, [mathMod]);
+  }, [mathMod, citationMap]);
 
   const options = useMemo<RenderOptions>(
     () => ({ streaming, onSend, allowInteractive, onFenceRuntimeError, decisionMode }),
@@ -227,6 +239,33 @@ const MD_COMPONENTS = {
   },
   hr() {
     return <hr className="md-hr" />;
+  },
+  // Custom citation element emitted by the remarkCitations plugin
+  citation(props: any) {
+    const source = props["data-source"] as string;
+    const url = props["data-url"] as string;
+    const domain = props["data-domain"] as string;
+    const title = props["data-title"] as string;
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={title}
+        data-citation={source}
+        className="inline-flex items-center gap-0.5 text-[11px] font-medium
+          px-1.5 py-0.5 rounded
+          bg-[#38E8FF]/10 text-[#38E8FF]
+          hover:bg-[#38E8FF]/20 transition-colors
+          align-super"
+      >
+        <span>{source}</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
+          <path d="M7 17 17 7M7 7h10v10" />
+        </svg>
+      </a>
+    );
   },
 };
 
