@@ -66,17 +66,30 @@ const JINA_TIMEOUT_MS = 45_000;
 const WAYBACK_TIMEOUT_MS = 45_000;
 const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
 
-// Concurrency for the DOM-extraction tier. Lowered from 6 → 4 so that
-// under the stress test's 8-URL global pool the peak RSS stays under
-// the 450MB budget (unpdf / Jina / Wayback each hold a working set of
-// ~30-50MB while parsing). The production pipeline (≤10 URLs) is
-// unaffected — the extra two slots only matter at corpus scale.
-const limit = pLimit(4);
+// Concurrency for the DOM-extraction tier.
+//
+// Default is 4 (production pipeline only ever reads ≤10 URLs, so the extra
+// slots only matter at corpus scale). The INSANE stress runner sets
+// WEB_SEARCH_CONCURRENCY to match its own worker pool (e.g. 64) so that
+// every worker can run the full 7-tier cascade in parallel — otherwise
+// 58 of 64 workers would just queue behind the cap-4 / cap-6 global
+// limiters and the i9-14900K's 32 threads would sit idle.
+const EXTRACTION_CONCURRENCY = Math.max(
+  4,
+  parseInt(process.env.WEB_SEARCH_CONCURRENCY ?? "4", 10),
+);
+const limit = pLimit(EXTRACTION_CONCURRENCY);
 
-// Jina rate limiter: r.jina.ai's free tier caps at ~20 req/s per IP.
-// 6 concurrent + a 250ms gap between starts keeps us well under that
-// without stalling the pipeline.
-const jinaLimit = pLimit(6);
+// Jina rate limiter. Default 6 keeps the production pipeline under
+// r.jina.ai's free-tier ~20 req/s cap. The insane stress runner raises it
+// to match EXTRACTION_CONCURRENCY so all workers can use Jina in parallel
+// (the stress run's goal is maximum throughput on a local workstation,
+// not production-rate-limit safety).
+const JINA_CONCURRENCY = Math.max(
+  6,
+  parseInt(process.env.WEB_SEARCH_JINA_CONCURRENCY ?? "6", 10),
+);
+const jinaLimit = pLimit(JINA_CONCURRENCY);
 
 /* ── Extraction tier results (internal) ───────────────────────────────── */
 

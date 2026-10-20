@@ -78,12 +78,31 @@ export const LINK_PREVIEW_UAS: Array<{
   },
 ];
 
-export function tlsClient(): Impit {
+export function tlsClient(fp: BrowserFingerprint = "chrome"): Impit {
+  // Per-browser Impit instances so N parallel workers can all use
+  // Chrome/TLS-131 without sharing one 8-socket HTTP/2 pool.
+  switch (fp) {
+    case "firefox":
+      if (!_clientFire) _clientFire = new Impit({ browser: "firefox" });
+      return _clientFire;
+    case "edge":
+      if (!_clientEdge) _clientEdge = new Impit({ browser: "edge" });
+      return _clientEdge;
+    case "safari":
+      if (!_clientSafari) _clientSafari = new Impit({ browser: "safari" });
+      return _clientSafari;
+    default:
+      break;
+  }
   if (!_client) {
     _client = new Impit({ browser: "chrome" });
   }
   return _client;
 }
+
+let _clientFire: Impit | null = null;
+let _clientEdge: Impit | null = null;
+let _clientSafari: Impit | null = null;
 
 /**
  * Best-effort pool teardown. Impit's native pool releases sockets on
@@ -91,15 +110,17 @@ export function tlsClient(): Impit {
  * where close() lands — it is safe to call repeatedly.
  */
 export function closeTlsClient(): void {
-  try {
-    // The `close` method may not exist in every impit build; the cast is
-    // deliberate — calling a missing method throws, which we swallow.
-    // When the method does exist, it releases the per-host HTTP/2 pool.
-    (_client as any)?.close?.();
-  } catch {
-    /* no-op in builds where close() is not yet exposed */
+  for (const c of [_client, _clientFire, _clientEdge, _clientSafari]) {
+    try {
+      (c as any)?.close?.();
+    } catch {
+      /* no-op in builds where close() is not yet exposed */
+    }
   }
   _client = null;
+  _clientFire = null;
+  _clientEdge = null;
+  _clientSafari = null;
 }
 
 /* ── SSRF ───────────────────────────────────────────────────────────────── */
@@ -425,7 +446,7 @@ export async function fetchPage(
     };
 
     try {
-      const res = await tlsClient().fetch(url, {
+      const res = await tlsClient(fp).fetch(url, {
         method: opts.method ?? "GET",
         headers,
         timeout: opts.timeoutMs ?? defaultTimeout,
@@ -498,7 +519,7 @@ export async function fetchUrl(
   if (!isSafeUrl(url)) return null;
   try {
     const fp = opts.fingerprint ?? "chrome";
-    const res = await tlsClient().fetch(url, {
+    const res = await tlsClient(fp).fetch(url, {
       method: opts.method ?? "GET",
       headers: { ...apiHeaders(opts.headers, fp) },
       timeout: opts.timeoutMs ?? 40_000,
@@ -543,7 +564,7 @@ export async function fetchWithLinkPreviewBots(
 
   for (const bot of LINK_PREVIEW_UAS) {
     try {
-      const res = await tlsClient().fetch(url, {
+      const res = await tlsClient(fp).fetch(url, {
         method: "GET",
         headers: {
           "User-Agent": bot.userAgent,

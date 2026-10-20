@@ -36,7 +36,15 @@ async function fetchUrlWithRetry(
   return res;
 }
 
-const limit = pLimit(8);
+// Default engine-pool concurrency is 8 (production: ≤5 LFM plans × a few
+// sources each). The insane stress runner sets WEB_SEARCH_ENGINE_CONCURRENCY
+// to match its worker pool so every worker's Tier-6 slug triangulation can
+// fan out in parallel instead of queueing behind the cap-8 global pool.
+const ENGINE_CONCURRENCY = Math.max(
+  8,
+  parseInt(process.env.WEB_SEARCH_ENGINE_CONCURRENCY ?? "8", 10),
+);
+const limit = pLimit(ENGINE_CONCURRENCY);
 
 /**
  * linkedom returns a Window (global), not a bare Document. Pull the DOM
