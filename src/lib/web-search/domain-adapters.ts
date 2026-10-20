@@ -234,18 +234,34 @@ export async function domainAdapter(
 /**
  * Reddit: rewrite `reddit.com/r/<sub>/...` to the keyless `.json`
  * endpoint for a clean post + top-comments tree without HTML bloat.
+ * Subreddit-only URLs (no comment depth) hit the listing endpoint.
  */
 async function redditAdapter(u: URL): Promise<AdapterResult | null> {
   // https://reddit.com/r/rust/comments/abc/title/ → .json
-  let jsonUrl = u.href.replace(/\/$/, "") + ".json";
-  // If it's a deep comment link, just hit the thread root instead
-  if (/\/r\/[^\/]+\/comments\/[^\/]+\/[^\/]*$/.test(u.pathname)) {
-    const m = u.pathname.match(/\/(r\/[^\/]+\/comments\/[^\/]+)/);
-    if (m) jsonUrl = "https://www.reddit.com" + m[1] + ".json";
+  // https://reddit.com/r/rust                          → /r/rust.json
+  // https://old.reddit.com/...                          → rewrite host to www
+  const host = u.hostname.replace(/^old\.|^www\./, "");
+  const isOld = u.hostname.startsWith("old.reddit.com");
+  const base = isOld ? "https://old.reddit.com" : "https://www.reddit.com";
+
+  let jsonUrl: string;
+  // If the URL already points at a comments thread, use its root
+  const commentMatch = u.pathname.match(/\/(r\/[^\/]+\/comments\/[^\/]+)/);
+  if (commentMatch) {
+    jsonUrl = base + "/" + commentMatch[1] + ".json";
+  } else if (/^\/r\/[^/]+$/.test(u.pathname)) {
+    // Subreddit front page → hit the /r/<sub>.json listing
+    jsonUrl = base + u.pathname + ".json";
+  } else {
+    jsonUrl = base + u.pathname + ".json";
   }
+
   const res = await fetchUrl(jsonUrl, {
     timeoutMs: 3000,
-    headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36" },
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+    },
   });
   if (!res || !res.ok) return null;
   let data: any;
@@ -262,7 +278,9 @@ async function redditAdapter(u: URL): Promise<AdapterResult | null> {
     const isPost = d.author && (d.selftext || d.title);
     if (isPost && d.title) {
       lines.push("# " + d.title);
-      lines.push("By u/" + d.author + " · " + (d.subreddit ? "r/" + d.subreddit : ""));
+      lines.push(
+        "By u/" + d.author + " · " + (d.subreddit ? "r/" + d.subreddit : ""),
+      );
       if (d.selftext) lines.push(d.selftext.slice(0, 2000));
       if (d.url && !/reddit\.com/.test(d.url)) lines.push("Link: " + d.url);
     }

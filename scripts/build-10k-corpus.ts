@@ -941,6 +941,29 @@ const DEEP_PATHS: Record<string, string[]> = {
 
 /* ── genre → host classification ───────────────────────────────────── */
 
+/**
+ * Known infrastructure / CDN / DNS / SDK hosts that have NO real content
+ * page — they're noise in the Tranco list (Google's own subdomains,
+ * Akamai edge, mail.ru infra, ezviz/hicloudcam SDKs, ...). These get
+ * classified as hostile_waf so the stress test verifies the engine
+ * handles the hardest-to-scrape endpoints (WAF, JS challenge, dead DNS).
+ */
+const NON_CONTENT_HOSTS = new Set([
+  "googleapis.com", "gstatic.com", "googlevideo.com", "ggpht.com",
+  "google-analytics.com", "google.com", "google.co.in", "google.co.uk",
+  "google.de", "google.fr", "google.co.jp", "googleusercontent.com",
+  "youtube.com", "youtu.be",
+  "gtld-servers.net", "amazonaws.com", "cloudfront.net", "fastly.net",
+  "fastlylb.net", "akamai.net", "akamaihd.net", "akamaiedge.net",
+  "facebook.com", "fbcdn.net", "fbsbx.com", "fb.com", "instagram.com",
+  "twitch.tv", "mail.ru", "yandex.ru", "vk.com", "yandex.net",
+  "yandexcloud.com", "live.com", "office.com", "officeapps.live.com",
+  "onedrive.live.com", "azurewebsites.net", "microsofttranslator.com",
+  "appsflyersdk.com", "appsdk.com", "hcst-cdn.com", "hicloudcam.com",
+  "ezviz.com", "ezvizlife.com", "ezviz7.com", "ezviz.com.cn",
+  "domaincontrol.com", "dzen.ru",
+]);
+
 export function classifyHost(host: string): Genre {
   const lower = host.toLowerCase().replace(/^www\./, "");
   // Find the longest matching host (subdomains first)
@@ -949,7 +972,11 @@ export function classifyHost(host: string): Genre {
       return GENRE_BY_HOST[known];
     }
   }
-  return "news"; // fallback for Tranco's long tail
+  // Not in the known-content table: infrastructure / CDN / SDK hosts are
+  // hostile_waf (the hardest-to-scrape endpoints). Everything else is
+  // an uncategorized real content site — default to news.
+  if (NON_CONTENT_HOSTS.has(lower)) return "hostile_waf";
+  return "news";
 }
 
 /* ── corpus generation ───────────────────────────────────────────────── */

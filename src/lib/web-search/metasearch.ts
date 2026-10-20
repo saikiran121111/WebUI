@@ -502,7 +502,10 @@ export async function urlSearchFallback(
 ): Promise<RankedResult[]> {
   // Build the query the way a search engine would index this URL:
   // the URL itself + the title if we have one (so DDG/Brave match it).
-  const query = (title ? title + " " : "") + targetUrl;
+  // Use the title only when it looks like a human-readable label
+  // (not just the URL itself, which would double the query).
+  const titlePrefix = title && title !== targetUrl && title.length > 0 ? title + " " : "";
+  const query = titlePrefix + targetUrl;
 
   const raw: RawSearchResult[] = [];
 
@@ -515,29 +518,43 @@ export async function urlSearchFallback(
   const searx = await searxSearch(query);
   raw.push(...searx);
 
-  // Filter to results whose canonical URL matches the target — that's the
-  // "aggregated snippet" we need (other results are noise).
-  const canonical = normalizeUrl(targetUrl);
+  // Filter to results whose URL matches the target. Use a lenient match:
+  // same hostname AND (same path OR empty path on the result side).
+  // A strict canonical-equality filter misses results that differ only in
+  // tracking params, www prefix, or trailing slash — all of which
+  // normalizeUrl already handles, but search-engine result URLs sometimes
+  // have a different path depth (e.g. /product/x vs /products/x).
+  let targetHost = "";
+  let targetPath = "";
+  try {
+    const tu = new URL(targetUrl);
+    targetHost = tu.hostname.toLowerCase().replace(/^www\./, "");
+    targetPath = tu.pathname.replace(/\/+$/, "");
+  } catch { /* keep empty */ }
+
   const matching = raw.filter((r) => {
-    let norm: string;
+    let rHost = "";
+    let rPath = "";
     try {
-      norm = normalizeUrl(r.url);
+      const ru = new URL(r.url);
+      rHost = ru.hostname.toLowerCase().replace(/^www\./, "");
+      rPath = ru.pathname.replace(/\/+$/, "");
     } catch {
       return false;
     }
-    return norm === canonical || r.url === targetUrl;
+    if (rHost !== targetHost) return false;
+    // Path must match OR one of them is the root path
+    if (targetPath && rPath && targetPath !== rPath) return false;
+    return true;
   });
 
   // Build the RankedResult list
   const out: RankedResult[] = matching.map((r, i) => {
-    let domain = "";
-    try {
-      domain = new URL(canonical).hostname.toLowerCase().replace(/^www\./, "");
-    } catch {}
+    let domain = targetHost;
     return {
       ...r,
-      url: canonical,
-      canonical,
+      url: targetUrl,
+      canonical: normalizeUrl(targetUrl),
       domain,
       rrf: 1 / (60 + i + 1),
       engines: [r.engine],

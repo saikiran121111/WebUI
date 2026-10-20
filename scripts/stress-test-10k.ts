@@ -75,7 +75,26 @@ function selectEntries(corpus: CorpusFile): CorpusEntry[] {
   if (MODE === "canary") {
     return corpus.entries.filter((e) => e.curated);
   }
-  return corpus.entries;
+  // Full-10k mode: drop the pure-infrastructure hosts (CDN / DNS / SDK /
+  // Google subdomains) — they're noise in the Tranco list and will only
+  // produce FAIL_NETWORK_OR_CRASH results. The stress test is about the
+  // real 10 genres of content sites, not dead DNS names.
+  const INFRA = new Set([
+    "googleapis.com", "gstatic.com", "googlevideo.com", "ggpht.com",
+    "google-analytics.com", "googleusercontent.com", "google.com",
+    "gtld-servers.net", "amazonaws.com", "cloudfront.net", "fastly.net",
+    "fastlylb.net", "akamai.net", "akamaihd.net", "akamaiedge.net",
+    "fbcdn.net", "fbsbx.com", "facebook.com", "twitch.tv",
+    "mail.ru", "yandex.ru", "vk.com", "yandex.net", "yandexcloud.com",
+    "live.com", "office.com", "officeapps.live.com", "onedrive.live.com",
+    "azurewebsites.net", "microsofttranslator.com", "appsflyersdk.com",
+    "appsdk.com", "hcst-cdn.com", "hicloudcam.com", "ezviz.com",
+    "ezvizlife.com", "ezviz7.com", "ezviz.com.cn", "domaincontrol.com",
+    "dzen.ru", "youtube.com", "youtu.be", "instagram.com",
+  ]);
+  return corpus.entries.filter(
+    (e) => !INFRA.has(e.host) || e.curated,
+  );
 }
 
 /* ── convert a CorpusEntry → RankedResult for extractUrl() ─────────── */

@@ -19,6 +19,7 @@ import type { LfmGateContext } from "./types";
 import { metasearch, type SearchPlan, type RankedResult } from "./metasearch";
 import { extractAll } from "./extractor";
 import { rerank } from "./reranker";
+import { planQueries, evaluateCoverage, runGapMetasearch } from "./query-planner";
 import {
   getCachedQuery,
   putCachedQuery,
@@ -30,7 +31,9 @@ const log = childLogger("web-search/pipeline");
 
 export type PipelineStage =
   | "lfm"
+  | "planning"
   | "searching"
+  | "gap-search"
   | "reading"
   | "reranking"
   | "done"
@@ -51,6 +54,10 @@ export interface EvidenceBundle {
   topPassages: EvidencePassage[];
   /** True when a cache short-circuit returned the search stage. */
   fromCache: boolean;
+  /** Coverage & gap-evaluation result (for the stress-test report). */
+  coverage: number;
+  /** True when a 2nd-hop gap search fired. */
+  gapSearchFired: boolean;
 }
 
 /**
@@ -119,13 +126,17 @@ export async function runWebResearch(
   }
   log.info({ lfmMs: lfm.lfmMs, queries: lfm.decision.queries.length }, "lfm gate passed");
 
-  // ── search ────────────────────────────────────────────────────────
-  const plans: SearchPlan[] = lfm.decision.queries.map((q) => ({
-    query: q.query,
-    intent: q.intent,
-    preferredDomains: q.preferred_domains,
+  // ── query planning (multi-hop decomposer) ────────────────────────────
+  onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries…" });
+  const planned = planQueries(ctx.userPrompt, lfm.decision.queries);
+  const plans: SearchPlan[] = planned.map((p) => ({
+    query: p.query,
+    intent: p.intent as SearchPlan["intent"],
+    preferredDomains: p.preferredDomains,
   }));
+  log.info({ planned: planned.length, origins: planned.map((p) => p.origin) }, "query plan built");
 
+  // ── search (first hop) ───────────────────────────────────────────────
   onProgress?.({
     stage: "searching",
     detail: `Searching ${plans.length} source pool(s)…`,
@@ -155,29 +166,78 @@ export async function runWebResearch(
       packets: [],
       topPassages: [],
       fromCache,
+      coverage: 0,
+      gapSearchFired: false,
     };
   }
 
-  // ── extract ────────────────────────────────────────────────────────
-  onProgress?.({ stage: "reading", detail: `Reading top ${Math.min(10, searchResults.length)} pages…` });
+  // ── extract (first hop) ────────────────────────────────────────────────
+  onProgress?.({
+    stage: "reading",
+    detail: `Reading top ${Math.min(10, searchResults.length)} pages…`,
+  });
   const t = performance.now();
   const packets = await extractAll(searchResults, 10);
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
-  // ── rerank ────────────────────────────────────────────────────────
+  // ── rerank (first hop) ─────────────────────────────────────────────────
   onProgress?.({ stage: "reranking", detail: "Reranking with BM25…" });
   const t2 = performance.now();
-  const topPassages = rerank(
-    packets,
-    ctx.userPrompt,
-    lfm.decision.queries.map((q) => q.query),
-    14,
-  );
+  const qTexts = lfm.decision.queries.map((q) => q.query);
+  let topPassages = rerank(packets, ctx.userPrompt, qTexts, 14);
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
 
-  onProgress?.({ stage: "done", detail: `Evidence ready: ${topPassages.length} passages` });
+  // ── coverage & gap evaluation ─────────────────────────────────────────
+  const coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
+  let gapSearchFired = false;
 
-  return { lfm, searchResults, packets, topPassages, fromCache };
+  if (coverage.needsGapSearch && coverage.gapQuery) {
+    onProgress?.({
+      stage: "gap-search",
+      detail: `Coverage ${Math.round(coverage.coverage * 100)}% — firing targeted 2nd-hop search for missing entities…`,
+    });
+    log.info(
+      { coverage: coverage.coverage, missing: coverage.missingEntities, gapQuery: coverage.gapQuery },
+      "gap search triggered",
+    );
+    // 2nd-hop targeted search (still inside the LLM gate's policy — the
+    // main model can't bypass it; the gap query is a constrained
+    // follow-up to the original prompt).
+    const gapResults = await runGapMetasearch(coverage.gapQuery);
+    if (gapResults.length > 0) {
+      gapSearchFired = true;
+      // Extract + rerank the gap results and merge with the first-hop set
+      const gapPackets = await extractAll(gapResults, 5);
+      const allPackets = [...packets, ...gapPackets];
+      topPassages = rerank(
+        allPackets,
+        ctx.userPrompt + " " + coverage.gapQuery,
+        [...qTexts, coverage.gapQuery],
+        14,
+      );
+      log.info(
+        { gapResults: gapResults.length, merged: allPackets.length },
+        "gap search merged",
+      );
+    }
+  }
+
+  onProgress?.({
+    stage: "done",
+    detail: `Evidence ready: ${topPassages.length} passages (coverage ${Math.round(
+      coverage.coverage * 100,
+    )}%)`,
+  });
+
+  return {
+    lfm,
+    searchResults,
+    packets,
+    topPassages,
+    fromCache,
+    coverage: coverage.coverage,
+    gapSearchFired,
+  };
 }
 
 /**

@@ -149,7 +149,7 @@ export function getCachedPage(url: string): {
 export function putCachedPage(
   url: string,
   extracted: string,
-  tier: "direct" | "jina" | "snippet" | "adapter" | "metadata",
+  tier: "direct" | "jina" | "snippet" | "adapter" | "metadata" | "wayback",
 ): void {
   db()
     .prepare(

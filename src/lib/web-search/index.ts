@@ -66,6 +66,39 @@ export {
   type AdapterResult,
 } from "./domain-adapters";
 export {
+  universalDiscovery,
+  universalSchemaExtract,
+  tryMarkdownNegotiation,
+  tryLlmsTxt,
+  discourseAdapter,
+  shopifyAdapter,
+  cmsAdapter,
+  type DiscoveredChannel,
+} from "./universal-discovery";
+export {
+  unpackHydration,
+} from "./hydration-unpacker";
+export {
+  structuralExtract,
+  structuralExtractAsync,
+  detectMode,
+  type ExtractionMode,
+  type StructuredExtraction,
+  type ModeDetection,
+} from "./universal-extractor";
+export {
+  detectCharset,
+  normalizeBody,
+} from "./charset-normalizer";
+export {
+  planQueries,
+  evaluateCoverage,
+  gapSearchDecision,
+  runGapMetasearch,
+  type PlannedQuery,
+  type CoverageReport,
+} from "./query-planner";
+export {
   recordResult,
   hasResult,
   allResults,
