@@ -1,18 +1,24 @@
 import { z } from "zod";
 
-export const SearchDecisionSchema = z.object({
-  search_required: z.boolean(),
-  reason: z.string(),
-  freshness: z.enum(["none", "day", "week", "month", "year", "any"]),
-  depth: z.enum(["quick", "standard", "deep"]),
-  queries: z.array(
-    z.object({
-      query: z.string(),
-      intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
-      preferred_domains: z.array(z.string()).optional(),
-    }),
-  ).min(1).max(5),
-});
+export const SearchDecisionSchema = z
+  .object({
+    search_required: z.boolean(),
+    reason: z.string(),
+    freshness: z.enum(["none", "day", "week", "month", "year", "any"]),
+    depth: z.enum(["quick", "standard", "deep"]),
+    queries: z.array(
+      z.object({
+        query: z.string(),
+        intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
+        preferred_domains: z.array(z.string()).optional(),
+      }),
+    ),
+  })
+  // search_required=true needs ≥1 query; a no-search verdict is allowed to
+  // carry an empty queries array (the pipeline never reads it on that path).
+  .refine((d) => d.search_required || d.queries.length > 0, {
+    message: "search_required=true requires at least one query",
+  });
 
 export type SearchDecision = z.infer<typeof SearchDecisionSchema>;
 
@@ -30,22 +36,27 @@ function normalizeFreshness(f: string): SearchDecision["freshness"] {
  * (none/recent/current) and the new 6-value set. Old cache entries and
  * old model outputs are still valid.
  */
-export const SearchDecisionSchemaCompat = z.object({
-  search_required: z.boolean(),
-  reason: z.string(),
-  freshness: z.string(),
-  depth: z.enum(["quick", "standard", "deep"]),
-  queries: z.array(
-    z.object({
-      query: z.string(),
-      intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
-      preferred_domains: z.array(z.string()).optional(),
-    }),
-  ).min(1).max(5),
-}).transform((d): SearchDecision => ({
-  ...d,
-  freshness: normalizeFreshness(d.freshness),
-}));
+export const SearchDecisionSchemaCompat = z
+  .object({
+    search_required: z.boolean(),
+    reason: z.string(),
+    freshness: z.string(),
+    depth: z.enum(["quick", "standard", "deep"]),
+    queries: z.array(
+      z.object({
+        query: z.string(),
+        intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
+        preferred_domains: z.array(z.string()).optional(),
+      }),
+    ),
+  })
+  .refine((d) => !d.search_required || d.queries.length > 0, {
+    message: "search_required=true requires at least one query",
+  })
+  .transform((d): SearchDecision => ({
+    ...d,
+    freshness: normalizeFreshness(d.freshness),
+  }));
 
 export interface RawSearchResult {
   title: string;

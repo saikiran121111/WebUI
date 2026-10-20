@@ -39,6 +39,17 @@ const LLM_API_KEY = process.env.LLM_API_KEY ?? "no-key";
 /** 60-second ceiling: local LLM servers queue + cold-load; 2.5s was far too aggressive. */
 export const LLM_TIMEOUT_MS = 60_000;
 
+/**
+ * Ceiling for the CLASSIFIER call only. The classifier is a 1.2B model at
+ * temperature 0 answering a 4-line JSON verdict — 45s is 30× longer than a
+ * warm 5s call. 60s existed for cold-start queues, but combined with the
+ * rule-based fallback (which forces search_required=true on ANY non-200,
+ * timeout, or invalid JSON) it turns a flaky inference slot into a forced
+ * web search on ordinary chat. 30s keeps the generous cold-start window
+ * while bounding worst-case latency on the hot path.
+ */
+const CLASSIFIER_TIMEOUT_MS = 30_000;
+
 /* ── trivial greeting short-circuit (the ONLY regex that survives) ───── */
 
 const TRIVIAL_GREETINGS = new Set([
@@ -171,13 +182,16 @@ function stripAndRepair(raw: string): string {
 
 /**
  * Call the local LLM and parse the JSON decision.
- * 60-second timeout: local servers queue + cold-load; the LLM is the
- * real decision maker — never abort it prematurely.
- * Falls back to the rule-based plan ONLY on total LLM unreachability.
+ * 30-second timeout: 60s existed for cold-start queues, but the rule-based
+ * fallback (search_required=true) fires on ANY timeout/non-200/invalid
+ * JSON — so a stalled inference slot silently forced web searches on
+ * ordinary chat. 30s keeps a generous cold-start window while bounding
+ * hot-path latency. The fallback stays a rule-based plan, NOT a
+ * no-search default.
  */
 export async function callLlm(
   ctx: LfmGateContext,
-  timeoutMs: number = LLM_TIMEOUT_MS,
+  timeoutMs: number = CLASSIFIER_TIMEOUT_MS,
 ): Promise<LfmDecision | null> {
   const t0 = performance.now();
   let raw: string;
@@ -202,6 +216,15 @@ export async function callLlm(
     }
     const data: any = await res.json();
     raw = data?.choices?.[0]?.message?.content ?? "";
+    if (typeof raw !== "string" || raw.trim() === "") {
+      // A thinking model can return null/empty content even when the call
+      // itself succeeded (the reason is in reasoning_content, not content).
+      // Without this guard, JSON.parse("") falls through to the rule-based
+      // fallback, which forces search_required=true — i.e. the gate silently
+      // denies the LLM's no-search verdicts.
+      log.warn({ content: raw, finishReason: data?.choices?.[0]?.finish_reason }, "llm returned empty content");
+      return null;
+    }
   } catch (e) {
     log.warn(
       { err: (e as Error).message, timeoutMs },

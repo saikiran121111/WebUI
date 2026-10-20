@@ -301,7 +301,7 @@ export default function ChatInput({
             </div>
           )}
 
-          {(isThinking || reasoningContent) && !isLoading && (
+          {(isThinking || reasoningContent) && (
             <div className="px-3 pt-2.5 flex items-center gap-2 text-[11px] text-emerald-400/70">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 animate-pulse" />
               <span>Reasoning…</span>

@@ -82,6 +82,7 @@ function walkTextNodes(
   parent: any = null,
   index = -1,
 ): void {
+  if (!node || typeof node !== "object") return;
   if (node.type === "text") visit(node, parent, index);
   if (Array.isArray(node.children)) {
     node.children.forEach((c: any, i: number) => walkTextNodes(c, visit, node, i));

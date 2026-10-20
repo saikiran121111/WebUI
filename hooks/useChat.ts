@@ -404,12 +404,21 @@ export function useChat({
           m.id === assistantId ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
+      } else {
+        // stop(): the abort branch above already set "aborted" — fall
+        // through to finally's guard, which never re-sets "streaming".
       }
       setReasoningContent("");
     } finally {
       setIsThinking(false);
       abortRef.current = null;
       sendBusyRef.current = false;
+      // Invariant: the composer's "Stop generating" button is tied to
+      // status === "streaming". Every exit path (completed, aborted,
+      // error, or repair round) must leave "streaming" behind — otherwise
+      // the stop button stays on screen and the composer is locked until
+      // the user happens to send another message.
+      setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
   }, [model, apiUrl, apiKey, handleEvent, runRepairRounds]);
 
@@ -426,7 +435,10 @@ export function useChat({
           : m
       ));
     }
-    setStatus("aborted");
+    // "aborted" only matters if the turn was actually streaming; once the
+    // stream's finally has already flipped the status to "complete"/
+    // "error", that later write must not clobber it.
+    setStatus(prev => (prev === "streaming" ? "aborted" : prev));
     setError(null);
     setIsThinking(false);
   }, []);
