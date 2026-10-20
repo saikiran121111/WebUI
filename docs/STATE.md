@@ -1,5 +1,5 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-20b — CONVERSATION TITLES COMPLETE: full-conversation semantic auto-titles (server-side guarded queue + map-reduce titling + inference-slot preemption registry + HTTP backfill) — vitest 545|1 (titles suites 48), typecheck clean (only 4 pre-existing render.spec errors), targeted Playwright EXIT=0: title+crud+live-chat batch 14 passed (3.8 m), chat-stream+multi-select-delete+edit-stop-collapse 9 passed (58 s); `npm run titles:backfill` 4 regenerated / 0 failed on real user data (see 8.2/8.5). Prior: 2026-10-20 hardening (parallel keyframes, 3-stage Whisper VRAM, retrieval guards). Prior: 2026-10-19f ALL UPLOAD LIMITS REMOVED (vitest 450|1, extraction-API 106 passed EXIT=0). Prior: 2026-10-19e LARGE-UPLOAD FIX. Prior: 2026-10-19d NEEDLE 3 FULLY REMOVED — FULL PLAYWRIGHT GREEN 309|4 skipped|0 failed EXIT=0 (22.4 m)
+Synced: 2026-10-20c — ENGINE LIFECYCLE LOCKED: closing the `npm run dev` window now kills llama-server + the decision python pair within ~2 s (engine_reaper.ps1 console-independent kernel-wait + pidfile kill; boot-reclaim + exit kill-switch layered), popup window gone (`detached:false`); 2 consecutive E2E console-destroy runs ENGINE_COUNT=0, Strata (:8080, pids 2260/17812) verified untouched — see CHANGELOG top entry + 8.2. Prior sync: 2026-10-20b — CONVERSATION TITLES COMPLETE: full-conversation semantic auto-titles (server-side guarded queue + map-reduce titling + inference-slot preemption registry + HTTP backfill) — vitest 545|1 (titles suites 48), typecheck clean (only 4 pre-existing render.spec errors), targeted Playwright EXIT=0: title+crud+live-chat batch 14 passed (3.8 m), chat-stream+multi-select-delete+edit-stop-collapse 9 passed (58 s); `npm run titles:backfill` 4 regenerated / 0 failed on real user data (see 8.2/8.5). Prior: 2026-10-20 hardening (parallel keyframes, 3-stage Whisper VRAM, retrieval guards). Prior: 2026-10-19f ALL UPLOAD LIMITS REMOVED (vitest 450|1, extraction-API 106 passed EXIT=0). Prior: 2026-10-19e LARGE-UPLOAD FIX. Prior: 2026-10-19d NEEDLE 3 FULLY REMOVED — FULL PLAYWRIGHT GREEN 309|4 skipped|0 failed EXIT=0 (22.4 m)
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
 CONVERSATION HISTORY TITLES — COMPLETE (2026-10-20). Root cause of the
@@ -25,7 +25,20 @@ STATUS: feature locked (8.2); remaining = optional full-suite Playwright
 run + git commit (not requested).
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
-- CONVERSATION TITLES (2026-10-20, LOCKED — CHANGELOG.md top entry):
+- ENGINE LIFECYCLE (2026-10-20c, LOCKED — CHANGELOG.md top entry):
+  `lib/decision/client.ts` = boot-reclaim `killStaleEngine()` (:8790 holder,
+  cmdline-verified) + `trackOwnedWorker` exit kill-switch + reaper launch via
+  throwaway-PS `Start-Process -WindowStyle Hidden` + `-EncodedCommand`
+  (reaper console is OUTSIDE the dev console group). NEW
+  `.decision-engine/worker/engine_reaper.ps1`: kernel-wait on dev PID →
+  guarded launcher tree-kill → llama kill from
+  `.decision-engine/.cache/llama_server.pid` → self-exit; log
+  `%TEMP%\webui-engine-reaper.log`. DO NOT regress: worker spawn must stay
+  `detached:false, windowsHide:true` (detached ⇒ visible popup); in-process
+  handlers (Node 'exit', python atexit/watchdog/ctrl-handler) are proven
+  DEAD PATHS on console window-destroy — never treat them as the guarantee;
+  reaper must remain pure ASCII with `${LASTEXITCODE}` (PS 5.1 parse traps).
+- CONVERSATION TITLES (2026-10-20, LOCKED — CHANGELOG.md second entry):
   NEW lib/server/titles/{policy,transcript,generate,queue}.ts (policy:
   shouldGenerate/applyTitleToDoc/looksAutoTitle/firstUserText, never
   bumps updatedAt; transcript: buildTranscript USER_TURN_CHARS 500 /

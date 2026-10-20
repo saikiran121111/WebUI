@@ -61,8 +61,13 @@ container-classifier patch):
     is killed before we spawn OUR OWN child — the only llama the watchdog can
     guarantee to kill. Without this, an orphan gets adopted via the /health
     early-return, _llm_proc stays None, and it outlives every future worker.
-  * CREATE_NO_WINDOW on every subprocess launch: a detached worker popping a
-    console window for llama-server/tasklist/powershell is a user-facing bug.
+  * CREATE_NO_WINDOW on HELPER subprocess launches (tasklist/netstat/powershell):
+    a detached worker popping a console window for those is a user-facing bug.
+    llama-server does NOT get it (no new window when inheriting ours) — but
+    NOTE: no console trick can make Windows reap it, because llama.cpp calls
+    detach_console() at startup, putting it OUTSIDE every console-teardown
+    group. Teardown ownership is external: engine_reaper.ps1 (spawned by
+    lib/decision/client.ts) kills it by pidfile the moment dev dies.
   * Head+tail truncation of the message SEEN BY THE ROUTER ONLY (>500 chars →
     first 350 + " ... " + last 150, 2026-10-20 latency fix): the 1.2B prefill
     on 8,000-char pasted prompts cost 2,600 ms/turn, and every guard/cleaner
@@ -105,10 +110,11 @@ DECISION_PORT = int(os.environ.get("DECISION_PORT", "8790"))
 LFM_PORT = int(os.environ.get("LFM_PORT", "8791"))
 
 # ---- Lifecycle: parent watchdog + hidden subprocess windows -----------------
-# lib/decision/client.ts spawns us detached with DECISION_ENGINE_PARENT_PID =
-# the Next dev server's PID. When that process dies (Ctrl+C, terminal closed,
-# crash) the watchdog kills our llama-server child and exits, so stopping
-# `npm run dev` never leaves python/llama-server orphaned in the background.
+# lib/decision/client.ts spawns us NON-detached (shared console, so Ctrl+C /
+# console-close reach us directly) with DECISION_ENGINE_PARENT_PID = the Next
+# dev server's PID. When that process dies by ANY means (Ctrl+C, terminal
+# closed, crash) the watchdog kills our llama-server child and exits, so
+# stopping `npm run dev` never leaves python/llama-server orphaned.
 # Manual launches (no env var) stay independent. On Windows the watchdog holds
 # a SYNCHRONIZE handle to the parent: it signals when the ORIGINAL process
 # exits, immune to PID reuse. CREATE_NO_WINDOW stops Windows from allocating
@@ -624,7 +630,15 @@ def ensure_llama_server() -> None:
              "--batch-size", "512", "--ubatch-size", "512", "--no-warmup", "--no-webui"],
             cwd=str(DE / ".cache" / "tmp"),  # never run from inside the extracted bin dir
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=_NO_WINDOW,  # no console window popped for llama-server
+            # NO CREATE_NO_WINDOW (verified 2026-10-20): inheriting our console
+            # pops no window (a new hidden console from the flag also pops
+            # none, but buys nothing). Teardown is NOT what reaps llama either:
+            # llama.cpp detach_console()s at startup, so it escapes every
+            # console-destroy group — that orphan (~500MB left on :8791) was
+            # the user's bug. Reclamation is external and layered: the
+            # engine_reaper.ps1 watchdog in lib/decision/client.ts reads the
+            # pidfile written just below and taskkills llama the instant the
+            # dev server dies; _reclaim_orphan_llama() at boot is the backstop.
         )
         _write_pid(pidfile, _llm_proc.pid)  # the LLAMA pid, not ours — ownership must be truthful
         for _ in range(120):
@@ -648,11 +662,36 @@ def _shutdown_llama() -> None:
                 pass
 
 
+_ctrl_handler_ref = None
+
+
+def _install_console_ctrl_handler() -> None:
+    """Windows CTRL_CLOSE_EVENT (user clicks X on the dev terminal) bypasses
+    atexit entirely: the CRT just ExitProcess()es within ~5s, and the watchdog
+    can't save us either — on console close python is torn down BEFORE the dev
+    server PID finishes dying, so the parent-handle wait never fires. The
+    orphaned llama-server holding ~500MB after "I closed the terminal" is
+    exactly that race. A console-ctrl handler runs in-process BEFORE the
+    default teardown, so we kill llama right there and exit cleanly.
+    (CTRL_C/CTRL_BREAK already work: Python turns them into KeyboardInterrupt
+    -> uvicorn exits -> atexit -> _shutdown_llama.)"""
+    global _ctrl_handler_ref
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+    def _handler(evt):  # evt: 0=C, 1=BREAK, 2=CLOSE, 5=LOGOFF, 6=SHUTDOWN
+        _shutdown_llama()
+        os._exit(0)  # llama is dead; leave immediately (skips redundant atexit)
+
+    _ctrl_handler_ref = _handler  # keep the callback alive for the OS
+    _kernel32.SetConsoleCtrlHandler(_handler, True)
+
+
 def _parent_watchdog() -> None:
     """Exit once the spawning WebUI dev-server PID dies (see _PARENT_PID).
-    This is the ONLY teardown path for a detached spawn: closing the terminal
-    or crashing the dev server sends no signal to us, so polling the parent is
-    what keeps `npm run dev` stopped == engine stopped. os._exit is fine here:
+    Backstop for every teardown: Ctrl+C / console-close already reach a
+    non-detached worker directly, but a SIGKILLed or crashed dev server sends
+    no signal at all, so waiting on the parent handle is what guarantees
+    `npm run dev` stopped == engine stopped. os._exit is fine here:
     uvicorn is single-threaded on the main thread and no request state needs
     flushing; llama-server is terminated first so nothing outlives us."""
     handle = None
@@ -923,5 +962,6 @@ if __name__ == "__main__":
     atexit.register(_shutdown_llama)  # covers manual Ctrl+C / clean uvicorn exits
     if _PARENT_PID > 0:
         threading.Thread(target=_parent_watchdog, daemon=True).start()
+        _install_console_ctrl_handler()  # terminal-X: kill llama BEFORE CRT teardown
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=DECISION_PORT, log_level="warning")

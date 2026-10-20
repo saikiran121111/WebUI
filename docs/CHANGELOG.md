@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## 2026-10-20 — Fix: `npm run dev` now fully owns the LFM2.5 engine lifecycle
+Closing the dev terminal left `llama-server.exe` (~500 MB, :8791) and the
+decision-engine python pair running, and a black console popup (title = the
+venv `python.exe` path) flashed at startup. Strata (:8080) untouched
+throughout — every kill is cmdline-verified against `./.decision-engine`.
+- **Popup:** the worker was spawned `detached:true`, and DETACHED_PROCESS
+  makes Windows ignore `CREATE_NO_WINDOW`, giving console-subsystem python
+  its own visible window. Now `detached:false, windowsHide:true` — zero new
+  windows (EnumWindows found no python/llama/decision windows in two runs).
+- **Orphan root cause (empirically proven):** closing the dev window
+  destroys the console and TerminateProcess()es everything attached to it
+  (cmd, npm, node, the python pair) with NO handlers running — probes
+  verified Node `exit`/SIGINT and Python `atexit`/parent-PID watchdog/
+  `SetConsoleCtrlHandler` never fire on that path. llama.cpp additionally
+  calls `detach_console()` at startup, so llama-server sits outside EVERY
+  console-teardown group: no in-process shutdown can ever reclaim it, and
+  console inheritance cannot fix it either.
+- **Ownership layers** (`lib/decision/client.ts`): (1) boot reclaim — a
+  stale engine holding :8790 is `taskkill /F /T`'d (cmdline-matched to
+  `decision_server.py`/`\.decision-engine\`) before any adoption, so dev
+  always OWNS the engine it starts; (2) in-process kill-switch on Node
+  `exit` (covers Ctrl+C/crash paths where JS still runs); (3) NEW
+  `.decision-engine/worker/engine_reaper.ps1` — launched hidden through a
+  throwaway PowerShell (`Start-Process -WindowStyle Hidden` +
+  `-EncodedCommand`) so its console lives OUTSIDE the dev console group
+  (a directly-spawned reaper was itself killed mid-wait); it kernel-waits
+  on the dev PID, tree-kills the launcher only if still ours (StartTime +
+  cmdline recycled-PID guards), then `taskkill /F /T`'s llama straight from
+  `.decision-engine/.cache/llama_server.pid` (its parent is already dead by
+  then). Transcript: `%TEMP%\webui-engine-reaper.log`. The script must stay
+  pure ASCII and use `${LASTEXITCODE}` — two PowerShell 5.1 parse traps
+  (BOM-less ANSI read of an em-dash; `$LASTEXITCODE:` parsed as a scope
+  variable) silently killed earlier drafts at parse time.
+- **Verified — two consecutive E2E runs of the exact user scenario** (real
+  cmd terminal → `npm run dev` → warm (:8791 `/health` 200) → window closed
+  via the console-destroy path): ENGINE_COUNT=0 within ~2 s both times,
+  :8790/:8791 free, reaper logs `llama taskkill exit=0` then `reaper done`
+  (self-exit), Strata pids 2260/17812 + :8080 LISTENING in every snapshot.
+
 ## 2026-10-20 — Feat+Fix: Conversation titles — full-conversation semantic auto-titles
 Sidebar titles are no longer copies of the first message ("Can you watch
 this video an..."). Root cause: the persist effect in `app/page.tsx` froze
