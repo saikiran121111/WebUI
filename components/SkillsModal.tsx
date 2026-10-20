@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Blocks, Download, Loader2, ShieldAlert, Trash2, X, Zap } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { SkillRecord } from "../lib/skills/types";
+import { fetchSkills, invalidateSkills } from "../lib/skills/client-cache";
 
 interface SkillsModalProps {
   open: boolean;
@@ -31,11 +32,12 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
   const [errorLine, setErrorLine] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { autoUse: boolean; whenToUse: string }>>({});
 
+  // force=true: the modal is the mutation surface, it must always show the
+  // just-written state (and refresh the shared cache every other component
+  // reads through lib/skills/client-cache).
   const refresh = useCallback(() => {
-    fetch("/api/skills")
-      .then((r) => (r.ok ? r.json() : { skills: [] }))
-      .then((data) => {
-        const list: SkillRecord[] = Array.isArray(data?.skills) ? data.skills : [];
+    fetchSkills(true)
+      .then((list) => {
         setSkills(list);
         setDrafts((prev) => {
           const next = { ...prev };
@@ -75,6 +77,7 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
       setRepoOrCommand("");
       setWhenToUse("");
       setAutoUse(false);
+      invalidateSkills();
       refresh();
     } catch (err: unknown) {
       setErrorLine(err instanceof Error ? err.message : "Install failed");
@@ -100,6 +103,7 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
         setErrorLine(data?.error ?? "Save failed");
         return;
       }
+      invalidateSkills();
       refresh();
     } finally {
       setBusy(false);
@@ -116,6 +120,7 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
         setErrorLine(data?.error ?? "Delete failed");
         return;
       }
+      invalidateSkills();
       refresh();
     } finally {
       setBusy(false);

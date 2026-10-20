@@ -2,9 +2,10 @@
 Decision Engine worker (100% project-local) — SINGLE-MODEL LFM2.5-1.2B router.
 
 LFM2.5-1.2B via the contained llama-server subprocess is the SOLE decision
-model: it ALWAYS runs on every non-empty request, receives ONLY the raw user
-message (plus an optional one-line "[Previous turn artifact mode: X]" prefix
-for multi-turn) and classifies the requested OUTPUT CONTAINER into one mode.
+model: it ALWAYS runs on every non-empty request, receives ONLY a head+tail
+slice of the user message (plus an optional one-line "[Previous turn artifact
+mode: X]" prefix for multi-turn, prepended after the slice) and classifies the
+requested OUTPUT CONTAINER into one mode.
 The grammar-constrained reply is a single field, {"active_mode": ...} — ~5
 decoded tokens, sub-second CPU latency, and the 1.2B model can no longer echo
 the system prompt, rewrite the user's words or hallucinate constraints.
@@ -62,8 +63,10 @@ container-classifier patch):
     early-return, _llm_proc stays None, and it outlives every future worker.
   * CREATE_NO_WINDOW on every subprocess launch: a detached worker popping a
     console window for llama-server/tasklist/powershell is a user-facing bug.
-  * Head+tail truncation of >3000-char prompts so llama-server -c 2048 never
-    overflows on 8,000-char inputs.
+  * Head+tail truncation of the message SEEN BY THE ROUTER ONLY (>500 chars →
+    first 350 + " ... " + last 150, 2026-10-20 latency fix): the 1.2B prefill
+    on 8,000-char pasted prompts cost 2,600 ms/turn, and every guard/cleaner
+    runs on the FULL message so the main LLM still receives it complete.
 
 Every weight, binary, cache and venv lives inside ./.decision-engine/.
 Start:  .decision-engine/.venv/Scripts/python.exe .decision-engine/worker/decision_server.py
@@ -261,13 +264,30 @@ def _remember(message: str, mode: str) -> None:
 
 
 def _prior_mode_from_history(history: list[dict]) -> str | None:
-    """Mode of the previous deliverable turn: session cache first (exact),
-    then the last assistant turn's fence language (works even when turn 1 was
-    decided by another process)."""
+    """Mode of the previous deliverable turn: session cache first, then the
+    last assistant turn's fence language (works even when turn 1 was decided
+    by another process).
+
+    The cache is keyed by the FULL decided message, but Next's history
+    entries are sliced to 500 chars (route.ts historyBefore) — an exact-match
+    lookup therefore missed EVERY long message, which is why the
+    "[Previous turn artifact mode: X]" prefix appeared after short follow-ups
+    and silently vanished after long pasted prompts. Whitespace-collapsing
+    the prefix property, so the sliced entry is a literal prefix of the
+    normed full message: fall back to the most-recent cache key that starts
+    with it (the slice may end mid-word, so no word-boundary is required)."""
     for h in reversed(history):
         if h.get("role") == "user":
-            with _CACHE_LOCK:
-                mode = _recent_modes.get(_norm(h.get("content") or ""))
+            content = _norm(h.get("content") or "")
+            mode = None
+            if content:
+                with _CACHE_LOCK:
+                    mode = _recent_modes.get(content)
+                    if mode is None:
+                        for k, v in reversed(_recent_modes.items()):
+                            if len(k) > len(content) and k.startswith(content):
+                                mode = v
+                                break
             if mode:
                 return mode
             # Cache miss (turn 1 was decided by another process / after a
@@ -705,10 +725,13 @@ def _salvage_stage2(raw: str) -> Stage2Out | None:
 
 def lfm_decide(message: str, history: list[dict], prev_mode: str | None,
                trace: dict | None = None) -> Stage2Out:
-    """The raw user message reaches LFM2.5 UNTOUCHED. The only addition is an
-    optional one-line "[Previous turn artifact mode: X]" prefix when the
-    previous assistant turn produced an artifact, so the MULTI-TURN rule in
-    LFM_SYSTEM can keep the mode on refinement turns. One self-correction
+    """`message` is the caller's head+tail router slice (the caller keeps the
+    full text for every deterministic layer). The slice is passed through
+    character-for-character; the only addition is an optional one-line
+    "[Previous turn artifact mode: X]" prefix when the previous turn produced
+    an artifact — prepended AFTER the truncation, so the prefix is never cut
+    and never shifts the slice. It lets the MULTI-TURN rule in LFM_SYSTEM keep
+    the mode on refinement turns. One self-correction
     retry on invalid output; raises after the 2nd failure — the caller then
     runs the deterministic _fallback_mode_from_evidence guard."""
     msgs = [{"role": "system", "content": LFM_SYSTEM}]
@@ -745,19 +768,24 @@ def lfm_decide(message: str, history: list[dict], prev_mode: str | None,
     raise RuntimeError("unreachable")
 
 
-# Head+tail truncation: an 8,000-char prompt must never overflow the 2048-
-# token llama-server slot (system ~450 + history ~450 + message ~1,100 +
-# 24 output < 2048). The head carries the task framing, the tail the closing
-# constraints, so both survive; middle boilerplate is cut.
-MAX_LFM_CHARS = 2_600
-_HEAD_CHARS = 1_900
-_TAIL_CHARS = 700
+# Router-input truncation (2026-10-20 latency fix): the ONLY text the 1.2B
+# router gets is a head+tail slice — >500 chars becomes first 350 + " ... " +
+# last 150. Prefill dominated classification latency (340 ms short prompts vs
+# 2,616 ms LeetCode-sized ones); the slice keeps the task framing (head) and
+# the closing constraints (tail), which is all a CONTAINER classifier needs —
+# every deterministic guard, the cleaner, the session cache and
+# stripped_prompt still run on the FULL message, so the main LLM receives the
+# user's complete spec set verbatim (previously >2,600-char prompts were
+# truncated here and even forwarded TRUNCATED to the main LLM).
+LFM_MAX_MESSAGE_CHARS = 500
+_LFM_HEAD_CHARS = 350
+_LFM_TAIL_CHARS = 150
 
 
-def _truncate_for_engine(message: str) -> str:
-    if len(message) <= MAX_LFM_CHARS:
+def _truncate_for_lfm(message: str) -> str:
+    if len(message) <= LFM_MAX_MESSAGE_CHARS:
         return message
-    return (message[:_HEAD_CHARS] + "\n […middle truncated…] \n" + message[-_TAIL_CHARS:])
+    return message[:_LFM_HEAD_CHARS] + " ... " + message[-_LFM_TAIL_CHARS:]
 
 
 def warm() -> None:
@@ -796,7 +824,8 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
     message = req.message.strip()
     if not message:
         raise HTTPException(400, "empty message")
-    message = _truncate_for_engine(message)
+    # Everything below works on the FULL message (guards, cleaner, cache,
+    # stripped_prompt); only lfm_decide() gets the head+tail router slice.
 
     # ---- LFM2.5-1.2B classifies the output container (single field) ----
     # The prompt is cleaned deterministically, NEVER by the model:
@@ -807,7 +836,7 @@ def decision(req: DecisionRequest) -> DecisionEnvelope:
     t1 = time.perf_counter()
     lfm_trace: dict = {}
     try:
-        s2 = lfm_decide(message, req.conversationHistory, prior_turn_mode, lfm_trace)
+        s2 = lfm_decide(_truncate_for_lfm(message), req.conversationHistory, prior_turn_mode, lfm_trace)
         lfm_ms = round((time.perf_counter() - t1) * 1000, 1)
         active_mode, conf, decided_by = s2.active_mode, 0.95, "lfm2.5"
         stripped = (" ".join(message.split()) if active_mode == "standard_chat"

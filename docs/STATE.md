@@ -159,7 +159,11 @@ run + git commit (not requested).
   guard skip-set ".!?\n" + constraint-coverage. Deterministic routing guards
   (question gate, chat gate, evidence switch earliest-match-wins,
   sheet-evidence pdf→excel), `_salvage_stage2` truncated-JSON recovery,
-  `_prior_mode_from_history` fence-scan, MAX_LFM_CHARS=2_600 truncation.
+  `_prior_mode_from_history` cache exact+prefix lookup → fence-scan fallback.
+  Router-only head+tail slice (2026-10-20): >500 chars → 350 + " ... " + 150
+  (LFM_MAX_MESSAGE_CHARS; MAX_LFM_CHARS=2_600 removed — guards/cleaner/
+  _remember now run on the FULL message, prev-mode prefix appended AFTER
+  the slice inside lfm_decide).
 - PART 2 (xlsx engine): xlsxEngine.ts rowGenerator 500 rows "TXN-1001..1500"
   (FNV-1a seed → mulberry32, byte-deterministic); native charts → PNG via
   renderChartPng + wb/ws.addImage; CF red/amber/green + autoFilter emitted;
@@ -257,7 +261,8 @@ run + git commit (not requested).
   mode flipped (chat=verbatim, studio=_clean_artifact_prompt) → trivial-chat
   passthrough (standard_chat && len<120 → verbatim) → _remember.
   _preserve_hard_tokens REMOVED (lossless cleaner); _salvage_stage2 kept as
-  truncated-JSON safety net. MAX_LFM_CHARS=2_600.
+  truncated-JSON safety net. MAX_LFM_CHARS REMOVED (2026-10-20) — the LFM
+  call gets a 500-char head+tail slice at the call site only.
   LFM 2-strike failure path (2026-10-19d): _fallback_mode_from_evidence
   (message) = earliest STRICT _STRICT_CONTAINER_RX hit wins; standard_chat
   ONLY when zero container nouns; conf 0.5 (0.0 for standard_chat);

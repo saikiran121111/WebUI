@@ -30,20 +30,40 @@ export async function deleteConversation(id: string): Promise<boolean> {
 }
 
 /**
+ * The route's answer: `queued:false` = policy skipped it (fresh/manual/
+ * not-found); `ok:true + title` = the job ran and wrote a new title. With
+ * the title in the response the client patches its sidebar locally instead
+ * of re-fetching the whole conversation list (one fewer GET per turn).
+ */
+export interface TitleRequestResponse {
+  queued: boolean;
+  coalesced?: boolean;
+  ok?: boolean;
+  title?: string;
+  reason?: string;
+}
+
+/**
  * Ask the server to (re)generate this conversation's auto title from its
  * full stored history. Best-effort background work: the job runs server-side
  * (surviving this request), the queue serialises it behind active inference,
  * and any failure simply keeps the last valid title — so errors are silent.
  */
-export async function requestTitleGeneration(id: string, model?: string): Promise<void> {
+export async function requestTitleGeneration(
+  id: string,
+  model?: string,
+): Promise<TitleRequestResponse | null> {
   try {
-    await fetch(`/api/conversations/${encodeURIComponent(id)}/title`, {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/title`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: model || undefined }),
     });
+    if (!res.ok) return null;
+    return (await res.json().catch(() => null)) as TitleRequestResponse | null;
   } catch {
     // title generation is best-effort — never surface to the conversation
+    return null;
   }
 }
 

@@ -115,15 +115,23 @@ export default function HomePage() {
     syncedMessagesRef.current = snapshot;
     // One title nudge per settled turn, after the save lands. The SERVER
     // decides eligibility (debounced cadence, manual guard) and does the
-    // generation from the full stored history through the shared model queue
-    // — this call only re-syncs the sidebar when the new title arrives.
-    // A title failure can never affect the conversation itself.
+    // generation from the full stored history through the shared model queue.
+    // The POST response carries the title whenever the job actually wrote
+    // one, so the sidebar row is patched locally — a second GET of the whole
+    // list used to fire on EVERY turn even when the policy skipped the job
+    // or it yielded to inference (no title ever changed). A title failure can
+    // never affect the conversation itself.
     saveConversation({ id: convId, meta, messages })
       .then(() => {
         refreshList();
         return requestTitleGeneration(convId, process.env.NEXT_PUBLIC_MODEL_ID ?? "");
       })
-      .then(refreshList)
+      .then((t) => {
+        if (t?.ok && t.title) {
+          setConversations(prev => prev.map(c =>
+            c.id === convId ? { ...c, title: t.title!, titleSource: "auto" } : c));
+        }
+      })
       .catch(() => {});
   }, [messages, activeId, status, refreshList]);
 

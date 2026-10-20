@@ -5,6 +5,7 @@ import { Send, Paperclip, X, StopCircle, Settings2, Loader2, AlertCircle, Check,
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
 import type { SkillRecord } from "../lib/skills/types";
+import { fetchSkills } from "../lib/skills/client-cache";
 import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib/files";
 import SkillsModal from "./SkillsModal";
 import { cn } from "../lib/utils";
@@ -47,14 +48,24 @@ export default function ChatInput({
   const dragCounter = useRef(0);
   const effortMenuRef = useRef<HTMLDivElement>(null);
 
-  const refreshSkills = useCallback(() => {
-    fetch("/api/skills")
-      .then(r => (r.ok ? r.json() : { skills: [] }))
-      .then(data => setSkills(Array.isArray(data?.skills) ? data.skills : []))
-      .catch(() => {});
+  // Shared cross-component cache with in-flight dedup: the hero + bar
+  // instances (and their remounts on view swaps) used to fire 2–4 identical
+  // GET /api/skills back-to-back per page load; concurrent callers now share
+  // one request, and a later mount reuses its fresh result.
+  const refreshSkills = useCallback((force = false) => {
+    fetchSkills(force).then(setSkills);
   }, []);
 
   useEffect(() => { refreshSkills(); }, [refreshSkills]);
+
+  // The skills modal owns install/save/delete, which invalidate the shared
+  // cache — re-read it when the modal closes so slash autocomplete stays
+  // current without polling on every keystroke.
+  const skillsModalWasOpen = useRef(false);
+  useEffect(() => {
+    if (skillsModalWasOpen.current && !showSkillsModal) refreshSkills(true);
+    skillsModalWasOpen.current = showSkillsModal;
+  }, [showSkillsModal, refreshSkills]);
 
   // Slash autocomplete: only while the whole value is one "/word" token.
   const slashCandidates = useMemo(() => {
