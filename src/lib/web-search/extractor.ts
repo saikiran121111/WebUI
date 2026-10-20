@@ -30,10 +30,16 @@
  * reranker: when detectBlock() fires, it short-circuits to Tier 2/3/4.
  */
 import pLimit from "p-limit";
-import { fetchPage, fetchUrl, PDF_LIMIT_BYTES, type PageResponse } from "./tls-client";
+import {
+  fetchPage,
+  fetchUrl,
+  fetchWithLinkPreviewBots,
+  PDF_LIMIT_BYTES,
+  type PageResponse,
+} from "./tls-client";
 import type { RankedResult } from "./metasearch";
 import { getCachedPage, putCachedPage } from "./cache";
-import { detectBlock, detectBlockInText } from "./block-detector";
+import { detectBlock, detectBlockInText, stripWafChallengeText, hasMeaningfulContent } from "./block-detector";
 import { domainAdapter } from "./domain-adapters";
 import { universalDiscovery, universalSchemaExtract } from "./universal-discovery";
 import { unpackHydration } from "./hydration-unpacker";
@@ -43,16 +49,19 @@ import {
   extractDocumentSync,
 } from "./universal-extractor";
 import { normalizeBody, detectCharset } from "./charset-normalizer";
-import { urlSearchFallback } from "./metasearch";
+import { urlSearchFallback, slugTriangulation } from "./metasearch";
 import type { EvidencePacket } from "./types";
 
-// Per-tier timeouts:
-//   Tier 1 (direct): 45s — WAF challenges legitimately take 10-20s.
-//   Tier 2 (Jina):   45s — r.jina.ai is a free tier; 45s keeps quality.
-//   Tier 3 (Wayback): 45s — archive.org CDX + snapshot fetch.
-//   Tier 4 (snippet): no fetch — uses existing metasearch snippets.
-//   PDF downloads:   120s — large textbooks/arXiv papers can be 50-100MB.
+// Per-tier timeouts (7-tier cascade):
+//   Tier 1A/1B (direct + browser rotation): 45s each
+//   Tier 2   (link-preview bots):           45s per bot, 4 bots
+//   Tier 3   (platform JSON / llms.txt):    45s
+//   Tier 4   (Jina):                        45s
+//   Tier 5   (Wayback):                     45s
+//   Tier 6   (slug triangulation):           uses metasearch (40s/engine)
+//   PDF downloads:                          120s
 const TIER1_TIMEOUT_MS = 45_000;
+const LINK_PREVIEW_TIMEOUT_MS = 45_000;
 const JINA_TIMEOUT_MS = 45_000;
 const WAYBACK_TIMEOUT_MS = 45_000;
 const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -298,8 +307,70 @@ async function extractAdapter(url: string): Promise<TierOutput | null> {
   };
 }
 
-/** Tier 2: free jina.ai markdown reader (rate-limited to stay under
- * the 20 req/s free-tier cap). */
+/**
+ * Tier 2: social link-preview crawler bypass (WhatsApp / Facebook /
+ * Twitter / Slack UAs). Hostile WAFs whitelist these bots, so a blocked
+ * URL that 403'd under browser TLS often returns a clean 200 under a
+ * link-preview UA.
+ *
+ * The response body is a real HTML page — we extract OpenGraph / Twitter
+ * / JSON-LD / hydration / body text from it before handing to the cascade.
+ */
+async function extractLinkPreview(
+  url: string,
+): Promise<TierOutput | null> {
+  const page: (PageResponse & { botName: string }) | null =
+    await fetchWithLinkPreviewBots(url, {
+      timeoutMs: LINK_PREVIEW_TIMEOUT_MS,
+    });
+  if (!page || !page.ok || page.body.length < 200) return null;
+
+  // Block gate on the bot-fetched body — a WAF can still return a
+  // challenge page as a 200 to a whitelisted bot.
+  const block = detectBlock(page.body, page.status, page.contentType);
+  if (block.blocked) return null;
+
+  // Extract structured metadata + DOM text from the bot-fetched body.
+  const schemaMd = universalSchemaExtract(page.body);
+  const hydrationMd = unpackHydration(page.body);
+  const structOut = await structuralExtractAsync(
+    page.body,
+    page.contentType,
+    url,
+  );
+  let md = structOut.markdown;
+  // Raw-text fallback if the DOM pass produced little
+  if (md.length < 100) {
+    const fallback = page.body
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (fallback.length >= 100) {
+      md = "## Page text (raw extraction, link-preview bot " + page.botName + ")\n" + fallback;
+    }
+  }
+  // Prepend structured facts so specs / prices / OG metadata survive
+  const parts = [schemaMd, hydrationMd, md].filter(Boolean);
+  const combined = parts.length > 0 ? parts.join("\n\n") : "";
+
+  // Strip residual WAF boilerplate from the bot response (defense in
+  // depth — some WAFs serve a challenge page with a 200 status to
+  // whitelisted bots that they didn't fully recognize).
+  const cleaned = stripWafChallengeText(combined);
+  if (!hasMeaningfulContent(cleaned)) return null;
+
+  return {
+    tier: "direct",
+    markdown:
+      "## Link-preview bot response (" + page.botName + ")\n" + cleaned,
+    status: page.status,
+    blocked: false,
+    blockedReason: "",
+    mode: structOut.mode,
+    tableCount: structOut.tableCount,
+    codeBlockCount: structOut.codeBlockCount,
+  };
+}
 async function extractJina(url: string): Promise<TierOutput | null> {
   return jinaLimit(async () => {
     const jinaUrl = "https://r.jina.ai/" + encodeURI(url);
@@ -507,8 +578,35 @@ export async function extractUrl(
     return { ...packet, classification: "SUCCESS_METADATA" };
   }
 
-  // Tier 2: Jina fallback — fires on any Tier 1 failure including silent
-  // blocks (which is its whole point for Cloudflare-protected pages).
+  // Tier 2: social link-preview crawler bypass — fires when Tier 1 was
+  // blocked or empty (WAF 403/503 / JS shell). Whitelisted bot UAs often
+  // get a clean 200 where the browser fingerprint got a challenge page.
+  const tier1BlockedOrEmpty =
+    (directOut?.blocked ?? false) ||
+    (directOut?.status === 0) ||
+    (directOut?.markdown.length < 200 && directOut?.tier === "crash");
+
+  let linkPreviewOut: TierOutput | null = null;
+  if (tier1BlockedOrEmpty) {
+    linkPreviewOut = await extractLinkPreview(url);
+    if (linkPreviewOut && linkPreviewOut.markdown.length >= 200) {
+      packet.extraction = "direct";
+      packet.passages.push({
+        sourceId: "",
+        url,
+        title: result.title,
+        domain: result.domain,
+        publishedAt: result.publishedDate,
+        passageText: linkPreviewOut.markdown,
+        bm25Score: 0,
+      });
+      putCachedPage(url, linkPreviewOut.markdown, "direct");
+      return { ...packet, classification: "SUCCESS_DIRECT" };
+    }
+  }
+
+  // Tier 4: Jina fallback — fires on any Tier 1/2 failure including
+  // silent blocks (which is its whole point for Cloudflare-protected pages).
   const jinaOut = await extractJina(url);
   if (jinaOut && jinaOut.markdown.length >= 200) {
     packet.extraction = "jina-fallback";
@@ -561,40 +659,62 @@ export async function extractUrl(
   packet.extraction = "snippet-only";
   const snippet = result.snippet || result.title || "";
 
-  // Tier 4.5: URL-targeted metasearch snippet triangulation.
-  // When Tier 1 was blocked/empty AND the corpus entry has no pre-indexed
-  // snippet (stress-test case), harvest the target URL's aggregated
-  // snippets from DDG/Brave/SearX before classifying as a FAIL. This
-  // converts many FAIL_EMPTY_JS_SHELL / FAIL_SILENT_BOT_BLOCK rows into
-  // SUCCESS_SNIPPET_FALLBACK (a real, verified passage from another engine).
+  // Tier 6: deep URL-slug metasearch triangulation.
+  // Guaranteed zero-block fallback: parse the target URL into slug
+  // keywords and run a site: scoped metasearch. Titles + snippets from
+  // every matching result are synthesized into a clean evidence block.
+  // Fires when the URL has no pre-indexed snippet (stress-test case)
+  // AND Tier 1 was blocked/empty — converts FAIL_SILENT_BOT_BLOCK and
+  // FAIL_EMPTY_JS_SHELL rows into SUCCESS_SNIPPET_FALLBACK.
   const directBlocked = directOut?.blocked ?? false;
   const directEmptyShell =
     !directBlocked &&
     directOut != null &&
-    directOut.tier === "crash" &&
-    /empty JS shell/i.test(directOut.blockedReason ?? "");
+    directOut.tier === "crash";
 
-  if ((directBlocked || directEmptyShell) && (result.snippet ?? "").length < 20) {
+  if ((directBlocked || directEmptyShell || linkPreviewOut === null) && (result.snippet ?? "").length < 20) {
     try {
-      const fallbackResults = await urlSearchFallback(url, result.title);
-      if (fallbackResults.length > 0) {
-        const best = fallbackResults[0];
-        const fbSnippet = best.snippet || best.title || "";
-        if (fbSnippet.length >= 20) {
+      // Tier 6a: slug triangulation (site: + broad keyword queries)
+      const synthesized = await slugTriangulation(url, result.title);
+      if (synthesized.length >= 80) {
+        const cleaned = stripWafChallengeText(synthesized);
+        if (hasMeaningfulContent(cleaned, 40)) {
           packet.passages.push({
             sourceId: "",
             url,
-            title: best.title || result.title,
-            domain: best.domain || result.domain,
-            publishedAt: best.publishedDate,
-            passageText: fbSnippet,
+            title: result.title || "(triangulated)",
+            domain: result.domain,
+            publishedAt: result.publishedDate,
+            passageText: cleaned,
             bm25Score: 0,
           });
           return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };
         }
       }
+      // Tier 6b: exact-URL search fallback (search engines that index
+      // the literal URL string — a broader net than slug keywords alone)
+      const fallbackResults = await urlSearchFallback(url, result.title);
+      if (fallbackResults.length > 0) {
+        const best = fallbackResults[0];
+        const fbSnippet = (best.snippet || best.title || "").slice(0, 12000);
+        if (fbSnippet.length >= 20) {
+          const cleaned = stripWafChallengeText(fbSnippet);
+          if (hasMeaningfulContent(cleaned, 40)) {
+            packet.passages.push({
+              sourceId: "",
+              url,
+              title: best.title || result.title,
+              domain: best.domain || result.domain,
+              publishedAt: best.publishedDate,
+              passageText: cleaned,
+              bm25Score: 0,
+            });
+            return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };
+          }
+        }
+      }
     } catch {
-      /* urlSearchFallback network failure — fall through to Tier 4 */
+      /* triangulation network failure — fall through to Tier 4 */
     }
   }
 

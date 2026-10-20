@@ -11,6 +11,7 @@ export {
   normalizeUrl,
   reciprocalRankFuse,
   urlSearchFallback,
+  slugTriangulation,
   type SearchPlan,
 } from "./metasearch";
 export {
@@ -40,12 +41,19 @@ export {
   getCachedPage,
   putCachedPage,
   queryCacheKey,
-  pruneExpired,
+  purgeExpiredCache,
+  startPurgeSweep,
+  CACHE_TTL_MS,
+  hash,
   closeCache,
 } from "./cache";
 export {
   fetchPage,
   fetchUrl,
+  fetchWithLinkPreviewBots,
+  LINK_PREVIEW_UAS,
+  PAGE_LIMIT_BYTES,
+  PDF_LIMIT_BYTES,
   isSafeUrl,
   realisticHeaders,
   apiHeaders,
@@ -59,6 +67,8 @@ export {
 export {
   detectBlock,
   detectBlockInText,
+  stripWafChallengeText,
+  hasMeaningfulContent,
   type BlockKind,
   type BlockVerdict,
 } from "./block-detector";

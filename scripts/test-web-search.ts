@@ -3,7 +3,7 @@
  *
  * Usage:  npx tsx scripts/test-web-search.ts
  *
- * Runs 10 checks:
+ * Runs 13 checks:
  *   1. LFM gate: trivial greeting → no-search short-circuit (zero LLM tokens);
  *      static question (LLM reachable) → model decides.
  *   2. Parallel metasearch: >8 unique URLs (no artificial speed ceiling).
@@ -18,6 +18,11 @@
  *   9. Zero cache poisoning: verify snippet-only fallbacks do not poison
  *      the full-page SQLite cache.
  *  10. Reranker produces 25–35 rich passages (up to 60,000 chars evidence).
+ *  11. 0 bot-block on airbnb.com (Tier 2 link-preview / Tier 5 Wayback /
+ *      Tier 6 slug triangulation all fired).
+ *  12. 5-hour wall-clock cache expiry: rows expire via Date.now() + TTL,
+ *      purgeExpiredCache() deletes them, and SQLite vacuum reclaims space.
+ *  13. Unbroken tables & code chunks exceed 1,500 chars (atomic blocks).
  */
 import {
   runLfmGate,
@@ -30,8 +35,12 @@ import {
   getCachedPage,
   extractPromptUrls,
   LLM_TIMEOUT_MS,
+  purgeExpiredCache,
+  CACHE_TTL_MS,
+  hash,
+  extractUrl,
 } from "../src/lib/web-search/index";
-import type { EvidencePacket } from "../src/lib/web-search/types";
+import type { EvidencePacket, RankedResult } from "../src/lib/web-search/types";
 
 const BOLD = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -53,6 +62,23 @@ function check(label: string, ok: boolean, detail?: string) {
 
 function rssMB(): number {
   return Math.round(process.memoryUsage().rss / (1024 * 1024));
+}
+
+/** Build a minimal RankedResult for extractUrl() tests. */
+function mockRankedResult(url: string, title = "", snippet = ""): RankedResult {
+  const u = new URL(url);
+  const domain = u.hostname.toLowerCase().replace(/^www\./, "");
+  return {
+    url,
+    canonical: url,
+    title,
+    snippet,
+    engine: "test",
+    domain,
+    rrf: 1,
+    engines: ["test"],
+    engineRanks: { test: 1 },
+  };
 }
 
 /** Build a minimal mock EvidencePacket for the reranker tests. */
@@ -369,6 +395,127 @@ async function main() {
         [...new Map(passages.map((p) => [p.domain, 1])).entries()].slice(0, 5),
       ),
     )}`,
+  );
+
+  /* ── 11. 0 bot-block on airbnb.com ───────────────────────────────── */
+  console.log(BOLD("\n11. WAF recovery: airbnb.com (7-tier cascade)"));
+  const airbnbRanked = mockRankedResult(
+    "https://www.airbnb.com/rooms/12345",
+    "Airbnb room listing",
+    "", // empty snippet — forces Tier 6 triangulation path
+  );
+  const airbnbPacket = await extractUrl(airbnbRanked);
+  check(
+    "airbnb.com/rooms/12345 does NOT return FAIL_SILENT_BOT_BLOCK",
+    airbnbPacket.classification !== "FAIL_SILENT_BOT_BLOCK",
+    `classification: ${airbnbPacket.classification}`,
+  );
+  check(
+    "airbnb.com recovered via a SUCCESS_* tier",
+    airbnbPacket.classification?.startsWith("SUCCESS"),
+    `tier: ${airbnbPacket.classification}`,
+  );
+
+  /* ── 12. 5-hour wall-clock cache expiry + purge + vacuum ────────── */
+  console.log(BOLD("\n12. 5-hour wall-clock cache expiry"));
+  check(
+    "CACHE_TTL_MS is 5 hours (18,000,000 ms) by default",
+    CACHE_TTL_MS === 5 * 60 * 60 * 1000,
+    `got: ${CACHE_TTL_MS}ms`,
+  );
+
+  // Simulate a cache row that expired 1 hour ago (wall-clock, not uptime)
+  const { default: Database } = await import("better-sqlite3");
+  const { join } = await import("node:path");
+  const dbPath = join(process.cwd(), ".local-search", "db", "search-cache.sqlite");
+  const simDb = new Database(dbPath);
+  const testKey = hash("https://example.com/expiry-test");
+  const expiredAt = Date.now() - 60 * 60 * 1000; // 1 hour ago
+  const createdAt = expiredAt - CACHE_TTL_MS;
+  simDb
+    .prepare(
+      `INSERT OR REPLACE INTO page_cache
+         (url_hash, url, extracted, tier, cached_at, expires_at)
+       VALUES (?, 'https://example.com/expiry-test', 'x'.repeat(300), 'direct', ?, ?)`,
+    )
+    .run(testKey, createdAt, expiredAt);
+  simDb.close();
+
+  // The expired row should be invisible to getCachedPage (expires_at < now)
+  const expiredRow = getCachedPage("https://example.com/expiry-test");
+  check(
+    "Expired row (1h old) is NOT returned by getCachedPage",
+    expiredRow === null,
+    expiredRow ? "still cached ✗" : "correctly expired ✓",
+  );
+
+  // purgeExpiredCache() physically deletes the row and re-vacuums
+  const purged = purgeExpiredCache();
+  check(
+    "purgeExpiredCache() deleted ≥1 expired row + vacuumed DB",
+    purged >= 1,
+    `purged ${purged} row(s)`,
+  );
+
+  // A fresh row (expires in 5h) IS still visible
+  putCachedPage(
+    "https://example.com/fresh-page",
+    "## Fresh page\n" +
+      "This is a full page extraction with enough content to be useful for BM25 scoring. It contains real paragraphs and data that the reranker needs.".repeat(
+        2,
+      ),
+    "direct",
+  );
+  const freshRow = getCachedPage("https://example.com/fresh-page");
+  check(
+    "Fresh row (just written) IS returned by getCachedPage",
+    freshRow !== null && freshRow.extracted.length >= 200,
+    freshRow ? `cached ${freshRow.extracted.length} chars ✓` : "not cached ✗",
+  );
+
+  /* ── 13. Unbroken tables & code chunks exceed 1,500 chars ──────── */
+  console.log(BOLD("\n13. Atomic blocks preserved above 1,500 chars"));
+  // Build a realistic large pricing table + code block (>1500 chars each)
+  const bigTable = [
+    "| SKU | Name | Price | Stock | Shipping | Returns | Warranty |",
+    "|---|---|---|---|---|---|---|",
+  ]
+    .concat(
+      Array.from({ length: 30 }, (_, i) =>
+        `| SKU-${String(i).padStart(4, "0")} | Product ${i} | $${i * 10} | ${i % 5 === 0 ? "Backordered" : "In stock"} | Free | 30d | 1yr |`,
+      ),
+    )
+    .join("\n");
+
+  const bigCode = [
+    "```python",
+    "class BenchmarkRunner:",
+    "    def __init__(self, tasks: list):",
+    "        self.tasks = tasks",
+    "        self.results = {}",
+    ...Array.from({ length: 40 }, (_, i) => `        self.run_task_${i} = lambda: {"id": ${i}, "score": ${i * 0.1}}`),
+    "```",
+  ].join("\n");
+
+  const bigChunks = chunkMarkdown(bigTable + "\n\n" + bigCode);
+  const tablePreserved = bigChunks.some(
+    (c) => c.text.includes("| SKU |") && c.text.includes("| SKU-0029 |"),
+  );
+  const codePreserved = bigChunks.some(
+    (c) => c.text.includes("class BenchmarkRunner") && c.text.includes("run_task_39"),
+  );
+  const tableSize = bigChunks.find((c) => c.text.includes("| SKU |"))?.text.length ?? 0;
+  const codeSize = bigChunks.find((c) => c.text.includes("```python"))?.text.length ?? 0;
+
+  check(
+    "30-row pricing table kept as ONE unbroken chunk (>1,500 chars)",
+    tablePreserved && tableSize > 1500,
+    `table chunk: ${tableSize} chars`,
+  );
+  check(
+    "40-line code block kept as ONE unbroken chunk (>1,500 chars)",
+    codePreserved && codeSize > 1500,
+    `code chunk: ${codeSize} chars`,
   );
 
   /* ── summary ──────────────────────────────────────────────────────── */

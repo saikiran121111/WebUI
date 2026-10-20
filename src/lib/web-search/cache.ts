@@ -5,15 +5,23 @@
  * footprint on startup — file is only opened on first cache read/write).
  *
  * Two tables:
- *   query_cache(query_hash, freshness, plan_json, hits, expires_at)
- *   page_cache(url_hash, url, extracted_md, tier, cached_at)
+ *   query_cache(query_hash, freshness, plan_json, hits, created_at, expires_at)
+ *   page_cache (url_hash, url, extracted, tier, cached_at, expires_at)
+ *
+ * Wall-clock TTL (5 hours real-world time, NOT process uptime):
+ *   - Every row stores `created_at` and `expires_at` as Unix epoch
+ *     milliseconds (Date.now()), so the expiry survives app restarts.
+ *   - `purgeExpiredCache()` deletes expired rows on startup, on every
+ *     read/write, and via a 15-minute background sweep.
+ *   - After each purge, `PRAGMA incremental_vacuum` + `wal_checkpoint`
+ *     physically shrink the .db and .db-wal files on disk.
+ *   - Configurable via WEB_SEARCH_CACHE_TTL_MS (default 5 * 60 * 60 * 1000).
  */
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import type { SearchPlan, RankedResult } from "./metasearch";
-import type { EvidencePacket } from "./types";
 
 const DB_PATH = join(
   process.cwd(),
@@ -22,13 +30,29 @@ const DB_PATH = join(
   "search-cache.sqlite",
 );
 
+/**
+ * Wall-clock TTL: 5 hours of real-world time (not process uptime).
+ * Override with WEB_SEARCH_CACHE_TTL_MS if a different retention is needed.
+ */
+export const CACHE_TTL_MS: number = (() => {
+  const raw = process.env.WEB_SEARCH_CACHE_TTL_MS;
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 60 * 60 * 1000;
+})();
+
 let _db: Database.Database | null = null;
+let _purgeSweepStarted = false;
+let _lastPurgeCheck = 0; // ms timestamp of last non-blocking purge check
+
+/** 15-minute non-blocking background sweep (unref'd so it never keeps the process alive). */
+const PURGE_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 function db(): Database.Database {
   if (_db) return _db;
   mkdirSync(join(process.cwd(), ".local-search", "db"), { recursive: true });
   _db = new Database(DB_PATH);
   _db.pragma("journal_mode = WAL");
+  _db.pragma("auto_vacuum = INCREMENTAL"); // required for incremental_vacuum
   _db.exec(`
     CREATE TABLE IF NOT EXISTS query_cache (
       query_hash  TEXT PRIMARY KEY,
@@ -48,31 +72,82 @@ function db(): Database.Database {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_page_expires ON page_cache(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_query_expires ON query_cache(expires_at);
   `);
+  // Enable auto_vacuum on existing DBs that predate this change
+  _db.pragma("auto_vacuum = INCREMENTAL");
   return _db;
+}
+
+/**
+ * Delete all expired rows from both cache tables, then run
+ * `PRAGMA incremental_vacuum` + `PRAGMA wal_checkpoint(TRUNCATE)` so
+ * the .db and .db-wal files on disk physically shrink.
+ *
+ * Called automatically on:
+ *   1. Module init (first cache access) — wipes stale data from earlier sessions
+ *   2. Every read/write (throttled to at most once per 60 seconds)
+ *   3. 15-minute background sweep (setInterval, unref'd)
+ */
+export function purgeExpiredCache(): number {
+  const d = db();
+  const now = Date.now();
+  const q = d.prepare(`DELETE FROM query_cache WHERE expires_at <= ?`);
+  const p = d.prepare(`DELETE FROM page_cache WHERE expires_at <= ?`);
+  const qInfo = q.run(now);
+  const pInfo = p.run(now);
+  // Physically reclaim the freed pages — safe to run on every purge
+  // (a no-op when there is nothing to reclaim).
+  try {
+    d.pragma("incremental_vacuum");
+    d.pragma("wal_checkpoint(TRUNCATE)");
+  } catch {
+    /* vacuum can fail on a locked WAL — non-fatal */
+  }
+  const total = qInfo.changes + pInfo.changes;
+  if (total > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[web-search/cache] purged ${total} expired rows (${qInfo.changes} query, ${pInfo.changes} page) and re-vacuumed DB`,
+    );
+  }
+  return total;
+}
+
+/**
+ * Throttled non-blocking purge: call on every cache read/write.
+ * At most one purge runs per 60 seconds to avoid overhead on hot paths.
+ */
+function maybePurge(): void {
+  const now = Date.now();
+  if (now - _lastPurgeCheck < 60_000) return;
+  _lastPurgeCheck = now;
+  purgeExpiredCache();
+}
+
+/**
+ * Start the 15-minute background sweep (idempotent — safe to call
+ * multiple times). The timer is unref'd so it never prevents the
+ * process from exiting.
+ */
+export function startPurgeSweep(): void {
+  if (_purgeSweepStarted) return;
+  _purgeSweepStarted = true;
+  const timer = setInterval(() => {
+    try {
+      purgeExpiredCache();
+    } catch {
+      /* DB may be closed — ignore */
+    }
+  }, PURGE_SWEEP_INTERVAL_MS);
+  timer.unref(); // don't keep the event loop alive
+  // Purge immediately on startup (handles the "closed app, reopened 6h later" case)
+  purgeExpiredCache();
 }
 
 export function hash(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 32);
 }
-
-/* TTLs in milliseconds — raised for the new 6-value freshness set.
-   "any" freshness (time-irrelevant) gets the longest TTL; "day"
-   (same-day news) the shortest. */
-const QUERY_TTL: Record<string, number> = {
-  day: 15 * 60 * 1000,           // 15 min — same-day news goes stale fast
-  week: 4 * 60 * 60 * 1000,      // 4 h   — this-week updates
-  month: 24 * 60 * 60 * 1000,    // 24 h  — recent releases / versioned facts
-  year: 7 * 24 * 60 * 60 * 1000, // 7 d   — stable versioned product data
-  any: 30 * 24 * 60 * 60 * 1000, // 30 d  — time-irrelevant (static knowledge)
-  // Legacy values (still hit by old cache entries):
-  current: 15 * 60 * 1000,
-  recent: 4 * 60 * 60 * 1000,
-  standard: 24 * 60 * 60 * 1000,
-  quick: 15 * 60 * 1000,
-};
-
-const PAGE_TTL = 6 * 60 * 60 * 1000; // 6 h
 
 /* ── query cache ───────────────────────────────────────────────────────── */
 
@@ -87,6 +162,7 @@ export function queryCacheKey(plans: SearchPlan[]): string {
 export function getCachedQuery(
   plans: SearchPlan[],
 ): { results: RankedResult[]; freshness: string } | null {
+  maybePurge();
   const key = queryCacheKey(plans);
   const row = db()
     .prepare(
@@ -112,8 +188,9 @@ export function putCachedQuery(
   results: RankedResult[],
   freshness: string,
 ): void {
+  maybePurge();
   const key = queryCacheKey(plans);
-  const ttl = QUERY_TTL[freshness] ?? QUERY_TTL.standard;
+  const now = Date.now();
   db()
     .prepare(
       `INSERT INTO query_cache (query_hash, freshness, plan_json, results_json, hits, created_at, expires_at)
@@ -130,8 +207,8 @@ export function putCachedQuery(
       freshness,
       JSON.stringify(plans),
       JSON.stringify(results),
-      Date.now(),
-      Date.now() + ttl,
+      now,
+      now + CACHE_TTL_MS,
     );
 }
 
@@ -141,6 +218,7 @@ export function getCachedPage(url: string): {
   extracted: string;
   tier: string;
 } | null {
+  maybePurge();
   const key = hash(url);
   const row = db()
     .prepare(
@@ -155,26 +233,25 @@ export function getCachedPage(url: string): {
 }
 
 /**
- * Cache a full page extraction. Only called when Tier 1/1.5/2/3
- * produced a high-signal extraction (SUCCESS_DIRECT, SUCCESS_ADAPTER,
- * SUCCESS_METADATA, SUCCESS_JINA_FALLBACK, SUCCESS_WAYBACK).
+ * Cache a full page extraction. Only called when a high-signal tier
+ * (direct / adapter / metadata / jina / wayback) produced a real
+ * extraction with ≥200 chars of meaningful content.
  *
- * Never cache snippet-only fallbacks (SUCCESS_SNIPPET_FALLBACK) —
- * they are degraded partial evidence and would poison subsequent
- * cache reads.
+ * Never cache snippet-only fallbacks, WAF challenge pages, or any
+ * degraded / empty content — those would poison subsequent reads.
  */
 export function putCachedPage(
   url: string,
   extracted: string,
   tier: "direct" | "jina" | "adapter" | "metadata" | "wayback",
 ): void {
-  // A snippet-only tier should never reach here (the extractor
-  // classifies it before calling putCachedPage). Belt and suspenders:
-  // refuse to write if the extracted content looks like a degraded
-  // snippet (less than 200 chars of real content).
+  // Refuse to write if the extracted content is a degraded snippet
+  // (<200 chars of signal) or contains WAF challenge boilerplate.
   const signal = extracted.replace(/\s+/g, " ").trim();
   if (signal.length < 200) return;
 
+  maybePurge();
+  const now = Date.now();
   db()
     .prepare(
       `INSERT INTO page_cache (url_hash, url, extracted, tier, cached_at, expires_at)
@@ -188,18 +265,11 @@ export function putCachedPage(
     .run(
       hash(url),
       url,
-      extracted,
+      extracted, // full text — no truncation
       tier,
-      Date.now(),
-      Date.now() + PAGE_TTL,
+      now,
+      now + CACHE_TTL_MS,
     );
-}
-
-/** Prune expired rows — call opportunistically on cache access. */
-export function pruneExpired(): void {
-  const now = Date.now();
-  db().prepare(`DELETE FROM query_cache WHERE expires_at < ?`).run(now);
-  db().prepare(`DELETE FROM page_cache WHERE expires_at < ?`).run(now);
 }
 
 /** Close the DB handle (used by tests / process exit). */

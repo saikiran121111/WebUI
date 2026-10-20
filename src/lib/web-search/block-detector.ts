@@ -182,6 +182,54 @@ function verdict(kind: BlockKind, reason: string): BlockVerdict {
   return { blocked: true, kind, reason };
 }
 
+/**
+ * Strip residual WAF challenge / CAPTCHA / "checking your browser"
+ * wording from recovered text so that a snippet triangulated from a
+ * partially-blocked fetch does not leak challenge boilerplate into the
+ * BM25 index.
+ *
+ * This is the final line of defense before a Tier 2 / Tier 6 result is
+ * handed to the reranker: any of the known challenge phrases are cut
+ * out of the passage, and if what remains is under 100 meaningful
+ * characters the result is rejected outright (treated as a failed tier).
+ */
+const WAF_BOILERPLATE_RE = new RegExp(
+  [
+    "checking your browser",
+    "just a moment",
+    "please enable javascript and cookies",
+    "verify you are human",
+    "i'm not a robot",
+    "are you a robot",
+    "enable cookies to continue",
+    "cf-chl",
+    "cf-turnstile",
+    "turnstile",
+    "please wait",
+    "verifying connection",
+    "access to this page has been limited",
+    "you are being redirected",
+  ].join("|"),
+  "gi",
+);
+
+export function stripWafChallengeText(text: string): string {
+  if (!text) return "";
+  // Cut out each boilerplate phrase and its surrounding ~80-char window
+  let cleaned = text;
+  for (const m of text.matchAll(WAF_BOILERPLATE_RE)) {
+    const start = Math.max(0, (m.index ?? 0) - 80);
+    const end = Math.min(text.length, (m.index ?? 0) + m[0].length + 80);
+    cleaned = cleaned.slice(0, start) + " " + cleaned.slice(end);
+  }
+  return cleaned.replace(/\s{3,}/g, "  ").trim();
+}
+
+/** True when the text (after stripping) still has meaningful content. */
+export function hasMeaningfulContent(text: string, minChars = 100): boolean {
+  return text.replace(/\s+/g, " ").trim().length >= minChars;
+}
+
 /* ── main entry point ─────────────────────────────────────────────────── */
 
 /**

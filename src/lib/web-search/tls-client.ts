@@ -23,6 +23,61 @@ let _client: Impit | null = null;
 
 export type BrowserFingerprint = "chrome" | "firefox" | "safari" | "edge";
 
+/**
+ * Social link-preview crawler User-Agents.
+ *
+ * Hostile WAFs (Akamai, PerimeterX, Cloudflare, DataDome) whitelist the
+ * link-preview bots that render share-cards on WhatsApp, Facebook,
+ * Twitter/X, and Slack — so when a standard browser TLS fingerprint is
+ * blocked, retrying under these UAs often succeeds where the browser
+ * profile does not. This is Tier 2 of the 7-tier anti-bot cascade.
+ *
+ * Each entry: [userAgent, extra headers the crawler sends].
+ */
+export const LINK_PREVIEW_UAS: Array<{
+  name: string;
+  userAgent: string;
+  headers: Record<string, string>;
+}> = [
+  {
+    name: "whatsapp",
+    userAgent: "WhatsApp/2.23.20.0",
+    headers: {
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: "https://www.whatsapp.com/",
+    },
+  },
+  {
+    name: "facebook",
+    userAgent:
+      "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    headers: {
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: "https://www.facebook.com/",
+    },
+  },
+  {
+    name: "twitter",
+    userAgent: "Twitterbot/1.0",
+    headers: {
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: "https://twitter.com/",
+    },
+  },
+  {
+    name: "slack",
+    userAgent: "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+    headers: {
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: "https://slack.com/",
+    },
+  },
+];
+
 export function tlsClient(): Impit {
   if (!_client) {
     _client = new Impit({ browser: "chrome" });
@@ -457,4 +512,81 @@ export async function fetchUrl(
   } catch {
     return null;
   }
+}
+
+/**
+ * Tier 2 of the 7-tier anti-bot cascade: social link-preview crawler bypass.
+ *
+ * When a standard browser fingerprint (Tier 1A/1B) is WAF-blocked, this
+ * probes the same URL with each of the 4 link-preview bot User-Agents in
+ * sequence. WAFs like Akamai, Cloudflare, DataDome, and PerimeterX
+ * whitelist these bots because they need to render share-cards — so a
+ * `WhatsApp/2.23.20.0` request often gets a 200 where a Chrome TLS
+ * fingerprint gets a 403.
+ *
+ * Returns the first successful (non-blocked, 200-299, body ≥200 bytes)
+ * response, or null when all 4 bots fail. The caller (extractor.ts)
+ * extracts OpenGraph / Twitter / JSON-LD / hydration / body text from the
+ * returned body before handing it to the cascade.
+ */
+export async function fetchWithLinkPreviewBots(
+  url: string,
+  opts: {
+    timeoutMs?: number;
+    limitBytes?: number;
+  } = {},
+): Promise<(PageResponse & { botName: string }) | null> {
+  if (!isSafeUrl(url)) return null;
+  const timeout = opts.timeoutMs ?? 45_000;
+  const limitBytes = opts.limitBytes ?? PAGE_LIMIT_BYTES;
+  const jar = newCookieJar();
+
+  for (const bot of LINK_PREVIEW_UAS) {
+    try {
+      const res = await tlsClient().fetch(url, {
+        method: "GET",
+        headers: {
+          "User-Agent": bot.userAgent,
+          ...bot.headers,
+        },
+        timeout,
+      } as any);
+      const status: number = res.status;
+      const rawCookies: string[] =
+        Array.from((res.headers as any)?.getSetCookie?.() ?? []) as string[];
+      if (rawCookies.length > 0) jar.absorb(url, rawCookies);
+
+      const ok = status >= 200 && status < 400;
+      if (!ok) continue; // blocked or server error — try the next bot
+
+      const body = await readBounded((res as any).body, limitBytes).catch(
+        () => "",
+      );
+      if (body.length < 200) continue; // challenge page / empty shell
+
+      const contentType = String(
+        (res.headers as any)?.get?.("content-type") ??
+          (res.headers as any)?.["content-type"] ??
+          "",
+      );
+
+      // A successful bot fetch is the end of the probe — return it. The
+      // caller's block-detector gate will verify the body is real content
+      // (not a residual challenge page slipped through as a 200).
+      return {
+        status,
+        ok: true,
+        body,
+        contentType,
+        elapsedMs: 0,
+        fingerprint: "chrome",
+        cookies: rawCookies,
+        botName: bot.name,
+      };
+    } catch {
+      // network error on this bot — try the next one
+      continue;
+    }
+  }
+  return null;
 }

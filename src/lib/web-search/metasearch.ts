@@ -582,3 +582,88 @@ export async function urlSearchFallback(
   });
   return out;
 }
+
+/**
+ * Tier 6 — deep URL-slug metasearch triangulation.
+ *
+ * The guaranteed zero-block fallback: when Tiers 1–5 (direct, browser
+ * rotation, link-preview bots, platform JSON, Jina, Wayback) all fail on
+ * a hard WAF, parse the target URL into meaningful slug keywords and run
+ * a `site:`-scoped metasearch across all engines. Titles + snippets +
+ * metadata from every matching result are synthesized into a single
+ * "[Synthesized Web Index Evidence]" block that the caller returns as
+ * SUCCESS_SNIPPET_FALLBACK instead of FAIL_SILENT_BOT_BLOCK.
+ *
+ * Examples:
+ *   https://www.airbnb.com/rooms/12345
+ *     → site:airbnb.com "12345"  +  "airbnb" "rooms" "12345"
+ *   https://github.com/nicksix/fd
+ *     → site:github.com "nicksix" "fd"
+ *
+ * Returns a markdown synthesis string ("" when nothing useful found).
+ */
+export async function slugTriangulation(
+  targetUrl: string,
+  title?: string,
+): Promise<string> {
+  let u: URL;
+  try {
+    u = new URL(targetUrl);
+  } catch {
+    return "";
+  }
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+
+  // Parse the path into meaningful slug tokens (drop pure-numeric,
+  // short, and boilerplate segments).
+  const slugTokens = u.pathname
+    .split("/")
+    .filter((s) => s.length > 2 && !/^\d+$/.test(s))
+    .map((s) => s.replace(/[-_]/g, " ").trim())
+    .filter((s) => s.length > 2)
+    .slice(0, 4);
+
+  // Build 2 query variants:
+  //   1. site:query  — restricts to the target domain
+  //   2. host-name + slug keywords — broader recall
+  const siteQuery = `site:${host} ${slugTokens.map((t) => `"${t}"`).join(" ") || "*"}`;
+  const broadQuery = `"${host.replace(/\.\w+$/, "")}" ${slugTokens.join(" ")}`;
+
+  const [siteResults, broadResults] = await Promise.all([
+    searchOne(siteQuery, "general"),
+    searchOne(broadQuery, "general"),
+  ]);
+
+  // Dedupe by normalized URL
+  const seen = new Set<string>();
+  const all = [...siteResults, ...broadResults].filter((r) => {
+    let norm = "";
+    try {
+      norm = normalizeUrl(r.url);
+    } catch {
+      return false;
+    }
+    if (seen.has(norm)) return false;
+    seen.add(norm);
+    // Only keep results that actually have a snippet (≥20 chars of signal)
+    return (r.snippet ?? "").length >= 20 || (r.title ?? "").length >= 20;
+  });
+
+  if (all.length === 0) return "";
+
+  // Synthesize the evidence block
+  const lines: string[] = [
+    "[Synthesized Web Index Evidence] for " + targetUrl,
+    title ? "Page title (from metasearch): " + title : "",
+    "",
+  ].filter(Boolean);
+
+  for (const r of all.slice(0, 8)) {
+    lines.push(`- [${r.engine}] ${r.title || "(untitled)"}`);
+    lines.push(`  URL: ${r.url}`);
+    if (r.snippet?.length) lines.push(`  Snippet: ${r.snippet.slice(0, 400)}`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
