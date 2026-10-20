@@ -257,7 +257,7 @@ async function redditAdapter(u: URL): Promise<AdapterResult | null> {
   }
 
   const res = await fetchUrl(jsonUrl, {
-    timeoutMs: 3000,
+    timeoutMs: 45_000,
     headers: {
       "user-agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
@@ -305,7 +305,7 @@ async function githubAdapter(u: URL): Promise<AdapterResult | null> {
     const [, owner, repo, branch] = segs;
     const path = segs.slice(4).join("/");
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-    const res = await fetchUrl(rawUrl, { timeoutMs: 3000 });
+    const res = await fetchUrl(rawUrl, { timeoutMs: 45_000 });
     if (res && res.ok && res.text.length > 50) {
       return {
         markdown: `## GitHub file: ${path}\n\`\`\`\n${res.text.slice(0, 8000)}\n\`\`\``,
@@ -364,7 +364,7 @@ async function youtubeAdapter(
       `https://www.youtube.com/oembed?url=${encodeURIComponent(
         "https://www.youtube.com/watch?v=" + videoId,
       )}&format=json`,
-      { timeoutMs: 2500 },
+      { timeoutMs: 45_000 },
     );
     if (res && res.ok) {
       try {
@@ -408,7 +408,7 @@ async function osmAdapter(
   if (lat && lon) {
     const res = await fetchUrl(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=jsonv2&zoom=14`,
-      { timeoutMs: 2500 },
+      { timeoutMs: 45_000 },
     );
     if (res && res.ok) {
       try {
@@ -433,7 +433,7 @@ async function osmAdapter(
   if (m) {
     const res = await fetchUrl(
       `https://api.openstreetmap.org/api/0.6/${m[1]}/${m[2]}.json`,
-      { timeoutMs: 2500 },
+      { timeoutMs: 45_000 },
     );
     if (res && res.ok) {
       try {

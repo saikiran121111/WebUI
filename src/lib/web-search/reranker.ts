@@ -23,19 +23,69 @@ interface Chunk {
 
 /**
  * Split markdown into semantic chunks: break at blank lines / headings,
- * target ~600 chars with 100-char overlap so a fact spanning a boundary
+ * target ~2,000 chars with 300-char overlap so a fact spanning a boundary
  * still appears in at least one chunk.
+ *
+ * Atomic block protection: Markdown tables, fenced code blocks, and
+ * [Structured Page Facts] headers are NEVER split across chunks — they
+ * become their own atomic chunk even when they exceed 2,000 chars
+ * (up to 8,000 chars, which covers full pricing matrices and code files).
  */
-export function chunkMarkdown(md: string, target = 600, overlap = 100): Chunk[] {
+const ATOMIC_BLOCK_RE =
+  /```[\s\S]*?```(?:\n|(?=$))|^\|.*\|(?:\n\|.*\|)*|^\[Structured Page Facts\][\s\S]+?(?=\n\n(?=#|\||```|$))/gm;
+
+export function chunkMarkdown(md: string, target = 2000, overlap = 300): Chunk[] {
   const cleaned = md.replace(/\r\n/g, "\n");
-  const paragraphs = cleaned.split(/\n{2,}|\n(?=#{1,4}\s)/);
   const chunks: Chunk[] = [];
+
+  // Pass 1: extract atomic blocks (tables, code fences, structured page facts)
+  // and replace them with placeholders in the main text.
+  const atomicBlocks: { start: number; end: number; text: string }[] = [];
+  let placeholderText = cleaned;
+  let placeholder = 0;
+  const ATOMIC_CAP = 8000; // Max size for a single atomic chunk
+
+  const processAtomic = (regex: RegExp) => {
+    for (const m of cleaned.matchAll(regex)) {
+      const blockText = m[0].trim();
+      if (blockText.length < 40) continue;
+      const capped = blockText.length > ATOMIC_CAP ? blockText.slice(0, ATOMIC_CAP) : blockText;
+      atomicBlocks.push({
+        start: m.index ?? 0,
+        end: (m.index ?? 0) + blockText.length,
+        text: capped,
+      });
+      const ph = `[[ATOMIC_${placeholder++}]]`;
+      placeholderText = placeholderText.replace(blockText, ph);
+    }
+  };
+
+  // Fenced code blocks
+  processAtomic(/```[\s\S]*?```/g);
+  // Markdown tables (contiguous | rows)
+  processAtomic(/^\|.*\|(?:\n\|.*\|)*/gm);
+  // [Structured Page Facts] blocks (header + content up to blank line + new section)
+  processAtomic(/^\[Structured Page Facts\][\s\S]+?(?=\n\n(?=#|\[Structured|$))/gm);
+
+  // Pass 2: chunk the remaining prose (with placeholders that are
+  // later resolved back to the atomic block text).
+  const paragraphs = placeholderText.split(/\n{2,}|\n(?=#{1,4}\s)/);
   let buf = "";
   let bufStart = 0;
 
+  const resolvePlaceholder = (s: string): string => {
+    // Re-expand atomic placeholders back to their full text
+    let result = s;
+    for (let i = 0; i < atomicBlocks.length; i++) {
+      result = result.replace(`[[ATOMIC_${i}]]`, atomicBlocks[i].text);
+    }
+    return result;
+  };
+
   const flush = (end: number) => {
-    const text = buf.trim();
+    let text = buf.trim();
     if (text.length >= 40) {
+      text = resolvePlaceholder(text);
       chunks.push({ text, startIndex: bufStart });
     }
     buf = "";
@@ -46,11 +96,23 @@ export function chunkMarkdown(md: string, target = 600, overlap = 100): Chunk[] 
   for (const para of paragraphs) {
     const p = para.trim();
     if (!p) continue;
+    // If this paragraph is (or contains) an atomic placeholder,
+    // emit it as its own chunk — never split it.
+    const atomicMatch = p.match(/^\[\[ATOMIC_(\d+)\]\]$/);
+    if (atomicMatch) {
+      flush(pos);
+      const atomicText = atomicBlocks[Number(atomicMatch[1])].text;
+      if (atomicText.trim().length >= 40) {
+        chunks.push({ text: atomicText.trim(), startIndex: pos });
+      }
+      pos += p.length + 2;
+      continue;
+    }
     if (p.length > target * 2) {
       // Very long paragraph: hard-slice with overlap
       for (let i = 0; i < p.length; i += target - overlap) {
         chunks.push({
-          text: p.slice(i, i + target),
+          text: resolvePlaceholder(p.slice(i, i + target)),
           startIndex: pos + i,
         });
       }
@@ -200,21 +262,28 @@ export interface RerankHit {
 }
 
 /**
- * Rank every extracted passage against the combined prompt + LFM queries.
- * Returns the top 12–15 across diverse domains, capped at 3 per domain.
+ * Rank every extracted passage against the combined prompt + LLM queries.
+ *
+ * - Larger semantic chunks (2,000 chars, 300-char overlap) so the LLM gets
+ *   more context per passage.
+ * - Atomic block protection: tables, code fences, [Structured Page Facts]
+ *   are never split — up to 8,000 chars per atomic chunk.
+ * - Neighbor expansion: when a chunk ranks top, its adjacent chunk in the
+ *   same document is included for setup/conclusion context.
+ * - topN default raised to 30; per-domain cap raised to 6.
+ * - singleDomainUnlimited: pass true when the query targets one specific
+ *   URL / repo / paper / website — allow unlimited chunks from that domain.
  */
 export function rerank(
   packets: EvidencePacket[],
   userPrompt: string,
   lfmQueries: string[],
-  topN = 14,
+  topN = 30,
+  opts?: { singleDomainUnlimited?: boolean },
 ): EvidencePassage[] {
-  // One corpus of chunks: flatten packets into chunk records, remember
-  // which packet each chunk came from.
   interface ChunkRec {
     chunk: string;
     packet: EvidencePacket;
-    baseIndex: number;
   }
   const recs: ChunkRec[] = [];
   for (const packet of packets) {
@@ -222,58 +291,62 @@ export function rerank(
       const chunks = chunkMarkdown(p.passageText);
       for (const c of chunks) {
         // Filter out pure-junk chunks up front (cookie banners, login
-        // prompts, footer nav) — they'd otherwise waste BM25 budget and
-        // can poison the top-N when real content is sparse.
-        if (junkPenalty(c.text) >= 0.8 && c.text.length < 400) continue;
-        recs.push({ chunk: c.text, packet, baseIndex: recs.length });
+        // prompts, footer nav). With 2,000-char chunks the threshold is
+        // raised to 800 chars — a boilerplate chunk under 800 chars with
+        // 0.8+ junk penalty is almost certainly a cookie banner.
+        if (junkPenalty(c.text) >= 0.8 && c.text.length < 800) continue;
+        recs.push({ chunk: c.text, packet });
       }
     }
   }
   if (recs.length === 0) {
-    // Every chunk was junk — fall back to the raw first passage of each
-    // packet so the pipeline still returns something for the report.
     return packets.flatMap((p) => p.passages).slice(0, topN);
   }
 
   // Build the BM25 index over all chunks
   const idx = buildBm25(recs.map((r) => r.chunk));
 
-  // Combined query: user prompt + all LFM queries (deduped)
+  // Combined query: user prompt + all LLM queries (deduped)
   const qSet = [userPrompt, ...lfmQueries];
   const qText = qSet.filter(Boolean).join(" ");
 
-  const rawHits = bm25Score(idx, qText, topN * 2);
+  // Pull more candidates than the final topN so neighbor expansion has
+  // material to work with.
+  const rawHits = bm25Score(idx, qText, topN * 3);
 
   // Apply the junk penalty so boilerplate chunks never outrank real content.
   const hits: Array<[number, number]> = rawHits
-    .map(([idx_, rawScore]) => {
-      const rec = recs[idx_];
-      if (!rec) return [idx_, rawScore] as [number, number];
+    .map(([recIdx, rawScore]) => {
+      const rec = recs[recIdx];
+      if (!rec) return [recIdx, rawScore] as [number, number];
       const penalty = junkPenalty(rec.chunk);
       const adjusted = rawScore * (1 - 0.8 * penalty);
-      return [idx_, adjusted] as [number, number];
+      return [recIdx, adjusted] as [number, number];
     })
     .filter(([, s]) => s > 0)
     .sort((a, b) => b[1] - a[1]);
 
   if (hits.length === 0) {
-    // No non-zero scores after the penalty — fall back to RRF order so
-    // the pipeline still returns something useful (metasearch ranking).
-    return packets
-      .flatMap((p) => p.passages)
-      .slice(0, topN);
+    return packets.flatMap((p) => p.passages).slice(0, topN);
   }
 
-  // Apply the per-domain cap while keeping the global top-N
+  // Per-domain cap: 6 (was 3). Unlimited when singleDomainUnlimited=true.
   const domainCount = new Map<string, number>();
+  const singleDomainUnlimited = opts?.singleDomainUnlimited ?? false;
   const out: EvidencePassage[] = [];
+  const topHitIdxs = new Set<number>();
+
   for (const [recIdx, score] of hits) {
+    if (out.length >= topN) break;
     const rec = recs[recIdx];
     if (!rec) continue;
     const domain = rec.packet.domain;
-    const dc = domainCount.get(domain) ?? 0;
-    if (dc >= 3) continue;
-    domainCount.set(domain, dc + 1);
+    if (!singleDomainUnlimited) {
+      const dc = domainCount.get(domain) ?? 0;
+      if (dc >= 6) continue;
+      domainCount.set(domain, dc + 1);
+    }
+    topHitIdxs.add(recIdx);
     out.push({
       sourceId: rec.packet.sourceId,
       url: rec.packet.url,
@@ -283,7 +356,40 @@ export function rerank(
       passageText: rec.chunk,
       bm25Score: Math.round(score * 1000) / 1000,
     });
-    if (out.length >= topN) break;
   }
-  return out;
+
+  // Neighbor expansion: for each top hit, include its adjacent chunk in
+  // the same document (if it's meaningful) so the LLM gets the setup
+  // and conclusion around key facts.
+  if (!singleDomainUnlimited && out.length < 35) {
+    const seenKeys = new Set(out.map((o) => o.sourceId + "|" + o.passageText.slice(0, 80)));
+    let added = 0;
+    for (const recIdx of topHitIdxs) {
+      if (added >= 5) break;
+      const rec = recs[recIdx];
+      if (!rec) continue;
+      for (const nIdx of [recIdx - 1, recIdx + 1]) {
+        if (nIdx < 0 || nIdx >= recs.length) continue;
+        const neighbor = recs[nIdx];
+        if (neighbor.packet.sourceId !== rec.packet.sourceId) continue;
+        const key = neighbor.packet.sourceId + "|" + neighbor.chunk.slice(0, 80);
+        if (seenKeys.has(key)) continue;
+        if (neighbor.chunk.length < 150) continue;
+        out.push({
+          sourceId: neighbor.packet.sourceId,
+          url: neighbor.packet.url,
+          title: neighbor.packet.title,
+          domain: neighbor.packet.domain,
+          publishedAt: neighbor.packet.publishedAt,
+          passageText: "[Context] " + neighbor.chunk,
+          bm25Score: 0,
+        });
+        seenKeys.add(key);
+        added++;
+        if (out.length >= 35) break;
+      }
+    }
+  }
+
+  return out.slice(0, Math.max(topN, 35));
 }

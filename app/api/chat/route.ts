@@ -375,20 +375,25 @@ export async function POST(req: NextRequest) {
       }
 
       // 6) Mandatory LFM web-search gate: every prompt is classified by the
-      //    LFM router BEFORE the main model sees it. If a live search is
-      //    required, the full research pipeline (parallel metasearch →
-      //    3-tier extraction → CPU BM25 rerank) runs now and the resulting
-      //    evidence block is injected as a system message just ahead of the
-      //    user turn — so the main model can only answer from what was
-      //    actually retrieved, and is instructed to cite [S#] inline.
+      //    LFM router BEFORE the main model sees it. beginUserTurn() is called
+      //    here so background title jobs yield the local LLM slot to the gate
+      //    immediately — without this, a concurrent title generation call
+      //    could starve the LFM classifier and push it past the 60s timeout.
       let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
+      let inferenceTurnActive = false;
       try {
+        // Claim the shared inference slot NOW (before the LFM gate) so the
+        // title queue aborts any in-flight title call. endUserTurn() is
+        // called in the finally block when the turn fully settles.
+        beginUserTurn();
+        inferenceTurnActive = true;
         researchBundle = await runWebResearch(
           { userPrompt: fullText, history },
           (p) => {
             // surface pipeline progress in the dev terminal
             log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
           },
+          req.signal,
         );
         if (researchBundle) {
           const { systemBlock } = buildMainModelContext(researchBundle);
@@ -436,6 +441,12 @@ export async function POST(req: NextRequest) {
           { err: err instanceof Error ? err.message : err },
           "web research pipeline failed — proceeding without web evidence",
         );
+      } finally {
+        // Release the inference slot held by the LFM gate so background
+        // title jobs can resume. The forwardStream below will call
+        // beginUserTurn() again for the main-model turn; that is a
+        // separate, intentional slot claim (one claim per phase).
+        if (inferenceTurnActive) endUserTurn();
       }
 
       // The full routing story in one readable terminal block: LFM2.5-1.2B

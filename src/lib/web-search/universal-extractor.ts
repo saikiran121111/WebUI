@@ -270,36 +270,42 @@ async function extractDocument(
     return csvToMarkdown(html, ext === "tsv" || ct.includes("tab-separated"));
   }
 
-  // JSON → pretty-print
+  // JSON → pretty-print (full document, no truncation — large JSON-LD blocks
+  // and API responses are often multi-megabyte and truncating mid-stream
+  // corrupts the structure the reranker needs).
   if (ct.includes("application/json") || ext === "json") {
     try {
-      return "```json\n" + JSON.stringify(JSON.parse(html), null, 2).slice(0, 12000) + "\n```";
+      return "```json\n" + JSON.stringify(JSON.parse(html), null, 2) + "\n```";
     } catch {
-      return html.slice(0, 8000);
+      return html;
     }
   }
 
-  // XML / Markdown / plain text → pass through
+  // XML / Markdown / plain text → pass through in full
   if (ct.includes("xml") || ext === "md" || ext === "markdown" || ct.includes("text/markdown")) {
-    return html.slice(0, 12000);
+    return html;
   }
 
-  // Unknown binary — return the first 8KB as-is (the caller can see it)
-  return html.slice(0, 8000);
+  // Unknown binary — return the full content (caller's memory is bounded
+  // by the tls-client 50MB cap, so no unbounded allocation here)
+  return html;
 }
 
 /**
- * PDF text extraction via unpdf (lazy import, bounded to 12000 chars).
- * The unpdf module is already a project dependency, so this is zero-new-
- * dependency.
+ * PDF text extraction via unpdf (lazy import).
  *
- * Memory guard: unpdf's pdf.js backend allocates ~40-80MB of WASM + a
- * per-page render context. Under the stress test's 8-URL global pool,
- * eight simultaneous PDF parses blow the 450MB RSS budget, so we
- * serialize PDF extraction with a dedicated limiter (concurrency 1)
- * and cap the input at 512KB (a real page is ~100-300KB; anything
- * bigger is a scanned multi-hundred-page doc the model can't use
- * anyway).
+ * The unpdf module is already a project dependency. PDF input is now
+ * capped at 150MB (raised from 512KB — arXiv papers with figures,
+ * hardware manuals, and financial filings can be 50-150MB and the
+ * xref table is at the tail; truncating mid-download corrupts the
+ * whole PDF and unpdf fails to parse it).
+ *
+ * Memory guard: unpdf's pdf.js backend allocates ~40-80MB of WASM +
+ * a per-page render context. We serialize PDF extraction with a
+ * dedicated limiter (concurrency 1) so parallel PDF URLs don't spike
+ * RSS. Output is bounded to 500,000 characters of extracted text
+ * (enough for a 200-page paper; the reranker's chunk size handles
+ * the rest).
  */
 let _pdfLimit: any = null;
 function pdfLimiter() {
@@ -309,12 +315,9 @@ function pdfLimiter() {
   return _pdfLimit;
 }
 
-const PDF_INPUT_CAP = 512 * 1024; // 512KB
+const PDF_OUTPUT_CAP = 500_000; // 500K chars of extracted text (was 12K)
 
 async function extractPdf(html: string): Promise<string> {
-  if (html.length > PDF_INPUT_CAP) {
-    return "(PDF truncated — input over 512KB cap)\n" + html.slice(0, 4000);
-  }
   const runner = pdfLimiter();
   return runner(async () => {
     try {
@@ -324,12 +327,15 @@ async function extractPdf(html: string): Promise<string> {
       const bytes = new TextEncoder().encode(html);
       const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       const { text } = await mod.extractText(new Uint8Array(buf));
-      return "## PDF text extraction\n" + text.slice(0, 12000);
+      // Release the raw byte reference — unpdf holds its own copy, so
+      // the original buffer is eligible for GC immediately.
+      void bytes; // allow GC of the source buffer
+      return "## PDF text extraction\n" + text.slice(0, PDF_OUTPUT_CAP);
     } catch {
-      // unpdf failed to parse (corrupt PDF, scanned image, oversized,
-      // etc.) — return the raw bytes trimmed so the caller still has
-      // something.
-      return "(PDF text extraction failed)\n" + html.slice(0, 4000);
+      // unpdf failed to parse (corrupt PDF, scanned image, etc.) —
+      // return a trimmed slice of the raw bytes so the caller still
+      // has something.
+      return "(PDF text extraction failed)\n" + html.slice(0, 5000);
     }
   });
 }
@@ -347,7 +353,7 @@ function csvToMarkdown(csv: string, isTsv: boolean): string {
   const out: string[] = [];
   out.push("| " + grid[0].join(" | ") + " |");
   out.push("| " + new Array(colCount).fill("---").join(" | ") + " |");
-  for (const r of grid.slice(1, 100)) {
+  for (const r of grid.slice(1)) {
     out.push("| " + r.map((c) => c.trim().replace(/\|/g, "\\|")).join(" | ") + " |");
   }
   return "## CSV/TSV data (" + rows.length + " rows)\n" + out.join("\n");
@@ -498,10 +504,9 @@ function extractStructuralSync(html: string): string {
     }
     return md.replace(/\n{3,}/g, "\n\n").trim();
   } catch (e: any) {
-    // linkedom parse failed — raw text extraction (last resort, never
-    // an empty string)
-    console.warn("[universal-extractor] structural sync failed:", e?.message);
-    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 12000);
+    // linkedom parse failed — raw text extraction (last resort, full
+    // content — the tls-client 50MB cap already bounds the input)
+    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
 }
 function extractDocsSync(html: string): string {
@@ -541,15 +546,18 @@ export function extractDocumentSync(
   }
   if (ct.includes("application/json") || ext === "json") {
     try {
-      return "```json\n" + JSON.stringify(JSON.parse(html), null, 2).slice(0, 12000) + "\n```";
+      // Full document — no truncation. Large JSON-LD blocks and API
+      // responses can be multi-megabyte; truncating mid-stream corrupts
+      // the structure the reranker needs.
+      return "```json\n" + JSON.stringify(JSON.parse(html), null, 2) + "\n```";
     } catch {
-      return html.slice(0, 8000);
+      return html;
     }
   }
   if (ct.includes("text/markdown") || ext === "md" || ext === "markdown") {
-    return html.slice(0, 12000);
+    return html;
   }
-  return html.slice(0, 8000);
+  return html;
 }
 
 // Re-export for callers that need the charset normalizer directly

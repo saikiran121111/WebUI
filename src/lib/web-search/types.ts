@@ -3,7 +3,7 @@ import { z } from "zod";
 export const SearchDecisionSchema = z.object({
   search_required: z.boolean(),
   reason: z.string(),
-  freshness: z.enum(["none", "recent", "current"]),
+  freshness: z.enum(["none", "day", "week", "month", "year", "any"]),
   depth: z.enum(["quick", "standard", "deep"]),
   queries: z.array(
     z.object({
@@ -11,10 +11,41 @@ export const SearchDecisionSchema = z.object({
       intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
       preferred_domains: z.array(z.string()).optional(),
     }),
-  ).max(5),
+  ).min(1).max(5),
 });
 
 export type SearchDecision = z.infer<typeof SearchDecisionSchema>;
+
+/** Legacy freshness values normalized to the new set on parse. */
+function normalizeFreshness(f: string): SearchDecision["freshness"] {
+  switch (f) {
+    case "current": return "day";
+    case "recent": return "month";
+    default: return f as SearchDecision["freshness"];
+  }
+}
+
+/**
+ * Backward-compatible parser: accepts both the legacy 3-value freshness
+ * (none/recent/current) and the new 6-value set. Old cache entries and
+ * old model outputs are still valid.
+ */
+export const SearchDecisionSchemaCompat = z.object({
+  search_required: z.boolean(),
+  reason: z.string(),
+  freshness: z.string(),
+  depth: z.enum(["quick", "standard", "deep"]),
+  queries: z.array(
+    z.object({
+      query: z.string(),
+      intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
+      preferred_domains: z.array(z.string()).optional(),
+    }),
+  ).min(1).max(5),
+}).transform((d): SearchDecision => ({
+  ...d,
+  freshness: normalizeFreshness(d.freshness),
+}));
 
 export interface RawSearchResult {
   title: string;

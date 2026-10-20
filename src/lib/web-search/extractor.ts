@@ -30,7 +30,7 @@
  * reranker: when detectBlock() fires, it short-circuits to Tier 2/3/4.
  */
 import pLimit from "p-limit";
-import { fetchPage, fetchUrl, type PageResponse } from "./tls-client";
+import { fetchPage, fetchUrl, PDF_LIMIT_BYTES, type PageResponse } from "./tls-client";
 import type { RankedResult } from "./metasearch";
 import { getCachedPage, putCachedPage } from "./cache";
 import { detectBlock, detectBlockInText } from "./block-detector";
@@ -45,6 +45,17 @@ import {
 import { normalizeBody, detectCharset } from "./charset-normalizer";
 import { urlSearchFallback } from "./metasearch";
 import type { EvidencePacket } from "./types";
+
+// Per-tier timeouts:
+//   Tier 1 (direct): 45s — WAF challenges legitimately take 10-20s.
+//   Tier 2 (Jina):   45s — r.jina.ai is a free tier; 45s keeps quality.
+//   Tier 3 (Wayback): 45s — archive.org CDX + snapshot fetch.
+//   Tier 4 (snippet): no fetch — uses existing metasearch snippets.
+//   PDF downloads:   120s — large textbooks/arXiv papers can be 50-100MB.
+const TIER1_TIMEOUT_MS = 45_000;
+const JINA_TIMEOUT_MS = 45_000;
+const WAYBACK_TIMEOUT_MS = 45_000;
+const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
 
 // Concurrency for the DOM-extraction tier. Lowered from 6 → 4 so that
 // under the stress test's 8-URL global pool the peak RSS stays under
@@ -102,7 +113,7 @@ async function extractDirect(
   fp: "chrome" | "firefox" | "edge" = "chrome",
 ): Promise<TierOutput> {
   const page: PageResponse | null = await fetchPage(url, {
-    timeoutMs: 3500,
+    timeoutMs: TIER1_TIMEOUT_MS,
     fingerprint: fp,
   });
   if (!page) {
@@ -293,7 +304,7 @@ async function extractJina(url: string): Promise<TierOutput | null> {
   return jinaLimit(async () => {
     const jinaUrl = "https://r.jina.ai/" + encodeURI(url);
     const page = await fetchPage(jinaUrl, {
-      timeoutMs: 3000,
+      timeoutMs: JINA_TIMEOUT_MS,
       headers: { "user-agent": "Mozilla/5.0" },
     });
     if (!page || !page.ok) return null;
@@ -325,7 +336,7 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
   const availRes = await fetchUrl(
     "https://archive.org/wayback/available?url=" +
       encodeURIComponent(url),
-    { timeoutMs: 2500 },
+    { timeoutMs: WAYBACK_TIMEOUT_MS },
   );
   let snapshotUrl: string | null = null;
   if (availRes && availRes.ok) {
@@ -343,7 +354,7 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
       "https://web.archive.org/cdx/search/cdx?url=" +
         encodeURIComponent(url) +
         "&limit=1&output=json&fl=original,timestamp,statuscode&from=2020",
-      { timeoutMs: 2500 },
+      { timeoutMs: WAYBACK_TIMEOUT_MS },
     );
     if (cdxRes && cdxRes.ok) {
       try {
@@ -360,7 +371,7 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
   if (!snapshotUrl) return null;
 
   // 3. Fetch the snapshot HTML and extract it
-  const page = await fetchPage(snapshotUrl, { timeoutMs: 4000 });
+  const page = await fetchPage(snapshotUrl, { timeoutMs: WAYBACK_TIMEOUT_MS });
   if (!page || !page.ok || page.body.length < 200) return null;
   const block = detectBlockInText(page.body);
   if (block.blocked) return null;
@@ -414,7 +425,11 @@ export async function extractUrl(
       title: result.title,
       domain: result.domain,
       publishedAt: result.publishedDate,
-      passageText: cached.extracted.slice(0, 12000),
+      // No truncation: the cache stores the full extracted document.
+      // The reranker's 2,000-char chunks handle the budget — trimming
+      // 12,000 chars here would silently drop tail content (PDF
+      // conclusions, long pricing tables, final pages of papers).
+      passageText: cached.extracted,
       bm25Score: 0,
     });
     const classification =
@@ -440,7 +455,7 @@ export async function extractUrl(
       title: result.title,
       domain: result.domain,
       publishedAt: result.publishedDate,
-      passageText: adapterOut.markdown.slice(0, 12000),
+      passageText: adapterOut.markdown,
       bm25Score: 0,
     });
     putCachedPage(url, adapterOut.markdown, "adapter");
@@ -462,7 +477,7 @@ export async function extractUrl(
       title: result.title,
       domain: result.domain,
       publishedAt: result.publishedDate,
-      passageText: directOut.markdown.slice(0, 12000),
+      passageText: directOut.markdown,
       bm25Score: 0,
     });
     putCachedPage(url, directOut.markdown, "direct");
@@ -485,7 +500,7 @@ export async function extractUrl(
       title: result.title,
       domain: result.domain,
       publishedAt: result.publishedDate,
-      passageText: directOut.markdown.slice(0, 12000),
+      passageText: directOut.markdown,
       bm25Score: 0,
     });
     putCachedPage(url, directOut.markdown, "metadata");
@@ -503,7 +518,7 @@ export async function extractUrl(
       title: result.title,
       domain: result.domain,
       publishedAt: result.publishedDate,
-      passageText: jinaOut.markdown.slice(0, 12000),
+      passageText: jinaOut.markdown,
       bm25Score: 0,
     });
     putCachedPage(url, jinaOut.markdown, "jina");
@@ -531,7 +546,7 @@ export async function extractUrl(
         title: result.title,
         domain: result.domain,
         publishedAt: result.publishedDate,
-        passageText: waybackOut.markdown.slice(0, 12000),
+        passageText: waybackOut.markdown,
         bm25Score: 0,
       });
       putCachedPage(url, waybackOut.markdown, "wayback");
@@ -572,7 +587,7 @@ export async function extractUrl(
             title: best.title || result.title,
             domain: best.domain || result.domain,
             publishedAt: best.publishedDate,
-            passageText: fbSnippet.slice(0, 12000),
+            passageText: fbSnippet,
             bm25Score: 0,
           });
           return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };

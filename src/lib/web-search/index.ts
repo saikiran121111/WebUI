@@ -1,6 +1,9 @@
 export {
   runLfmGate,
   rulesBasedPlan,
+  callLlm,
+  extractPromptUrls,
+  LLM_TIMEOUT_MS,
 } from "./lfm-gate";
 export {
   metasearch,
@@ -110,6 +113,7 @@ export {
 } from "./stress-cache";
 export {
   SearchDecisionSchema,
+  SearchDecisionSchemaCompat,
   type SearchDecision,
   type RawSearchResult,
   type EvidencePassage,

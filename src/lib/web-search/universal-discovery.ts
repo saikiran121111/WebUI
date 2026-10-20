@@ -61,7 +61,7 @@ export async function tryMarkdownNegotiation(
     return null;
   }
   const page = await fetchPage(url, {
-    timeoutMs: 3000,
+    timeoutMs: 45_000,
     headers: {
       Accept: "text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8",
     },
@@ -115,7 +115,7 @@ export async function tryLlmsTxt(
 
   // Try /llms.txt first
   const llmsRes = await fetchUrl("https://" + host + "/llms.txt", {
-    timeoutMs: 2000,
+    timeoutMs: 45_000,
   });
   if (llmsRes && llmsRes.ok && llmsRes.text.trim().length >= 80) {
     return {
@@ -129,7 +129,7 @@ export async function tryLlmsTxt(
   // Try the .md twin of the page path
   if (u.pathname.endsWith(".html") || u.pathname.length > 1) {
     const mdPath = u.pathname.replace(/\.html?$/, "") + ".md";
-    const mdRes = await fetchUrl("https://" + host + mdPath, { timeoutMs: 2000 });
+    const mdRes = await fetchUrl("https://" + host + mdPath, { timeoutMs: 45_000 });
     if (mdRes && mdRes.ok && mdRes.text.trim().length >= 80) {
       return {
         kind: "llms-txt",
@@ -164,7 +164,7 @@ export async function discourseAdapter(
   if (!isThread) return null;
 
   const jsonUrl = u.href + ".json";
-  const res = await fetchUrl(jsonUrl, { timeoutMs: 2500 });
+  const res = await fetchUrl(jsonUrl, { timeoutMs: 45_000 });
   if (!res || !res.ok) return null;
   let data: any;
   try {
@@ -210,7 +210,7 @@ export async function shopifyAdapter(
   if (!m) return null;
   const handle = m[1];
   const jsonUrl = `https://${host}/products/${handle}.json`;
-  const res = await fetchUrl(jsonUrl, { timeoutMs: 2500 });
+  const res = await fetchUrl(jsonUrl, { timeoutMs: 45_000 });
   if (!res || !res.ok) return null;
   let data: any;
   try {
@@ -263,7 +263,7 @@ export async function cmsAdapter(
     if (slug) {
       const res = await fetchUrl(
         `https://${host}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}`,
-        { timeoutMs: 2500 },
+        { timeoutMs: 45_000 },
       );
       if (res && res.ok) {
         try {
@@ -293,7 +293,7 @@ export async function cmsAdapter(
   // Ghost: /ghost/api or /sitemap.xml
   if (html.includes("ghost") || host.includes("ghost.io")) {
     const res = await fetchUrl("https://" + host + "/ghost/api", {
-      timeoutMs: 2000,
+      timeoutMs: 45_000,
     });
     if (res && res.ok && res.text.length >= 50) {
       return {
@@ -307,7 +307,7 @@ export async function cmsAdapter(
   // Substack: /feed (RSS)
   if (html.includes("substack") || host.endsWith("substack.com")) {
     const res = await fetchUrl("https://" + host + "/feed", {
-      timeoutMs: 2500,
+      timeoutMs: 45_000,
     });
     if (res && res.ok && res.text.length >= 200) {
       return {
@@ -330,7 +330,7 @@ export async function cmsAdapter(
     if (feedPath) {
       const res = await fetchUrl(
         "https://medium.com/feed/" + feedPath[1],
-        { timeoutMs: 2500 },
+        { timeoutMs: 45_000 },
       );
       if (res && res.ok && res.text.length >= 200) {
         return {
@@ -358,7 +358,7 @@ export async function cmsAdapter(
       const feedUrl = alternates[0].getAttribute("href");
       if (feedUrl) {
         const abs = new URL(feedUrl, u.origin).href;
-        const res = await fetchUrl(abs, { timeoutMs: 2500 });
+        const res = await fetchUrl(abs, { timeoutMs: 45_000 });
         if (res && res.ok && res.text.length >= 200) {
           return {
             kind: "rss",

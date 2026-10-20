@@ -56,11 +56,19 @@ export function hash(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 32);
 }
 
-/* TTLs in milliseconds */
+/* TTLs in milliseconds — raised for the new 6-value freshness set.
+   "any" freshness (time-irrelevant) gets the longest TTL; "day"
+   (same-day news) the shortest. */
 const QUERY_TTL: Record<string, number> = {
-  current: 15 * 60 * 1000,   // 15 min
-  recent: 4 * 60 * 60 * 1000, // 4 h
-  standard: 24 * 60 * 60 * 1000, // 24 h
+  day: 15 * 60 * 1000,           // 15 min — same-day news goes stale fast
+  week: 4 * 60 * 60 * 1000,      // 4 h   — this-week updates
+  month: 24 * 60 * 60 * 1000,    // 24 h  — recent releases / versioned facts
+  year: 7 * 24 * 60 * 60 * 1000, // 7 d   — stable versioned product data
+  any: 30 * 24 * 60 * 60 * 1000, // 30 d  — time-irrelevant (static knowledge)
+  // Legacy values (still hit by old cache entries):
+  current: 15 * 60 * 1000,
+  recent: 4 * 60 * 60 * 1000,
+  standard: 24 * 60 * 60 * 1000,
   quick: 15 * 60 * 1000,
 };
 
@@ -146,11 +154,27 @@ export function getCachedPage(url: string): {
   return { extracted: row.extracted, tier: row.tier };
 }
 
+/**
+ * Cache a full page extraction. Only called when Tier 1/1.5/2/3
+ * produced a high-signal extraction (SUCCESS_DIRECT, SUCCESS_ADAPTER,
+ * SUCCESS_METADATA, SUCCESS_JINA_FALLBACK, SUCCESS_WAYBACK).
+ *
+ * Never cache snippet-only fallbacks (SUCCESS_SNIPPET_FALLBACK) —
+ * they are degraded partial evidence and would poison subsequent
+ * cache reads.
+ */
 export function putCachedPage(
   url: string,
   extracted: string,
-  tier: "direct" | "jina" | "snippet" | "adapter" | "metadata" | "wayback",
+  tier: "direct" | "jina" | "adapter" | "metadata" | "wayback",
 ): void {
+  // A snippet-only tier should never reach here (the extractor
+  // classifies it before calling putCachedPage). Belt and suspenders:
+  // refuse to write if the extracted content looks like a degraded
+  // snippet (less than 200 chars of real content).
+  const signal = extracted.replace(/\s+/g, " ").trim();
+  if (signal.length < 200) return;
+
   db()
     .prepare(
       `INSERT INTO page_cache (url_hash, url, extracted, tier, cached_at, expires_at)

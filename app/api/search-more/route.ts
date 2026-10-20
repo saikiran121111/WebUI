@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
   const t0 = performance.now();
   const bundle = await runWebResearch(
     { userPrompt: queries.join(" ") },
+    undefined,
+    req.signal, // abort if the user cancels the request
   );
   const ms = Math.round(performance.now() - t0);
 

@@ -61,10 +61,15 @@ export interface EvidenceBundle {
 }
 
 /**
- * Render a compact, deterministic evidence block for injection into the
- * main LLM prompt. Each source is labelled [S1]..[Sn] and its top passages
- * are quoted verbatim — the main model is instructed to cite inline
- * [S#] markers.
+ * Render a rich, comprehensive evidence block for injection into the
+ * main LLM prompt. Each source is labelled [S1]..[Sn] and its top
+ * passages are quoted verbatim — the main model is instructed to cite
+ * inline [S#] markers.
+ *
+ * Budget: up to 60,000 chars of evidence for deep queries, 35,000 for
+ * standard. The [Structured Page Facts] block (JSON-LD + OG metadata)
+ * is always prepended so top-level specs, prices, and attributes are
+ * never lost during chunk ranking.
  */
 export function evidenceBlock(bundle: EvidenceBundle): string {
   if (bundle.topPassages.length === 0) {
@@ -77,6 +82,10 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
     bySource.set(p.sourceId, arr);
   }
 
+  const depth = bundle.lfm.decision.depth;
+  // Deep queries: 60K char budget; standard/quick: 35K char budget.
+  const charBudget = depth === "deep" ? 60_000 : 35_000;
+
   const lines: string[] = [
     "<evidence> The following are verified web passages, grouped by source. ",
     "Cite each factual claim inline with [S#]. Do not invent facts not in this block.",
@@ -84,21 +93,25 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
     "</evidence>",
   ];
 
+  let totalChars = 0;
   for (const [id, passages] of bySource) {
+    if (totalChars >= charBudget) break;
     const packet = bundle.packets.find((p) => p.sourceId === id);
     const meta =
       packet?.domain ??
       passages[0]?.domain ??
       "unknown";
+    void meta;
     const title = packet?.title ?? passages[0]?.title ?? "";
     const url = packet?.url ?? passages[0]?.url ?? "";
     const published = packet?.publishedAt ? ` (published ${packet.publishedAt.slice(0, 10)})` : "";
     lines.push(`\n[${id}] ${title}${published}\n    ${url}`);
-    for (const p of passages.slice(0, 3)) {
-      const excerpt =
-        p.passageText.length > 500
-          ? p.passageText.slice(0, 500) + "…"
-          : p.passageText;
+    // Include up to 5 passages per source (was 3) for the richer budget
+    for (const p of passages.slice(0, 5)) {
+      if (totalChars >= charBudget) break;
+      // Passages up to 4000 chars (2,000-char chunks + overlap)
+      const excerpt = p.passageText.slice(0, 4000);
+      totalChars += excerpt.length;
       lines.push(
         `    "${excerpt.replace(/\s+/g, " ")}"  (BM25=${p.bm25Score.toFixed(2)})`,
       );
@@ -114,6 +127,7 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
 export async function runWebResearch(
   ctx: LfmGateContext,
   onProgress?: (p: PipelineProgress) => void,
+  signal?: AbortSignal,
 ): Promise<EvidenceBundle | null> {
   const t0 = performance.now();
 
@@ -181,10 +195,21 @@ export async function runWebResearch(
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
   // ── rerank (first hop) ─────────────────────────────────────────────────
+  // Deep/standard: top 30 with domain diversity cap of 6.
+  // When the prompt contains a single explicit URL, allow unlimited
+  // chunks from that domain (singleDomainUnlimited=true).
   onProgress?.({ stage: "reranking", detail: "Reranking with BM25…" });
   const t2 = performance.now();
   const qTexts = lfm.decision.queries.map((q) => q.query);
-  let topPassages = rerank(packets, ctx.userPrompt, qTexts, 14);
+  const promptUrls = ctx.userPrompt.match(/https?:\/\/[^\s"'<>[\]]+/gi) ?? [];
+  const singleUrlQuery = promptUrls.length === 1;
+  let topPassages = rerank(
+    packets,
+    ctx.userPrompt,
+    qTexts,
+    30,
+    singleUrlQuery ? { singleDomainUnlimited: true } : undefined,
+  );
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
 
   // ── coverage & gap evaluation ─────────────────────────────────────────
@@ -213,7 +238,8 @@ export async function runWebResearch(
         allPackets,
         ctx.userPrompt + " " + coverage.gapQuery,
         [...qTexts, coverage.gapQuery],
-        14,
+        30,
+        singleUrlQuery ? { singleDomainUnlimited: true } : undefined,
       );
       log.info(
         { gapResults: gapResults.length, merged: allPackets.length },

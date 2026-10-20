@@ -189,12 +189,20 @@ export function apiHeaders(
 
 /* ── Bounded body reading (memory guard) ──────────────────────────────── */
 
-const PAGE_LIMIT_BYTES = 2 * 1024 * 1024; // 2MB hard cap per response
+// The local workstation has 64GB RAM — the goal is maximum data quality,
+// not benchmark speed. Raise the caps so large documents, long HTML pages,
+// and multi-megabyte PDFs are never truncated mid-stream (truncation
+// corrupts the PDF xref table and loses the tail of long JSON-LD blocks).
+const PAGE_LIMIT_BYTES = 50 * 1024 * 1024;   // 50MB — HTML / JSON / XML / text
+const PDF_LIMIT_BYTES = 150 * 1024 * 1024;   // 150MB — PDFs only
+export { PAGE_LIMIT_BYTES, PDF_LIMIT_BYTES };
 
 /**
  * Read a response body with an absolute byte ceiling. The stream is
- * destroyed the instant the cap is crossed — a 50MB HTML page never
- * allocates 50MB.
+ * destroyed the instant the cap is crossed.
+ *
+ * `limitBytes` is caller-selectable: the default is the 50MB HTML/text
+ * cap; PDF downloads pass `PDF_LIMIT_BYTES` (150MB).
  */
 export async function readBounded(
   body: ReadableStream<Uint8Array> | any,
@@ -320,10 +328,17 @@ export function newCookieJar(): CookieJar {
  * first fingerprint triggers ONE retry under the next fingerprint in the
  * rotation, with the redirect cookie jar re-applied. The returned
  * `fingerprint` tells the caller which profile produced the result.
+ *
+ * Default timeout is 45 seconds (up from 3.5s): WAF-heavy sites
+ * (Cloudflare, DataDome) legitimately take 10-20s to serve a challenge
+ * page, and arXiv/SearXNG can be slow on first hit. 45s keeps the
+ * pipeline fast for real pages while never aborting a slow-but-valid
+ * response.
  */
 export async function fetchPage(
   url: string,
   opts: {
+    /** Per-request wall-clock deadline (ms). Default 45_000. */
     timeoutMs?: number;
     headers?: Record<string, string>;
     method?: "GET" | "POST";
@@ -331,6 +346,9 @@ export async function fetchPage(
     retryOnBlock?: boolean;
     /** Use a specific fingerprint instead of rotating (default: auto). */
     fingerprint?: BrowserFingerprint;
+    /** Byte cap for the response body. Default: PAGE_LIMIT_BYTES (50MB).
+     *  Pass PDF_LIMIT_BYTES (150MB) for PDF downloads. */
+    limitBytes?: number;
   } = {},
 ): Promise<PageResponse | null> {
   if (!isSafeUrl(url)) return null;
@@ -340,6 +358,8 @@ export async function fetchPage(
   const fpOrder = opts.fingerprint
     ? [opts.fingerprint]
     : (["chrome", "firefox", "edge"] as BrowserFingerprint[]);
+  const limitBytes = opts.limitBytes ?? PAGE_LIMIT_BYTES;
+  const defaultTimeout = 45_000;
 
   for (let attempt = 0; attempt < (opts.retryOnBlock === false ? 1 : fpOrder.length); attempt++) {
     const fp = fpOrder[attempt];
@@ -353,7 +373,7 @@ export async function fetchPage(
       const res = await tlsClient().fetch(url, {
         method: opts.method ?? "GET",
         headers,
-        timeout: opts.timeoutMs ?? 3500,
+        timeout: opts.timeoutMs ?? defaultTimeout,
       } as any);
 
       const status: number = res.status;
@@ -364,7 +384,7 @@ export async function fetchPage(
       // re-sends the session cookie the site just issued.
       if (rawCookies.length > 0) jar.absorb(url, rawCookies);
 
-      const body = await readBounded((res as any).body, PAGE_LIMIT_BYTES).catch(
+      const body = await readBounded((res as any).body, limitBytes).catch(
         () => "",
       );
       const contentType = String(
@@ -410,11 +430,14 @@ export async function fetchPage(
 export async function fetchUrl(
   url: string,
   opts: {
+    /** Per-request wall-clock deadline (ms). Default 40_000 (up from 2500). */
     timeoutMs?: number;
     body?: string;
     method?: "GET" | "POST";
     headers?: Record<string, string>;
     fingerprint?: BrowserFingerprint;
+    /** Byte cap for the response body. Default: 50MB (up from 1MB). */
+    limitBytes?: number;
   } = {},
 ): Promise<{ status: number; ok: boolean; text: string } | null> {
   if (!isSafeUrl(url)) return null;
@@ -423,11 +446,11 @@ export async function fetchUrl(
     const res = await tlsClient().fetch(url, {
       method: opts.method ?? "GET",
       headers: { ...apiHeaders(opts.headers, fp) },
-      timeout: opts.timeoutMs ?? 2500,
+      timeout: opts.timeoutMs ?? 40_000,
       ...(opts.body ? { body: opts.body } : {}),
     } as any);
     const status: number = res.status;
-    const text = await readBounded((res as any).body, 1024 * 1024).catch(
+    const text = await readBounded((res as any).body, opts.limitBytes ?? 50 * 1024 * 1024).catch(
       () => "",
     );
     return { status, ok: status >= 200 && status < 300, text };

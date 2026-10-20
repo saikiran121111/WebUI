@@ -17,6 +17,25 @@ import type { RawSearchResult, RankedResult } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, fetchPage, isSafeUrl, realisticHeaders } from "./tls-client";
 
+// Give all 8 metasearch fetchers up to 40 seconds per request. Slow high-
+// value engines (arXiv, SearXNG) are never cut off just because a faster
+// engine returned first — Promise.allSettled waits for ALL engines.
+const ENGINE_TIMEOUT_MS = 40_000;
+// One automatic retry with 2s backoff on 429/503 (transient rate-limit).
+const RETRY_BACKOFF_MS = 2000;
+
+async function fetchUrlWithRetry(
+  url: string,
+  opts: { timeoutMs?: number; headers?: Record<string, string> } = {},
+): Promise<Awaited<ReturnType<typeof fetchUrl>>> {
+  const res = await fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS, ...opts });
+  if (res && (res.status === 429 || res.status === 503)) {
+    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
+    return fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS, ...opts });
+  }
+  return res;
+}
+
 const limit = pLimit(8);
 
 /**
@@ -60,7 +79,7 @@ export function normalizeUrl(raw: string): string {
 
 async function ddgLite(query: string): Promise<RawSearchResult[]> {
   const url = "https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(query);
-  const page = await fetchPage(url, { timeoutMs: 2500 });
+  const page = await fetchPage(url, { timeoutMs: ENGINE_TIMEOUT_MS });
   if (!page || !page.ok || !page.body) return [];
 
   const doc = docOf(page.body);
@@ -96,7 +115,7 @@ async function braveSearch(query: string): Promise<RawSearchResult[]> {
     encodeURIComponent(query) +
     "&source=web";
   const page = await fetchPage(url, {
-    timeoutMs: 2500,
+    timeoutMs: ENGINE_TIMEOUT_MS,
     headers: realisticHeaders(),
   });
   if (!page || !page.ok || !page.body) return [];
@@ -133,7 +152,7 @@ async function wikipediaSearch(query: string): Promise<RawSearchResult[]> {
     "https://en.wikipedia.org/w/api.php?action=query&list=search&format=json" +
     "&srprop=snippet&srlimit=5&srsearch=" +
     encodeURIComponent(query);
-  const res = await fetchUrl(url, { timeoutMs: 2500 });
+  const res = await fetchUrlWithRetry(url, { headers: { accept: "application/json" } });
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
@@ -158,7 +177,7 @@ async function hackerNewsSearch(query: string): Promise<RawSearchResult[]> {
     "https://hn.algolia.com/api/v1/search?query=" +
     encodeURIComponent(query) +
     "&hitsPerPage=5";
-  const res = await fetchUrl(url, { timeoutMs: 2500 });
+  const res = await fetchUrlWithRetry(url, { headers: { accept: "application/json" } });
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
@@ -182,7 +201,7 @@ async function arxivSearch(query: string): Promise<RawSearchResult[]> {
     "http://export.arxiv.org/api/query?search_query=all:" +
     encodeURIComponent(query) +
     "&max_results=5";
-  const res = await fetchUrl(url, { timeoutMs: 2500 });
+  const res = await fetchUrlWithRetry(url, { headers: { accept: "application/xml" } });
   if (!res || !res.ok) return [];
   const doc = docOf(res.text);
   const out: RawSearchResult[] = [];
@@ -212,7 +231,7 @@ async function redditSearch(query: string): Promise<RawSearchResult[]> {
     encodeURIComponent(query) +
     "&limit=5&sort=relevance";
   const res = await fetchUrl(url, {
-    timeoutMs: 2500,
+    timeoutMs: ENGINE_TIMEOUT_MS,
     headers: { "user-agent": "Mozilla/5.0" },
   });
   if (!res || !res.ok) return [];
@@ -244,7 +263,7 @@ async function stackExchangeSearch(query: string): Promise<RawSearchResult[]> {
     "&q=" +
     encodeURIComponent(query) +
     "&site=stackoverflow&pagesize=5";
-  const res = await fetchUrl(url, { timeoutMs: 2500 });
+  const res = await fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS });
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
@@ -298,7 +317,7 @@ async function searxSearch(query: string): Promise<RawSearchResult[]> {
         encodeURIComponent(query) +
         "&format=json";
       const res = await fetchUrl(url, {
-        timeoutMs: 2500,
+        timeoutMs: ENGINE_TIMEOUT_MS,
         headers: { accept: "application/json" },
       });
       if (!res || !res.ok) return [];
