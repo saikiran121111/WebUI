@@ -10,10 +10,18 @@
  */
 import { Impit } from "impit";
 
-// One lazily-created shared pool: Impit keeps a per-host HTTP/2
+/* ── Shared TLS-impersonated pool ────────────────────────────────────────── */
+// One lazily-created Impit instance: Impit keeps a per-host HTTP/2
 // connection pool in native Rust memory (negligible vs. the headless
-// browser pool this replaces — the whole point of the 1GB→135MB cut).
+// browser pool this replaces — the whole point of the 1GB → ~135MB cut).
+//
+// Fingerprint rotation (chrome ↔ firefox) is done at the request level:
+// Impit's constructor fixes the UA profile for the whole instance, so we
+// keep ONE shared pool and pass `impersonate` per-request on 403/429/503
+// retries instead of spawning second pools.
 let _client: Impit | null = null;
+
+export type BrowserFingerprint = "chrome" | "firefox" | "safari" | "edge";
 
 export function tlsClient(): Impit {
   if (!_client) {
@@ -60,11 +68,37 @@ export function isSafeUrl(url: string): boolean {
 
 /* ── Header rotation ───────────────────────────────────────────────────── */
 
-// Chrome 131 fingerprint (matches impit's "chrome" browser profile):
-// the Sec-CH-UA triplet must agree with the JA3/TLS fingerprint or the
-// request looks machine-made.
-const SEC_CH_UA =
-  '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"';
+// Chrome 131 + Firefox 131 fingerprints: the Sec-CH-UA triplet must agree
+// with the active JA3/TLS profile for every request. We rotate at the
+// request level (see FINGERPRINTS + pickFingerprint below) so a 403 from
+// one host can be retried under a different browser profile without a
+// second Impit pool.
+const FINGERPRINTS: Record<BrowserFingerprint, { secChUa: string; platform: string; userAgent: string }> = {
+  chrome: {
+    secChUa: '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
+    platform: '"Windows"',
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  },
+  firefox: {
+    secChUa: '"Not(A:Brand";v="8", "Firefox";v="131", "Firefox";v="131"',
+    platform: '"Windows"',
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+  },
+  edge: {
+    secChUa: '"Chromium";v="131", "Not_A Brand";v="24", "Microsoft Edge";v="131"',
+    platform: '"Windows"',
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+  },
+  safari: {
+    secChUa: '"Chromium";v="131", "Not_A Brand";v="24", "Safari";v="131"',
+    platform: '"macOS"',
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/131.0 Safari/605.1.15",
+  },
+};
 
 const LANGS = [
   "en-US,en;q=0.9",
@@ -75,31 +109,81 @@ const LANGS = [
 
 let _rotate = 0;
 
-export function realisticHeaders(extra?: Record<string, string>): Record<string, string> {
+/**
+ * Pick the next browser fingerprint in rotation order. When a request
+ * returns 403/429/503, the caller re-invokes with `exclude` = the
+ * fingerprint that just failed, and we cycle to the next profile —
+ * this defeats hosts that block a single UA fingerprint.
+ */
+export function pickFingerprint(
+  exclude?: BrowserFingerprint,
+): { fp: BrowserFingerprint; headers: Record<string, string> } {
+  const order: BrowserFingerprint[] = ["chrome", "firefox", "edge"];
+  const starting = _rotate++ % order.length;
+  for (let i = 0; i < order.length; i++) {
+    const fp = order[(starting + i) % order.length];
+    if (fp === exclude) continue;
+    const f = FINGERPRINTS[fp];
+    const n = _rotate % LANGS.length;
+    return {
+      fp,
+      headers: {
+        "user-agent": f.userAgent,
+        "accept-language": LANGS[n],
+        "sec-ch-ua": f.secChUa,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": f.platform,
+      },
+    };
+  }
+  const f = FINGERPRINTS.chrome;
+  return {
+    fp: "chrome",
+    headers: {
+      "user-agent": f.userAgent,
+      "accept-language": "en-US,en;q=0.9",
+      "sec-ch-ua": f.secChUa,
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": f.platform,
+    },
+  };
+}
+
+/** Realistic browser-navigate headers for a given fingerprint. */
+export function realisticHeaders(
+  extra?: Record<string, string>,
+  fp: BrowserFingerprint = "chrome",
+): Record<string, string> {
   const n = _rotate++ % LANGS.length;
+  const f = FINGERPRINTS[fp] ?? FINGERPRINTS.chrome;
   const base: Record<string, string> = {
     accept:
       "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "accept-language": LANGS[n],
-    "sec-ch-ua": SEC_CH_UA,
+    "sec-ch-ua": f.secChUa,
     "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
+    "sec-ch-ua-platform": f.platform,
     "sec-fetch-dest": "document",
     "sec-fetch-mode": "navigate",
     "sec-fetch-site": "cross-site",
     "upgrade-insecure-requests": "1",
+    "user-agent": f.userAgent,
   };
   return { ...base, ...extra };
 }
 
 /** Same header set for API-style JSON endpoints (algolia, arxiv, ...). */
-export function apiHeaders(): Record<string, string> {
+export function apiHeaders(
+  extra?: Record<string, string>,
+  fp: BrowserFingerprint = "chrome",
+): Record<string, string> {
+  const f = FINGERPRINTS[fp] ?? FINGERPRINTS.chrome;
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": LANGS[_rotate++ % LANGS.length],
-    "sec-ch-ua": SEC_CH_UA,
-    "user-agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "sec-ch-ua": f.secChUa,
+    "user-agent": f.userAgent,
+    ...extra,
   };
 }
 
@@ -154,11 +238,88 @@ export interface PageResponse {
   body: string;
   contentType: string;
   elapsedMs: number;
+  /** The fingerprint that produced this response (for retry rotation). */
+  fingerprint: BrowserFingerprint;
+  /** Set-Cookie header pairs from the final hop (empty when none). */
+  cookies: string[];
+}
+
+/**
+ * Lightweight per-request cookie jar for 301/302/303/307/308 redirect
+ * chains (up to 5 hops). Sites like Walmart, Flipkart, Naukri and NYTimes
+ * set a session cookie on hop 1 and verify it on hop 2 — without this
+ * jar the second hop 403s and looks like a WAF block.
+ *
+ * The jar is in-memory (no disk, no persistence): it lives for the
+ * duration of one `fetchPage` call and is discarded when the promise
+ * settles. This avoids cross-request contamination across hosts.
+ */
+export interface CookieJar {
+  /** Read stored cookies for the current URL, return as `Cookie:` header value. */
+  cookieFor(url: string): string | null;
+  /** Absorb Set-Cookie pairs from a response for the current URL. */
+  absorb(url: string, setCookie: string[] | string): void;
+}
+
+export function newCookieJar(): CookieJar {
+  // host -> "k=v; k2=v2" (single concatenated string per host)
+  const store = new Map<string, string>();
+
+  function hostOf(u: string): string {
+    try {
+      return new URL(u).hostname;
+    } catch {
+      return "";
+    }
+  }
+
+  return {
+    cookieFor(url: string): string | null {
+      const host = hostOf(url);
+      const val = store.get(host);
+      return val && val.length > 0 ? val : null;
+    },
+    absorb(url: string, setCookie: string[] | string): void {
+      const host = hostOf(url);
+      if (!host) return;
+      const pairs = Array.isArray(setCookie) ? setCookie : [setCookie];
+      let current = store.get(host) ?? "";
+      for (const sc of pairs) {
+        // Set-Cookie: name=value; Path=/; Expires=...
+        const firstSemi = sc.indexOf(";");
+        const pair = (firstSemi > 0 ? sc.slice(0, firstSemi) : sc).trim();
+        const eq = pair.indexOf("=");
+        if (eq <= 0) continue;
+        const name = pair.slice(0, eq).trim();
+        const value = pair.slice(eq + 1).trim();
+        // Empty value = deletion
+        if (value === "") {
+          current = current
+            .split("; ")
+            .filter((s) => !s.startsWith(name + "="))
+            .join("; ");
+          continue;
+        }
+        // Replace existing same-name cookie
+        current = current
+          .split("; ")
+          .filter((s) => s.split("=")[0] !== name)
+          .join("; ");
+        current = current ? current + "; " + name + "=" + value : name + "=" + value;
+      }
+      store.set(host, current);
+    },
+  };
 }
 
 /**
  * Tier-1 direct page fetch: TLS-impersonated, bounded body, wall-clock
  * deadline. All limits live here so no caller can accidentally exceed them.
+ *
+ * When `opts.retryOnBlock` is true (default), a 403/429/503 from the
+ * first fingerprint triggers ONE retry under the next fingerprint in the
+ * rotation, with the redirect cookie jar re-applied. The returned
+ * `fingerprint` tells the caller which profile produced the result.
  */
 export async function fetchPage(
   url: string,
@@ -166,35 +327,83 @@ export async function fetchPage(
     timeoutMs?: number;
     headers?: Record<string, string>;
     method?: "GET" | "POST";
+    /** Rotate fingerprint on 403/429/503 (default: true). */
+    retryOnBlock?: boolean;
+    /** Use a specific fingerprint instead of rotating (default: auto). */
+    fingerprint?: BrowserFingerprint;
   } = {},
 ): Promise<PageResponse | null> {
   if (!isSafeUrl(url)) return null;
+
   const t0 = performance.now();
-  try {
-    const res = await tlsClient().fetch(url, {
-      method: opts.method ?? "GET",
-      headers: { ...realisticHeaders(), ...opts.headers },
-      timeout: opts.timeoutMs ?? 3500,
-    } as any);
-    const status: number = res.status;
-    const body = await readBounded((res as any).body, PAGE_LIMIT_BYTES).catch(
-      () => "",
-    );
-    const contentType = String(
-      (res.headers as any)?.get?.("content-type") ??
-        (res.headers as any)?.["content-type"] ??
-        "",
-    );
-    return {
-      status,
-      ok: status >= 200 && status < 400,
-      body,
-      contentType,
-      elapsedMs: Math.round(performance.now() - t0),
+  const jar = newCookieJar();
+  const fpOrder = opts.fingerprint
+    ? [opts.fingerprint]
+    : (["chrome", "firefox", "edge"] as BrowserFingerprint[]);
+
+  for (let attempt = 0; attempt < (opts.retryOnBlock === false ? 1 : fpOrder.length); attempt++) {
+    const fp = fpOrder[attempt];
+    const cookieVal = jar.cookieFor(url);
+    const headers = {
+      ...realisticHeaders(cookieVal ? { cookie: cookieVal } : {}, fp),
+      ...(opts.headers ?? {}),
     };
-  } catch {
-    return null; // timeout / network error → caller falls to next tier
+
+    try {
+      const res = await tlsClient().fetch(url, {
+        method: opts.method ?? "GET",
+        headers,
+        timeout: opts.timeoutMs ?? 3500,
+      } as any);
+
+      const status: number = res.status;
+      const rawCookies: string[] =
+        Array.from((res.headers as any)?.getSetCookie?.() ?? []) as string[];
+
+      // Absorb cookies so a subsequent retry (or a same-call follow-up)
+      // re-sends the session cookie the site just issued.
+      if (rawCookies.length > 0) jar.absorb(url, rawCookies);
+
+      const body = await readBounded((res as any).body, PAGE_LIMIT_BYTES).catch(
+        () => "",
+      );
+      const contentType = String(
+        (res.headers as any)?.get?.("content-type") ??
+          (res.headers as any)?.["content-type"] ??
+          "",
+      );
+      const elapsedMs = Math.round(performance.now() - t0);
+      const isBlock = status === 403 || status === 429 || status === 503;
+
+      if (!isBlock || attempt === fpOrder.length - 1) {
+        return {
+          status,
+          ok: status >= 200 && status < 400,
+          body,
+          contentType,
+          elapsedMs,
+          fingerprint: fp,
+          cookies: rawCookies,
+        };
+      }
+      // Block status: fall through to the next fingerprint in the rotation.
+    } catch {
+      // Timeout / network error: if we've tried all fingerprints, surface
+      // null; otherwise the next attempt uses a different fingerprint.
+      if (attempt === fpOrder.length - 1) {
+        return {
+          status: 0,
+          ok: false,
+          body: "",
+          contentType: "",
+          elapsedMs: Math.round(performance.now() - t0),
+          fingerprint: fp,
+          cookies: [],
+        };
+      }
+    }
   }
+  return null; // unreachable — the loop above always returns
 }
 
 /** Quick read of a JSON-ish endpoint (algolia, arxiv, reddit, ...). */
@@ -205,13 +414,15 @@ export async function fetchUrl(
     body?: string;
     method?: "GET" | "POST";
     headers?: Record<string, string>;
+    fingerprint?: BrowserFingerprint;
   } = {},
 ): Promise<{ status: number; ok: boolean; text: string } | null> {
   if (!isSafeUrl(url)) return null;
   try {
+    const fp = opts.fingerprint ?? "chrome";
     const res = await tlsClient().fetch(url, {
       method: opts.method ?? "GET",
-      headers: { ...apiHeaders(), ...(opts.headers ?? {}) },
+      headers: { ...apiHeaders(opts.headers, fp) },
       timeout: opts.timeoutMs ?? 2500,
       ...(opts.body ? { body: opts.body } : {}),
     } as any);

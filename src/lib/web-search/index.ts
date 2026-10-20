@@ -1,17 +1,13 @@
-/**
- * Public entry points for the Web Search & Research Engine.
- *
- * Import from here only — the individual module files are implementation
- * detail and their API may change without a breaking-changelog entry.
- */
 export {
   runLfmGate,
   rulesBasedPlan,
 } from "./lfm-gate";
 export {
   metasearch,
+  metasearchWithBudget,
   normalizeUrl,
   reciprocalRankFuse,
+  urlSearchFallback,
   type SearchPlan,
 } from "./metasearch";
 export {
@@ -24,6 +20,7 @@ export {
   bm25Score,
   chunkMarkdown,
   tokenize,
+  junkPenalty,
   type Bm25Index,
   type RerankHit,
 } from "./reranker";
@@ -51,7 +48,33 @@ export {
   apiHeaders,
   tlsClient,
   closeTlsClient,
+  newCookieJar,
+  pickFingerprint,
+  type BrowserFingerprint,
+  type CookieJar,
 } from "./tls-client";
+export {
+  detectBlock,
+  detectBlockInText,
+  type BlockKind,
+  type BlockVerdict,
+} from "./block-detector";
+export {
+  domainAdapter,
+  extractStructuredMeta,
+  extractHydrationState,
+  type AdapterResult,
+} from "./domain-adapters";
+export {
+  recordResult,
+  hasResult,
+  allResults,
+  setCheckpoint,
+  getCheckpoint,
+  clearCheckpoint,
+  closeStressDb,
+  type StressResult,
+} from "./stress-cache";
 export {
   SearchDecisionSchema,
   type SearchDecision,

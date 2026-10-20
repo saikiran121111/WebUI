@@ -484,3 +484,65 @@ export async function metasearchWithBudget(
   }
   return results;
 }
+
+/**
+ * URL-targeted search fallback: when a specific URL in the user's prompt
+ * or a search result points to a hard-blocked / auth-walled page, harvest
+ * the aggregated snippets for that exact URL across the DDG / Brave / SearX
+ * source pool so the LLM still receives verified facts from OTHER engines
+ * that DID index it.
+ *
+ * The returned `RankedResult[]` is fused from all engines that returned a
+ * snippet for the target URL — this is the "verified snippet fallback"
+ * path for Tier 3 (SUCCESS_SNIPPET_FALLBACK).
+ */
+export async function urlSearchFallback(
+  targetUrl: string,
+  title?: string,
+): Promise<RankedResult[]> {
+  // Build the query the way a search engine would index this URL:
+  // the URL itself + the title if we have one (so DDG/Brave match it).
+  const query = (title ? title + " " : "") + targetUrl;
+
+  const raw: RawSearchResult[] = [];
+
+  // DDG Lite: search for the URL string itself — DDG returns the URL
+  // as a result when other engines have indexed it.
+  const ddg = await searchOne(query, "general");
+  raw.push(...ddg);
+
+  // SearXNG fallback (the public instances index a broader set of URLs)
+  const searx = await searxSearch(query);
+  raw.push(...searx);
+
+  // Filter to results whose canonical URL matches the target — that's the
+  // "aggregated snippet" we need (other results are noise).
+  const canonical = normalizeUrl(targetUrl);
+  const matching = raw.filter((r) => {
+    let norm: string;
+    try {
+      norm = normalizeUrl(r.url);
+    } catch {
+      return false;
+    }
+    return norm === canonical || r.url === targetUrl;
+  });
+
+  // Build the RankedResult list
+  const out: RankedResult[] = matching.map((r, i) => {
+    let domain = "";
+    try {
+      domain = new URL(canonical).hostname.toLowerCase().replace(/^www\./, "");
+    } catch {}
+    return {
+      ...r,
+      url: canonical,
+      canonical,
+      domain,
+      rrf: 1 / (60 + i + 1),
+      engines: [r.engine],
+      engineRanks: { [r.engine]: i + 1 },
+    };
+  });
+  return out;
+}

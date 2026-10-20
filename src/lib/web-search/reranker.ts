@@ -90,6 +90,37 @@ export function tokenize(text: string): string[] {
     .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
+/* ── Junk passage filter ─────────────────────────────────────────────── */
+/**
+ * Patterns that indicate a passage is pure boilerplate (cookie banners,
+ * GDPR notices, login prompts, footer nav) rather than real content.
+ * A chunk that is ENTIRELY one of these gets a strong score penalty in
+ * BM25 so it never wins a top-N slot.
+ */
+const JUNK_PATTERNS: RegExp[] = [
+  /cookie[sd]? (policy|notice|banner)|we use (cookies|local storage)|enable cookies to continue/i,
+  /by continuing you (agree|acknowledge)|privacy policy|terms of (service|use)|gdpr|do not (sell|share) my (personal )?information/i,
+  /^(sign in|log in|log-in|continue with|or sign in|create an account)/i,
+  /follow us (on|:)|subscribe|newsletter|all rights reserved|\(c\) \d{4}/i,
+  /ad (slot|space|zone)|sponsored (content|link)|related (articles|videos)|you may also (like|enjoy)|trending (now|topics)/i,
+  /back to (top|main|home)|jump (to|to) (content|main)|accessibility (statement|menu)/i,
+];
+
+/**
+ * Score a chunk's junk-ness: 0 = clean content, 1 = pure boilerplate.
+ * Multiplied into the BM25 score as a penalty factor (1 - 0.8*jenky)
+ * so a login form scoring 8.0 BM25 becomes 1.6 — demoted below any
+ * real content chunk.
+ */
+export function junkPenalty(text: string): number {
+  const t = text.toLowerCase();
+  let hits = 0;
+  for (const re of JUNK_PATTERNS) {
+    if (re.test(t)) hits++;
+  }
+  return Math.min(1, hits / 2); // 2+ junk patterns = full penalty
+}
+
 /* ── BM25 ─────────────────────────────────────────────────────────────── */
 
 export interface Bm25Index {
@@ -190,11 +221,19 @@ export function rerank(
     for (const p of packet.passages) {
       const chunks = chunkMarkdown(p.passageText);
       for (const c of chunks) {
+        // Filter out pure-junk chunks up front (cookie banners, login
+        // prompts, footer nav) — they'd otherwise waste BM25 budget and
+        // can poison the top-N when real content is sparse.
+        if (junkPenalty(c.text) >= 0.8 && c.text.length < 400) continue;
         recs.push({ chunk: c.text, packet, baseIndex: recs.length });
       }
     }
   }
-  if (recs.length === 0) return [];
+  if (recs.length === 0) {
+    // Every chunk was junk — fall back to the raw first passage of each
+    // packet so the pipeline still returns something for the report.
+    return packets.flatMap((p) => p.passages).slice(0, topN);
+  }
 
   // Build the BM25 index over all chunks
   const idx = buildBm25(recs.map((r) => r.chunk));
@@ -203,10 +242,23 @@ export function rerank(
   const qSet = [userPrompt, ...lfmQueries];
   const qText = qSet.filter(Boolean).join(" ");
 
-  const hits = bm25Score(idx, qText, topN * 2);
+  const rawHits = bm25Score(idx, qText, topN * 2);
+
+  // Apply the junk penalty so boilerplate chunks never outrank real content.
+  const hits: Array<[number, number]> = rawHits
+    .map(([idx_, rawScore]) => {
+      const rec = recs[idx_];
+      if (!rec) return [idx_, rawScore] as [number, number];
+      const penalty = junkPenalty(rec.chunk);
+      const adjusted = rawScore * (1 - 0.8 * penalty);
+      return [idx_, adjusted] as [number, number];
+    })
+    .filter(([, s]) => s > 0)
+    .sort((a, b) => b[1] - a[1]);
+
   if (hits.length === 0) {
-    // No lexical match — fall back to RRF order so the pipeline still
-    // returns something useful (metasearch ranking).
+    // No non-zero scores after the penalty — fall back to RRF order so
+    // the pipeline still returns something useful (metasearch ranking).
     return packets
       .flatMap((p) => p.passages)
       .slice(0, topN);
