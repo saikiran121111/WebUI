@@ -16,7 +16,13 @@
  */
 import { runLfmGate } from "./lfm-gate";
 import type { LfmGateContext } from "./types";
-import { metasearch, type SearchPlan, type RankedResult } from "./metasearch";
+import {
+  metasearch,
+  metasearchWithFreshnessRecovery,
+  queryCoreTokens,
+  type SearchPlan,
+  type RankedResult,
+} from "./metasearch";
 import { extractAll } from "./extractor";
 import { rerank } from "./reranker";
 import { planQueries, evaluateCoverage, runGapMetasearch } from "./query-planner";
@@ -29,10 +35,74 @@ import type { EvidencePacket, EvidencePassage, LfmDecision } from "./types";
 
 const log = childLogger("web-search/pipeline");
 
+/**
+ * Relevance floor: before handing evidence to the extractor, verify that
+ * the fused results contain at least MIN_RELEVANT distinct URLs from
+ * general-web / community domains whose title or snippet contains the
+ * core entities of the user's prompt.
+ *
+ * When the floor is not met (e.g. a single fuzzy Wikipedia match for a
+ * local-restaurant query), an automatic broad-recovery pass fires: the
+ * filler words are stripped, all general-web indexers are re-queried with
+ * freshness "any", and the combined result set is used.
+ *
+ * This is QUERY-AGNOSTIC — it works for any domain (restaurants, jobs,
+ * products, tech, travel, legal, etc.) because it only checks "does the
+ * result actually mention the specific entities the user asked about?"
+ */
+const MIN_RELEVANT_URLS = 3;
+
+/**
+ * Strip filler words from the prompt to form a clean keyword query for
+ * the recovery pass. "Tell me what is the best restaurant in manikonda
+ * hyderabad I wan to eat biryani" → "biryani restaurant manikonda hyderabad"
+ *
+ * This is a generic word-frequency filter, not a hardcoded topic rule.
+ */
+function stripFillers(prompt: string): string {
+  const filler = new Set([
+    "tell", "me", "what", "is", "the", "a", "an", "i", "want", "to",
+    "so", "you", "can", "could", "please", "how", "about", "in", "on",
+    "at", "by", "for", "from", "with", "that", "this", "these", "those",
+    "there", "here", "want", "would", "like", "need", "look", "find",
+    "show", "give", "get", "best", "top", "good",
+  ]);
+  return prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !filler.has(w))
+    .slice(0, 10)
+    .join(" ");
+}
+
+/**
+ * Count how many of the fused results actually mention the core entities
+ * of the user's prompt. A result is "relevant" when its title + snippet
+ * contains at least one core token that is NOT a generic word (i.e. a
+ * proper noun / specific term the user typed).
+ */
+function countRelevantResults(
+  results: RankedResult[],
+  prompt: string,
+): number {
+  const core = queryCoreTokens(prompt);
+  // Use the 3+ char tokens (proper nouns / specific terms) for the
+  // relevance check — generic words like "best" / "restaurant" don't
+  // disambiguate.
+  const specific = core.filter((t) => t.length >= 4);
+  if (specific.length === 0) return results.length;
+  return results.filter((r) => {
+    const text = (r.title + " " + (r.snippet ?? "")).toLowerCase();
+    return specific.some((t) => text.includes(t));
+  }).length;
+}
+
 export type PipelineStage =
   | "lfm"
   | "planning"
   | "searching"
+  | "recovery"
   | "gap-search"
   | "reading"
   | "reranking"
@@ -147,6 +217,10 @@ export async function runWebResearch(
     query: p.query,
     intent: p.intent as SearchPlan["intent"],
     preferredDomains: p.preferredDomains,
+    // Carry the LFM freshness decision to the search engine so the
+    // freshness-filter trap recovery (in metasearch) can fire when a
+    // non-"any" filter drops too many results.
+    freshness: lfm.decision.freshness,
   }));
   log.info({ planned: planned.length, origins: planned.map((p) => p.origin) }, "query plan built");
 
@@ -164,12 +238,53 @@ export async function runWebResearch(
     searchResults = cached.results;
   } else {
     const t = performance.now();
-    searchResults = await metasearch(plans, 20);
+    // Freshness filter trap recovery: if the LFM applied a time filter and
+    // the first pass returns <5 results, automatically re-run with "any".
+    const { results: fused, freshnessRecoveryUsed } = await metasearchWithFreshnessRecovery(
+      plans.map((p) => ({ ...p, freshness: lfm.decision.freshness })),
+      20,
+    );
+    searchResults = fused;
     putCachedQuery(plans, searchResults, lfm.decision.freshness);
     log.info(
-      { ms: Math.round(performance.now() - t), results: searchResults.length },
+      { ms: Math.round(performance.now() - t), results: searchResults.length, freshnessRecoveryUsed },
       "metasearch complete",
     );
+  }
+
+  // ── relevance floor check + automatic broad recovery ─────────────────
+  // Before extraction, verify we have ≥3 distinct URLs that actually
+  // mention the user's specific entities. When the floor is not met
+  // (e.g. a single fuzzy Wikipedia match for a local-restaurant query),
+  // strip filler words and re-query all general-web indexers with
+  // freshness "any" so the LLM never receives a single off-topic page.
+  const relevantCount = countRelevantResults(searchResults, ctx.userPrompt);
+  if (relevantCount < MIN_RELEVANT_URLS && searchResults.length > 0) {
+    onProgress?.({
+      stage: "recovery",
+      detail: `Only ${relevantCount} relevant result(s) — firing broad recovery pass…`,
+    });
+    log.info({ relevantCount }, "relevance floor not met — broad recovery pass");
+    const cleanQuery = stripFillers(ctx.userPrompt);
+    if (cleanQuery.length > 3) {
+      const recoveryResults = await metasearch(
+        [{ query: cleanQuery, intent: "general" as const, freshness: "any" as const }],
+        20,
+      );
+      if (recoveryResults.length > 0) {
+        // Merge: dedupe by canonical URL, prefer the recovery set
+        const seen = new Set(searchResults.map((r) => r.canonical));
+        const merged = [...searchResults];
+        for (const r of recoveryResults) {
+          if (!seen.has(r.canonical)) {
+            seen.add(r.canonical);
+            merged.push(r);
+          }
+        }
+        searchResults = merged.slice(0, 20);
+        log.info({ recovered: recoveryResults.length, total: searchResults.length }, "broad recovery merged");
+      }
+    }
   }
 
   if (searchResults.length === 0) {

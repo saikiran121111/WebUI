@@ -88,6 +88,8 @@ export interface PlannedQuery {
   preferredDomains?: string[];
   /** Which planner sub-query produced this (for diagnostics). */
   origin: "semantic" | "entity" | "targeted" | "gap";
+  /** Freshness filter carried from the LFM decision to the search engine. */
+  freshness?: "none" | "day" | "week" | "month" | "year" | "any";
 }
 
 /**

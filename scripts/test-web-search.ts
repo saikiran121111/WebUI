@@ -436,9 +436,9 @@ async function main() {
     .prepare(
       `INSERT OR REPLACE INTO page_cache
          (url_hash, url, extracted, tier, cached_at, expires_at)
-       VALUES (?, 'https://example.com/expiry-test', 'x'.repeat(300), 'direct', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(testKey, createdAt, expiredAt);
+    .run(testKey, "https://example.com/expiry-test", "x".repeat(300), "direct", createdAt, expiredAt);
   simDb.close();
 
   // The expired row should be invisible to getCachedPage (expires_at < now)
@@ -517,6 +517,137 @@ async function main() {
     codePreserved && codeSize > 1500,
     `code chunk: ${codeSize} chars`,
   );
+
+  /* ── 14. E2E: 5 diverse real-world queries (universal architecture) ── */
+  console.log(BOLD("\n14. E2E: 5 diverse real-world queries (universal general-web pool)"));
+
+  const { ddgSearch, yahooSearch, startpageSearch, braveSearch, aolSearch,
+          mojeekSearch, searxSearch, redditSearch, queryCoreTokens } = await import(
+    "../src/lib/web-search/index"
+  );
+
+  const SCENARIOS: Array<{
+    name: string;
+    prompt: string;
+    mustExclude?: RegExp;
+  }> = [
+    {
+      name: "Local / Food / Reviews",
+      prompt:
+        "Tell me what is the best restaurant in manikonda hyderabad I wan to eat biryani so I want you to tell me the best place for that",
+      mustExclude: /^https?:\/\/en\.wikipedia\.org\/wiki\/Lucknow$/i,
+    },
+    {
+      name: "Jobs / Career",
+      prompt: "Workday Finance Consultant jobs and salary in Hyderabad",
+    },
+    {
+      name: "E-Commerce / Product Comparison",
+      prompt: "Best mechanical keyboard under 5000 INR in India reviews",
+    },
+    {
+      name: "Tech / Coding",
+      prompt: "Next.js 15 App Router server actions error handling best practices",
+    },
+    {
+      name: "Breaking / Time-Sensitive",
+      prompt: "Latest Linux kernel release notes",
+    },
+  ];
+
+  // ── Scenario 1: full per-engine table (required by spec) ─────────────
+  const q1 = SCENARIOS[0].prompt;
+  console.log(YELLOW(`\n   Scenario 1 per-engine table: "${q1.slice(0, 60)}…"`));
+
+  const engineProbes: Array<[string, () => Promise<any[]>, string]> = [
+    ["ddgSearch",       () => ddgSearch(q1),       "duckduckgo"],
+    ["yahooSearch",     () => yahooSearch(q1),     "yahoo"],
+    ["startpageSearch", () => startpageSearch(q1), "startpage"],
+    ["braveSearch",     () => braveSearch(q1),     "brave"],
+    ["aolSearch",       () => aolSearch(q1),       "aol"],
+    ["mojeekSearch",    () => mojeekSearch(q1),    "mojeek"],
+    ["searxSearch",     () => searxSearch(q1),     "searxng"],
+    ["redditSearch",    () => redditSearch(q1),    "reddit"],
+  ];
+
+  const engineResults = await Promise.all(
+    engineProbes.map(([, fn]) => fn().catch(() => [] as any[])),
+  );
+  for (let i = 0; i < engineProbes.length; i++) {
+    const [name, , key] = engineProbes[i];
+    const count = engineResults[i].length;
+    const marker = count > 0 ? GREEN("*") : " ";
+    console.log(
+      `   ${marker} ${name.padEnd(18)} ${key.padEnd(12)} ${String(count).padStart(3)} results`,
+    );
+  }
+  const totalRaw = engineResults.reduce((s, a) => s + a.length, 0);
+  console.log(
+    `   Total raw: ${totalRaw} results from ${engineResults.filter((r) => r.length > 0).length} engines`,
+  );
+
+  // ── All 5 scenarios through the full pipeline ─────────────────────────
+  for (const sc of SCENARIOS) {
+    console.log(BOLD(`\n   ${sc.name}: "${sc.prompt.slice(0, 55)}…"`));
+    const t0 = Date.now();
+    const b = await runWebResearch(
+      { userPrompt: sc.prompt, history: [] },
+      (p) => {
+        if (p.stage === "skipped") console.log(YELLOW("     [skip] LFM: no web search required"));
+      },
+    );
+    const ms = Date.now() - t0;
+
+    if (!b) {
+      console.log(YELLOW("     LFM gate: no search required — main model answers from knowledge"));
+      continue;
+    }
+
+    const results = b.searchResults;
+    const packets = b.packets;
+    const passages = b.topPassages;
+
+    console.log(
+      `     metasearch: ${results.length} results | extracted: ${packets.length} | ` +
+        `top passages: ${passages.length} | ${ms}ms`,
+    );
+
+    // Per-engine table for this scenario
+    const byEngine = new Map<string, number>();
+    for (const r of results) byEngine.set(r.engine, (byEngine.get(r.engine) ?? 0) + 1);
+    const engineLine = [...byEngine.entries()]
+      .filter(([, c]) => c > 0)
+      .map(([eng, c]) => `${eng}:${c}`)
+      .join(" ");
+    console.log(YELLOW("     engines: " + (engineLine || "(none)")));
+
+    // Relevance floor: ≥3 results mention the core entities
+    const core = queryCoreTokens(sc.prompt).filter((t) => t.length >= 4);
+    const relevant = results.filter((r) => {
+      const text = (r.title + " " + (r.snippet ?? "")).toLowerCase();
+      return core.some((t) => text.includes(t));
+    });
+    const floorOk = relevant.length >= 3 || results.length === 0;
+    check(
+      `relevance floor met (${relevant.length}/${results.length} mention core entities)`,
+      floorOk,
+    );
+
+    // Poisoning check (only for the Manikonda scenario)
+    if (sc.mustExclude) {
+      const poisoned = results.filter((r) => sc.mustExclude!.test(r.url));
+      check(
+        "0 Lucknow Wikipedia poisoning in fused results",
+        poisoned.length === 0,
+        poisoned.length > 0 ? poisoned.slice(0, 2).map((r) => r.url).join(", ") : undefined,
+      );
+    }
+
+    if (packets.length > 0) {
+      const full = packets.filter((p) => p.extraction !== "snippet-only").length;
+      console.log(YELLOW(`     extraction: ${full}/${packets.length} full, ${packets.length - full} snippet-only`));
+    }
+  }
 
   /* ── summary ──────────────────────────────────────────────────────── */
   console.log(

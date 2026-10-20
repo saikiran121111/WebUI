@@ -1,45 +1,60 @@
 /**
  * Zero-API parallel discovery across multiple free sources.
  *
- * Sources (all keyless):
- *   DuckDuckGo Lite  →  Brave Search (fallback)
- *   Wikipedia Open API  →  HackerNews Algolia
- *   arXiv API  →  Reddit Public JSON
- *   StackExchange API  →  public SearXNG instances (last resort)
+ * General Web Index Pool (always included for every intent):
+ *   DDG HTML POST (3-stage) → Yahoo (Bing) → Startpage (Google)
+ *   → Brave → AOL (Bing) → Mojeek → SearXNG (HTML) → Reddit (JSON)
+ *
+ * Vertical sources (gated by intent + lexical overlap):
+ *   Wikipedia → HackerNews → arXiv → StackExchange
  *
  * Results are URL-normalized, deduplicated, and fused with
- * Reciprocal Rank Fusion:  RRF(d) = Σ_e 1/(60 + rank_e(d))
- * preferred domains get a +0.015 boost.
+ * source-weighted Reciprocal Rank Fusion:
+ *   general-web 1.2× · reddit 1.0× · vertical 0.65×
+ *   RRF(d) = Σ_e 1/(60 + rank_e(d)) × weight(engine)
+ *
+ * Vertical sources are additionally gated: any Wikipedia / HN / arXiv /
+ * StackExchange result whose title + snippet matches < 50% of the
+ * query's core non-stopword tokens is DROPPED before fusion, so a
+ * fuzzy "Manikonda Chalapathi Rau → Lucknow" match can never poison
+ * the evidence bundle.
  */
 import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
-import type { RawSearchResult, RankedResult } from "./types";
+import type { RawSearchResult, RankedResult, LfmDecision } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
-import { fetchUrl, fetchPage, isSafeUrl, realisticHeaders } from "./tls-client";
+import { fetchUrl, fetchPage, isSafeUrl, realisticHeaders, apiHeaders } from "./tls-client";
+import {
+  ddgSearch,
+  yahooSearch,
+  startpageSearch,
+  braveSearch,
+  aolSearch,
+  mojeekSearch,
+  searxSearch,
+  redditSearch,
+  runGeneralWebSearch,
+} from "./general-pool";
+import { childLogger } from "@/lib/server/logger";
 
-// Give all 8 metasearch fetchers up to 40 seconds per request. Slow high-
+const log = childLogger("web-search/metasearch");
+
+// Give all metasearch fetchers up to 40 seconds per request. Slow high-
 // value engines (arXiv, SearXNG) are never cut off just because a faster
 // engine returned first — Promise.allSettled waits for ALL engines.
 const ENGINE_TIMEOUT_MS = 40_000;
 // One automatic retry with 2s backoff on 429/503 (transient rate-limit).
 const RETRY_BACKOFF_MS = 2000;
 
-async function fetchUrlWithRetry(
-  url: string,
-  opts: { timeoutMs?: number; headers?: Record<string, string> } = {},
-): Promise<Awaited<ReturnType<typeof fetchUrl>>> {
-  const res = await fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS, ...opts });
-  if (res && (res.status === 429 || res.status === 503)) {
-    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
-    return fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS, ...opts });
-  }
-  return res;
-}
+/* ── engine concurrency ─────────────────────────────────────────────────── */
 
-// Default engine-pool concurrency is 8 (production: ≤5 LFM plans × a few
-// sources each). The insane stress runner sets WEB_SEARCH_ENGINE_CONCURRENCY
-// to match its worker pool so every worker's Tier-6 slug triangulation can
-// fan out in parallel instead of queueing behind the cap-8 global pool.
+// General-web engines are paced per-host by general-pool.ts (one in-flight
+// per host, 250–450ms jitter). The global limit here bounds the total
+// number of engine calls that can run in parallel across ALL sub-queries.
+//
+// Default is 8 (production: ≤5 LFM plans × a few sources each). The
+// INSANE stress runner sets WEB_SEARCH_ENGINE_CONCURRENCY to match its
+// worker pool so every worker can fan out in parallel.
 const ENGINE_CONCURRENCY = Math.max(
   8,
   parseInt(process.env.WEB_SEARCH_ENGINE_CONCURRENCY ?? "8", 10),
@@ -55,7 +70,7 @@ function docOf(html: string): any {
   return w?.document ?? w;
 }
 
-/* ── URL normalization ─────────────────────────────────────────────────── */
+/* ── URL normalization ─────────────────────────────────────────────────────── */
 
 const TRACKING_PARAMS = [
   "utm_source", "utm_medium", "utm_campaign", "utm_term",
@@ -83,76 +98,67 @@ export function normalizeUrl(raw: string): string {
   }
 }
 
-/* ── source fetchers (each returns RawSearchResult[]) ────────────────── */
+/* ── vertical source fetchers (gated by intent + lexical overlap) ──────── */
 
-async function ddgLite(query: string): Promise<RawSearchResult[]> {
-  const url = "https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(query);
-  const page = await fetchPage(url, { timeoutMs: ENGINE_TIMEOUT_MS });
-  if (!page || !page.ok || !page.body) return [];
+/**
+ * Core non-stopword tokens from the query, used for the vertical-source
+ * lexical gate. A Wikipedia/HN/arXiv result must contain at least 50%
+ * of these tokens in its title + snippet to survive fusion.
+ *
+ * This gate is QUERY-AGNOSTIC — it works for any domain (restaurants,
+ * jobs, products, tech, travel, legal, etc.) because it only asks
+ * "does this result actually mention the specific entities the user
+ * asked about?" rather than hardcoding topic-specific rules.
+ */
+const STOP_WORDS = new Set([
+  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+  "have", "has", "had", "do", "does", "did", "will", "would", "could",
+  "should", "can", "may", "might", "shall", "may", "must",
+  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her",
+  "us", "them", "my", "your", "his", "its", "our", "their",
+  "this", "that", "these", "those", "here", "there", "where", "when",
+  "what", "which", "who", "whom", "whose", "how", "why",
+  "and", "or", "but", "if", "then", "else", "so", "yet", "also",
+  "very", "really", "just", "quite", "rather", "too", "only",
+  "please", "tell", "want", "need", "look", "find", "get", "show",
+  "best", "good", "top", "great", "nice", "awesome", "amazing",
+  "in", "on", "at", "by", "for", "from", "to", "of", "with", "without",
+  "about", "into", "onto", "over", "under", "near", "around",
+  "me", "i", "my", "im", "ill", "ive", "dont", "cant", "wont",
+  "so", "i", "you", "your",
+]);
 
-  const doc = docOf(page.body);
-  const out: RawSearchResult[] = [];
-  const links: any[] = doc.querySelectorAll("table.result a.result-link");
-  links.forEach((a: any, i: number) => {
-    const href = a.getAttribute("href");
-    if (!href) return;
-    let target: string;
-    try {
-      const res = new URL(href, "https://lite.duckduckgo.com").searchParams.get("uddg");
-      target = res ?? href;
-    } catch {
-      target = href;
-    }
-    if (!isSafeUrl(target)) return;
-    const snippet =
-      a.parentElement?.querySelector(".result-snippet")?.textContent?.trim() ?? "";
-    out.push({
-      title: a.textContent?.trim() ?? "",
-      url: target,
-      snippet,
-      engine: "duckduckgo",
-      rank: i + 1,
-    });
-  });
-  return out.slice(0, 10);
+export function queryCoreTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
 }
 
-async function braveSearch(query: string): Promise<RawSearchResult[]> {
-  const url =
-    "https://search.brave.com/search?q=" +
-    encodeURIComponent(query) +
-    "&source=web";
-  const page = await fetchPage(url, {
-    timeoutMs: ENGINE_TIMEOUT_MS,
-    headers: realisticHeaders(),
-  });
-  if (!page || !page.ok || !page.body) return [];
+/**
+ * Return true when `text` contains at least 50% of the query's core
+ * tokens. Used as a gate on vertical (Wikipedia/HN/arXiv/StackExchange)
+ * results so a fuzzy token match like "Manikonda Chalapathi Rau →
+ * Lucknow" is dropped before it can poison the RRF fusion.
+ */
+export function meetsLexicalThreshold(text: string, coreTokens: string[]): boolean {
+  if (coreTokens.length === 0) return true;
+  const lower = text.toLowerCase();
+  const hits = coreTokens.filter((t) => lower.includes(t)).length;
+  return hits / coreTokens.length >= 0.5;
+}
 
-  const doc = docOf(page.body);
-  const out: RawSearchResult[] = [];
-  const divs: any[] = doc.querySelectorAll("div#web-results > div");
-  divs.forEach((div: any, i: number) => {
-    const a =
-      div.querySelector("a[data-network-tab-experimental='web']") ??
-      div.querySelector("a[href^='http']");
-    const href = a?.getAttribute("href");
-    if (!href) return;
-    const snippet =
-      div.querySelector(".snippet")?.textContent?.trim() ??
-      div.querySelector(".fb")?.textContent?.trim() ??
-      "";
-    out.push({
-      title:
-        div.querySelector("h2")?.textContent?.trim() ??
-        div.querySelector(".title")?.textContent?.trim() ??
-        "",
-      url: href,
-      snippet,
-      engine: "brave",
-      rank: i + 1,
-    });
-  });
-  return out.slice(0, 10);
+async function fetchUrlWithRetry(
+  url: string,
+  opts: { timeoutMs?: number; headers?: Record<string, string> } = {},
+): Promise<Awaited<ReturnType<typeof fetchUrl>>> {
+  const res = await fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS, ...opts });
+  if (res && (res.status === 429 || res.status === 503)) {
+    await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
+    return fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS, ...opts });
+  }
+  return res;
 }
 
 async function wikipediaSearch(query: string): Promise<RawSearchResult[]> {
@@ -164,17 +170,18 @@ async function wikipediaSearch(query: string): Promise<RawSearchResult[]> {
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
-    return (data?.query?.search ?? []).map(
-      (s: any, i: number): RawSearchResult => ({
-        title: s.title,
-        url:
-          "https://en.wikipedia.org/wiki/" +
-          encodeURIComponent(s.title.replace(/ /g, "_")),
-        snippet: s.snippet?.replace(/<[^>]+>/g, "") ?? "",
-        engine: "wikipedia",
-        rank: i + 1,
-      }),
-    );
+    const core = queryCoreTokens(query);
+    return (data?.query?.search ?? [])
+      .filter((s: any) => meetsLexicalThreshold(s.title + " " + s.snippet, core))
+      .map(
+        (s: any, i: number): RawSearchResult => ({
+          title: s.title,
+          url: "https://en.wikipedia.org/wiki/" + encodeURIComponent(s.title.replace(/ /g, "_")),
+          snippet: s.snippet?.replace(/<[^>]+>/g, "") ?? "",
+          engine: "wikipedia",
+          rank: i + 1,
+        }),
+      );
   } catch {
     return [];
   }
@@ -189,16 +196,19 @@ async function hackerNewsSearch(query: string): Promise<RawSearchResult[]> {
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
-    return (data?.hits ?? []).map(
-      (h: any, i: number): RawSearchResult => ({
-        title: h.title ?? h.story_text?.slice(0, 100) ?? "HN discussion",
-        url: h.url ?? `https://news.ycombinator.com/item?id=${h.objectID}`,
-        snippet: (h.comment_text ?? h.story_text ?? "").slice(0, 300),
-        engine: "hackernews",
-        publishedDate: h.created_at,
-        rank: i + 1,
-      }),
-    );
+    const core = queryCoreTokens(query);
+    return (data?.hits ?? [])
+      .filter((h: any) => meetsLexicalThreshold((h.title ?? "") + " " + (h.story_text ?? ""), core))
+      .map(
+        (h: any, i: number): RawSearchResult => ({
+          title: h.title ?? h.story_text?.slice(0, 100) ?? "HN discussion",
+          url: h.url ?? `https://news.ycombinator.com/item?id=${h.objectID}`,
+          snippet: (h.comment_text ?? h.story_text ?? "").slice(0, 300),
+          engine: "hackernews",
+          publishedDate: h.created_at,
+          rank: i + 1,
+        }),
+      );
   } catch {
     return [];
   }
@@ -214,55 +224,24 @@ async function arxivSearch(query: string): Promise<RawSearchResult[]> {
   const doc = docOf(res.text);
   const out: RawSearchResult[] = [];
   const entries: any[] = doc.querySelectorAll("entry");
-  entries.forEach((entry: any, i: number) => {
+  const core = queryCoreTokens(query);
+  for (const entry of entries) {
     const title =
       entry.querySelector("title")?.textContent?.trim().replace(/\s+/g, " ") ?? "";
     const link =
       entry.querySelector("link[@rel='alternate']")?.getAttribute("href") ?? "";
     const summary = entry.querySelector("summary")?.textContent?.trim() ?? "";
-    const published = entry.querySelector("published")?.textContent ?? undefined;
+    if (!meetsLexicalThreshold(title + " " + summary, core)) continue;
     out.push({
       title,
       url: link,
       snippet: summary.slice(0, 400),
       engine: "arxiv",
-      publishedDate: published,
-      rank: i + 1,
+      publishedDate: entry.querySelector("published")?.textContent?.trim() || undefined,
+      rank: out.length + 1,
     });
-  });
-  return out;
-}
-
-async function redditSearch(query: string): Promise<RawSearchResult[]> {
-  const url =
-    "https://www.reddit.com/search.json?q=" +
-    encodeURIComponent(query) +
-    "&limit=5&sort=relevance";
-  const res = await fetchUrl(url, {
-    timeoutMs: ENGINE_TIMEOUT_MS,
-    headers: { "user-agent": "Mozilla/5.0" },
-  });
-  if (!res || !res.ok) return [];
-  try {
-    const data: any = JSON.parse(res.text);
-    return (data?.data?.children ?? []).map(
-      (c: any, i: number): RawSearchResult => {
-        const p = c?.data ?? {};
-        return {
-          title: p.title ?? "",
-          url: p.url ?? `https://www.reddit.com${p.permalink ?? ""}`,
-          snippet: (p.selftext ?? p.title ?? "").slice(0, 300),
-          engine: "reddit",
-          publishedDate: p.created_utc
-            ? new Date(p.created_utc * 1000).toISOString()
-            : undefined,
-          rank: i + 1,
-        };
-      },
-    );
-  } catch {
-    return [];
   }
+  return out;
 }
 
 async function stackExchangeSearch(query: string): Promise<RawSearchResult[]> {
@@ -275,105 +254,75 @@ async function stackExchangeSearch(query: string): Promise<RawSearchResult[]> {
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
-    return (data?.items ?? []).map(
-      (item: any, i: number): RawSearchResult => ({
-        title: item.title,
-        url: item.link,
-        snippet: item.title,
-        engine: "stackexchange",
-        publishedDate: item.creation_date
-          ? new Date(item.creation_date * 1000).toISOString()
-          : undefined,
-        rank: i + 1,
-      }),
-    );
-  } catch {
-    return [];
-  }
-}
-
-/* ── public SearXNG instances (last-resort failover) ─────────────────── */
-
-async function loadSearxInstances(): Promise<string[]> {
-  try {
-    const { readFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const file = join(
-      process.cwd(),
-      ".local-search",
-      "vendor",
-      "searx-instances.json",
-    );
-    const data = JSON.parse(readFileSync(file, "utf8"));
-    return (data.instances ?? []) as string[];
-  } catch {
-    return [];
-  }
-}
-
-async function searxSearch(query: string): Promise<RawSearchResult[]> {
-  const instances = await loadSearxInstances();
-  if (instances.length === 0) return [];
-
-  // Try up to 3 in parallel; return whichever produced results.
-  const tried = instances.slice(0, 3);
-  const settled = await Promise.allSettled(
-    tried.map(async (base: string) => {
-      const url =
-        base.replace(/\/$/, "") +
-        "/search?q=" +
-        encodeURIComponent(query) +
-        "&format=json";
-      const res = await fetchUrl(url, {
-        timeoutMs: ENGINE_TIMEOUT_MS,
-        headers: { accept: "application/json" },
-      });
-      if (!res || !res.ok) return [];
-      const data: any = JSON.parse(res.text);
-      return (data?.results ?? []).map(
-        (r: any, i: number): RawSearchResult => ({
-          title: r.title ?? "",
-          url: r.url ?? "",
-          snippet: r.snippet ?? "",
-          engine: "searxng",
-          publishedDate: r.publishedDate,
+    const core = queryCoreTokens(query);
+    return (data?.items ?? [])
+      .filter((item: any) => meetsLexicalThreshold(item.title, core))
+      .map(
+        (item: any, i: number): RawSearchResult => ({
+          title: item.title,
+          url: item.link,
+          snippet: item.title,
+          engine: "stackexchange",
+          publishedDate: item.creation_date ? new Date(item.creation_date * 1000).toISOString() : undefined,
           rank: i + 1,
         }),
       );
-    }),
-  );
-  for (const s of settled) {
-    if (s.status === "fulfilled" && s.value.length > 0) return s.value;
+  } catch {
+    return [];
   }
-  return [];
 }
 
-/* ── source pool selection by intent ──────────────────────────────────── */
+/* ── source pool selection by intent ────────────────────────────────────── */
 
 type Intent = "general" | "news" | "docs" | "code" | "academic" | "forum";
 
 type SourceFn = (query: string) => Promise<RawSearchResult[]>;
 
+/**
+ * Engines whose results are gated by the lexical threshold (vertical
+ * APIs that do fuzzy token matching). General-web engines are NOT gated
+ * — they are already ranked by the search engine's own relevance model.
+ */
+const VERTICAL_ENGINES = new Set(["wikipedia", "hackernews", "arxiv", "stackexchange"]);
+
 function poolFor(intent: Intent): SourceFn[] {
+  // General-web engines are ALWAYS in the pool (the universal backbone).
+  // Vertical engines are added based on intent.
+  const general: SourceFn[] = [
+    ddgSearch,
+    yahooSearch,
+    startpageSearch,
+    braveSearch,
+    aolSearch,
+    mojeekSearch,
+    searxSearch,
+    redditSearch,
+  ];
+
   switch (intent) {
     case "code":
-      return [stackExchangeSearch, ddgLite, braveSearch, hackerNewsSearch];
+      return [...general, stackExchangeSearch];
     case "academic":
-      return [arxivSearch, wikipediaSearch, ddgLite, searxSearch];
+      return [...general, arxivSearch, wikipediaSearch];
     case "forum":
-      return [redditSearch, hackerNewsSearch, ddgLite];
+      return [...general, hackerNewsSearch];
     case "news":
-      return [ddgLite, hackerNewsSearch, braveSearch];
+      return [...general];
     case "docs":
-      return [ddgLite, braveSearch, stackExchangeSearch, wikipediaSearch];
+      return [...general, stackExchangeSearch, wikipediaSearch];
     default:
-      return [ddgLite, braveSearch, wikipediaSearch, hackerNewsSearch, searxSearch];
+      // "general": all general-web engines + Reddit (already in general)
+      // + Wikipedia (only when lexical gate passes)
+      return [...general, wikipediaSearch];
   }
 }
 
 /**
  * Run a single query against its source pool in parallel and return the
  * merged raw result list (ranks are per-source; fusion happens later).
+ *
+ * Per-engine pacing (250–450ms jitter, one in-flight per host) is
+ * handled by general-pool.ts enginePacer() for all general-web engines.
  */
 async function searchOne(query: string, intent: Intent): Promise<RawSearchResult[]> {
   const pool = poolFor(intent);
@@ -387,14 +336,39 @@ async function searchOne(query: string, intent: Intent): Promise<RawSearchResult
   return out;
 }
 
-/* ── Reciprocal Rank Fusion ───────────────────────────────────────────── */
+/* ── Source-weighted Reciprocal Rank Fusion ─────────────────────────────── */
 
 const RRF_K = 60;
 const PREFERRED_BOOST = 0.015;
 
+/**
+ * Per-engine weights for the RRF fusion:
+ *   - General-web indexers (DDG, Yahoo, Startpage, Brave, AOL, Mojeek,
+ *     SearXNG) get 1.2× — they are ranked by the engine's own relevance
+ *     model and are the highest-signal source for most queries.
+ *   - Reddit gets 1.0× — community ground-truth for local places, jobs,
+ *     products, and troubleshooting.
+ *   - Vertical/encyclopedia APIs (Wikipedia, HN, arXiv, StackExchange)
+ *     get 0.65× unless the query intent is explicitly academic/docs —
+ *     their fuzzy token matching can surface irrelevant encyclopedia
+ *     pages (e.g. "Manikonda Chalapathi Rau → Lucknow" for a biryani
+ *     query) that would otherwise poison the evidence bundle.
+ */
+function engineWeight(engine: string, intent: Intent): number {
+  if (engine === "reddit") return 1.0;
+  if (VERTICAL_ENGINES.has(engine)) {
+    // Boost verticals only when the intent is explicitly academic/docs
+    if (intent === "academic" || intent === "docs") return 1.0;
+    return 0.65;
+  }
+  // All general-web indexers
+  return 1.2;
+}
+
 export function reciprocalRankFuse(
   rawResults: RawSearchResult[],
   preferredDomains?: string[],
+  intent: Intent = "general",
 ): RankedResult[] {
   // key = normalized URL, value = best raw + per-engine rank map
   const byUrl = new Map<
@@ -413,15 +387,11 @@ export function reciprocalRankFuse(
 
     const entry = byUrl.get(norm);
     if (!entry) {
-      byUrl.set(norm, {
-        result: { ...r, url: norm },
-        ranks: new Map(),
-      });
+      byUrl.set(norm, { result: { ...r, url: norm }, ranks: new Map() });
     }
     const e = byUrl.get(norm)!;
-    // keep the earliest engine's rank as the "canonical" rank; add all
     e.ranks.set(r.engine, e.ranks.get(r.engine) ?? r.rank);
-    // prefer a non-empty snippet from any engine
+    // Prefer a non-empty snippet from any engine
     if (r.snippet && !e.result.snippet) e.result.snippet = r.snippet;
     if (r.title && !e.result.title) e.result.title = r.title;
   }
@@ -435,7 +405,10 @@ export function reciprocalRankFuse(
   const out: RankedResult[] = [];
   for (const [canonical, { result, ranks }] of byUrl) {
     let score = 0;
-    for (const rank of ranks.values()) score += 1 / (RRF_K + rank);
+    for (const [engine, rank] of ranks.entries()) {
+      // Source-weighted RRF: general-web 1.2×, Reddit 1.0×, vertical 0.65×
+      score += (engineWeight(engine, intent) / (RRF_K + rank));
+    }
 
     let domain = "";
     try {
@@ -469,13 +442,22 @@ export interface SearchPlan {
   query: string;
   intent: Intent;
   preferredDomains?: string[];
+  /**
+   * Freshness filter: "any" (no time filter), "day", "week", "month",
+   * "year". Passed to the search engines as tf= / df= params where
+   * supported. A non-"any" freshness that returns < 5 results triggers
+   * an automatic re-run with "any" (see metasearchWithFreshnessRecovery).
+   */
+  freshness?: "none" | "day" | "week" | "month" | "year" | "any";
 }
 
 /**
- * Run all plans in parallel, fuse with RRF, return the top N unique URLs.
- * The discovery budget is bounded: all pool fetches are p-limited to 8
- * concurrent connections and each source fetch has a 2500ms ceiling, so a
- * 5-query deep plan takes at most ~3s wall time.
+ * Run all plans in parallel against the full source pool. Each plan is
+ * answered by ALL engines in its pool (general-web always, verticals by
+ * intent), with per-engine pacing so 4 sub-queries never fire 32
+ * simultaneous requests at any single host.
+ *
+ * Returns the top N unique URLs after source-weighted RRF fusion.
  */
 export async function metasearch(
   plans: SearchPlan[],
@@ -486,8 +468,39 @@ export async function metasearch(
   );
   const flat = rawLists.flat();
   const preferred = plans.flatMap((p) => p.preferredDomains ?? []);
-  const ranked = reciprocalRankFuse(flat, preferred);
+  // Use the first plan's intent for the weight table (all plans in one
+  // call share the same LFM decision, so they all have the same intent).
+  const intent = plans[0]?.intent ?? "general";
+  const ranked = reciprocalRankFuse(flat, preferred, intent);
   return ranked.slice(0, maxResults);
+}
+
+/**
+ * Freshness filter trap recovery: if the LFM gate applied a time filter
+ * (freshness !== "any") and the first pass returned fewer than 5 results,
+ * automatically re-run the same plans with freshness "any" — a 30-day
+ * filter on an evergreen/local/product query drops 99% of relevant pages.
+ */
+export async function metasearchWithFreshnessRecovery(
+  plans: SearchPlan[],
+  maxResults = 20,
+): Promise<{ results: RankedResult[]; freshnessRecoveryUsed: boolean }> {
+  const anyPlan = plans.every((p) => !p.freshness || p.freshness === "any");
+  const firstPass = await metasearch(plans, maxResults);
+
+  if (!anyPlan && firstPass.length < 5) {
+    log.info(
+      { initial: firstPass.length, freshness: plans[0]?.freshness },
+      "freshness filter returned <5 results — re-running with freshness='any'",
+    );
+    const cleared = plans.map((p) => ({ ...p, freshness: "any" as const }));
+    const secondPass = await metasearch(cleared, maxResults);
+    if (secondPass.length > firstPass.length) {
+      return { results: secondPass, freshnessRecoveryUsed: true };
+    }
+  }
+
+  return { results: firstPass, freshnessRecoveryUsed: false };
 }
 
 /**
@@ -527,30 +540,17 @@ export async function urlSearchFallback(
   targetUrl: string,
   title?: string,
 ): Promise<RankedResult[]> {
-  // Build the query the way a search engine would index this URL:
-  // the URL itself + the title if we have one (so DDG/Brave match it).
-  // Use the title only when it looks like a human-readable label
-  // (not just the URL itself, which would double the query).
   const titlePrefix = title && title !== targetUrl && title.length > 0 ? title + " " : "";
   const query = titlePrefix + targetUrl;
 
   const raw: RawSearchResult[] = [];
 
-  // DDG Lite: search for the URL string itself — DDG returns the URL
-  // as a result when other engines have indexed it.
   const ddg = await searchOne(query, "general");
   raw.push(...ddg);
 
-  // SearXNG fallback (the public instances index a broader set of URLs)
-  const searx = await searxSearch(query);
+  const searx = await searxSearch(query).catch(() => [] as RawSearchResult[]);
   raw.push(...searx);
 
-  // Filter to results whose URL matches the target. Use a lenient match:
-  // same hostname AND (same path OR empty path on the result side).
-  // A strict canonical-equality filter misses results that differ only in
-  // tracking params, www prefix, or trailing slash — all of which
-  // normalizeUrl already handles, but search-engine result URLs sometimes
-  // have a different path depth (e.g. /product/x vs /products/x).
   let targetHost = "";
   let targetPath = "";
   try {
@@ -570,25 +570,19 @@ export async function urlSearchFallback(
       return false;
     }
     if (rHost !== targetHost) return false;
-    // Path must match OR one of them is the root path
     if (targetPath && rPath && targetPath !== rPath) return false;
     return true;
   });
 
-  // Build the RankedResult list
-  const out: RankedResult[] = matching.map((r, i) => {
-    let domain = targetHost;
-    return {
-      ...r,
-      url: targetUrl,
-      canonical: normalizeUrl(targetUrl),
-      domain,
-      rrf: 1 / (60 + i + 1),
-      engines: [r.engine],
-      engineRanks: { [r.engine]: i + 1 },
-    };
-  });
-  return out;
+  return matching.map((r, i) => ({
+    ...r,
+    url: targetUrl,
+    canonical: normalizeUrl(targetUrl),
+    domain: targetHost,
+    rrf: 1 / (RRF_K + i + 1),
+    engines: [r.engine],
+    engineRanks: { [r.engine]: i + 1 },
+  }));
 }
 
 /**
@@ -622,8 +616,6 @@ export async function slugTriangulation(
   }
   const host = u.hostname.toLowerCase().replace(/^www\./, "");
 
-  // Parse the path into meaningful slug tokens (drop pure-numeric,
-  // short, and boilerplate segments).
   const slugTokens = u.pathname
     .split("/")
     .filter((s) => s.length > 2 && !/^\d+$/.test(s))
@@ -631,9 +623,6 @@ export async function slugTriangulation(
     .filter((s) => s.length > 2)
     .slice(0, 4);
 
-  // Build 2 query variants:
-  //   1. site:query  — restricts to the target domain
-  //   2. host-name + slug keywords — broader recall
   const siteQuery = `site:${host} ${slugTokens.map((t) => `"${t}"`).join(" ") || "*"}`;
   const broadQuery = `"${host.replace(/\.\w+$/, "")}" ${slugTokens.join(" ")}`;
 
@@ -642,24 +631,17 @@ export async function slugTriangulation(
     searchOne(broadQuery, "general"),
   ]);
 
-  // Dedupe by normalized URL
   const seen = new Set<string>();
   const all = [...siteResults, ...broadResults].filter((r) => {
     let norm = "";
-    try {
-      norm = normalizeUrl(r.url);
-    } catch {
-      return false;
-    }
+    try { norm = normalizeUrl(r.url); } catch { return false; }
     if (seen.has(norm)) return false;
     seen.add(norm);
-    // Only keep results that actually have a snippet (≥20 chars of signal)
     return (r.snippet ?? "").length >= 20 || (r.title ?? "").length >= 20;
   });
 
   if (all.length === 0) return "";
 
-  // Synthesize the evidence block
   const lines: string[] = [
     "[Synthesized Web Index Evidence] for " + targetUrl,
     title ? "Page title (from metasearch): " + title : "",

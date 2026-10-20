@@ -8,12 +8,27 @@ export {
 export {
   metasearch,
   metasearchWithBudget,
+  metasearchWithFreshnessRecovery,
   normalizeUrl,
   reciprocalRankFuse,
   urlSearchFallback,
   slugTriangulation,
+  queryCoreTokens,
+  meetsLexicalThreshold,
   type SearchPlan,
 } from "./metasearch";
+export {
+  ddgSearch,
+  yahooSearch,
+  startpageSearch,
+  braveSearch,
+  aolSearch,
+  mojeekSearch,
+  searxSearch,
+  redditSearch,
+  runGeneralWebSearch,
+  GENERAL_WEB_ENGINES,
+} from "./general-pool";
 export {
   extractAll,
   extractUrl,

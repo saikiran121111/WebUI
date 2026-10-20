@@ -81,15 +81,21 @@ export const LINK_PREVIEW_UAS: Array<{
 export function tlsClient(fp: BrowserFingerprint = "chrome"): Impit {
   // Per-browser Impit instances so N parallel workers can all use
   // Chrome/TLS-131 without sharing one 8-socket HTTP/2 pool.
+  //
+  // Impit's Browser type only supports chrome/firefox variants — "edge"
+  // and "safari" fall back to the closest TLS-131 profile:
+  //   edge   → firefox (Firefox ships on Windows the same way Edge does)
+  //   safari → chrome (no Safari TLS-131 profile in impit; Chrome is the
+  //             closest general desktop browser fingerprint)
   switch (fp) {
     case "firefox":
       if (!_clientFire) _clientFire = new Impit({ browser: "firefox" });
       return _clientFire;
     case "edge":
-      if (!_clientEdge) _clientEdge = new Impit({ browser: "edge" });
+      if (!_clientEdge) _clientEdge = new Impit({ browser: "firefox" });
       return _clientEdge;
     case "safari":
-      if (!_clientSafari) _clientSafari = new Impit({ browser: "safari" });
+      if (!_clientSafari) _clientSafari = new Impit({ browser: "chrome" });
       return _clientSafari;
     default:
       break;
@@ -512,6 +518,13 @@ export async function fetchUrl(
     method?: "GET" | "POST";
     headers?: Record<string, string>;
     fingerprint?: BrowserFingerprint;
+    /**
+     * Use realistic browser-navigate headers instead of apiHeaders.
+     * For HTML form-POST scraping (search engines, SearXNG) the server
+     * checks the full browser header set; apiHeaders sends
+     * Accept: application/json which DDG's anomaly detector flags as a bot.
+     */
+    useRealisticHeaders?: boolean;
     /** Byte cap for the response body. Default: 50MB (up from 1MB). */
     limitBytes?: number;
   } = {},
@@ -519,9 +532,16 @@ export async function fetchUrl(
   if (!isSafeUrl(url)) return null;
   try {
     const fp = opts.fingerprint ?? "chrome";
+    const baseHeaders = opts.useRealisticHeaders
+      ? realisticHeaders(opts.headers, fp)
+      : apiHeaders(opts.headers, fp);
+    const headers: Record<string, string> = { ...baseHeaders };
+    if (opts.body && !headers["content-type"]) {
+      headers["content-type"] = "application/x-www-form-urlencoded";
+    }
     const res = await tlsClient(fp).fetch(url, {
       method: opts.method ?? "GET",
-      headers: { ...apiHeaders(opts.headers, fp) },
+      headers,
       timeout: opts.timeoutMs ?? 40_000,
       ...(opts.body ? { body: opts.body } : {}),
     } as any);
@@ -563,6 +583,9 @@ export async function fetchWithLinkPreviewBots(
   const jar = newCookieJar();
 
   for (const bot of LINK_PREVIEW_UAS) {
+    // The link-preview bots send their own UA; the TLS layer is still the
+    // Chrome profile (the bot's UA is what the WAF whitelist matches).
+    const fp: BrowserFingerprint = "chrome";
     try {
       const res = await tlsClient(fp).fetch(url, {
         method: "GET",

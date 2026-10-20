@@ -157,9 +157,12 @@ Rules:
 - search_required=false ONLY for static knowledge: algorithms, math proofs,
   well-known scientific concepts, history before 2020, general "how X works"
   explanations, coding concepts with no time-specific version constraint.
-- freshness: "day" for same-day news; "week" for this-week updates;
-  "month" for recent releases; "year" for versioned product facts;
-  "any" when time is irrelevant.
+- freshness: "any" by DEFAULT for all queries EXCEPT when the user
+  explicitly asks for breaking news, "today/this week/latest release",
+  live sports scores, current weather, or current stock/crypto prices.
+  Never use "day"/"week"/"month" for local places, product recommendations,
+  jobs, reviews, or evergreen knowledge — a 30-day filter drops 99% of
+  relevant pages on those query types.
 - depth: "quick" for a single fact; "standard" for a short comparison;
   "deep" for a multi-source research question.
 - 2-5 queries. Each must be a natural-language search phrasing (not keywords).
