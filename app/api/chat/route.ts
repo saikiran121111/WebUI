@@ -19,9 +19,7 @@ import {
   type RendererMode,
 } from "../../../lib/decision/types";
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
-
-const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
-const API_KEY = process.env.LLM_API_KEY ?? "no-key";
+import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
 
 const log = childLogger("api/chat");
 
@@ -45,7 +43,7 @@ function scrubThinkTags(text: string): string {
 function upstreamHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    Authorization: "Bearer " + API_KEY,
+    Authorization: "Bearer " + llmApiKey(),
     Accept: "text/event-stream",
   };
 }
@@ -169,8 +167,8 @@ async function forwardStream(
     // following turn on the single inference slot (observed in three full
     // Playwright runs: an abandoned chart stream left the next real-model
     // test's two turns hanging with empty replies).
-    log.info({ model, mode: decisionMode, url: LLM_URL }, "llm stream start");
-    const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body, signal });
+    log.info({ model, mode: decisionMode, url: llmApiUrl() }, "llm stream start");
+    const upstream = await fetch(llmApiUrl(), { method: "POST", headers: upstreamHeaders(), body, signal });
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
       log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
@@ -199,8 +197,9 @@ async function forwardStream(
       log.error({ model, err: (err as Error).message }, "llm server unreachable");
     }
     release();
+    const host = (() => { try { return new URL(llmApiUrl()).host; } catch { return "the configured port"; } })();
     return NextResponse.json(
-      { error: "Could not reach the model server. Is it running on port 8080?" },
+      { error: `Could not reach the model server at ${host}.` },
       { status: 503 },
     );
   }

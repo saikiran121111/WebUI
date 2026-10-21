@@ -30,6 +30,7 @@
  * no-escalation behavior directly.
  */
 import { childLogger } from "@/lib/server/logger";
+import { llmApiUrl, llmApiKey } from "@/lib/server/settings";
 import {
   LfmDecision,
   LfmGateContext,
@@ -39,12 +40,14 @@ import {
 
 const log = childLogger("web-search/lfm-gate");
 
-const LLM_ENDPOINT =
-  process.env.WEB_SEARCH_LLM_ENDPOINT ??
-  process.env.LLM_API_URL ??
-  "http://127.0.0.1:8080/v1/chat/completions";
-
-const LLM_API_KEY = process.env.LLM_API_KEY ?? "no-key";
+/**
+ * Live endpoint resolution: WEB_SEARCH_LLM_ENDPOINT (explicit override) or the
+ * shared settings.json/env/fallback chain — settings.json wins so a UI edit
+ * reaches the web-search pipeline without a server restart.
+ */
+function endpoint(): string {
+  return process.env.WEB_SEARCH_LLM_ENDPOINT ?? llmApiUrl();
+}
 
 /**
  * Ceiling for the AUTHORITATIVE main-model gate call. It emits a full
@@ -315,11 +318,11 @@ async function mainModelGate(ctx: LfmGateContext): Promise<SearchDecision | null
   let content = "";
   let reasoning = "";
   try {
-    const res = await fetch(LLM_ENDPOINT, {
+    const res = await fetch(endpoint(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + LLM_API_KEY,
+        Authorization: "Bearer " + llmApiKey(),
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(MAIN_GATE_TIMEOUT_MS),

@@ -13,6 +13,7 @@
  * byte-identical flags.
  */
 import { childLogger } from "@/lib/server/logger";
+import { llmApiUrl, llmApiKey } from "@/lib/server/settings";
 import {
   registerTitleCall,
   unregisterTitleCall,
@@ -20,9 +21,13 @@ import {
 
 const log = childLogger("web-search/llm-json");
 
-export const MAIN_LLM_ENDPOINT =
-  process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
-export const LLM_API_KEY = process.env.LLM_API_KEY ?? "no-key";
+/**
+ * Live model endpoint — settings.json > env > fallback. Function form (not a
+ * module-level const) so a settings.json change is picked up without a
+ * Next.js server restart.
+ */
+export const MAIN_LLM_ENDPOINT = (): string => llmApiUrl();
+export const LLM_API_KEY = (): string => llmApiKey();
 
 export const THINKING_OFF_BODY = {
   reasoning_effort: "none",
@@ -68,7 +73,7 @@ export async function jsonCompletion<T = Record<string, unknown>>(
   o: JsonCompletionOptions,
 ): Promise<T | null> {
   const label = o.label ?? "json-call";
-  const endpoint = o.endpoint ?? MAIN_LLM_ENDPOINT;
+  const endpoint = o.endpoint ?? MAIN_LLM_ENDPOINT();
   const timeoutMs = o.timeoutMs ?? 30_000;
 
   const ctrl = new AbortController();
@@ -103,7 +108,7 @@ export async function jsonCompletion<T = Record<string, unknown>>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + LLM_API_KEY,
+        Authorization: "Bearer " + LLM_API_KEY(),
       },
       body: JSON.stringify(body),
       signal: ctrl.signal,

@@ -1,4 +1,5 @@
 import { childLogger } from "../logger";
+import { llmApiUrl, llmApiKey } from "../settings";
 import { fmtStamp } from "./format";
 import { writeNotes } from "./store";
 import type { LoadedIndex } from "./types";
@@ -9,9 +10,6 @@ import type { LoadedIndex } from "./types";
  * actually asks for a whole-content summary — zero LLM cost otherwise.
  */
 
-const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
-const API_KEY = process.env.LLM_API_KEY ?? "no-key";
-
 const log = childLogger("attachindex/notes");
 
 async function noteForBlock(
@@ -19,11 +17,11 @@ async function noteForBlock(
   body: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const res = await fetch(LLM_URL, {
+  const res = await fetch(llmApiUrl(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + API_KEY,
+      Authorization: "Bearer " + llmApiKey(),
     },
     body: JSON.stringify({
       model: "default",

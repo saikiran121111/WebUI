@@ -11,15 +11,13 @@
  */
 
 import { childLogger } from "../logger";
+import { llmApiUrl, llmApiKey } from "../settings";
 import {
   buildTranscript,
   chunkTurns,
   formatTranscript,
   transcriptChars,
 } from "./transcript";
-
-const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
-const API_KEY = process.env.LLM_API_KEY ?? "no-key";
 
 const log = childLogger("titles");
 
@@ -68,11 +66,11 @@ export const callMainModel: CallModel = async (system, user, { model, maxTokens,
     else signal.addEventListener("abort", () => ctrl.abort(), { once: true });
   }
   try {
-    const res = await fetch(LLM_URL, {
+    const res = await fetch(llmApiUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + API_KEY,
+        Authorization: "Bearer " + llmApiKey(),
       },
       body: JSON.stringify({
         model: model || "default",

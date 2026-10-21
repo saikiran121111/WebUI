@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDown, AlertCircle, RefreshCw, MessageSquarePlus, ChevronLeft, ChevronRight } from "lucide-react";
 import ChatMessage from "../components/ChatMessage";
 import ChatInput from "../components/ChatInput";
+import SettingsMenu from "../components/SettingsMenu";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
@@ -333,9 +334,11 @@ export default function HomePage() {
             </button>
           </div>
           <div className="flex items-center gap-2 text-[11px] text-white/25">
-            <span className="hidden sm:inline">Reasoning: {effort === "off" ? "off" : effort}</span>
-            <span className="w-1 h-1 rounded-full bg-emerald-400/50" />
-            <span>Local</span>
+            <SettingsMenu effort={effort} onEffortChange={setEffort} />
+            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-white/25">
+              <span className="w-1 h-1 rounded-full bg-emerald-400/50" />
+              <span>Local</span>
+            </span>
           </div>
         </header>
 
