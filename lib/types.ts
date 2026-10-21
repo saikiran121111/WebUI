@@ -156,9 +156,10 @@ export interface Message {
   toolCalls: ToolCall[];
   citations: Citation[];
   /**
-   * Web-research citations from the LFM-gated search pipeline:
-   * keyed by sourceId ("S1", "S2", ...), passed to MarkdownRenderer
-   * so [S#] markers in the reply become clickable pills.
+   * Web-research citations from the gated search pipeline (main-model
+   * decision, LFM router fallback): keyed by sourceId ("S1", "S2", ...),
+   * passed to MarkdownRenderer so [S#] markers in the reply become
+   * clickable pills.
    */
   webCitations?: Record<string, {
     sourceId: string;
@@ -168,12 +169,14 @@ export interface Message {
     publishedAt?: string;
   }>;
   /**
-   * LFM decision summary shown in the Research Trail card:
-   * which queries were generated and at what depth/freshness.
+   * Search-gate summary shown in the Research Trail card: which queries
+   * were generated, at what depth/freshness, and WHICH AUTHORITY decided
+   * ("main-model" authoritative | "lfm" router fallback | "rules").
    */
   researchLfm?: {
     depth: string;
     freshness: string;
+    decidedBy?: string;
     queries: { query: string; intent: string }[];
   };
   usage?: Usage;

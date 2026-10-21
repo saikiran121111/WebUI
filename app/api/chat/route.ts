@@ -56,7 +56,7 @@ function streamHeaders(
   usedSkill: string | null,
   decisionMode: RendererMode,
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": contentType ?? "text/event-stream",
@@ -96,7 +96,7 @@ function streamUpstream(
   model: string,
   onSettled: () => void,
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
 ): Response {
   const started = Date.now();
   let chunks = 0;
@@ -141,7 +141,7 @@ async function forwardStream(
   signal?: AbortSignal,
   model = "default",
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
 ): Promise<Response> {
   // Claim the shared inference slot for the user's turn: this aborts any
   // in-flight background title call (user traffic always wins) and blocks
@@ -298,6 +298,8 @@ export async function POST(req: NextRequest) {
   let researchLfmMeta: {
     depth: string;
     freshness: string;
+    /** Which authority decided: "main-model" | "lfm" | "rules". */
+    decidedBy?: string;
     queries: { query: string; intent: string }[];
   } | null = null;
 
@@ -425,6 +427,7 @@ export async function POST(req: NextRequest) {
           researchLfmMeta = {
             depth: researchBundle.lfm.decision.depth,
             freshness: researchBundle.lfm.decision.freshness,
+            decidedBy: researchBundle.lfm.source,
             queries: researchBundle.lfm.decision.queries.map((q) => ({
               query: q.query,
               intent: q.intent,

@@ -1,5 +1,13 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-21d — 3-BOTTLENECK WEB-SEARCH SPEED & RELEVANCE FIX:
+Synced: 2026-10-21e — WEB-SEARCH GATE AUTHORITY FLIP (MAIN MODEL DECIDES, LFM DEMOTED TO TELEMETRY) + FUSED-POOL RELEVANCE FLOOR:
+User bug report: the pure LeetCode palindrome-partitioning prompt (+ Rust stub) fired a web search whose cited sources were WhatsApp Web, YouTube Help, Waze (French), Output.com, a ChatGPT custom-instructions Reddit page and a ChatGPT GitHub topic page. Four root causes found and fixed:
+Part 1 (inverted authority): the LFM2.5-1.2B router was the SOLE gate decider. Measured on 44 scenarios (scripts/eval-search-gate.mjs, `node scripts/eval-search-gate.mjs`): **LFM acc=55% (tp15 tn9 fp13 fn7, avg 479 ms) vs MAIN MODEL acc=100% (tp22 tn22, avg 3339 ms), agreement 24/44** → per the user's own rule ("if LFM score is pretty bad then let our main model handle the decision"), lfm-gate.ts now runs `mainModelGate()` (MAIN_GATE_SYSTEM_PROMPT + LFM_JSON_SCHEMA, MAIN_GATE_TIMEOUT_MS=35s, MAIN_GATE_MAX_TOKENS=320, verdict + query plan in ONE :8080 call, THINKING_OFF_BODY, parses content then reasoning). The router runs in parallel as INFORMATIONAL telemetry only (`stage1SearchCheck(ctx,{informational:true})`): it can never veto a main-model "yes", a main-model "no" wins over a router "yes" (logged `agreement:"disagree"`), and it is awaited with only LFM_TELEMETRY_GRACE_MS=3s so the turn never waits on it. Router is fallback authority ONLY when the main model is unreachable/unparseable (`source:"lfm"`), then rules (`source:"rules"` + isSubstantivePrompt SEARCH fallback). WEB_SEARCH_LFM_DISABLED + TRIVIAL_GREETINGS short-circuits kept. `callLlm` kept as a back-compat wrapper returning only the decision (index.ts export).
+Part 2 (garbage query text): MAIN_GATE_SYSTEM_PROMPT demands keyword-form, entity-anchored queries (never a verbatim prompt echo) — observed live: `best biryani restaurants Manikonda Hyderabad`.
+Part 3 (no per-result filter on the general pool): the lexical threshold previously gated only verticals at fetch time; `metasearch()` now applies `meetsLexicalThreshold` per result to the RRF-FUSED pool, anchored on the query token sets PLUS `SearchPlan.relevanceAnchor` (new field = the raw user prompt, never searched/cached). Starvation guard: floor applies only when `relevant.length >= Math.min(5, ranked.length)`. A/B telemetry (`relevantHandedOver` vs `relevantWithoutFloor`) PROVED the floor raises relevance: E-Commerce 12/20 vs 1/20 without it, Jobs 14 vs 11. New export `countLexicallyRelevant(results, anchorText)`; `pipeline.countRelevantResults` delegates to it.
+Part 4 (latency hazard): informational router calls never await warmup (`awaitWarmup:false`) and skip the duplicate :8080 Stage-1 retry; LFM races a 3s timer. Measured gate cost: main model 2.4–6.5 s vs LFM ~0.5 s (accepted trade-off for correctness; trivial-greeting path unchanged).
+UI contract: `researchLfm.decidedBy` rides `X-Research-Lfm` → ResearchTrailCard `data-testid="research-trail-gate-badge"` text from `GATE_BADGE` = {"main-model":"Model-gated", lfm:"LFM-gated", rules:"Rule-gated"}. Stage id stays `"lfm"` in the SSE/UI contract. NEW `tests/search-gate.spec.ts` (3 UI regression tests: palindrome prompt → NO trail card/badge/pills; LeetCode-23 → any cited source must be on-topic; NVIDIA RTX 5090 India price → trail card + "Model-gated" + on-topic sources + keyword-form queries). `tests/greeting.spec.ts:26` now asserts badge testid count 0.
+Verification (this session, CODE phase): `npx tsc --noEmit` EXIT=0; `npx vitest run` 49 files / **545 passed | 1 skipped** EXIT=0; `npx tsx scripts/verify-lfm-gate.ts` → greeting `{sr:false, source:"main-model"}`, biryani `{sr:true, source:"main-model"}` with keyword queries + `agreement:"agree"`; `npx tsx scripts/e2e-web-search.ts` final run **0 FAIL** (4 PASS + 1 scenario correctly SKIPPED because the main model said `search_required:false` while the router said true — the exact inversion the fix targets). Playwright batch: see 8.5.
+Prior: 2026-10-21d — 3-BOTTLENECK WEB-SEARCH SPEED & RELEVANCE FIX:
 Part 1 (general-pool.ts): Per-engine circuit breaker (ENGINE_COOLDOWN_MS=60s, tripCircuitBreaker/enginePacerWithBreaker single implementation, duplicate blocks reconciled). DDG: DDG_LITE_TIMEOUT_MS=6s on lite POST stage, VQD skipped when html+lite both return 0. devToSearch: DEVTO_TECH_TAGS tag endpoint /api/articles?per_page=15&top=365&tag=<tag> + free-text /search/feed_content; trips breaker on 0 results. GENERAL_WEB_ENGINES: strict 9 general-web+community (ddg, bing, yahoo, startpage, brave, aol, mojeek, searx, reddit) — news/dev verticals moved out of the general pool.
 Part 2 (metasearch.ts): Quorum early-exit (QUORUM_MIN_RESULTS=15, QUORUM_MIN_ENGINES=2, GRACE_TIMER_MS=6s, 15s hard-cap). searchOne: SEARCH_ONE_CAP_MS=10s races the general pool Promise.allSettled against a timer — when the cap fires (DDG 12s+6s stages still pending), pool results are abandoned and dev/news verticals compensate. ENGINE_CAPS per-engine cap map (github=3, bing-news=3, google-news=3, hackernews=3, stackexchange=5, devto=5, arxiv=5, wikipedia=5) applied via capForEngine() before RRF so no single vertical floods the top-20. queryLooksLikeDev regex fires DEV_VERTICAL (github+stackexchange+devto) on code/docs intent or language/framework/error keywords.
 Part 3 (tls-client.ts): readBounded now accepts isGzip flag; fetchUrl detects Content-Encoding: gzip and transparently gunzips via node:zlib (gunzipSync import). Stream path fixed (was only Buffer fallback path — Impit returns ReadableStream, not Buffer).
@@ -42,6 +50,26 @@ STATUS: feature locked (8.2); remaining = optional full-suite Playwright
 run + git commit (not requested).
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WEB-SEARCH GATE AUTHORITY FLIP + RELEVANCE FLOOR (2026-10-21e, LOCKED — header entry):
+  MODIFIED: `src/lib/web-search/lfm-gate.ts` (mainModelGate/parseMainGateJson/gateWithTelemetry
+  replace the two-stage LFM authority; stage1SearchCheck gains `{informational?}`;
+  fireLlmRequest gains `{awaitWarmup?}`; MAIN_GATE_SYSTEM_PROMPT/MAIN_GATE_TIMEOUT_MS/
+  MAIN_GATE_MAX_TOKENS/LFM_TELEMETRY_GRACE_MS; `callLlm` is now a decision-only wrapper),
+  `src/lib/web-search/types.ts` (LfmDecision.source/lfmMs/lfmVerdict/agreement),
+  `src/lib/web-search/metasearch.ts` (SearchPlan.relevanceAnchor; countLexicallyRelevant;
+  fused-pool lexical floor + starvation guard + A/B telemetry at the end of metasearch()),
+  `src/lib/web-search/pipeline.ts` (relevanceAnchor: ctx.userPrompt on plans; progress text
+  "Deciding whether a web search is needed…"/"No web search required"; countRelevantResults
+  delegates to countLexicallyRelevant), `app/api/chat/route.ts` + `lib/types.ts`
+  (researchLfm.decidedBy through X-Research-Lfm), `components/render/ResearchTrailCard.tsx`
+  (GATE_BADGE + data-testid="research-trail-gate-badge"), `app/api/search-more/route.ts`
+  (comments: main model authoritative), `tests/greeting.spec.ts:26`.
+  NEW: `scripts/eval-search-gate.mjs` (44-scenario gate benchmark → 55% vs 100%),
+  `tests/search-gate.spec.ts` (3 UI regressions for the reported bug).
+  VERIFIED: tsc EXIT=0; vitest 545|1 EXIT=0; verify-lfm-gate both cases source="main-model";
+  e2e-web-search final run 0 FAIL with floor telemetry (12/1, 14/11) and one
+  `{gateMs:6512, search_required:false, lfmVerdict:true, agreement:"disagree"}` proving the
+  router can no longer override the main model. Playwright batch recorded in 8.5.
 - LFM-GATE SCHEMA + CITATION-WALKER + COMPOSER-STATE FIX (2026-10-21a, LOCKED — see 8.1 top):
   MODIFIED: `src/lib/web-search/types.ts` (both schemas: `search_required=true → queries.length>0`
   refine, empty queries allowed on no-search verdicts; legacy `.min(1)` removed),
@@ -347,7 +375,49 @@ run + git commit (not requested).
   requestTitleGeneration(convId, NEXT_PUBLIC_MODEL_ID ?? "") after each
   save in app/page.tsx.
 
+- WEB-SEARCH GATE CONTRACTS (2026-10-21e, LOCKED):
+  `LfmDecision = { decision: SearchDecision; source: "main-model"|"lfm"|"rules"; lfmMs: number;
+  lfmVerdict?: boolean|null; agreement?: "agree"|"disagree"|"lfm-unavailable" }`.
+  `SearchDecision = { search_required: boolean; reason: string; freshness: "none"|"day"|"week"|"month"|"year"|"any";
+  depth: "quick"|"standard"|"deep"; queries: {query,intent,preferred_domains?}[] }` (intent ∈
+  general|news|docs|code|academic|forum). Authority order: main model (authoritative) →
+  router fallback (never vetoes main "yes"; main "no" beats router "yes") → rules
+  (isSubstantivePrompt SEARCH fallback) → no-search plan.
+  `SearchPlan.relevanceAnchor?: string` = raw user prompt; NEVER searched, NEVER cached.
+  `countLexicallyRelevant(results, anchorText): number` (metasearch.ts) — punctuation-
+  insensitive core-token match, minHits = min(40% of tokens, 2) with absFloor ≥2 (≥3 tokens) / ≥1.
+  `metasearch()` lexical floor applies iff `relevant.length >= Math.min(5, ranked.length)`.
+  UI: `X-Research-Lfm` carries `decidedBy`; `GATE_BADGE={"main-model":"Model-gated",lfm:"LFM-gated",rules:"Rule-gated"}`;
+  testids `research-trail-card` / `research-trail-toggle` / `research-trail-gate-badge`;
+  PipelineStage id remains `"lfm"`. MAIN_GATE_SYSTEM_PROMPT must stay byte-identical to
+  MAIN_SYSTEM_PROMPT in scripts/eval-search-gate.mjs (comment enforces it).
+  Constants: MAIN_GATE_TIMEOUT_MS=35_000, MAIN_GATE_MAX_TOKENS=320, LFM_TELEMETRY_GRACE_MS=3_000,
+  MIN_RELEVANT_URLS=3 aggregate floor, metasearchWithFreshnessRecovery(plans, 20) quorum
+  15 results/2 engines, 6 s grace, 15 s cap; WEB_SEARCH_LFM_DISABLED escape hatch.
+
 [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
+- 2026-10-21e GATE runs (§1.3 launcher `.cache/run-pw-gate.ps1` — creates
+  `.ai-coordination/playwright.lock`, runs `cmd /c npx playwright test … > log 2>&1`
+  in the FOREGROUND, removes the lock in `finally`; agent stayed idle for the whole
+  run). Servers for these runs: Next :3000=200 (dev, log .cache/dev-server.log),
+  :8790 {"ok":true,"lfm":true}, :8791=200, :8080=200.
+  run A (.cache/pw-gate-a.log, -g "greeting reply stays local|triggers NO web
+  search|needs no search"): **3 passed (2.9 m), PW_EXIT=0** — greeting 47.2 s,
+  palindrome-prompt test 1.0 m, LeetCode-23 test 1.0 m.
+  run B (.cache/pw-gate-b.log, -g "labelled Model-gated"): **1 passed (22.3 s),
+  PW_EXIT=0** (test 21.8 s).
+  Live gate telemetry proving the fix (dev-server.log):
+  • palindrome prompt → `{"lfmVerdict":true,"mainVerdict":false,"agreement":"disagree"}`
+    + WARN "LFM router (55% measured) disagreed with the main model — main model
+    verdict is authoritative", `{"gateMs":3610,"search_required":false,"source":"main-model"}`
+    → NO search (previously the router's "yes" searched and cited WhatsApp/Waze/etc.)
+  • "NVIDIA RTX 5090 … price in India right now" → `{"lfmVerdict":false,
+    "mainVerdict":true,"agreement":"disagree"}`, `{"gateMs":5103,"search_required":true}`,
+    keyword queries `["NVIDIA RTX 5090 price India","RTX 5090 buy price India online
+    retailers"]` → trail card rendered + badge "Model-gated" + on-topic sources.
+  • greeting + LeetCode-23 → `agreement:"agree"`, both authorities no-search.
+  • fused-pool floor on the GPU query: `{"dropped":37,"kept":73,"sampleTokens":
+    ["nvidia","rtx","5090","price","india"]}`.
 - Servers LIVE + healthy: Next :3000 (200, dev, auto-booted engine), worker
   :8790 {"ok":true,"lfm":true}, llama-server :8791 warm, main LLM :8080 200.
 - RUN STATUS: pw-final.log killed at 161/313 (1 timeout failure, fixed).
@@ -450,13 +520,15 @@ run + git commit (not requested).
   JSONs own routing; browser can never touch ./.cskills/.
 
 [8.8 IMMEDIATE NEXT ATOMIC ACTIONS]
-1. DONE: STATE.md + CHANGELOG.md titles sync complete (this session).
-2. Optional (only if user asks): full-suite Playwright via
-   .cache/run-playwright.ps1 for the heavy specs untouched by the
-   titles run (list in 8.5); §1 lock + foreground wait protocol.
-3. Optional (only if user asks): `git add -A` + commit (message ends
-   "Co-Authored-By: Claude Code <noreply@anthropic.com>"); verify
-   `git status` clean.
+1. DONE: state.md + CHANGELOG.md gate-authority sync complete (this session).
+2. DONE: targeted Playwright batches under the §1.3 lock — 4/4 passed,
+   PW_EXIT=0 on both runs (see 8.5). §4 completion report delivered.
+3. Optional (only if user asks): re-run the heavier chat-adjacent specs
+   (chat-stream, conversations-live-chat, reasoning-test) to confirm the
+   gate change didn't perturb streaming; full suite last green 2026-10-19d
+   (309 passed | 4 skipped | 0 failed).
+4. Optional (only if user asks): `git add -A` + commit ending
+   "Co-Authored-By: Claude Code <noreply@anthropic.com>".
 
 [ADDENDUM 2026-10-19b — DECISION ENGINE LIFECYCLE (LOCKED-DONE)]
 - client.ts spawn now passes DECISION_ENGINE_PARENT_PID=<next server pid>;

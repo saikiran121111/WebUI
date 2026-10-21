@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## 2026-10-21e — Fix: web-search gate is decided by the MAIN model, not the 1.2B router
+Reported symptom: a pure LeetCode algorithm prompt ("partition s … minimum cuts …
+palindrome" plus a Rust `impl Solution` stub) triggered a web search whose cited
+sources were WhatsApp Web, YouTube Help, Waze (French), Output.com, a Reddit
+ChatGPT-custom-instructions thread and a ChatGPT GitHub topic page — i.e. garbage
+results for a query that needed no search at all.
+- **Root cause 1 — inverted authority.** The LFM2.5-1.2B router was the *sole*
+  gate decider. Benchmarked on 44 scenarios (`scripts/eval-search-gate.mjs`):
+  **router accuracy 55 % (15 tp / 9 tn / 13 fp / 7 fn, ~479 ms) vs main model
+  100 % (22 tp / 22 tn, ~3.3 s), agreement only 24/44.** The main model is now
+  authoritative: it returns the verdict *and* the keyword-form query plan in one
+  `:8080` call (`MAIN_GATE_SYSTEM_PROMPT`, 35 s cap, 320 max tokens). The router
+  still runs, in parallel, purely as telemetry — it can never veto a main-model
+  "yes", a main-model "no" beats a router "yes" (logged `agreement:"disagree"`),
+  and it is waited on for at most 3 s. It is fallback authority only when the
+  main model is unreachable, then deterministic rules.
+- **Root cause 2 — garbage query text.** Verbatim prompt echoes were replaced by
+  entity-anchored keyword queries (live example: `best biryani restaurants
+  Manikonda Hyderabad`).
+- **Root cause 3 — no per-result relevance filter on the fused pool.** The lexical
+  threshold previously guarded only the vertical engines. `metasearch()` now drops
+  any RRF-fused result that shares no core subject token with the queries *or* the
+  raw prompt (`SearchPlan.relevanceAnchor`, never searched/cached), with a
+  starvation guard. A/B telemetry proves it works: E-Commerce scenario 12 relevant
+  sources with the floor vs 1 without; Jobs 14 vs 11.
+- **Latency note:** the gate now costs 2.4–6.5 s instead of ~0.5 s. Accepted
+  deliberately (correctness over speed); the trivial-greeting short-circuit and
+  `WEB_SEARCH_LFM_DISABLED` escape hatch remain, and the router call no longer
+  awaits engine warmup.
+- **UI:** the Research Trail badge now names the authority that actually decided —
+  `Model-gated` / `LFM-gated` / `Rule-gated` (`researchLfm.decidedBy` over
+  `X-Research-Lfm`).
+- **Regression coverage:** new `tests/search-gate.spec.ts` (algorithm prompt must
+  produce no trail card/badge/citation pills; LeetCode-23 sources must be
+  on-topic; a live-fact question must search, show `Model-gated` and cite
+  on-topic sources). Verified: `tsc --noEmit` clean, `vitest` 545 passed / 1
+  skipped, `scripts/e2e-web-search.ts` 0 failures.
+
 ## 2026-10-20 — Fix: `npm run dev` now fully owns the LFM2.5 engine lifecycle
 Closing the dev terminal left `llama-server.exe` (~500 MB, :8791) and the
 decision-engine python pair running, and a black console popup (title = the

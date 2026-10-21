@@ -1,19 +1,28 @@
 /**
- * Mandatory LFM decision gate.
+ * Web-search decision gate.
  *
- * The LLM router is the ONLY authority that can authorize or deny a web
- * search on this project. Deterministic rules are emergency fallbacks
- * ONLY — fired when the local LLM server is completely unreachable after
- * the full 60-second timeout window.
+ * AUTHORITY MODEL (measured 2026-10-21, scripts/eval-search-gate.mjs over
+ * 44 labeled scenarios): the MAIN model on :8080 decides whether a web
+ * search is needed AND writes the search queries itself — 100% accuracy
+ * with keyword-form, entity-anchored queries. The LFM2.5-1.2B router on
+ * :8791 scored 55% (13 false positives / 7 false negatives — it searched
+ * for a pure LeetCode algorithm prompt and refused live-price questions),
+ * so it is now INFORMATIONAL ONLY: it runs in parallel for telemetry and
+ * acts as the fallback authority when the main model is unreachable. A
+ * "no" from the 1.2B router can never veto a "yes" from the main model.
  *
  *   1. Trivial 1-2 word greetings ("hi", "hello", "thanks") → no-search
  *      short-circuit (zero tokens, zero risk).
  *   2. Explicit URL in the prompt → force search_required=true and
  *      guarantee that URL is in the plan.
- *   3. LLM call (60s timeout) → JSON in SearchDecisionSchemaCompat.
- *   4. Malformed JSON: strip fences + repair once; if still invalid →
- *      rule-based fallback plan (never a blank one).
- *   5. 60s LLM timeout → rule-based fallback plan.
+ *   3. Main-model gate (one JSON call, 35s ceiling): the model answers
+ *      {search_required, reason, freshness, depth, queries[]} for itself.
+ *   4. Informational LFM2.5 Stage-1 runs in parallel (bounded so a cold
+ *      router can never add gate latency); disagreement is logged.
+ *   5. Main model unreachable/unparseable → LFM two-stage fallback
+ *      (Stage-1 boolean → Stage-2 plan).
+ *   6. Both authorities failed → rule-based fallback: a substantive
+ *      prompt gets a search plan, never a silent drop.
  */
 import { childLogger } from "@/lib/server/logger";
 import {
@@ -158,6 +167,27 @@ export const LLM_TIMEOUT_MS = 60_000;
  */
 const FAST_CLASSIFIER_TIMEOUT_MS = 15_000;
 const MAIN_CLASSIFIER_TIMEOUT_MS = 30_000;
+
+/**
+ * Ceiling for the AUTHORITATIVE main-model gate call. It emits a full
+ * decision + query plan (~150 tokens measured) so it needs more headroom
+ * than the single-boolean LFM check. Measured warm latency on :8080 is
+ * ~2.5-5s (eval avg 3.3s), which is the price of a 100% correct gate —
+ * the previous 0.48s LFM-only gate cost 45% of its scenarios.
+ */
+const MAIN_GATE_TIMEOUT_MS = 35_000;
+const MAIN_GATE_MAX_TOKENS = 320;
+
+/**
+ * The informational LFM2.5 check may never delay the authoritative verdict:
+ * once the main model has answered, we give the router this much extra time
+ * to report its verdict for telemetry, then move on without it.
+ */
+const LFM_TELEMETRY_GRACE_MS = 3_000;
+
+function delayMs(ms: number): Promise<never | null> {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms));
+}
 
 /**
  * A thinking model (Qwen on :8080) can spend its entire output budget inside
@@ -361,6 +391,74 @@ function buildStage1Messages(ctx: LfmGateContext): { role: string; content: stri
   ];
 }
 
+/* ── AUTHORITATIVE main-model gate ────────────────────────────────────── */
+
+/**
+ * The main model decides for ITSELF: it knows its own knowledge boundaries
+ * ("do I actually remember the exact statement of that problem / the
+ * current price of that stock?"), which a 1.2B router cannot model, and it
+ * writes the queries in the keyword form search engines actually match.
+ *
+ * This exact prompt scored 100% (22/22 search + 22/22 no-search) on the
+ * 44-scenario eval in scripts/eval-search-gate.mjs, against the LFM2.5
+ * router's 55%. Keep it in sync with MAIN_SYSTEM_PROMPT in that script so
+ * the eval keeps measuring the prompt that actually ships.
+ */
+const MAIN_GATE_SYSTEM_PROMPT = `You are the search router for your own answering pipeline.
+Decide whether YOU need live web data to answer the user's latest message
+accurately, and — if yes — write the web search queries.
+
+Answer with ONLY valid JSON:
+{"search_required": boolean, "reason": string,
+ "freshness": "none"|"day"|"week"|"month"|"year"|"any",
+ "depth": "quick"|"standard"|"deep",
+ "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
+
+Decision rules (check yourself honestly):
+- search_required = false when you can answer reliably from your own
+  knowledge: greetings, chitchat, coding problems and algorithm questions
+  you know (including well-known competitive-programming problems), math,
+  writing, translation, explanations of concepts, static facts, and library
+  APIs you are confident about.
+- search_required = true when the answer depends on facts that change over
+  time (news, prices, stock/crypto rates, weather, sports results, releases,
+  product availability, local places/businesses, current events), OR when
+  the user asks about a specific entity, problem, version, or document that
+  you CANNOT recall with confidence. If you are unsure whether you actually
+  know the exact details of a specific named thing, search.
+- If the message contains an explicit URL, search_required = true.
+
+Query rules (only when search_required = true):
+- 2-4 queries. KEYWORD FORM, not full sentences. Never paste the user's
+  question verbatim; never write a query that is only stopwords or generic
+  phrasing.
+- Anchor every query on the concrete entities of the request (names,
+  numbers, products, places) plus at most one topic word.
+- Example good: ["NVIDIA stock price", "NVDA share price today"].
+  Example bad: ["What is the minimum number of cuts needed to partition
+  the string so that each part is a palindrome"].
+- Use the user's exact terminology for proper nouns and version numbers.
+- Set preferred_domains when an authoritative source is obvious.
+- freshness = "any" unless the fact is explicitly live (breaking news,
+  today's price/weather/score). depth: "quick" single fact, "standard"
+  comparison, "deep" multi-source research.
+Do NOT add anything else to your output.`;
+
+function buildMainGateMessages(ctx: LfmGateContext): { role: string; content: string }[] {
+  const msgs: { role: string; content: string }[] = [
+    { role: "system", content: MAIN_GATE_SYSTEM_PROMPT },
+  ];
+  if (ctx.history?.length) {
+    // Follow-up turns ("and its price today?") need the same history view
+    // the answer gets; 3 turns / 300 chars keeps the gate call cheap.
+    for (const m of ctx.history.slice(-3)) {
+      msgs.push({ role: m.role, content: m.content.slice(0, 300) });
+    }
+  }
+  msgs.push({ role: "user", content: ctx.userPrompt.slice(0, 2000) });
+  return msgs;
+}
+
 function stripAndRepair(raw: string): string {
   // Remove markdown fences if the model wrapped the JSON, strip
   // any reasoning prefix up to the first {.
@@ -543,7 +641,9 @@ async function fireLlmRequest(
   schema: Record<string, unknown>,
   maxTokens: number,
   messages?: { role: string; content: string }[],
+  opts: { awaitWarmup?: boolean } = {},
 ): Promise<{ content: string; reasoning: string } | null> {
+  const awaitWarmup = opts.awaitWarmup !== false;
   const isFast = endpoint === FAST_ENDPOINT;
   const body: Record<string, unknown> = {
     model: "default",
@@ -584,6 +684,12 @@ async function fireLlmRequest(
     const isConnRefused = code === "ECONNREFUSED" || err.message.includes("ECONNREFUSED");
     if (isFast && isConnRefused && warmupInFlight === null) {
       log.warn({ endpoint: endpoint.slice(0, 40), code }, "ECONNREFUSED on :8791 — triggering auto-warmup");
+      if (!awaitWarmup) {
+        // Informational call: kick the router warm for FUTURE turns but
+        // never block the authoritative path on a 30s model load.
+        void triggerAutoWarmup();
+        return null;
+      }
       await triggerAutoWarmup();
       // One retry after warmup.
       try {
@@ -621,37 +727,42 @@ async function fireLlmRequest(
  */
 async function stage1SearchCheck(
   ctx: LfmGateContext,
+  opts: { informational?: boolean } = {},
 ): Promise<boolean | null> {
+  const informational = opts.informational === true;
   // Use the minimal Stage-1 prompt (single boolean, no query-generation
-  // bias) for both the fast router and the main model.
+  // bias) for the fast router.
   const stage1Msgs = buildStage1Messages(ctx);
-  // Try the fast router first.
-  const fast = await fireLlmRequest(FAST_ENDPOINT, ctx, FAST_CLASSIFIER_TIMEOUT_MS, STAGE1_SCHEMA, 16, stage1Msgs);
-  if (fast) {
-    for (const raw of [fast.content, fast.reasoning]) {
-      if (!raw || raw.trim() === "") continue;
-      const cands = [stripAndRepair(raw), raw.trim()];
-      for (const c of cands) {
-        try {
-          const parsed = JSON.parse(c);
-          if (typeof parsed?.search_required === "boolean") return parsed.search_required;
-        } catch { /* try next */ }
-      }
-    }
-  }
-  // Fall back to the main model for Stage 1 (it also answers a single
-  // boolean reliably; schema constrains the output).
+  // Informational calls must NEVER add latency to the authoritative path:
+  // a cold :8791 would otherwise sit inside a 30s auto-warmup before the
+  // main model's verdict could be used. Warm it in the background instead.
+  const fast = await fireLlmRequest(
+    FAST_ENDPOINT, ctx, FAST_CLASSIFIER_TIMEOUT_MS, STAGE1_SCHEMA, 16, stage1Msgs,
+    { awaitWarmup: !informational },
+  );
+  const fromFast = readStage1Verdict(fast);
+  if (fromFast !== null) return fromFast;
+  // The informational call stops at the router — the :8080 retry that the
+  // legacy path below performs would just duplicate the authoritative
+  // main-model gate call that is already in flight.
+  if (informational) return null;
+  // Legacy two-stage path: fall back to the main model for Stage 1.
   const main = await fireLlmRequest(LLM_ENDPOINT, ctx, MAIN_CLASSIFIER_TIMEOUT_MS, STAGE1_SCHEMA, 16, stage1Msgs);
-  if (main) {
-    for (const raw of [main.content, main.reasoning]) {
-      if (!raw || raw.trim() === "") continue;
-      const cands = [stripAndRepair(raw), raw.trim()];
-      for (const c of cands) {
-        try {
-          const parsed = JSON.parse(c);
-          if (typeof parsed?.search_required === "boolean") return parsed.search_required;
-        } catch { /* try next */ }
-      }
+  return readStage1Verdict(main);
+}
+
+/** Pull the `search_required` boolean out of a Stage-1 response. */
+function readStage1Verdict(
+  res: { content: string; reasoning: string } | null,
+): boolean | null {
+  if (!res) return null;
+  for (const raw of [res.content, res.reasoning]) {
+    if (!raw || raw.trim() === "") continue;
+    for (const c of [stripAndRepair(raw), raw.trim()]) {
+      try {
+        const parsed = JSON.parse(c);
+        if (typeof parsed?.search_required === "boolean") return parsed.search_required;
+      } catch { /* try next candidate */ }
     }
   }
   return null;
@@ -736,50 +847,193 @@ async function stage2SearchPlan(
 }
 
 /**
- * Two-stage classifier (correction 3):
- *
- * Stage 1 — `{"search_required": boolean}` (max_tokens: 16).
- *   The 1.2B model only has to emit a single boolean. No query-generation
- *   instructions in the prompt → no bias toward `true`. Greetings,
- *   chitchat, and pure coding/math questions all correctly yield `false`.
- *
- * Stage 2 — full plan (`{ intent, freshness, depth, queries }`)
- *   ONLY when Stage 1 says `true`. This keeps the 1.2B model from
- *   generating queries for no-search prompts (which biased it toward
- *   `search_required: true` in the old single-stage design).
- *
- * Returns a SearchDecision or null when both endpoints are unreachable
- * AND the rule-based fallback cannot produce a plan.
+ * The AUTHORITATIVE gate: one main-model call that returns the verdict and
+ * the query plan together. Returns null when :8080 is unreachable or its
+ * JSON is unparseable (the caller then uses the LFM fallback chain).
  */
-export async function callLlm(ctx: LfmGateContext): Promise<SearchDecision | null> {
+async function mainModelGate(ctx: LfmGateContext): Promise<SearchDecision | null> {
+  const res = await fireLlmRequest(
+    LLM_ENDPOINT,
+    ctx,
+    MAIN_GATE_TIMEOUT_MS,
+    LFM_JSON_SCHEMA,
+    MAIN_GATE_MAX_TOKENS,
+    buildMainGateMessages(ctx),
+  );
+  if (!res) return null;
+  for (const raw of [res.content, res.reasoning]) {
+    const decision = parseMainGateJson(raw, ctx);
+    if (decision) return decision;
+  }
+  log.warn(
+    { content: res.content.slice(0, 120), reasoning: res.reasoning.slice(0, 120) },
+    "main-model gate produced no parseable verdict",
+  );
+  return null;
+}
+
+/**
+ * Parse the main model's combined verdict+plan. A `search_required: false`
+ * answer is a first-class outcome (the model knows it can answer from its
+ * own context) — not a failure. Explicit prompt URLs are still force-added.
+ */
+function parseMainGateJson(raw: string, ctx: LfmGateContext): SearchDecision | null {
+  if (!raw || raw.trim() === "") return null;
+  for (const cand of [stripAndRepair(raw), raw.trim()]) {
+    try {
+      const parsed = JSON.parse(cand);
+      if (typeof parsed?.search_required !== "boolean") continue;
+
+      if (!parsed.search_required) {
+        return {
+          search_required: false,
+          reason: String(parsed.reason ?? "main model: no live web content needed").slice(0, 300),
+          freshness: "none",
+          depth: "quick",
+          queries: [],
+        };
+      }
+
+      const queries: SearchDecision["queries"] = Array.isArray(parsed.queries)
+        ? parsed.queries
+            .map((q: any) => ({
+              query: String(q?.query ?? "").trim(),
+              intent: (["general", "news", "docs", "code", "academic", "forum"].includes(q?.intent)
+                ? q.intent
+                : "general") as SearchDecision["queries"][number]["intent"],
+              ...(Array.isArray(q?.preferred_domains) ? { preferred_domains: q.preferred_domains } : {}),
+            }))
+            .filter((q: SearchDecision["queries"][number]) => q.query.length > 0)
+        : [];
+
+      const urls = extractPromptUrls(ctx.userPrompt);
+      for (const u of urls) {
+        if (!queries.some((q) => q.query === u)) queries.push({ query: u, intent: "general" });
+      }
+      // A "yes" with no usable queries still has to search — keep the
+      // prompt-derived query as the last resort (the per-result lexical
+      // floor in metasearch() keeps it from surfacing junk).
+      if (queries.length === 0) {
+        queries.push({ query: ctx.userPrompt.replace(/\s+/g, " ").trim().slice(0, 300), intent: "general" });
+      }
+
+      return {
+        search_required: true,
+        reason: String(parsed.reason ?? "main model: live web content needed").slice(0, 300),
+        freshness: (["none", "day", "week", "month", "year", "any"].includes(parsed.freshness)
+          ? parsed.freshness
+          : "any") as SearchDecision["freshness"],
+        depth: (["quick", "standard", "deep"].includes(parsed.depth)
+          ? parsed.depth
+          : "standard") as SearchDecision["depth"],
+        queries,
+      };
+    } catch { /* try next candidate */ }
+  }
+  return null;
+}
+
+interface GateOutcome {
+  decision: SearchDecision | null;
+  source: LfmDecision["source"];
+  lfmVerdict: boolean | null;
+  agreement?: LfmDecision["agreement"];
+}
+
+/**
+ * The gate, with authority + agreement telemetry.
+ *
+ * Precedence: main model (authoritative) → LFM2.5 router (fallback, only
+ * when the main model is unreachable) → deterministic rules. The router's
+ * Stage-1 verdict is collected in parallel and NEVER gates the outcome
+ * when the main model answered — disagreement is logged, main wins. That
+ * ordering is the fix for both reported failure modes: the router
+ * green-lighting a pure LeetCode algorithm prompt (garbage sources) and
+ * the router vetoing a search the main model actually needed.
+ */
+async function gateWithTelemetry(ctx: LfmGateContext): Promise<GateOutcome> {
   const t0 = performance.now();
 
-  // Stage 1: single-field boolean check.
-  const searchNeeded = await stage1SearchCheck(ctx);
-  if (searchNeeded === false) {
-    // No search needed — return a clean no-search decision.
-    log.info({ lfmMs: Math.round(performance.now() - t0) }, "stage-1: search_required=false");
+  // Informational router check, in flight while the main model thinks.
+  const lfmPromise = stage1SearchCheck(ctx, { informational: true }).catch(() => null);
+
+  const mainDecision = await mainModelGate(ctx);
+
+  if (mainDecision) {
+    // Bounded so a cold/slow :8791 can never add gate latency.
+    const lfmVerdict = await Promise.race([lfmPromise, delayMs(LFM_TELEMETRY_GRACE_MS)]);
+    const agreement: LfmDecision["agreement"] =
+      lfmVerdict === null
+        ? "lfm-unavailable"
+        : lfmVerdict === mainDecision.search_required
+          ? "agree"
+          : "disagree";
+    if (agreement === "disagree") {
+      log.warn(
+        { lfmVerdict, mainVerdict: mainDecision.search_required, prompt: ctx.userPrompt.slice(0, 80) },
+        "LFM router (55% measured) disagreed with the main model — main model verdict is authoritative",
+      );
+    }
+    log.info(
+      {
+        gateMs: Math.round(performance.now() - t0),
+        search_required: mainDecision.search_required,
+        lfmVerdict,
+        agreement,
+        queries: mainDecision.queries.map((q) => q.query.slice(0, 60)),
+      },
+      "main-model gate decided",
+    );
+    return { decision: mainDecision, source: "main-model", lfmVerdict, agreement };
+  }
+
+  log.warn(
+    { prompt: ctx.userPrompt.slice(0, 80), ms: Math.round(performance.now() - t0) },
+    "main-model gate unreachable → LFM two-stage fallback",
+  );
+  const lfmVerdict = await lfmPromise;
+
+  if (lfmVerdict === false) {
     return {
-      search_required: false,
-      reason: "stage-1: no live web content needed",
-      freshness: "none",
-      depth: "quick",
-      queries: [],
+      decision: {
+        search_required: false,
+        reason: "lfm stage-1: no live web content needed",
+        freshness: "none",
+        depth: "quick",
+        queries: [],
+      },
+      source: "lfm",
+      lfmVerdict,
     };
   }
 
-  // Stage 1 returned null (router unreachable) → fall back to rules.
-  if (searchNeeded === null) {
-    log.warn({ prompt: ctx.userPrompt.slice(0, 60) }, "stage-1: router unreachable → rule fallback");
-    return isSubstantivePrompt(ctx.userPrompt) ? rulesBasedPlan(ctx).decision : null;
+  if (lfmVerdict === true) {
+    const plan = await stage2SearchPlan(ctx);
+    if (plan) {
+      log.info({ gateMs: Math.round(performance.now() - t0) }, "lfm stage-2: fallback plan generated");
+      return { decision: plan, source: "lfm", lfmVerdict };
+    }
   }
 
-  // Stage 1 said true → generate the full plan.
-  const plan = await stage2SearchPlan(ctx);
-  if (plan) {
-    log.info({ lfmMs: Math.round(performance.now() - t0) }, "stage-2: full plan generated");
+  // Both authorities failed. Prompt shape decides (the content:null guard):
+  // a substantive prompt must never be silently dropped.
+  if (isSubstantivePrompt(ctx.userPrompt)) {
+    log.warn(
+      { prompt: ctx.userPrompt.slice(0, 80) },
+      "both gate authorities failed on a substantive prompt → rule-based SEARCH fallback",
+    );
+    return { decision: rulesBasedPlan(ctx).decision, source: "rules", lfmVerdict };
   }
-  return plan;
+  return { decision: null, source: "rules", lfmVerdict };
+}
+
+/**
+ * Back-compatible entry point (kept for external callers/exports): returns
+ * just the decision. `runLfmGate` is the public API that also reports
+ * which authority decided.
+ */
+export async function callLlm(ctx: LfmGateContext): Promise<SearchDecision | null> {
+  return (await gateWithTelemetry(ctx)).decision;
 }
 
 /* ── public API ────────────────────────────────────────────────────────── */
@@ -804,39 +1058,35 @@ export async function runLfmGate(ctx: LfmGateContext): Promise<LfmDecision> {
   }
 
   const t0 = performance.now();
-  const decision = await callLlm(ctx);
-  if (decision) {
-    // Explicit URLs are already forced into the plan by parseDecisionField;
-    // surface the outcome as an LLM-sourced decision.
-    const finalDecision: SearchDecision = { ...decision };
-    return {
-      decision: finalDecision,
-      source: "lfm",
+  const gate = await gateWithTelemetry(ctx);
+
+  if (gate.decision) {
+    const out: LfmDecision = {
+      decision: { ...gate.decision },
+      source: gate.source,
       lfmMs: Math.round(performance.now() - t0),
+      lfmVerdict: gate.lfmVerdict,
+      agreement: gate.agreement,
     };
-  }
-
-  // ── Prompt-aware failure fallback (the thinking-model content:null guard) ─
-  // Both classifier endpoints failed to produce a valid JSON verdict (genuine
-  // model failure / timeout / null content). The fallback depends on the
-  // prompt's shape:
-  //   • A real question (>4 words, or ?, or URL, or version, or a proper
-  //     noun) → RULE-BASED SEARCH plan. We must NEVER silently drop a genuine
-  //     research question just because the classifier hiccuped.
-  //   • Short chitchat that isn't in the trivial set but isn't a real
-  //     question → no-search plan (safe to skip the web on "thanks", "ok").
-  if (isSubstantivePrompt(ctx.userPrompt)) {
-    const plan = rulesBasedPlan(ctx);
-    log.warn(
-      { prompt: ctx.userPrompt.slice(0, 80) },
-      "classifier failed on a substantive prompt → rule-based SEARCH fallback",
+    log.info(
+      {
+        source: out.source,
+        search_required: out.decision.search_required,
+        lfmVerdict: out.lfmVerdict,
+        agreement: out.agreement,
+        gateMs: out.lfmMs,
+      },
+      "search gate verdict",
     );
-    return plan;
+    return out;
   }
 
-  // Non-substantive prompt + failed LLM: a no-search plan is the safe, cheap
-  // answer (the main model answers from its own knowledge).
+  // Non-substantive prompt + every authority failed: a no-search plan is the
+  // safe, cheap answer (the main model answers from its own knowledge).
   const plan = noSearchPlan(ctx);
-  log.warn({ prompt: ctx.userPrompt.slice(0, 80) }, "classifier failed, non-substantive prompt → no-search");
+  log.warn(
+    { prompt: ctx.userPrompt.slice(0, 80) },
+    "all gate authorities failed, non-substantive prompt → no-search",
+  );
   return plan;
 }

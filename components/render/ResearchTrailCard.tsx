@@ -4,13 +4,20 @@ import type { Message } from "../../lib/types";
 
 /**
  * Collapsible "Research Trail" card shown above the assistant reply when
- * the LFM-gated web-search pipeline ran. Displays:
- *   - LFM decision summary (search_required, depth, queries)
+ * the gated web-search pipeline ran. Displays:
+ *   - the gate summary (deciding authority, depth, freshness, queries)
  *   - Clickable source cards (domain + title + URL)
  *
  * The card is collapsed by default to keep the message bubble compact;
  * clicking expands the full source list.
  */
+
+/** Which authority decided for this turn → the badge the user sees. */
+const GATE_BADGE: Record<string, string> = {
+  "main-model": "Model-gated",
+  lfm: "LFM-gated",
+  rules: "Rule-gated",
+};
 export default function ResearchTrailCard({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false);
   const webCitations = message.webCitations;
@@ -46,9 +53,12 @@ export default function ResearchTrailCard({ message }: { message: Message }) {
           </span>
         </span>
         {hasLfmDecision && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded
-            bg-[#38E8FF]/10 text-[#38E8FF] font-medium">
-            LFM-gated
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded
+            bg-[#38E8FF]/10 text-[#38E8FF] font-medium"
+            data-testid="research-trail-gate-badge"
+          >
+            {GATE_BADGE[(message as any).researchLfm?.decidedBy ?? "lfm"] ?? "Gated"}
           </span>
         )}
         {expanded ? (
@@ -58,7 +68,7 @@ export default function ResearchTrailCard({ message }: { message: Message }) {
         )}
       </button>
 
-      {/* LFM decision summary */}
+      {/* Gate decision summary */}
       {expanded && hasLfmDecision && (
         <div className="px-3 py-2 border-t border-white/[0.04] text-[11px] text-white/40 space-y-0.5">
           {((message as any).researchLfm?.queries ?? []).map((q: any, i: number) => (

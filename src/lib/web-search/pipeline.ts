@@ -4,7 +4,9 @@
  * Composes the 6 core modules into a single callable entry point:
  *
  *   user prompt
- *     → runLfmGate (LFM decision: search_required + plan)
+ *     → runLfmGate (gate decision: search_required + plan. The MAIN model
+ *       is authoritative; the LFM2.5 router is the fallback authority and
+ *       an informational telemetry signal — see lfm-gate.ts)
  *     → metasearch (parallel sources + RRF fusion)
  *     → extractAll (p-limited 3-tier extraction, cache-aware)
  *     → rerank (CPU BM25, top 12–15, ≤3/domain)
@@ -19,7 +21,7 @@ import type { LfmGateContext } from "./types";
 import {
   metasearch,
   metasearchWithFreshnessRecovery,
-  queryCoreTokens,
+  countLexicallyRelevant,
   type SearchPlan,
   type RankedResult,
 } from "./metasearch";
@@ -101,25 +103,11 @@ function countRelevantResults(
   results: RankedResult[],
   prompt: string,
 ): number {
-  const core = queryCoreTokens(prompt);
-  if (core.length === 0) return results.length;
-
-  // Pre-compute normalized core tokens.
-  const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
-  // Dynamic threshold matching meetsLexicalThreshold.
-  const pctFloor = Math.ceil(core.length * 0.4);
-  const absFloor = core.length >= 3 ? 2 : 1;
-  const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;
-
-  return results.filter((r) => {
-    // Combine title + snippet + URL (the URL carries the most specific
-    // tokens, e.g. "next.js" in a GitHub path or "linux" in a kernel.org URL).
-    const raw = (r.title + " " + (r.snippet ?? "") + " " + r.url).toLowerCase();
-    const stripped = raw.replace(/[.\-_]/g, "");
-    const combined = raw + " " + stripped;
-    const hits = normTokens.filter((t) => combined.includes(t)).length;
-    return hits >= minHits;
-  }).length;
+  // Delegates to metasearch's shared implementation so the aggregate floor
+  // and the fused-pool floor can never drift apart. Title+snippet+URL are
+  // combined because the URL carries the most specific tokens (a GitHub
+  // "next.js" path, a kernel.org "linux" path).
+  return countLexicallyRelevant(results, prompt);
 }
 
 export type PipelineStage =
@@ -238,14 +226,19 @@ export async function runWebResearch(
   // never start a new stage after the 240s deadline.
   const ceilingHit = () => abortSignal.aborted;
 
-  // ── LFM gate ──────────────────────────────────────────────────────
-  onProgress?.({ stage: "lfm", detail: "Analyzing prompt with LFM…" });
+  // ── search gate ───────────────────────────────────────────────────
+  // Stage id stays "lfm" (the SSE/UI progress contract keys on it); the
+  // detail text names the authority that is actually thinking.
+  onProgress?.({ stage: "lfm", detail: "Deciding whether a web search is needed…" });
   const lfm = await runLfmGate(ctx);
   if (!lfm.decision.search_required) {
-    onProgress?.({ stage: "skipped", detail: "LFM: no web search required" });
+    onProgress?.({ stage: "skipped", detail: "No web search required" });
     return null; // pipeline caller must fall back to main model directly
   }
-  log.info({ lfmMs: lfm.lfmMs, queries: lfm.decision.queries.length }, "lfm gate passed");
+  log.info(
+    { gateMs: lfm.lfmMs, source: lfm.source, queries: lfm.decision.queries.length },
+    "search gate passed",
+  );
 
   // ── query planning (multi-hop decomposer) ────────────────────────────
   onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries…" });
@@ -254,10 +247,13 @@ export async function runWebResearch(
     query: p.query,
     intent: p.intent as SearchPlan["intent"],
     preferredDomains: p.preferredDomains,
-    // Carry the LFM freshness decision to the search engine so the
+    // Carry the gate's freshness decision to the search engine so the
     // freshness-filter trap recovery (in metasearch) can fire when a
     // non-"any" filter drops too many results.
     freshness: lfm.decision.freshness,
+    // The user's prompt anchors the fused-pool relevance floor: rewritten
+    // queries can drift from what the user actually asked.
+    relevanceAnchor: ctx.userPrompt,
   }));
   log.info({ planned: planned.length, origins: planned.map((p) => p.origin) }, "query plan built");
 

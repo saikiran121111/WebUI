@@ -23,7 +23,7 @@ test("greeting reply stays local — no Research Trail card, no citation crash",
 
   // 1) No research trail on an ordinary greeting.
   await expect(page.getByText("Research Trail")).toHaveCount(0);
-  await expect(page.getByText("LFM-gated")).toHaveCount(0);
+  await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
 
   // 2) No citation marker pills leaked into the greeting reply.
   await expect(page.locator("[data-domain]")).toHaveCount(0);

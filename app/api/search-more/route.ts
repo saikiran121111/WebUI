@@ -3,9 +3,9 @@
  *
  * The main model (after synthesizing from the initial evidence) may call
  * this at most ONCE per conversation turn if a specific fact is missing.
- * It re-runs the LFM-gated pipeline against the LFM's original query set
- * plus any new targeted queries the model supplies, and returns a fresh
- * evidence block in the same [S#]-labelled shape.
+ * It re-runs the gated pipeline against the original query set plus any
+ * new targeted queries the model supplies, and returns a fresh evidence
+ * block in the same [S#]-labelled shape.
  *
  * Body:  { queries: string[] }   (max 3 new queries, ≤ 100 chars each)
  * Returns: { evidenceBlock, webCitations }
@@ -46,9 +46,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Re-run the LFM gate against the FIRST new query so it can extend the
-  // source pool (e.g. add arxiv for academic follow-ups). If the gate
-  // rejects all queries, fall back to the rule-based plan.
+  // Re-run the gate against the FIRST new query so it can extend the
+  // source pool (e.g. add arxiv for academic follow-ups). The main model
+  // is authoritative here too (see lfm-gate.ts). If the gate rejects all
+  // queries, fall back to the rule-based plan.
   const lfm = await runLfmGate({ userPrompt: queries[0] ?? "" });
 
   const plans = lfm.decision.search_required

@@ -220,6 +220,30 @@ export function meetsLexicalThreshold(text: string, coreTokens: string[]): boole
   return hits >= Math.min(pctFloor, absFloor === 1 ? 1 : 2) || hits >= absFloor;
 }
 
+/**
+ * Count the results that share at least `minHits` core subject tokens with
+ * `anchorText` (the user's prompt, normally). Same normalization as
+ * meetsLexicalThreshold, but with the pipeline's fixed dynamic floor —
+ * this is the metric pipeline.ts uses for its aggregate relevance gate,
+ * so metasearch() can report how much relevance its own floor kept.
+ */
+export function countLexicallyRelevant(
+  results: { title: string; snippet: string; url: string }[],
+  anchorText: string,
+): number {
+  const core = queryCoreTokens(anchorText);
+  if (core.length === 0) return results.length;
+  const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
+  const pctFloor = Math.ceil(core.length * 0.4);
+  const absFloor = core.length >= 3 ? 2 : 1;
+  const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;
+  return results.filter((r) => {
+    const raw = `${r.title} ${r.snippet ?? ""} ${r.url}`.toLowerCase();
+    const combined = raw + " " + raw.replace(/[.\-_]/g, "");
+    return normTokens.filter((t) => combined.includes(t)).length >= minHits;
+  }).length;
+}
+
 async function fetchUrlWithRetry(
   url: string,
   opts: { timeoutMs?: number; headers?: Record<string, string> } = {},
@@ -675,6 +699,14 @@ export interface SearchPlan {
    * an automatic re-run with "any" (see metasearchWithFreshnessRecovery).
    */
   freshness?: "none" | "day" | "week" | "month" | "year" | "any";
+  /**
+   * Free text used as an EXTRA relevance anchor by the fused-pool
+   * relevance floor (see metasearch()). The pipeline passes the user's
+   * original prompt here: the search queries are keyword rewrites, and a
+   * page that answers the user's actual question may share no tokens with
+   * any single rewritten query. Never searched against, never cached.
+   */
+  relevanceAnchor?: string;
 }
 
 /**
@@ -811,6 +843,69 @@ export async function metasearch(
   const preferred = plans.flatMap((p) => p.preferredDomains ?? []);
   const intent = plans[0]?.intent ?? "general";
   const ranked = reciprocalRankFuse(flat, preferred, intent);
+
+  // ── Per-result relevance floor (the junk-source filter) ─────────────────
+  // Vertical sources (Wikipedia/HN/arXiv/StackExchange) are lexically gated
+  // at FETCH time, but the general-web pool never was: the parse-first
+  // policy keeps every 200-response, so a SERP hiccup that returns brand
+  // homepages (messaging apps, help centers, social pages, unrelated
+  // storefronts) let those pages ride RRF into extraction and get cited
+  // with [S#] markers — the exact garbage reported for the LeetCode
+  // palindrome prompt. Apply the SAME threshold used for verticals to the
+  // fused pool so a result that shares no core subject token with the
+  // queries can never outrank a real source.
+  //
+  // Starvation guard: if the filter leaves fewer than 5 survivors (and the
+  // pool had more than 5), keep the unfiltered ranking — thin-but-true
+  // queries (short keyword plans, raw-URL plans) must still resolve, and
+  // pipeline.ts's aggregate relevance floor + recovery passes cover it.
+  // A result survives when it clears the threshold for AT LEAST ONE anchor
+  // (per-query token sets, not the union: the union dilutes the 40% floor
+  // with other sub-queries' tokens and lets a page that only matches
+  // shared stopwords like "string"/"minimum" through). The user's original
+  // prompt is an anchor too — the queries are keyword rewrites of it, and
+  // a genuinely useful page can share no tokens with any single rewrite.
+  const perQueryTokens = [
+    ...deduplicateQueries(allQueries),
+    ...plans.map((p) => p.relevanceAnchor ?? "").filter((a) => a.length > 0),
+  ]
+    .map((q) => queryCoreTokens(q))
+    .filter((toks) => toks.length > 0);
+  const relevant =
+    perQueryTokens.length === 0
+      ? ranked
+      : ranked.filter((r) => {
+          const text = `${r.title} ${r.snippet} ${r.url}`;
+          return perQueryTokens.some((toks) => meetsLexicalThreshold(text, toks));
+        });
+  if (relevant.length >= Math.min(5, ranked.length)) {
+    if (relevant.length < ranked.length) {
+      // Relevance telemetry: how many of the results we HAND OVER share
+      // core tokens with the anchor text, versus how many the unfiltered
+      // top-N would have. If the floor ever reduces that number instead of
+      // raising it, this line is the evidence.
+      const anchorText =
+        plans.map((p) => p.relevanceAnchor ?? "").filter((a) => a.length > 0).join(" ") ||
+        allQueries.join(" ");
+      log.info(
+        {
+          dropped: ranked.length - relevant.length,
+          kept: relevant.length,
+          relevantHandedOver: countLexicallyRelevant(relevant.slice(0, maxResults), anchorText),
+          relevantWithoutFloor: countLexicallyRelevant(ranked.slice(0, maxResults), anchorText),
+          sampleTokens: perQueryTokens[0]?.slice(0, 8) ?? [],
+        },
+        "metasearch: dropped lexically irrelevant results from the fused pool",
+      );
+    }
+    return relevant.slice(0, maxResults);
+  }
+  if (relevant.length > 0 && relevant.length < ranked.length) {
+    log.info(
+      { dropped: ranked.length - relevant.length, kept: relevant.length },
+      "metasearch: relevance floor would starve the pool — keeping unfiltered ranking",
+    );
+  }
   return ranked.slice(0, maxResults);
 }
 

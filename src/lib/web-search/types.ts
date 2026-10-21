@@ -162,7 +162,21 @@ export interface LfmGateContext {
 
 export interface LfmDecision {
   decision: SearchDecision;
-  source: "lfm" | "rules";
-  /** Milliseconds spent in the LFM call (0 when rules short-circuited). */
+  /**
+   * Which authority produced the decision + query plan:
+   *   "main-model" — the main LLM on :8080. AUTHORITATIVE: it decides for
+   *                  itself and writes keyword-form, entity-anchored
+   *                  queries (measured 100% on scripts/eval-search-gate.mjs).
+   *   "lfm"        — the LFM2.5-1.2B router on :8791. Fallback path, used
+   *                  only when the main model is unreachable: it measured
+   *                  55% (13 FP / 7 FN) and must never veto the main model.
+   *   "rules"      — deterministic emergency fallback (all endpoints down).
+   */
+  source: "main-model" | "lfm" | "rules";
+  /** Milliseconds spent in the gate (0 when rules short-circuited). */
   lfmMs: number;
+  /** The informational LFM2.5 verdict, when it answered (null = unreachable). */
+  lfmVerdict?: boolean | null;
+  /** Whether the informational LFM verdict matched the authoritative one. */
+  agreement?: "agree" | "disagree" | "lfm-unavailable";
 }
