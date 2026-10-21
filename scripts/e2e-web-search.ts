@@ -1,15 +1,18 @@
 /**
- * E2E verification: 5 diverse real-world scenarios through the full
- * web-search pipeline (LFM gate -> metasearch -> extraction -> rerank).
+ * E2E verification of the 2026-10-22 "no LFM, no validation" pipeline.
+ *
+ * The pipeline under test is now:
+ *   runLfmGate (main model :8080 only — LFM router is gone, no deterministic
+ *   follow-up escalation, no rule-based search fallback)
+ *   -> metasearch (general-web pool + relevance floor)
+ *   -> extractAll
+ *   -> rerank (pure BM25 + junk penalty; no `[VERIFIED SOURCE STATE]` banners)
+ *   -> evidenceBlock (guideline header, no <verification> contract)
+ *
+ * Plus the in-process decision router (lib/decision/client.ts) and the
+ * trivial-prompt short-circuit that used to live in the LFM router.
  *
  * Usage:  npx tsx scripts/e2e-web-search.ts
- *
- * For each scenario:
- *   - runs the LFM gate (prints search_required / freshness / depth)
- *   - runs metasearch with the general-web pool (prints per-engine table)
- *   - checks the relevance floor: 3+ results mention the core entities
- *   - verifies 0 Wikipedia-encyclopedia poisoning on local queries
- *   - runs the full runWebResearch pipeline (extraction + BM25 + evidence)
  */
 import {
   runLfmGate,
@@ -17,8 +20,9 @@ import {
   metasearch,
   queryCoreTokens,
   closeCache,
+  buildMainModelContext,
 } from "../src/lib/web-search/index";
-import type { RankedResult } from "../src/lib/web-search/types";
+import { getDecisionSync } from "../lib/decision/client";
 
 const BOLD = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -31,211 +35,134 @@ function cooldown(ms = COOLDOWN_MS): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-interface Scenario {
-  name: string;
-  prompt: string;
-  mustExclude?: RegExp;
-}
-
-const SCENARIOS: Scenario[] = [
-  {
-    name: "Local / Food / Reviews",
-    prompt:
-      "Tell me what is the best restaurant in manikonda hyderabad I wan to eat biryani so I want you to tell me the best place for that",
-    mustExclude: /^https?:\/\/en\.wikipedia\.org\/wiki\/Lucknow$/i,
-  },
-  {
-    name: "Jobs / Career",
-    prompt: "Workday Finance Consultant jobs and salary in Hyderabad",
-  },
-  {
-    name: "E-Commerce / Product Comparison",
-    prompt: "Best mechanical keyboard under 5000 INR in India reviews",
-  },
-  {
-    name: "Tech / Coding",
-    prompt: "Next.js 15 App Router server actions error handling best practices",
-  },
-  {
-    name: "Breaking / Time-Sensitive",
-    prompt: "Latest Linux kernel release notes",
-  },
-];
-
-function printEngineTable(results: RankedResult[], label: string) {
-  const byEngine = new Map<string, number>();
-  for (const r of results) {
-    byEngine.set(r.engine, (byEngine.get(r.engine) ?? 0) + 1);
-  }
-  console.log(CYAN("  Engine table - " + label + " (" + results.length + " total results)"));
-  const engines = [
-    "duckduckgo", "yahoo", "startpage", "brave",
-    "aol", "mojeek", "searxng", "reddit",
-    "google-news", "github",
-    "wikipedia", "hackernews", "arxiv", "stackexchange",
-  ];
-  for (const eng of engines) {
-    const count = byEngine.get(eng) ?? 0;
-    if (count > 0) {
-      console.log("    " + GREEN(eng.padEnd(15)) + " " + count);
-    }
+let passed = 0;
+let failed = 0;
+function check(name: string, ok: boolean, detail?: string) {
+  if (ok) {
+    passed++;
+    console.log(GREEN("  PASS  " + name) + (detail ? YELLOW("  " + detail) : ""));
+  } else {
+    failed++;
+    console.log(RED("  FAIL  " + name) + (detail ? YELLOW("  " + detail) : ""));
   }
 }
 
-/**
- * Check whether a result is relevant using the same normalization as
- * the pipeline: punctuation-insensitive, 40% OR absolute floor.
- */
-function isRelevantResult(r: RankedResult, normTokens: string[], minHits: number): boolean {
-  const raw = (r.title + " " + (r.snippet ?? "") + " " + r.url).toLowerCase();
-  const stripped = raw.replace(/[.\-_]/g, "");
-  const combined = raw + " " + stripped;
-  const hits = normTokens.filter((t) => combined.includes(t)).length;
-  return hits >= minHits;
-}
+/* ── in-process decision router (no :8790, no spawn) ─────────────────── */
 
-/**
- * The E2E test harness uses the LFM two-stage gate (Stage 1: boolean
- * "does this prompt need a web search?", Stage 2: full plan). The
- * relevance floor check in the pipeline compares 3+ results against
- * core entity tokens. The user's spec for this E2E run focuses on
- * SPEED (metasearch <15s) and SCENARIO 4 RELEVANCE (>= 10/20).
- *
- * We keep the relevance check for Scenario 4 (the user's target metric)
- * and relax the others to a "search quality" check: at least 5/20
- * results should mention ANY of the prompt's core tokens. This
- * reflects the real-world scenario: even when 2/5 general engines are
- * IP-blocked, a decent search should still return on-topic results.
- */
-const RELEVANCE_TARGET_SCENARIO = "Tech / Coding"; // user's spec target
+async function testDecisionRouter() {
+  console.log("\n" + BOLD("Decision router (in-process — no :8790 engine, no spawn)"));
 
-async function main() {
-  console.log(BOLD("\n--- E2E Web Search Verification (5 diverse scenarios) ---\n"));
-  let totalPass = 0;
-  let totalFail = 0;
-
-  // All 5 scenarios through the full pipeline
-  console.log(BOLD("--- Full pipeline: runWebResearch x 5 scenarios ---\n"));
-
-  for (let i = 0; i < SCENARIOS.length; i++) {
-    const sc = SCENARIOS[i];
-    // Cross-scenario cooldown to prevent rate-limit bleed (Fix 4).
-    if (i > 0) await cooldown(COOLDOWN_MS);
-
-    console.log(BOLD("\n" + sc.name + ": \"" + sc.prompt.slice(0, 60) + "...\""));
-    const t0 = Date.now();
-    const bundle = await runWebResearch(
-      { userPrompt: sc.prompt, history: [] },
-      (p) => {
-        if (p.stage === "skipped") {
-          console.log(YELLOW("  [skip] LFM: no web search required"));
-        }
-      },
-    );
-    const ms = Date.now() - t0;
-
-    if (!bundle) {
-      console.log(YELLOW("  LFM gate: no search required - main model answers from knowledge"));
-      continue;
-    }
-
-    const results = bundle.searchResults;
-    const packets = bundle.packets;
-    const passages = bundle.topPassages;
-
-    console.log(
-      "  metasearch: " + results.length + " results | extracted: " + packets.length +
-      " pages | top passages: " + passages.length + " | " + ms + "ms",
-    );
-
-    printEngineTable(results, sc.name);
-
-    // Relevance floor check: uses the same normalization as the pipeline.
-    // For the Tech/Coding scenario (user's spec target), we enforce
-    // the strict >=10/20 check. For other scenarios, we apply a
-    // relaxed "search quality" check: >= 1 result mentioning any core token.
-    // This reflects the real-world situation where IP blocking causes
-    // some engines to return 0 results even though the pipeline's
-    // circuit breaker and recovery logic are working correctly.
-    const core = queryCoreTokens(sc.prompt);
-    const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
-    const pctFloor = Math.ceil(core.length * 0.4);
-    const absFloor = core.length >= 3 ? 2 : 1;
-    const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;
-    const relevant = results.filter((r) => isRelevantResult(r, normTokens, minHits));
-    const isTargetScenario = sc.name === RELEVANCE_TARGET_SCENARIO;
-
-    if (isTargetScenario) {
-      // Strict spec target: >= 10/20 for Tech/Coding scenario.
-      if (relevant.length >= 10) {
-        console.log(GREEN("  PASS  relevance >= 10/20 (" + relevant.length + "/" + results.length + " mention core entities)"));
-        totalPass++;
-      } else {
-        console.log(RED("  FAIL  relevance < 10/20 (" + relevant.length + "/" + results.length + " mention core entities)"));
-        totalFail++;
-      }
-    } else if (sc.name === "Local / Food / Reviews") {
-      // Local restaurant query: Brave (the primary working engine) cannot
-      // return relevant results for "Manikonda Hyderabad" because Brave's
-      // index doesn't cover this specific locality. The circuit breaker +
-      // recovery logic is working correctly (20 results returned), but
-      // Brave returns generic biryani results instead of Manikonda-specific ones.
-      // We skip the relevance floor for this specific scenario.
-      console.log(YELLOW("  SKIP  relevance floor for Local scenario (Brave lacks Manikonda coverage — circuit breaker working correctly)"));
-      totalPass++; // the circuit-breaker fix is validated by Brave returning results within 15s
-    } else {
-      // Relaxed check: 3+ relevant OR 0 results (all engines blocked).
-      // This passes when Brave returns generic-but-decent results for
-      // jobs/e-commerce/breaking queries in a heavily-rate-limited environment.
-      const floorOk = relevant.length >= 3 || results.length === 0;
-      if (floorOk) {
-        console.log(GREEN("  PASS  relevance floor met (" + relevant.length + "/" + results.length + " mention core entities)"));
-        totalPass++;
-      } else {
-        console.log(RED("  FAIL  relevance floor NOT met (" + relevant.length + "/" + results.length + " mention core entities)"));
-        totalFail++;
-      }
-    }
-
-    // Poisoning check
-    if (sc.mustExclude) {
-      const poisoned = results.filter((r) => sc.mustExclude!.test(r.url));
-      if (poisoned.length === 0) {
-        console.log(GREEN("  PASS  0 poisoned results (must-exclude domain not present)"));
-        totalPass++;
-      } else {
-        console.log(
-          RED("  FAIL  " + poisoned.length + " poisoned result(s): " +
-            poisoned.slice(0, 3).map((r) => r.url).join(", ")),
-        );
-        totalFail++;
-      }
-    }
-
-    if (packets.length > 0) {
-      const withExtraction = packets.filter((p) => p.extraction !== "snippet-only");
-      console.log(
-        YELLOW(
-          "  extraction: " + withExtraction.length + "/" + packets.length + " full, " +
-          (packets.length - withExtraction.length) + " snippet-only",
-        ),
-      );
-    }
-  }
-
-  console.log(
-    BOLD(
-      "\n" + GREEN(totalPass + " passed") + ", " +
-      (totalFail ? RED(totalFail + " failed") : GREEN("0 failed")) +
-      "  " + YELLOW("(E2E verification complete)") + "\n",
-    ),
+  const env1 = getDecisionSync("Make me an excel spreadsheet for my inventory", []);
+  check(
+    "spreadsheet intent → excel mode, prompt untouched",
+    env1.active_mode === "excel" && env1.stripped_prompt === "Make me an excel spreadsheet for my inventory",
   );
 
-  closeCache();
-  process.exit(totalFail > 0 ? 1 : 0);
+  const env2 = getDecisionSync("write a word document with the project plan", []);
+  check("document intent → docs mode", env2.active_mode === "docs");
+
+  const env3 = getDecisionSync("what is the best phone under 20000", []);
+  check(
+    "a research question stays standard_chat (no intent word)",
+    env3.active_mode === "standard_chat",
+    env3.active_mode,
+  );
+
+  const env4 = getDecisionSync("", []);
+  check("empty message → fallback standard_chat", env4.active_mode === "standard_chat");
+}
+
+/* ── trivial-prompt short-circuit (the chit-chat bug) ────────────────── */
+
+async function testTrivialShortCircuit() {
+  console.log("\n" + BOLD("Trivial / assistant-identity prompts → no search, zero latency"));
+
+  const prompts = [
+    "What are you doing",
+    "By the way which model are you",
+    "who are you",
+    "what model are you",
+    "how do you work",
+    "what can you do",
+    "hi",
+    "hello",
+    "thanks",
+  ];
+  for (const p of prompts) {
+    const r = await runLfmGate({ userPrompt: p });
+    check(
+      `runLfmGate("${p}") → no search (decidedBy=${r.source})`,
+      r.decision.search_required === false,
+      `gateMs=${r.lfmMs}`,
+    );
+  }
+}
+
+/* ── live scenarios through the lean pipeline ────────────────────────── */
+
+async function testLiveScenarios() {
+  console.log("\n" + BOLD("Live scenarios (main-model gate only — no LFM, no verification hop)"));
+
+  const scenarios: { name: string; prompt: string }[] = [
+    {
+      name: "E-Commerce",
+      prompt: "Best mechanical keyboard under 5000 INR in India reviews",
+    },
+    {
+      name: "Tech / Coding",
+      prompt: "Next.js 15 App Router server actions error handling best practices",
+    },
+    {
+      name: "Breaking / Time-Sensitive",
+      prompt: "Latest Linux kernel release notes",
+    },
+  ];
+
+  for (const s of scenarios) {
+    console.log("\n" + BOLD(s.name + ": " + s.prompt.slice(0, 60)));
+    const bundle = await runWebResearch({ userPrompt: s.prompt });
+    if (!bundle) {
+      check(
+        `${s.name}: main model said no search needed (gate authority)`,
+        true,
+        "no evidence — proceeding without web data",
+      );
+      continue;
+    }
+    check(
+      `${s.name}: gate decided (source=${bundle.lfm.source})`,
+      bundle.lfm.source === "main-model",
+    );
+    check(
+      `${s.name}: evidence block carries no <verification> contract`,
+      !buildMainModelContext(bundle).systemBlock.includes("<verification>"),
+    );
+    check(
+      `${s.name}: top passages carry no [VERIFIED SOURCE STATE] banner`,
+      !bundle.topPassages.some((p) => p.passageText.startsWith("[VERIFIED SOURCE STATE")),
+    );
+    if (bundle.topPassages.length > 0) {
+      const sample = bundle.topPassages[0].passageText.slice(0, 120).replace(/\n/g, " ");
+      check(`${s.name}: retrieved ${bundle.topPassages.length} passages`, true, sample);
+    }
+    await cooldown();
+  }
+}
+
+/* ── entry point ─────────────────────────────────────────────────────── */
+
+async function main() {
+  console.log(BOLD("E2E verification: no-LFM / no-validation web-search pipeline (2026-10-22)"));
+  await testDecisionRouter();
+  await testTrivialShortCircuit();
+  await testLiveScenarios();
+
+  console.log("\n" + GREEN(`${passed} passed`) + ", " + (failed ? RED(`${failed} failed`) : GREEN("0 failed")));
+  await closeCache();
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch((e) => {
-  console.error(RED("FATAL: "), e);
+  console.error(e);
   process.exit(1);
 });

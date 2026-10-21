@@ -21,8 +21,9 @@ test("greeting reply stays local — no Research Trail card, no citation crash",
     .waitFor({ state: "visible", timeout: 15000 });
   await page.waitForTimeout(45000);
 
-  // 1) No research trail on an ordinary greeting.
-  await expect(page.getByText("Research Trail")).toHaveCount(0);
+  // 1) No research trail on an ordinary greeting. Testid, not text: the card
+  // header is now "<entity> — <task>" (see ResearchTrailCard.tsx).
+  await expect(page.getByTestId("research-trail-card")).toHaveCount(0);
   await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
 
   // 2) No citation marker pills leaked into the greeting reply.

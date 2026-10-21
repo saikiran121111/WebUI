@@ -60,8 +60,11 @@ test("pure LeetCode algorithm prompt triggers NO web search", async ({ page }) =
   // The gate answers in a few seconds; give the whole turn time to settle.
   await page.waitForTimeout(60000);
 
-  // 1) No Research Trail card, no gate badge, no citation pills.
-  await expect(page.getByText("Research Trail")).toHaveCount(0);
+  // 1) No evidence-trail card, no gate badge, no citation pills.
+  // (Located by testid, not visible text: the card header now reads
+  // "<entity> — <task>" with an "Evidence trail" section, so the literal
+  // string "Research Trail" no longer exists in the UI.)
+  await expect(page.getByTestId("research-trail-card")).toHaveCount(0);
   await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
   await expect(page.locator("[data-domain]")).toHaveCount(0);
 
@@ -81,7 +84,7 @@ test("named LeetCode problem the model knows needs no search", async ({ page }) 
   await sendPrompt(page, "Can you give me rust code for leetcode problem 23. Merge k sorted lists");
   await page.waitForTimeout(60000);
 
-  const trail = await page.getByText("Research Trail").count();
+  const trail = await page.getByTestId("research-trail-card").count();
   if (trail > 0) {
     // A search is only acceptable if the cited sources are on-topic; the
     // garbage pool (messaging apps / help centers / mapping sites) is not.

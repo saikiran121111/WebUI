@@ -3,7 +3,6 @@ export {
   rulesBasedPlan,
   callLlm,
   extractPromptUrls,
-  LLM_TIMEOUT_MS,
 } from "./lfm-gate";
 export {
   metasearch,
@@ -129,7 +128,6 @@ export {
 export {
   planQueries,
   evaluateCoverage,
-  gapSearchDecision,
   runGapMetasearch,
   type PlannedQuery,
   type CoverageReport,

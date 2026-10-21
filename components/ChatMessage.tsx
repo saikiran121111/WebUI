@@ -1,5 +1,5 @@
 "use client";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle, Zap } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -67,6 +67,19 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); confirmEdit(); }
     else if (e.key === "Escape") setIsEditing(false);
   }, [confirmEdit]);
+
+  /**
+   * Citation map for the markdown renderer: every [S#] marker in the answer
+   * becomes a clickable pill that opens the source URL. With the web-verify
+   * ledger gone (2026-10-22), the pills carry no per-source verdict badge —
+   * what a source established is up to the model to say in the answer.
+   */
+  const citationMap = useMemo(
+    () => (message.webCitations && Object.keys(message.webCitations).length > 0
+      ? message.webCitations
+      : undefined),
+    [message.webCitations],
+  );
 
   // ── User message ──────────────────────────────────────────────────────
   if (isUser) {
@@ -223,7 +236,7 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
             onSend={onSend}
             onFenceRuntimeError={onFenceRuntimeError}
             decisionMode={message.decisionMode}
-            citationMap={message.webCitations}
+            citationMap={citationMap}
           />
           {message.fenceRepair && (
             <div className="fence-repair-note" data-testid="fence-repair-note">{message.fenceRepair}</div>

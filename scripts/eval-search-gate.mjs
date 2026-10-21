@@ -36,6 +36,12 @@ Rules:
   over time (news, prices, versions, releases, weather, sports, current
   events), or the user explicitly references a URL, a specific document,
   or a product with versioned attributes.
+- search_required = true ALSO for a follow-up message that asks for a LINK /
+  URL / "where to buy|watch|read|apply|download", or for the current
+  availability / stock / price / open-closed status, or for reviews, specs or
+  details of an entity named in the conversation history above — even when
+  the message only says "it / this / that". Use the history lines to resolve
+  what the message refers to before deciding.
 - search_required = false for: greetings, chitchat, "how does X work"
   explanations with no time-specific constraint, algorithms, math proofs,
   well-known scientific concepts, history before 2020, coding concepts
@@ -66,6 +72,13 @@ Decision rules (check yourself honestly):
   you CANNOT recall with confidence. If you are unsure whether you actually
   know the exact details of a specific named thing, search.
 - If the message contains an explicit URL, search_required = true.
+- The conversation history above is part of the request. A FOLLOW-UP turn
+  that asks for a direct LINK/URL or "where to buy|watch|read|apply|download",
+  or for the CURRENT availability/stock/price/open-closed status, or for
+  reviews/details/specs of an entity named in an earlier turn:
+  search_required = true. You cannot know whether a page is still live, in
+  stock, open, or hiring, and you must never write the link yourself —
+  search for it. Resolve "it / this / that" against the history first.
 
 Query rules (only when search_required = true):
 - 2-4 queries. KEYWORD FORM, not full sentences. Never paste the user's
@@ -77,13 +90,27 @@ Query rules (only when search_required = true):
   Example bad: ["What is the minimum number of cuts needed to partition
   the string so that each part is a palindrome"].
 - Use the user's exact terminology for proper nouns and version numbers.
+- On follow-up turns, anchor every query on the RESOLVED entity name in
+  exact quotes: ["Honor 200 5G" site:amazon.in, "Honor 200 5G" price buy
+  India] — the site: form when the user or the conversation has named the
+  store/platform, the topic form ("price buy", "apply", "reviews open")
+  otherwise. This is how the item's OWN page gets verified instead of
+  another listicle about it.
 - Set preferred_domains when an authoritative source is obvious.
 - freshness = "any" unless the fact is explicitly live (breaking news,
   today's price/weather/score). depth: "quick" single fact, "standard"
   comparison, "deep" multi-source research.
 Do NOT add anything else to your output.`;
 
-/** @type {{id:string, label:boolean, prompt:string, tag:string}[]} */
+/**
+ * Follow-up scenarios carry `history` — the user/assistant turns BEFORE the
+ * latest user message. The recorded fabrication failure (a link request
+ * answered from memory) only exists on multi-turn sessions, so the eval
+ * must be able to measure them; both gate calls thread history exactly
+ * like the shipped message builders do.
+ * @type {{id:string, label:boolean, prompt:string, tag:string,
+ *         history?:{role:string,content:string}[]}[]}
+ */
 const SCENARIOS = [
   // ── needs search (label true) ─────────────────────────────────────────
   { id: "S01", label: true, tag: "price", prompt: "What is the current price of NVIDIA stock today?" },
@@ -132,6 +159,27 @@ const SCENARIOS = [
   { id: "N20", label: false, tag: "code-test", prompt: "Write a Rust unit test for this min_cut solution:\n\nimpl Solution {\n    pub fn min_cut(s: String) -> i32 {\n        let n = s.len();\n        vec![0]\n    }\n}" },
   { id: "N21", label: false, tag: "concept", prompt: "what is BM25 scoring in information retrieval?" },
   { id: "N22", label: false, tag: "static-api", prompt: "How do I define an associated function and a method in Rust? Show the difference with code." },
+
+  // ── follow-up turns (the recorded session: a link request and an
+  //    availability pronoun answered from memory instead of a search) ─────
+  { id: "F01", label: true, tag: "followup-link", prompt: "Can you give me a direct link for honor 200 so that I can go there and purchase", history: [
+    { role: "user", content: "Can you tell me what is the best phone available in amazon right now to buy for india I am looking under 20000" },
+    { role: "assistant", content: "Two standouts under ₹20,000 on Amazon India: the Honor 200 5G (₹18,992) with a 200MP camera, and the iQOO Z9 5G." },
+  ] },
+  { id: "F02", label: true, tag: "followup-state", prompt: "Is it still available? I opened your link and could not find that listing.", history: [
+    { role: "user", content: "Can you tell me what is the best phone available in amazon right now to buy for india I am looking under 20000" },
+    { role: "assistant", content: "The Honor 200 5G is the best pick — it is currently available on Amazon.in." },
+  ] },
+  { id: "F03", label: true, tag: "followup-detail", prompt: "What are the latest reviews saying about it?", history: [
+    { role: "user", content: "any good senior frontend engineer openings in india on naukri" },
+    { role: "assistant", content: "Razorpay has a Senior Frontend Engineer opening in Bengaluru that matches your stack." },
+  ] },
+  // False-positive guard: "check if this works" is about RUNNING CODE, not a
+  // live page — the follow-up rule must not drag it into a web search.
+  { id: "F04", label: false, tag: "followup-none", prompt: "check if this solution works", history: [
+    { role: "user", content: "Can you give me rust code for leetcode problem 23. Merge k sorted lists" },
+    { role: "assistant", content: "Here is a Rust solution using a min-heap over the k list heads." },
+  ] },
 ];
 
 async function chat(endpoint, body, timeoutMs) {
@@ -157,12 +205,14 @@ function parseJson(raw) {
   try { return JSON.parse(s); } catch { return null; }
 }
 
-async function lfmStage1(prompt) {
+async function lfmStage1(prompt, history = []) {
   const t0 = Date.now();
   try {
     const raw = await chat(FAST_ENDPOINT, {
       messages: [
         { role: "system", content: STAGE1_SYSTEM_PROMPT },
+        // Mirror of buildStage1Messages in the app: 3 turns / 200 chars.
+        ...history.slice(-3).map((m) => ({ role: m.role, content: String(m.content).slice(0, 200) })),
         { role: "user", content: prompt.slice(0, 2000) },
       ],
       response_format: { type: "json_object", json_schema: STAGE1_SCHEMA },
@@ -179,12 +229,15 @@ async function lfmStage1(prompt) {
   }
 }
 
-async function mainGate(prompt) {
+async function mainGate(prompt, history = []) {
   const t0 = Date.now();
   try {
     const raw = await chat(LLM_ENDPOINT, {
       messages: [
         { role: "system", content: MAIN_SYSTEM_PROMPT },
+        // Mirror of buildMainGateMessages in the app: 3 turns / 300 chars —
+        // follow-up turns ("is it still in stock?") are unresolvable without it.
+        ...history.slice(-3).map((m) => ({ role: m.role, content: String(m.content).slice(0, 300) })),
         { role: "user", content: prompt.slice(0, 2000) },
       ],
       response_format: { type: "json_object" },
@@ -235,8 +288,8 @@ async function main() {
 
   const rows = [];
   for (const s of scenarios) {
-    const lfm = lfmOnly || (!mainOnly ? await lfmStage1(s.prompt) : { sr: null, ms: 0 });
-    const main = mainOnly || (!lfmOnly ? await mainGate(s.prompt) : { sr: null, ms: 0 });
+    const lfm = lfmOnly || (!mainOnly ? await lfmStage1(s.prompt, s.history ?? []) : { sr: null, ms: 0 });
+    const main = mainOnly || (!lfmOnly ? await mainGate(s.prompt, s.history ?? []) : { sr: null, ms: 0 });
     rows.push({ ...s, lfm: lfm.sr, lfmMs: lfm.ms, main: main.sr, mainMs: main.ms, queries: main.queries ?? [], reason: main.reason ?? "", err: [lfm.err, main.err].filter(Boolean).join("; ") });
     const mark = (v) => (v === null ? "ERR " : v ? "true" : "fals");
     console.log(

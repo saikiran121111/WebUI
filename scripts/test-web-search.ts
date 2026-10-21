@@ -34,7 +34,6 @@ import {
   putCachedPage,
   getCachedPage,
   extractPromptUrls,
-  LLM_TIMEOUT_MS,
   purgeExpiredCache,
   CACHE_TTL_MS,
   hash,
@@ -215,13 +214,8 @@ async function main() {
     ),
   );
 
-  /* ── 6. LFM gate 60s timeout + URL detection ─────────────────────── */
-  console.log(BOLD("\n6. LFM gate: 60s timeout + explicit URL forcing"));
-  check(
-    "LLM_TIMEOUT_MS is 60000 (60 seconds, not 2500ms)",
-    LLM_TIMEOUT_MS === 60_000,
-    `got: ${LLM_TIMEOUT_MS}ms`,
-  );
+  /* ── 6. gate explicit URL forcing (2026-10-22: LFM timeout check retired) ── */
+  console.log(BOLD("\n6. gate: explicit URL forcing"));
   const urls = extractPromptUrls(
     "Read this article: https://arxiv.org/abs/2301.00001 and summarize it",
   );

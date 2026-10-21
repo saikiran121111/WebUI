@@ -565,6 +565,17 @@ function formatJob(j: any): string {
         (j.baseSalary.type ? " (" + j.baseSalary.type + ")" : ""),
     );
   if (j.datePosted) lines.push("Posted: " + j.datePosted);
+  // The two fields that settle whether a posting is still LIVE. Without them a
+  // filled or expired job reads exactly like an open one, and the answer tells
+  // the user to apply to a posting that closed weeks ago.
+  if (j.validThrough) lines.push("Valid through: " + j.validThrough);
+  if (j.jobStatus)
+    lines.push(
+      "Job status: " +
+        String(j.jobStatus)
+          .replace(/^https?:\/\/schema\.org\//i, "")
+          .split(",").map((s: string) => s.trim()).filter(Boolean).join(", "),
+    );
   if (j.description) lines.push("Description: " + j.description.slice(0, 800));
   return lines.join("\n");
 }

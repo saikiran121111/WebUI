@@ -18,8 +18,7 @@
  * constrained query, so the main model never bypasses the gate).
  */
 import type { SearchPlan } from "./metasearch";
-import type { LfmGateContext, LfmDecision, SearchDecision } from "./types";
-import { runLfmGate } from "./lfm-gate";
+import type { LfmGateContext, SearchDecision } from "./types";
 import { metasearch } from "./metasearch";
 import { tokenize } from "./reranker";
 
@@ -246,21 +245,9 @@ export function evaluateCoverage(
 }
 
 /**
- * Run the LLM gate against a gap query so the 2nd hop stays inside the
- * gate's policy (the main model can't bypass the LLM gate even on a
- * follow-up targeted search). Returns the gate decision, which the
- * pipeline will use to fire `metasearch` on the gap query only.
- */
-export async function gapSearchDecision(
-  gapQuery: string,
-  userPrompt: string,
-): Promise<LfmDecision> {
-  return runLfmGate({ userPrompt: userPrompt + " " + gapQuery });
-}
-
-/**
- * Convenience: run the gap search's metasearch directly (already
- * validated by the LLM gate upstream).
+ * Run the 2nd-hop gap metasearch directly. (The old `gapSearchDecision`
+ * re-gated the hop through the LLM — that re-gate was dropped with the
+ * LFM router; the hop now runs straight under the ceiling.)
  */
 export async function runGapMetasearch(
   gapQuery: string,

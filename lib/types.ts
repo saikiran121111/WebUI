@@ -7,6 +7,11 @@
 
 import type { FileCategory } from "./files/extensions";
 import type { RendererMode } from "./decision/types";
+// Verification layer (server-side) types, needed for the Evidence-trail rows
+// and the post-answer claim audit. Type-only: erased at compile time, so no
+// server code enters the browser bundle.
+// (The web-verify imports that lived here were retired 2026-10-22 with the
+// ledger + claim audit; older stored messages carry those fields as `unknown`.)
 
 export type Role = "user" | "assistant" | "system" | "tool";
 
@@ -157,7 +162,7 @@ export interface Message {
   citations: Citation[];
   /**
    * Web-research citations from the gated search pipeline (main-model
-   * decision, LFM router fallback): keyed by sourceId ("S1", "S2", ...),
+   * decision only since 2026-10-22): keyed by sourceId ("S1", "S2", ...),
    * passed to MarkdownRenderer so [S#] markers in the reply become
    * clickable pills.
    */
@@ -170,8 +175,8 @@ export interface Message {
   }>;
   /**
    * Search-gate summary shown in the Research Trail card: which queries
-   * were generated, at what depth/freshness, and WHICH AUTHORITY decided
-   * ("main-model" authoritative | "lfm" router fallback | "rules").
+   * were generated, at what depth/freshness, and which authority decided
+   * (since 2026-10-22 always "main-model").
    */
   researchLfm?: {
     depth: string;
@@ -179,6 +184,13 @@ export interface Message {
     decidedBy?: string;
     queries: { query: string; intent: string }[];
   };
+  /**
+   * @deprecated 2026-10-22 — the web-verify ledger and the post-answer claim
+   * audit are gone; these fields stay in the type surface only so older
+   * stored conversations still parse. New turns never populate them.
+   */
+  webLedger?: unknown;
+  webVerification?: unknown;
   usage?: Usage;
   createdAt: number;
   finishedAt?: number;

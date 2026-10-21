@@ -33,7 +33,7 @@ import { looksLikeTree, looksLikeTreeStart } from "../lib/render/treeParse";
 import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
 import type { RendererMode } from "../lib/decision/types";
-import { remarkCitations } from "./render/citations";
+import { rehypeCitations } from "./render/citations";
 
 interface MathModule {
   mathPlugins(): {
@@ -49,7 +49,8 @@ interface RenderOptions {
   allowInteractive: boolean;
   /** A fence failed at runtime (```threejs code threw in the viewer) — route to auto-repair. */
   onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
-  /** Decision Engine mode: the ONLY renderer kind allowed to mount. */
+  /** Decision Engine mode of the turn (documentation only since 2026-10-22 —
+   * every valid studio fence mounts regardless of the mode). */
   decisionMode?: RendererMode | null;
 }
 
@@ -67,9 +68,16 @@ export interface MarkdownRendererProps {
 }
 
 /**
- * Interactive renderer kinds per Decision Engine mode (zero-collision rule):
- * a viewer mounts ONLY when its kind matches the turn's active_mode — even if
- * the stream contains other fence types. No mode = no interactive renderer.
+ * Interactive renderer kinds — ALL ALLOWED (2026-10-22).
+ *
+ * Before the in-process routing rewrite, a viewer mounted ONLY when its kind
+ * matched the Decision Engine's active_mode — a valid ```xlsx block failed to
+ * render when LFM misclassified the turn as standard_chat. The user's
+ * decision: whenever the main LLM emits a valid studio fence (xlsx, docx,
+ * pptx, cad, scene3d, anatomy, chart, html, mermaid, tree, threejs...),
+ * the studio component mounts immediately. `kindAllowed` therefore always
+ * returns true; the mode table below stays only as a documentation of which
+ * fence belongs to which mode.
  */
 const MODE_RENDER_KINDS: Record<RendererMode, string[]> = {
   excel: ["xlsx"],
@@ -80,18 +88,19 @@ const MODE_RENDER_KINDS: Record<RendererMode, string[]> = {
   cad_blueprint: ["cad", "anatomy"],
   chart: ["chart", "powerbi", "mermaid"],
   html_render: ["html"],
-  // standard_chat renders ONLY the lightweight diagram kinds (PART 3):
-  // mermaid diagrams and box-drawing trees. No document viewers, no repair.
-  standard_chat: ["mermaid", "tree"],
+  standard_chat: [],
 };
 
-function kindAllowed(kind: string, decisionMode: RendererMode | null | undefined): boolean {
-  // No envelope at all (demo showcases, legacy stored messages) => pre-PART-3
-  // permissive rendering. Real chat turns ALWAYS carry a mode — even the
-  // engine-down fallback returns standard_chat — so the collision guard below
-  // still covers every model-generated reply.
-  if (!decisionMode) return true;
-  return (MODE_RENDER_KINDS[decisionMode] ?? []).includes(kind);
+/**
+ * Every fence the main model emits renders, regardless of the turn's
+ * decisionMode. `decisionMode` stays on the prop surface (Playwright
+ * contract / the x-decision-mode header still travels), it just no longer
+ * gates what mounts.
+ */
+function kindAllowed(kind: string, _decisionMode: RendererMode | null | undefined): boolean {
+  void kind;
+  void MODE_RENDER_KINDS; // documented table, not a gate
+  return true;
 }
 
 /**
@@ -123,18 +132,24 @@ export default memo(function MarkdownRenderer({
 
   const plugins = useMemo(() => {
     const base: unknown[] = [remarkGfm];
+    const after: unknown[] = [];
     if (mathMod) {
       const math = mathMod.mathPlugins();
       base.push(...math.remarkPlugins);
+      after.push(...math.rehypePlugins);
     }
     // Web-research citation pills: only mount when the content actually
     // carries [S#] markers AND a map is provided — zero work otherwise.
+    // This MUST be a rehype (post-mdast→hast) plugin: it emits hast `element`
+    // nodes, and remark would hand them to the converter, which discards node
+    // types it does not know. That is why every earlier run of the evidence
+    // loop reported `citation pills=0` on an answer that contained [S#].
     if (citationMap && Object.keys(citationMap).length > 0) {
-      base.push(remarkCitations(citationMap as any));
+      after.push(rehypeCitations(citationMap as any));
     }
     return {
       remarkPlugins: base,
-      rehypePlugins: (mathMod ? mathMod.mathPlugins().rehypePlugins : undefined) as unknown[] | undefined,
+      rehypePlugins: (after.length ? after : undefined) as unknown[] | undefined,
     };
   }, [mathMod, citationMap]);
 
@@ -224,8 +239,13 @@ const MD_COMPONENTS = {
     return <MarkdownTable onSend={onSend}>{children}</MarkdownTable>;
   },
   a({ children, href }: { children?: ReactNode; href?: string }) {
+    // Plain link: external targets open in a new tab, everything else renders
+    // as-is. (The web-verify era added a "only trust retrieved-source URLs"
+    // guard here; it was removed with the ledger — a model-written link is a
+    // model-written link, and the [S#] pills are the citation mechanism.)
+    const external = !!href && /^https?:\/\//i.test(href);
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="md-link">
+      <a href={href} target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined} className="md-link">
         {children}
       </a>
     );
@@ -240,31 +260,34 @@ const MD_COMPONENTS = {
   hr() {
     return <hr className="md-hr" />;
   },
-  // Custom citation element emitted by the remarkCitations plugin
+  // Custom citation element emitted by the rehypeCitations plugin: the [S#]
+  // pill that opens the source URL. (The per-source verdict badge that used
+  // to ride next to it was removed with the web-verify ledger, 2026-10-22:
+  // pills are citations, not claims.)
   citation(props: any) {
     const source = props["data-source"] as string;
     const url = props["data-url"] as string;
-    const domain = props["data-domain"] as string;
     const title = props["data-title"] as string;
     return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={title}
-        data-citation={source}
-        className="inline-flex items-center gap-0.5 text-[11px] font-medium
-          px-1.5 py-0.5 rounded
-          bg-[#38E8FF]/10 text-[#38E8FF]
-          hover:bg-[#38E8FF]/20 transition-colors
-          align-super"
-      >
-        <span>{source}</span>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
-          <path d="M7 17 17 7M7 7h10v10" />
-        </svg>
-      </a>
+      <span className="inline-flex items-center gap-1 align-super" data-testid="citation-pill">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={title}
+          data-citation={source}
+          className="inline-flex items-center gap-0.5 text-[11px] font-medium
+            px-1.5 py-0.5 rounded
+            bg-[#38E8FF]/10 text-[#38E8FF]
+            hover:bg-[#38E8FF]/20 transition-colors"
+        >
+          <span>{source}</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
+            <path d="M7 17 17 7M7 7h10v10" />
+          </svg>
+        </a>
+      </span>
     );
   },
 };

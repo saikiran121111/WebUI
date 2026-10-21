@@ -51,12 +51,20 @@ function upstreamHeaders(): Record<string, string> {
   };
 }
 
+/** Search-gate summary surfaced in the Research Trail card. */
+interface ResearchMeta {
+  depth: string;
+  freshness: string;
+  decidedBy?: string;
+  queries: { query: string; intent: string }[];
+}
+
 function streamHeaders(
   contentType: string | null,
   usedSkill: string | null,
   decisionMode: RendererMode,
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: ResearchMeta | null,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": contentType ?? "text/event-stream",
@@ -74,7 +82,7 @@ function streamHeaders(
   if (webCitations && Object.keys(webCitations).length > 0) {
     headers["X-Web-Citations"] = encodeURIComponent(JSON.stringify(webCitations));
   }
-  // LFM decision summary: shown collapsed in the Research Trail card.
+  // Search-gate summary: shown collapsed in the Research Trail card.
   if (researchLfm) {
     headers["X-Research-Lfm"] = encodeURIComponent(JSON.stringify(researchLfm));
   }
@@ -96,7 +104,7 @@ function streamUpstream(
   model: string,
   onSettled: () => void,
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: ResearchMeta | null,
 ): Response {
   const started = Date.now();
   let chunks = 0;
@@ -141,7 +149,7 @@ async function forwardStream(
   signal?: AbortSignal,
   model = "default",
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: ResearchMeta | null,
 ): Promise<Response> {
   // Claim the shared inference slot for the user's turn: this aborts any
   // in-flight background title call (user traffic always wins) and blocks
@@ -295,13 +303,7 @@ export async function POST(req: NextRequest) {
   let usedSkill: string | null = null;
   let decisionMode: RendererMode = "standard_chat";
   let webCitationMap: Record<string, any> | null = null;
-  let researchLfmMeta: {
-    depth: string;
-    freshness: string;
-    /** Which authority decided: "main-model" | "lfm" | "rules". */
-    decidedBy?: string;
-    queries: { query: string; intent: string }[];
-  } | null = null;
+  let researchLfmMeta: ResearchMeta | null = null;
 
   if (payload && Array.isArray(payload.messages) && payload.messages.length > 0) {
     // 1) user-tier slash skill (explicit intent, zero tokens otherwise)
@@ -319,36 +321,27 @@ export async function POST(req: NextRequest) {
       const passthrough = isRendererMode(payload.decision_mode) ? payload.decision_mode : null;
       delete payload.decision_mode;
       let env: DecisionEnvelope;
-      let history: { role: string; content: string }[] = [];
+      // History is computed for BOTH branches: the web-search gate must
+      // resolve follow-ups ("give me a direct link for it") even on turns
+      // where the client pinned a decision_mode (passthrough) — a
+      // mode-pinned turn is still a follow-up turn, and a gate that cannot
+      // see the earlier entity says "no search" and invites a fabricated
+      // link instead.
+      const history = historyBefore(payload.messages, lastUserIdx);
       if (passthrough) {
         env = passthroughEnvelope(passthrough, fullText);
       } else {
-        history = historyBefore(payload.messages, lastUserIdx);
         env = await getDecision(fullText.trim() ? fullText : "", history);
       }
       decisionMode = env.active_mode;
 
-      // 3) noise-stripped task reaches the main LLM. BEFORE the block insert —
-      // injectSystemBefore shifts lastUserIdx, so replacing after it would
-      // overwrite the skill block instead of the user turn.
-      // Attachment turns forward the user's text VERBATIM: the inlined file
-      // content rides in extra parts, and the LFM's 180-token summary of a
-      // long [file content] block drops it while inventing constraint filler
-      // ("financial/tabular words") — which derails the small main model on
-      // read-the-file journeys (observed: YES -> NO). The decision still
-      // selects the render mode; only the rewrite is skipped.
-      const hasAttachmentParts = Array.isArray(payload.messages[lastUserIdx]?.content);
-      if (!passthrough && !hasAttachmentParts && env.stripped_prompt.trim() && env.stripped_prompt !== fullText) {
-        // task_constraints must never be dropped: append any constraint the
-        // model listed that isn't already present verbatim in the stripped text.
-        const constraints = (env.task_constraints ?? []).filter(
-          (c) => c.trim() && !env.stripped_prompt.toLowerCase().includes(c.trim().toLowerCase()),
-        );
-        const forwarded = constraints.length
-          ? `${env.stripped_prompt}\n\nRequired Specs: ${constraints.join("; ")}`
-          : env.stripped_prompt;
-        replaceLastUserText(payload.messages, lastUserIdx, forwarded);
-      }
+      // 3) The user's EXACT message reaches the main LLM. Since 2026-10-22
+      // the in-process router (lib/decision/client.ts) never rewrites the
+      // prompt — `env.stripped_prompt` is always the original message, and
+      // only the skill-block injection (step 4) shapes what the model sees.
+      // The repair-passthrough path (client pinned decision_mode) also keeps
+      // the text verbatim, so no branch of this route touches the user turn.
+      void env.stripped_prompt; // documented: always === fullText, never applied
 
       // 4) exactly ONE skill block for this turn (slash user skill wins)
       let skillBlockBytes = 0;
@@ -376,31 +369,24 @@ export async function POST(req: NextRequest) {
         log.error({ err: err instanceof Error ? err.message : err }, "attachment retrieval failed");
       }
 
-      // 6) Mandatory LFM web-search gate: every prompt is classified by the
-      //    LFM router BEFORE the main model sees it. beginUserTurn() is called
-      //    here so background title jobs yield the local LLM slot to the gate
-      //    immediately — without this, a concurrent title generation call
-      //    could starve the LFM classifier and push it past the 60s timeout.
+      // 6) Web-search gate (main model only): the main model decides whether
+      //    this turn needs live web data and writes the queries. No LFM
+      //    router, no verification adjudication of the decision — if it
+      //    doesn't need the internet, the turn is pure chat with zero
+      //    pipeline latency. beginUserTurn() is called here so background
+      //    title jobs yield the local LLM slot to the gate immediately.
       let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
       let inferenceTurnActive = false;
-      // WEB_SEARCH_LFM_DISABLED (unit/CI flag): skip the whole web-research
-      // pipeline so the route stays deterministic and network-free. Routing
-      // and skill injection are still exercised; only the evidence block
-      // is omitted.
       const webResearchDisabled = process.env.WEB_SEARCH_LFM_DISABLED === "1";
       try {
         if (webResearchDisabled) {
           log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_LFM_DISABLED)");
         } else {
-        // Claim the shared inference slot NOW (before the LFM gate) so the
-        // title queue aborts any in-flight title call. endUserTurn() is
-        // called in the finally block when the turn fully settles.
         beginUserTurn();
         inferenceTurnActive = true;
         researchBundle = await runWebResearch(
           { userPrompt: fullText, history },
           (p) => {
-            // surface pipeline progress in the dev terminal
             log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
           },
           req.signal,
@@ -413,7 +399,8 @@ export async function POST(req: NextRequest) {
             systemBlock,
           );
           // Build the [S#] → {url, title, domain} map the browser UI uses
-          // to turn inline citation markers into clickable pills.
+          // to turn inline citation markers into clickable pills. Every
+          // retrieved source is included so an [S#] marker can never dangle.
           webCitationMap = {};
           for (const packet of researchBundle.packets) {
             webCitationMap[packet.sourceId] = {
@@ -424,6 +411,9 @@ export async function POST(req: NextRequest) {
               publishedAt: packet.publishedAt,
             };
           }
+          // No post-stream claim audit since 2026-10-22: the answer carries
+          // [S#] citations and the model's own honest wording, which is the
+          // whole verification story now.
           researchLfmMeta = {
             depth: researchBundle.lfm.decision.depth,
             freshness: researchBundle.lfm.decision.freshness,
@@ -437,9 +427,10 @@ export async function POST(req: NextRequest) {
             {
               passages: researchBundle.topPassages.length,
               results: researchBundle.searchResults.length,
-              lfmSource: researchBundle.lfm.source,
+              gateSource: researchBundle.lfm.source,
               fromCache: researchBundle.fromCache,
               citations: Object.keys(webCitationMap).length,
+              gapSearch: researchBundle.gapSearchFired,
             },
             "web research evidence injected",
           );
@@ -447,17 +438,12 @@ export async function POST(req: NextRequest) {
         } // end if (!webResearchDisabled)
       } catch (err: unknown) {
         // A failed research run must not kill the chat turn: the main model
-        // still answers from its own knowledge (with a note that the web
-        // search failed).
+        // still answers from its own knowledge.
         log.error(
           { err: err instanceof Error ? err.message : err },
           "web research pipeline failed — proceeding without web evidence",
         );
       } finally {
-        // Release the inference slot held by the LFM gate so background
-        // title jobs can resume. The forwardStream below will call
-        // beginUserTurn() again for the main-model turn; that is a
-        // separate, intentional slot claim (one claim per phase).
         if (inferenceTurnActive) endUserTurn();
       }
 

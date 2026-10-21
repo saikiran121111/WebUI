@@ -250,6 +250,13 @@ export function useChat({
     );
   }, [runRepairRounds]);
 
+  /**
+   * The post-answer claim audit (/api/verify-claims) was removed with the
+   * web-verify ledger (2026-10-22). Nothing fetches from that endpoint
+   * anymore; the type field `webVerification` stays for older stored
+   * conversations only.
+   */
+
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     // sendBusyRef is the real concurrency guard — `status` here would be a
     // stale closure value (it isn't a dep of this useCallback).
@@ -334,8 +341,8 @@ export function useChat({
               m.id === assistantMsg.id ? { ...m, usedSkill: skill } : m
             ));
           }
-          // Web-research citations: the [S#] map the LFM-gated pipeline
-          // produces, used by ResearchTrailCard + the citation pills.
+          // Web-research citations: the [S#] map the main-model-gated
+          // pipeline produces, used by ResearchTrailCard + the citation pills.
           const raw = headers.get("X-Web-Citations");
           if (raw) {
             try {
@@ -386,6 +393,9 @@ export function useChat({
         ));
         setStatus("complete");
         setReasoningContent("");
+        // The post-answer claim audit (/api/verify-claims) was removed with
+        // the web-verify ledger (2026-10-22): the answer carries [S#]
+        // citations and the model's own honest wording, nothing more.
       } else {
         // Finalize the partial bubble: stop the blinking cursor and bring
         // back the actions row even though the stream never finished.

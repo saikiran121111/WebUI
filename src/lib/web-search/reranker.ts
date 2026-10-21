@@ -3,11 +3,17 @@
  *
  * Splits extracted markdown into ~600-char semantic chunks (paragraph /
  * heading aware, 100-char overlap), scores every chunk against the user
- * prompt + the LFM query set with k1=1.5, b=0.75, and emits the top
+ * prompt + the gate's query set with k1=1.5, b=0.75, and emits the top
  * 12–15 passages across diverse domains (max 3 per domain).
  *
  * Complexity: O(total tokens) — measured ~8–15ms for a typical
  * 10-URL evidence set. No neural model is ever loaded.
+ *
+ * NOTE: the per-source "verified state" multipliers and
+ * `[VERIFIED SOURCE STATE]` banners that lived here until 2026-10-22 are
+ * gone with the validation stage — ranking is pure BM25 + junk penalty
+ * again. What a page says (including a "Currently unavailable" line) is
+ * up to the main model to read out of the passages.
  */
 import type {
   EvidencePacket,
@@ -262,7 +268,7 @@ export interface RerankHit {
 }
 
 /**
- * Rank every extracted passage against the combined prompt + LLM queries.
+ * Rank every extracted passage against the combined prompt + gate queries.
  *
  * - Larger semantic chunks (2,000 chars, 300-char overlap) so the LLM gets
  *   more context per passage.
@@ -277,7 +283,7 @@ export interface RerankHit {
 export function rerank(
   packets: EvidencePacket[],
   userPrompt: string,
-  lfmQueries: string[],
+  gateQueries: string[],
   topN = 30,
   opts?: { singleDomainUnlimited?: boolean },
 ): EvidencePassage[] {
@@ -306,8 +312,8 @@ export function rerank(
   // Build the BM25 index over all chunks
   const idx = buildBm25(recs.map((r) => r.chunk));
 
-  // Combined query: user prompt + all LLM queries (deduped)
-  const qSet = [userPrompt, ...lfmQueries];
+  // Combined query: user prompt + all gate queries (deduped)
+  const qSet = [userPrompt, ...gateQueries];
   const qText = qSet.filter(Boolean).join(" ");
 
   // Pull more candidates than the final topN so neighbor expansion has
@@ -320,8 +326,7 @@ export function rerank(
       const rec = recs[recIdx];
       if (!rec) return [recIdx, rawScore] as [number, number];
       const penalty = junkPenalty(rec.chunk);
-      const adjusted = rawScore * (1 - 0.8 * penalty);
-      return [recIdx, adjusted] as [number, number];
+      return [recIdx, rawScore * (1 - 0.8 * penalty)] as [number, number];
     })
     .filter(([, s]) => s > 0)
     .sort((a, b) => b[1] - a[1]);
@@ -340,6 +345,8 @@ export function rerank(
     if (out.length >= topN) break;
     const rec = recs[recIdx];
     if (!rec) continue;
+    const sourceId = rec.packet.sourceId;
+    void sourceId;
     const domain = rec.packet.domain;
     if (!singleDomainUnlimited) {
       const dc = domainCount.get(domain) ?? 0;
@@ -348,7 +355,7 @@ export function rerank(
     }
     topHitIdxs.add(recIdx);
     out.push({
-      sourceId: rec.packet.sourceId,
+      sourceId,
       url: rec.packet.url,
       title: rec.packet.title,
       domain,

@@ -807,3 +807,29 @@ export async function extractAll(
   });
   return settled;
 }
+
+/**
+ * Re-number a LATE-MERGED batch so it cannot collide with the ids already in
+ * the run. `extractAll` assigns S1..Sn WITHIN its own batch, and the pipeline
+ * merges every extra hop (gap search, verification hop) into one packet set —
+ * without this, a hop-2 page and a hop-1 page can both be "S3", and the
+ * evidence block, the citation map, the ledger and the state banners would key
+ * two different URLs off one id: passages cited under another page's URL,
+ * banners attached to the wrong page. Mutates in place, ids stay "S<number>".
+ */
+export function renumberPackets(packets: EvidencePacket[], startAt = 1): void {
+  packets.forEach((packet, i) => {
+    packet.sourceId = "S" + (startAt + i);
+    for (const p of packet.passages ?? []) p.sourceId = packet.sourceId;
+  });
+}
+
+/** First free source id index after a packet set (for renumberPackets). */
+export function nextSourceIndex(packets: EvidencePacket[]): number {
+  let max = 0;
+  for (const p of packets) {
+    const m = /^S(\d+)$/.exec(String(p.sourceId ?? ""));
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return max + 1;
+}
