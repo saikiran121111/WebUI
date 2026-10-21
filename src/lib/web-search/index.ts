@@ -28,6 +28,8 @@ export {
   searxSearch,
   searxSearchSharded,
   redditSearch,
+  bingNewsRssSearch,
+  githubSearch,
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,

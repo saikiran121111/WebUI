@@ -29,3 +29,6 @@ tests/fixtures/
 # caches, vendor fallback lists) lives under .local-search/ and stays out of
 # git. The directory is auto-created on first use.
 .local-search/
+
+# Bundled context dumps (never commit)
+repomix-output*.xml

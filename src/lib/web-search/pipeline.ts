@@ -89,22 +89,36 @@ function stripFillers(prompt: string): string {
 /**
  * Count how many of the fused results actually mention the core entities
  * of the user's prompt. A result is "relevant" when its title + snippet
- * contains at least one core token that is NOT a generic word (i.e. a
- * proper noun / specific term the user typed).
+ * matches the same normalization logic as meetsLexicalThreshold:
+ *   - punctuation-insensitive: "next.js" matches "nextjs" / "next-js"
+ *   - ≥40% of core tokens OR absolute floor (≥2 when ≥3 core tokens,
+ *     ≥1 when 1–2 core tokens)
+ *
+ * Uses the same helpers as metasearch.ts so the relevance floor and the
+ * vertical-source lexical gate stay in sync.
  */
 function countRelevantResults(
   results: RankedResult[],
   prompt: string,
 ): number {
   const core = queryCoreTokens(prompt);
-  // Use the 3+ char tokens (proper nouns / specific terms) for the
-  // relevance check — generic words like "best" / "restaurant" don't
-  // disambiguate.
-  const specific = core.filter((t) => t.length >= 4);
-  if (specific.length === 0) return results.length;
+  if (core.length === 0) return results.length;
+
+  // Pre-compute normalized core tokens.
+  const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
+  // Dynamic threshold matching meetsLexicalThreshold.
+  const pctFloor = Math.ceil(core.length * 0.4);
+  const absFloor = core.length >= 3 ? 2 : 1;
+  const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;
+
   return results.filter((r) => {
-    const text = (r.title + " " + (r.snippet ?? "")).toLowerCase();
-    return specific.some((t) => text.includes(t));
+    // Combine title + snippet + URL (the URL carries the most specific
+    // tokens, e.g. "next.js" in a GitHub path or "linux" in a kernel.org URL).
+    const raw = (r.title + " " + (r.snippet ?? "") + " " + r.url).toLowerCase();
+    const stripped = raw.replace(/[.\-_]/g, "");
+    const combined = raw + " " + stripped;
+    const hits = normTokens.filter((t) => combined.includes(t)).length;
+    return hits >= minHits;
   }).length;
 }
 

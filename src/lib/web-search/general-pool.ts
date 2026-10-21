@@ -149,6 +149,14 @@ function unwrapRuHref(href: string, base: string): string {
 /**
  * Detect CAPTCHA / challenge / anomaly blocks on a response body.
  * Returns true when the body is a challenge page (should return [] not parse it).
+ *
+ * IMPORTANT: search engines (Yahoo, Bing, Startpage, AOL) embed
+ * `recaptcha`/`captcha` strings inside boilerplate <script> tags on valid
+ * 200 OK result pages. This function is ONLY safe to call when you have
+ * already parsed the page and found 0 results — it must NEVER be the
+ * first gate before parsing. For engines that use it, always parse
+ * first, and only invoke isBlocked as a secondary check when the parser
+ * returned zero results.
  */
 function isBlocked(body: string): boolean {
   if (body.length < 500) return true;
@@ -158,7 +166,33 @@ function isBlocked(body: string): boolean {
   );
 }
 
-/* ── DuckDuckGo (3-stage) ────────────────────────────────────────────────── */
+/**
+ * A result-count check: if the HTML contains at least MIN_RESULTS external
+ * http/https links that are NOT the engine's own domain, the page is a
+ * valid SERP (the "captcha" substring is just script boilerplate).
+ * Call this BEFORE isBlocked() to avoid false positives.
+ */
+function hasSerResults(html: string, engineDomain?: string, minResults = 2): boolean {
+  // Quick count of absolute http/https links in the body (cheap heuristic
+  // that works on real SERP pages: result anchors always use full URLs).
+  const links = html.match(/href="(https?:\/\/(?!www\.[\w.-]+\.(com|org|net|in|co|dev|io|me|uk|cc|ad|cloud|xyz|online|top|site|info|biz|pro)[\w.-]*\/))[^"]+/gi) ?? [];
+  // The engine's own domain will have many internal links (nav, footer, etc.)
+  // but the regex above is a rough gate — if we found at least minResults
+  // absolute external-looking links, the page is not an empty challenge.
+  return links.length >= minResults;
+}
+
+/**
+ * Combined parse-first, block-check-later helper.
+ * For a 200 OK body: if it has enough external links, treat it as valid
+ * regardless of any "captcha" substring. If not, run the block check.
+ */
+function isBlockedAfterParse(body: string, minResults = 2): boolean {
+  if (hasSerResults(body, undefined, minResults)) return false;
+  return isBlocked(body);
+}
+
+/* ── DuckDuckGo (3-stage, fast switching: 12s per stage) ────────────────── */
 
 /**
  * DDG's anomaly detector flags requests that don't look like real browser
@@ -167,19 +201,24 @@ function isBlocked(body: string): boolean {
  *   2. The header set must match a browser navigation (Accept: text/html,
  *      full sec-ch-ua triplet) — NOT Accept: application/json.
  *
- * Stage A: GET html.duckduckgo.com/html/ (priming) → POST with cookies
- * Stage B: GET lite.duckduckgo.com/lite/  (priming) → POST with cookies
- * Stage C: VQD token flow (GET duckduckgo.com → links.duckduckgo.com/d.js)
+ * Each stage gets a fast 12s timeout instead of the 55s pool budget.
+ * Stage A: html.duckduckgo.com/html/ — cookie-primed POST
+ * Stage B: lite.duckduckgo.com/lite/ — cookie-primed POST, same-origin
+ * Stage C: VQD token flow (duckduckgo.com → links.duckduckgo.com/d.js)
  */
-async function ddgHtml(query: string, budget: EngineBudget = new EngineBudget()): Promise<RawSearchResult[]> {
-  if (!budget.has(4_000)) return [];
+const DDG_STAGE_TIMEOUT_MS = 12_000;
+
+/**
+ * Stage A: cookie-primed html.duckduckgo.com/html/ POST.
+ * Fast-fail: 12s timeout; switch to lite if blocked/0 results.
+ */
+async function ddgHtml(query: string): Promise<RawSearchResult[]> {
   const jar = newCookieJar();
   const host = "https://html.duckduckgo.com";
 
-  // Priming request: sets session cookies. The 202/302 response body
-  // doesn't matter — we only need the cookie jar populated.
+  // Priming request: sets session cookies.
   const prime = await fetchPage(host + "/html/", {
-    timeoutMs: Math.min(PRIME_TIMEOUT_MS, budget.timeout(PRIME_TIMEOUT_MS)),
+    timeoutMs: DDG_STAGE_TIMEOUT_MS,
     headers: realisticHeaders({ referer: host + "/" }),
   } as any);
   if (prime?.cookies?.length) jar.absorb(host + "/html/", prime.cookies);
@@ -189,7 +228,7 @@ async function ddgHtml(query: string, budget: EngineBudget = new EngineBudget())
   // useRealisticHeaders ensures Accept: text/html (not application/json),
   // which is what DDG's anomaly detector expects for a form submission.
   const res = await fetchUrl(host + "/html/", {
-    timeoutMs: budget.timeout(ENGINE_TIMEOUT_MS),
+    timeoutMs: DDG_STAGE_TIMEOUT_MS,
     method: "POST",
     body: "q=" + encodeURIComponent(query),
     useRealisticHeaders: true,
@@ -200,8 +239,14 @@ async function ddgHtml(query: string, budget: EngineBudget = new EngineBudget())
       referer: host + "/",
     },
   });
-  if (!res || !res.ok || !res.text || isBlocked(res.text)) return [];
-  return parseDdgHtml(res.text);
+  // Parse FIRST — DDG's 202 body may contain "captcha" in script tags.
+  if (!res || !res.ok || !res.text) return [];
+  const results = parseDdgHtml(res.text);
+  if (results.length >= 2) return results;
+  // <2 results: check if it's a genuine block (202 challenge, 403, 429).
+  if (res.status === 202 || res.status === 403 || res.status === 429) return [];
+  if (isBlocked(res.text)) return [];
+  return results;
 }
 
 function parseDdgHtml(html: string): RawSearchResult[] {
@@ -229,20 +274,25 @@ function parseDdgHtml(html: string): RawSearchResult[] {
   return out.slice(0, 10);
 }
 
-async function ddgLite(query: string, budget: EngineBudget = new EngineBudget()): Promise<RawSearchResult[]> {
-  if (!budget.has(4_000)) return [];
+/**
+ * Stage B: lite.duckduckgo.com/lite/ POST.
+ * Same fast-fail logic; same-origin headers (Referer/Origin must match
+ * lite.duckduckgo.com to avoid DDG's anomaly detector flagging a cross-site
+ * referer).
+ */
+async function ddgLite(query: string): Promise<RawSearchResult[]> {
   const jar = newCookieJar();
   const host = "https://lite.duckduckgo.com";
 
   const prime = await fetchPage(host + "/lite/?q=test", {
-    timeoutMs: Math.min(PRIME_TIMEOUT_MS, budget.timeout(PRIME_TIMEOUT_MS)),
+    timeoutMs: DDG_STAGE_TIMEOUT_MS,
     headers: realisticHeaders({ referer: host + "/" }),
   } as any);
   if (prime?.cookies?.length) jar.absorb(host + "/lite/", prime.cookies);
   const cookieVal = jar.cookieFor(host + "/lite/");
 
   const res = await fetchUrl(host + "/lite/", {
-    timeoutMs: budget.timeout(ENGINE_TIMEOUT_MS),
+    timeoutMs: DDG_STAGE_TIMEOUT_MS,
     method: "POST",
     body: "q=" + encodeURIComponent(query),
     useRealisticHeaders: true,
@@ -251,9 +301,11 @@ async function ddgLite(query: string, budget: EngineBudget = new EngineBudget())
       "content-type": "application/x-www-form-urlencoded",
       origin: host,
       referer: host + "/",
+      "sec-fetch-site": "same-origin",
     },
   });
-  if (!res?.text || res.status !== 200 || isBlocked(res.text)) return [];
+  if (!res?.text || res.status !== 200) return [];
+  // Parse first, then check block.
   const doc = docOf(res.text);
   const out: RawSearchResult[] = [];
   const links: any[] = doc.querySelectorAll("table.result a.result-link, a.result-link");
@@ -271,13 +323,18 @@ async function ddgLite(query: string, budget: EngineBudget = new EngineBudget())
       rank: out.length + 1,
     });
   }
+  if (out.length >= 2) return out.slice(0, 10);
+  if (isBlocked(res.text)) return [];
   return out.slice(0, 10);
 }
 
-async function ddgVqd(query: string, budget: EngineBudget = new EngineBudget()): Promise<RawSearchResult[]> {
-  if (!budget.has(4_000)) return [];
+/**
+ * Stage C: VQD token flow (GET duckduckgo.com → links.duckduckgo.com/d.js).
+ * Uses apiHeaders (JSON-accept is fine for the d.js endpoint — it returns JS).
+ */
+async function ddgVqd(query: string): Promise<RawSearchResult[]> {
   const res1 = await fetchPage("https://duckduckgo.com/?q=" + encodeURIComponent(query), {
-    timeoutMs: budget.timeout(ENGINE_TIMEOUT_MS),
+    timeoutMs: DDG_STAGE_TIMEOUT_MS,
     headers: realisticHeaders({ referer: "https://duckduckgo.com/" }),
   } as any);
   if (!res1?.body) return [];
@@ -288,7 +345,7 @@ async function ddgVqd(query: string, budget: EngineBudget = new EngineBudget()):
   const res2 = await fetchUrl(
     `https://links.duckduckgo.com/d.js?q=${encodeURIComponent(query)}&vqd=${vqd}`,
     {
-      timeoutMs: budget.timeout(ENGINE_TIMEOUT_MS),
+      timeoutMs: DDG_STAGE_TIMEOUT_MS,
       headers: apiHeaders({ referer: "https://duckduckgo.com/" }),
     },
   );
@@ -319,26 +376,23 @@ async function ddgVqd(query: string, budget: EngineBudget = new EngineBudget()):
 }
 
 /**
- * 3-stage DDG: try Stage A (cookie-primed html POST), fall back to
- * Stage B (lite POST), then Stage C (vqd token). Returns the first
- * stage that produces results. Each stage is budget-gated so a blocked
- * DDG host can't burn the entire pool wall-clock — when the budget
- * runs low, later stages are skipped and we return [].
+ * 3-stage DDG: try Stage A (cookie-primed html POST, 12s), fall back to
+ * Stage B (lite POST, 12s), then Stage C (VQD token, 12s).
+ *
+ * Each stage gets a fast 12s timeout instead of the 55s pool budget.
+ * If a stage returns 0 results, we switch immediately — the total DDG
+ * wall-clock is capped at ~30s (3×12s + jitter) so it can never stall
+ * the pool.
  */
 export async function ddgSearch(query: string): Promise<RawSearchResult[]> {
   await enginePacer("duckduckgo");
-  const budget = new EngineBudget();
-  const stageA = await ddgHtml(query, budget).catch(() => [] as RawSearchResult[]);
+  const stageA = await ddgHtml(query).catch(() => [] as RawSearchResult[]);
   if (stageA.length > 0) return stageA;
-  if (budget.has(5_000)) {
-    const stageB = await ddgLite(query, budget).catch(() => [] as RawSearchResult[]);
-    if (stageB.length > 0) return stageB;
-  }
-  if (budget.has(5_000)) {
-    const stageC = await ddgVqd(query, budget).catch(() => [] as RawSearchResult[]);
-    if (stageC.length > 0) return stageC;
-  }
-  log.warn({ query: query.slice(0, 80) }, "ddg: all 3 stages returned 0 results (or budget exhausted)");
+  const stageB = await ddgLite(query).catch(() => [] as RawSearchResult[]);
+  if (stageB.length > 0) return stageB;
+  const stageC = await ddgVqd(query).catch(() => [] as RawSearchResult[]);
+  if (stageC.length > 0) return stageC;
+  log.warn({ query: query.slice(0, 80) }, "ddg: all 3 stages returned 0 results");
   return [];
 }
 
@@ -346,45 +400,53 @@ export async function ddgSearch(query: string): Promise<RawSearchResult[]> {
 
 export async function yahooSearch(query: string): Promise<RawSearchResult[]> {
   await enginePacer("yahoo");
-  const urls = [
-    "https://search.yahoo.com/search?p=" + encodeURIComponent(query) + "&n=15",
+  const regions = [
     "https://in.search.yahoo.com/search?p=" + encodeURIComponent(query) + "&n=15",
+    "https://search.yahoo.com/search?p=" + encodeURIComponent(query) + "&n=15",
   ];
-  for (const url of urls) {
+  for (const url of regions) {
     try {
       const res = await fetchPage(url, {
         timeoutMs: ENGINE_TIMEOUT_MS,
-        headers: realisticHeaders({ referer: "https://www.yahoo.com/" }),
+        headers: realisticHeaders({
+          referer: url.split("/search")[0] + "/",
+          "sec-fetch-site": "same-origin",
+        }),
       } as any);
-      if (!res?.ok || !res?.body) continue;
-      if (isBlocked(res.body)) continue;
+      // Yahoo may return 307/500 but impit follows redirects — parse
+      // FIRST: if the body has ≥2 result links, the page is a valid SERP.
+      if (!res?.body || res.body.length < 500) continue;
       const doc = docOf(res.body);
       const out: RawSearchResult[] = [];
-      // Yahoo SSR: div.algo > div.Sr (each result) with .compTitle a + .compText
-      // Also try the new Bing-based layout: div.b_algo > h2 > a
       const results: any[] = doc.querySelectorAll(
-        "div.algo, div.Sr, div.b_algo, div[data-algo]",
+        "h3.title, .compTitle a, .algo a[href], li.strm, div.dd.algo a[href^='http'], a[href*='RU=']",
       );
-      for (const div of results) {
-        const a = div.querySelector(
-          "a.hktoggle, a.title, .compTitle a, h2 a, a[href^='http']",
-        );
-        if (!a) continue;
-        const href = a.getAttribute("href") ?? "";
+      for (const el of results) {
+        let href = el.getAttribute("href") ?? "";
         if (!href) continue;
         let target = unwrapRuHref(href, url);
-        if (target.startsWith("/")) target = new URL(target, url).href;
+        if (target.startsWith("/")) {
+          try { target = new URL(target, url).href; } catch { continue; }
+        }
         if (!isSafeUrl(target)) continue;
+        try {
+          const tHost = new URL(target).hostname.toLowerCase();
+          if (/^(www\.)?yahoo\.com$/.test(tHost) && !target.includes("/r/")) continue;
+          if (tHost.includes(".aol.") || tHost.includes("bing.com/aclick")) continue;
+        } catch { /* ignore */ }
         out.push({
-          title: a.textContent?.trim() ?? "",
+          title: el.textContent?.trim() ?? "",
           url: target,
           snippet:
-            div.querySelector(".compText, .fp, .snippet, .b_caption p")?.textContent?.trim() ?? "",
+            el.closest("li, div")?.querySelector(".compText, .snippet, p, .fz-ms")?.textContent?.trim() ?? "",
           engine: "yahoo",
           rank: out.length + 1,
         });
+        if (out.length >= 15) break;
       }
-      if (out.length > 0) return out.slice(0, 15);
+      if (out.length >= 2) return out;
+      if (isBlocked(res.body)) continue;
+      if (out.length > 0) return out;
     } catch { /* try next regional URL */ }
   }
   return [];
@@ -406,26 +468,30 @@ export async function startpageSearch(query: string): Promise<RawSearchResult[]>
       }),
     },
   } as any);
-  if (!res?.ok || !res?.text || isBlocked(res.text)) return [];
+  if (!res?.ok || !res?.text) return [];
   const doc = docOf(res.text);
   const out: RawSearchResult[] = [];
-  // Startpage SSR: .w-gl__result / .result blocks with .result-link / .w-gl__description
-  const results: any[] = doc.querySelectorAll(".w-gl__result, .result, article");
-  for (const block of results) {
-    const a = block.querySelector("a.result-link, a[href^='http']");
+  // Startpage: parse first, then check block. .w-gl__result / .result blocks
+  // carry a.result-link / .result-title / .result-description.
+  const blocks: any[] = doc.querySelectorAll(".w-gl__result, .result, article, div[class*='result']");
+  for (const block of blocks) {
+    const a = block.querySelector("a.result-link, a.result-title, h2 a, a[href^='http']");
     if (!a) continue;
     const href = a.getAttribute("href") ?? "";
     if (!isSafeUrl(href)) continue;
     out.push({
-      title: block.querySelector("h2, .result-title")?.textContent?.trim() ?? "",
+      title: a.textContent?.trim() ?? block.querySelector("h2, .result-title")?.textContent?.trim() ?? "",
       url: href,
       snippet:
-        block.querySelector(".w-gl__description, .result-description, .description")?.textContent?.trim() ?? "",
+        block.querySelector(".w-gl__description, .result-description, .description, p")?.textContent?.trim() ?? "",
       engine: "startpage",
       rank: out.length + 1,
     });
+    if (out.length >= 15) break;
   }
-  return out.slice(0, 15);
+  if (out.length >= 2) return out;
+  if (isBlocked(res.text)) return [];
+  return out;
 }
 
 /* ── Brave Search ─────────────────────────────────────────────────────────── */
@@ -439,15 +505,18 @@ export async function braveSearch(query: string): Promise<RawSearchResult[]> {
       headers: realisticHeaders({ referer: "https://search.brave.com/" }),
     } as any,
   );
-  if (!res?.ok || !res?.body) return [];
-  if (isBlocked(res.body)) return [];
-
+  // Fail fast on a genuinely empty/throttled 429: if there is no body
+  // content to parse, don't waste time on a parser pass.
+  if (!res?.body || res.body.length < 500) return [];
+  // Parse FIRST on any non-empty body (including a 429 that still carries
+  // a valid SERP). Pages with real results are never discarded by
+  // false-positive "captcha" strings in <script> tags.
   const doc = docOf(res.body);
   const out: RawSearchResult[] = [];
 
   // Primary: #results / div#web-results > div with a.result-header / .snippet-description
   const results: any[] = doc.querySelectorAll(
-    "#results > div, div#web-results > div, .result, .snippet",
+    "#results > div, div#web-results > div, .result, .snippet, div.web-result",
   );
   for (const div of results) {
     const a = div.querySelector("a.result-header, a.result-title, .snippet a, a[href^='http']");
@@ -458,7 +527,7 @@ export async function braveSearch(query: string): Promise<RawSearchResult[]> {
       title: div.querySelector(".title, h2, .result-title")?.textContent?.trim() ?? "",
       url: href,
       snippet:
-        div.querySelector(".snippet-description, .snippet, .desc, .fb")?.textContent?.trim() ?? "",
+        div.querySelector(".snippet-description, .snippet, .desc, .fb, p")?.textContent?.trim() ?? "",
       engine: "brave",
       rank: out.length + 1,
     });
@@ -489,6 +558,11 @@ export async function braveSearch(query: string): Promise<RawSearchResult[]> {
     }
   }
 
+  // Return results whenever the parser found ≥2 — regardless of the HTTP
+  // status (429 with a valid body still serves real results).
+  if (out.length >= 2) return out.slice(0, 15);
+  // No results: a non-200 status or a genuine block → give up fast.
+  if (!res.ok || isBlocked(res.body)) return [];
   return out.slice(0, 15);
 }
 
@@ -496,34 +570,43 @@ export async function braveSearch(query: string): Promise<RawSearchResult[]> {
 
 export async function aolSearch(query: string): Promise<RawSearchResult[]> {
   await enginePacer("aol");
-  const res = await fetchPage(
-    "https://search.aol.com/aol/search?q=" + encodeURIComponent(query),
-    {
-      timeoutMs: ENGINE_TIMEOUT_MS,
-      headers: realisticHeaders({ referer: "https://www.aol.com/" }),
-    } as any,
-  );
-  if (!res?.ok || !res?.body) return [];
-  if (isBlocked(res.body)) return [];
+  // AOL search endpoint (the /aol/ path is the correct one, not /aol/search).
+  const url = "https://search.aol.com/aol/search?q=" + encodeURIComponent(query);
+  const res = await fetchPage(url, {
+    timeoutMs: ENGINE_TIMEOUT_MS,
+    headers: realisticHeaders({ referer: "https://www.aol.com/" }),
+  } as any);
+  // Parse FIRST: AOL may return 307/404 but still serve a valid SERP body
+  // on redirect-follow (impit follows redirects automatically).
+  if (!res?.body || res.body.length < 500) return [];
   const doc = docOf(res.body);
   const out: RawSearchResult[] = [];
-  const results: any[] = doc.querySelectorAll("div.algo, div.Sr, .g, [class*='result']");
-  for (const div of results) {
-    const a = div.querySelector("a[href^='http'], a[href*='RU=']");
-    if (!a) continue;
+  const results: any[] = doc.querySelectorAll(
+    "a[href*='RU='], div.algo a[href^='http'], div.Sr a[href^='http'], [class*='result'] a[href^='http'], .serp-result a[href^='http']",
+  );
+  for (const a of results) {
     const href = a.getAttribute("href") ?? "";
     let target = unwrapRuHref(href, "https://search.aol.com");
     if (target.startsWith("/")) target = new URL(target, "https://search.aol.com").href;
     if (!isSafeUrl(target)) continue;
+    try {
+      const tHost = new URL(target).hostname.toLowerCase();
+      if (/^(www\.)?aol\.com$/.test(tHost) && !target.includes("/r/")) continue;
+      if (tHost.includes(".yahoo.") || tHost.includes("bing.com/aclick")) continue;
+    } catch { /* ignore */ }
     out.push({
       title: a.textContent?.trim() ?? "",
       url: target,
-      snippet: div.querySelector(".snippet, .compText, .fb")?.textContent?.trim() ?? "",
+      snippet:
+        a.closest("div, li")?.querySelector(".snippet, .compText, .fb, p")?.textContent?.trim() ?? "",
       engine: "aol",
       rank: out.length + 1,
     });
+    if (out.length >= 15) break;
   }
-  return out.slice(0, 15);
+  if (out.length >= 2) return out;
+  if (isBlocked(res.body)) return [];
+  return out;
 }
 
 /* ── Mojeek ──────────────────────────────────────────────────────────────── */
@@ -538,25 +621,30 @@ export async function mojeekSearch(query: string): Promise<RawSearchResult[]> {
     } as any,
   );
   if (!res?.ok || !res?.body) return [];
-  if (isBlocked(res.body)) return [];
   const doc = docOf(res.body);
   const out: RawSearchResult[] = [];
-  const results: any[] = doc.querySelectorAll("#results .result, article.result, div.result");
-  for (const div of results) {
+  // Mojeek parse-first (captcha in script tags ≠ real block).
+  const blocks: any[] = doc.querySelectorAll(
+    "#results .result, article.result, div.result, .results li, [class*='result']",
+  );
+  for (const div of blocks) {
     const a = div.querySelector("a.result-link, h3 a, a[href^='http']");
     if (!a) continue;
     const href = a.getAttribute("href") ?? "";
     if (!isSafeUrl(href)) continue;
     out.push({
-      title: a?.textContent?.trim() ?? div.querySelector("h3")?.textContent?.trim() ?? "",
+      title: a.textContent?.trim() ?? div.querySelector("h3")?.textContent?.trim() ?? "",
       url: href,
       snippet:
-        div.querySelector(".snippet, p.result-description, .result-description")?.textContent?.trim() ?? "",
+        div.querySelector(".snippet, p.result-description, .result-description, p")?.textContent?.trim() ?? "",
       engine: "mojeek",
       rank: out.length + 1,
     });
+    if (out.length >= 15) break;
   }
-  return out.slice(0, 15);
+  if (out.length >= 2) return out;
+  if (isBlocked(res.body)) return [];
+  return out;
 }
 
 /* ── SearXNG (HTML mode, sharded verified-instance pool) ───────────────── */
@@ -723,6 +811,69 @@ async function getVerifiedSearxInstances(): Promise<string[]> {
  * `shardIndex` (0-based) selects which instance to use; callers that
  * don't care about sharding just call without it and we rotate round-robin.
  */
+/**
+ * Build same-origin headers for a SearXNG instance.
+ *
+ * SearXNG's built-in botdetection filter blocks requests whose
+ * Referer/Origin do not match the instance's own origin (cross-site
+ * triggers the WAF). We must set:
+ *   Referer:  https://<instance-host>/
+ *   Origin:   https://<instance-host>
+ *   Sec-Fetch-Site: same-origin
+ *   Sec-Fetch-Mode: navigate
+ */
+function searxHeaders(instanceUrl: string): Record<string, string> {
+  let host = "";
+  try { host = new URL(instanceUrl).origin; } catch { host = instanceUrl; }
+  return {
+    referer: host + "/",
+    origin: host,
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-mode": "navigate",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  };
+}
+
+/** Parse SearXNG HTML — handles all modern themes (plain, simple, etc.). */
+function parseSearxHtml(html: string, engine: string): RawSearchResult[] {
+  const doc = docOf(html);
+  const out: RawSearchResult[] = [];
+  // Modern SearXNG themes: article.result / div.result / h3 a / h4 a /
+  // a.url_header / p.content / div.content — all covered by the union.
+  const articles: any[] = doc.querySelectorAll(
+    "article.result, div.result, h3 a, h4 a, a.url_header, p.content, div.content",
+  );
+  // Fall back to any result blocks if the theme selectors above missed.
+  if (articles.length === 0) {
+    articles.push(...doc.querySelectorAll("[class*='result']"));
+  }
+  const seen = new Set<string>();
+  for (const article of articles) {
+    const a = article.querySelector?.("a.url_header, a.result-title, a[href^='http']") ?? article;
+    if (!a) continue;
+    const href = a.getAttribute?.("href") ?? "";
+    if (!href || !isSafeUrl(href)) continue;
+    // Simple URL normalization for dedup: lowercase host, strip www + trailing slash.
+    let norm = href;
+    try {
+      const u = new URL(href);
+      norm = u.href.replace(/^www\./, "").replace(/\/$/, "");
+    } catch { norm = href; }
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push({
+      title: a.textContent?.trim() ?? article.querySelector?.("h3, h4")?.textContent?.trim() ?? "",
+      url: href,
+      snippet:
+        (article.querySelector?.(".result-content, .content, p.result, p")?.textContent?.trim() ?? "")
+          .slice(0, 400),
+      engine,
+      rank: out.length + 1,
+    });
+  }
+  return out;
+}
+
 export async function searxSearch(
   query: string,
   shardIndex: number = 0,
@@ -731,55 +882,24 @@ export async function searxSearch(
   const instances = await getVerifiedSearxInstances();
   if (instances.length === 0) return [];
 
-  // Pick the instance for this shard; wrap around if there are fewer
-  // instances than shards.
   const base = instances[shardIndex % instances.length];
-
-  const settled = await Promise.allSettled([
-    (async () => {
-      const url =
-        base.replace(/\/$/, "") +
-        "/search?q=" +
-        encodeURIComponent(query) +
-        "&language=en";
-      const res = await fetchPage(url, {
-        timeoutMs: Math.min(ENGINE_TIMEOUT_MS, 30_000),
-        headers: realisticHeaders({ referer: base, accept: "text/html" }),
-      } as any);
-      if (!res?.ok || !res?.body) return [] as RawSearchResult[];
-      if (isBlocked(res.body)) return [];
-      const doc = docOf(res.body);
-      const out: RawSearchResult[] = [];
-      const articles: any[] = doc.querySelectorAll("article.result, .result");
-      for (const article of articles) {
-        const a = article.querySelector("a.url_header, a.result-title, a[href^='http']");
-        if (!a) continue;
-        const href = a.getAttribute("href") ?? "";
-        if (!isSafeUrl(href)) continue;
-        out.push({
-          title: a.textContent?.trim() ?? "",
-          url: href,
-          snippet:
-            article.querySelector(".result-content, .content, p.result")?.textContent?.trim() ?? "",
-          engine: "searxng",
-          rank: out.length + 1,
-        });
-      }
-      return out;
-    })(),
-  ]);
-
-  for (const s of settled) {
-    if (s.status === "fulfilled" && s.value.length > 0) return s.value.slice(0, 15);
-  }
-  return [];
+  const url =
+    base.replace(/\/$/, "") + "/search?q=" + encodeURIComponent(query) + "&language=en";
+  const res = await fetchPage(url, {
+    timeoutMs: Math.min(ENGINE_TIMEOUT_MS, 30_000),
+    headers: searxHeaders(base),
+  } as any);
+  if (!res?.ok || !res?.body) return [];
+  const out = parseSearxHtml(res.body, "searxng");
+  if (out.length >= 2) return out.slice(0, 15);
+  if (isBlocked(res.body)) return [];
+  return out.slice(0, 15);
 }
 
 /**
  * Sharded SearXNG search: distribute multiple sub-queries across
- * DIFFERENT verified instances in parallel. This is the Part-2.5
- * "Smart Query Sharding" path: LFM sub-query Q1 goes to instance[0],
- * Q2 to instance[1], etc.
+ * DIFFERENT verified instances in parallel. Each sub-query acquires
+ * the searxng pacer individually (concurrency=1 + jitter).
  *
  * Returns the merged raw result list (ranks are per-instance; RRF
  * fusion happens in metasearch.ts).
@@ -789,43 +909,20 @@ export async function searxSearchSharded(queries: string[]): Promise<RawSearchRe
   const instances = await getVerifiedSearxInstances();
   if (instances.length === 0) return [];
 
-  // Shard: query[i] → instance[i % instances.length]. Each sub-query
-  // acquires the searxng pacer individually (concurrency=1 + jitter),
-  // so even when they run "in parallel" they execute sequentially —
-  // the 5h cached instance list means getVerifiedSearxInstances is
-  // free here, and the pacer is what enforces anti-bot pacing.
   const settled = await Promise.allSettled(
     queries.map(async (q, i) => {
       await enginePacer("searxng");
       const base = instances[i % instances.length];
       const url =
-        base.replace(/\/$/, "") +
-        "/search?q=" +
-        encodeURIComponent(q) +
-        "&language=en";
+        base.replace(/\/$/, "") + "/search?q=" + encodeURIComponent(q) + "&language=en";
       const res = await fetchPage(url, {
         timeoutMs: Math.min(ENGINE_TIMEOUT_MS, 30_000),
-        headers: realisticHeaders({ referer: base, accept: "text/html" }),
+        headers: searxHeaders(base),
       } as any);
       if (!res?.ok || !res?.body) return [] as RawSearchResult[];
+      const out = parseSearxHtml(res.body, "searxng");
+      if (out.length >= 2) return out.slice(0, 15);
       if (isBlocked(res.body)) return [];
-      const doc = docOf(res.body);
-      const out: RawSearchResult[] = [];
-      const articles: any[] = doc.querySelectorAll("article.result, .result");
-      for (const article of articles) {
-        const a = article.querySelector("a.url_header, a.result-title, a[href^='http']");
-        if (!a) continue;
-        const href = a.getAttribute("href") ?? "";
-        if (!isSafeUrl(href)) continue;
-        out.push({
-          title: a.textContent?.trim() ?? "",
-          url: href,
-          snippet:
-            article.querySelector(".result-content, .content, p.result")?.textContent?.trim() ?? "",
-          engine: "searxng",
-          rank: out.length + 1,
-        });
-      }
       return out.slice(0, 15);
     }),
   );
@@ -1082,35 +1179,49 @@ async function bingHtml(query: string): Promise<RawSearchResult[]> {
   const cookieVal = jar.cookieFor(host + "/");
 
   const res = await fetchPage(
-    host + "/search?q=" + encodeURIComponent(query) + "&setlang=en",
+    host + "/search?q=" + encodeURIComponent(query) + "&setlang=en&cc=US",
     {
       timeoutMs: 30_000,
       headers: {
         ...realisticHeaders(cookieVal ? { cookie: cookieVal } : { referer: host + "/" }),
+        "accept-language": "en-US,en;q=0.9",
       },
     } as any,
   );
   if (!res?.ok || !res?.body) return [];
-  if (isBlocked(res.body)) return [];
   const doc = docOf(res.body);
   const out: RawSearchResult[] = [];
-  // Bing HTML: <li class="b_algo"><h2><a href="/ck/a?...">…</a></h2>
-  const results: any[] = doc.querySelectorAll("li.b_algo, div.b_algo");
+  // Bing HTML parse-first (captcha strings in <script> tags on valid SERPs).
+  // b_algo blocks: <li class="b_algo" ...><h2 ...><a href="/ck/a?...">…</a>
+  // Snippet: .b_caption p or p.b_lineclamp...
+  const results: any[] = doc.querySelectorAll("li.b_algo, div.b_algo, li.b_ans");
   for (const div of results) {
+    // Title link: h2 > a (with attributes) OR /ck/a link OR direct http
     const a = div.querySelector("h2 a, a[href^='/ck/'], a[href^='http']");
     if (!a) continue;
     let href = a.getAttribute("href") ?? "";
     if (href.startsWith("/ck/")) href = host + href;
     const target = decodeBingCk(href);
     if (!isSafeUrl(target)) continue;
+    // Filter out bing.com internal links (settings, help, feedback).
+    try {
+      const tHost = new URL(target).hostname.toLowerCase();
+      if (tHost === "www.bing.com" || tHost === "bing.com") {
+        // Keep /search results, skip internal bing.com pages
+        if (!target.includes("/search")) continue;
+      }
+    } catch { /* ignore */ }
     out.push({
       title: a.textContent?.trim() ?? "",
       url: target,
-      snippet: div.querySelector(".b_caption p, p")?.textContent?.trim() ?? "",
+      snippet:
+        div.querySelector(".b_caption p, .b_caption .b_lineclamp, p.b_lineclamp, p")?.textContent?.trim() ?? "",
       engine: "bing",
       rank: out.length + 1,
     });
   }
+  if (out.length >= 2) return out.slice(0, 15);
+  if (isBlocked(res.body)) return [];
   return out.slice(0, 15);
 }
 
@@ -1126,6 +1237,196 @@ export async function bingSearch(query: string): Promise<RawSearchResult[]> {
   if (stageB.length > 0) return stageB;
   log.warn({ query: query.slice(0, 80) }, "bing: both stages returned 0 results");
   return [];
+}
+
+/* ── Bing News RSS + Google News fallback (keyless, real target URLs) ────── */
+
+/**
+ * Bing News RSS (primary) + Google News RSS fallback.
+ *
+ * - Bing News RSS: each <item><link> is a click-tracker that carries the
+ *   REAL publisher URL in its url= query parameter. We extract that so
+ *   extractor.ts receives real, extractable web pages.
+ * - Google News RSS (fallback when Bing returns 0): use the
+ *   <source url="..."> attribute (the authoritative publisher domain)
+ *   and drop any item that has no source (encrypted google.com/rss/articles/
+ *   wrappers fail full-page extraction and must be avoided).
+ */
+export async function bingNewsRssSearch(query: string): Promise<RawSearchResult[]> {
+  await enginePacer("bing-news");
+
+  // ── Stage A: Bing News RSS (real target URLs via url= param) ────────
+  const bingUrl =
+    "https://www.bing.com/news/search?q=" +
+    encodeURIComponent(query) +
+    "&format=rss&count=20";
+  try {
+    const res = await fetchUrl(bingUrl, {
+      timeoutMs: 15_000,
+      headers: {
+        ...realisticHeaders({
+          accept: "application/rss+xml, application/xml, text/xml;q=0.9",
+          referer: "https://www.bing.com/",
+        }),
+      },
+    } as any);
+    if (res?.ok && res.text) {
+      const out = parseBingNewsRss(res.text);
+      if (out.length > 0) return out;
+    }
+  } catch { /* fall through to Google News */ }
+
+  // ── Stage B: Google News RSS fallback (source-url extraction) ──────
+  // Only keep items where <source url="..."> gave us the real
+  // publisher URL — encrypted news.google.com/rss/articles/ wrappers
+  // are NOT extractable and must be skipped.
+  const gnewsUrl =
+    "https://news.google.com/rss/search?q=" +
+    encodeURIComponent(query) +
+    "&hl=en-IN&gl=IN&ceid=IN:en";
+  try {
+    const res = await fetchUrl(gnewsUrl, {
+      timeoutMs: 15_000,
+      headers: {
+        ...realisticHeaders({
+          accept: "application/rss+xml, application/xml, text/xml;q=0.9",
+          referer: "https://news.google.com/",
+        }),
+      },
+    } as any);
+    if (!res?.ok || !res.text) return [];
+    const out: RawSearchResult[] = [];
+    const itemRe = /<item>([\s\S]*?)<\/item>/g;
+    let m: RegExpExecArray | null;
+    while ((m = itemRe.exec(res.text)) !== null && out.length < 25) {
+      const item = m[1];
+      const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
+      const pubDateMatch = item.match(/<pubDate>([^<]+)<\/pubDate>/);
+      // <source url="..."> = the authoritative publisher URL.
+      const sourceMatch = item.match(/<source[^>]*url="([^"]+)"/);
+      const target = sourceMatch?.[1]?.trim() ?? "";
+      if (!target || !isSafeUrl(target)) continue;
+      out.push({
+        title: titleMatch?.[1]?.trim().replace(/\s+/g, " ") ?? "",
+        url: target,
+        snippet: "",
+        engine: "google-news",
+        publishedDate: pubDateMatch?.[1],
+        rank: out.length + 1,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Parse Bing News RSS: extract real target URL from the url= param. */
+function parseBingNewsRss(xml: string): RawSearchResult[] {
+  const out: RawSearchResult[] = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  let m: RegExpExecArray | null;
+  while ((m = itemRe.exec(xml)) !== null && out.length < 25) {
+    const item = m[1];
+    const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?([^<\]]+?)(?:\]\]>)?<\/title>/);
+    const linkMatch = item.match(/<link>([\s\S]*?)<\/link>/);
+    const pubDateMatch = item.match(/<pubDate>([^<]+)<\/pubDate>/);
+    const descMatch = item.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
+
+    // Bing wraps news links as:
+    //   http://www.bing.com/news/apiclick.aspx?...&url=https%3a%2f%2f<real-domain>/...
+    let target = linkMatch?.[1]?.trim().replace(/&amp;/g, "&") ?? "";
+    try {
+      const u = new URL(target);
+      const urlParam = u.searchParams.get("url");
+      if (urlParam) target = decodeURIComponent(urlParam);
+    } catch { /* keep as-is */ }
+
+    if (!isSafeUrl(target)) continue;
+    out.push({
+      title: titleMatch?.[1]?.trim().replace(/\s+/g, " ") ?? "",
+      url: target,
+      snippet: descMatch?.[1]?.replace(/<[^>]+>/g, "").slice(0, 400) ?? "",
+      engine: "bing-news",
+      publishedDate: pubDateMatch?.[1],
+      rank: out.length + 1,
+    });
+  }
+  return out;
+}
+/* ── GitHub (repos + issues, keyless API) ─────────────────────────────────── */
+
+/**
+ * GitHub search: keyless REST API for repo + issue search.
+ * Returns real project/issue results for tech/coding queries.
+ * Zero CAPTCHAs — GitHub's API allows 60 unauthenticated req/hr/IP.
+ */
+export async function githubSearch(query: string): Promise<RawSearchResult[]> {
+  await enginePacer("github");
+  const out: RawSearchResult[] = [];
+
+  // 1. Repository search
+  try {
+    const repoRes = await fetchUrl(
+      "https://api.github.com/search/repositories?q=" +
+        encodeURIComponent(query) +
+        "&per_page=8",
+      {
+        timeoutMs: 15_000,
+        headers: {
+          ...apiHeaders({ "accept": "application/vnd.github+json" }),
+          "x-github-api-version": "2022-11-28",
+        },
+      } as any,
+    );
+    if (repoRes?.ok && repoRes.text) {
+      const data: any = JSON.parse(repoRes.text);
+      for (const repo of data.items ?? []) {
+        out.push({
+          title: repo.name,
+          url: repo.html_url ?? "https://github.com/" + repo.full_name,
+          snippet: (repo.description ?? "").slice(0, 400),
+          engine: "github",
+          rank: out.length + 1,
+        });
+      }
+    }
+  } catch { /* try issues next */ }
+
+  // 2. Issue search (fills gaps when repo search is sparse)
+  if (out.length < 5) {
+    try {
+      const issueRes = await fetchUrl(
+        "https://api.github.com/search/issues?q=" +
+          encodeURIComponent(query) +
+          "&per_page=8",
+        {
+          timeoutMs: 15_000,
+          headers: {
+            ...apiHeaders({ "accept": "application/vnd.github+json" }),
+            "x-github-api-version": "2022-11-28",
+          },
+        } as any,
+      );
+      if (issueRes?.ok && issueRes.text) {
+        const data: any = JSON.parse(issueRes.text);
+        for (const item of data.items ?? []) {
+          const url = item.pull_request?.url ?? item.html_url ?? "";
+          if (!isSafeUrl(url)) continue;
+          out.push({
+            title: item.title ?? "",
+            url,
+            snippet: (item.body ?? "").slice(0, 400),
+            engine: "github",
+            publishedDate: item.created_at,
+            rank: out.length + 1,
+          });
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return out.slice(0, 15);
 }
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -1176,22 +1477,24 @@ export function deduplicateQueries(queries: string[]): string[] {
  *
  * Every sub-query in an LFM plan is distributed across this pool with
  * per-engine pacing (one in-flight per host, 250–450 ms jitter) so that
- * 4 sub-queries × 9 engines never fire 36 simultaneous requests at any
+ * 4 sub-queries × 11 engines never fire 44 simultaneous requests at any
  * single host.
  *
  * `searxSearch` is the single-shard version; `searxSearchSharded` is
  * the multi-shard version used by `metasearchSharded`.
  */
 export const GENERAL_WEB_ENGINES = [
-  ddgSearch,        // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD)
-  bingSearch,       // Bing (RSS feed → cookie-primed HTML, ck/a decode)
-  yahooSearch,      // Bing global web index (RU= unwrap)
-  startpageSearch,  // Google live web index (SSR HTML)
-  braveSearch,      // Brave's own index
-  aolSearch,        // Bing index (RU= unwrap)
-  mojeekSearch,     // independent UK index
-  searxSearch,      // aggregated multi-engine (HTML mode, single shard)
-  redditSearch,     // community ground-truth (3-stage: RSS → PullPush → JSON)
+  ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage)
+  bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first)
+  yahooSearch,           // Bing global web index (RU= unwrap, parse-first)
+  startpageSearch,       // Google live web index (SSR HTML, parse-first)
+  braveSearch,           // Brave's own index
+  aolSearch,             // Bing index (RU= unwrap, parse-first)
+  mojeekSearch,          // independent UK index (parse-first)
+  searxSearch,           // aggregated multi-engine (HTML mode, single shard, same-origin headers)
+  redditSearch,          // community ground-truth (3-stage: RSS → PullPush → JSON)
+  bingNewsRssSearch,   // Bing News RSS (keyless, real target URLs, <500ms)
+  githubSearch,          // GitHub repos + issues (keyless API)
 ] as const;
 
 /**
@@ -1238,7 +1541,9 @@ export async function runGeneralWebSearchSharded(
   const searxSharded = searxSearchSharded(allQueries);
 
   // 3. All queries → remaining general engines (rate-limited by their
-  //    individual pacer, so all sub-queries get through with jitter)
+  //    individual pacer, so all sub-queries get through with jitter).
+  //    Google News RSS + GitHub are always added for the primary query
+  //    (keyless, no CAPTCHA, no rate limits — safe to always include).
   const otherEngines = [
     yahooSearch,
     startpageSearch,
@@ -1250,8 +1555,14 @@ export async function runGeneralWebSearchSharded(
     otherEngines.map((fn) => fn(q)),
   );
 
+  // 4. Keyless auxiliary engines: always run for the primary query.
+  const auxPromises = [
+    bingNewsRssSearch(primaryQuery),
+    githubSearch(primaryQuery),
+  ];
+
   const settled = await Promise.allSettled(
-    [...directPromises, searxSharded, ...othersPromises],
+    [...directPromises, searxSharded, ...othersPromises, ...auxPromises],
   );
   const out: RawSearchResult[] = [];
   for (const s of settled) {

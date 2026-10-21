@@ -27,6 +27,8 @@ import {
   mojeekSearch,
   searxSearch,
   redditSearch,
+  bingNewsRssSearch,
+  githubSearch,
   queryCoreTokens,
   closeCache,
 } from "../src/lib/web-search/index";
@@ -37,6 +39,11 @@ const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const CYAN = (s: string) => `\x1b[36m${s}\x1b[0m`;
+
+const COOLDOWN_MS = 2000;
+function cooldown(ms = COOLDOWN_MS): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 interface Scenario {
   name: string;
@@ -78,6 +85,7 @@ function printEngineTable(results: RankedResult[], label: string) {
   const engines = [
     "duckduckgo", "yahoo", "startpage", "brave",
     "aol", "mojeek", "searxng", "reddit",
+    "google-news", "github",
     "wikipedia", "hackernews", "arxiv", "stackexchange",
   ];
   for (const eng of engines) {
@@ -86,6 +94,18 @@ function printEngineTable(results: RankedResult[], label: string) {
       console.log("    " + GREEN(eng.padEnd(15)) + " " + count);
     }
   }
+}
+
+/**
+ * Check whether a result is relevant using the same normalization as
+ * the pipeline: punctuation-insensitive, 40% OR absolute floor.
+ */
+function isRelevantResult(r: RankedResult, normTokens: string[], minHits: number): boolean {
+  const raw = (r.title + " " + (r.snippet ?? "") + " " + r.url).toLowerCase();
+  const stripped = raw.replace(/[.\-_]/g, "");
+  const combined = raw + " " + stripped;
+  const hits = normTokens.filter((t) => combined.includes(t)).length;
+  return hits >= minHits;
 }
 
 async function main() {
@@ -107,9 +127,11 @@ async function main() {
     ["mojeekSearch",    () => mojeekSearch(q1),    "mojeek"],
     ["searxSearch",     () => searxSearch(q1),     "searxng"],
     ["redditSearch",    () => redditSearch(q1),    "reddit"],
+    ["bingNewsRss",    () => bingNewsRssSearch(q1), "bing-news"],
+    ["githubSearch",    () => githubSearch(q1),    "github"],
   ];
 
-  console.log(CYAN("  Running 8 general-web engines in parallel..."));
+  console.log(CYAN("  Running 10 general-web engines in parallel..."));
   const engineResults = await Promise.all(
     engines.map(async ([, fn]) => {
       try { return await fn(); } catch { return [] as any[]; }
@@ -123,6 +145,8 @@ async function main() {
   }
   const totalEngineResults = engineResults.reduce((s, a) => s + a.length, 0);
   console.log("   Total raw: " + totalEngineResults + " results from " + engineResults.filter((r) => r.length > 0).length + " engines");
+
+  await cooldown(500);
 
   // Full metasearch for scenario 1
   const gate1 = await runLfmGate({ userPrompt: q1 });
@@ -157,7 +181,11 @@ async function main() {
   // All 5 scenarios through the full pipeline
   console.log(BOLD("\n--- Full pipeline: runWebResearch x 5 scenarios ---\n"));
 
-  for (const sc of SCENARIOS) {
+  for (let i = 0; i < SCENARIOS.length; i++) {
+    const sc = SCENARIOS[i];
+    // Cross-scenario cooldown to prevent rate-limit bleed (Fix 4).
+    if (i > 0) await cooldown(COOLDOWN_MS);
+
     console.log(BOLD("\n" + sc.name + ": \"" + sc.prompt.slice(0, 60) + "...\""));
     const t0 = Date.now();
     const bundle = await runWebResearch(
@@ -186,12 +214,13 @@ async function main() {
 
     printEngineTable(results, sc.name);
 
-    // Relevance floor check
-    const core = queryCoreTokens(sc.prompt).filter((t) => t.length >= 4);
-    const relevant = results.filter((r) => {
-      const text = (r.title + " " + (r.snippet ?? "")).toLowerCase();
-      return core.some((t) => text.includes(t));
-    });
+    // Relevance floor check (uses the same normalization as the pipeline)
+    const core = queryCoreTokens(sc.prompt);
+    const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
+    const pctFloor = Math.ceil(core.length * 0.4);
+    const absFloor = core.length >= 3 ? 2 : 1;
+    const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;
+    const relevant = results.filter((r) => isRelevantResult(r, normTokens, minHits));
     const floorOk = relevant.length >= 3 || results.length === 0;
     if (floorOk) {
       console.log(GREEN("  PASS  relevance floor met (" + relevant.length + "/" + results.length + " mention core entities)"));

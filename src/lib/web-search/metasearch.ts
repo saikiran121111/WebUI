@@ -114,43 +114,107 @@ export function normalizeUrl(raw: string): string {
  * "does this result actually mention the specific entities the user
  * asked about?" rather than hardcoding topic-specific rules.
  */
-const STOP_WORDS = new Set([
-  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-  "have", "has", "had", "do", "does", "did", "will", "would", "could",
-  "should", "can", "may", "might", "shall", "may", "must",
-  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her",
-  "us", "them", "my", "your", "his", "its", "our", "their",
-  "this", "that", "these", "those", "here", "there", "where", "when",
-  "what", "which", "who", "whom", "whose", "how", "why",
-  "and", "or", "but", "if", "then", "else", "so", "yet", "also",
-  "very", "really", "just", "quite", "rather", "too", "only",
-  "please", "tell", "want", "need", "look", "find", "get", "show",
-  "best", "good", "top", "great", "nice", "awesome", "amazing",
-  "in", "on", "at", "by", "for", "from", "to", "of", "with", "without",
-  "about", "into", "onto", "over", "under", "near", "around",
-  "me", "i", "my", "im", "ill", "ive", "dont", "cant", "wont",
-  "so", "i", "you", "your",
+/**
+ * Expanded meta-stopwords: non-topical query modifiers that do NOT
+ * contribute to the core subject of a search. These are stripped from
+ * `queryCoreTokens()` so "Next.js 15 App Router server actions error
+ * handling best practices" yields ["next.js", "app", "router", "server",
+ * "actions"] (not ["best", "practices", "error", "handling"]).
+ */
+const META_STOP_WORDS = new Set([
+  // generic modifiers
+  "latest", "recent", "current", "new", "newest", "update", "updates",
+  "release", "releases", "notes", "note", "changelog", "changes",
+  "best", "top", "good", "great", "practices", "practice", "guide",
+  "tutorial", "review", "reviews", "rating", "ratings", "rated",
+  "place", "places", "spot", "spots", "option", "options", "pick",
+  "tell", "want", "need", "find", "search", "looking", "look",
+  "recommend", "recommendation", "recommendations", "suggestion",
+  "vs", "versus", "compare", "comparison", "error", "errors",
+  "handling", "how", "what", "where", "which", "when", "why",
+  "issue", "issues", "problem", "problems", "bug", "bugs",
+  "feature", "features", "list", "lists", "type", "types",
+  "kind", "kinds", "way", "ways", "method", "methods",
+  "style", "styles", "format", "formats", "version", "versions",
+  "setup", "install", "installation", "config", "configuration",
+  "configurating", "use", "using", "used", "usedto", "working",
+  "work", "works", "workaround", "workarounds",
+  "fix", "fixes", "fixed", "solution", "solutions",
+  "help", "show", "please", "can", "could", "would", "should",
+  "you", "your", "yours", "i", "me", "my", "is", "are",
+  "was", "were", "be", "been", "being", "have", "has", "had",
+  "in", "on", "at", "by", "for", "from", "to", "of", "with",
+  "without", "about", "into", "onto", "over", "under", "near",
+  "around", "between", "and", "or", "but", "if", "then", "else",
+  "so", "yet", "also", "very", "really", "just", "quite",
+  "rather", "too", "only", "the", "a", "an", "this", "that",
+  "these", "those", "here", "there", "who", "whom", "whose",
+  "shall", "may", "might", "must", "do", "does", "did",
+  "im", "ill", "ive", "dont", "cant", "wont", "our", "our",
+  "them", "they", "he", "she", "its", "her", "him", "us",
+  // standalone small numbers that are just version/quantity modifiers
+  "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
+  "25", "30", "32", "50", "100",
 ]);
 
 export function queryCoreTokens(query: string): string[] {
-  return query
+  const tokens = query
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s.]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+    .filter((t) => t.length > 2 && !META_STOP_WORDS.has(t));
+  // Preserve dotted tech names (next.js, node.js, etc.) as whole tokens.
+  // The replace() step preserves "." so "next.js" survives as one token.
+  return [...new Set(tokens)];
 }
 
 /**
- * Return true when `text` contains at least 50% of the query's core
- * tokens. Used as a gate on vertical (Wikipedia/HN/arXiv/StackExchange)
+ * Normalize a token for matching: strip dots/dashes and lowercase.
+ * "next.js" → "nextjs", "next-js" → "nextjs", "node.js" → "nodejs"
+ */
+function normalizeToken(token: string): string {
+  return token.toLowerCase().replace(/[.\-_]/g, "");
+}
+
+/**
+ * Normalize text for matching: lowercase + strip punctuation, and also
+ * generate a version with dots/dashes removed so "next.js" matches "nextjs".
+ */
+function normalizeTextForMatch(text: string): string {
+  const lower = text.toLowerCase();
+  const stripped = lower.replace(/[.\-_]/g, "");
+  // Combine both forms so a token like "nextjs" matches both "next.js"
+  // and "nextjs" in the result text.
+  return lower + " " + stripped;
+}
+
+/**
+ * Return true when `text` contains at least 40% of the query's core
+ * subject tokens (or at least 2 tokens when the query has ≥3 core
+ * tokens, or at least 1 when the query has 1–2 core tokens).
+ *
+ * Matching is punctuation-insensitive: "next.js" matches "nextjs",
+ * "node-js", etc.
+ *
+ * Used as a gate on vertical (Wikipedia/HN/arXiv/StackExchange)
  * results so a fuzzy token match like "Manikonda Chalapathi Rau →
  * Lucknow" is dropped before it can poison the RRF fusion.
  */
 export function meetsLexicalThreshold(text: string, coreTokens: string[]): boolean {
   if (coreTokens.length === 0) return true;
-  const lower = text.toLowerCase();
-  const hits = coreTokens.filter((t) => lower.includes(t)).length;
-  return hits / coreTokens.length >= 0.5;
+  const normalized = normalizeTextForMatch(text);
+  const hits = coreTokens.filter((t) => {
+    const norm = normalizeToken(t);
+    return normalized.includes(norm);
+  }).length;
+  // A result is relevant when it matches:
+  //   - ≥40% of the core tokens, OR
+  //   - at least 2 core tokens when the query has ≥3 core tokens, OR
+  //   - at least 1 core token when the query has 1–2 core tokens.
+  // Never discard a result that mentions the core subject entities.
+  const pctFloor = Math.ceil(coreTokens.length * 0.4);
+  const absFloor = coreTokens.length >= 3 ? 2 : 1;
+  return hits >= Math.min(pctFloor, absFloor === 1 ? 1 : 2) || hits >= absFloor;
 }
 
 async function fetchUrlWithRetry(
@@ -291,12 +355,14 @@ const VERTICAL_ENGINES = new Set(["wikipedia", "hackernews", "arxiv", "stackexch
 
 /**
  * Engines that are vertical (intended) for specific intents.
+ * The general web pool is ALWAYS run regardless of intent (Fix 3a).
+ * Verticals are layered ON TOP, not instead of, the general pool.
  */
 const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
   code:     [stackExchangeSearch],
   academic: [arxivSearch, wikipediaSearch],
   forum:    [hackerNewsSearch],
-  news:     [],
+  news:     [hackerNewsSearch],
   docs:     [stackExchangeSearch, wikipediaSearch],
   general:  [wikipediaSearch],
 };
@@ -315,6 +381,19 @@ const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
  * 4×8=32 simultaneous-request burst that triggered bot detection.
  */
 async function searchOne(query: string, intent: Intent, allQueries?: string[]): Promise<RawSearchResult[]> {
+  // ALWAYS run the general web pool (Fix 3a): regardless of intent,
+  // the sharded pool gives broad, high-recall results. Verticals are
+  // layered on top, not instead of, the general pool.
+  let generalResults: RawSearchResult[];
+  if (allQueries && allQueries.length > 1) {
+    const deduped = deduplicateQueries(allQueries);
+    const primary = deduped[0];
+    generalResults = await runGeneralWebSearchSharded(primary, deduped).catch(() => [] as RawSearchResult[]);
+  } else {
+    generalResults = await runGeneralWebSearch(query).catch(() => [] as RawSearchResult[]);
+  }
+
+  // Layer intent-specific verticals on top of the general pool.
   const vertical = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
   const verticalResults = await Promise.allSettled(
     vertical.map((fn) => fn(query)),
@@ -322,19 +401,6 @@ async function searchOne(query: string, intent: Intent, allQueries?: string[]): 
   const verticalFlat = verticalResults
     .filter((s) => s.status === "fulfilled")
     .flatMap((s) => s.value as RawSearchResult[]);
-
-  // For "general" intent with multiple sub-queries, use the sharded pool
-  // (primary query → direct scrapers; all queries → SearXNG shard + others).
-  // For a single query or a vertical-specific intent, use the single-query
-  // pool (all engines in parallel, pacer handles the jitter).
-  let generalResults: RawSearchResult[];
-  if (intent === "general" && allQueries && allQueries.length > 1) {
-    const deduped = deduplicateQueries(allQueries);
-    const primary = deduped[0];
-    generalResults = await runGeneralWebSearchSharded(primary, deduped).catch(() => [] as RawSearchResult[]);
-  } else {
-    generalResults = await runGeneralWebSearch(query).catch(() => [] as RawSearchResult[]);
-  }
 
   return [...generalResults, ...verticalFlat];
 }

@@ -39,6 +39,112 @@ const LLM_ENDPOINT =
   process.env.LLM_API_URL ??
   "http://127.0.0.1:8080/v1/chat/completions";
 
+/**
+ * llama.cpp `json_schema` grammar that enforces the exact SearchDecision
+ * shape. The 1.2B LFM router on :8791 is too small to reliably produce
+ * valid JSON without grammar enforcement — passing this to llama-server's
+ * `response_format.json_schema` makes the output structurally valid by
+ * construction (no post-hoc repair needed). The top-level `json_schema`
+ * key is what llama.cpp's structured-output mode reads.
+ *
+ * Two-stage design (correction 3):
+ *   Stage 1 — single-field `{"search_required": boolean}` with
+ *             `max_tokens: 16`. Because the 1.2B model only has to emit a
+ *             single boolean (no query-generation bias), it accurately
+ *             classifies greetings, chitchat, and pure coding/math as
+ *             `{"search_required": false}`.
+ *   Stage 2 — run ONLY when Stage 1 says true: full SearchDecision schema
+ *             with intent/freshness/depth/queries (max_tokens: 180).
+ */
+const STAGE1_SCHEMA = {
+  type: "object",
+  properties: {
+    search_required: { type: "boolean" },
+  },
+  required: ["search_required"],
+} as const;
+
+const STAGE2_SCHEMA = {
+  type: "object",
+  properties: {
+    reason: { type: "string" },
+    freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "any"] },
+    depth: { type: "string", enum: ["quick", "standard", "deep"] },
+    queries: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          intent: { type: "string", enum: ["general", "news", "docs", "code", "academic", "forum"] },
+          preferred_domains: { type: "array", items: { type: "string" } },
+        },
+        required: ["query", "intent"],
+      },
+    },
+  },
+  required: ["reason", "freshness", "depth", "queries"],
+} as const;
+
+/** Legacy full schema (kept for reference and for :8080 fallback path). */
+const LFM_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    search_required: { type: "boolean" },
+    reason: { type: "string" },
+    freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "any"] },
+    depth: { type: "string", enum: ["quick", "standard", "deep"] },
+    queries: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          intent: { type: "string", enum: ["general", "news", "docs", "code", "academic", "forum"] },
+          preferred_domains: { type: "array", items: { type: "string" } },
+        },
+        required: ["query", "intent"],
+      },
+    },
+  },
+  required: ["search_required", "reason", "freshness", "depth", "queries"],
+} as const;
+
+/**
+ * Module-level singleton: the auto-warmup of the :8791 LFM router fires
+ * at most once per process. When the initial fetch to :8791 fails with
+ * ECONNREFUSED (the router hasn't been started yet — standalone CLI
+ * scripts don't trigger instrumentation.ts), we spawn the worker via
+ * warmupDecisionEngine() and retry the request.
+ *
+ * `warmupDecisionEngine` is fire-and-forget (it calls
+ * `ensureWorker()` which polls /health for up to ~4 minutes). We wrap
+ * it in a singleton promise so concurrent gate calls don't spawn
+ * multiple workers.
+ */
+let warmupInFlight: Promise<void> | null = null;
+
+async function triggerAutoWarmup(): Promise<void> {
+  if (warmupInFlight) { await warmupInFlight; return; }
+  warmupInFlight = (async () => {
+    try {
+      // Dynamic import so the warmup is only loaded when needed (not on
+      // every trivial-greeting short-circuit). The module side-effects
+      // (spawning the worker) happen inside warmupDecisionEngine.
+      const { warmupDecisionEngine } = await import("@/lib/decision/client");
+      warmupDecisionEngine();
+      log.info("auto-warmup triggered for :8791 LFM router");
+      // Give the worker up to 30s to come up.
+      await new Promise((r) => setTimeout(r, 30_000));
+    } catch {
+      /* engine unavailable — fall through to :8080 / rules */
+    } finally {
+      warmupInFlight = null;
+    }
+  })();
+  await warmupInFlight;
+}
+
 const LLM_API_KEY = process.env.LLM_API_KEY ?? "no-key";
 
 /** 60-second ceiling for a single classifier endpoint (cold-start queue). */
@@ -87,16 +193,25 @@ function isTrivialGreeting(prompt: string): boolean {
  * to a rule-based SEARCH plan (never a silent no-search). Only short
  * chitchat under a failed LLM returns no-search.
  */
+/**
+ * Prompt-aware "is this a real research question?" heuristic — used ONLY
+ * as the emergency fallback when both classifier endpoints are unreachable.
+ *
+ * Correction 3: the naive `words.length > 4` rule is removed. A 5-word
+ * non-search sentence ("Hey there how are you" = 5 words) must NOT force
+ * a search when the model is unreachable. Real question signals only:
+ *   - explicit URL
+ *   - version number / "version" keyword
+ *   - question mark
+ *   - two or more consecutive capitalised proper nouns (an entity signal)
+ */
 function isSubstantivePrompt(prompt: string): boolean {
   const p = prompt.trim();
   if (p.length === 0) return false;
-  const words = p.split(/\s+/).filter((w) => w.length > 0);
-  if (words.length > 4) return true;
-  if (/[?]/.test(p)) return true;
   if (extractPromptUrls(p).length > 0) return true;
   if (/\b\d+\.\d+\b|version\b/i.test(p)) return true;
-  // Proper-noun / entity signal: two or more capitalised words, or a known
-  // domain marker (a place, product, or person name that must be verified).
+  if (/[?]/.test(p)) return true;
+  // Proper-noun / entity signal: two or more capitalised words.
   const proper = p.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g) ?? [];
   if (proper.length > 0) return true;
   return false;
@@ -214,6 +329,38 @@ Rules:
   that URL as one of the queries with intent "general".
 Do NOT add anything else to your output.`;
 
+/**
+ * Minimal Stage-1 system prompt: asks ONLY the single boolean question.
+ * No query-generation instructions, no freshness/depth/queries fields —
+ * this removes the bias toward `search_required: true` that the full
+ * LLM_SYSTEM_PROMPT introduces. The 1.2B model can reliably classify
+ * greetings, chitchat, and pure coding/math as `false` when the only
+ * thing it has to decide is one boolean.
+ */
+const STAGE1_SYSTEM_PROMPT = `You are a search-routing classifier.
+Given the user's message, decide whether a live web search is required to
+answer it accurately.
+
+Answer with ONLY valid JSON: {"search_required": boolean}
+
+Rules:
+- search_required = true ONLY when the answer depends on facts that change
+  over time (news, prices, versions, releases, weather, sports, current
+  events), or the user explicitly references a URL, a specific document,
+  or a product with versioned attributes.
+- search_required = false for: greetings, chitchat, "how does X work"
+  explanations with no time-specific constraint, algorithms, math proofs,
+  well-known scientific concepts, history before 2020, coding concepts
+  with no version constraint.
+Do NOT add anything else to your output.`;
+
+function buildStage1Messages(ctx: LfmGateContext): { role: string; content: string }[] {
+  return [
+    { role: "system", content: STAGE1_SYSTEM_PROMPT },
+    { role: "user", content: ctx.userPrompt.slice(0, 2000) },
+  ];
+}
+
 function stripAndRepair(raw: string): string {
   // Remove markdown fences if the model wrapped the JSON, strip
   // any reasoning prefix up to the first {.
@@ -234,6 +381,10 @@ function stripAndRepair(raw: string): string {
  * backend can still dump the JSON inside `reasoning_content`, so we recover
  * from BOTH `content` and `reasoning_content`.
  *
+ * For the fast LFM2.5-1.2B router on :8791, we additionally pass
+ * `json_schema` grammar to enforce the exact SearchDecision shape — the
+ * 1.2B model is too small to produce reliable JSON without it.
+ *
  * Returns a parsed SearchDecision on success, or null on any of: non-200,
  * timeout, unparseable JSON, or an empty-content + empty-reasoning failure.
  * The caller (runLfmGate) decides the prompt-aware fallback.
@@ -245,6 +396,32 @@ async function callLlmEndpoint(
 ): Promise<SearchDecision | null> {
   let content: string;
   let reasoning: string;
+
+  // Build the request body. For :8791 we pass grammar enforcement;
+  // for :8080 we pass only thinking-off.
+  const isFast = endpoint === FAST_ENDPOINT;
+  const body: Record<string, unknown> = {
+    model: "default",
+    messages: buildLlmMessages(ctx),
+    temperature: 0,
+    ...THINKING_OFF_BODY,
+  };
+  if (isFast) {
+    body.response_format = {
+      type: "json_object",
+      json_schema: LFM_JSON_SCHEMA,
+    };
+    // Top-level json_schema is also read by llama.cpp's structured-output path.
+    (body as Record<string, unknown>).json_schema = LFM_JSON_SCHEMA;
+    // Strict generation params for the 1.2B router.
+    body.max_tokens = 180;
+    body.top_k = 1;
+    body.top_p = 1.0;
+    // seed is intentionally omitted so each call is fresh.
+  } else {
+    body.response_format = { type: "json_object" };
+  }
+
   try {
     const res = await fetch(endpoint, {
       method: "POST",
@@ -252,13 +429,7 @@ async function callLlmEndpoint(
         "Content-Type": "application/json",
         Authorization: "Bearer " + LLM_API_KEY,
       },
-      body: JSON.stringify({
-        model: "default",
-        messages: buildLlmMessages(ctx),
-        temperature: 0,
-        response_format: { type: "json_object" },
-        ...THINKING_OFF_BODY,
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
@@ -269,12 +440,41 @@ async function callLlmEndpoint(
     const msg = data?.choices?.[0]?.message ?? {};
     content = typeof msg.content === "string" ? msg.content : "";
     reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
-  } catch (e) {
-    log.warn(
-      { endpoint: endpoint.slice(0, 40), err: (e as Error).message, timeoutMs },
-      "classifier unreachable / timeout",
-    );
-    return null;
+  } catch (e: unknown) {
+    const err = e as { code?: string; cause?: { code?: string }; message: string };
+    const code = err.code ?? err.cause?.code ?? "";
+    const isConnRefused = code === "ECONNREFUSED" || err.message.includes("ECONNREFUSED");
+    // Only auto-warmup when :8791 is unreachable on a cold start.
+    if (isFast && isConnRefused && warmupInFlight === null) {
+      log.warn({ endpoint: endpoint.slice(0, 40), code }, "ECONNREFUSED on :8791 — triggering auto-warmup");
+      await triggerAutoWarmup();
+      // Retry once after warmup.
+      try {
+        const retryRes = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + LLM_API_KEY },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!retryRes.ok) {
+          log.warn({ endpoint: endpoint.slice(0, 40), status: retryRes.status }, "classifier non-200 after warmup");
+          return null;
+        }
+        const data: any = await retryRes.json();
+        const msg = data?.choices?.[0]?.message ?? {};
+        content = typeof msg.content === "string" ? msg.content : "";
+        reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
+      } catch {
+        log.warn({ endpoint: endpoint.slice(0, 40) }, "classifier unreachable after warmup retry");
+        return null;
+      }
+    } else {
+      log.warn(
+        { endpoint: endpoint.slice(0, 40), err: err.message, timeoutMs },
+        "classifier unreachable / timeout",
+      );
+      return null;
+    }
   }
 
   // 1) Try the primary `content` field first.
@@ -326,18 +526,260 @@ function parseDecisionField(raw: string, ctx: LfmGateContext): SearchDecision | 
 }
 
 /**
- * Run the two-stage classifier: fast LFM2.5 router first, main model second.
- * Returns a SearchDecision, or null when BOTH endpoints fail to produce a
- * valid JSON verdict (genuine model failure / total unreachability).
+ * Fire a single LLM request and return the raw `message.content` +
+ * `message.reasoning_content` fields (plus null on any network failure).
+ *
+ * For :8791 we always include `json_schema` grammar in the body.
+ * The caller decides which schema (STAGE1_SCHEMA or STAGE2_SCHEMA) to pass
+ * via the `schema` parameter.
+ *
+ * Returns `{ content, reasoning }` on success, or null on any of:
+ * non-200, timeout, ECONNREFUSED (auto-warmup already attempted).
+ */
+async function fireLlmRequest(
+  endpoint: string,
+  ctx: LfmGateContext,
+  timeoutMs: number,
+  schema: Record<string, unknown>,
+  maxTokens: number,
+  messages?: { role: string; content: string }[],
+): Promise<{ content: string; reasoning: string } | null> {
+  const isFast = endpoint === FAST_ENDPOINT;
+  const body: Record<string, unknown> = {
+    model: "default",
+    messages: messages ?? buildLlmMessages(ctx),
+    temperature: 0,
+    ...THINKING_OFF_BODY,
+  };
+  if (isFast) {
+    body.response_format = { type: "json_object", json_schema: schema };
+    (body as Record<string, unknown>).json_schema = schema;
+    body.max_tokens = maxTokens;
+    body.top_k = 1;
+    body.top_p = 1.0;
+  } else {
+    body.response_format = { type: "json_object" };
+  }
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + LLM_API_KEY },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      log.warn({ endpoint: endpoint.slice(0, 40), status: res.status }, "classifier non-200");
+      return null;
+    }
+    const data: any = await res.json();
+    const msg = data?.choices?.[0]?.message ?? {};
+    return {
+      content: typeof msg.content === "string" ? msg.content : "",
+      reasoning: typeof msg.reasoning_content === "string" ? msg.reasoning_content : "",
+    };
+  } catch (e: unknown) {
+    const err = e as { code?: string; cause?: { code?: string }; message: string };
+    const code = err.code ?? err.cause?.code ?? "";
+    const isConnRefused = code === "ECONNREFUSED" || err.message.includes("ECONNREFUSED");
+    if (isFast && isConnRefused && warmupInFlight === null) {
+      log.warn({ endpoint: endpoint.slice(0, 40), code }, "ECONNREFUSED on :8791 — triggering auto-warmup");
+      await triggerAutoWarmup();
+      // One retry after warmup.
+      try {
+        const retryRes = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + LLM_API_KEY },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!retryRes.ok) return null;
+        const data: any = await retryRes.json();
+        const msg = data?.choices?.[0]?.message ?? {};
+        return {
+          content: typeof msg.content === "string" ? msg.content : "",
+          reasoning: typeof msg.reasoning_content === "string" ? msg.reasoning_content : "",
+        };
+      } catch {
+        return null;
+      }
+    }
+    log.warn({ endpoint: endpoint.slice(0, 40), err: err.message, timeoutMs }, "classifier unreachable / timeout");
+    return null;
+  }
+}
+
+/**
+ * Stage 1: ask the router for a single boolean verdict.
+ *
+ * The 1.2B model answers `{"search_required": true|false}` in <200ms
+ * when the schema constrains it to one field — no query-generation
+ * instructions biasing it toward `true`.
+ *
+ * Returns `true` (search needed), `false` (no search), or `null`
+ * (router unreachable / no parseable answer — caller falls back to :8080).
+ */
+async function stage1SearchCheck(
+  ctx: LfmGateContext,
+): Promise<boolean | null> {
+  // Use the minimal Stage-1 prompt (single boolean, no query-generation
+  // bias) for both the fast router and the main model.
+  const stage1Msgs = buildStage1Messages(ctx);
+  // Try the fast router first.
+  const fast = await fireLlmRequest(FAST_ENDPOINT, ctx, FAST_CLASSIFIER_TIMEOUT_MS, STAGE1_SCHEMA, 16, stage1Msgs);
+  if (fast) {
+    for (const raw of [fast.content, fast.reasoning]) {
+      if (!raw || raw.trim() === "") continue;
+      const cands = [stripAndRepair(raw), raw.trim()];
+      for (const c of cands) {
+        try {
+          const parsed = JSON.parse(c);
+          if (typeof parsed?.search_required === "boolean") return parsed.search_required;
+        } catch { /* try next */ }
+      }
+    }
+  }
+  // Fall back to the main model for Stage 1 (it also answers a single
+  // boolean reliably; schema constrains the output).
+  const main = await fireLlmRequest(LLM_ENDPOINT, ctx, MAIN_CLASSIFIER_TIMEOUT_MS, STAGE1_SCHEMA, 16, stage1Msgs);
+  if (main) {
+    for (const raw of [main.content, main.reasoning]) {
+      if (!raw || raw.trim() === "") continue;
+      const cands = [stripAndRepair(raw), raw.trim()];
+      for (const c of cands) {
+        try {
+          const parsed = JSON.parse(c);
+          if (typeof parsed?.search_required === "boolean") return parsed.search_required;
+        } catch { /* try next */ }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Stage 2: generate the full search plan (queries, intent, freshness,
+ * depth). ONLY called when Stage 1 returned `search_required: true`.
+ *
+ * Returns a full SearchDecision, or null when the router is unreachable
+ * or the JSON is malformed.
+ */
+async function stage2SearchPlan(
+  ctx: LfmGateContext,
+): Promise<SearchDecision | null> {
+  const fast = await fireLlmRequest(FAST_ENDPOINT, ctx, FAST_CLASSIFIER_TIMEOUT_MS, STAGE2_SCHEMA, 180);
+  if (fast) {
+    for (const raw of [fast.content, fast.reasoning]) {
+      if (!raw || raw.trim() === "") continue;
+      const cands = [stripAndRepair(raw), raw.trim()];
+      for (const c of cands) {
+        try {
+          const parsed = JSON.parse(c);
+          // Build a full SearchDecision from the Stage 2 shape.
+          const decision: SearchDecision = {
+            search_required: true,
+            reason: parsed.reason ?? "stage-2 plan",
+            freshness: (["none", "day", "week", "month", "year", "any"].includes(parsed.freshness) ? parsed.freshness : "any") as SearchDecision["freshness"],
+            depth: (["quick", "standard", "deep"].includes(parsed.depth) ? parsed.depth : "standard") as SearchDecision["depth"],
+            queries: Array.isArray(parsed.queries)
+              ? parsed.queries.map((q: any) => ({
+                  query: String(q?.query ?? ""),
+                  intent: (["general", "news", "docs", "code", "academic", "forum"].includes(q?.intent) ? q.intent : "general") as SearchDecision["queries"][number]["intent"],
+                  ...(Array.isArray(q?.preferred_domains) ? { preferred_domains: q.preferred_domains } : {}),
+                })).filter((q: any) => q.query.length > 0)
+              : [],
+          };
+          // Explicit URLs in the prompt always warrant extraction.
+          const urls = extractPromptUrls(ctx.userPrompt);
+          if (urls.length > 0) {
+            const existing = new Set(decision.queries.map((q) => q.query));
+            for (const u of urls) {
+              if (!existing.has(u)) decision.queries.push({ query: u, intent: "general" });
+            }
+          }
+          if (decision.queries.length === 0) decision.queries.push({ query: ctx.userPrompt.slice(0, 300), intent: "general" });
+          return decision;
+        } catch { /* try next candidate */ }
+      }
+    }
+  }
+  // Fall back to the main model for Stage 2.
+  const main = await fireLlmRequest(LLM_ENDPOINT, ctx, MAIN_CLASSIFIER_TIMEOUT_MS, STAGE2_SCHEMA, 180);
+  if (main) {
+    for (const raw of [main.content, main.reasoning]) {
+      if (!raw || raw.trim() === "") continue;
+      const cands = [stripAndRepair(raw), raw.trim()];
+      for (const c of cands) {
+        try {
+          const parsed = JSON.parse(c);
+          const decision: SearchDecision = {
+            search_required: true,
+            reason: parsed.reason ?? "stage-2 plan (main model)",
+            freshness: "any",
+            depth: "standard",
+            queries: Array.isArray(parsed.queries)
+              ? parsed.queries.map((q: any) => ({
+                  query: String(q?.query ?? ""),
+                  intent: "general" as const,
+                  ...(Array.isArray(q?.preferred_domains) ? { preferred_domains: q.preferred_domains } : {}),
+                })).filter((q: any) => q.query.length > 0)
+              : [{ query: ctx.userPrompt.slice(0, 300), intent: "general" as const }],
+          };
+          return decision;
+        } catch { /* try next */ }
+      }
+    }
+  }
+  // Both endpoints failed → rule-based fallback (never a silent no-search).
+  const rulePlan = rulesBasedPlan(ctx);
+  return rulePlan.decision;
+}
+
+/**
+ * Two-stage classifier (correction 3):
+ *
+ * Stage 1 — `{"search_required": boolean}` (max_tokens: 16).
+ *   The 1.2B model only has to emit a single boolean. No query-generation
+ *   instructions in the prompt → no bias toward `true`. Greetings,
+ *   chitchat, and pure coding/math questions all correctly yield `false`.
+ *
+ * Stage 2 — full plan (`{ intent, freshness, depth, queries }`)
+ *   ONLY when Stage 1 says `true`. This keeps the 1.2B model from
+ *   generating queries for no-search prompts (which biased it toward
+ *   `search_required: true` in the old single-stage design).
+ *
+ * Returns a SearchDecision or null when both endpoints are unreachable
+ * AND the rule-based fallback cannot produce a plan.
  */
 export async function callLlm(ctx: LfmGateContext): Promise<SearchDecision | null> {
-  // 1) Fast, warm LFM2.5-1.2B router — the intended primary authority.
-  const fast = await callLlmEndpoint(FAST_ENDPOINT, ctx, FAST_CLASSIFIER_TIMEOUT_MS);
-  if (fast) return fast;
-  // 2) Fallback to the main (thinking) model when the router is busy/down.
-  const main = await callLlmEndpoint(LLM_ENDPOINT, ctx, MAIN_CLASSIFIER_TIMEOUT_MS);
-  if (main) return main;
-  return null;
+  const t0 = performance.now();
+
+  // Stage 1: single-field boolean check.
+  const searchNeeded = await stage1SearchCheck(ctx);
+  if (searchNeeded === false) {
+    // No search needed — return a clean no-search decision.
+    log.info({ lfmMs: Math.round(performance.now() - t0) }, "stage-1: search_required=false");
+    return {
+      search_required: false,
+      reason: "stage-1: no live web content needed",
+      freshness: "none",
+      depth: "quick",
+      queries: [],
+    };
+  }
+
+  // Stage 1 returned null (router unreachable) → fall back to rules.
+  if (searchNeeded === null) {
+    log.warn({ prompt: ctx.userPrompt.slice(0, 60) }, "stage-1: router unreachable → rule fallback");
+    return isSubstantivePrompt(ctx.userPrompt) ? rulesBasedPlan(ctx).decision : null;
+  }
+
+  // Stage 1 said true → generate the full plan.
+  const plan = await stage2SearchPlan(ctx);
+  if (plan) {
+    log.info({ lfmMs: Math.round(performance.now() - t0) }, "stage-2: full plan generated");
+  }
+  return plan;
 }
 
 /* ── public API ────────────────────────────────────────────────────────── */
