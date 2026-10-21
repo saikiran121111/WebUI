@@ -1,0 +1,49 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,300;8..60,400&display=swap");
+
+:root {
+  --bg: #050507;                /* Obsidian black */
+  --bg-elevated: #0d0d12;
+  --bg-glass: rgba(13, 13, 18, 0.88);
+  --bg-overlay: rgba(13, 13, 18, 0.88);
+  --foreground: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.58);
+  --muted-2: rgba(255, 255, 255, 0.32);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --border-glow: rgba(56, 189, 248, 0.45);
+  --accent: #a3c6e3;            /* restrained slate-blue, used sparingly */
+  --accent-soft: rgba(163, 198, 227, 0.12);
+  --code-bg: rgba(255, 255, 255, 0.02);
+  --shadow-lg: 0 10px 40px -4px rgba(0, 0, 0, 0.6);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.10);
+  --scrollbar-track: transparent;
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 3px; }
+
+/* Horizontal scroll strip that hides its scrollbar */
+.scrollbar-hide { overflow-x: auto; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+html, body { height: 100%; background: var(--bg); }
+
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--foreground);
+}
+
+.font-serif { font-family: "Source Serif 4", "Iowan Old Style", Georgia, serif; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

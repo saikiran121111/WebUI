@@ -1,9 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    // Auto-boot hook: instrumentation.ts warms the Decision Engine on server
-    // start (required flag on Next 14; native in 15).
+    // Auto-boot hook: instrumentation.ts warms the web-search cache on
+    // server start (required flag on Next 14; native in 15).
     instrumentationHook: true,
+    // Tree-shake lucide-react (per-icon ES modules) so unused icons are
+    // stripped from the production bundle automatically.
+    optimizePackageImports: ["lucide-react"],
     // Native/binary server deps used by the file-extraction routes. Keeping
     // them external stops webpack from trying to bundle ffmpeg/onnxruntime.
     serverComponentsExternalPackages: [

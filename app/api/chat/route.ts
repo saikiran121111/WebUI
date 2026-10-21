@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { childLogger } from "../../../lib/server/logger";
-import { logDecisionTable } from "../../../lib/server/decision-log";
 import {
   applySlashSkillRouting,
   extractUserText,
@@ -19,7 +18,7 @@ import {
   type DecisionEnvelope,
   type RendererMode,
 } from "../../../lib/decision/types";
-import { runWebResearch, buildMainModelContext } from "../../../src/lib/web-search/pipeline";
+import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
 
 const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const API_KEY = process.env.LLM_API_KEY ?? "no-key";
@@ -447,11 +446,11 @@ export async function POST(req: NextRequest) {
         if (inferenceTurnActive) endUserTurn();
       }
 
-      // The full routing story in one readable terminal block: LFM2.5-1.2B
-      // router (exact input + raw JSON out), the skill actually injected,
-      // the UI component that will render this reply, and what the main LLM
-      // finally receives.
-      logDecisionTable(log, { input: fullText, env, usedSkill, skillBlockBytes, model });
+      // One-line routing log: mode + deciding source + skill actually injected.
+      log.info(
+        { mode: env.active_mode, by: env.decided_by, skill: usedSkill, skillBytes: skillBlockBytes, model },
+        "turn decision",
+      );
     }
   }
 

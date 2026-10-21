@@ -38,8 +38,8 @@ import {
   CACHE_TTL_MS,
   hash,
   extractUrl,
-} from "../src/lib/web-search/index";
-import type { EvidencePacket, RankedResult } from "../src/lib/web-search/types";
+} from "../lib/web-search/index";
+import type { EvidencePacket, RankedResult } from "../lib/web-search/types";
 
 const BOLD = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -196,7 +196,7 @@ async function main() {
       ) === false,
   );
   const containsOnly = newDirs.every((d) =>
-    [".local-search", ".decision-engine", ".cskills", "skills", "scripts", "src"].includes(
+    [".local-search", ".decision-engine", ".cskills", "skills", "scripts", "lib"].includes(
       d.name,
     ),
   );
@@ -236,10 +236,10 @@ async function main() {
   console.log(BOLD("\n7. PDF extraction (arXiv)"));
   try {
     const { fetchPage, PDF_LIMIT_BYTES } = await import(
-      "../src/lib/web-search/tls-client"
+      "../lib/web-search/tls-client"
     );
     const { structuralExtractAsync } = await import(
-      "../src/lib/web-search/universal-extractor"
+      "../lib/web-search/universal-extractor"
     );
     // arXiv sometimes rate-limits; use the html landing page as a
     // reliable PDF source with a known >500KB binary body.
@@ -517,7 +517,7 @@ async function main() {
 
   const { ddgSearch, yahooSearch, startpageSearch, braveSearch, aolSearch,
           mojeekSearch, searxSearch, redditSearch, queryCoreTokens } = await import(
-    "../src/lib/web-search/index"
+    "../lib/web-search/index"
   );
 
   const SCENARIOS: Array<{

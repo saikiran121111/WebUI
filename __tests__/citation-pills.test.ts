@@ -20,7 +20,7 @@ import {
   rehypeCitations,
   type CitationMap,
 } from "../components/render/citations";
-import type { ClaimStatus } from "../src/lib/web-verify/types";
+import type { ClaimStatus } from "../lib/web-verify-types";
 
 const MAP: CitationMap = {
   S2: {

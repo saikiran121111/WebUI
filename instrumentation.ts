@@ -21,7 +21,7 @@ export async function register(): Promise<void> {
     // Purge expired web-search cache on startup + start the 15-min sweep
     try {
       const { startPurgeSweep } = await import(
-        "./src/lib/web-search/cache"
+        "./lib/web-search/cache"
       );
       startPurgeSweep();
     } catch {

@@ -34,7 +34,7 @@
  * therefore returns an attacher, which returns the transformer.
  */
 
-import type { ClaimStatus } from "../../src/lib/web-verify/types";
+import type { ClaimStatus } from "../../lib/web-verify-types";
 
 export interface CitationEntry {
   sourceId: string; // "S1"

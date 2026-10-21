@@ -11,7 +11,7 @@
  * multi-hop research on a local workstation.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { runWebResearch, evidenceBlock } from "../../../src/lib/web-search/pipeline";
+import { runWebResearch, evidenceBlock } from "../../../lib/web-search/pipeline";
 
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");

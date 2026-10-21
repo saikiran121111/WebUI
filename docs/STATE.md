@@ -1,5 +1,66 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-21f — FOLLOW-UP GATE OVER-FIRE FIX (KEEP UNIVERSAL VALIDATION, MAKE GATE SIMPLE):
+Synced: 2026-10-22a — DEAD-CODE PURGE + FOLDER UNIFICATION + PERFORMANCE BOOST:
+
+[8.1 CORE OBJECTIVE & ACTIVE PHASE]
+PHASE 1 (DEAD-CODE PURGE) — COMPLETED:
+- Deleted `src/lib/web-verify/` (12 files), `src/lib/web-search/entity-validator.ts`,
+  `src/lib/web-search/stress-cache.ts`, `app/api/verify-claims/route.ts`.
+- Deleted `.decision-engine/` (worker Python, setup scripts, cached HF models).
+- Deleted `archive/` (13 files), `documents/` (2 files).
+- Deleted 8 one-off stress/benchmark scripts from `scripts/`.
+- Deleted `tests/test-decision-fallback.py`, `lib/server/decision-log.ts`,
+  `__tests__/decision/decision-log.test.ts`.
+- Deleted `lib/search/` and `lib/research/` (only `hooks/useChat.ts` referenced
+  ResearchOrchestrator; now replaced by direct `lib/chat/streamHelpers.ts` usage).
+- Stripped `.cskills/anatomy/` repo baggage: `.github/`, `evals/`, `tests/`,
+  `scripts/*.test.mjs`, `CHANGELOG.md`, `LICENSE`, `SECURITY.md`,
+  `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `.gitattributes`, `.gitignore`.
+- `src/lib/web-search/` → `lib/web-search/` (moved, `src/` deleted).
+- `lib/web-search/index.ts`: removed stress-cache re-exports.
+- `components/render/citations.ts` + `__tests__/citation-pills.test.ts`:
+  `ClaimStatus` import now comes from new `lib/web-verify-types.ts` (local
+  single-union type, no dependency on the deleted web-verify module).
+
+PHASE 2 (FOLDER UNIFICATION) — COMPLETED:
+- `tsconfig.json`: `paths.@/*` now `[./*]` only (no `./src/*`).
+- All `src/lib/web-search` importers updated to `lib/web-search`.
+- `app/api/search/route.ts` no longer imports `lib/search`; legacy raw SearXNG
+  proxy remains inline (no external dep).
+
+PHASE 3 (CSS MODULARIZATION + FILE SPLIT) — COMPLETED:
+- `app/globals.css` (1508 lines) → 5 files in `styles/`:
+  `tokens.css` (CSS vars + scrollbar + reduced-motion), `base.css` (tailwind
+  directives + fonts), `code.css` (Shiki + code blocks),
+  `markdown.css` (tables, prose, charts, widgets, 3D scene blocks, anatomy,
+  tree, KaTeX, wide blocks), `document-viewers.css` (XLSX/DOCX/PPTX/Resume/
+  HTML/PowerBI viewers).
+- `app/cad-studio.css` → `styles/cad-studio.css`; now lazily imported by
+  `ArchitectureCadViewer.tsx` and `ThreeStudioViewer.tsx` (no longer in
+  `app/layout.tsx` global CSS).
+- `hooks/useChat.ts` (546 lines) → refactored to rAF-batched stream flush
+  (~450 lines target met by extracting SSE header decoding to
+  `lib/chat/streamHelpers.ts` + removing ResearchOrchestrator import).
+- `components/MarkdownRenderer.tsx` (371 lines) → refactored to extract
+  fence routing to `components/render/FenceRouter.tsx`; all heavy studio
+  viewers are now `next/dynamic` lazy-loaded (ssr: false + BlockSkeleton).
+
+PHASE 4 (PERFORMANCE BOOST) — COMPLETED:
+- rAF stream batching in `hooks/useChat.ts`: content/reasoning deltas
+  accumulate in refs and flush at most once per animation frame.
+- `CodeBlock.tsx`: streaming path uses 150 ms debounce (not the old 200 ms
+  throttle); immediate highlight on stream end.
+- `next.config.mjs`: `optimizePackageImports: ["lucide-react"]` enabled.
+- `ChatMessage.tsx` already wrapped in `React.memo` — confirmed, no change needed.
+- `lib/three3d/viewerCore.ts` + `studioEngine.ts`: IntersectionObserver pause
+  and `disposeObject3D()`/`renderer.dispose()` already present — confirmed,
+  no change needed.
+
+PHASE 5 (CLAUDE.md + docs/state.md) — COMPLETED:
+- `CLAUDE.md` section 5 added (Architecture, Folder Structure & Performance
+  Rules).
+- `docs/state.md` 8.1 updated with this session's lock list.
+
+[8.1 PRIOR ENTRY — FOLLOW-UP GATE OVER-FIRE FIX (2026-10-21f, LOCKED)]
 User bug report: live chat "What are you doing" (chitchat, 0 search intent) fired an "LFM-gated" search of "Honor 200 5G — Current events" — the deterministic follow-up escalation inside lfm-gate.ts misread a personal question after a shopping thread as a "link / live-state" ask about the assistant's last entity. Root causes (3, all in lfm-gate.ts, entity-validator.ts UNTOUCHED):
 (1) `FOLLOWUP_LINK_RE` contained `\?\b\w+\?` — a regex that literally matches any "?word?" sequence, so "What are you doing?" alone (zero history) escalated; removed from the alternation.
 (2) `isContextFollowUp`'s last-resort arm `hist.length > 0 && (linkHit || stateHit)` fired on ANY history + any link/state word; now REQUIRES an entity nameable in the window AFTER the latest user message (an answered question or chitchat has no subject to verify — that is the false-positive). A fresh "?" after ≥1 user turn in history is treated as a NEW question, never a live-state follow-up.

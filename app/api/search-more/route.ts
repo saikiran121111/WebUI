@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   runWebResearch,
   evidenceBlock,
-} from "../../../src/lib/web-search/pipeline";
+} from "../../../lib/web-search/pipeline";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("api/search-more");

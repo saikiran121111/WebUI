@@ -6,6 +6,13 @@ import { resolveLanguage } from "../../lib/render/languages";
 import { copyText } from "../../lib/render/clipboard";
 
 const STREAM_HIGHLIGHT_INTERVAL_MS = 200;
+/**
+ * During active streaming, plain <pre><code> is shown with zero Shiki
+ * overhead until the fence has been quiet for at least 150 ms; then a
+ * single Shiki call runs.  When streaming ends the block is re-highlighted
+ * immediately.
+ */
+const STREAM_DEBOUNCE_MS = 150;
 const MAX_STREAM_HIGHLIGHT_CHARS = 10_000;
 const COLLAPSE_AFTER_LINES = 24;
 
@@ -32,11 +39,10 @@ export default memo(function CodeBlock({ code, lang, streaming = false }: CodeBl
   const lineCount = useMemo(() => code.split("\n").length, [code]);
   const collapsible = lineCount > COLLAPSE_AFTER_LINES;
 
-  // Throttle, never debounce: SSE chunks arrive faster than any fixed delay,
-  // so a debounced timer is always cleared before it fires and colors would
-  // only appear when the fence closes. Highlight immediately once the
-  // interval has elapsed; otherwise schedule the trailing run — the final
-  // chunk's timer is never cleared, so the last highlight always lands.
+  // Throttle + debounce: SSE chunks arrive faster than any fixed delay, so a
+  // 150 ms debounce keeps Shiki out of the hot path while the fence is still
+  // changing.  The final chunk (or streaming = false) triggers an immediate
+  // highlight so colors always land by the time the user reads the code.
   const lastHighlightAt = useRef(0);
   const highlightSeq = useRef(0);
   const appliedSeq = useRef(0);
@@ -52,31 +58,31 @@ export default memo(function CodeBlock({ code, lang, streaming = false }: CodeBl
       setHtml(null);
       return;
     }
-    const sinceLast = Date.now() - lastHighlightAt.current;
-    const wait = streaming ? Math.max(0, STREAM_HIGHLIGHT_INTERVAL_MS - sinceLast) : 0;
-    const run = () => {
-      lastHighlightAt.current = Date.now();
-      const seq = ++highlightSeq.current;
-      void highlightCode(code, lang).then(result => {
-        // During a fast stream seq advances before this resolves; discarding
-        // the result then would leave the block plain until the stream pauses
-        // (the exact UX bug this throttle exists to fix). Paint it as long as
-        // nothing newer has already painted — never regress to older code.
-        if (!cancelled && seq >= appliedSeq.current) {
-          appliedSeq.current = seq;
-          setHtml(result?.html ?? null);
-        }
-      });
-    };
-    if (wait === 0) {
-      run();
-      return () => { cancelled = true; };
+    // While actively streaming: debounce — wait for the code to stop changing.
+    if (streaming) {
+      const timer = setTimeout(() => {
+        if (cancelled) return;
+        lastHighlightAt.current = Date.now();
+        const seq = ++highlightSeq.current;
+        void highlightCode(code, lang).then(result => {
+          if (!cancelled && seq >= appliedSeq.current) {
+            appliedSeq.current = seq;
+            setHtml(result?.html ?? null);
+          }
+        });
+      }, STREAM_DEBOUNCE_MS);
+      return () => { cancelled = true; clearTimeout(timer); };
     }
-    const timer = setTimeout(run, wait);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    // Streaming just ended: highlight immediately with no debounce.
+    lastHighlightAt.current = Date.now();
+    const seq = ++highlightSeq.current;
+    void highlightCode(code, lang).then(result => {
+      if (!cancelled && seq >= appliedSeq.current) {
+        appliedSeq.current = seq;
+        setHtml(result?.html ?? null);
+      }
+    });
+    return () => { cancelled = true; };
   }, [code, lang, resolved.loader, streaming]);
 
   useEffect(() => () => {

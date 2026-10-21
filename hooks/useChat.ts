@@ -1,9 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
-import type { BrowserTool } from "../lib/browser/agentBrowser";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
-import { ResearchOrchestrator } from "../lib/research/orchestrator";
 import {
   MAX_FENCE_REPAIRS,
   applyFenceRepair,
@@ -14,6 +12,7 @@ import {
   type BrokenFence,
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
+import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
@@ -29,9 +28,7 @@ export interface UseChatReturn {
   error: string | null;
   isThinking: boolean;
   reasoningContent: string;
-  /** Swap the conversation entirely. */
   load: (conversation: Conversation) => void;
-  /** Drop all messages (new chat / after deleting the active one). */
   clear: () => void;
   send: (text: string, opts?: { mode?: ChatMode; attachments?: any[] }) => void;
   stop: () => void;
@@ -40,7 +37,6 @@ export interface UseChatReturn {
   clearError: () => void;
   setEffort: (level: EffortLevel) => void;
   effort: EffortLevel;
-  /** Repair a fence that only fails at runtime (```threejs code throws in the viewer). */
   requestFenceRepair: (assistantId: string, info: { lang: string; body: string; error: string }) => void;
 }
 
@@ -67,14 +63,58 @@ export function useChat({
   effortRef.current = effort;
   const assistantIdRef = useRef<string | null>(null);
   const streamContentRef = useRef<string>("");
-  /** Tracks when reasoning started so reasoningMs can be set on the message. */
   const reasoningStartRef = useRef<number | null>(null);
-  /** Guards send() against double-fire from rapid calls (e.g. edit + save). */
   const sendBusyRef = useRef(false);
-  /** Shared abort controller so `stop` can cancel an in-flight stream. */
   const abortRef = useRef<AbortController | null>(null);
-  /** Decision Engine mode of the in-flight turn (x-decision-mode header). */
   const decisionModeRef = useRef<RendererMode | null>(null);
+
+  // Phase 4: rAF-batched stream delta. content/reasoning accumulate in a
+  // mutable ref and flush to React state at most once per animation frame,
+  // eliminating re-render thrashing on fast local LLMs.
+  const pendingContentRef = useRef("");
+  const pendingReasoningRef = useRef("");
+  const rafRef = useRef<number | null>(null);
+  const reasoningContentStateRef = useRef("");
+
+  const flushPending = useCallback((immediate = false) => {
+    const content = pendingContentRef.current;
+    const reasoning = pendingReasoningRef.current;
+    if (!content && !reasoning) return;
+    pendingContentRef.current = "";
+    pendingReasoningRef.current = "";
+
+    const id = assistantIdRef.current;
+    setMessages(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      const next = { ...m };
+      if (content) next.content = (m.content as string) + content;
+      if (reasoning) next.reasoning = (m.reasoning as string) + reasoning;
+      if (reasoning && m.reasoningMs == null && reasoningStartRef.current != null) {
+        next.reasoningMs = Date.now() - reasoningStartRef.current;
+      }
+      return next;
+    }));
+    if (reasoning) {
+      reasoningContentStateRef.current += reasoning;
+      setReasoningContent(reasoningContentStateRef.current);
+    }
+    if (immediate || rafRef.current != null) {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      flushPending(false);
+    });
+  }, [flushPending]);
+
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+  }, []);
 
   const load = useCallback((conversation: Conversation) => {
     setMessages(conversation.messages ?? []);
@@ -84,7 +124,10 @@ export function useChat({
     setError(null);
     setIsThinking(false);
     setReasoningContent("");
+    reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
+    pendingContentRef.current = "";
+    pendingReasoningRef.current = "";
   }, []);
 
   const clear = useCallback(() => {
@@ -95,10 +138,13 @@ export function useChat({
     lastInputRef.current = null;
     assistantIdRef.current = null;
     streamContentRef.current = "";
+    pendingContentRef.current = "";
+    pendingReasoningRef.current = "";
     setStatus("complete");
     setError(null);
     setIsThinking(false);
     setReasoningContent("");
+    reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
   }, []);
 
@@ -107,51 +153,23 @@ export function useChat({
 
     if (ev.reasoning) {
       if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
-      setReasoningContent(prev => prev + ev.reasoning);
+      pendingReasoningRef.current += ev.reasoning;
       setIsThinking(true);
-      if (assistantIdRef.current) {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantIdRef.current
-            ? { ...m, reasoning: (m.reasoning as string) + ev.reasoning }
-            : m
-        ));
-      }
+      scheduleFlush();
     }
     if (ev.content) {
       streamContentRef.current += ev.content;
-      // Close out the reasoningMs when the first content chunk arrives.
-      if (reasoningStartRef.current != null && assistantIdRef.current) {
-        const elapsed = Date.now() - reasoningStartRef.current;
-        setMessages(prev => prev.map(m =>
-          m.id === assistantIdRef.current && m.reasoningMs == null
-            ? { ...m, reasoningMs: elapsed }
-            : m
-        ));
-        reasoningStartRef.current = null;
-      }
-      setMessages(prev => prev.map(m =>
-        m.id === (assistantIdRef.current ?? "")
-          ? { ...m, content: (m.content as string) + ev.content }
-          : m
-      ));
+      pendingContentRef.current += ev.content;
       setIsThinking(false);
+      scheduleFlush();
     }
     if (ev.finishReason === "abort" || ev.finishReason === "error") {
       setStatus(ev.finishReason === "abort" ? "aborted" : "error");
       setError(ev.finishReason === "error" ? "Generation failed" : null);
       setIsThinking(false);
     }
-  }, []);
+  }, [scheduleFlush]);
 
-  /**
-   * Fence repair for anatomy / scene3d / cad fences. A broken fence is the
-   * model's mistake and only the model can fix it: feed the exact error back
-   * (the broken fence already sits in its history), splice the corrected
-   * fence into the same bubble. Anatomy repairs stay silent (existing
-   * contract); 3D/CAD repairs show a visible "Auto-repairing…" note so the
-   * user knows the model is retrying instead of a dead error panel. After
-   * MAX_FENCE_REPAIRS rounds the honest error fallback stays as last resort.
-   */
   const runRepairRounds = useCallback(async (
     assistantId: string,
     history: any[],
@@ -188,20 +206,18 @@ export function useChat({
             model,
             stream: true,
             reasoning_effort: effort === "off" ? undefined : effort,
-            // Pin the mode: the repair round belongs to the failed fence's
-            // mode; re-deciding on an error message could misroute it.
             decision_mode: decisionMode ?? undefined,
           },
           (ev) => { if (ev.content) reply += ev.content; },
           controller.signal,
         );
       } catch {
-        return; // aborted or upstream failure: leave the fence for the fallback
+        return;
       }
       if (controller.signal.aborted) return;
 
       const corrected = extractFenceBody(reply, lang);
-      if (!corrected) continue; // model answered without a fence: ask again
+      if (!corrected) continue;
       const repaired = applyFenceRepair(content, broken[0], corrected);
       streamContentRef.current = repaired;
       setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: repaired, fenceRepair: undefined } : m)));
@@ -209,14 +225,8 @@ export function useChat({
     }
   }, [model, apiUrl, apiKey]);
 
-  // Manual "Fix with AI" / runtime-error repair cap, per message.
   const fenceRepairAttemptsRef = useRef(new Map<string, number>());
 
-  /**
-   * Repair a fence that only fails at RUNTIME (```threejs code that throws
-   * inside the viewer) — it passed every static check, so the block itself
-   * reports the exact error and we feed it straight back to the model.
-   */
   const requestFenceRepair = useCallback((
     assistantId: string,
     info: { lang: string; body: string; error: string },
@@ -229,8 +239,6 @@ export function useChat({
     attempts.set(assistantId, used + 1);
 
     const message = messagesRef.current[idx];
-    // Zero-collision: runtime fence repair only runs when this message's
-    // Decision Engine mode actually owns that fence family.
     if (message.decisionMode !== "3d_asset") return;
     const history = messagesRef.current.slice(0, idx);
     streamContentRef.current = message.content;
@@ -250,19 +258,9 @@ export function useChat({
     );
   }, [runRepairRounds]);
 
-  /**
-   * The post-answer claim audit (/api/verify-claims) was removed with the
-   * web-verify ledger (2026-10-22). Nothing fetches from that endpoint
-   * anymore; the type field `webVerification` stays for older stored
-   * conversations only.
-   */
-
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
-    // sendBusyRef is the real concurrency guard — `status` here would be a
-    // stale closure value (it isn't a dep of this useCallback).
     if (!text.trim() || sendBusyRef.current) return;
     sendBusyRef.current = true;
-    // Kept outside the try so the catch can still mark the right bubble.
     let assistantId: string | null = null;
     try {
       const mode = opts.mode ?? "chat";
@@ -276,8 +274,6 @@ export function useChat({
         content: text,
         reasoning: "",
         reasoningMs: undefined,
-        // Carried on the message itself so the request builder can inline each
-        // file's content (text / image / frames / transcript) into the prompt.
         attachments: opts.attachments ?? [],
         toolCalls: [],
         citations: [],
@@ -305,7 +301,10 @@ export function useChat({
       setStatus("streaming");
       setError(null);
       setReasoningContent("");
+      reasoningContentStateRef.current = "";
       reasoningStartRef.current = null;
+      pendingContentRef.current = "";
+      pendingReasoningRef.current = "";
       setIsThinking(!!curEffort && curEffort !== "off");
       assistantIdRef.current = assistantMsg.id;
       streamContentRef.current = "";
@@ -316,74 +315,51 @@ export function useChat({
 
       const client = new ChatClient(apiUrl, apiKey, model);
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
-
-      // Snapshot the request history BEFORE the stream: a repair round must
-      // replay the exact conversation the broken reply was generated from.
       const requestHistory = [...messagesRef.current, userMsg];
 
       await client.chat(
         { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
-        // Metadata headers: user-tier skill pill + the Decision Engine's
-        // active_mode, which gates every renderer/validator for this reply.
         (headers) => {
-          const mode = headers.get("x-decision-mode");
-          if (mode && isRendererMode(mode)) {
+          const hdrs = decodeSseHeaders(headers);
+          const mode = hdrs.decisionMode;
+          if (mode) {
             decisionModeRef.current = mode;
             setMessages(prev => prev.map(m =>
               m.id === assistantMsg.id ? { ...m, decisionMode: mode } : m
             ));
           }
-          const skill = headers.get("X-Used-Skill");
-          if (skill) {
+          if (hdrs.skill) {
             setMessages(prev => prev.map(m =>
-              m.id === assistantMsg.id ? { ...m, usedSkill: skill } : m
+              m.id === assistantMsg.id ? { ...m, usedSkill: hdrs.skill } : m
             ));
           }
-          // Web-research citations: the [S#] map the main-model-gated
-          // pipeline produces, used by ResearchTrailCard + the citation pills.
-          const raw = headers.get("X-Web-Citations");
-          if (raw) {
-            try {
-              const webCitations = JSON.parse(decodeURIComponent(raw));
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, webCitations } : m
-              ));
-            } catch {
-              // Malformed header — the pills simply won't render, the
-              // answer itself is unaffected.
-            }
+          if (hdrs.webCitations) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, webCitations: hdrs.webCitations } : m
+            ));
           }
-          // LFM decision summary: shown collapsed in the Research Trail card.
-          const rawLfm = headers.get("X-Research-Lfm");
-          if (rawLfm) {
-            try {
-              const researchLfm = JSON.parse(decodeURIComponent(rawLfm));
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, researchLfm } : m
-              ));
-            } catch {
-              /* ignore */
-            }
+          if (hdrs.researchLfm) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, researchLfm: hdrs.researchLfm } : m
+            ));
           }
         },
-      ).catch((e: any) => {
-        throw e;
-      });
+      );
 
-      // Broken fences of the ACTIVE mode only get repaired before the bubble
-      // is finalized — the user sees the finished visual, not the error.
-      // Off-mode fences are never even scanned (zero-collision rule).
+      // Flush any pending rAF-batched deltas before finalizing.
+      flushPending(true);
+
       if (!controller.signal.aborted) {
-        const mode = decisionModeRef.current;
+        const curMode = decisionModeRef.current;
         await runRepairRounds(
           assistantMsg.id,
           requestHistory,
           curEffort,
           controller,
-          mode,
-          (content) => findBrokenRenderFences(content, mode),
+          curMode,
+          (content) => findBrokenRenderFences(content, curMode),
         );
       }
 
@@ -393,12 +369,8 @@ export function useChat({
         ));
         setStatus("complete");
         setReasoningContent("");
-        // The post-answer claim audit (/api/verify-claims) was removed with
-        // the web-verify ledger (2026-10-22): the answer carries [S#]
-        // citations and the model's own honest wording, nothing more.
+        reasoningContentStateRef.current = "";
       } else {
-        // Finalize the partial bubble: stop the blinking cursor and bring
-        // back the actions row even though the stream never finished.
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && m.state === "streaming"
             ? { ...m, state: "complete", finishedAt: Date.now() }
@@ -414,30 +386,21 @@ export function useChat({
           m.id === assistantId ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
-      } else {
-        // stop(): the abort branch above already set "aborted" — fall
-        // through to finally's guard, which never re-sets "streaming".
       }
       setReasoningContent("");
     } finally {
       setIsThinking(false);
       abortRef.current = null;
       sendBusyRef.current = false;
-      // Invariant: the composer's "Stop generating" button is tied to
-      // status === "streaming". Every exit path (completed, aborted,
-      // error, or repair round) must leave "streaming" behind — otherwise
-      // the stop button stays on screen and the composer is locked until
-      // the user happens to send another message.
       setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
-  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds]);
+  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
-    // Finalize the partial bubble so the cursor stops blinking and the
-    // actions row appears; the stream's own finally cleans up the rest.
+    flushPending(true);
     if (id) {
       setMessages(prev => prev.map(m =>
         m.id === id && m.state === "streaming"
@@ -445,13 +408,10 @@ export function useChat({
           : m
       ));
     }
-    // "aborted" only matters if the turn was actually streaming; once the
-    // stream's finally has already flipped the status to "complete"/
-    // "error", that later write must not clobber it.
     setStatus(prev => (prev === "streaming" ? "aborted" : prev));
     setError(null);
     setIsThinking(false);
-  }, []);
+  }, [flushPending]);
 
   const retry = useCallback(() => {
     if (lastInputRef.current) {
@@ -473,27 +433,17 @@ export function useChat({
   }, [send]);
 
   const edit = useCallback((id: string, newContent: string) => {
-    // Abort any in-flight generation FIRST. Without this the orphaned
-    // stream keeps running (and its sendBusyRef blocks the replacement
-    // send), while slicing away the streaming assistant bubble can empty
-    // the screen back to the hero — the "edit redirects me home" bug.
     abortRef.current?.abort();
     abortRef.current = null;
 
     const prev = messagesRef.current;
     const idx = prev.findIndex(m => m.id === id);
     if (idx < 0) return;
-    // Drop the edited user message AND everything after it — send() will
-    // append exactly one fresh user + assistant pair, so we end up with a
-    // single exchange on screen.
     const filtered = prev.slice(0, idx);
     messagesRef.current = filtered;
     lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
     setMessages(filtered);
     setStatus("complete");
-
-    // One macrotask later: the aborted send's finally (pure microtasks by
-    // then) has released sendBusyRef before the replacement send fires.
     setTimeout(() => send(newContent), 0);
   }, [send]);
 
@@ -503,45 +453,4 @@ export function useChat({
     clearError: () => setError(null),
     setEffort, effort, requestFenceRepair,
   };
-}
-
-function buildResearchToolDefs(): any[] {
-  return [
-    {
-      type: "function",
-      function: {
-        name: "web_search",
-        description: "Search the web via SearXNG and return ranked results.",
-        parameters: {
-          type: "object",
-          properties: { query: { type: "string", description: "Search query" } },
-          required: ["query"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "web_open",
-        description: "Open a URL and return rendered text content.",
-        parameters: {
-          type: "object",
-          properties: { url: { type: "string" } },
-          required: ["url"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "browser_screenshot",
-        description: "Take a screenshot of the current browser page.",
-        parameters: {
-          type: "object",
-          properties: { path: { type: "string" } },
-          required: ["path"],
-        },
-      },
-    },
-  ];
 }

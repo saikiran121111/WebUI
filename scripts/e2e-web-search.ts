@@ -21,7 +21,7 @@ import {
   queryCoreTokens,
   closeCache,
   buildMainModelContext,
-} from "../src/lib/web-search/index";
+} from "../lib/web-search/index";
 import { getDecisionSync } from "../lib/decision/client";
 
 const BOLD = (s: string) => `\x1b[1m${s}\x1b[0m`;
