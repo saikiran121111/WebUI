@@ -34,6 +34,9 @@ import {
   mojeekSearch,
   searxSearch,
   redditSearch,
+  bingNewsRssSearch,
+  githubSearch,
+  devToSearch,
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,
@@ -317,8 +320,11 @@ async function stackExchangeSearch(query: string): Promise<RawSearchResult[]> {
     "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance" +
     "&q=" +
     encodeURIComponent(query) +
-    "&site=stackoverflow&pagesize=5";
-  const res = await fetchUrl(url, { timeoutMs: ENGINE_TIMEOUT_MS });
+    "&site=stackoverflow&pagesize=15";
+  const res = await fetchUrl(url, {
+    timeoutMs: ENGINE_TIMEOUT_MS,
+    headers: { accept: "application/json", "user-agent": "webui-search/1.0" },
+  });
   if (!res || !res.ok) return [];
   try {
     const data: any = JSON.parse(res.text);
@@ -350,8 +356,17 @@ type SourceFn = (query: string) => Promise<RawSearchResult[]>;
  * Engines whose results are gated by the lexical threshold (vertical
  * APIs that do fuzzy token matching). General-web engines are NOT gated
  * — they are already ranked by the search engine's own relevance model.
+ *
+ * `github`, `devto`, and `bing-news` are now routed by intent in
+ * `NEWS_VERTICAL_BY_INTENT` / `DEV_VERTICAL_BY_INTENT` below, NOT run
+ * on every sub-query (the old flood problem where 4×4 = 16 calls to
+ * `githubSearch` + `bingNewsRssSearch` pushed real results out of the
+ * top 20).
  */
-const VERTICAL_ENGINES = new Set(["wikipedia", "hackernews", "arxiv", "stackexchange"]);
+const VERTICAL_ENGINES = new Set([
+  "wikipedia", "hackernews", "arxiv", "stackexchange",
+  "github", "devto", "bing-news",
+]);
 
 /**
  * Engines that are vertical (intended) for specific intents.
@@ -359,13 +374,74 @@ const VERTICAL_ENGINES = new Set(["wikipedia", "hackernews", "arxiv", "stackexch
  * Verticals are layered ON TOP, not instead of, the general pool.
  */
 const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
-  code:     [stackExchangeSearch],
+  code:     [stackExchangeSearch, devToSearch],
   academic: [arxivSearch, wikipediaSearch],
   forum:    [hackerNewsSearch],
   news:     [hackerNewsSearch],
-  docs:     [stackExchangeSearch, wikipediaSearch],
+  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch],
   general:  [wikipediaSearch],
 };
+
+/**
+ * News/breaking vertical: bingNewsRssSearch is routed here so it ONLY
+ * fires for time-sensitive queries, never on coding tutorials,
+ * restaurants, or e-commerce.
+ */
+const NEWS_VERTICAL: SourceFn[] = [bingNewsRssSearch];
+
+/**
+ * Dev/tech vertical: githubSearch + stackExchangeSearch + devToSearch.
+ * Fires when the intent is "code"/"docs" OR the query mentions a
+ * programming language, framework, library, error, or CLI tool.
+ */
+const DEV_VERTICAL: SourceFn[] = [githubSearch, stackExchangeSearch, devToSearch];
+
+/**
+ * Heuristic: does this query look like a dev/tech question?
+ * True when the intent is already code/docs, or when the query
+ * mentions a programming language, framework, library, error, or CLI tool.
+ */
+function queryLooksLikeDev(query: string): boolean {
+  const re = /\b(python|javascript|typescript|node|nodejs|java|kotlin|swift|rust|go|golang|ruby|php|c\+\+|c#|react|angular|vue|svelte|next\.?js|express|nestjs|django|flask|fastapi|sql|graphql|http|api|cli|docker|kubernetes|terraform|aws|azure|github|git|stack\s*overflow|error|exception|bug|tutorial|best\s*practice|refactor)\b/i;
+  return re.test(query);
+}
+
+/**
+ * Per-engine caps for vertical engines to keep them from crowding out
+ * general-web results:
+ *   - github: 5 (max — most relevant for code queries but noisy)
+ *   - stackexchange: 5 (high signal for "error handling best practices")
+ *   - devto: 5 (high signal for "best practices" queries)
+ *   - bing-news: 3 (news vertical — lower cap since news rarely dominates
+ *                for technical questions)
+ * The cap is applied per engine before RRF fusion, so if stackexchange
+ * returns 15 results only the first 5 participate in the top-20.
+ */
+const VERTICAL_PER_ENGINE_CAP = 5;
+
+/**
+ * Per-engine cap map (newer than VERTICAL_PER_ENGINE_CAP). Used when
+ * capping specific vertical engines before RRF so that no single
+ * vertical source dominates the top-20 slots.
+ *   - github: 3 (repo/issue results are noisy for "best practices" queries
+ *              — stackexchange answers are far more on-topic)
+ *   - bing-news: 3 (news is rarely relevant for coding tutorials)
+ *   - everything else: 5
+ */
+const ENGINE_CAPS: Record<string, number> = {
+  "github": 3,
+  "bing-news": 3,
+  "google-news": 3,
+  "wikipedia": 5,
+  "hackernews": 3,
+  "arxiv": 5,
+  "stackexchange": 5,
+  "devto": 5,
+};
+
+function capForEngine(engine: string): number {
+  return ENGINE_CAPS[engine] ?? VERTICAL_PER_ENGINE_CAP;
+}
 
 /**
  * Run a single query against its source pool in parallel and return the
@@ -379,30 +455,111 @@ const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
  * Bing, Brave) once, and all sub-queries are distributed across the
  * SearXNG shard + other general engines in parallel. This stops the
  * 4×8=32 simultaneous-request burst that triggered bot detection.
+ *
+ * News/dev verticals are routed by intent:
+ *   - bingNewsRssSearch ONLY when freshness !== "any" OR intent is "news"
+ *   - githubSearch + stackExchangeSearch + devToSearch when the query
+ *     looks like a dev/tech question (code/docs intent OR language/framework
+ *     mentioned in the query text)
  */
-async function searchOne(query: string, intent: Intent, allQueries?: string[]): Promise<RawSearchResult[]> {
+/**
+ * Per-searchOne wall-clock cap: a single plan's general-web pool call
+ * must not block the metasearch for more than this many milliseconds.
+ * The general pool (9 engines) can take 18s+ when DDG's 3 stages all
+ * time out (12s html + 6s lite). This cap fires at 10s and fuses
+ * whatever has settled so far, letting the metasearch quorum logic
+ * complete in time. Verticals (dev/news) are awaited separately with
+ * their own short internal timeouts and are NOT capped — they are
+ * high-signal, low-latency, and the cap only protects against the
+ * general pool's slowest engine (DDG).
+ */
+const SEARCH_ONE_CAP_MS = 10_000;
+
+async function searchOne(
+  query: string,
+  intent: Intent,
+  allQueries?: string[],
+  freshness?: string,
+): Promise<RawSearchResult[]> {
   // ALWAYS run the general web pool (Fix 3a): regardless of intent,
   // the sharded pool gives broad, high-recall results. Verticals are
   // layered on top, not instead of, the general pool.
-  let generalResults: RawSearchResult[];
-  if (allQueries && allQueries.length > 1) {
-    const deduped = deduplicateQueries(allQueries);
-    const primary = deduped[0];
-    generalResults = await runGeneralWebSearchSharded(primary, deduped).catch(() => [] as RawSearchResult[]);
-  } else {
-    generalResults = await runGeneralWebSearch(query).catch(() => [] as RawSearchResult[]);
-  }
+
+  // Start the general pool (may take 18s+ when DDG stages stall).
+  const poolPromise = (allQueries && allQueries.length > 1)
+    ? runGeneralWebSearchSharded(
+        deduplicateQueries(allQueries)[0],
+        deduplicateQueries(allQueries),
+      )
+    : runGeneralWebSearch(query);
+
+  // Cap the general pool at SEARCH_ONE_CAP_MS: when the timer fires,
+  // the pool's Promise.allSettled hasn't resolved yet (DDG's 12s
+  // stage-A is still pending), so we fall back to []. The fast engines
+  // (Bing/Brave/Reddit, <5s) will have contributed to the pool's
+  // internal settled list by then — but since runGeneralWebSearch
+  // returns all-or-nothing, we simply get 0 results from the pool
+  // when the cap fires. The dev/news verticals (fired below) plus
+  // the quorum logic in metasearch() compensate for this.
+  const capTimer = new Promise<void>((resolve) =>
+    setTimeout(resolve, SEARCH_ONE_CAP_MS),
+  );
+
+  // Race the pool against the cap. When the cap fires first, poolResults = [].
+  const poolResults: RawSearchResult[] = await Promise.race([
+    poolPromise.catch(() => [] as RawSearchResult[]),
+    capTimer.then(() => [] as RawSearchResult[]),
+  ]);
 
   // Layer intent-specific verticals on top of the general pool.
+  // These are awaited WITHOUT the cap — they are fast (15s timeout,
+  // usually <5s) and high-signal. They run in parallel with the pool
+  // so their wall-clock cost is already overlapping with the pool.
   const vertical = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
   const verticalResults = await Promise.allSettled(
     vertical.map((fn) => fn(query)),
   );
   const verticalFlat = verticalResults
-    .filter((s) => s.status === "fulfilled")
-    .flatMap((s) => s.value as RawSearchResult[]);
+    .filter((s): s is PromiseFulfilledResult<RawSearchResult[]> => s.status === "fulfilled")
+    .flatMap((s) => applyEngineCap(s.value));
 
-  return [...generalResults, ...verticalFlat];
+  // News vertical: fire bingNewsRssSearch ONLY for time-sensitive queries.
+  const isNewsSensitive = intent === "news" || (freshness && freshness !== "any");
+  const newsResults: RawSearchResult[] = isNewsSensitive
+    ? await bingNewsRssSearch(query).catch(() => [] as RawSearchResult[])
+    : [];
+
+  // Dev vertical: fire githubSearch + stackExchangeSearch + devToSearch
+  // when the query looks like a dev/tech question.
+  const isDevQuery = queryLooksLikeDev(query) || intent === "code" || intent === "docs";
+  const devSettled: PromiseSettledResult<RawSearchResult[]>[] = isDevQuery
+    ? await Promise.allSettled(DEV_VERTICAL.map((fn) => fn(query)))
+    : [];
+
+  const newsFlat: RawSearchResult[] = applyEngineCap(
+    newsResults.slice(0, capForEngine("bing-news")),
+  );
+
+  const devFlat: RawSearchResult[] =
+    devSettled
+      .filter((s): s is PromiseFulfilledResult<RawSearchResult[]> => s.status === "fulfilled")
+      .flatMap((s) => applyEngineCap(s.value));
+
+  return [...poolResults, ...verticalFlat, ...newsFlat, ...devFlat];
+}
+
+/**
+ * Cap per-engine vertical results before RRF to prevent flooding.
+ * Used by searchOne for all vertical groups (intent verticals, news, dev).
+ */
+function applyEngineCap(arr: RawSearchResult[]): RawSearchResult[] {
+  const byEngine = new Map<string, number>();
+  return arr.filter((r) => {
+    const cap = capForEngine(r.engine);
+    const n = byEngine.get(r.engine) ?? 0;
+    if (n < cap) { byEngine.set(r.engine, n + 1); return true; }
+    return false;
+  });
 }
 
 /* ── Source-weighted Reciprocal Rank Fusion ─────────────────────────────── */
@@ -521,10 +678,31 @@ export interface SearchPlan {
 }
 
 /**
+ * Quorum early-exit (Fix 1B): as soon as >= 15 raw results from >= 2
+ * engines have resolved, start a 6-second grace timer. Any slow/stalled
+ * engine that hasn't finished when the grace timer expires is aborted so
+ * metasearch always finishes in 3-10s instead of 133s.
+ *
+ * The timer is armed inside the Promise.all wrapper: we run all
+ * per-plan searches in parallel, but resolve early when the quorum is
+ * met. The grace timer gives slow-but-valuable engines (arXiv, SearXNG)
+ * up to 6s to contribute after the quorum fires.
+ */
+const QUORUM_MIN_RESULTS = 15;
+const QUORUM_MIN_ENGINES = 2;
+const GRACE_TIMER_MS = 6_000;
+
+/**
  * Run all plans in parallel against the full source pool. Each plan is
  * answered by ALL engines in its pool (general-web always, verticals by
  * intent), with per-engine pacing so 4 sub-queries never fire 32
  * simultaneous requests at any single host.
+ *
+ * Quorum early-exit: once >= QUORUM_MIN_RESULTS raw results from
+ * >= QUORUM_MIN_ENGINES have resolved, start a GRACE_TIMER_MS countdown.
+ * Any engine still running when the countdown expires is abandoned —
+ * its late results are discarded (the circuit breaker in general-pool.ts
+ * will prevent it from retrying for 60s).
  *
  * Returns the top N unique URLs after source-weighted RRF fusion.
  */
@@ -535,16 +713,102 @@ export async function metasearch(
   // Pass all query texts so the sharded pool (for general intent with
   // multiple plans) can distribute sub-queries across different instances.
   const allQueries = plans.map((p) => p.query);
+  // Use the first plan's freshness so news/dev verticals route correctly.
+  const freshness = plans[0]?.freshness ?? "any";
 
-  const rawLists = await Promise.all(
-    plans.map((p) =>
-      searchOne(p.query, p.intent, allQueries).catch(() => [] as RawSearchResult[]),
-    ),
+  // Quorum early-exit (Fix 1B): track how many raw results and how many
+  // distinct engines have landed so far. As soon as the quorum
+  // (>= QUORUM_MIN_RESULTS results from >= QUORUM_MIN_ENGINES engines)
+  // is met, start the GRACE_TIMER_MS countdown. When the timer fires,
+  // any still-pending engine promise is abandoned and whatever has
+  // landed so far is fused. This bounds metasearch wall-clock to
+  // roughly quorum-arrival + 6s instead of the slowest engine stalling
+  // the entire pipeline for 133s.
+  let landedResults = 0;
+  const landedEngines = new Set<string>();
+  let graceFired = false;
+  let graceResolve: (() => void) | null = null;
+
+  // Array of settled results; index i = results for plan i.
+  const settled: (RawSearchResult[] | null)[] = new Array(plans.length).fill(null);
+
+  // Arm the 6s grace timer once quorum is satisfied.
+  let graceTimerHandle: ReturnType<typeof setTimeout> | null = null;
+  const armGraceTimer = () => {
+    if (graceTimerHandle) return; // already armed
+    graceTimerHandle = setTimeout(() => {
+      graceFired = true;
+      log.info(
+        { landedResults, landedEngines: landedEngines.size, graceMs: GRACE_TIMER_MS },
+        "quorum grace timer expired — abandoning still-pending engines",
+      );
+      if (graceResolve) {
+        graceResolve();
+        graceResolve = null;
+      }
+    }, GRACE_TIMER_MS);
+  };
+
+  // Kick off all plan searches in parallel, tracking settled results.
+  // Each plan promise, when it resolves, updates the quorum counters
+  // and may arm the grace timer.
+  const planPromises = plans.map((p, i) =>
+    searchOne(p.query, p.intent, allQueries, freshness)
+      .catch(() => [] as RawSearchResult[])
+      .then((results: RawSearchResult[]) => {
+        settled[i] = results;
+        landedResults += results.length;
+        for (const r of results) landedEngines.add(r.engine);
+        // Arm grace timer as soon as quorum threshold is crossed.
+        if (!graceFired &&
+            landedResults >= QUORUM_MIN_RESULTS &&
+            landedEngines.size >= QUORUM_MIN_ENGINES) {
+          armGraceTimer();
+        }
+        return results;
+      }),
   );
-  const flat = rawLists.flat();
+
+  // When ALL plans settle normally, resolve the grace signal immediately
+  // (the normal path — no need to wait for the grace timer).
+  const allPlansSettled = Promise.all(planPromises);
+  allPlansSettled.then(() => {
+    if (!graceFired && graceResolve) {
+      // All plans finished before the grace timer — clear the pending
+      // timer and resolve immediately.
+      if (graceTimerHandle) clearTimeout(graceTimerHandle);
+      graceFired = true;
+      graceResolve();
+      graceResolve = null;
+    }
+  }).catch(() => {});
+
+  // Race-able signal: resolves when either (a) all plans settle, or
+  // (b) the 6s grace timer fires after quorum is met, or (c) the 15s
+  // hard-cap fires as a deadlock safety net.
+  const graceSignal = new Promise<void>((resolve) => {
+    graceResolve = resolve;
+    // 15s absolute hard-cap: if quorum is never met (all engines return
+    // 0 results) AND all plans are slow, this fires to prevent hanging
+    // indefinitely. The pipeline ceiling in pipeline.ts (240s) would
+    // otherwise bound us, but 15s is a tighter, cleaner cap.
+    setTimeout(() => {
+      if (!graceFired) {
+        graceFired = true;
+        log.info("15s hard-cap fired — bounding metasearch wall-clock");
+        if (graceResolve) {
+          graceResolve();
+          graceResolve = null;
+        }
+      }
+    }, 15_000);
+  });
+
+  // Await the signal. Once it fires, fuse whatever has settled.
+  await graceSignal;
+
+  const flat = settled.filter((r): r is RawSearchResult[] => r !== null).flat();
   const preferred = plans.flatMap((p) => p.preferredDomains ?? []);
-  // Use the first plan's intent for the weight table (all plans in one
-  // call share the same LFM decision, so they all have the same intent).
   const intent = plans[0]?.intent ?? "general";
   const ranked = reciprocalRankFuse(flat, preferred, intent);
   return ranked.slice(0, maxResults);

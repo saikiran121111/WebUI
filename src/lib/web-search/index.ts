@@ -30,6 +30,7 @@ export {
   redditSearch,
   bingNewsRssSearch,
   githubSearch,
+  devToSearch,
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,

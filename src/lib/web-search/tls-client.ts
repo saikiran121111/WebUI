@@ -9,6 +9,7 @@
  * by search-engine CDNs within seconds.
  */
 import { Impit } from "impit";
+import { gunzipSync } from "node:zlib";
 
 /* ── Shared TLS-impersonated pool ────────────────────────────────────────── */
 // One lazily-created Impit instance: Impit keeps a per-host HTTP/2
@@ -282,15 +283,22 @@ export { PAGE_LIMIT_BYTES, PDF_LIMIT_BYTES };
  *
  * `limitBytes` is caller-selectable: the default is the 50MB HTML/text
  * cap; PDF downloads pass `PDF_LIMIT_BYTES` (150MB).
+ *
+ * If the response is gzip-encoded (Content-Encoding: gzip), the bytes
+ * are transparently decompressed before returning the string.
  */
 export async function readBounded(
   body: ReadableStream<Uint8Array> | any,
   limitBytes: number = PAGE_LIMIT_BYTES,
+  isGzip = false,
 ): Promise<string> {
   const reader = body?.getReader?.();
   if (!reader) {
     // Non-WebStream body (Buffer / string fallback).
     const buf: Buffer = await body;
+    if (isGzip) {
+      return gunzipSync(buf.subarray(0, limitBytes)).toString("utf8");
+    }
     return buf.subarray(0, limitBytes).toString("utf8");
   }
   const chunks: Uint8Array[] = [];
@@ -313,6 +321,12 @@ export async function readBounded(
   for (const c of chunks) {
     out.set(c, off);
     off += c.byteLength;
+  }
+  // Transparently decompress gzip-encoded responses (StackExchange,
+  // Reddit JSON APIs, etc.). The Impit TLS client does NOT auto-decode
+  // content-encoding — it passes the raw bytes through.
+  if (isGzip) {
+    return gunzipSync(out).toString("utf8");
   }
   return new TextDecoder("utf-8").decode(out);
 }
@@ -543,7 +557,14 @@ export async function fetchUrl(
       ...(opts.body ? { body: opts.body } : {}),
     } as any);
     const status: number = res.status;
-    const text = await readBounded((res as any).body, opts.limitBytes ?? 50 * 1024 * 1024).catch(
+    // Detect gzip-encoded response (StackExchange, Reddit JSON APIs, etc.)
+    const contentEncoding = String(
+      (res.headers as any)?.get?.("content-encoding") ??
+        (res.headers as any)?.["content-encoding"] ??
+        "",
+    );
+    const isGzip = contentEncoding.toLowerCase().includes("gzip");
+    const text = await readBounded((res as any).body, opts.limitBytes ?? 50 * 1024 * 1024, isGzip).catch(
       () => "",
     );
     return { status, ok: status >= 200 && status < 300, text };

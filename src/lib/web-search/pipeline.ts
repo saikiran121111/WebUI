@@ -296,20 +296,22 @@ export async function runWebResearch(
   // strip filler words and re-query all general-web indexers with
   // freshness "any" so the LLM never receives a single off-topic page.
   const relevantCount = countRelevantResults(searchResults, ctx.userPrompt);
-  if (relevantCount < MIN_RELEVANT_URLS && searchResults.length > 0) {
-    onProgress?.({
-      stage: "recovery",
-      detail: `Only ${relevantCount} relevant result(s) — firing broad recovery pass…`,
-    });
-    log.info({ relevantCount }, "relevance floor not met — broad recovery pass");
+  if (relevantCount < MIN_RELEVANT_URLS) {
     const cleanQuery = stripFillers(ctx.userPrompt);
-    if (cleanQuery.length > 3) {
+    const hasRealResults = searchResults.length > 0;
+    if (hasRealResults && cleanQuery.length > 3) {
+      // Normal recovery: we have results but too few are relevant.
+      onProgress?.({
+        stage: "recovery",
+        detail: `Only ${relevantCount} relevant result(s) — firing broad recovery pass…`,
+      });
+      log.info({ relevantCount }, "relevance floor not met — broad recovery pass");
       const recoveryResults = await metasearch(
         [{ query: cleanQuery, intent: "general" as const, freshness: "any" as const }],
         20,
       );
       if (recoveryResults.length > 0) {
-        // Merge: dedupe by canonical URL, prefer the recovery set
+        // Dedup by canonical URL, prefer the recovery set.
         const seen = new Set(searchResults.map((r) => r.canonical));
         const merged = [...searchResults];
         for (const r of recoveryResults) {
@@ -321,6 +323,21 @@ export async function runWebResearch(
         searchResults = merged.slice(0, 20);
         log.info({ recovered: recoveryResults.length, total: searchResults.length }, "broad recovery merged");
       }
+    } else if (!hasRealResults && cleanQuery.length > 0) {
+      // Zero-result recovery: all engines returned nothing (likely
+      // circuit-broken from a prior run, or all hosts blocked).
+      // Retry with the stripped query — a different angle may surface
+      // results from engines that haven't cooled down yet.
+      onProgress?.({
+        stage: "recovery",
+        detail: "Zero results from all engines — retrying with stripped query…",
+      });
+      log.info("zero-result recovery — retrying with stripped query");
+      searchResults = await metasearch(
+        [{ query: cleanQuery, intent: "general" as const, freshness: "any" as const }],
+        20,
+      );
+      log.info({ recovered: searchResults.length }, "zero-result recovery done");
     }
   }
 
