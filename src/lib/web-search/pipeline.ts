@@ -53,6 +53,16 @@ const log = childLogger("web-search/pipeline");
 const MIN_RELEVANT_URLS = 3;
 
 /**
+ * Overall pipeline wall-clock ceiling: 4 minutes (240s). The LFM gate
+ * gets up to 30s, metasearch up to 55s per engine (with fast-fail on
+ * 4xx/5xx), extraction up to 45s per URL (120s for PDFs), and the
+ * reranker is CPU-only. 240s is the hard ceiling for the whole
+ * pipeline so a stalled search engine can't hold the inference slot
+ * indefinitely.
+ */
+export const PIPELINE_CEILING_MS = 240_000;
+
+/**
  * Strip filler words from the prompt to form a clean keyword query for
  * the recovery pass. "Tell me what is the best restaurant in manikonda
  * hyderabad I wan to eat biryani" → "biryani restaurant manikonda hyderabad"
@@ -201,6 +211,19 @@ export async function runWebResearch(
 ): Promise<EvidenceBundle | null> {
   const t0 = performance.now();
 
+  // Overall 240s wall-clock ceiling: if the pipeline (LFM gate + metasearch
+  // + extraction + rerank) runs past this, stop and return what we have.
+  // This prevents a single stalled search engine from holding the shared
+  // inference slot indefinitely.
+  const ceilingSignal = AbortSignal.timeout(PIPELINE_CEILING_MS);
+  // Combine the caller's signal with the ceiling: abort when either fires.
+  const abortSignal = signal
+    ? AbortSignal.any([signal, ceilingSignal])
+    : ceilingSignal;
+  // A quick "is the ceiling hit?" check used at stage boundaries so we
+  // never start a new stage after the 240s deadline.
+  const ceilingHit = () => abortSignal.aborted;
+
   // ── LFM gate ──────────────────────────────────────────────────────
   onProgress?.({ stage: "lfm", detail: "Analyzing prompt with LFM…" });
   const lfm = await runLfmGate(ctx);
@@ -236,7 +259,7 @@ export async function runWebResearch(
   if (cached) {
     fromCache = true;
     searchResults = cached.results;
-  } else {
+  } else if (!ceilingHit()) {
     const t = performance.now();
     // Freshness filter trap recovery: if the LFM applied a time filter and
     // the first pass returns <5 results, automatically re-run with "any".
@@ -306,7 +329,7 @@ export async function runWebResearch(
     detail: `Reading top ${Math.min(10, searchResults.length)} pages…`,
   });
   const t = performance.now();
-  const packets = await extractAll(searchResults, 10);
+  const packets = ceilingHit() ? [] : await extractAll(searchResults, 10);
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
   // ── rerank (first hop) ─────────────────────────────────────────────────

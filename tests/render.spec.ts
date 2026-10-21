@@ -929,11 +929,19 @@ test("large folder tree with │ spacers renders interactive and never flickers 
   // message is still streaming, must never vanish, and a plain code block
   // for the fence must never appear after it (the flicker signature).
   await page.addInitScript(() => {
-    const state: Record<string, unknown> = {
+    // `treeNow` / `frames` are merged in on the Node side at read time
+    // (page.evaluate); they must exist in the type here so the spread at
+    // the read site type-checks.
+    const state: {
+      installed: boolean; mutations: number; error: string;
+      treeSeen: boolean; treeSeenWhileStreaming: boolean;
+      treeVanished: boolean; codeBlockAfterTree: boolean;
+      treeNow?: number; frames?: number;
+    } = {
       installed: false, mutations: 0, error: "", treeSeen: false,
       treeSeenWhileStreaming: false, treeVanished: false, codeBlockAfterTree: false,
     };
-    (window as unknown as { __treeWatch: Record<string, unknown> }).__treeWatch = state;
+    (window as unknown as { __treeWatch: typeof state }).__treeWatch = state;
     try {
       const scan = () => {
         const streaming = document.querySelector('[data-testid="assistant-message"][data-state="streaming"]');
@@ -969,11 +977,22 @@ test("large folder tree with │ spacers renders interactive and never flickers 
   await page.locator(ASSISTANT_DONE).first().waitFor({ timeout: 30_000 });
   server.close();
 
-  const watch = await page.evaluate(() => ({
-    ...(window as unknown as { __treeWatch: Record<string, unknown> }).__treeWatch,
-    treeNow: document.querySelectorAll('[data-testid="tree-block"]').length,
-    frames: document.querySelectorAll('[data-testid="assistant-message"]').length,
-  }));
+  // `treeNow` / `frames` are added on the Node side; the watcher state
+  // keys are widened via a cast so the spread yields a single object type
+  // that carries both the watcher fields and the DOM counts.
+  type TreeWatch = {
+    treeSeen: boolean; treeSeenWhileStreaming: boolean;
+    treeVanished: boolean; codeBlockAfterTree: boolean;
+    treeNow: number; frames: number;
+  };
+  const watch = (await page.evaluate(() => {
+    const state = (window as unknown as { __treeWatch: Record<string, unknown> }).__treeWatch;
+    return {
+      ...state,
+      treeNow: document.querySelectorAll('[data-testid="tree-block"]').length,
+      frames: document.querySelectorAll('[data-testid="assistant-message"]').length,
+    };
+  })) as unknown as TreeWatch;
   expect(watch.treeSeen, `tree never rendered — watcher: ${JSON.stringify(watch)}`).toBe(true);
   expect(watch.treeSeenWhileStreaming, "tree only appeared after the stream ended").toBe(true);
   expect(watch.treeVanished, "tree block vanished mid-stream (flicker to plain text)").toBe(false);

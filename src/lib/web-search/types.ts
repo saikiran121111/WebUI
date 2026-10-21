@@ -35,6 +35,12 @@ function normalizeFreshness(f: string): SearchDecision["freshness"] {
  * Backward-compatible parser: accepts both the legacy 3-value freshness
  * (none/recent/current) and the new 6-value set. Old cache entries and
  * old model outputs are still valid.
+ *
+ * `intent` is intentionally parsed as a free string first, then coerced
+ * to the canonical enum (unknown values → "general"). The small LFM
+ * router on :8791 occasionally emits free-form intent labels like
+ * "restaurant recommendation"; coercing instead of rejecting keeps the
+ * fast path usable rather than falling through to :8080 for ~5s.
  */
 export const SearchDecisionSchemaCompat = z
   .object({
@@ -45,7 +51,7 @@ export const SearchDecisionSchemaCompat = z
     queries: z.array(
       z.object({
         query: z.string(),
-        intent: z.enum(["general", "news", "docs", "code", "academic", "forum"]),
+        intent: z.string(),
         preferred_domains: z.array(z.string()).optional(),
       }),
     ),
@@ -56,7 +62,37 @@ export const SearchDecisionSchemaCompat = z
   .transform((d): SearchDecision => ({
     ...d,
     freshness: normalizeFreshness(d.freshness),
+    queries: d.queries.map((q) => ({
+      ...q,
+      intent: coerceIntent(q.intent),
+    })),
   }));
+
+/**
+ * Map any intent label the router emits to the canonical enum.
+ * Unknown values fall back to "general" (the broadest, safest pool).
+ */
+export function coerceIntent(raw: string): SearchDecision["queries"][number]["intent"] {
+  const known: SearchDecision["queries"][number]["intent"][] = [
+    "general", "news", "docs", "code", "academic", "forum",
+  ];
+  const lower = raw.toLowerCase().trim();
+  for (const k of known) {
+    if (lower === k || lower.startsWith(k)) return k;
+  }
+  // Fuzzy matches for common off-enum labels the LFM router emits.
+  if (lower.includes("news") || lower.includes("current") || lower.includes("breaking"))
+    return "news";
+  if (lower.includes("doc") || lower.includes("manual") || lower.includes("reference"))
+    return "docs";
+  if (lower.includes("code") || lower.includes("program") || lower.includes("bug"))
+    return "code";
+  if (lower.includes("acad") || lower.includes("research") || lower.includes("science"))
+    return "academic";
+  if (lower.includes("forum") || lower.includes("community") || lower.includes("reddit"))
+    return "forum";
+  return "general";
+}
 
 export interface RawSearchResult {
   title: string;

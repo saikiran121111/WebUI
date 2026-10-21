@@ -25,10 +25,15 @@ import {
 
 const log = childLogger("web-search/lfm-gate");
 
-// The local Strata backend (llama.cpp OpenAI-compatible) may queue
-// requests when the model is cold-starting. Never abort the LFM call
-// at <30s — 60s is the minimum sane window for a 1.2B model to
-// finish a classification.
+// ── dual-endpoint classifier ───────────────────────────────────────────
+// Primary: the fast, warm LFM2.5-1.2B router on :8791 (the Decision
+// Engine's own llama-server). It is a non-thinking instruct model, so it
+// answers the 4-line JSON verdict in ~50ms and never burns its budget on
+// reasoning_content. Secondary: the main thinking model on :8080 (a
+// fallback when the router is busy/unreachable).
+const FAST_ENDPOINT =
+  process.env.WEB_SEARCH_LFM_FAST_ENDPOINT ??
+  "http://127.0.0.1:8791/v1/chat/completions";
 const LLM_ENDPOINT =
   process.env.WEB_SEARCH_LLM_ENDPOINT ??
   process.env.LLM_API_URL ??
@@ -36,19 +41,30 @@ const LLM_ENDPOINT =
 
 const LLM_API_KEY = process.env.LLM_API_KEY ?? "no-key";
 
-/** 60-second ceiling: local LLM servers queue + cold-load; 2.5s was far too aggressive. */
+/** 60-second ceiling for a single classifier endpoint (cold-start queue). */
 export const LLM_TIMEOUT_MS = 60_000;
 
 /**
- * Ceiling for the CLASSIFIER call only. The classifier is a 1.2B model at
- * temperature 0 answering a 4-line JSON verdict — 45s is 30× longer than a
- * warm 5s call. 60s existed for cold-start queues, but combined with the
- * rule-based fallback (which forces search_required=true on ANY non-200,
- * timeout, or invalid JSON) it turns a flaky inference slot into a forced
- * web search on ordinary chat. 30s keeps the generous cold-start window
- * while bounding worst-case latency on the hot path.
+ * Per-endpoint ceiling for the CLASSIFIER call. The LFM2.5-1.2B router is a
+ * non-thinking instruct model that answers the 4-line JSON verdict in ~50ms
+ * warm; 15s is 300× that and comfortably covers a cold-load. The main-model
+ * fallback is a thinking model (Qwen on :8080) and may need more headroom.
  */
-const CLASSIFIER_TIMEOUT_MS = 30_000;
+const FAST_CLASSIFIER_TIMEOUT_MS = 15_000;
+const MAIN_CLASSIFIER_TIMEOUT_MS = 30_000;
+
+/**
+ * A thinking model (Qwen on :8080) can spend its entire output budget inside
+ * `reasoning_content` and return `message.content === null` — even with
+ * `response_format: json_object` requested. Passing `reasoning_effort: "none"`
+ * (exactly what lib/server/titles/generate.ts does) forces the model to emit
+ * the JSON directly in `content`. We also send `chat_template_kwargs` so
+ * backends that only honour the chat-template knob stay thinking-free.
+ */
+const THINKING_OFF_BODY = {
+  reasoning_effort: "none",
+  chat_template_kwargs: { enable_thinking: false },
+} as const;
 
 /* ── trivial greeting short-circuit (the ONLY regex that survives) ───── */
 
@@ -59,6 +75,31 @@ const TRIVIAL_GREETINGS = new Set([
 
 function isTrivialGreeting(prompt: string): boolean {
   return TRIVIAL_GREETINGS.has(prompt.trim().toLowerCase());
+}
+
+/**
+ * Prompt-aware "is this a real research question?" heuristic.
+ *
+ * A real question is: more than 4 words, OR contains a question mark, OR
+ * references a URL / a version number / a proper-noun-looking entity. This is
+ * what stops the content:null trap from silently dropping a genuine research
+ * prompt: when the LLM fails AND the prompt is a real question, we fall back
+ * to a rule-based SEARCH plan (never a silent no-search). Only short
+ * chitchat under a failed LLM returns no-search.
+ */
+function isSubstantivePrompt(prompt: string): boolean {
+  const p = prompt.trim();
+  if (p.length === 0) return false;
+  const words = p.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length > 4) return true;
+  if (/[?]/.test(p)) return true;
+  if (extractPromptUrls(p).length > 0) return true;
+  if (/\b\d+\.\d+\b|version\b/i.test(p)) return true;
+  // Proper-noun / entity signal: two or more capitalised words, or a known
+  // domain marker (a place, product, or person name that must be verified).
+  const proper = p.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g) ?? [];
+  if (proper.length > 0) return true;
+  return false;
 }
 
 /** Detect an explicit http:// or https:// URL in the user prompt. */
@@ -184,22 +225,28 @@ function stripAndRepair(raw: string): string {
 }
 
 /**
- * Call the local LLM and parse the JSON decision.
- * 30-second timeout: 60s existed for cold-start queues, but the rule-based
- * fallback (search_required=true) fires on ANY timeout/non-200/invalid
- * JSON — so a stalled inference slot silently forced web searches on
- * ordinary chat. 30s keeps a generous cold-start window while bounding
- * hot-path latency. The fallback stays a rule-based plan, NOT a
- * no-search default.
+ * Call a single classifier endpoint and parse the JSON decision.
+ *
+ * Thinking-model safety: the body always carries `reasoning_effort: "none"`
+ * (+ `chat_template_kwargs.enable_thinking: false`). This matters on the main
+ * model (:8080), which otherwise burns its whole budget into
+ * `reasoning_content` and returns `content: null`. Even with thinking off, a
+ * backend can still dump the JSON inside `reasoning_content`, so we recover
+ * from BOTH `content` and `reasoning_content`.
+ *
+ * Returns a parsed SearchDecision on success, or null on any of: non-200,
+ * timeout, unparseable JSON, or an empty-content + empty-reasoning failure.
+ * The caller (runLfmGate) decides the prompt-aware fallback.
  */
-export async function callLlm(
+async function callLlmEndpoint(
+  endpoint: string,
   ctx: LfmGateContext,
-  timeoutMs: number = CLASSIFIER_TIMEOUT_MS,
-): Promise<LfmDecision | null> {
-  const t0 = performance.now();
-  let raw: string;
+  timeoutMs: number,
+): Promise<SearchDecision | null> {
+  let content: string;
+  let reasoning: string;
   try {
-    const res = await fetch(LLM_ENDPOINT, {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -210,80 +257,103 @@ export async function callLlm(
         messages: buildLlmMessages(ctx),
         temperature: 0,
         response_format: { type: "json_object" },
+        ...THINKING_OFF_BODY,
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
-      log.warn({ status: res.status }, "llm engine non-200 → rule fallback");
+      log.warn({ endpoint: endpoint.slice(0, 40), status: res.status }, "classifier non-200");
       return null;
     }
     const data: any = await res.json();
-    raw = data?.choices?.[0]?.message?.content ?? "";
-    if (typeof raw !== "string" || raw.trim() === "") {
-      // A thinking model can return null/empty content even when the call
-      // itself succeeded (the reason is in reasoning_content, not content).
-      // Without this guard, JSON.parse("") falls through to the rule-based
-      // fallback, which forces search_required=true — i.e. the gate silently
-      // denies the LLM's no-search verdicts.
-      log.warn({ content: raw, finishReason: data?.choices?.[0]?.finish_reason }, "llm returned empty content");
-      return null;
-    }
+    const msg = data?.choices?.[0]?.message ?? {};
+    content = typeof msg.content === "string" ? msg.content : "";
+    reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
   } catch (e) {
     log.warn(
-      { err: (e as Error).message, timeoutMs },
-      "llm engine unreachable after timeout → rule fallback",
+      { endpoint: endpoint.slice(0, 40), err: (e as Error).message, timeoutMs },
+      "classifier unreachable / timeout",
     );
     return null;
   }
 
-  const cleaned = stripAndRepair(raw);
-  let parsed = SearchDecisionSchemaCompat.safeParse(JSON.parse(cleaned));
-  if (parsed.success) {
-    const decision = parsed.data;
-    // Force search_required=true when the prompt has an explicit URL —
-    // even if the LLM said otherwise (URLs always warrant extraction).
-    const urls = extractPromptUrls(ctx.userPrompt);
-    const finalDecision: SearchDecision =
-      urls.length > 0 && !decision.search_required
-        ? { ...decision, search_required: true }
-        : decision;
-    // Ensure the URL queries are present
-    if (urls.length > 0) {
-      const existing = new Set(finalDecision.queries.map((q) => q.query));
-      for (const u of urls) {
-        if (!existing.has(u)) {
-          finalDecision.queries.push({ query: u, intent: "general" });
+  // 1) Try the primary `content` field first.
+  const fromContent = parseDecisionField(content, ctx);
+  if (fromContent) return fromContent;
+  // 2) Recover a JSON verdict that the model tucked into reasoning_content.
+  if (reasoning.trim()) {
+    const fromReasoning = parseDecisionField(reasoning, ctx);
+    if (fromReasoning) {
+      log.warn({ endpoint: endpoint.slice(0, 40) }, "recovered JSON from reasoning_content");
+      return fromReasoning;
+    }
+  }
+  log.warn(
+    { endpoint: endpoint.slice(0, 40), content: content.slice(0, 120), reasoning: reasoning.slice(0, 120) },
+    "classifier produced no parseable JSON verdict",
+  );
+  return null;
+}
+
+/** Parse + schema-validate a single model field as a SearchDecision. */
+function parseDecisionField(raw: string, ctx: LfmGateContext): SearchDecision | null {
+  if (!raw || raw.trim() === "") return null;
+  const candidates = [stripAndRepair(raw), raw.trim()];
+  for (const cand of candidates) {
+    try {
+      const parsed = SearchDecisionSchemaCompat.safeParse(JSON.parse(cand));
+      if (parsed.success) {
+        // Explicit URLs in the prompt always warrant extraction even if the
+        // model said otherwise.
+        const urls = extractPromptUrls(ctx.userPrompt);
+        let decision = parsed.data;
+        if (urls.length > 0 && !decision.search_required) {
+          decision = { ...decision, search_required: true };
         }
+        if (urls.length > 0) {
+          const existing = new Set(decision.queries.map((q) => q.query));
+          for (const u of urls) {
+            if (!existing.has(u)) decision.queries.push({ query: u, intent: "general" });
+          }
+        }
+        return decision;
       }
+    } catch {
+      /* try next candidate */
     }
-    return {
-      decision: finalDecision,
-      source: "lfm",
-      lfmMs: Math.round(performance.now() - t0),
-    };
   }
+  return null;
+}
 
-  // One repair pass: re-try JSON.parse on the raw unmodified string.
-  try {
-    const reparsed = SearchDecisionSchemaCompat.safeParse(JSON.parse(raw.trim()));
-    if (reparsed.success) {
-      return {
-        decision: reparsed.data,
-        source: "lfm",
-        lfmMs: Math.round(performance.now() - t0),
-      };
-    }
-  } catch {
-    /* fall through */
-  }
-
-  log.warn({ raw: raw.slice(0, 300) }, "schema mismatch → rule fallback");
+/**
+ * Run the two-stage classifier: fast LFM2.5 router first, main model second.
+ * Returns a SearchDecision, or null when BOTH endpoints fail to produce a
+ * valid JSON verdict (genuine model failure / total unreachability).
+ */
+export async function callLlm(ctx: LfmGateContext): Promise<SearchDecision | null> {
+  // 1) Fast, warm LFM2.5-1.2B router — the intended primary authority.
+  const fast = await callLlmEndpoint(FAST_ENDPOINT, ctx, FAST_CLASSIFIER_TIMEOUT_MS);
+  if (fast) return fast;
+  // 2) Fallback to the main (thinking) model when the router is busy/down.
+  const main = await callLlmEndpoint(LLM_ENDPOINT, ctx, MAIN_CLASSIFIER_TIMEOUT_MS);
+  if (main) return main;
   return null;
 }
 
 /* ── public API ────────────────────────────────────────────────────────── */
 
 export async function runLfmGate(ctx: LfmGateContext): Promise<LfmDecision> {
+  // Test / CI escape hatch: unit tests that pin the Decision-Engine pipeline
+  // (chatEngine.test.ts) run without a live LLM classifier. When the flag is
+  // set, skip the network LLM call entirely and let the deterministic rules
+  // decide — real prompts become a search, trivial greetings become no-search.
+  // This keeps the pure pipeline test deterministic and fast.
+  if (process.env.WEB_SEARCH_LFM_DISABLED === "1") {
+    const plan = isSubstantivePrompt(ctx.userPrompt) ? rulesBasedPlan(ctx) : noSearchPlan(ctx);
+    log.info({ prompt: ctx.userPrompt.slice(0, 40) }, "WEB_SEARCH_LFM_DISABLED → deterministic rule plan");
+    return plan;
+  }
+
   // Fast path: trivial greeting → no LLM call, zero tokens.
   if (isTrivialGreeting(ctx.userPrompt)) {
     const plan = noSearchPlan(ctx);
@@ -291,26 +361,40 @@ export async function runLfmGate(ctx: LfmGateContext): Promise<LfmDecision> {
     return plan;
   }
 
-  const llm = await callLlm(ctx);
-  if (llm) {
-    // Explicit URLs always force search — the LLM may have said no-search
-    // but a URL in the prompt is a hard constraint: extract it in full.
-    const urls = extractPromptUrls(ctx.userPrompt);
-    if (urls.length > 0 && !llm.decision.search_required) {
-      log.info({ urls }, "explicit URL detected → forcing search");
-      llm.decision.search_required = true;
-      for (const u of urls) {
-        if (!llm.decision.queries.some((q) => q.query === u)) {
-          llm.decision.queries.push({ query: u, intent: "general" });
-        }
-      }
-    }
-    return llm;
+  const t0 = performance.now();
+  const decision = await callLlm(ctx);
+  if (decision) {
+    // Explicit URLs are already forced into the plan by parseDecisionField;
+    // surface the outcome as an LLM-sourced decision.
+    const finalDecision: SearchDecision = { ...decision };
+    return {
+      decision: finalDecision,
+      source: "lfm",
+      lfmMs: Math.round(performance.now() - t0),
+    };
   }
 
-  // No LLM decision: fall back to the rule-based plan. This path is only
-  // reached when the local LLM server is unreachable after the full 60s.
-  const plan = rulesBasedPlan(ctx);
-  log.warn({ prompt: ctx.userPrompt.slice(0, 80) }, "rule-based fallback (LLM unavailable)");
+  // ── Prompt-aware failure fallback (the thinking-model content:null guard) ─
+  // Both classifier endpoints failed to produce a valid JSON verdict (genuine
+  // model failure / timeout / null content). The fallback depends on the
+  // prompt's shape:
+  //   • A real question (>4 words, or ?, or URL, or version, or a proper
+  //     noun) → RULE-BASED SEARCH plan. We must NEVER silently drop a genuine
+  //     research question just because the classifier hiccuped.
+  //   • Short chitchat that isn't in the trivial set but isn't a real
+  //     question → no-search plan (safe to skip the web on "thanks", "ok").
+  if (isSubstantivePrompt(ctx.userPrompt)) {
+    const plan = rulesBasedPlan(ctx);
+    log.warn(
+      { prompt: ctx.userPrompt.slice(0, 80) },
+      "classifier failed on a substantive prompt → rule-based SEARCH fallback",
+    );
+    return plan;
+  }
+
+  // Non-substantive prompt + failed LLM: a no-search plan is the safe, cheap
+  // answer (the main model answers from its own knowledge).
+  const plan = noSearchPlan(ctx);
+  log.warn({ prompt: ctx.userPrompt.slice(0, 80) }, "classifier failed, non-substantive prompt → no-search");
   return plan;
 }

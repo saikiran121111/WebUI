@@ -19,14 +19,19 @@ export {
 } from "./metasearch";
 export {
   ddgSearch,
+  bingSearch,
   yahooSearch,
   startpageSearch,
   braveSearch,
   aolSearch,
   mojeekSearch,
   searxSearch,
+  searxSearchSharded,
   redditSearch,
+  deduplicateQueries,
   runGeneralWebSearch,
+  runGeneralWebSearchSharded,
+  probeAndCacheSearxInstances,
   GENERAL_WEB_ENGINES,
 } from "./general-pool";
 export {

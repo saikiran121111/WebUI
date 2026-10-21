@@ -26,6 +26,7 @@ export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, fetchPage, isSafeUrl, realisticHeaders, apiHeaders } from "./tls-client";
 import {
   ddgSearch,
+  bingSearch,
   yahooSearch,
   startpageSearch,
   braveSearch,
@@ -33,7 +34,10 @@ import {
   mojeekSearch,
   searxSearch,
   redditSearch,
+  deduplicateQueries,
   runGeneralWebSearch,
+  runGeneralWebSearchSharded,
+  probeAndCacheSearxInstances,
 } from "./general-pool";
 import { childLogger } from "@/lib/server/logger";
 
@@ -285,37 +289,17 @@ type SourceFn = (query: string) => Promise<RawSearchResult[]>;
  */
 const VERTICAL_ENGINES = new Set(["wikipedia", "hackernews", "arxiv", "stackexchange"]);
 
-function poolFor(intent: Intent): SourceFn[] {
-  // General-web engines are ALWAYS in the pool (the universal backbone).
-  // Vertical engines are added based on intent.
-  const general: SourceFn[] = [
-    ddgSearch,
-    yahooSearch,
-    startpageSearch,
-    braveSearch,
-    aolSearch,
-    mojeekSearch,
-    searxSearch,
-    redditSearch,
-  ];
-
-  switch (intent) {
-    case "code":
-      return [...general, stackExchangeSearch];
-    case "academic":
-      return [...general, arxivSearch, wikipediaSearch];
-    case "forum":
-      return [...general, hackerNewsSearch];
-    case "news":
-      return [...general];
-    case "docs":
-      return [...general, stackExchangeSearch, wikipediaSearch];
-    default:
-      // "general": all general-web engines + Reddit (already in general)
-      // + Wikipedia (only when lexical gate passes)
-      return [...general, wikipediaSearch];
-  }
-}
+/**
+ * Engines that are vertical (intended) for specific intents.
+ */
+const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
+  code:     [stackExchangeSearch],
+  academic: [arxivSearch, wikipediaSearch],
+  forum:    [hackerNewsSearch],
+  news:     [],
+  docs:     [stackExchangeSearch, wikipediaSearch],
+  general:  [wikipediaSearch],
+};
 
 /**
  * Run a single query against its source pool in parallel and return the
@@ -323,17 +307,36 @@ function poolFor(intent: Intent): SourceFn[] {
  *
  * Per-engine pacing (250–450ms jitter, one in-flight per host) is
  * handled by general-pool.ts enginePacer() for all general-web engines.
+ *
+ * For the "general" intent (the common case), we use the sharded pool:
+ * the primary query goes to the rate-sensitive direct scrapers (DDG,
+ * Bing, Brave) once, and all sub-queries are distributed across the
+ * SearXNG shard + other general engines in parallel. This stops the
+ * 4×8=32 simultaneous-request burst that triggered bot detection.
  */
-async function searchOne(query: string, intent: Intent): Promise<RawSearchResult[]> {
-  const pool = poolFor(intent);
-  const settled = await Promise.allSettled(
-    pool.map((fn) => limit(() => fn(query))),
+async function searchOne(query: string, intent: Intent, allQueries?: string[]): Promise<RawSearchResult[]> {
+  const vertical = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
+  const verticalResults = await Promise.allSettled(
+    vertical.map((fn) => fn(query)),
   );
-  const out: RawSearchResult[] = [];
-  for (const s of settled) {
-    if (s.status === "fulfilled") out.push(...s.value);
+  const verticalFlat = verticalResults
+    .filter((s) => s.status === "fulfilled")
+    .flatMap((s) => s.value as RawSearchResult[]);
+
+  // For "general" intent with multiple sub-queries, use the sharded pool
+  // (primary query → direct scrapers; all queries → SearXNG shard + others).
+  // For a single query or a vertical-specific intent, use the single-query
+  // pool (all engines in parallel, pacer handles the jitter).
+  let generalResults: RawSearchResult[];
+  if (intent === "general" && allQueries && allQueries.length > 1) {
+    const deduped = deduplicateQueries(allQueries);
+    const primary = deduped[0];
+    generalResults = await runGeneralWebSearchSharded(primary, deduped).catch(() => [] as RawSearchResult[]);
+  } else {
+    generalResults = await runGeneralWebSearch(query).catch(() => [] as RawSearchResult[]);
   }
-  return out;
+
+  return [...generalResults, ...verticalFlat];
 }
 
 /* ── Source-weighted Reciprocal Rank Fusion ─────────────────────────────── */
@@ -463,8 +466,14 @@ export async function metasearch(
   plans: SearchPlan[],
   maxResults = 20,
 ): Promise<RankedResult[]> {
+  // Pass all query texts so the sharded pool (for general intent with
+  // multiple plans) can distribute sub-queries across different instances.
+  const allQueries = plans.map((p) => p.query);
+
   const rawLists = await Promise.all(
-    plans.map((p) => searchOne(p.query, p.intent).catch(() => [] as RawSearchResult[])),
+    plans.map((p) =>
+      searchOne(p.query, p.intent, allQueries).catch(() => [] as RawSearchResult[]),
+    ),
   );
   const flat = rawLists.flat();
   const preferred = plans.flatMap((p) => p.preferredDomains ?? []);

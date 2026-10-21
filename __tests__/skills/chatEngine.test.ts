@@ -113,6 +113,11 @@ beforeEach(() => {
   process.env.LLM_API_URL = base + "/v1/chat/completions";
   process.env.DECISION_ENGINE_URL = base;
   process.env.DECISION_ENGINE_AUTOSPAWN = "0";
+  // Keep the Decision-Engine pipeline test deterministic: the chat route's
+  // LFM web-search gate would otherwise call a real LLM classifier and run
+  // live search-engine scrapers. The rules-only fallback keeps the test fast
+  // and network-free while still exercising the routing + skill injection.
+  process.env.WEB_SEARCH_LFM_DISABLED = "1";
 });
 
 async function importChatRoute() {

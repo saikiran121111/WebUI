@@ -155,7 +155,7 @@ export function isSafeUrl(url: string): boolean {
 // request level (see FINGERPRINTS + pickFingerprint below) so a 403 from
 // one host can be retried under a different browser profile without a
 // second Impit pool.
-const FINGERPRINTS: Record<BrowserFingerprint, { secChUa: string; platform: string; userAgent: string }> = {
+const FINGERPRINTS: Record<BrowserFingerprint, { secChUa: string | null; platform: string; userAgent: string }> = {
   chrome: {
     secChUa: '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
     platform: '"Windows"',
@@ -163,7 +163,9 @@ const FINGERPRINTS: Record<BrowserFingerprint, { secChUa: string; platform: stri
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   },
   firefox: {
-    secChUa: '"Not(A:Brand";v="8", "Firefox";v="131", "Firefox";v="131"',
+    // Firefox never sends Sec-CH-UA* headers — a Firefox TLS fingerprint
+    // that DOES send them is a telltale mismatch that WAFs CAPTCHA instantly.
+    secChUa: null,
     platform: '"Windows"',
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
@@ -205,30 +207,29 @@ export function pickFingerprint(
   for (let i = 0; i < order.length; i++) {
     const fp = order[(starting + i) % order.length];
     if (fp === exclude) continue;
-    const f = FINGERPRINTS[fp];
-    const n = _rotate % LANGS.length;
-    return {
-      fp,
-      headers: {
-        "user-agent": f.userAgent,
-        "accept-language": LANGS[n],
-        "sec-ch-ua": f.secChUa,
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": f.platform,
-      },
-    };
+    return { fp, headers: browserIdentHeaders(fp) };
   }
-  const f = FINGERPRINTS.chrome;
-  return {
-    fp: "chrome",
-    headers: {
-      "user-agent": f.userAgent,
-      "accept-language": "en-US,en;q=0.9",
-      "sec-ch-ua": f.secChUa,
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": f.platform,
-    },
+  return { fp: "chrome", headers: browserIdentHeaders("chrome") };
+}
+
+/**
+ * The UA + Accept-Language + Sec-CH-UA identity for one fingerprint.
+ * Sec-CH-UA is OMITTED for firefox (Firefox never sends it — including it
+ * on a Firefox TLS fingerprint is the telltale mismatch WAFs flag).
+ */
+function browserIdentHeaders(fp: BrowserFingerprint): Record<string, string> {
+  const f = FINGERPRINTS[fp] ?? FINGERPRINTS.chrome;
+  const n = _rotate % LANGS.length;
+  const headers: Record<string, string> = {
+    "user-agent": f.userAgent,
+    "accept-language": LANGS[n],
   };
+  if (f.secChUa) {
+    headers["sec-ch-ua"] = f.secChUa;
+    headers["sec-ch-ua-mobile"] = "?0";
+    headers["sec-ch-ua-platform"] = f.platform;
+  }
+  return headers;
 }
 
 /** Realistic browser-navigate headers for a given fingerprint. */
@@ -236,20 +237,14 @@ export function realisticHeaders(
   extra?: Record<string, string>,
   fp: BrowserFingerprint = "chrome",
 ): Record<string, string> {
-  const n = _rotate++ % LANGS.length;
-  const f = FINGERPRINTS[fp] ?? FINGERPRINTS.chrome;
   const base: Record<string, string> = {
+    ...browserIdentHeaders(fp),
     accept:
       "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "accept-language": LANGS[n],
-    "sec-ch-ua": f.secChUa,
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": f.platform,
     "sec-fetch-dest": "document",
     "sec-fetch-mode": "navigate",
     "sec-fetch-site": "cross-site",
     "upgrade-insecure-requests": "1",
-    "user-agent": f.userAgent,
   };
   return { ...base, ...extra };
 }
@@ -260,13 +255,15 @@ export function apiHeaders(
   fp: BrowserFingerprint = "chrome",
 ): Record<string, string> {
   const f = FINGERPRINTS[fp] ?? FINGERPRINTS.chrome;
-  return {
+  const headers: Record<string, string> = {
     accept: "application/json, text/plain, */*",
     "accept-language": LANGS[_rotate++ % LANGS.length],
-    "sec-ch-ua": f.secChUa,
     "user-agent": f.userAgent,
-    ...extra,
   };
+  if (f.secChUa) {
+    headers["sec-ch-ua"] = f.secChUa;
+  }
+  return { ...headers, ...extra };
 }
 
 /* ── Bounded body reading (memory guard) ──────────────────────────────── */

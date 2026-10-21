@@ -381,7 +381,15 @@ export async function POST(req: NextRequest) {
       //    could starve the LFM classifier and push it past the 60s timeout.
       let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
       let inferenceTurnActive = false;
+      // WEB_SEARCH_LFM_DISABLED (unit/CI flag): skip the whole web-research
+      // pipeline so the route stays deterministic and network-free. Routing
+      // and skill injection are still exercised; only the evidence block
+      // is omitted.
+      const webResearchDisabled = process.env.WEB_SEARCH_LFM_DISABLED === "1";
       try {
+        if (webResearchDisabled) {
+          log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_LFM_DISABLED)");
+        } else {
         // Claim the shared inference slot NOW (before the LFM gate) so the
         // title queue aborts any in-flight title call. endUserTurn() is
         // called in the finally block when the turn fully settles.
@@ -433,6 +441,7 @@ export async function POST(req: NextRequest) {
             "web research evidence injected",
           );
         }
+        } // end if (!webResearchDisabled)
       } catch (err: unknown) {
         // A failed research run must not kill the chat turn: the main model
         // still answers from its own knowledge (with a note that the web
