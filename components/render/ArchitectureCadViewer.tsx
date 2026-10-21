@@ -1,6 +1,6 @@
 "use client";
 
-import "../../../styles/cad-studio.css";
+import "../../styles/cad-studio.css";
 import {
   memo,
   useCallback,

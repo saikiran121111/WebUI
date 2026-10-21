@@ -10,8 +10,8 @@
  * cad-studio.css is lazy-loaded by ArchitectureCadViewer / ThreeStudioViewer
  * so CAD workstation styles are never parsed unless a CAD block mounts.
  */
-@import "./base.css";
-@import "./tokens.css";
-@import "./code.css";
-@import "./markdown.css";
-@import "./document-viewers.css";
+@import "../styles/base.css";
+@import "../styles/tokens.css";
+@import "../styles/code.css";
+@import "../styles/markdown.css";
+@import "../styles/document-viewers.css";

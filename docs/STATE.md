@@ -60,6 +60,17 @@ PHASE 5 (CLAUDE.md + docs/state.md) — COMPLETED:
   Rules).
 - `docs/state.md` 8.1 updated with this session's lock list.
 
+PHASE 6 (BUILD VERIFICATION) — COMPLETED:
+- `npx next build` EXIT=0 — caught two CSS path bugs that `tsc`/`vitest`
+  cannot catch:
+  1. `app/globals.css` used `@import "./base.css"` etc. (resolved to
+     `app/base.css`); corrected to `@import "../styles/base.css"` etc.
+  2. `ArchitectureCadViewer.tsx` + `ThreeStudioViewer.tsx` imported
+     `../../../styles/cad-studio.css` (3 levels up = outside project root);
+     corrected to `../../styles/cad-studio.css`.
+- Production build output: `/` first load 317 kB (down from prior bundles
+  that included all studio viewers eagerly).
+
 [8.1 PRIOR ENTRY — FOLLOW-UP GATE OVER-FIRE FIX (2026-10-21f, LOCKED)]
 User bug report: live chat "What are you doing" (chitchat, 0 search intent) fired an "LFM-gated" search of "Honor 200 5G — Current events" — the deterministic follow-up escalation inside lfm-gate.ts misread a personal question after a shopping thread as a "link / live-state" ask about the assistant's last entity. Root causes (3, all in lfm-gate.ts, entity-validator.ts UNTOUCHED):
 (1) `FOLLOWUP_LINK_RE` contained `\?\b\w+\?` — a regex that literally matches any "?word?" sequence, so "What are you doing?" alone (zero history) escalated; removed from the alternation.

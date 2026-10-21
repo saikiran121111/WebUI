@@ -1,5 +1,5 @@
 "use client";
-import "../../../styles/cad-studio.css";
+import "../../styles/cad-studio.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Axis3d, Box, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, EyeOff,
