@@ -156,16 +156,18 @@ export function useChat({
   ): Promise<CompactResult | null> => {
     if (compactingRef.current) return null;
     compactingRef.current = true;
-    setCompactState((s) => ({ ...s, isCompacting: true }));
 
     // Fold the finished previous turn into the active LLM array first, so
     // compaction always runs against the real model-facing history.
     materializeLlmHistory();
-    // The divider position is fixed NOW, synchronously. The message list
-    // re-renders during the multi-second compaction call, and reading
-    // messagesRef afterwards would place the divider after the in-flight
-    // turn's bubbles instead of before them.
+    // The divider position is fixed NOW, synchronously — and published with
+    // isCompacting so the in-flight spinner actually renders (badgeAt must
+    // already be set for the badge to mount). The message list re-renders
+    // during the multi-second compaction call, and reading messagesRef
+    // afterwards would place the divider after the in-flight turn's bubbles
+    // instead of before them.
     const badgeAt = opts.badgeAt ?? messagesRef.current.length;
+    setCompactState((s) => ({ ...s, isCompacting: true, badgeAt }));
 
     // Refresh the in-memory threshold mirror if it has never been loaded.
     if (!compactThresholdsRef.current) {
@@ -201,7 +203,10 @@ export function useChat({
         }));
         setCompactState((s) => ({ ...s, lastRun: result, badgeAt }));
       } else {
-        setCompactState((s) => ({ ...s, lastRun: result }));
+        // Failure OR "already fits": still publish badgeAt — a silent
+        // failure is indistinguishable from "nothing happened", which is
+        // exactly how this bug went unnoticed at 100k context.
+        setCompactState((s) => ({ ...s, lastRun: result, badgeAt }));
       }
       return result;
     } catch (e) {
@@ -216,7 +221,7 @@ export function useChat({
         label: "Compaction failed",
         error: e instanceof Error ? e.message : String(e),
       };
-      setCompactState((s) => ({ ...s, lastRun: failed }));
+      setCompactState((s) => ({ ...s, lastRun: failed, badgeAt }));
       return failed;
     } finally {
       compactingRef.current = false;

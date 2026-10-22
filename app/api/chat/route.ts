@@ -553,6 +553,23 @@ export async function POST(req: NextRequest) {
   let webCitationMap: Record<string, any> | null = null;
   let researchLfmMeta: ResearchMeta | null = null;
 
+  // Compaction's own call (lib/chat/compact.ts): forward it VERBATIM.
+  // Running the per-turn pipeline over it is actively destructive: the LFM
+  // router classifies the STALE last user message inside the history being
+  // folded, and a non-chat mode injects a renderer skill contract mid-
+  // payload — which collides with the "Context Compaction Engine" system
+  // prompt and the model never emits <compacted_context>. The web-research
+  // gate then burns minutes of the compaction timeout researching that stale
+  // prompt. The compaction system prompt IS the whole contract; the history
+  // must reach the model untouched. (No progress frames either: the
+  // compaction client parses content deltas only.)
+  if (payload?.purpose === "compact") {
+    delete payload.purpose; // transport marker: never reaches the upstream
+    if (Array.isArray(payload.messages)) stripAttachmentRefs(payload.messages);
+    log.info({ model }, "compaction passthrough: skipping decision pipeline");
+    return forwardStream(JSON.stringify(payload), null, "standard_chat", req.signal, model);
+  }
+
   if (payload && Array.isArray(payload.messages) && payload.messages.length > 0) {
     // 1) user-tier slash skill (explicit intent, zero tokens otherwise)
     try {

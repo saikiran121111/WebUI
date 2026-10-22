@@ -1,6 +1,44 @@
 # ISSUES
 
 ## Confirmed and fixed
+- "Compact is not working at all — context crossed ~100k, auto-compact set at
+  32k; manual compact does nothing either" (2026-10-23, user report). FOUR
+  LAYERS, all fixed:
+  1. PERSISTENCE (fixed 2026-10-22, see next entry) — the 32k setting never
+     reached disk, so the gate stayed unarmed and context grew to 100k.
+  2. ROUTE CORRUPTION — compaction re-enters POST /api/chat, which re-ran the
+     full per-turn pipeline over the STALE last user message inside the
+     history being folded: LFM router → non-chat mode injected a renderer
+     skill block mid-payload (collides with the compaction contract), plus
+     the web-research gate burned minutes of the 120 s timeout on the stale
+     prompt. FIX: `purpose:"compact"` on ChatRequest → ChatClient.buildBody
+     forwards it → route.ts early-returns a VERBATIM passthrough (no slash
+     routing, no router, no skill, no gate, marker stripped before upstream;
+     forwardStream still claims beginUserTurn/endUserTurn correctly).
+  3. MODEL NON-COMPLIANCE — with the pipeline bypassed, the REAL backend
+     STILL emitted no `<compacted_context>` block: small local chat models
+     treat [system prompt, ...history] as conversation to CONTINUE (probe
+     2026-10-23: the model's entire content was the last assistant line
+     replayed). FIX: COMPACTION_ANCHOR_PROMPT — an "END OF CONVERSATION…
+     output ONLY the block" user turn appended AFTER the folded history
+     (ephemeral, never enters the replacement array). Probe-verified clean
+     five-section output on the shared backend.
+  4. SILENT FAILURE — failures set `lastRun` but not `badgeAt`, and
+     CompactDividerBadge returned null unless `compacted` → a failed compact
+     looked identical to nothing happening. FIX: badgeAt published WITH
+     isCompacting (in-flight spinner now mounts too) and on every failure/
+     no-op path; badge renders data-state="failed" (red, AlertTriangle,
+     error in title) / "noop" ("Context already fits"). Compaction timeout
+     120 s → 300 s (100k-token laptop prefill + 8k summary alone can exceed
+     2 min).
+  E2E gap that hid all this: every earlier compaction test intercepted
+  **/api/chat, so the REAL route never ran. Added 2 unmocked tests against
+  the real backend: route contract (purpose=compact → ZERO ruke_stage
+  frames; identical plain turn → frames present) + full manual /compact
+  through the real route (settles "done", divider text, follow-up replies).
+  Verified: `npx playwright test tests/auto-compact.spec.ts` 5/5, real
+  exit 0 (pipefail), single foreground run under .ai-coordination lock,
+  real-model test 21 s.
 - Auto-compact choice never persisted + rotating cursor over Save (2026-10-22,
   user report). ROOT CAUSE (both same bug): SettingsMenu Context tab seeded
   `customInput` with `String(tokens)` = "0" when unset (SettingsMenu.tsx load

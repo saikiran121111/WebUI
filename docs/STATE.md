@@ -1,5 +1,5 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-22g — AUTO-COMPACT CONTEXT (Settings "Context" tab: threshold presets + custom 8k–1M validation + Compact-now; /compact command; pre-send auto gate; sliding-window fold keeping last 4; model-array replacement; "Context compacted (x -> y tokens)" divider badge) — IMPLEMENTED, E2E GREEN, DELIVERED. Prior 2026-10-22f/e locks below stay valid.
+Synced: 2026-10-23 — COMPACT-FIXES-REAL-BACKEND (compaction was dead at 100k despite armed 32k gate: purpose:"compact" route passthrough bypasses decision pipeline; COMPACTION_ANCHOR_PROMPT makes the small local model honor the block contract; failures/no-ops + in-flight spinner now visible; 300 s cap) — FIXED, E2E 5/5 REAL EXIT 0, USER SETTING RESTORED. 2026-10-22g AUTO-COMPACT CONTEXT (Settings "Context" tab: threshold presets + custom 8k–1M validation + Compact-now; /compact command; pre-send auto gate; sliding-window fold keeping last 4; model-array replacement; "Context compacted (x -> y tokens)" divider badge) stays locked. Prior 2026-10-22f/e locks below stay valid.
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
 Latest cycle (2026-10-22g) mission was: "Auto-Compact Context" per the user spec —
@@ -36,6 +36,22 @@ reasoningMs / completionTokens), never fake timers. Status: IMPLEMENTED + FULLY 
 fixed). No open work on this feature.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 2026-10-23 Compaction-actually-works fix (E2E 5/5 real exit 0 incl. REAL backend, do not re-open):
+  - lib/chat/types.ts: `purpose?: "compact"` on ChatRequest; lib/chat/client.ts buildBody forwards it.
+  - app/api/chat/route.ts: after parse, `payload.purpose==="compact"` → delete marker,
+    stripAttachmentRefs, forwardStream VERBATIM (no slash routing, no getDecision, no skill
+    block, no web gate) — still claims beginUserTurn/endUserTurn via forwardStream.
+  - lib/chat/compact.ts: `COMPACTION_ANCHOR_PROMPT` exported, appended as FINAL user turn
+    after folded history (small local models otherwise CONTINUE the conversation — probe
+    proved the model replayed the last assistant line with zero block); timeout 120 s→300 s.
+  - hooks/useChat.ts compact(): badgeAt published WITH isCompacting (in-flight spinner now
+    mounts) AND on failure/no-op paths; CompactDividerBadge renders data-state="failed"
+    (red AlertTriangle, error in title) / "noop" ("Context already fits") instead of null.
+  - tests/auto-compact.spec.ts: +2 UNMOCKED real-route tests (route contract: purpose→
+    ZERO ruke_stage frames vs plain turn→frames; manual /compact end-to-end on REAL
+    backend→"done"+follow-up). Spec header updated: last two tests need the backend.
+  - USER SETTING RESTORED after test runs wiped it (spec afterEach resets to off):
+    settings.json compact_thresholds={auto:1,tokens:32000} is the user's live config.
 - 2026-10-22g Auto-Compact Context (ALL E2E GREEN, do not re-open):
   - `lib/chat/tokens.ts` (new): `CHARS_PER_TOKEN=4` + 4/message framing estimate;
     `estimateConversationTokens()`, `formatTokens()` ("128.4k").
@@ -214,6 +230,12 @@ fixed). No open work on this feature.
   tokens)" via formatTokens; testids settings-tab-context / settings-context-tab /
   compact-toggle / compact-preset-{32k,64k,128k,256k} / compact-custom-input /
   compact-custom-error / compact-save / compact-status / compact-now / compact-divider.
+- Compaction transport contract (2026-10-23): compaction calls POST /api/chat with
+  `purpose:"compact"` (ChatRequest) — route MUST forward verbatim and strip the marker
+  before upstream; compaction request = [system COMPACTION_SYSTEM_PROMPT, ...folded
+  history, COMPACTION_ANCHOR_PROMPT user turn]; anchor never enters the replacement array;
+  300 s client abort cap; divider testid compact-divider with data-state
+  compacting|done|failed|noop (failed/noop now VISIBLE).
 - Lock file `.ai-coordination/playwright.lock`; no npm test:e2e — real command
   `npx playwright test <specs>` (baseURL :3000, workers:1, headless:false, slowMo 300,
   PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright). Bash foreground runs are capped at 600 s —
@@ -228,8 +250,11 @@ fixed). No open work on this feature.
   PW_EXIT=0), progress-panel 6/6 (35.2 s, PW_EXIT=0); vitest run 52 files 595 passed |
   1 skipped (11.74 s, VITEST_EXIT=0); tsc --noEmit EXIT=0. No playwright-cli sessions open;
   lock released.
-- Store holds many conversations incl. real ones — do not wipe. compact_thresholds left
-  {auto:0,tokens:0} on disk by the spec afterEach (gate never trips for other specs).
+- Store holds many conversations incl. real ones — do not wipe. WARNING: the
+  auto-compact spec afterEach resets compact_thresholds to {auto:0,tokens:0} — if the
+  USER has a live setting, RESTORE it after running that spec (did so 2026-10-23:
+  {auto:1,tokens:32000} is the user's live config). auto-compact 5/5 incl. 2 real-backend
+  tests (route contract 6.8 s; real /compact 21.0 s; suite 39.1 s, PW_EXIT=0 via pipefail).
 - Mock-SSE patterns: paced http upstream + route.continue (NOT route.fulfill); route
   interception works without CORS headers (same-origin decided pre-interception); frames
   written via setTimeout + per-frame `alive()` liveness — never req.on("close") inside
@@ -237,7 +262,15 @@ fixed). No open work on this feature.
   widens the progress-spec reading window for label asserts.
 
 [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
-- None open. Resolved 2026-10-22g: (a) REAL APP BUG — SettingsMenu's menu-open effect
+- None open. Resolved 2026-10-23 (user report "compact is not working at all… 100k…
+  even manual compact is not working"): FOUR layers — stale-32k persistence (fixed
+  2026-10-22h), route pipeline corrupting the compaction payload (purpose:"compact"
+  passthrough), real model ignoring the block contract without a trailing anchor
+  (COMPACTION_ANCHOR_PROMPT), and every failure being invisible (badgeAt+failed state).
+  Full write-up in docs/ISSUES.md. Key lesson: ALL earlier compaction tests intercepted
+  **/api/chat so the real route never ran — real-route coverage is now mandatory for
+  transport changes.
+- Resolved 2026-10-22g: (a) REAL APP BUG — SettingsMenu's menu-open effect
   `fetchSettings()` (~566 ms cold dev compile) resolved AFTER a preset click and
   overwrote the just-clicked compact state (aria-pressed stuck "false" through 5 s of
   polls); fixed with the `compactDirtyRef` guard, and auto-compact test 1 clicks with NO
@@ -268,10 +301,10 @@ fixed). No open work on this feature.
   docs/STATE.md + docs/CHANGELOG.md synced (2026-10-22g).
 2. §4 completion report delivered to the user (this session).
 3. Optional follow-ups ONLY IF USER ASKS: commit the uncommitted work (new
-  lib/chat/{compact,compactConfig,tokens}.ts, CompactDividerBadge, 2 test files +
-  modified useChat/SettingsMenu/ChatInput/page/settings-route/client — NOTE several of
-  these carry PRE-EXISTING unrelated edits from prior uncommitted cycles, stage
-  selectively; nothing has been committed this whole effort); exact tokenizer instead of
-  the chars/4 estimate; surface the "Compacting…" spinner divider for a manual compact
-  IN FLIGHT (badgeAt is only set when the run finishes, so the compacting state is
-  currently invisible for manual runs).
+  lib/chat/{compact,compactConfig,tokens}.ts, CompactDividerBadge, test files +
+  modified useChat/SettingsMenu/ChatInput/page/settings-route/client/types +
+  app/api/chat/route.ts — NOTE several of these carry PRE-EXISTING unrelated edits from
+  prior uncommitted cycles, stage selectively; nothing has been committed this whole
+  effort); exact tokenizer instead of the chars/4 estimate. (The former "in-flight
+  spinner invisible" follow-up was DELIVERED 2026-10-23 — badgeAt now publishes with
+  isCompacting.)

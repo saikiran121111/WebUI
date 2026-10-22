@@ -11,12 +11,22 @@ const BASE = "http://localhost:3000";
  * pre-send auto-compact gate (fold → replacement history shipped to the
  * model → NO re-compaction on the following turn).
  *
- * The model call itself is mocked: POST /api/chat is intercepted so the
- * compaction request (which carries the COMPACTION system prompt) returns a
- * canned <compacted_context> block, and the real user reply streams back.
- * No inference backend is required.
+ * The three mocked tests intercept POST /api/chat so the compaction request
+ * (which carries the COMPACTION system prompt) returns a canned
+ * <compacted_context> block. But interception BYPASSES the real chat route —
+ * and the real 2026-10-22 bug lived exactly there: the route re-ran the
+ * Decision Engine + web gate over the compaction payload, injected a
+ * renderer skill block mid-history, and destroyed the <compacted_context>
+ * contract. So the last two tests hit the REAL route against the REAL
+ * shared inference backend (Section-1 lock protocol applies when running):
+ *   - route contract: a `purpose:"compact"` request carries NO ruke_stage
+ *     progress frames (decision pipeline skipped), while an identical plain
+ *     request does;
+ *   - full manual /compact with zero interception: real model folds a small
+ *     seeded history and the divider lands `data-state="done"`.
  *
- * Requires the dev server on http://localhost:3000 (npm run dev).
+ * Requires the dev server on http://localhost:3000 (npm run dev) and the
+ * inference backend for the last two tests.
  */
 
 const SETTINGS_TAB = '[data-testid="settings-tab-context"]';
@@ -346,6 +356,85 @@ test("auto gate: compacts once past the threshold, ships the replacement, never 
     await expect(page.getByText(/^Q0 filler0/).first()).toBeVisible();
   } finally {
     up.close();
+    await request.delete(`${BASE}/api/conversations/${id}`);
+  }
+});
+
+/* ── REAL-ROUTE tests (no interception; real shared inference backend) ─── */
+
+test("route contract: purpose=compact skips the decision pipeline; a plain turn does not", async ({ request }) => {
+  test.setTimeout(240_000);
+  const tiny = (purpose?: string) => ({
+    model: "",
+    stream: true,
+    max_tokens: 32,
+    ...(purpose ? { purpose } : {}),
+    messages: [
+      { role: "system", content: "Reply with exactly one short word." },
+      { role: "user", content: "ping" },
+    ],
+  });
+
+  // Compaction passthrough: the route must forward WITHOUT the early-open
+  // progress stream — zero ruke_stage frames means no router, no skill
+  // injection, no web gate touched the payload.
+  const compactRes = await request.post(`${BASE}/api/chat`, { data: tiny("compact") });
+  expect(compactRes.status()).toBe(200);
+  const compactSse = await compactRes.text();
+  expect(compactSse).toContain("data:");
+  expect(compactSse).not.toContain("ruke_stage");
+
+  // Contrast: the IDENTICAL payload without the marker goes through the full
+  // per-turn pipeline, which always opens early with progress frames. If
+  // this assertion ever sees no frames, the route's progress contract moved
+  // and the bypass assertion above stopped proving anything — re-check both.
+  const normalRes = await request.post(`${BASE}/api/chat`, { data: tiny() });
+  expect(normalRes.status()).toBe(200);
+  const normalSse = await normalRes.text();
+  expect(normalSse).toContain("ruke_stage");
+});
+
+test("manual /compact end-to-end through the REAL chat route (no interception)", async ({ page, request }) => {
+  test.setTimeout(420_000);
+  await setCompactSettings(request, { auto: 0, tokens: 0 }); // only the command compacts
+  const id = "cc-real-" + Date.now();
+  await seedConversation(request, id, 3); // 6 SHORT messages: 2 folded + 4 tail
+
+  try {
+    await page.goto(BASE + "/");
+    await openSeed(page, id);
+
+    await sendFromBar(page, "/compact");
+
+    const divider = page.locator(DIVIDER);
+    // badgeAt now publishes WITH isCompacting, so the in-flight spinner must
+    // actually mount (it was invisible while the real call ran for minutes).
+    await expect(divider).toBeVisible({ timeout: 10_000 });
+
+    // Settle against the REAL model (small history: seconds, not minutes).
+    await expect
+      .poll(async () => divider.getAttribute("data-state"), {
+        timeout: 360_000,
+        message: "real-model compaction never settled into a terminal state",
+      })
+      .toMatch(/^(done|failed|noop)$/);
+
+    // The whole point of the purpose=compact bypass: the compaction system
+    // prompt reaches the model verbatim, so it honors the block contract.
+    // A "failed" state here would mean the real route STILL corrupts the
+    // payload — exactly the reported bug — and the failure is now at least
+    // visible instead of silent.
+    await expect(divider).toHaveAttribute("data-state", "done");
+    await expect(divider).toContainText(/Context compacted \(.* -> .* tokens\)/);
+
+    // The full original conversation survives in the UI.
+    await expect(page.getByText(/^Q0 filler0/).first()).toBeVisible();
+
+    // And the compacted history actually works: a follow-up turn replies.
+    await sendFromBar(page, "Reply with just: OK");
+    await expect(page.locator(`${ASSISTANT}[data-state="complete"]`).last())
+      .toBeVisible({ timeout: 240_000 });
+  } finally {
     await request.delete(`${BASE}/api/conversations/${id}`);
   }
 });

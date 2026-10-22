@@ -1,6 +1,6 @@
 "use client";
 import { memo } from "react";
-import { GitMerge, Loader2 } from "lucide-react";
+import { AlertTriangle, GitMerge, Loader2 } from "lucide-react";
 import type { CompactResult } from "../../lib/chat/compact";
 
 interface CompactDividerBadgeProps {
@@ -37,7 +37,37 @@ export default memo(function CompactDividerBadge({ result, compacting, label }: 
     );
   }
 
-  if (!result || !result.compacted) return null;
+  if (!result) return null;
+
+  // A failed compaction MUST be visible: silently swallowing it is what
+  // made the user believe "compact is not working at all" — every failure
+  // looked identical to nothing happening.
+  if (!result.compacted) {
+    const failed = !result.ok;
+    return (
+      <div
+        data-testid="compact-divider"
+        data-state={failed ? "failed" : "noop"}
+        className="flex items-center gap-2 my-5"
+        title={failed ? (result.error ?? result.label) : result.label}
+      >
+        <div className="flex-1 h-px bg-[rgba(255,255,255,0.12)]" />
+        <span
+          className={`flex items-center gap-1.5 text-[11px] font-medium px-3 ${
+            failed ? "text-red-300/80" : "text-white/45"
+          }`}
+        >
+          {failed ? (
+            <AlertTriangle className="w-3 h-3" />
+          ) : (
+            <GitMerge className="w-3 h-3 text-white/35" />
+          )}
+          {label ?? result.label}
+        </span>
+        <div className="flex-1 h-px bg-[rgba(255,255,255,0.12)]" />
+      </div>
+    );
+  }
 
   const text = label ?? result.label;
   return (

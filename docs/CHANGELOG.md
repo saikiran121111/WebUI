@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## 2026-10-23 — Fix: Compaction actually runs on the real backend (bypass, anchor prompt, visible failures)
+User report: "compact is not working at all — context crossed ~100k, auto-compact set at
+32k; even manual compact is not working". Four stacked causes fixed end-to-end:
+- **Route bypass** (`lib/chat/types.ts`, `lib/chat/client.ts`, `app/api/chat/route.ts`):
+  compaction's own /api/chat call now carries `purpose:"compact"`; the route forwards it
+  VERBATIM — no slash routing, no Decision Engine, no skill injection, no web-research
+  gate. Previously the router classified the stale last message of the history being
+  folded and could inject a renderer skill contract mid-payload, destroying the
+  `<compacted_context>` output, while the web gate burned minutes of the timeout.
+- **Model compliance** (`lib/chat/compact.ts`): `COMPACTION_ANCHOR_PROMPT` — an
+  "END OF CONVERSATION… output ONLY the block" user turn appended AFTER the folded
+  history. The small local model otherwise treats the payload as a conversation to
+  continue (observed: it replayed the last assistant line). The anchor is ephemeral and
+  never enters the replacement history. Timeout raised 120 s → 300 s for large prefills.
+- **Failures are visible** (`hooks/useChat.ts`, `components/ui/CompactDividerBadge.tsx`):
+  `badgeAt` now publishes with `isCompacting` (in-flight "Compacting context…" spinner
+  finally mounts) and on failure/no-op runs; the divider renders `data-state="failed"`
+  (red, error in tooltip) or `"noop"` ("Context already fits") instead of vanishing.
+  Previously every failure was indistinguishable from "nothing happened".
+- **Test gap closed** (`tests/auto-compact.spec.ts`): all earlier compaction tests
+  intercepted `**/api/chat`, so the real route never ran. Added two unmocked tests
+  against the real shared backend: route contract (`purpose=compact` → zero `ruke_stage`
+  frames; identical plain turn → frames) and full manual `/compact` end-to-end (settles
+  "done", "Context compacted (x -> y tokens)", follow-up replies). Verified 5/5, real
+  exit 0, single foreground run under the `.ai-coordination` lock; the user's live
+  32k auto setting (wiped by the spec's afterEach reset) was restored.
+
 ## 2026-10-22g — Feature: Auto-Compact Context (threshold UI, /compact command, pre-send gate, divider badge)
 Per the "Auto-Compact Context" spec:
 - **Settings → new "Context" tab** (`components/SettingsMenu.tsx`): auto-compact toggle,
