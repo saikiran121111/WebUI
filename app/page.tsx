@@ -330,7 +330,7 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col min-w-0 relative">
         {/* Scrollable message area */}
         <div ref={messagesContainerRef} data-testid="messages-scroll" className="chat-messages-scroll flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-8 pb-40">
+          <div className={`max-w-3xl mx-auto px-4 py-8 ${messages.length === 0 ? "min-h-full flex flex-col pb-[14vh]" : "pb-40"}`}>
             {messages.length === 0 ? (
               <EmptyState
                 onSend={(text, atts) => runSend(text, atts)}
@@ -482,7 +482,7 @@ function EmptyState({
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: fadeIn ? 1 : 0 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col items-center pt-[7vh] select-none"
+      className="flex flex-col items-center my-auto select-none"
     >
       {/* Logo + greeting */}
       <motion.div
