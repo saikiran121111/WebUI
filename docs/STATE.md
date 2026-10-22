@@ -66,9 +66,16 @@ fixed). No open work on this feature.
     settings-context-tab / compact-toggle / compact-preset-{32k,64k,128k,256k} /
     compact-custom-input / compact-custom-error / compact-save / compact-status /
     compact-now; preset `aria-pressed` = (auto===1 && tokens===p.value); status "On · 32k"/"Off";
-    Save disabled on customError; save calls primeCompactThresholds; **compactDirtyRef
+    save calls primeCompactThresholds; **compactDirtyRef
     dirty-guard**: the menu-open `fetchSettings()` effect must NOT clobber compact state a
     user already clicked (real cold-compile race fixed this cycle).
+  - 2026-10-22h SettingsMenu persistence/cursor fix (LOCKED-DONE, E2E 3/3 EXIT=0; see
+    docs/ISSUES.md): customInput seeds "" (not "0") when unset; preset click syncs
+    customInput; custom blur/Enter validated by `isValidCustom` (out-of-range never
+    reaches compact state); toggle-on arms COMPACT_PRESETS[0] when tokens unusable;
+    Save `cursor-wait` ONLY while saving, `cursor-not-allowed` on customError. The old
+    phantom "0" validator error was blocking every preset/toggle save (persist bug) AND
+    painting the rotating cursor on hover.
   - `components/ChatInput.tsx`: `/^\/compact\s*$/i` in handleSend → `onCompactCommand?.()`,
     no user bubble, no send.
   - `components/ui/CompactDividerBadge.tsx` (new): testid `compact-divider`, data-state

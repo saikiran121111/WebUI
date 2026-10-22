@@ -1,6 +1,22 @@
 # ISSUES
 
 ## Confirmed and fixed
+- Auto-compact choice never persisted + rotating cursor over Save (2026-10-22,
+  user report). ROOT CAUSE (both same bug): SettingsMenu Context tab seeded
+  `customInput` with `String(tokens)` = "0" when unset (SettingsMenu.tsx load
+  effect); `customError` derives from `customInput` and "0" < 8k → phantom
+  "Enter 8,000 – 1,000,000" error on EVERY open → `handleSaveCompact`
+  early-returns and Save stays `disabled` with `cursor-wait` (Windows rotating
+  cursor on hover). `handleCompactPreset` never synced `customInput`, so even
+  after clicking a preset the stale "0" kept Save blocked → nothing persisted,
+  reopen read untouched disk → "Off". FIX: seed input `tokens>0 ? String : ""`;
+  preset click syncs input; `handleCompactCustom` rejects out-of-range via
+  `isValidCustom` (keeps last valid); toggle-on with no usable threshold arms
+  COMPACT_PRESETS[0] instead of writing dead "On · 0k"; Save cursor is
+  `cursor-wait` only while saving, `cursor-not-allowed` on validation error.
+  Verified: `npx playwright test tests/auto-compact.spec.ts` 3/3 EXIT=0 under
+  lock (spec extended: empty-input/no-error on fresh state, toggle-arms-32k,
+  preset-sync + preset-only save round-trip via GET /api/settings).
 - (SUPERSEDES the 4 GB cap + 180 s audio cut in the entry below, 2026-10-19,
   per user request "no file size or duration limits"): ALL attachment
   limits removed. `MAX_ATTACHMENT_BYTES` + `sizeLimitLabel()` default gone

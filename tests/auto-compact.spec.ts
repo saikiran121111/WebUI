@@ -203,13 +203,38 @@ test("Context tab: presets, custom validation, save round-trip and reload", asyn
   await expect(page.locator(COMPACT_TOGGLE)).toHaveAttribute("data-state", "off");
   await expect(page.locator(COMPACT_STATUS)).toHaveText("Off");
 
-  // Preset click arms auto-compact and highlights the chip. (No settle wait:
+  // No phantom validator error on a fresh/cleared state: the custom input is
+  // empty (not "0"), so Save is clickable and hovers as a normal button.
+  await expect(page.locator(COMPACT_CUSTOM)).toHaveValue("");
+  await expect(page.locator('[data-testid="compact-custom-error"]')).toHaveCount(0);
+  await expect(page.locator(COMPACT_SAVE)).toBeEnabled();
+
+  // Toggle-on with no threshold arms the default preset instead of writing a
+  // dead "On · 0k" state the send gate would ignore.
+  await page.locator(COMPACT_TOGGLE).click();
+  await expect(page.locator(COMPACT_STATUS)).toHaveText("On · 32k");
+  await expect(page.locator(COMPACT_CUSTOM)).toHaveValue("32000");
+  await page.locator(COMPACT_TOGGLE).click();
+  await expect(page.locator(COMPACT_STATUS)).toHaveText("Off");
+
+  // Preset click arms auto-compact, syncs the custom input (no stale "0"
+  // blocking Save), and the preset-only save persists across a reopen.
+  // (No settle wait:
   // the menu-open settings fetch must not clobber a just-clicked preset — the
   // dirty-guard in SettingsMenu keeps the user's choice even when the fetch
   // resolves after the click on a cold dev server.)
   await page.locator(COMPACT_PRESET("32k")).click();
   await expect(page.locator(COMPACT_PRESET("32k"))).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(COMPACT_STATUS)).toHaveText("On · 32k");
+  await expect(page.locator(COMPACT_CUSTOM)).toHaveValue("32000");
+  await expect(page.locator(COMPACT_SAVE)).toBeEnabled();
+
+  // Preset-only save (no custom input typed) must actually hit the server —
+  // the original bug: a stale out-of-range input silently blocked Save, so
+  // the choice reset to Off on the next open.
+  await page.locator(COMPACT_SAVE).click();
+  const gotPreset = await (await request.get(`${BASE}/api/settings`)).json();
+  expect(gotPreset.settings?.compact_thresholds).toEqual({ auto: 1, tokens: 32000 });
 
   // Out-of-range custom value: inline error + Save disabled (8,000–1,000,000).
   await page.locator(COMPACT_CUSTOM).fill("5000");
