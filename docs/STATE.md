@@ -1,8 +1,19 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-22d — CLAUDE-DESKTOP-STYLE PROGRESS CHIP + PANEL — IMPLEMENTED, E2E GREEN, DELIVERED.
+Synced: 2026-10-22e — RECENTS CLAUDE-DESKTOP PARITY (filter-menu Delete, full-screen View-all modal, groups + unread) — IMPLEMENTED, E2E GREEN, DELIVERED.
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
-Mission was: reproduce the Claude-desktop "Step X of N" progress popup in the top-right
+Latest cycle (2026-10-22e) mission was: Claude-desktop parity for the sidebar Recents
+section — filter popover gains a Delete row under Status (enters select mode; header
+Select icon swaps to red Trash2 while selecting), "View all" opens a full-screen Recents
+modal (serif heading, Active | Shared-disabled | Archived tabs, search, Groups chip bar,
+select toolbar: Pin / Move-to-group inline "Name your group"+Save panel / Mark unread /
+Archive / red trash / × exit, New session, relative-time labels), plus new optional
+ConversationMeta fields `group` / `unread` (sidebar + modal unread dots, Groups flyout
+filter in the sidebar popup, opening an unread chat clears it). Status: IMPLEMENTED +
+FULLY VERIFIED — tsc 0, vitest 573 green, Playwright recents-controls 6/6, recents-modal
+5/5 (first run), conversations-crud 7/7, multi-select-delete 2/2 (all exit 0). No open
+work. Prior-cycle progress-chip work stays locked. Original chip mission paragraph kept
+below for contract context: reproduce the Claude-desktop "Step X of N" progress popup in the top-right
 window bar — white-bordered pill chip (explicit user deviation from the reference's blue)
 opening a "Progress" panel (timeline: dim done dots / bright active step with live % /
 pending, overall bar, "K earlier steps" collapse, Outputs section with real artifacts) —
@@ -13,6 +24,32 @@ reasoningMs / completionTokens), never fake timers. Status: IMPLEMENTED + FULLY 
 fixed). No open work on this feature.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 2026-10-22e Recents parity (ALL E2E GREEN, do not re-open):
+  - `lib/types.ts` ConversationMeta += `group?: string`, `unread?: boolean` (round-trip
+    via whole-doc JSON store, no API change).
+  - `app/page.tsx`: persist meta rebuild CARRIES `group: existing?.group,
+    unread: existing?.unread` (omitting them erases them on next save); handleSelect
+    clears unread (save + state); `viewAllOpen` state; bulk handlers
+    `applyMetaBulk(ids, mutate, bumpUpdatedAt)` = per-id GET→mutate→save then ONE
+    refreshList (unread/group use bumpUpdatedAt=false); RecentsModal wired with
+    handleSelect/handleNew/handleDeleteSelected + 4 bulk handlers.
+  - `lib/chat/recentsFilters.ts`: `RecentsFilters.groupFilter` ("all"|name, persisted+
+    validated), filterConversations honors it; `listGroups()`, `formatActivityLabel()`
+    ("Just now"/"N hours ago"/"N days ago" <7d else medium date).
+  - `components/ui/RecentsFilterMenu.tsx`: Delete row under Status
+    (`recents-filter-delete` → onStartSelect), Groups flyout row
+    (`recents-filter-row-groups`/`recents-filter-groups`) only when groups exist.
+  - `components/ui/Sidebar.tsx`: collapsed header = `recents-view-all` pill (opens modal)
+    + `recents-expand` chevron; expanded right group has `recents-browse` Maximize2;
+    select-mode-toggle swaps SquareCheck→red Trash2 (text contract "Select"/"Cancel"/
+    "Delete N" unchanged); unread dot `data-testid="unread-dot"` before title; aside
+    keeps z-50 on desktop (stacking fix, locked).
+  - `components/ui/RecentsModal.tsx` (~330 lines, new): `recents-modal` z-[200],
+    tabs/search/chips/rows/toolbar testids — see §8.4.
+  - `tests/recents-modal.spec.ts` (5 tests, new, green) +
+    `tests/recents-controls.spec.ts` (6 tests incl. filter-Delete-row + collapsed-pill
+    opens modal, green) + `tests/multi-select-delete.spec.ts` test 1 now seeds TWO chats
+    (one row-click must not pre-satisfy select-all) and cleans both.
 - `lib/types.ts`: `StageEvent {stage, detail?, mode?, ms?, done?, total?, coverage?, webCitations?, researchLfm?}` + `StreamEvent.stage?`.
 - `lib/stream/parser.ts`: `ruke_stage` → `{stage}` passthrough; `ruke_error` → finishReason "error"; plain SSE untouched (additive branch).
 - `app/api/chat/route.ts`: dual path — `payload.stream !== false` → ReadableStream Response
@@ -58,6 +95,12 @@ fixed). No open work on this feature.
 - web_meta stage → useChat message.webCitations/researchLfm → ResearchTrailCard (search-gate.spec guards).
 - ProgressChip dismiss → page.tsx dismissProgress → useChat.turnProgress=null (chip hides).
 - tests/progress-panel.spec + edit-stop-collapse.spec + search-gate.spec → the three changed surfaces.
+- 2026-10-22e Recents graph: app/page.tsx → components/ui/Sidebar.tsx (onViewAll,
+  filterMenu{groupNames,onStartSelect}) → RecentsFilterMenu.tsx; app/page.tsx →
+  RecentsModal.tsx → lib/chat/recentsFilters.ts (listGroups/formatActivityLabel) ←
+  lib/types.ts (meta group/unread); page bulk handlers → lib/persistence
+  (getConversation/saveConversation); specs recents-controls/recents-modal →
+  testids recents-* + conversation-item + confirm-dialog-confirm.
 
 [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
 - SSE stage envelope: `data: {"ruke_stage":{...StageEvent}}\n\n` before first upstream byte;
@@ -72,6 +115,15 @@ fixed). No open work on this feature.
 - Sidebar menu = plain buttons (no ARIA roles); ConfirmDialog "Delete conversation?";
   hero placeholder "How can I help you today?", bar placeholder "Reply"; testids
   send-button/file-input/attachment-chip/conversation-item/select-mode-toggle intact.
+- Recents parity contracts: ConversationMeta `group?: string` / `unread?: boolean`;
+  RecentsFilters `groupFilter` (persisted). Modal testids: recents-modal /
+  recents-tab-active|archived / recents-modal-search|-select|-new|-close /
+  recents-modal-select-all / recents-modal-bulk-pin|-group|-unread|-archive|-delete /
+  recents-modal-exit-select / recents-modal-move-panel / recents-modal-group-name /
+  recents-modal-group-save / recents-modal-move-remove / recents-group-chip-all /
+  recents-group-chip-{name} / recents-modal-row / recents-modal-unread-dot.
+  Sidebar: recents-view-all / recents-expand / recents-browse / unread-dot.
+  Z-layers: aside z-50 (desktop), modal z-[200], ConfirmDialog z-[999] (above modal).
 - Lock file `.ai-coordination/playwright.lock`; no npm test:e2e — real command
   `npx playwright test <specs>` (baseURL :3000, workers:1, headless:false, slowMo 300,
   PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright). Bash foreground runs are capped at 600 s —
@@ -80,13 +132,18 @@ fixed). No open work on this feature.
 
 [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
 - Dev server on :3000 (node PID observed 10304 this session; restart one-liner in
-  docs/e2e-test-state.md). All three feature specs green at exit 0 (see 8.2).
+  docs/e2e-test-state.md). All Recents specs green at exit 0 (see 8.2);
+  recents-controls 6/6, recents-modal 5/5, conversations-crud 7/7,
+  multi-select-delete 2/2 (2026-10-22e). No playwright-cli sessions left open.
 - Lock released (rm after each session). Store holds many conversations incl. real ones — do not wipe.
 - Mock-SSE pattern for future progress specs: paced http upstream + route.continue (NOT
   route.fulfill); readingDelay override widens the reading window for label asserts.
 
 [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
-- None open. Resolved this cycle: (a) overall % regressed 60→33 when the weight-3 websearch
+- None open. Resolved 2026-10-22e: multi-select-delete test 1 failed on
+  `Delete ${total}` after the select-all click — store was empty + single seed → the
+  one row-click already satisfied select-all so the click DESELECTED. Fix: seed TWO
+  chats (+cleanup both) → 2/2 green. Resolved earlier (2026-10-22d): (a) overall % regressed 60→33 when the weight-3 websearch
   step opened at band 10 → overallFloor (unit test added); (b) auto-opened panel occluded
   the user bubble Edit button → edit-stop-collapse :124 click hang (60 s timeout) → removed
   auto-open, spec updated to click-to-open, re-run green.
@@ -98,8 +155,12 @@ fixed). No open work on this feature.
 - None loaded this session (Playwright via npx + project config directly). Tier 2 untouched.
 
 [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
-1. DONE — feature delivered; docs/state.md + docs/e2e-test-state.md synced.
+1. DONE — Recents parity delivered; all four specs green; docs/state.md +
+  docs/e2e-test-state.md synced (2026-10-22e).
 2. §4 completion report delivered to the user (this session).
-3. Optional follow-ups ONLY IF USER ASKS: commit the uncommitted feature work (note
-  ChatInput.tsx carries PRE-EXISTING unrelated edits — stage selectively), auto-open
-  revisited via a non-occluding anchor, "K earlier steps" e2e coverage.
+3. Optional follow-ups ONLY IF USER ASKS: commit the uncommitted Recents work (git
+  status shows app/page.tsx, SettingsMenu/TopBar/Sidebar/ui files, lib/types.ts +
+  new RecentsModal/RecentsFilterMenu/recentsFilters + 4 specs; stage selectively —
+  SettingsMenu/TopBar carry PRE-EXISTING unrelated edits), Shared-tab real
+  implementation when sharing exists, bulk-archive e2e coverage (handler wired,
+  untested in modal).

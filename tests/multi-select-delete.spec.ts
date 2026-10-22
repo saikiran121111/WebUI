@@ -15,7 +15,15 @@ async function seed(request: APIRequestContext, id: string, title: string) {
 // everything up to the confirm dialog, then Cancel — no conversation is deleted.
 
 test.describe("sidebar multi-select delete", () => {
-  test("select mode, per-item checkboxes, select all, delete button, cancel", async ({ page }) => {
+  test("select mode, per-item checkboxes, select all, delete button, cancel", async ({ page, request }) => {
+    // Seed so the test never depends on the user's real store having chats.
+    // TWO chats: clicking one row must not already satisfy "select all",
+    // otherwise the select-all click below deselects instead of selects.
+    const stamp = Date.now();
+    const seedIds = ["c_msd_a" + stamp, "c_msd_b" + stamp];
+    await seed(request, seedIds[0], "MultiSelectSmoke A " + stamp);
+    await seed(request, seedIds[1], "MultiSelectSmoke B " + stamp);
+
     await page.goto("/");
 
     const items = page.locator('[data-testid="conversation-item"]');
@@ -62,6 +70,8 @@ test.describe("sidebar multi-select delete", () => {
     await modeButton.click();
     await expect(modeButton).toHaveText("Select");
     await expect(page.locator('[data-testid="select-all"]')).toHaveCount(0);
+
+    for (const id of seedIds) await request.delete(`/api/conversations/${id}`);
   });
 
   test("selecting and confirming deletes the conversation for good", async ({ page, request }) => {

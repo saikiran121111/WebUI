@@ -15,8 +15,8 @@ interface TopBarProps {
 }
 
 const ghost =
-  "w-7 h-7 rounded-md flex items-center justify-center text-white/35 " +
-  "hover:text-white/80 hover:bg-white/[0.05] transition-colors duration-[120ms]";
+  "w-7 h-7 rounded-md flex items-center justify-center text-white/55 " +
+  "hover:text-white/90 hover:bg-white/[0.05] transition-colors duration-[120ms]";
 
 /**
  * RUKE global top bar — full-width window chrome above the sidebar and the
@@ -45,7 +45,7 @@ export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progres
       </button>
       <button
         onClick={onToggleSidebar}
-        className={cn(ghost, sidebarOpen && "text-white/55")}
+        className={cn(ghost, sidebarOpen && "text-white/75")}
         aria-label="Toggle sidebar"
         title="Toggle sidebar"
       >

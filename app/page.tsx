@@ -10,6 +10,7 @@ import ProgressChip from "../components/ProgressChip";
 import { USER_NAME } from "../lib/user";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import RecentsModal from "../components/ui/RecentsModal";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
@@ -27,6 +28,8 @@ export default function HomePage() {
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
+  // Full-screen Recents browser (sidebar "View all" / browse icon).
+  const [viewAllOpen, setViewAllOpen] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -113,6 +116,10 @@ export default function HomePage() {
       updatedAt: Date.now(),
       pinned: existing?.pinned ?? false,
       archived: existing?.archived ?? false,
+      // Group / unread are user-set like pin/archive — this rebuild would
+      // silently erase them on the next save if not carried across.
+      group: existing?.group,
+      unread: existing?.unread,
       mode: existing?.mode ?? "chat",
       preview: messages[messages.length - 1]?.content?.slice(0, 80) ?? "",
       messageCount: messages.length,
@@ -228,6 +235,14 @@ export default function HomePage() {
       load(conv);
       setActiveId(id);
       setHasScrolledUp(false);
+      // Opening an unread chat clears the flag (Claude parity: the dot is a
+      // user-set marker, so persist it; no updatedAt bump → no reorder).
+      if (conv.meta.unread) {
+        conv.meta.unread = false;
+        saveConversation(conv).catch(() => {});
+        setConversations(prev => prev.map(c =>
+          c.id === id ? { ...c, unread: false } : c));
+      }
     }
     // On small screens the sidebar is a drawer — close it after navigating.
     // On desktop (sm+) it's a permanent column; collapsing it on chat select
@@ -306,6 +321,38 @@ export default function HomePage() {
     }
   }, []);
 
+  // Bulk meta edits for the Recents modal: one GET→mutate→POST per chat,
+  // then a SINGLE list refresh (mirrors confirmDeleteMany's batching).
+  // bumpUpdatedAt=false keeps activity sorts stable for unread/group marks.
+  const applyMetaBulk = useCallback(async (
+    ids: string[], mutate: (m: ConversationMeta) => void, bumpUpdatedAt = true,
+  ) => {
+    for (const id of ids) {
+      const conv = await getConversation(id);
+      if (!conv) continue;
+      mutate(conv.meta);
+      if (bumpUpdatedAt) conv.meta.updatedAt = Date.now();
+      await saveConversation(conv);
+    }
+    refreshList();
+  }, [refreshList]);
+
+  const handleBulkPin = useCallback((ids: string[], pinned: boolean) => {
+    applyMetaBulk(ids, m => { m.pinned = pinned; });
+  }, [applyMetaBulk]);
+
+  const handleBulkArchive = useCallback((ids: string[], archived: boolean) => {
+    applyMetaBulk(ids, m => { m.archived = archived; });
+  }, [applyMetaBulk]);
+
+  const handleBulkUnread = useCallback((ids: string[], unread: boolean) => {
+    applyMetaBulk(ids, m => { m.unread = unread; }, false);
+  }, [applyMetaBulk]);
+
+  const handleBulkMoveGroup = useCallback((ids: string[], group: string | null) => {
+    applyMetaBulk(ids, m => { if (group) m.group = group; else delete m.group; }, false);
+  }, [applyMetaBulk]);
+
   return (
     <div className="flex flex-col h-screen bg-[var(--bg)] text-[var(--foreground)] overflow-hidden">
       <TopBar
@@ -328,6 +375,7 @@ export default function HomePage() {
         onSearch={() => {}}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onViewAll={() => setViewAllOpen(true)}
       />
 
       <main className="flex-1 flex flex-col min-w-0 relative">
@@ -449,6 +497,20 @@ export default function HomePage() {
         onConfirm={confirmDeleteMany}
         onCancel={() => setConfirmDeleteIds(null)}
       />
+      {viewAllOpen && (
+        <RecentsModal
+          conversations={conversations}
+          activeId={activeId}
+          onClose={() => setViewAllOpen(false)}
+          onOpenChat={(id) => { setViewAllOpen(false); handleSelect(id); }}
+          onNew={() => { setViewAllOpen(false); handleNew(); }}
+          onDeleteSelected={handleDeleteSelected}
+          onBulkPin={handleBulkPin}
+          onBulkArchive={handleBulkArchive}
+          onBulkUnread={handleBulkUnread}
+          onBulkMoveGroup={handleBulkMoveGroup}
+        />
+      )}
     </div>
   );
 }

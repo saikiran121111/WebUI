@@ -226,6 +226,12 @@ export interface ConversationMeta {
    * generation win the race against an older in-flight title job. */
   titleGenCount?: number;
   titleGenAt?: number;
+  /** Optional user-named group (Recents Groups surface). Absent = ungrouped.
+   *  Round-trips untouched through the disk store (whole-doc JSON). */
+  group?: string;
+  /** true = the user marked this chat unread (Claude parity): sidebar and
+   *  modal rows show a dot; opening the chat clears it. */
+  unread?: boolean;
 }
 
 export interface Conversation {

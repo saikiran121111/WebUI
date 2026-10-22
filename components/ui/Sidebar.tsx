@@ -1,15 +1,22 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
-  Search, Plus, Pin, Archive, Check, ListFilter,
+  Search, Plus, Pin, Archive, Check, SquareCheck,
   MoreHorizontal, ChevronRight, ChevronDown, Grid3x3,
-  Folder, Boxes, Settings2,
+  Folder, Boxes, Settings2, Maximize2, Trash2,
 } from "lucide-react";
 import type { ConversationMeta } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { USER_NAME } from "../../lib/user";
 import { useSidebarResize } from "../../hooks/useSidebarResize";
+import RecentsFilterMenu from "./RecentsFilterMenu";
+import {
+  DEFAULT_RECENTS_FILTERS, filterConversations, groupConversations, listGroups,
+  loadRecentsCollapsed, loadRecentsFilters,
+  saveRecentsCollapsed, saveRecentsFilters,
+} from "../../lib/chat/recentsFilters";
+import type { RecentsFilters } from "../../lib/chat/recentsFilters";
 
 interface SidebarProps {
   conversations: ConversationMeta[];
@@ -24,6 +31,8 @@ interface SidebarProps {
   onSearch: (q: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  /** Open the full-screen Recents browser modal (View all / browse icon). */
+  onViewAll: () => void;
 }
 
 /**
@@ -37,7 +46,7 @@ interface SidebarProps {
  */
 export default function Sidebar({
   conversations, activeId, onSelect, onNew, onDelete, onDeleteSelected,
-  onTogglePin, onToggleArchive, onRename, onSearch, isOpen, onClose,
+  onTogglePin, onToggleArchive, onRename, onSearch, isOpen, onClose, onViewAll,
 }: SidebarProps) {
   const [query, setQuery] = useState("");
   const { width, isDragging, beginDrag } = useSidebarResize();
@@ -45,13 +54,24 @@ export default function Sidebar({
   const [showArchived, setShowArchived] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const filtered = query
-    ? conversations.filter(c => c.title.toLowerCase().includes(query.toLowerCase()))
-    : conversations;
+  // Recents controls (Claude-desktop parity): collapse/expand and the
+  // Status / Last activity / Group by / Sort by filters. Persisted per user.
+  const [filters, setFilters] = useState<RecentsFilters>(DEFAULT_RECENTS_FILTERS);
+  const [recentsOpen, setRecentsOpen] = useState(true);
+  useEffect(() => {
+    setFilters(loadRecentsFilters());
+    setRecentsOpen(!loadRecentsCollapsed());
+  }, []);
+  useEffect(() => { saveRecentsFilters(filters); }, [filters]);
+  useEffect(() => { saveRecentsCollapsed(!recentsOpen); }, [recentsOpen]);
 
-  const pinned = filtered.filter(c => c.pinned && !c.archived);
-  const unpinned = filtered.filter(c => !c.pinned && !c.archived);
-  const archived = filtered.filter(c => c.archived);
+  const filteredAll = filterConversations(conversations, filters, query);
+  // status="archived" flips the main list to the archived pool and hides the
+  // bottom Archived disclosure; status="all" keeps the legacy disclosure.
+  const activePool = filteredAll.filter(c => filters.status === "archived" ? c.archived : !c.archived);
+  const archivedPool = filters.status === "all" ? filteredAll.filter(c => c.archived) : [];
+  const sections = groupConversations(activePool, filters.group);
+  const groupNames = listGroups(conversations);
 
   // Conversations deleted elsewhere (bulk confirm, single delete) vanish from
   // `conversations` — drop them from the selection so counts stay truthful.
@@ -64,8 +84,10 @@ export default function Sidebar({
     });
   }, [conversations]);
 
-  const selectableIds = [...pinned, ...unpinned, ...(showArchived ? archived : [])]
-    .map(c => c.id);
+  const selectableIds = [
+    ...sections.flatMap(s => s.items),
+    ...(showArchived ? archivedPool : []),
+  ].map(c => c.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every(id => selected.has(id));
 
   const toggleSelect = (id: string) => setSelected(prev => {
@@ -121,7 +143,12 @@ export default function Sidebar({
           // of the flex row so main reclaims the space; the transform still
           // slides it visually off-screen.
           isOpen ? "translate-x-0 sm:ml-0" : "-translate-x-full sm:-ml-[var(--sb-w)]",
-          "sm:static sm:z-auto sm:h-auto sm:flex-shrink-0",
+          // z-50 is kept on desktop on purpose: the translate-* classes make
+          // the aside a stacking context (static + z-auto would trap its
+          // z-50 popovers under the positioned <main> subtree that follows it
+          // in the DOM, silently swallowing clicks on any flyout that spills
+          // past the sidebar's right edge).
+          "sm:static sm:h-auto sm:flex-shrink-0",
           // CSS min/max mirror the hook's clamp so a window resize can never
           // push the rail past a quarter of the viewport (min wins on very
           // narrow desktops, same as before).
@@ -142,7 +169,7 @@ export default function Sidebar({
           </button>
 
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/45 pointer-events-none" />
             <input
               type="text"
               value={query}
@@ -151,7 +178,7 @@ export default function Sidebar({
               aria-label="Search chats"
               className="w-full pl-8 pr-3 py-1.5 rounded-lg
                 bg-white/[0.04] border border-[var(--border)]
-                text-[13px] text-white/85 placeholder-white/30
+                text-[13px] text-white/90 placeholder-white/45
                 focus:outline-none focus:border-white/25 transition-colors duration-[120ms]"
             />
           </div>
@@ -164,7 +191,7 @@ export default function Sidebar({
               bg-white/[0.07] hover:bg-white/[0.1] border border-white/[0.06]
               text-[13px] font-medium text-white/90 transition-colors duration-[120ms]"
           >
-            <Plus className="w-4 h-4 text-white/60" />
+            <Plus className="w-4 h-4 text-white/75" />
             New
           </button>
 
@@ -177,33 +204,92 @@ export default function Sidebar({
           </nav>
         </div>
 
-        {/* ── Recents header (houses the select/sort control) ────────── */}
-        <div className="flex items-center justify-between px-4 pt-2.5 pb-1 flex-shrink-0">
-          <span className="text-[11px] font-medium text-white/35">Recents</span>
-          <button
-            data-testid="select-mode-toggle"
-            onClick={() => {
-              if (!selectMode) { setSelectMode(true); return; }
-              if (selected.size === 0) { exitSelectMode(); return; }
-              onDeleteSelected([...selected]);
-            }}
-            className={cn(
-              "flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md transition-colors duration-[120ms]",
-              selectMode && selected.size > 0
-                ? "text-white/80 hover:bg-white/[0.06]"
-                : "text-white/40 hover:text-white/75",
+        {/* ── Recents header (collapse/expand, View all, select, filter) ── */}
+        <div className="flex items-center justify-between gap-2 px-4 pt-2.5 pb-1 flex-shrink-0">
+          {recentsOpen ? (
+            <button
+              data-testid="recents-toggle"
+              onClick={() => setRecentsOpen(false)}
+              aria-expanded={true}
+              title="Collapse recents"
+              className="flex items-center gap-1 text-[11px] font-medium text-white/55
+                hover:text-white/85 transition-colors duration-[120ms]"
+            >
+              Recents
+              <ChevronDown className="w-3.5 h-3.5 text-white/40" />
+            </button>
+          ) : (
+            // Collapsed: the pill opens the full-screen browser (Claude
+            // parity); a separate chevron just expands the inline list.
+            <div className="flex items-center gap-1">
+              <button
+                data-testid="recents-view-all"
+                onClick={onViewAll}
+                title="Browse all chats"
+                className="text-[13px] font-medium px-3 py-1.5 rounded-lg
+                  bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.06]
+                  text-white/90 transition-colors duration-[120ms]"
+              >
+                View all
+              </button>
+              <button
+                data-testid="recents-expand"
+                onClick={() => setRecentsOpen(true)}
+                aria-label="Expand recents"
+                title="Expand recents"
+                className="p-1 rounded-md text-white/45 hover:text-white/85
+                  hover:bg-white/[0.06] transition-colors duration-[120ms]"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-0.5">
+            {recentsOpen && (
+              <button
+                data-testid="recents-browse"
+                onClick={onViewAll}
+                aria-label="Browse all chats"
+                title="Browse all chats"
+                className="p-1 rounded-md text-white/55 hover:text-white/85
+                  hover:bg-white/[0.06] transition-colors duration-[120ms]"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
             )}
-            aria-label={selectMode ? (selected.size > 0 ? `Delete ${selected.size}` : "Cancel select mode") : "Select chats"}
-          >
-            <ListFilter className="w-3.5 h-3.5" />
-            {/* Label is present for text contracts; visually hidden until
-                select mode actually needs the word. */}
-            <span className={cn(!selectMode && "sr-only")}>
+            <button
+              data-testid="select-mode-toggle"
+              onClick={() => {
+                if (!selectMode) { setRecentsOpen(true); setSelectMode(true); return; }
+                if (selected.size === 0) { exitSelectMode(); return; }
+                onDeleteSelected([...selected]);
+              }}
+              className={cn(
+                "flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md transition-colors duration-[120ms]",
+                selectMode && selected.size > 0
+                  ? "text-white/85 hover:bg-white/[0.06]"
+                  : "text-white/55 hover:text-white/85 hover:bg-white/[0.06]",
+              )}
+              aria-label={selectMode ? (selected.size > 0 ? `Delete ${selected.size}` : "Cancel select mode") : "Select chats"}
+            >
+              {/* Claude parity: while deleting (selection non-empty) the
+                  Select icon is replaced by a red trash glyph. */}
               {selectMode && selected.size > 0
-                ? `Delete ${selected.size}`
-                : selectMode ? "Cancel" : "Select"}
-            </span>
-          </button>
+                ? <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                : <SquareCheck className="w-3.5 h-3.5" />}
+              {/* Label is present for text contracts; visually hidden until
+                  select mode actually needs the word. */}
+              <span className={cn(!selectMode && "sr-only")}>
+                {selectMode && selected.size > 0
+                  ? `Delete ${selected.size}`
+                  : selectMode ? "Cancel" : "Select"}
+              </span>
+            </button>
+            <RecentsFilterMenu
+              filters={filters} onChange={setFilters} groupNames={groupNames}
+              onStartSelect={() => { setRecentsOpen(true); setSelectMode(true); }}
+            />
+          </div>
         </div>
 
         {/* ── Select mode strip ─────────────────────────────────────── */}
@@ -222,47 +308,50 @@ export default function Sidebar({
         )}
 
         {/* ── Recent conversations (independently scrollable) ───────── */}
+        {recentsOpen ? (
         <div data-testid="conversation-list" className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 min-h-0">
-          {pinned.length > 0 && (
-            <div className="px-2 py-1.5 mt-1 text-[10px] font-semibold text-white/30 uppercase tracking-widest">
-              Pinned
-            </div>
-          )}
-          {pinned.map(c => (
-            <ConversationItem key={c.id} c={c} activeId={activeId} onSelect={onSelect}
-              selectMode={selectMode} selected={selected.has(c.id)} onToggleSelect={toggleSelect} {...itemProps} />
+          {sections.map(section => (
+            <Fragment key={section.key}>
+              {section.label && (
+                <div className="px-2 py-1.5 mt-1 text-[10px] font-semibold text-white/40 uppercase tracking-widest">
+                  {section.label}
+                </div>
+              )}
+              {section.items.map(c => (
+                <ConversationItem key={c.id} c={c} activeId={activeId} onSelect={onSelect}
+                  selectMode={selectMode} selected={selected.has(c.id)} onToggleSelect={toggleSelect} {...itemProps} />
+              ))}
+            </Fragment>
           ))}
-          {unpinned.length > 0 && (
-            <div className="px-2 py-1.5 mt-2 text-[10px] font-semibold text-white/30 uppercase tracking-widest">
-              {pinned.length > 0 ? "Recent" : "Chats"}
-            </div>
-          )}
-          {unpinned.map(c => (
-            <ConversationItem key={c.id} c={c} activeId={activeId} onSelect={onSelect}
-              selectMode={selectMode} selected={selected.has(c.id)} onToggleSelect={toggleSelect} {...itemProps} />
-          ))}
-          {archived.length > 0 && (
+          {archivedPool.length > 0 && (
             <button
               onClick={() => setShowArchived(v => !v)}
               className="w-full flex items-center gap-1.5 px-2 py-1.5 mt-2 text-[10px]
-                font-semibold text-white/30 uppercase tracking-widest hover:text-white/50 transition-colors duration-[120ms]"
+                font-semibold text-white/40 uppercase tracking-widest hover:text-white/60 transition-colors duration-[120ms]"
               aria-expanded={showArchived}
             >
               <Archive className="w-3 h-3" />
-              Archived · {archived.length}
+              Archived · {archivedPool.length}
               <ChevronRight className={cn("w-3 h-3 transition-transform duration-200", showArchived && "rotate-90")} />
             </button>
           )}
-          {showArchived && archived.map(c => (
-            <ConversationItem key={c.id} c={c} activeId={activeId} onSelect={onSelect}
-              selectMode={selectMode} selected={selected.has(c.id)} onToggleSelect={toggleSelect} {...itemProps} />
-          ))}
-          {filtered.length === 0 && (
-            <div className="px-3 py-8 text-center text-xs text-white/30">
+          {showArchived && (
+            <div data-testid="archived-items">
+              {archivedPool.map(c => (
+                <ConversationItem key={c.id} c={c} activeId={activeId} onSelect={onSelect}
+                  selectMode={selectMode} selected={selected.has(c.id)} onToggleSelect={toggleSelect} {...itemProps} />
+              ))}
+            </div>
+          )}
+          {filteredAll.length === 0 && (
+            <div className="px-3 py-8 text-center text-xs text-white/45">
               {query ? "No matches." : "No chats yet."}
             </div>
           )}
         </div>
+        ) : (
+          <div className="flex-1 min-h-0" aria-hidden="true" />
+        )}
 
         {/* ── Account row (anchored, does not scroll) ───────────────── */}
         <div className="px-3 py-2.5 border-t border-[var(--border)] flex items-center gap-2.5 flex-shrink-0">
@@ -278,10 +367,10 @@ export default function Sidebar({
           >
             <span className="text-[13px] font-medium text-white/85 truncate">{USER_NAME}</span>
             <span className="text-[12px] text-white/35">· Free</span>
-            <ChevronDown className="w-3.5 h-3.5 text-white/30" />
+            <ChevronDown className="w-3.5 h-3.5 text-white/45" />
           </button>
           <button
-            className="w-7 h-7 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.06]
+            className="w-7 h-7 rounded-lg text-white/50 hover:text-white/85 hover:bg-white/[0.06]
               flex items-center justify-center transition-colors duration-[120ms]"
             aria-label="Apps"
             title="Apps — coming soon"
@@ -308,11 +397,11 @@ function NavItem({ icon, label, onClick, active, disabled, title }: {
         active
           ? "bg-white/[0.06] text-white/95"
           : disabled
-            ? "text-white/35"
-            : "text-white/65 hover:text-white/95 hover:bg-white/[0.05]",
+            ? "text-white/60"
+            : "text-white/75 hover:text-white/95 hover:bg-white/[0.05]",
       )}
     >
-      <span className="text-white/40">{icon}</span>
+      <span className="text-white/60">{icon}</span>
       {label}
     </button>
   );
@@ -380,12 +469,18 @@ function ConversationItem({
           ? "bg-white/[0.09] text-white/95"
           : activeId === c.id
             ? "bg-white/[0.07] text-white/95"
-            : "hover:bg-white/[0.04] text-white/55",
+            : "hover:bg-white/[0.04] text-white/75",
       )}
     >
       {selectMode && <SelectCheckbox checked={selected} />}
+      {c.unread && (
+        <span
+          data-testid="unread-dot" title="Unread"
+          className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] flex-shrink-0"
+        />
+      )}
       <span className="flex-1 text-[13px] truncate">{c.title}</span>
-      {c.pinned && !selectMode && <Pin className="w-3 h-3 flex-shrink-0 text-white/40" />}
+      {c.pinned && !selectMode && <Pin className="w-3 h-3 flex-shrink-0 text-white/55" />}
       {!selectMode && <div className="relative" ref={menuRef}>
         <button
           onClick={e => { e.stopPropagation(); setMenuOpen(open ? null : c.id); }}

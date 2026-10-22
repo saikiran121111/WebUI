@@ -164,7 +164,7 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
         onClick={() => setOpen(!open)}
         className={cn(
           "w-7 h-7 rounded-md flex items-center justify-center transition-colors duration-[120ms]",
-          open ? "bg-white/[0.09] text-white/95" : "text-white/35 hover:text-white/80 hover:bg-white/[0.05]",
+          open ? "bg-white/[0.09] text-white/95" : "text-white/55 hover:text-white/90 hover:bg-white/[0.05]",
         )}
         aria-label="Settings"
         title="Settings"

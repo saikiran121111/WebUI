@@ -264,3 +264,24 @@
   → 3 passed (2.4 m, real model traffic), PW_EXIT=0 — decision headers + web_meta
   migration intact.
 - vitest: 573 passed | 1 skipped (51 files). `tsc --noEmit`: EXIT=0.
+
+## 2026-10-22e — Recents Claude-desktop parity (§1 lock) [GREEN]
+- Feature: filter-menu Delete row + icon swap; full-screen View-all modal
+  (`components/ui/RecentsModal.tsx`, z-[200]); meta fields `group`/`unread`;
+  Groups flyout + chip bar; unread dots; bulk pin/unread/group/delete handlers.
+- `npx playwright test tests/recents-controls.spec.ts` → **6 passed, PW_EXIT=0**
+  (incl. new filter-Delete-row test + collapsed pill opens modal, chevron expands).
+- NEW `tests/recents-modal.spec.ts` → **5 passed (first run), PW_EXIT=0**: tabs/search/
+  relative-time labels; bulk pin → disk poll + sidebar pin icon; mark unread → disk
+  poll + modal & sidebar dots, opening clears; move-to-group → chip + sidebar Groups
+  filter narrows list; bulk delete → ConfirmDialog → API 404 + row gone.
+- `tests/conversations-crud.spec.ts` → **7 passed (22.4 s), PW_EXIT=0**.
+- `tests/multi-select-delete.spec.ts` → first run 1 failed at :45 (`Delete ${total}`
+  after select-all): store empty + single seed → row-click pre-satisfied select-all,
+  so the click deselected ("Cancel"). FIXED test-only: seed TWO chats, clean both →
+  **2 passed (6.0 s), PW_EXIT=0**.
+- All runs lock-protocol honored (`.ai-coordination/playwright.lock` created/cleared,
+  foreground, `${PIPESTATUS[0]}` captured). vitest: 573 passed | 1 skipped.
+  `tsc --noEmit`: EXIT=0. Gotchas: modal rows must be scoped
+  (`recents-modal` container) — sidebar mirrors the same titles; filter flyout clicks
+  work only with the aside keeping `z-50` (stacking fix, locked in Sidebar.tsx).

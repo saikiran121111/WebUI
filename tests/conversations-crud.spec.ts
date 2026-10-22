@@ -212,11 +212,17 @@ test.describe("conversation CRUD", () => {
     await expect(itemByTitle(page, title)).toBeVisible();
     // The Archived section button is global state — leftovers from other runs
     // can keep it visible — so assert on THIS conversation instead: after
-    // unarchiving it must never appear inside the Archived section.
+    // unarchiving it must never appear inside the Archived section. The
+    // assertion must stay scoped to the disclosure (archived-items): the item
+    // legitimately lives in the main list now, so a global itemByTitle count
+    // would always be 1 and the check would contradict itself.
     const archivedSection = page.getByRole("button", { name: /Archived/ });
     if (await archivedSection.count() > 0) {
       await archivedSection.click();
-      await expect(itemByTitle(page, title)).toHaveCount(0);
+      await expect(
+        page.getByTestId("archived-items")
+          .locator('[data-testid="conversation-item"]', { hasText: title }),
+      ).toHaveCount(0);
     }
 
     await cleanup(request, id);
