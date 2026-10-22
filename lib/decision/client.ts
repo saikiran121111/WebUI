@@ -1,279 +1,119 @@
 /**
- * HTTP client for the contained Hybrid Decision Engine worker
- * (.decision-engine/worker/decision_server.py on 127.0.0.1:8790).
- * Auto-spawns the worker (and its llama-server child) from project-local
- * paths when it is not already warm; every binary/weight stays inside
- * ./.decision-engine/. If the engine cannot come up, returns a
- * standard_chat fallback envelope so chat keeps working with ALL renderer
- * validators disabled (zero-collision default).
+ * In-process decision routing (2026-10-22 rewrite).
+ *
+ * The old :8790 Hybrid Decision Engine (a Python worker + a second LFM2.5
+ * llama-server on :8791) spent ~1.36 GB of RAM to classify every turn,
+ * rewrite the user's prompt (`stripped_prompt`), and pin which renderer
+ * the UI was allowed to mount. That classification kept misfiring on
+ * chit-chat and, when it flipped a valid ```xlsx block to "standard_chat",
+ * the studio viewer never mounted.
+ *
+ * Decision is now made IN-PROCESS, cheaply, without ever touching the
+ * user's message:
+ *
+ *   1. A lightweight keyword match picks the deliverable intent
+ *      (excel / docs / pdf / ppt / 3d / cad / chart / html).
+ *   2. The matched .cskills skill bundle + the mode's output contract are
+ *      injected as ONE system block — the main model (:8080) sees the
+ *      available studio fences and writes the right fenced block itself.
+ *   3. `stripped_prompt` is ALWAYS the original message, verbatim. No
+ *      prompt rewrite ever happens in this file anymore.
+ *
+ * `warmupDecisionEngine()` is a no-op kept for import compatibility
+ * (instrumentation.ts no longer calls it). No process is ever spawned,
+ * no port is ever probed.
  */
-// NOTE: bare built-in specifiers (not "node:…") — Next 14's experimental
-// instrumentationHook webpack bundle does not externalize the node: scheme
-// and fails the whole server build with UnhandledSchemeError.
-import { spawn, spawnSync } from "child_process";
-import fsSync from "fs";
-import path from "path";
-import { projectRoot } from "../skills/registry";
 import { childLogger } from "../server/logger";
-import { RENDERER_MODES, isRendererMode, type DecisionEnvelope, type RendererMode } from "./types";
+import {
+  RENDERER_MODES,
+  isRendererMode,
+  type DecisionEnvelope,
+  type RendererMode,
+} from "./types";
+import { MODE_SKILL } from "./types";
 
 const log = childLogger("decision");
 
-const DEFAULT_URL = "http://127.0.0.1:8790";
+/**
+ * Renderer mode → deliverable-intent matchers. Deliberately narrow: the
+ * intent words are how users ask for each studio ("spreadsheet", "powerpoint",
+ * "an excel file"), not the artifact's content words. On a miss, the turn is
+ * standard_chat and no skill block is injected — the user's message still
+ * reaches the model untouched.
+ */
+const INTENT_MATCHERS: Record<Exclude<RendererMode, "standard_chat">, RegExp> = {
+  excel: /\b(?:spreadsheet|excel|\.xlsx|workbook|xlsx)\b/i,
+  docs: /\b(?:word ?document|\.docx|docx|resume|résumé|cv)\b/i,
+  pdf: /\bpdf\b/i,
+  ppt: /\b(?:power ?point|presentation|\.pptx|pptx|deck)\b/i,
+  "3d_asset": /\b3d\b|\bthree\.?js\b|\b(?:render|model|visualise|visualize)\b.*\b(?:3d|scene|mesh)\b/i,
+  cad_blueprint: /\b(?:floor ?plan|architect\w*|blueprint|building|room layout|interior)\b/i,
+  chart: /\bchart\b/i,
+  html_render: /\b(?:web ?page|landing ?page|html|interactive (?:ui|page|demo|prototype))\b/i,
+};
 
-export function decisionEngineUrl(): string {
-  return process.env.DECISION_ENGINE_URL ?? DEFAULT_URL;
-}
+/** First matching intent wins; order follows expected user intent frequency. */
+const INTENT_ORDER: Exclude<RendererMode, "standard_chat">[] = [
+  "excel", "docs", "pdf", "ppt", "chart", "3d_asset", "cad_blueprint", "html_render",
+];
 
-function autoSpawnEnabled(): boolean {
-  return process.env.DECISION_ENGINE_AUTOSPAWN !== "0";
-}
-
-function workerPython(): string {
-  const venv = path.join(projectRoot(), ".decision-engine", ".venv");
-  const exe = process.platform === "win32"
-    ? path.join(venv, "Scripts", "python.exe")
-    : path.join(venv, "bin", "python");
-  return fsSync.existsSync(exe) ? exe : "";
-}
-
-async function health(timeoutMs = 2000): Promise<boolean> {
-  try {
-    const res = await fetch(decisionEngineUrl() + "/health", { signal: AbortSignal.timeout(timeoutMs) });
-    return res.ok;
-  } catch {
-    return false;
+function detectDeliverableIntent(message: string): Exclude<RendererMode, "standard_chat"> | null {
+  for (const mode of INTENT_ORDER) {
+    if (INTENT_MATCHERS[mode].test(message)) return mode;
   }
-}
-
-let spawnPromise: Promise<boolean> | null = null;
-
-// ── Ownership kill-switch + reaper (Windows teardown guarantee) ────────
-// In-process shutdown hooks are NOT reliable here: closing the dev window
-// (taskkill w/o /F, console destroy) TerminateProcess()es the whole console
-// tree — probes verified Node 'exit'/SIGINT markers AND the worker's atexit /
-// watchdog / ctrl-handler NEVER run on that path; llama-server was left
-// LISTENING on :8791 holding ~500MB. Two layers, neither needs the dying
-// process to cooperate beyond dying:
-//   1. This kill-switch: process.on('exit') runs taskkill /F /T on the
-//      launcher subtree. Covers process.exit()/uncaught-exception/Ctrl+C-
-//      via-Next teardown (the paths where Node DOES reach JS handlers).
-//   2. engine_reaper.ps1 (spawned hidden next to the worker): kernel-waits on
-//      THIS process's PID and kills the subtree when it dies — covers abrupt
-//      Terminate/console-destroy where no JS ever runs.
-// The worker's own watchdog + atexit remain the graceful (and the POSIX) path.
-let ownedWorkerPid = 0;
-let killSwitchInstalled = false;
-
-function ownedWorkerKill(): void {
-  if (!ownedWorkerPid) return;
-  const pid = ownedWorkerPid;
-  ownedWorkerPid = 0;
-  try {
-    if (process.platform === "win32") {
-      spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], {
-        windowsHide: true,
-        timeout: 10_000,
-        stdio: "ignore",
-      });
-    } else {
-      // POSIX: the worker's DECISION_ENGINE_PARENT_PID watchdog shuts llama
-      // down gracefully the moment this process dies; SIGKILL is the backstop.
-      process.kill(pid, "SIGKILL");
-    }
-  } catch {
-    // already gone or no rights — nothing left to reclaim
-  }
-}
-
-function trackOwnedWorker(pid: number | undefined): void {
-  if (!pid) return;
-  ownedWorkerPid = pid;
-  if (!killSwitchInstalled) {
-    killSwitchInstalled = true;
-    process.on("exit", ownedWorkerKill);
-  }
-}
-
-/** Start the contained worker once and wait for /health (up to ~4 min). */
-async function ensureWorker(): Promise<boolean> {
-  if (await health()) return true;
-  if (!autoSpawnEnabled()) return false;
-  if (!spawnPromise) {
-    const attempt = (async () => {
-      const py = workerPython();
-      const script = path.join(projectRoot(), ".decision-engine", "worker", "decision_server.py");
-      if (!py || !fsSync.existsSync(script)) return false;
-      try {
-        const child = spawn(py, [script], {
-          cwd: projectRoot(), // never run from inside the engine dir
-          // NOT detached, on purpose: DETACHED_PROCESS makes Windows IGNORE
-          // CREATE_NO_WINDOW, so python (a console-subsystem exe) gets its own
-          // NEW VISIBLE console — the black popup window (title = the venv
-          // python.exe path) users saw at `npm run dev`. Non-detached creates
-          // NO new window. Do NOT count on Ctrl+C/window-close reaching the
-          // worker itself — delivery is unreliable (see the kill-switch:
-          // trackOwnedWorker + taskkill /F /T from Node's 'exit').
-          detached: false,
-          windowsHide: true,
-          // Pipe (not ignore) so the worker's own [decision] / [decision-engine]
-          // lines — engine warm-up, LFM2.5 failures, routing guards — surface
-          // in the `npm run dev` terminal through pino instead of vanishing.
-          stdio: ["ignore", "pipe", "pipe"],
-          // DECISION_ENGINE_PARENT_PID: the worker runs a watchdog on THIS
-          // process's PID and shuts itself + llama-server down gracefully
-          // when we die. It is the backstop, not the guarantee — see
-          // trackOwnedWorker(child.pid) below for the deterministic kill.
-          // Do NOT bare child.kill() anywhere: that only signals the launcher
-          // and would orphan llama-server; taskkill /T walks the full subtree.
-          env: { ...process.env, DECISION_ENGINE_SPAWNED_BY: "webui", DECISION_ENGINE_PARENT_PID: String(process.pid) },
-        });
-        child.unref();
-        // Deterministic teardown for the paths where JS still runs
-        // (process.exit(), uncaught exceptions, Next's Ctrl+C shutdown):
-        // Node's 'exit' runs a synchronous taskkill /F /T over launcher →
-        // worker → llama-server even if the worker never executed a line of
-        // its own shutdown code. It does NOT fire on console window-destroy
-        // (probes wrote no marker on that path) — the reaper below covers it.
-        // Cleared once the worker exits on its own so a recycled PID is never
-        // killed.
-        trackOwnedWorker(child.pid);
-        child.on("exit", () => {
-          if (ownedWorkerPid === child.pid) ownedWorkerPid = 0;
-        });
-        // Layer 2 (Windows): hidden reaper kernel-waits on OUR pid and
-        // reclaims the engine the instant we die — including console-destroy
-        // deaths where NO JS/Python shutdown code runs at all. It reaps the
-        // launcher tree AND llama-server straight from its pidfile (llama.cpp
-        // detaches its own console at startup, so llama escapes every
-        // console-teardown group; that orphan was the user's 500MB leak).
-        // The reaper is launched through a throwaway PowerShell running
-        // Start-Process -WindowStyle Hidden so its console lives OUTSIDE our
-        // console's destroy group — a directly-spawned reaper was itself
-        // TerminateProcess()ed mid-wait in testing (2026-10-20). Recycled-PID
-        // (StartTime) + cmdline guards keep unrelated processes (e.g. Strata's
-        // llama-server) untouchable; the reaper self-exits after.
-        if (process.platform === "win32" && child.pid) {
-          const reaper = path.join(projectRoot(), ".decision-engine", "worker", "engine_reaper.ps1");
-          const llamaPidfile = path.join(projectRoot(), ".decision-engine", ".cache", "llama_server.pid");
-          if (fsSync.existsSync(reaper)) {
-            try {
-              const inner = `& '${reaper.replace(/'/g, "''")}' ${process.pid} ${child.pid} '${llamaPidfile.replace(/'/g, "''")}'`;
-              const b64 = Buffer.from(inner, "utf16le").toString("base64");
-              const r = spawn(
-                "powershell.exe",
-                ["-NoProfile", "-NonInteractive", "-Command",
-                 `Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${b64}' | Out-Null`],
-                { cwd: projectRoot(), detached: false, windowsHide: true, stdio: "ignore" },
-              );
-              r.unref();
-            } catch {
-              // reaper failed to start; boot-reclaim remains the backstop
-            }
-          }
-        }
-        // Relay worker output line-by-line into the dev terminal. unref() the
-        // pipes so a long-lived worker can never hold the web server's event
-        // loop open on shutdown.
-        const relay = (stream: NodeJS.ReadableStream | null, level: "info" | "warn") => {
-          if (!stream) return;
-          (stream as NodeJS.ReadableStream & { unref?: () => void }).unref?.();
-          let buf = "";
-          stream.setEncoding("utf8");
-          stream.on("data", (chunk: string) => {
-            buf += chunk;
-            const lines = buf.split(/\r?\n/);
-            buf = lines.pop() ?? "";
-            for (const line of lines) {
-              if (line.trim()) log[level](line.trim());
-            }
-          });
-          stream.on("end", () => { if (buf.trim()) log[level](buf.trim()); buf = ""; });
-        };
-        relay(child.stdout, "info");
-        relay(child.stderr, "warn");
-      } catch {
-        return false;
-      }
-      for (let i = 0; i < 120; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        if (await health(3000)) return true;
-      }
-      return false;
-    })();
-    spawnPromise = attempt;
-    // Reset on failure so a later turn (or a restarted worker) can retry —
-    // a one-time cold-start failure must not poison the whole server process.
-    void attempt.then((ok) => { if (!ok && spawnPromise === attempt) spawnPromise = null; });
-  }
-  return spawnPromise;
+  return null;
 }
 
 /**
- * Boot reclaim: without this, a worker left behind by a crashed/killed older
- * dev session (or a manual launch) answers /health, ensureWorker() ADOPTS it,
- * and `npm run dev` never owns the engine — so stopping dev can never stop it
- * (the exact orphan the user hit). At server boot we therefore kill whatever
- * holds our contained decision-port (:8790) BEFORE deciding to spawn. The
- * whole launcher→worker→llama subtree goes (/T), which frees :8791 too;
- * the worker's own _reclaim_orphan_llama() is the backstop. Command-line
- * matching ("decision_server.py" / the contained .venv) means NOTHING outside
- * ./.decision-engine is ever touched — Strata on :8080 is never in range.
+ * No Python, no second LLM: the envelope is built locally in ~0ms.
+ * `stripped_prompt` is the message verbatim — the main model (:8080)
+ * decides what to render from the user's own words + the injected skill
+ * block; the UI no longer hard-gates fences on this envelope (see
+ * `MarkdownRenderer.kindAllowed` — always true).
  */
-function killStaleEngine(): void {
-  if (process.platform !== "win32") return; // port-scraping recipe is Windows-specific
-  const port = new URL(decisionEngineUrl()).port || "8790";
-  try {
-    const out = spawnSync("netstat", ["-ano", "-p", "TCP"], {
-      encoding: "utf8", windowsHide: true, timeout: 10_000,
-    }).stdout ?? "";
-    const pids = new Set<number>();
-    for (const line of out.split(/\r?\n/)) {
-      const parts = line.trim().split(/\s+/);
-      // TCP  127.0.0.1:8790  0.0.0.0:0  LISTENING  <pid>
-      if (parts.length >= 5 && parts[0].toUpperCase() === "TCP"
-          && parts[1].endsWith(`:${port}`) && parts[3].toUpperCase() === "LISTENING") {
-        pids.add(Number(parts[4]));
-      }
-    }
-    for (const pid of pids) {
-      if (!Number.isInteger(pid) || pid <= 4) continue;
-      const cl = spawnSync("powershell", ["-NoProfile", "-Command",
-        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`], {
-        encoding: "utf8", windowsHide: true, timeout: 15_000,
-      }).stdout ?? "";
-      if (/decision_server\.py|\.decision-engine[\\/]\.venv/.test(cl)) {
-        spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], {
-          windowsHide: true, timeout: 15_000,
-        });
-        log.info(`reclaimed stale decision engine (pid ${pid}) from a previous session`);
-      }
-    }
-  } catch {
-    // best-effort: a failed reclaim just falls back to adopting/waiting as before
-  }
+export function getDecisionSync(
+  message: string,
+  _conversationHistory: { role: string; content: string }[] = [],
+): DecisionEnvelope {
+  const trimmed = (message ?? "").trim();
+  if (!trimmed) return fallbackEnvelope("");
+  const intent = detectDeliverableIntent(trimmed);
+  return {
+    active_mode: intent ?? "standard_chat",
+    confidence: 1,
+    decided_by: "in-process-deliverable-match",
+    stripped_prompt: trimmed, // never rewritten
+    skill_to_load: intent ? MODE_SKILL[intent] : null,
+    allowed_code_fence: null, // the contract inside the skill block names it
+    disable_validators: RENDERER_MODES.filter((m) => m !== (intent ?? "standard_chat")) as RendererMode[],
+    enable_validator: intent ?? "standard_chat",
+    task_constraints: [],
+    extracted_entities: [],
+    lfm_latency_ms: 0,
+  };
 }
 
-/**
- * Fire-and-forget engine warmup (called from instrumentation.ts on server
- * boot): reclaims any stale engine from a previous session, then spawns ours
- * (watchdog-owned) and waits for /health in the background.
- */
+// Keep the import surface for app/api/chat and app/api/decision.
+async function getDecisionShim(
+  message: string,
+  conversationHistory: { role: string; content: string }[] = [],
+): Promise<DecisionEnvelope> {
+  return getDecisionSync(message, conversationHistory);
+}
+
+export { getDecisionShim as getDecision };
+
+/** Kept for import compatibility — nothing spawns anymore. */
 export function warmupDecisionEngine(): void {
-  if (!autoSpawnEnabled()) return;
-  killStaleEngine();
-  void ensureWorker().then((ok) => {
-    if (ok) log.info(`engine warm on ${decisionEngineUrl()}`);
-    else log.warn("warmup did not reach /health");
-  });
+  log.info("warmupDecisionEngine is a no-op since 2026-10-22 (in-process routing)");
 }
 
-/** Engine unreachable: keep chat alive, standard_chat with every renderer off. */
+/** A no-op envelope that keeps chat alive when nothing matches. */
 export function fallbackEnvelope(message: string): DecisionEnvelope {
   return {
     active_mode: "standard_chat",
-    confidence: 0,
-    decided_by: "fallback",
+    confidence: 1,
+    decided_by: "in-process-fallback",
     stripped_prompt: message,
     skill_to_load: null,
     allowed_code_fence: null,
@@ -285,26 +125,6 @@ export function fallbackEnvelope(message: string): DecisionEnvelope {
   };
 }
 
-export async function getDecision(
-  message: string,
-  conversationHistory: { role: string; content: string }[] = [],
-): Promise<DecisionEnvelope> {
-  const trimmed = (message ?? "").trim();
-  if (!trimmed) return fallbackEnvelope("");
-  try {
-    if (!(await ensureWorker())) throw new Error("decision engine unreachable");
-    const res = await fetch(decisionEngineUrl() + "/decision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: trimmed, conversationHistory }),
-      signal: AbortSignal.timeout(300_000),
-    });
-    if (!res.ok) throw new Error(`decision engine HTTP ${res.status}`);
-    const env = (await res.json()) as DecisionEnvelope;
-    if (!isRendererMode(env.active_mode)) throw new Error(`bad active_mode: ${env.active_mode}`);
-    return env;
-  } catch (err) {
-    log.warn({ err: (err as Error).message }, "engine unavailable — falling back to standard_chat");
-    return fallbackEnvelope(trimmed);
-  }
-}
+// The legacy `isRendererMode` re-export (used by app/api/chat passthrough).
+export { isRendererMode };
+

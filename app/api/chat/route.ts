@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { childLogger } from "../../../lib/server/logger";
-import { logDecisionTable } from "../../../lib/server/decision-log";
 import {
   applySlashSkillRouting,
   extractUserText,
@@ -19,10 +18,9 @@ import {
   type DecisionEnvelope,
   type RendererMode,
 } from "../../../lib/decision/types";
-import { runWebResearch, buildMainModelContext } from "../../../src/lib/web-search/pipeline";
-
-const LLM_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
-const API_KEY = process.env.LLM_API_KEY ?? "no-key";
+import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
+import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
+import type { StageEvent } from "../../../lib/types";
 
 const log = childLogger("api/chat");
 
@@ -46,9 +44,17 @@ function scrubThinkTags(text: string): string {
 function upstreamHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    Authorization: "Bearer " + API_KEY,
+    Authorization: "Bearer " + llmApiKey(),
     Accept: "text/event-stream",
   };
+}
+
+/** Search-gate summary surfaced in the Research Trail card. */
+interface ResearchMeta {
+  depth: string;
+  freshness: string;
+  decidedBy?: string;
+  queries: { query: string; intent: string }[];
 }
 
 function streamHeaders(
@@ -56,7 +62,7 @@ function streamHeaders(
   usedSkill: string | null,
   decisionMode: RendererMode,
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: ResearchMeta | null,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": contentType ?? "text/event-stream",
@@ -74,7 +80,7 @@ function streamHeaders(
   if (webCitations && Object.keys(webCitations).length > 0) {
     headers["X-Web-Citations"] = encodeURIComponent(JSON.stringify(webCitations));
   }
-  // LFM decision summary: shown collapsed in the Research Trail card.
+  // Search-gate summary: shown collapsed in the Research Trail card.
   if (researchLfm) {
     headers["X-Research-Lfm"] = encodeURIComponent(JSON.stringify(researchLfm));
   }
@@ -96,7 +102,7 @@ function streamUpstream(
   model: string,
   onSettled: () => void,
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: ResearchMeta | null,
 ): Response {
   const started = Date.now();
   let chunks = 0;
@@ -141,7 +147,7 @@ async function forwardStream(
   signal?: AbortSignal,
   model = "default",
   webCitations?: Record<string, any> | null,
-  researchLfm?: { depth: string; freshness: string; decidedBy?: string; queries: { query: string; intent: string }[] } | null,
+  researchLfm?: ResearchMeta | null,
 ): Promise<Response> {
   // Claim the shared inference slot for the user's turn: this aborts any
   // in-flight background title call (user traffic always wins) and blocks
@@ -162,8 +168,8 @@ async function forwardStream(
     // following turn on the single inference slot (observed in three full
     // Playwright runs: an abandoned chart stream left the next real-model
     // test's two turns hanging with empty replies).
-    log.info({ model, mode: decisionMode, url: LLM_URL }, "llm stream start");
-    const upstream = await fetch(LLM_URL, { method: "POST", headers: upstreamHeaders(), body, signal });
+    log.info({ model, mode: decisionMode, url: llmApiUrl() }, "llm stream start");
+    const upstream = await fetch(llmApiUrl(), { method: "POST", headers: upstreamHeaders(), body, signal });
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
       log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
@@ -192,11 +198,101 @@ async function forwardStream(
       log.error({ model, err: (err as Error).message }, "llm server unreachable");
     }
     release();
+    const host = (() => { try { return new URL(llmApiUrl()).host; } catch { return "the configured port"; } })();
     return NextResponse.json(
-      { error: "Could not reach the model server. Is it running on port 8080?" },
+      { error: `Could not reach the model server at ${host}.` },
       { status: 503 },
     );
   }
+}
+
+/**
+ * Live progress channel bound to an already-opened SSE response. The route
+ * emits `ruke_stage` frames for every REAL pre-model phase (routing, skill
+ * load, attachment retrieval, web-research gate stages) so the browser's
+ * progress panel (components/ProgressChip.tsx) reports real activity instead
+ * of a dead spinner while the pipeline runs. Carries only measured counts —
+ * never estimated ones.
+ */
+interface ProgressChannel {
+  stage(e: StageEvent): void;
+  /** Replace the rest of the stream with an honest error frame + [DONE]. */
+  fail(message: string): void;
+  /** Forward raw upstream bytes (already scrubbed). */
+  raw(bytes: Uint8Array): void;
+  close(): void;
+}
+
+/**
+ * The progress-stream twin of forwardStream: headers are already committed,
+ * so upstream failures travel as a `ruke_error` SSE frame (the parser maps it
+ * to finishReason "error" — the same UI surface a non-200 produced before).
+ * Busy-slot and req.signal semantics are identical to forwardStream.
+ */
+async function forwardStreamInto(
+  body: string,
+  decisionMode: RendererMode,
+  signal: AbortSignal | undefined,
+  model: string,
+  ch: ProgressChannel,
+): Promise<void> {
+  beginUserTurn();
+  let settled = false;
+  const release = () => {
+    if (settled) return;
+    settled = true;
+    endUserTurn();
+  };
+  const started = Date.now();
+  let chunks = 0;
+  try {
+    log.info({ model, mode: decisionMode, url: llmApiUrl() }, "llm stream start");
+    const upstream = await fetch(llmApiUrl(), { method: "POST", headers: upstreamHeaders(), body, signal });
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => "");
+      log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
+      ch.fail("Upstream returned " + upstream.status + (errText ? ": " + errText.slice(0, 200) : ""));
+      return;
+    }
+    if (!upstream.body) {
+      log.error({ model }, "llm upstream returned no body");
+      ch.fail("No response body from model");
+      return;
+    }
+    // Same per-chunk think-tag scrubber as streamUpstream.
+    const reader = upstream.body.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks++;
+      ch.raw(new TextEncoder().encode(scrubThinkTags(new TextDecoder().decode(value))));
+    }
+    log.info(
+      { model, mode: decisionMode, ms: Date.now() - started, sseChunks: chunks },
+      "llm stream complete",
+    );
+    ch.close();
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      log.warn({ model }, "llm stream aborted by client");
+      ch.close();
+    } else {
+      const host = (() => { try { return new URL(llmApiUrl()).host; } catch { return "the configured port"; } })();
+      log.error({ model, err: (err as Error).message }, "llm server unreachable");
+      ch.fail(`Could not reach the model server at ${host}.`);
+    }
+  } finally {
+    release();
+  }
+}
+
+/** Does this turn carry an internal attachment_ref (indexed-document turn)? */
+function turnHasAttachmentRef(content: unknown): boolean {
+  return (
+    Array.isArray(content) &&
+    content.some((part: any) => part?.type === "attachment_ref")
+  );
 }
 
 /**
@@ -282,6 +378,166 @@ function replaceLastUserText(messages: any[], index: number, text: string): void
  *
  * No keyword routers, no load_skill tool loop, no core-skill name in headers.
  */
+/**
+ * Pre-model turn phases (skill block → attachment evidence → web-search gate)
+ * shared by BOTH response shapes: the legacy request/response turn and the
+ * progress-stream turn. `stage` receives every real phase event on the
+ * progress path and is a no-op otherwise, so the two paths can never drift
+ * apart in what they actually run. Returns the web metadata the caller ships
+ * via headers (legacy) or a `web_meta` stage frame (progress path).
+ */
+async function runTurnPipeline(
+  payload: any,
+  opts: {
+    lastUserIdx: number;
+    fullText: string;
+    env: DecisionEnvelope;
+    history: { role: string; content: string }[];
+    usedSkill: string | null;
+    signal: AbortSignal;
+    stage: (e: StageEvent) => void;
+    hasAttachmentRefs: boolean;
+    model: string;
+  },
+): Promise<{ webCitationMap: Record<string, any> | null; researchLfmMeta: ResearchMeta | null }> {
+  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, model } = opts;
+
+  // 4) exactly ONE skill block for this turn (slash user skill wins)
+  let skillBlockBytes = 0;
+  const skillStarted = Date.now();
+  if (!usedSkill) {
+    try {
+      const block = await buildDecisionSkillBlock(env);
+      if (block) {
+        injectSystemBefore(payload.messages, lastUserIdx, block);
+        skillBlockBytes = block.length;
+      }
+    } catch (err: unknown) {
+      log.error({ err: err instanceof Error ? err.message : err }, "decision skill load failed");
+    }
+  }
+  if (usedSkill || skillBlockBytes > 0) {
+    // Core-tier skill names never travel to the browser (invisibility rule):
+    // the slash name is already header-visible, the core block reports
+    // namelessly with its real load time.
+    stage({ stage: "skill", detail: usedSkill ?? undefined, ms: Date.now() - skillStarted });
+  }
+
+  // 5) attachment knowledge retrieval (ephemeral): timestamped passages
+  // for THIS question are injected into this turn's payload copy only — the
+  // client's stored conversation never sees them, so retrieved evidence never
+  // duplicates across historical turns. The user turn now sits at
+  // lastUserIdx + 1 (the skill block above shifted it).
+  try {
+    if (hasAttachmentRefs) stage({ stage: "retrieval" });
+    const injected = await buildAttachmentTurn(payload.messages, lastUserIdx + 1, fullText, signal);
+    if (injected) log.info({ blocks: injected }, "attachment evidence injected (this turn only)");
+    if (hasAttachmentRefs) {
+      stage({ stage: "retrieval_done", done: injected ?? 0, total: injected ?? 0 });
+    }
+  } catch (err: unknown) {
+    log.error({ err: err instanceof Error ? err.message : err }, "attachment retrieval failed");
+    if (hasAttachmentRefs) stage({ stage: "retrieval_done", done: 0, total: 0 });
+  }
+
+  // 6) Web-search gate (main model only): the main model decides whether
+  //    this turn needs live web data and writes the queries. No LFM
+  //    router, no verification adjudication of the decision — if it
+  //    doesn't need the internet, the turn is pure chat with zero
+  //    pipeline latency. beginUserTurn() is called here so background
+  //    title jobs yield the local LLM slot to the gate immediately.
+  let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
+  let inferenceTurnActive = false;
+  let webCitationMap: Record<string, any> | null = null;
+  let researchLfmMeta: ResearchMeta | null = null;
+  const webResearchDisabled = process.env.WEB_SEARCH_LFM_DISABLED === "1";
+  try {
+    if (webResearchDisabled) {
+      log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_LFM_DISABLED)");
+    } else {
+    beginUserTurn();
+    inferenceTurnActive = true;
+    researchBundle = await runWebResearch(
+      { userPrompt: fullText, history },
+      (p) => {
+        log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
+        // Live bridge: every real gate/pipeline boundary becomes a client-
+        // visible phase event carrying the pipeline's own measured counts.
+        stage({
+          stage: "web:" + p.stage,
+          detail: p.detail,
+          total: p.total,
+          done: p.done,
+          coverage: p.coverage,
+        });
+      },
+      signal,
+    );
+    if (researchBundle) {
+      const { systemBlock } = buildMainModelContext(researchBundle);
+      injectSystemBefore(
+        payload.messages,
+        lastUserIdx + 1,
+        systemBlock,
+      );
+      // Build the [S#] → {url, title, domain} map the browser UI uses
+      // to turn inline citation markers into clickable pills. Every
+      // retrieved source is included so an [S#] marker can never dangle.
+      webCitationMap = {};
+      for (const packet of researchBundle.packets) {
+        webCitationMap[packet.sourceId] = {
+          sourceId: packet.sourceId,
+          url: packet.url,
+          title: packet.title,
+          domain: packet.domain,
+          publishedAt: packet.publishedAt,
+        };
+      }
+      // No post-stream claim audit since 2026-10-22: the answer carries
+      // [S#] citations and the model's own honest wording, which is the
+      // whole verification story now.
+      researchLfmMeta = {
+        depth: researchBundle.lfm.decision.depth,
+        freshness: researchBundle.lfm.decision.freshness,
+        decidedBy: researchBundle.lfm.source,
+        queries: researchBundle.lfm.decision.queries.map((q) => ({
+          query: q.query,
+          intent: q.intent,
+        })),
+      };
+      log.info(
+        {
+          passages: researchBundle.topPassages.length,
+          results: researchBundle.searchResults.length,
+          gateSource: researchBundle.lfm.source,
+          fromCache: researchBundle.fromCache,
+          citations: Object.keys(webCitationMap).length,
+          gapSearch: researchBundle.gapSearchFired,
+        },
+        "web research evidence injected",
+      );
+    }
+    } // end if (!webResearchDisabled)
+  } catch (err: unknown) {
+    // A failed research run must not kill the chat turn: the main model
+    // still answers from its own knowledge.
+    log.error(
+      { err: err instanceof Error ? err.message : err },
+      "web research pipeline failed — proceeding without web evidence",
+    );
+  } finally {
+    if (inferenceTurnActive) endUserTurn();
+  }
+
+  // One-line routing log: mode + deciding source + skill actually injected.
+  log.info(
+    { mode: env.active_mode, by: env.decided_by, skill: usedSkill, skillBytes: skillBlockBytes, model },
+    "turn decision",
+  );
+
+  return { webCitationMap, researchLfmMeta };
+}
+
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   let payload: any = null;
@@ -295,13 +551,7 @@ export async function POST(req: NextRequest) {
   let usedSkill: string | null = null;
   let decisionMode: RendererMode = "standard_chat";
   let webCitationMap: Record<string, any> | null = null;
-  let researchLfmMeta: {
-    depth: string;
-    freshness: string;
-    /** Which authority decided: "main-model" | "lfm" | "rules". */
-    decidedBy?: string;
-    queries: { query: string; intent: string }[];
-  } | null = null;
+  let researchLfmMeta: ResearchMeta | null = null;
 
   if (payload && Array.isArray(payload.messages) && payload.messages.length > 0) {
     // 1) user-tier slash skill (explicit intent, zero tokens otherwise)
@@ -319,153 +569,155 @@ export async function POST(req: NextRequest) {
       const passthrough = isRendererMode(payload.decision_mode) ? payload.decision_mode : null;
       delete payload.decision_mode;
       let env: DecisionEnvelope;
-      let history: { role: string; content: string }[] = [];
+      // History is computed for BOTH branches: the web-search gate must
+      // resolve follow-ups ("give me a direct link for it") even on turns
+      // where the client pinned a decision_mode (passthrough) — a
+      // mode-pinned turn is still a follow-up turn, and a gate that cannot
+      // see the earlier entity says "no search" and invites a fabricated
+      // link instead.
+      const history = historyBefore(payload.messages, lastUserIdx);
+      const decisionStarted = Date.now();
       if (passthrough) {
         env = passthroughEnvelope(passthrough, fullText);
       } else {
-        history = historyBefore(payload.messages, lastUserIdx);
         env = await getDecision(fullText.trim() ? fullText : "", history);
       }
+      const decisionMs = Date.now() - decisionStarted;
       decisionMode = env.active_mode;
 
-      // 3) noise-stripped task reaches the main LLM. BEFORE the block insert —
-      // injectSystemBefore shifts lastUserIdx, so replacing after it would
-      // overwrite the skill block instead of the user turn.
-      // Attachment turns forward the user's text VERBATIM: the inlined file
-      // content rides in extra parts, and the LFM's 180-token summary of a
-      // long [file content] block drops it while inventing constraint filler
-      // ("financial/tabular words") — which derails the small main model on
-      // read-the-file journeys (observed: YES -> NO). The decision still
-      // selects the render mode; only the rewrite is skipped.
-      const hasAttachmentParts = Array.isArray(payload.messages[lastUserIdx]?.content);
-      if (!passthrough && !hasAttachmentParts && env.stripped_prompt.trim() && env.stripped_prompt !== fullText) {
-        // task_constraints must never be dropped: append any constraint the
-        // model listed that isn't already present verbatim in the stripped text.
-        const constraints = (env.task_constraints ?? []).filter(
-          (c) => c.trim() && !env.stripped_prompt.toLowerCase().includes(c.trim().toLowerCase()),
-        );
-        const forwarded = constraints.length
-          ? `${env.stripped_prompt}\n\nRequired Specs: ${constraints.join("; ")}`
-          : env.stripped_prompt;
-        replaceLastUserText(payload.messages, lastUserIdx, forwarded);
-      }
+      // 3) The user's EXACT message reaches the main LLM. Since 2026-10-22
+      // the in-process router (lib/decision/client.ts) never rewrites the
+      // prompt — `env.stripped_prompt` is always the original message, and
+      // only the skill-block injection (step 4) shapes what the model sees.
+      // The repair-passthrough path (client pinned decision_mode) also keeps
+      // the text verbatim, so no branch of this route touches the user turn.
+      void env.stripped_prompt; // documented: always === fullText, never applied
 
-      // 4) exactly ONE skill block for this turn (slash user skill wins)
-      let skillBlockBytes = 0;
-      if (!usedSkill) {
-        try {
-          const block = await buildDecisionSkillBlock(env);
-          if (block) {
-            injectSystemBefore(payload.messages, lastUserIdx, block);
-            skillBlockBytes = block.length;
-          }
-        } catch (err: unknown) {
-          log.error({ err: err instanceof Error ? err.message : err }, "decision skill load failed");
-        }
-      }
+      // Non-streaming consumers (e.g. the conversation-title warm-up probe)
+      // keep the legacy request/response contract byte-for-byte: real status
+      // codes, content type, no progress frames. Streaming turns get an
+      // EARLY-OPEN response so the WebUI can show, live, what the server is
+      // actually doing before the model's first byte ever arrives.
+      if (payload.stream !== false) {
+        const hasAttachmentRefs = turnHasAttachmentRef(payload.messages[lastUserIdx]?.content);
 
-      // 5) attachment knowledge retrieval (ephemeral): timestamped passages
-      // for THIS question are injected into this turn's payload copy only —
-      // the client's stored conversation never sees them, so retrieved
-      // evidence never duplicates across historical turns. The user turn now
-      // sits at lastUserIdx + 1 (the skill block above shifted it).
-      try {
-        const injected = await buildAttachmentTurn(payload.messages, lastUserIdx + 1, fullText, req.signal);
-        if (injected) log.info({ blocks: injected }, "attachment evidence injected (this turn only)");
-      } catch (err: unknown) {
-        log.error({ err: err instanceof Error ? err.message : err }, "attachment retrieval failed");
-      }
+        // One combined signal for the whole turn: the browser walking away
+        // (stream cancel) or the request aborting kills the gate fetch AND
+        // the upstream generation — the same zombie-turn protection
+        // forwardStream documents for the legacy path.
+        const inner = new AbortController();
+        if (req.signal.aborted) inner.abort();
+        else req.signal.addEventListener("abort", () => inner.abort(), { once: true });
 
-      // 6) Mandatory LFM web-search gate: every prompt is classified by the
-      //    LFM router BEFORE the main model sees it. beginUserTurn() is called
-      //    here so background title jobs yield the local LLM slot to the gate
-      //    immediately — without this, a concurrent title generation call
-      //    could starve the LFM classifier and push it past the 60s timeout.
-      let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
-      let inferenceTurnActive = false;
-      // WEB_SEARCH_LFM_DISABLED (unit/CI flag): skip the whole web-research
-      // pipeline so the route stays deterministic and network-free. Routing
-      // and skill injection are still exercised; only the evidence block
-      // is omitted.
-      const webResearchDisabled = process.env.WEB_SEARCH_LFM_DISABLED === "1";
-      try {
-        if (webResearchDisabled) {
-          log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_LFM_DISABLED)");
-        } else {
-        // Claim the shared inference slot NOW (before the LFM gate) so the
-        // title queue aborts any in-flight title call. endUserTurn() is
-        // called in the finally block when the turn fully settles.
-        beginUserTurn();
-        inferenceTurnActive = true;
-        researchBundle = await runWebResearch(
-          { userPrompt: fullText, history },
-          (p) => {
-            // surface pipeline progress in the dev terminal
-            log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
-          },
-          req.signal,
-        );
-        if (researchBundle) {
-          const { systemBlock } = buildMainModelContext(researchBundle);
-          injectSystemBefore(
-            payload.messages,
-            lastUserIdx + 1,
-            systemBlock,
-          );
-          // Build the [S#] → {url, title, domain} map the browser UI uses
-          // to turn inline citation markers into clickable pills.
-          webCitationMap = {};
-          for (const packet of researchBundle.packets) {
-            webCitationMap[packet.sourceId] = {
-              sourceId: packet.sourceId,
-              url: packet.url,
-              title: packet.title,
-              domain: packet.domain,
-              publishedAt: packet.publishedAt,
+        const stream = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            const enc = new TextEncoder();
+            let closed = false;
+            const frame = (obj: unknown) => {
+              if (closed) return;
+              try {
+                controller.enqueue(enc.encode("data: " + JSON.stringify(obj) + "\n\n"));
+              } catch {
+                closed = true; // the client is gone: stop writing
+              }
             };
-          }
-          researchLfmMeta = {
-            depth: researchBundle.lfm.decision.depth,
-            freshness: researchBundle.lfm.decision.freshness,
-            decidedBy: researchBundle.lfm.source,
-            queries: researchBundle.lfm.decision.queries.map((q) => ({
-              query: q.query,
-              intent: q.intent,
-            })),
-          };
-          log.info(
-            {
-              passages: researchBundle.topPassages.length,
-              results: researchBundle.searchResults.length,
-              lfmSource: researchBundle.lfm.source,
-              fromCache: researchBundle.fromCache,
-              citations: Object.keys(webCitationMap).length,
-            },
-            "web research evidence injected",
-          );
-        }
-        } // end if (!webResearchDisabled)
-      } catch (err: unknown) {
-        // A failed research run must not kill the chat turn: the main model
-        // still answers from its own knowledge (with a note that the web
-        // search failed).
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "web research pipeline failed — proceeding without web evidence",
-        );
-      } finally {
-        // Release the inference slot held by the LFM gate so background
-        // title jobs can resume. The forwardStream below will call
-        // beginUserTurn() again for the main-model turn; that is a
-        // separate, intentional slot claim (one claim per phase).
-        if (inferenceTurnActive) endUserTurn();
+            const ch: ProgressChannel = {
+              stage: (e) => frame({ ruke_stage: e }),
+              fail: (m) => {
+                frame({ ruke_error: { message: m } });
+                if (!closed) {
+                  closed = true;
+                  try {
+                    controller.enqueue(enc.encode("data: [DONE]\n\n"));
+                    controller.close();
+                  } catch {}
+                }
+              },
+              raw: (bytes) => {
+                if (closed) return;
+                try {
+                  controller.enqueue(bytes);
+                } catch {
+                  closed = true;
+                }
+              },
+              close: () => {
+                if (closed) return;
+                closed = true;
+                try { controller.close(); } catch {}
+              },
+            };
+
+            try {
+              // First frame: the routing wait the client has been measuring
+              // since send() — reported with its REAL elapsed ms.
+              ch.stage({ stage: "decision_done", mode: env.active_mode, ms: decisionMs });
+
+              const meta = await runTurnPipeline(payload, {
+                lastUserIdx,
+                fullText,
+                env,
+                history,
+                usedSkill,
+                signal: inner.signal,
+                stage: ch.stage,
+                hasAttachmentRefs,
+                model,
+              });
+              if (meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) {
+                // Web metadata rides the stream now: response headers are
+                // written before start(), when the gate has not run yet.
+                ch.stage({
+                  stage: "web_meta",
+                  webCitations: meta.webCitationMap as StageEvent["webCitations"],
+                  researchLfm: meta.researchLfmMeta ?? undefined,
+                });
+              }
+
+              stripAttachmentRefs(payload.messages);
+              await forwardStreamInto(
+                JSON.stringify(payload),
+                decisionMode,
+                inner.signal,
+                model,
+                ch,
+              );
+            } catch (err: unknown) {
+              log.error(
+                { err: err instanceof Error ? err.message : err },
+                "progress stream failed",
+              );
+              ch.fail(
+                err instanceof Error && err.message ? err.message : "Generation failed",
+              );
+            }
+          },
+          cancel() {
+            // The browser walked away: the gate and the upstream generation
+            // must die with the response (no zombie turns on the shared slot).
+            inner.abort();
+          },
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: streamHeaders("text/event-stream", usedSkill, decisionMode),
+        });
       }
 
-      // The full routing story in one readable terminal block: LFM2.5-1.2B
-      // router (exact input + raw JSON out), the skill actually injected,
-      // the UI component that will render this reply, and what the main LLM
-      // finally receives.
-      logDecisionTable(log, { input: fullText, env, usedSkill, skillBlockBytes, model });
+      const meta = await runTurnPipeline(payload, {
+        lastUserIdx,
+        fullText,
+        env,
+        history,
+        usedSkill,
+        signal: req.signal,
+        stage: () => {},
+        hasAttachmentRefs: turnHasAttachmentRef(payload.messages[lastUserIdx]?.content),
+        model,
+      });
+      webCitationMap = meta.webCitationMap;
+      researchLfmMeta = meta.researchLfmMeta;
     }
   }
 

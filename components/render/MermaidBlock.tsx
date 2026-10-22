@@ -314,7 +314,7 @@ export default memo(function MermaidBlock({ source, streaming = false, onSend }:
             <Code className="w-3.5 h-3.5" />
           </button>
           <button className="code-block-ctl" onClick={handleCopySource} aria-label="Copy diagram source" title="Copy source">
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? <Check className="w-3.5 h-3.5 text-white/80" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
           <button className="code-block-ctl" onClick={handleDownloadSvg} aria-label="Download diagram as SVG" title="Download SVG">
             <Download className="w-3.5 h-3.5" />

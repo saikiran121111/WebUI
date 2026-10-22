@@ -34,13 +34,12 @@ import {
   putCachedPage,
   getCachedPage,
   extractPromptUrls,
-  LLM_TIMEOUT_MS,
   purgeExpiredCache,
   CACHE_TTL_MS,
   hash,
   extractUrl,
-} from "../src/lib/web-search/index";
-import type { EvidencePacket, RankedResult } from "../src/lib/web-search/types";
+} from "../lib/web-search/index";
+import type { EvidencePacket, RankedResult } from "../lib/web-search/types";
 
 const BOLD = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -197,7 +196,7 @@ async function main() {
       ) === false,
   );
   const containsOnly = newDirs.every((d) =>
-    [".local-search", ".decision-engine", ".cskills", "skills", "scripts", "src"].includes(
+    [".local-search", ".decision-engine", ".cskills", "skills", "scripts", "lib"].includes(
       d.name,
     ),
   );
@@ -215,13 +214,8 @@ async function main() {
     ),
   );
 
-  /* ── 6. LFM gate 60s timeout + URL detection ─────────────────────── */
-  console.log(BOLD("\n6. LFM gate: 60s timeout + explicit URL forcing"));
-  check(
-    "LLM_TIMEOUT_MS is 60000 (60 seconds, not 2500ms)",
-    LLM_TIMEOUT_MS === 60_000,
-    `got: ${LLM_TIMEOUT_MS}ms`,
-  );
+  /* ── 6. gate explicit URL forcing (2026-10-22: LFM timeout check retired) ── */
+  console.log(BOLD("\n6. gate: explicit URL forcing"));
   const urls = extractPromptUrls(
     "Read this article: https://arxiv.org/abs/2301.00001 and summarize it",
   );
@@ -242,10 +236,10 @@ async function main() {
   console.log(BOLD("\n7. PDF extraction (arXiv)"));
   try {
     const { fetchPage, PDF_LIMIT_BYTES } = await import(
-      "../src/lib/web-search/tls-client"
+      "../lib/web-search/tls-client"
     );
     const { structuralExtractAsync } = await import(
-      "../src/lib/web-search/universal-extractor"
+      "../lib/web-search/universal-extractor"
     );
     // arXiv sometimes rate-limits; use the html landing page as a
     // reliable PDF source with a known >500KB binary body.
@@ -523,7 +517,7 @@ async function main() {
 
   const { ddgSearch, yahooSearch, startpageSearch, braveSearch, aolSearch,
           mojeekSearch, searxSearch, redditSearch, queryCoreTokens } = await import(
-    "../src/lib/web-search/index"
+    "../lib/web-search/index"
   );
 
   const SCENARIOS: Array<{

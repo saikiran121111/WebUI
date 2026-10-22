@@ -18,8 +18,8 @@ import {
   redditSearch,
   bingNewsRssSearch,
   githubSearch,
-} from "../src/lib/web-search/general-pool";
-import type { RawSearchResult } from "../src/lib/web-search/types";
+} from "../lib/web-search/general-pool";
+import type { RawSearchResult } from "../lib/web-search/types";
 
 const Q = "best biryani restaurant in Manikonda Hyderabad";
 

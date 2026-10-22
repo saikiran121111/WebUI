@@ -145,10 +145,14 @@ function systemBlocks(payload: any, marker: string): string[] {
 }
 
 describe("POST /api/chat — Decision Engine pipeline", () => {
-  it("runs the engine first, injects ONE skill block + stripped_prompt, streams x-decision-mode", async () => {
-    mockDecision = { active_mode: "excel", skill: "xlsx", fence: "xlsx", stripped: "500-row transaction tracker with SUMIFS alerts" };
-    const { res, body } = await postChat("hey please can you build me a 500-row transaction tracker with SUMIFS alerts thanks");
-    expect(decisionHits).toBe(1);
+  it("spreads deliverable-intent word → injects the matched core-skill block + studio fence", async () => {
+    // 2026-10-22: the :8790 engine is gone; routing is in-process
+    // (lib/decision/client.ts getDecisionSync) and fires on explicit
+    // deliverable words. The user message is NEVER stripped — it reaches the
+    // main model verbatim, and the [S#] evidence injection is exercised
+    // separately in the web-search E2E.
+    const text = "hey please can you build me a 500-row transaction tracker in excel with SUMIFS alerts thanks";
+    const { res, body } = await postChat(text);
     expect(res.headers.get("x-decision-mode")).toBe("excel");
     expect(res.headers.get("X-Used-Skill")).toBeNull(); // core tier never surfaces
     expect(body).toContain("final answer");
@@ -156,14 +160,13 @@ describe("POST /api/chat — Decision Engine pipeline", () => {
     const payload = upstreamPayloads[0];
     const last = payload.messages[payload.messages.length - 1];
     expect(last.role).toBe("user");
-    expect(last.content).toBe("500-row transaction tracker with SUMIFS alerts");
+    expect(last.content).toBe(text); // stripped_prompt is ALWAYS the original message
 
     const decision = systemBlocks(payload, "<decision_skill");
     expect(decision).toHaveLength(1);
     expect(decision[0]).toContain('<core_skill name="xlsx"');
     expect(decision[0]).toContain("Emit one xlsx fence with live formulas.");
     expect(decision[0]).toContain("<output_contract_xlsx>");
-    // No standing visual-router prompt, no skill_router block, no tools.
     expect(payload.messages.some((m: any) => typeof m.content === "string" && m.content.includes("skill_router"))).toBe(false);
     expect(payload.tools).toBeUndefined();
   });
@@ -178,9 +181,11 @@ describe("POST /api/chat — Decision Engine pipeline", () => {
   });
 
   it("engine down -> standard_chat fallback, every renderer stays off", async () => {
-    process.env.DECISION_ENGINE_URL = "http://127.0.0.1:9/"; // nothing listens
+    // 2026-10-22: the :8790 engine is gone; routing is in-process
+    // (lib/decision/client.ts). There is no "engine down" path anymore —
+    // a non-deliverable message always lands on standard_chat with zero
+    // injected blocks.
     const { res, body } = await postChat("hello there");
-    process.env.DECISION_ENGINE_URL = "http://127.0.0.1:" + (mockServer.address() as any).port;
     expect(res.headers.get("x-decision-mode")).toBe("standard_chat");
     expect(body).toContain("final answer");
     const payload = upstreamPayloads[0];
@@ -188,13 +193,12 @@ describe("POST /api/chat — Decision Engine pipeline", () => {
     expect(payload.messages[payload.messages.length - 1].content).toBe("hello there");
   });
 
-  it("decision_mode passthrough (fence repair) skips the engine entirely", async () => {
+  it("decision_mode passthrough (fence repair) keeps the mode pinned, user text unchanged", async () => {
     const { res } = await postChat("Your previous ```xlsx fence failed validation: #REF!", { decision_mode: "excel" });
-    expect(decisionHits).toBe(0);
     expect(res.headers.get("x-decision-mode")).toBe("excel");
     const payload = upstreamPayloads[0];
     expect(payload.decision_mode).toBeUndefined(); // never leaks upstream
-    // Repair text reaches the model UNstripped, mode skill still loaded.
+    // Repair text reaches the model UNchanged, mode skill still loaded.
     expect(payload.messages[payload.messages.length - 1].content)
       .toBe("Your previous ```xlsx fence failed validation: #REF!");
     expect(systemBlocks(payload, "<decision_skill")).toHaveLength(1);

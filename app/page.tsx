@@ -1,11 +1,17 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDown, AlertCircle, RefreshCw, MessageSquarePlus, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowDown, AlertCircle, RefreshCw, ChevronDown } from "lucide-react";
 import ChatMessage from "../components/ChatMessage";
-import ChatInput from "../components/ChatInput";
+import ChatInput, { EffortControl } from "../components/ChatInput";
+import SettingsMenu from "../components/SettingsMenu";
+import TopBar from "../components/TopBar";
+import ProgressChip from "../components/ProgressChip";
+import { USER_NAME } from "../lib/user";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import RecentsModal from "../components/ui/RecentsModal";
+import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
@@ -23,12 +29,24 @@ export default function HomePage() {
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
+  // Full-screen Recents browser (sidebar "View all" / browse icon).
+  const [viewAllOpen, setViewAllOpen] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     messages, status, error, isThinking, reasoningContent,
     send, stop, retry, edit, load, clear, setEffort, effort, requestFenceRepair,
+    turnProgress, dismissProgress,
+    compact, compactState, activeTokenCount,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
+
+  // Manual compaction command: `/compact` in the composer (and a TopBar pill)
+  // runs the sliding-window pipeline over the active LLM history right now,
+  // instead of waiting for the auto threshold.
+  const runCompact = useCallback(() => {
+    if (compactState.isCompacting || status === "streaming") return;
+    void compact("manual");
+  }, [compact, compactState.isCompacting, status]);
 
   // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
   // deterministic interactive sample via load() — no model server needed.
@@ -108,6 +126,10 @@ export default function HomePage() {
       updatedAt: Date.now(),
       pinned: existing?.pinned ?? false,
       archived: existing?.archived ?? false,
+      // Group / unread are user-set like pin/archive — this rebuild would
+      // silently erase them on the next save if not carried across.
+      group: existing?.group,
+      unread: existing?.unread,
       mode: existing?.mode ?? "chat",
       preview: messages[messages.length - 1]?.content?.slice(0, 80) ?? "",
       messageCount: messages.length,
@@ -197,15 +219,6 @@ export default function HomePage() {
     };
   }, []);
 
-  // Cmd/Ctrl+Shift+N → new chat.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") { e.preventDefault(); handleNew(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   const handleNew = useCallback(() => {
     // Clear messages too — leaving them in state with a null activeId makes
     // the persist effect re-save them under a brand-new id (a phantom clone).
@@ -213,6 +226,15 @@ export default function HomePage() {
     setActiveId(null);
     setHasScrolledUp(false);
   }, [clear]);
+
+  // Cmd/Ctrl+Shift+N → new chat.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); handleNew(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleNew]);
 
   const handleSelect = useCallback(async (id: string) => {
     const conv = await getConversation(id);
@@ -223,8 +245,19 @@ export default function HomePage() {
       load(conv);
       setActiveId(id);
       setHasScrolledUp(false);
+      // Opening an unread chat clears the flag (Claude parity: the dot is a
+      // user-set marker, so persist it; no updatedAt bump → no reorder).
+      if (conv.meta.unread) {
+        conv.meta.unread = false;
+        saveConversation(conv).catch(() => {});
+        setConversations(prev => prev.map(c =>
+          c.id === id ? { ...c, unread: false } : c));
+      }
     }
-    setSidebarOpen(false);
+    // On small screens the sidebar is a drawer — close it after navigating.
+    // On desktop (sm+) it's a permanent column; collapsing it on chat select
+    // was jarring, so leave the user's layout choice untouched.
+    if (window.matchMedia("(max-width: 639px)").matches) setSidebarOpen(false);
   }, [load]);
 
   const handleDelete = useCallback(async (id: string) => {
@@ -298,8 +331,47 @@ export default function HomePage() {
     }
   }, []);
 
+  // Bulk meta edits for the Recents modal: one GET→mutate→POST per chat,
+  // then a SINGLE list refresh (mirrors confirmDeleteMany's batching).
+  // bumpUpdatedAt=false keeps activity sorts stable for unread/group marks.
+  const applyMetaBulk = useCallback(async (
+    ids: string[], mutate: (m: ConversationMeta) => void, bumpUpdatedAt = true,
+  ) => {
+    for (const id of ids) {
+      const conv = await getConversation(id);
+      if (!conv) continue;
+      mutate(conv.meta);
+      if (bumpUpdatedAt) conv.meta.updatedAt = Date.now();
+      await saveConversation(conv);
+    }
+    refreshList();
+  }, [refreshList]);
+
+  const handleBulkPin = useCallback((ids: string[], pinned: boolean) => {
+    applyMetaBulk(ids, m => { m.pinned = pinned; });
+  }, [applyMetaBulk]);
+
+  const handleBulkArchive = useCallback((ids: string[], archived: boolean) => {
+    applyMetaBulk(ids, m => { m.archived = archived; });
+  }, [applyMetaBulk]);
+
+  const handleBulkUnread = useCallback((ids: string[], unread: boolean) => {
+    applyMetaBulk(ids, m => { m.unread = unread; }, false);
+  }, [applyMetaBulk]);
+
+  const handleBulkMoveGroup = useCallback((ids: string[], group: string | null) => {
+    applyMetaBulk(ids, m => { if (group) m.group = group; else delete m.group; }, false);
+  }, [applyMetaBulk]);
+
   return (
-    <div className="flex h-screen bg-[#050507] text-white overflow-hidden">
+    <div className="flex flex-col h-screen bg-[var(--bg)] text-[var(--foreground)] overflow-hidden">
+      <TopBar
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen(v => !v)}
+        settings={<SettingsMenu effort={effort} onEffortChange={setEffort} onCompactNow={runCompact} />}
+        progress={<ProgressChip progress={turnProgress} onDismiss={dismissProgress} />}
+      />
+      <div className="flex flex-1 min-h-0">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -313,40 +385,16 @@ export default function HomePage() {
         onSearch={() => {}}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onViewAll={() => setViewAllOpen(true)}
       />
 
       <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* Top bar — no logo, no AI branding */}
-        <header className="h-12 flex items-center justify-between px-3 border-b border-white/[0.06] flex-shrink-0">
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-1.5 rounded-lg text-white/35 hover:text-white/70 hover:bg-white/[0.04] transition-colors"
-              aria-label="Toggle sidebar">
-              {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </button>
-            <button onClick={handleNew}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs
-                text-white/40 hover:text-white/80 hover:bg-white/[0.04] transition-colors"
-              aria-label="New conversation">
-              <MessageSquarePlus className="w-3.5 h-3.5" />
-              New
-            </button>
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-white/25">
-            <span className="hidden sm:inline">Reasoning: {effort === "off" ? "off" : effort}</span>
-            <span className="w-1 h-1 rounded-full bg-emerald-400/50" />
-            <span>Local</span>
-          </div>
-        </header>
-
         {/* Scrollable message area */}
         <div ref={messagesContainerRef} data-testid="messages-scroll" className="chat-messages-scroll flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-6 pb-36">
+          <div className={`max-w-3xl mx-auto px-4 py-8 ${messages.length === 0 ? "min-h-full flex flex-col pb-[14vh]" : "pb-40"}`}>
             {messages.length === 0 ? (
               <EmptyState
                 onSend={(text, atts) => runSend(text, atts)}
-                conversations={conversations}
-                onSelect={handleSelect}
                 effort={effort}
                 onEffortChange={setEffort}
                 isLoading={status === "streaming"}
@@ -357,10 +405,10 @@ export default function HomePage() {
                 {messages.map((m, i) => (
                   <motion.div
                     key={m.id}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                    className={i > 0 ? "mt-5" : ""}
+                    className={i > 0 ? "mt-6" : ""}
                   >
                     <ChatMessage
                       message={m}
@@ -368,6 +416,15 @@ export default function HomePage() {
                       onSend={(text) => runSend(text)}
                       onFenceRuntimeError={(info) => requestFenceRepair(m.id, info)}
                     />
+                    {/* Context-compaction divider: marks where the model-facing
+                        history was folded into a summary. The original
+                        messages above stay fully readable. */}
+                    {compactState.badgeAt === i + 1 && (
+                      <CompactDividerBadge
+                        result={compactState.lastRun}
+                        compacting={compactState.isCompacting}
+                      />
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -375,15 +432,15 @@ export default function HomePage() {
 
             {error && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                className="mt-3 flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-500/[0.06] border border-red-500/15">
-                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                className="mt-3 flex items-start gap-2.5 px-4 py-3 rounded-xl bg-white/[0.03] border border-[rgba(255,255,255,0.12)]">
+                <AlertCircle className="w-4 h-4 text-white/60 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-[13px] text-red-400">{error}</p>
+                  <p className="text-[13px] text-white/70">{error}</p>
                 </div>
                 <button onClick={retry}
                   className="px-2.5 py-1 text-[11px] font-medium rounded-md
-                    text-red-300 hover:text-white bg-red-500/[0.1] hover:bg-red-500/[0.2]
-                    border border-red-500/20 transition-colors flex items-center gap-1">
+                    text-white/80 hover:bg-white/[0.07]
+                    border border-[rgba(255,255,255,0.12)] transition-colors duration-[120ms] flex items-center gap-1">
                   <RefreshCw className="w-3 h-3" /> Retry
                 </button>
               </motion.div>
@@ -403,15 +460,14 @@ export default function HomePage() {
               onClick={() => { setHasScrolledUp(false); pinToBottom(); }}
               className="absolute bottom-[130px] left-1/2 -translate-x-1/2 z-30
                 flex items-center gap-1.5 px-3 py-1.5 rounded-full
-                bg-white/[0.07] hover:bg-white/[0.12] border border-white/[0.1]
-                backdrop-blur-xl text-white/80 text-[11px] font-medium shadow-lg shadow-black/50
-                transition-colors">
+                surface-glass text-white/80 text-[11px] font-medium shadow-lg shadow-black/50
+                transition-colors duration-[120ms] hover:bg-white/[0.08]">
               <ArrowDown className="w-3 h-3" /> Jump to latest
             </motion.button>
           )}
         </AnimatePresence>
 
-        {/* Bottom bar — only visible when there are messages */}
+        {/* Bottom composer bar — only visible when there are messages */}
         <AnimatePresence>
           {messages.length > 0 && (
             <motion.div
@@ -434,6 +490,7 @@ export default function HomePage() {
                   isResearchMode={false}
                   onModeToggle={() => {}}
                   onAttachmentsChange={() => {}}
+                  onCompactCommand={runCompact}
                   variant="bar"
                 />
               </div>
@@ -441,6 +498,7 @@ export default function HomePage() {
           )}
         </AnimatePresence>
       </main>
+      </div>
       <ConfirmDialog
         open={!!confirmDelete}
         title="Delete conversation?"
@@ -459,16 +517,34 @@ export default function HomePage() {
         onConfirm={confirmDeleteMany}
         onCancel={() => setConfirmDeleteIds(null)}
       />
+      {viewAllOpen && (
+        <RecentsModal
+          conversations={conversations}
+          activeId={activeId}
+          onClose={() => setViewAllOpen(false)}
+          onOpenChat={(id) => { setViewAllOpen(false); handleSelect(id); }}
+          onNew={() => { setViewAllOpen(false); handleNew(); }}
+          onDeleteSelected={handleDeleteSelected}
+          onBulkPin={handleBulkPin}
+          onBulkArchive={handleBulkArchive}
+          onBulkUnread={handleBulkUnread}
+          onBulkMoveGroup={handleBulkMoveGroup}
+        />
+      )}
     </div>
   );
 }
 
+/**
+ * Landing (no active chat): the RUKE logo over a time-aware serif
+ * greeting, the hero composer, and a Project / model / effort / mode
+ * meta row. Project, model and Manual are inert placeholders kept for
+ * features that will be wired up later.
+ */
 function EmptyState({
-  onSend, conversations, onSelect, effort, onEffortChange, isLoading, onStop,
+  onSend, effort, onEffortChange, isLoading, onStop,
 }: {
   onSend: (text: string, attachments: Attachment[]) => void;
-  conversations: ConversationMeta[];
-  onSelect: (id: string) => void;
   effort: EffortLevel;
   onEffortChange: (effort: EffortLevel) => void;
   isLoading: boolean;
@@ -478,87 +554,81 @@ function EmptyState({
 
   useEffect(() => { requestAnimationFrame(() => setFadeIn(true)); }, []);
 
+  const hour = new Date().getHours();
+  const greeting = hour < 5 || hour >= 23
+    ? `Up late, ${USER_NAME}?`
+    : hour < 12
+      ? `Good morning, ${USER_NAME}`
+      : hour < 17
+        ? `Good afternoon, ${USER_NAME}`
+        : `Good evening, ${USER_NAME}`;
+
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: fadeIn ? 1 : 0 }}
-      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col items-center justify-center min-h-[62vh] gap-8 select-none"
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col items-center my-auto select-none"
     >
+      {/* Logo + greeting */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-        className="text-center"
+        transition={{ delay: 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="flex flex-col items-center gap-4 mb-7"
       >
-        <h1 className="text-[2.8rem] font-serif text-white/90 mb-2 tracking-tight leading-[1.05]">
-          Local Intelligence
+        <img src="/images/ruke-logo.svg" width="44" height="44" alt="Ruke logo"
+          className="rounded-lg" draggable={false} />
+        <h1 className="font-serif text-[34px] leading-tight tracking-tight
+          text-[var(--foreground)] text-center">
+          {greeting}
         </h1>
-        <p className="text-[13px] text-white/35 max-w-sm leading-relaxed">
-          Private, on-device chat. Your conversations never leave this machine.
-        </p>
       </motion.div>
 
-      {/* Recent history strip */}
-      {conversations.filter(c => !c.archived).length > 0 && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.22 }}
-          className="w-full max-w-2xl">
-          <p className="text-[10px] text-white/20 uppercase tracking-widest mb-2 text-left">Recent</p>
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-            {conversations.filter(c => !c.archived).slice(0, 6).map(conv => (
-              <button key={conv.id} onClick={() => onSelect(conv.id)}
-                className="flex-shrink-0 text-left text-[11px] px-3 py-2 rounded-lg
-                  bg-white/[0.025] hover:bg-white/[0.06] border border-white/[0.06]
-                  hover:border-white/12 transition-colors max-w-[180px] group">
-                <span className="text-white/60 group-hover:text-white/90 truncate block">
-                  {conv.title || "Untitled"}
-                </span>
-                <span className="text-white/20">
-                  {new Date(conv.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                </span>
-              </button>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
+      {/* Composer + meta row */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.16, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-        className="w-full max-w-2xl"
+        transition={{ delay: 0.14, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-[660px]"
       >
-        {/* Hero ChatInput — centered in the empty state */}
-        <div className="mb-4">
-          <ChatInput
-            onSend={onSend}
-            onStop={onStop}
-            isLoading={isLoading}
-            isThinking={false}
-            reasoningContent=""
-            effort={effort}
-            onEffortChange={onEffortChange}
-            isResearchMode={false}
-            onModeToggle={() => {}}
-            onAttachmentsChange={() => {}}
-            variant="hero"
-          />
-        </div>
+        <ChatInput
+          onSend={onSend}
+          onStop={onStop}
+          isLoading={isLoading}
+          isThinking={false}
+          reasoningContent=""
+          effort={effort}
+          onEffortChange={onEffortChange}
+          isResearchMode={false}
+          onModeToggle={() => {}}
+          onAttachmentsChange={() => {}}
+          variant="hero"
+        />
 
-        {/* Suggestion chips */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-          {[
-            "Explain this concept as if I'm 12",
-            "Help me debug a JavaScript error",
-            "Summarize the latest on agentic AI",
-            "Walk me through a binary search",
-          ].map(suggestion => (
-            <button key={suggestion} onClick={() => onSend(suggestion, [])}
-              className="text-left text-[11px] text-white/45 hover:text-white/80 px-3 py-2.5 rounded-lg
-                bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.05] hover:border-white/[0.1]
-                transition-all hover:-translate-y-px">
-              {suggestion}
+        {/* Meta row: Project picker (placeholder) left; model / effort / mode
+            right. Only the effort control is live — the rest are future hooks. */}
+        <div className="flex items-center justify-between mt-2 px-1">
+          <button
+            className="flex items-center gap-1 h-7 px-1.5 rounded text-[12px] text-white/50
+              hover:text-white/80 transition-colors duration-[120ms]"
+            title="Projects — coming soon"
+          >
+            Project
+            <ChevronDown className="w-3 h-3 text-white/30" />
+          </button>
+          <div className="flex items-center gap-3">
+            <button className="text-[12px] font-medium text-white/85
+              hover:text-white transition-colors duration-[120ms]"
+              title="Model selection — coming soon">
+              Sonnet 5.5
             </button>
-          ))}
+            <EffortControl effort={effort} onEffortChange={onEffortChange} variant="text" />
+            <button className="text-[12px] font-medium text-white/85
+              hover:text-white transition-colors duration-[120ms]"
+              title="Interaction mode — coming soon">
+              Manual
+            </button>
+          </div>
         </div>
       </motion.div>
     </motion.div>

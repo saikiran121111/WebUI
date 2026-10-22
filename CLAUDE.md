@@ -212,6 +212,28 @@ Re-indexing must never overwrite an existing scenario file. New installations mu
 - Report the files changed, the reason for each change, the tests actually executed, and any remaining failures or limitations.
 - For tasks involving the shared inference backend, always follow Section 1 before using other workflows.
 
+## 5. Architecture, Folder Structure & Performance Rules (MANDATORY)
+
+### 5.1 Unified Folder Structure
+
+- **All library code lives in `lib/`** (never create `src/lib/`).  The `src/` directory was removed 2026-10-22; `lib/web-search/` is the canonical home of the web-search pipeline.
+- **All styles live in `styles/`** and are imported either via `app/globals.css` (tokens, base, code, markdown, document-viewers) or lazily inside the component that owns them (e.g. `styles/cad-studio.css` is imported by `ArchitectureCadViewer.tsx` and `ThreeStudioViewer.tsx`).
+- **Studio viewers in `components/render/` must ALWAYS be lazy-loaded via `next/dynamic`** (ssr: false) from `FenceRouter.tsx`.  Three.js, Mermaid, CAD, and their sibling libraries must never appear in the initial page-load bundle.
+
+### 5.2 File Size & Modularity Rules
+
+- Keep UI components and hooks under 250–300 lines; extract pure helpers into `lib/`.
+- `hooks/useChat.ts` delegates SSE header decoding to `lib/chat/streamHelpers.ts`; fence routing lives in `components/render/FenceRouter.tsx`.
+- Never add dead fallback routers, secondary local LLMs (`:8790`/`:8791`), or prompt-rewriting middleware.
+
+### 5.3 Consumer-Laptop Performance Rules
+
+- **Stream updates must stay rAF-batched.**  `hooks/useChat.ts` accumulates content/reasoning deltas in a mutable ref and flushes to React state at most once per `requestAnimationFrame` — never on every individual SSE chunk.
+- **`ChatMessage` and `MarkdownRenderer` must remain memoized** (`React.memo`) with clean comparators so completed chat-history messages never re-render while the latest assistant message is streaming.
+- **WebGL/3D/CAD viewers must pause animation loops when off-screen** (IntersectionObserver) **and dispose all Three.js geometries, materials, textures, and WebGL contexts on unmount** (`disposeObject3D`, `renderer.dispose()`).
+- **Stream-aware code highlighting:**  `CodeBlock.tsx` renders plain `<pre><code>` while a fence is actively streaming and debounces Shiki highlighting by 150 ms; full Shiki runs once when the fence closes or the code stops changing.
+- **Next.js config:**  `experimental.optimizePackageImports` is enabled for `lucide-react` so unused icons are tree-shaken automatically.
+
 ## 4. Required Completion Report
 
 At the end of an implementation and testing cycle, report:

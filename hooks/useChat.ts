@@ -1,9 +1,19 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
-import type { BrowserTool } from "../lib/browser/agentBrowser";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
-import { ResearchOrchestrator } from "../lib/research/orchestrator";
+import {
+  compactConversation,
+  type CompactResult,
+  type CompactMode,
+} from "../lib/chat/compact";
+import {
+  loadCompactThresholds,
+  saveCompactThresholds,
+  fetchCompactThresholds,
+  type CompactThresholds,
+} from "../lib/chat/compactConfig";
+import { estimateConversationTokens, formatTokens } from "../lib/chat/tokens";
 import {
   MAX_FENCE_REPAIRS,
   applyFenceRepair,
@@ -14,6 +24,12 @@ import {
   type BrokenFence,
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
+import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
+import {
+  computeBaselines,
+  TurnProgressTracker,
+  type TurnProgressSnapshot,
+} from "../lib/progress/turnProgress";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
@@ -29,9 +45,7 @@ export interface UseChatReturn {
   error: string | null;
   isThinking: boolean;
   reasoningContent: string;
-  /** Swap the conversation entirely. */
   load: (conversation: Conversation) => void;
-  /** Drop all messages (new chat / after deleting the active one). */
   clear: () => void;
   send: (text: string, opts?: { mode?: ChatMode; attachments?: any[] }) => void;
   stop: () => void;
@@ -40,8 +54,23 @@ export interface UseChatReturn {
   clearError: () => void;
   setEffort: (level: EffortLevel) => void;
   effort: EffortLevel;
-  /** Repair a fence that only fails at runtime (```threejs code throws in the viewer). */
   requestFenceRepair: (assistantId: string, info: { lang: string; body: string; error: string }) => void;
+  /** Live honest turn progress for the top-right chip/panel (null when none). */
+  turnProgress: TurnProgressSnapshot | null;
+  /** Hide the chip/panel once the turn has ended. */
+  dismissProgress: () => void;
+  /** Run a manual or auto compaction over the active LLM history. */
+  compact: (mode?: CompactMode) => Promise<CompactResult | null>;
+  /** State of the last compaction + divider badge position. */
+  compactState: {
+    lastRun: CompactResult | null;
+    isCompacting: boolean;
+    badgeAt: number;
+  };
+  /** Token count of the active LLM history (estimate). */
+  activeTokenCount: () => number;
+  compactThresholds: CompactThresholds | null;
+  setCompactThresholds: (t: CompactThresholds) => void;
 }
 
 function uid(prefix = ""): string {
@@ -59,6 +88,185 @@ export function useChat({
   const [isThinking, setIsThinking] = useState(false);
   const [reasoningContent, setReasoningContent] = useState("");
   const [effort, setEffort] = useState<EffortLevel>("medium");
+  const [turnProgress, setTurnProgress] = useState<TurnProgressSnapshot | null>(null);
+
+  // ── Auto-compact context ─────────────────────────────────────────────
+  // TWO histories live here:
+  //   • `messages` (state)  — the FULL original conversation. It is what
+  //     the UI renders and what gets persisted, so the user can always
+  //     scroll back and read every old turn. Compaction NEVER touches it.
+  //   • `llmHistoryRef`      — the array actually SENT to the model. After a
+  //     compaction it becomes
+  //     [system?, compacted-context message, ...recent tail, ...new turns].
+  const compactThresholdsRef = useRef<CompactThresholds | null>(null);
+  const compactingRef = useRef(false);
+
+  // Post-turn rebuild of the model-facing history, applied LAZILY. When a
+  // turn ends we remember the LLM array as it stood BEFORE the turn (the
+  // mirror, or a compacted replacement) plus the UI length it covers. At the
+  // next send/compact — by which point React has committed every streamed
+  // and repair update into messagesRef — the finished turn's messages are
+  // appended onto that base. Mirroring `messagesRef` at turn END instead
+  // would (a) race the last rAF-batched deltas and (b) silently UNDO a
+  // compaction by shipping the full UI history back to the model.
+  const llmPendingRef = useRef<{ base: Message[]; uiLen: number } | null>(null);
+
+  const materializeLlmHistory = useCallback(() => {
+    const p = llmPendingRef.current;
+    if (p) {
+      llmPendingRef.current = null;
+      llmHistoryRef.current = [...p.base, ...messagesRef.current.slice(p.uiLen)];
+    }
+  }, []);
+  const [compactState, setCompactState] = useState<{
+    /** The last compaction result (null = never compacted this session). */
+    lastRun: CompactResult | null;
+    /** True while a compaction call is in flight. */
+    isCompacting: boolean;
+    /**
+     * Index in the UI message list where the compaction divider belongs —
+     * i.e. the number of original messages that preceded the compaction.
+     */
+    badgeAt: number;
+  }>({ lastRun: null, isCompacting: false, badgeAt: -1 });
+  const compactStateRef = useRef(compactState);
+  compactStateRef.current = compactState;
+
+  /** Wire shape (role + content) of a UI message, as the model receives it. */
+  const wireMessage = useCallback((m: Message) => ({
+    role: m.role as string,
+    content: m.content,
+    ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+    ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+    ...(m.usage?.promptTokens ? { usage: { promptTokens: m.usage.promptTokens } } : {}),
+  }), []);
+
+  /**
+   * Run the sliding-window compaction pipeline over the ACTIVE LLM history
+   * and replace it with [system?, compacted context, ...recent tail].
+   *
+   * The UI/persisted history is deliberately left alone — the user keeps
+   * scrolling through the real conversation; only what the model sees
+   * changes. A divider badge is rendered at `badgeAt` to make the swap
+   * visible.
+   */
+  const compact = useCallback(async (
+    mode: CompactMode = "manual",
+    opts: { badgeAt?: number } = {},
+  ): Promise<CompactResult | null> => {
+    if (compactingRef.current) return null;
+    compactingRef.current = true;
+    setCompactState((s) => ({ ...s, isCompacting: true }));
+
+    // Fold the finished previous turn into the active LLM array first, so
+    // compaction always runs against the real model-facing history.
+    materializeLlmHistory();
+    // The divider position is fixed NOW, synchronously. The message list
+    // re-renders during the multi-second compaction call, and reading
+    // messagesRef afterwards would place the divider after the in-flight
+    // turn's bubbles instead of before them.
+    const badgeAt = opts.badgeAt ?? messagesRef.current.length;
+
+    // Refresh the in-memory threshold mirror if it has never been loaded.
+    if (!compactThresholdsRef.current) {
+      try {
+        compactThresholdsRef.current = await fetchCompactThresholds();
+      } catch {
+        compactThresholdsRef.current = loadCompactThresholds();
+      }
+    }
+
+    try {
+      const result = await compactConversation(
+        llmHistoryRef.current.map(wireMessage),
+        { model, apiUrl, apiKey, mode },
+      );
+
+      if (result.compacted) {
+        // The LLM array becomes: [system?, compacted context, ...recent tail].
+        // The compacted-context block rides as a `user` message — that is the
+        // role the compaction model itself authored it for.
+        llmHistoryRef.current = result.replacementLlmMessages.map((lm, i) => ({
+          id: i === 0 ? "compact_" + Date.now().toString(36) : "compact_tail_" + i,
+          conversationId: "",
+          role: lm.role as Message["role"],
+          content: lm.content,
+          reasoning: "",
+          attachments: [],
+          toolCalls: [],
+          citations: [],
+          createdAt: Date.now(),
+          state: "complete",
+          mode: "chat",
+        }));
+        setCompactState((s) => ({ ...s, lastRun: result, badgeAt }));
+      } else {
+        setCompactState((s) => ({ ...s, lastRun: result }));
+      }
+      return result;
+    } catch (e) {
+      const failed: CompactResult = {
+        ok: false,
+        compacted: false,
+        context: "",
+        compactedMessages: 0,
+        replacementLlmMessages: [],
+        beforeTokens: 0,
+        afterTokens: 0,
+        label: "Compaction failed",
+        error: e instanceof Error ? e.message : String(e),
+      };
+      setCompactState((s) => ({ ...s, lastRun: failed }));
+      return failed;
+    } finally {
+      compactingRef.current = false;
+      setCompactState((s) => ({ ...s, isCompacting: false }));
+    }
+  }, [model, apiUrl, apiKey, wireMessage, materializeLlmHistory]);
+
+  /**
+   * The token count of the ACTIVE LLM history — what the threshold is
+   * compared against.
+   */
+  const activeTokenCount = useCallback(
+    () => estimateConversationTokens(llmHistoryRef.current),
+    [],
+  );
+
+
+  // Honest progress engine (lib/progress/turnProgress.ts). Mutated by real
+  // signals only: ruke_stage frames, streamed bytes, repair rounds. The React
+  // snapshot refreshes on stage events + a 1 s tick (NOT per token — the rAF
+  // batching in §5.3 stays intact; a snapshot is a cheap object).
+  const progressRef = useRef<TurnProgressTracker | null>(null);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fenceOpenedRef = useRef(false);
+
+  const flushProgress = useCallback(() => {
+    const t = progressRef.current;
+    if (t) setTurnProgress(t.snapshot(Date.now()));
+  }, []);
+
+  const stopProgressTick = useCallback(() => {
+    if (progressTimerRef.current != null) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+  }, []);
+
+  const finishProgress = useCallback((state: "complete" | "error" | "aborted") => {
+    const t = progressRef.current;
+    stopProgressTick();
+    if (!t) return;
+    t.finish(state);
+    setTurnProgress(t.snapshot(Date.now()));
+  }, [stopProgressTick]);
+
+  const dismissProgress = useCallback(() => {
+    if (progressRef.current && progressRef.current.snapshot(Date.now()).state === "running") return;
+    progressRef.current = null;
+    setTurnProgress(null);
+  }, []);
 
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -67,91 +275,178 @@ export function useChat({
   effortRef.current = effort;
   const assistantIdRef = useRef<string | null>(null);
   const streamContentRef = useRef<string>("");
-  /** Tracks when reasoning started so reasoningMs can be set on the message. */
   const reasoningStartRef = useRef<number | null>(null);
-  /** Guards send() against double-fire from rapid calls (e.g. edit + save). */
   const sendBusyRef = useRef(false);
-  /** Shared abort controller so `stop` can cancel an in-flight stream. */
   const abortRef = useRef<AbortController | null>(null);
-  /** Decision Engine mode of the in-flight turn (x-decision-mode header). */
   const decisionModeRef = useRef<RendererMode | null>(null);
+
+  // The array actually sent to the model. Normally a mirror of `messages`;
+  // after a compaction it diverges — it holds [system?, compacted context,
+  // ...recent tail] while `messages` keeps the full original history.
+  // Kept in a ref (not state) because it never drives a re-render on its own.
+  const llmHistoryRef = useRef<Message[]>([]);
+
+  // Phase 4: rAF-batched stream delta. content/reasoning accumulate in a
+  // mutable ref and flush to React state at most once per animation frame,
+  // eliminating re-render thrashing on fast local LLMs.
+  const pendingContentRef = useRef("");
+  const pendingReasoningRef = useRef("");
+  const rafRef = useRef<number | null>(null);
+  const reasoningContentStateRef = useRef("");
+
+  const flushPending = useCallback((immediate = false) => {
+    const content = pendingContentRef.current;
+    const reasoning = pendingReasoningRef.current;
+    if (!content && !reasoning) return;
+    pendingContentRef.current = "";
+    pendingReasoningRef.current = "";
+
+    const id = assistantIdRef.current;
+    setMessages(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      const next = { ...m };
+      if (content) next.content = (m.content as string) + content;
+      if (reasoning) next.reasoning = (m.reasoning as string) + reasoning;
+      if (reasoning && m.reasoningMs == null && reasoningStartRef.current != null) {
+        next.reasoningMs = Date.now() - reasoningStartRef.current;
+      }
+      return next;
+    }));
+    if (reasoning) {
+      reasoningContentStateRef.current += reasoning;
+      setReasoningContent(reasoningContentStateRef.current);
+    }
+    if (immediate || rafRef.current != null) {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      flushPending(false);
+    });
+  }, [flushPending]);
+
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+  }, []);
 
   const load = useCallback((conversation: Conversation) => {
     setMessages(conversation.messages ?? []);
     messagesRef.current = conversation.messages ?? [];
+    // A new conversation always starts with a fresh LLM history that
+    // mirrors the UI messages (no compaction state crosses conversations).
+    llmHistoryRef.current = conversation.messages ?? [];
+    llmPendingRef.current = null;
+    compactThresholdsRef.current = null;
+    setCompactState({ lastRun: null, isCompacting: false, badgeAt: -1 });
     lastInputRef.current = null;
     setStatus("complete");
     setError(null);
     setIsThinking(false);
     setReasoningContent("");
+    reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
-  }, []);
+    pendingContentRef.current = "";
+    pendingReasoningRef.current = "";
+    stopProgressTick();
+    progressRef.current = null;
+    fenceOpenedRef.current = false;
+    setTurnProgress(null);
+  }, [stopProgressTick]);
 
   const clear = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     setMessages([]);
     messagesRef.current = [];
+    llmHistoryRef.current = [];
+    llmPendingRef.current = null;
+    compactThresholdsRef.current = null;
+    setCompactState({ lastRun: null, isCompacting: false, badgeAt: -1 });
     lastInputRef.current = null;
     assistantIdRef.current = null;
     streamContentRef.current = "";
+    pendingContentRef.current = "";
+    pendingReasoningRef.current = "";
     setStatus("complete");
     setError(null);
     setIsThinking(false);
     setReasoningContent("");
+    reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
-  }, []);
+    stopProgressTick();
+    progressRef.current = null;
+    fenceOpenedRef.current = false;
+    setTurnProgress(null);
+  }, [stopProgressTick]);
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
 
-    if (ev.reasoning) {
-      if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
-      setReasoningContent(prev => prev + ev.reasoning);
-      setIsThinking(true);
-      if (assistantIdRef.current) {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantIdRef.current
-            ? { ...m, reasoning: (m.reasoning as string) + ev.reasoning }
-            : m
-        ));
+    // Server phase frames (ruke_stage): real counts into the tracker, plus
+    // web metadata that streamed turns deliver in-band instead of headers.
+    if (ev.stage) {
+      if (ev.stage.stage === "web_meta") {
+        const id = assistantIdRef.current;
+        if (id && (ev.stage.webCitations || ev.stage.researchLfm)) {
+          setMessages(prev => prev.map(m => m.id === id ? {
+            ...m,
+            ...(ev.stage.webCitations ? { webCitations: ev.stage.webCitations } : {}),
+            ...(ev.stage.researchLfm ? { researchLfm: ev.stage.researchLfm } : {}),
+          } : m));
+        }
       }
+      const t = progressRef.current;
+      if (t) {
+        t.noteStage(ev.stage);
+        setTurnProgress(t.snapshot(Date.now()));
+      }
+      return;
+    }
+
+    if (ev.reasoning) {
+      if (reasoningStartRef.current == null) {
+        reasoningStartRef.current = Date.now();
+        progressRef.current?.noteReasoningStart();
+      }
+      pendingReasoningRef.current += ev.reasoning;
+      setIsThinking(true);
+      scheduleFlush();
     }
     if (ev.content) {
       streamContentRef.current += ev.content;
-      // Close out the reasoningMs when the first content chunk arrives.
-      if (reasoningStartRef.current != null && assistantIdRef.current) {
-        const elapsed = Date.now() - reasoningStartRef.current;
-        setMessages(prev => prev.map(m =>
-          m.id === assistantIdRef.current && m.reasoningMs == null
-            ? { ...m, reasoningMs: elapsed }
-            : m
-        ));
-        reasoningStartRef.current = null;
-      }
-      setMessages(prev => prev.map(m =>
-        m.id === (assistantIdRef.current ?? "")
-          ? { ...m, content: (m.content as string) + ev.content }
-          : m
-      ));
+      pendingContentRef.current += ev.content;
       setIsThinking(false);
+      const t = progressRef.current;
+      if (t) {
+        t.noteContent(streamContentRef.current.length);
+        // A fence opening in the stream = a real output artifact appearing.
+        if (!fenceOpenedRef.current && streamContentRef.current.includes("```")) {
+          fenceOpenedRef.current = true;
+          t.openOutput();
+        }
+      }
+      scheduleFlush();
+    }
+    if (ev.usage) {
+      // Stored on the message: feeds the next turn's honest ETA baselines
+      // (persistence is verbatim, so they accumulate across sessions).
+      const id = assistantIdRef.current;
+      if (id) {
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, usage: ev.usage } : m));
+      }
     }
     if (ev.finishReason === "abort" || ev.finishReason === "error") {
       setStatus(ev.finishReason === "abort" ? "aborted" : "error");
       setError(ev.finishReason === "error" ? "Generation failed" : null);
       setIsThinking(false);
     }
-  }, []);
+  }, [scheduleFlush]);
 
-  /**
-   * Fence repair for anatomy / scene3d / cad fences. A broken fence is the
-   * model's mistake and only the model can fix it: feed the exact error back
-   * (the broken fence already sits in its history), splice the corrected
-   * fence into the same bubble. Anatomy repairs stay silent (existing
-   * contract); 3D/CAD repairs show a visible "Auto-repairing…" note so the
-   * user knows the model is retrying instead of a dead error panel. After
-   * MAX_FENCE_REPAIRS rounds the honest error fallback stays as last resort.
-   */
   const runRepairRounds = useCallback(async (
     assistantId: string,
     history: any[],
@@ -173,6 +468,12 @@ export function useChat({
       const lang = broken[0].lang ?? "anatomy";
       if (lang !== "anatomy") {
         setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing 3D/CAD model…" } : m)));
+        // Real round count into the progress panel (auto-repair turns only).
+        const t = progressRef.current;
+        if (t && t.snapshot(Date.now()).state === "running") {
+          t.setRepair(attempt + 1, MAX_FENCE_REPAIRS);
+          setTurnProgress(t.snapshot(Date.now()));
+        }
       }
 
       let reply = "";
@@ -188,20 +489,18 @@ export function useChat({
             model,
             stream: true,
             reasoning_effort: effort === "off" ? undefined : effort,
-            // Pin the mode: the repair round belongs to the failed fence's
-            // mode; re-deciding on an error message could misroute it.
             decision_mode: decisionMode ?? undefined,
           },
           (ev) => { if (ev.content) reply += ev.content; },
           controller.signal,
         );
       } catch {
-        return; // aborted or upstream failure: leave the fence for the fallback
+        return;
       }
       if (controller.signal.aborted) return;
 
       const corrected = extractFenceBody(reply, lang);
-      if (!corrected) continue; // model answered without a fence: ask again
+      if (!corrected) continue;
       const repaired = applyFenceRepair(content, broken[0], corrected);
       streamContentRef.current = repaired;
       setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: repaired, fenceRepair: undefined } : m)));
@@ -209,14 +508,8 @@ export function useChat({
     }
   }, [model, apiUrl, apiKey]);
 
-  // Manual "Fix with AI" / runtime-error repair cap, per message.
   const fenceRepairAttemptsRef = useRef(new Map<string, number>());
 
-  /**
-   * Repair a fence that only fails at RUNTIME (```threejs code that throws
-   * inside the viewer) — it passed every static check, so the block itself
-   * reports the exact error and we feed it straight back to the model.
-   */
   const requestFenceRepair = useCallback((
     assistantId: string,
     info: { lang: string; body: string; error: string },
@@ -229,8 +522,6 @@ export function useChat({
     attempts.set(assistantId, used + 1);
 
     const message = messagesRef.current[idx];
-    // Zero-collision: runtime fence repair only runs when this message's
-    // Decision Engine mode actually owns that fence family.
     if (message.decisionMode !== "3d_asset") return;
     const history = messagesRef.current.slice(0, idx);
     streamContentRef.current = message.content;
@@ -251,11 +542,15 @@ export function useChat({
   }, [runRepairRounds]);
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
-    // sendBusyRef is the real concurrency guard — `status` here would be a
-    // stale closure value (it isn't a dep of this useCallback).
     if (!text.trim() || sendBusyRef.current) return;
     sendBusyRef.current = true;
-    // Kept outside the try so the catch can still mark the right bubble.
+    // Fold the finished previous turn into the model-facing array before
+    // this turn measures tokens or reads the history (the rebuild is lazy so
+    // it never races rAF-batched stream deltas).
+    materializeLlmHistory();
+    // UI length BEFORE this turn's bubbles are pushed — used to place the
+    // compaction divider and to rebuild the LLM array when the turn ends.
+    const uiLenAtSend = messagesRef.current.length;
     let assistantId: string | null = null;
     try {
       const mode = opts.mode ?? "chat";
@@ -269,8 +564,6 @@ export function useChat({
         content: text,
         reasoning: "",
         reasoningMs: undefined,
-        // Carried on the message itself so the request builder can inline each
-        // file's content (text / image / frames / transcript) into the prompt.
         attachments: opts.attachments ?? [],
         toolCalls: [],
         citations: [],
@@ -298,11 +591,21 @@ export function useChat({
       setStatus("streaming");
       setError(null);
       setReasoningContent("");
+      reasoningContentStateRef.current = "";
       reasoningStartRef.current = null;
+      pendingContentRef.current = "";
+      pendingReasoningRef.current = "";
       setIsThinking(!!curEffort && curEffort !== "off");
       assistantIdRef.current = assistantMsg.id;
       streamContentRef.current = "";
       decisionModeRef.current = null;
+
+      // Fresh honest tracker seeded with THIS user's measured ETAs.
+      progressRef.current = new TurnProgressTracker(computeBaselines(messagesRef.current));
+      fenceOpenedRef.current = false;
+      setTurnProgress(progressRef.current.snapshot(Date.now()));
+      stopProgressTick();
+      progressTimerRef.current = setInterval(flushProgress, 1000);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -310,74 +613,91 @@ export function useChat({
       const client = new ChatClient(apiUrl, apiKey, model);
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
 
-      // Snapshot the request history BEFORE the stream: a repair round must
-      // replay the exact conversation the broken reply was generated from.
-      const requestHistory = [...messagesRef.current, userMsg];
+      // ── Pre-send auto-compact gate ─────────────────────────────
+      // Before the model ever sees this turn, check whether the active
+      // LLM history has outgrown the user's threshold. One check per send
+      // keeps a single oversized conversation to exactly one compaction.
+      // Read the thresholds through the compactConfig cache — primed from
+      // /api/settings on first use and refreshed by the Settings save. A
+      // bare hook-mirror read could miss a setting saved mid-session.
+      let thresholds: CompactThresholds;
+      try {
+        thresholds = await fetchCompactThresholds();
+      } catch {
+        thresholds = loadCompactThresholds();
+      }
+      compactThresholdsRef.current = thresholds;
+      if (thresholds.auto === 1 && thresholds.tokens > 0) {
+        // Count the tokens that the model would receive on this turn, which
+        // is the active LLM history plus the incoming user message.
+        const projectedTokens =
+          estimateConversationTokens(llmHistoryRef.current) +
+          estimateConversationTokens([userMsg]);
+        if (projectedTokens >= thresholds.tokens && !compactingRef.current) {
+          // Fold the oldest turns into a dense summary. The UI keeps the
+          // full original conversation; only the model-facing array shrinks.
+          // badgeAt = the UI length before this turn's bubbles: the divider
+          // lands between the last old message and the new user bubble.
+          await compact("auto", { badgeAt: uiLenAtSend });
+        }
+      }
+
+      // The LLM history is what the model actually sees. Before compaction
+      // this mirrors `messages`; after a compaction it is the reduced
+      // [system?, compacted context, ...recent tail] array. The new user
+      // message is appended to BOTH the UI history and the LLM history.
+      const requestHistory = [...llmHistoryRef.current, userMsg];
 
       await client.chat(
         { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
         (ev) => handleEvent(ev, controller),
         controller.signal,
-        // Metadata headers: user-tier skill pill + the Decision Engine's
-        // active_mode, which gates every renderer/validator for this reply.
         (headers) => {
-          const mode = headers.get("x-decision-mode");
-          if (mode && isRendererMode(mode)) {
+          const hdrs = decodeSseHeaders(headers);
+          const mode = hdrs.decisionMode;
+          if (mode) {
             decisionModeRef.current = mode;
+            // Streams without stage frames (mock servers, upstream direct)
+            // still label the writing step + outputs honestly from the header.
+            progressRef.current?.noteStage({ stage: "decision_done", mode });
             setMessages(prev => prev.map(m =>
               m.id === assistantMsg.id ? { ...m, decisionMode: mode } : m
             ));
           }
-          const skill = headers.get("X-Used-Skill");
-          if (skill) {
+          if (hdrs.skill) {
             setMessages(prev => prev.map(m =>
-              m.id === assistantMsg.id ? { ...m, usedSkill: skill } : m
+              m.id === assistantMsg.id ? { ...m, usedSkill: hdrs.skill } : m
             ));
           }
-          // Web-research citations: the [S#] map the LFM-gated pipeline
-          // produces, used by ResearchTrailCard + the citation pills.
-          const raw = headers.get("X-Web-Citations");
-          if (raw) {
-            try {
-              const webCitations = JSON.parse(decodeURIComponent(raw));
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, webCitations } : m
-              ));
-            } catch {
-              // Malformed header — the pills simply won't render, the
-              // answer itself is unaffected.
-            }
+          if (hdrs.webCitations) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, webCitations: hdrs.webCitations } : m
+            ));
           }
-          // LFM decision summary: shown collapsed in the Research Trail card.
-          const rawLfm = headers.get("X-Research-Lfm");
-          if (rawLfm) {
-            try {
-              const researchLfm = JSON.parse(decodeURIComponent(rawLfm));
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, researchLfm } : m
-              ));
-            } catch {
-              /* ignore */
-            }
+          if (hdrs.researchLfm) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, researchLfm: hdrs.researchLfm } : m
+            ));
           }
         },
-      ).catch((e: any) => {
-        throw e;
-      });
+      );
 
-      // Broken fences of the ACTIVE mode only get repaired before the bubble
-      // is finalized — the user sees the finished visual, not the error.
-      // Off-mode fences are never even scanned (zero-collision rule).
+      // Flush any pending rAF-batched deltas before finalizing.
+      flushPending(true);
+
       if (!controller.signal.aborted) {
-        const mode = decisionModeRef.current;
+        const curMode = decisionModeRef.current;
         await runRepairRounds(
           assistantMsg.id,
           requestHistory,
           curEffort,
           controller,
-          mode,
-          (content) => findBrokenRenderFences(content, mode),
+          curMode,
+          (content) => findBrokenRenderFences(content, curMode),
         );
+        // No mirror here — appending this turn to the model-facing base is
+        // queued in `finally` and applied lazily by materializeLlmHistory.
+        // Mirroring `messagesRef` would UNDO any compaction.
       }
 
       if (!controller.signal.aborted) {
@@ -386,15 +706,16 @@ export function useChat({
         ));
         setStatus("complete");
         setReasoningContent("");
+        reasoningContentStateRef.current = "";
+        finishProgress("complete");
       } else {
-        // Finalize the partial bubble: stop the blinking cursor and bring
-        // back the actions row even though the stream never finished.
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && m.state === "streaming"
             ? { ...m, state: "complete", finishedAt: Date.now() }
             : m
         ));
         setStatus("aborted");
+        finishProgress("aborted");
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
@@ -404,30 +725,31 @@ export function useChat({
           m.id === assistantId ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
+        finishProgress("error");
       } else {
-        // stop(): the abort branch above already set "aborted" — fall
-        // through to finally's guard, which never re-sets "streaming".
+        finishProgress("aborted");
       }
       setReasoningContent("");
     } finally {
+      // Queue the deferred rebuild for this turn. It also covers aborted and
+      // failed turns: the slice is taken from messagesRef at the NEXT
+      // materialize — after every stream, repair and final-state update has
+      // committed — so the LLM array can never capture half-streamed text.
+      llmPendingRef.current = { base: llmHistoryRef.current, uiLen: uiLenAtSend };
       setIsThinking(false);
       abortRef.current = null;
       sendBusyRef.current = false;
-      // Invariant: the composer's "Stop generating" button is tied to
-      // status === "streaming". Every exit path (completed, aborted,
-      // error, or repair round) must leave "streaming" behind — otherwise
-      // the stop button stays on screen and the composer is locked until
-      // the user happens to send another message.
+      stopProgressTick();
       setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
-  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds]);
+  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending,
+      flushProgress, stopProgressTick, finishProgress, compact, materializeLlmHistory]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
-    // Finalize the partial bubble so the cursor stops blinking and the
-    // actions row appears; the stream's own finally cleans up the rest.
+    flushPending(true);
     if (id) {
       setMessages(prev => prev.map(m =>
         m.id === id && m.state === "streaming"
@@ -435,55 +757,63 @@ export function useChat({
           : m
       ));
     }
-    // "aborted" only matters if the turn was actually streaming; once the
-    // stream's finally has already flipped the status to "complete"/
-    // "error", that later write must not clobber it.
     setStatus(prev => (prev === "streaming" ? "aborted" : prev));
     setError(null);
     setIsThinking(false);
-  }, []);
+    finishProgress("aborted");
+  }, [flushPending, finishProgress]);
 
   const retry = useCallback(() => {
     if (lastInputRef.current) {
       const { text, mode, attachments } = lastInputRef.current;
-      setMessages(prev => {
-        const reversed = [...prev].reverse();
-        const idx = reversed.findIndex(m => m.role === "assistant");
-        if (idx >= 0) {
-          const removeId = reversed[idx].id;
-          const filtered = prev.filter(m => m.id !== removeId);
-          messagesRef.current = filtered;
-          return filtered;
+      // Compute the filtered history synchronously from messagesRef (kept
+      // current by the render-time sync) — the rewind below must see it
+      // BEFORE send() starts, which an updater-form setMessages cannot
+      // guarantee.
+      const prev = messagesRef.current;
+      const reversed = [...prev].reverse();
+      const idx = reversed.findIndex(m => m.role === "assistant");
+      if (idx >= 0) {
+        const removeId = reversed[idx].id;
+        const filtered = prev.filter(m => m.id !== removeId);
+        messagesRef.current = filtered;
+        setMessages(filtered);
+        // Rewind the model-facing history in lockstep with the UI. Normally
+        // the retried turn still lives inside a PENDING rebuild: rolling
+        // back to that base drops BOTH the old reply and the user message
+        // being re-sent — send() appends the fresh user message itself.
+        const p = llmPendingRef.current;
+        if (p) {
+          llmPendingRef.current = null;
+          llmHistoryRef.current = p.base;
+        } else {
+          // No rebuild pending (e.g. a manual /compact ran after that
+          // turn): drop the retried reply by id. A compacted replacement
+          // array carries synthetic ids, so it is left untouched by design.
+          llmHistoryRef.current = llmHistoryRef.current.filter(m => m.id !== removeId);
         }
-        return prev;
-      });
+      }
       setError(null);
       send(text, { mode, attachments });
     }
   }, [send]);
 
   const edit = useCallback((id: string, newContent: string) => {
-    // Abort any in-flight generation FIRST. Without this the orphaned
-    // stream keeps running (and its sendBusyRef blocks the replacement
-    // send), while slicing away the streaming assistant bubble can empty
-    // the screen back to the hero — the "edit redirects me home" bug.
     abortRef.current?.abort();
     abortRef.current = null;
 
     const prev = messagesRef.current;
     const idx = prev.findIndex(m => m.id === id);
     if (idx < 0) return;
-    // Drop the edited user message AND everything after it — send() will
-    // append exactly one fresh user + assistant pair, so we end up with a
-    // single exchange on screen.
     const filtered = prev.slice(0, idx);
     messagesRef.current = filtered;
+    llmHistoryRef.current = filtered; // an edit rewinds both histories
+    // Discard any pending rebuild — its base/uiLen predate the edit and its
+    // re-slice would re-append the truncated messages at the next send.
+    llmPendingRef.current = null;
     lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
     setMessages(filtered);
     setStatus("complete");
-
-    // One macrotask later: the aborted send's finally (pure microtasks by
-    // then) has released sendBusyRef before the replacement send fires.
     setTimeout(() => send(newContent), 0);
   }, [send]);
 
@@ -492,46 +822,14 @@ export function useChat({
     load, clear, send, stop, retry, edit,
     clearError: () => setError(null),
     setEffort, effort, requestFenceRepair,
+    turnProgress, dismissProgress,
+    // Auto-compact context
+    compact,
+    compactState,
+    activeTokenCount,
+    compactThresholds: compactThresholdsRef.current,
+    setCompactThresholds: (t: CompactThresholds) => {
+      compactThresholdsRef.current = t;
+    },
   };
-}
-
-function buildResearchToolDefs(): any[] {
-  return [
-    {
-      type: "function",
-      function: {
-        name: "web_search",
-        description: "Search the web via SearXNG and return ranked results.",
-        parameters: {
-          type: "object",
-          properties: { query: { type: "string", description: "Search query" } },
-          required: ["query"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "web_open",
-        description: "Open a URL and return rendered text content.",
-        parameters: {
-          type: "object",
-          properties: { url: { type: "string" } },
-          required: ["url"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "browser_screenshot",
-        description: "Take a screenshot of the current browser page.",
-        parameters: {
-          type: "object",
-          properties: { path: { type: "string" } },
-          required: ["path"],
-        },
-      },
-    },
-  ];
 }
