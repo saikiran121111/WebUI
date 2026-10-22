@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { Message } from "../lib/types";
 
 /**
- * Claude-style processing line shown in place of the old loading dots while
+ * RUKE-branded processing line shown in place of the old loading dots while
  * a reply is still finding its first token. Every phase it names is derived
  * from a real signal on the message — never a fake "thinking harder" verb:
  *
@@ -69,14 +69,16 @@ export default function ProcessingStatus({ message }: { message: Message }) {
       className="flex items-center gap-2.5 py-4"
     >
       <svg
-        className="processing-asterisk"
-        width="15" height="15" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"
-        aria-hidden
+        className="processing-logo"
+        width="16" height="16" viewBox="0 0 120 120"
+        fill="none" aria-hidden
       >
-        <line x1="12" y1="3.5" x2="12" y2="20.5" />
-        <line x1="4.6" y1="7.75" x2="19.4" y2="16.25" />
-        <line x1="19.4" y1="7.75" x2="4.6" y2="16.25" />
+        <rect x="10" y="10" width="100" height="100" rx="26"
+          stroke="currentColor" strokeWidth="8" />
+        <g className="processing-logo-mark" fill="currentColor">
+          <path d="M 79 37 C 72 33, 63 31, 55 33 C 41 36, 37 46, 39 53 C 41 61, 52 63, 61 60 L 61 45 C 54 48, 48 47, 48.5 43.5 C 49 40, 56 38.5, 65 39.5 C 71 40.3, 76 42.5, 79 45.5 L 79 37 Z" />
+          <path d="M 41 83 C 48 87, 57 89, 65 87 C 79 84, 83 74, 81 67 C 79 59, 68 57, 59 60 L 59 75 C 66 72, 72 73, 71.5 76.5 C 71 80, 64 81.5, 55 80.5 C 49 79.7, 44 77.5, 41 74.5 L 41 83 Z" />
+        </g>
       </svg>
       <span className="text-[13px] text-[var(--muted)] leading-none">{text}</span>
     </div>

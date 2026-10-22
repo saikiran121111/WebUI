@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, X, StopCircle, SlidersHorizontal, Loader2, AlertCircle, Check, Blocks, ChevronDown, Plus, Mic, AudioWaveform, Sparkles } from "lucide-react";
+import { Send, Paperclip, X, StopCircle, SlidersHorizontal, Loader2, AlertCircle, Check, Blocks, ChevronDown, Plus, Mic, AudioWaveform, Sparkles, CornerDownLeft } from "lucide-react";
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
 import type { SkillRecord } from "../lib/skills/types";
@@ -218,6 +218,31 @@ export default function ChatInput({
 
   const canSend = hasContent && !stillReading && !isLoading;
 
+  // Shared "+" popover (hero and bar): files, skills, plugins (inert).
+  const renderPlusMenu = () => (
+    <div role="menu" onClick={e => e.stopPropagation()}
+      className="absolute bottom-11 left-0 z-30 w-48 py-1 rounded-xl
+        bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)]
+        backdrop-blur-md shadow-xl shadow-black/40"
+    >
+      <button role="menuitem"
+        onClick={() => { setPlusOpen(false); fileInputRef.current?.click(); }}
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/[0.05] hover:text-white/95">
+        <Paperclip className="w-3.5 h-3.5 text-white/40" /> Add files or photos
+      </button>
+      <button role="menuitem"
+        onClick={() => { setPlusOpen(false); setShowSkillsModal(true); }}
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/[0.05] hover:text-white/95">
+        <Blocks className="w-3.5 h-3.5 text-white/40" /> Skills
+      </button>
+      {/* Placeholder — Plugins are not implemented yet. */}
+      <button role="menuitem" disabled title="Plugins — coming soon"
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/30 cursor-default">
+        <Sparkles className="w-3.5 h-3.5 text-white/30" /> Plugins
+      </button>
+    </div>
+  );
+
   return (
     <div
       onDragEnter={handleDragEnter} onDragOver={e => e.preventDefault()}
@@ -322,7 +347,7 @@ export default function ChatInput({
               value={value}
               onChange={e => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isHero ? "How can I help you today?" : "Message Ruke…"}
+              placeholder={isHero ? "How can I help you today?" : "Reply"}
               rows={1}
               aria-label="Message Ruke"
               className={cn(
@@ -331,41 +356,28 @@ export default function ChatInput({
               )}
             />
 
-            {/* Bar variant: fixed 44px control row — stable while typing */}
+            {/* Bar variant: single send affordance — the return-arrow glyph
+                doubles as the send button (Enter sends too). Stable footprint. */}
             {!isHero && (
-            <div className={cn("flex items-center gap-0.5", "pb-2 pr-2", "h-11")}>
-              <button onClick={() => setShowSkillsModal(true)}
-                className="w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
-                aria-label="Skills" title="Skills">
-                <Blocks className="w-4 h-4" />
-              </button>
-
-              <button onClick={() => fileInputRef.current?.click()}
-                className="w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
-                aria-label="Attach file" title="Attach file">
-                <Paperclip className="w-4 h-4" />
-              </button>
-
-              <EffortControl effort={effort} onEffortChange={onEffortChange} />
-
+            <div className="pb-2 pr-2">
               {isLoading ? (
                 <button onClick={onStop}
-                  className="w-8 h-8 rounded-lg text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
+                  className="w-7 h-7 rounded-md text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
                   aria-label="Stop generating">
                   <StopCircle className="w-4 h-4" />
                 </button>
               ) : (
                 <button onClick={handleSend} data-testid="send-button"
                   disabled={!canSend}
-                  title={stillReading ? "Reading attached files…" : "Send"}
+                  title={stillReading ? "Reading attached files…" : "Send (Enter)"}
                   className={cn(
-                    "w-8 h-8 rounded-lg transition-all duration-[120ms] flex items-center justify-center",
+                    "w-7 h-7 rounded-md transition-colors duration-[120ms] flex items-center justify-center",
                     canSend
-                      ? "bg-white text-black hover:bg-white/90"
-                      : "bg-white/[0.07] text-white/25 cursor-default",
+                      ? "text-white/90 hover:text-white hover:bg-white/[0.06]"
+                      : "text-white/55 cursor-default",
                   )}
                   aria-label="Send message">
-                  <Send className="w-4 h-4" />
+                  <CornerDownLeft className="w-[18px] h-[18px]" />
                 </button>
               )}
             </div>
@@ -389,29 +401,7 @@ export default function ChatInput({
                 >
                   <Plus className="w-4 h-4" />
                 </button>
-                {plusOpen && (
-                  <div role="menu" onClick={e => e.stopPropagation()}
-                    className="absolute bottom-11 left-0 z-30 w-48 py-1 rounded-xl
-                      bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)]
-                      backdrop-blur-md shadow-xl shadow-black/40"
-                  >
-                    <button role="menuitem"
-                      onClick={() => { setPlusOpen(false); fileInputRef.current?.click(); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/[0.05] hover:text-white/95">
-                      <Paperclip className="w-3.5 h-3.5 text-white/40" /> Add files or photos
-                    </button>
-                    <button role="menuitem"
-                      onClick={() => { setPlusOpen(false); setShowSkillsModal(true); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/[0.05] hover:text-white/95">
-                      <Blocks className="w-3.5 h-3.5 text-white/40" /> Skills
-                    </button>
-                    {/* Placeholder — Plugins are not implemented yet. */}
-                    <button role="menuitem" disabled title="Plugins — coming soon"
-                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/30 cursor-default">
-                      <Sparkles className="w-3.5 h-3.5 text-white/30" /> Plugins
-                    </button>
-                  </div>
-                )}
+                {plusOpen && renderPlusMenu()}
               </div>
 
               <div className="flex items-center gap-1">
@@ -453,23 +443,58 @@ export default function ChatInput({
             </div>
           )}
 
-          {/* Context row: mode on the left, effort on the right */}
-          {!isHero && (
-            <div className="flex items-center justify-between px-3 pb-2">
+        </div>
+
+        {/* Bar meta row (outside the glass surface): add/voice cluster on the
+            left, safety note centered, model / effort / mode on the right.
+            Model and mode are inert placeholders until wired up. */}
+        {!isHero && (
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 pt-2">
+            <div className="relative flex items-center gap-0.5 justify-self-start" ref={plusRef}>
+              <button
+                onClick={() => setPlusOpen(v => !v)}
+                className="w-8 h-8 rounded-lg text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
+                aria-label="Add" aria-haspopup="menu" aria-expanded={plusOpen}
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              {plusOpen && renderPlusMenu()}
+              {/* Voice controls — inert placeholders until a speech backend
+                  is wired up; kept visible to match the target layout. */}
+              <button disabled
+                className="w-8 h-8 rounded-lg text-white/30 flex items-center justify-center cursor-default"
+                aria-label="Voice input" title="Voice input — coming soon">
+                <Mic className="w-4 h-4" />
+              </button>
+              <button disabled
+                className="flex items-center h-8 px-1 rounded-lg text-white/30 cursor-default"
+                aria-label="Voice settings" title="Dictation — coming soon">
+                <AudioWaveform className="w-4 h-4" />
+                <ChevronDown className="w-3 h-3 ml-0.5" />
+              </button>
+            </div>
+
+            <span className="text-[11px] text-white/35 select-none text-center">
+              Output varies based on model that's being used.
+            </span>
+
+            <div className="flex items-center gap-3 justify-self-end">
+              <button className="text-[12px] font-medium text-white/85
+                hover:text-white transition-colors duration-[120ms]"
+                title="Model selection — coming soon">
+                Sonnet 5.5
+              </button>
+              <EffortControl effort={effort} onEffortChange={onEffortChange} variant="text" />
               <button onClick={onModeToggle}
                 aria-pressed={isResearchMode}
-                className={cn(
-                  "text-[11px] px-2 py-0.5 rounded-full border transition-colors duration-[120ms]",
-                  isResearchMode
-                    ? "border-white/[0.2] text-white/85 bg-white/[0.07]"
-                    : "border-[rgba(255,255,255,0.09)] text-white/35 hover:text-white/60 hover:border-white/20",
-                )}>
-                {isResearchMode ? "Research" : "Chat"}
+                title="Interaction mode — coming soon"
+                className="text-[12px] font-medium text-white/85
+                  hover:text-white transition-colors duration-[120ms]">
+                {isResearchMode ? "Research" : "Manual"}
               </button>
-              <span className="text-[10px] text-white/25">Enter to send · Shift+Enter for newline</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <SkillsModal

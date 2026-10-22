@@ -18,6 +18,16 @@ target. Session ending — PC shutdown armed by explicit user request.
 - NEW `components/ProcessingStatus.tsx`: rotating orange ✳ + real-signal status text
   ("Analyzing prompt…", "Searching the web…", reasoning elapsed, tool-call lines).
   Replaced 3-dots in ChatMessage.tsx.
+- ChatInput BAR variant REDRAWN to Claude-style "Reply" layout (2026-10-22c): glass
+  surface holds only textarea + right-corner ↵ send/stop button; meta row moved OUTSIDE
+  the surface (grid 1fr/auto/1fr): left + popover (shared renderPlusMenu: files/skills/
+  Plugins-inert) + inert Mic & AudioWaveform▼; center "Claude is AI and can make
+  mistakes."; right Sonnet 5.5 (inert) / EffortControl variant="text" (live) / Manual
+  (inert, toggles label via onModeToggle). Chat chip + Enter-hint row removed; Blocks/
+  Paperclip buttons removed (reachable via + menu). ARIA preserved: "Send message",
+  "Stop generating", /Reasoning effort/ labels; testids send-button, file-input,
+  attachment-chip intact. VERIFIED via headless screenshot script (seeded conversation,
+  zero model calls): /tmp/composer-bar.png matches target. tsc clean.
 - NEW `lib/user.ts`: USER_NAME export ("SaiKiran"), used by Sidebar/TopBar/greeting.
 - `components/ui/Sidebar.tsx` REDESIGNED: Search input, full-width "+ New"
   (testids sidebar/sidebar-new-chat), nav Projects/Artifacts/Customize (inert,
@@ -69,8 +79,9 @@ target. Session ending — PC shutdown armed by explicit user request.
   overflow hidden.
 - Seed/delete store contract: POST /api/conversations {id, json:string};
   DELETE /api/conversations/{id}; GET returns [{id,updatedAt,meta}].
-- Hero composer placeholder: "How can I help you today?"; chat-shell placeholder:
-  "Message Ruke...". testid send-button.
+- Hero composer placeholder: "How can I help you today?"; chat-shell (bar) placeholder:
+  "Reply" (redrawn 2026-10-22c — Claude-style Reply bar). testid send-button (bar:
+  CornerDownLeft glyph inside the input row; always rendered, disabled when empty).
 - Lock file: `.ai-coordination/playwright.lock`. No npm test:e2e script — real command
   is `npx playwright test <specs>` (config: baseURL :3000, workers:1, headless:false,
   PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright).
