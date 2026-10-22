@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Brain, Server, Key, RotateCcw, Trash2, Loader2,
+  Settings, Server, Key, RotateCcw, Trash2, Loader2,
 } from "lucide-react";
 import type { EffortLevel } from "../lib/types";
 import { cn } from "../lib/utils";
@@ -151,44 +151,38 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
   }, [url, key]);
 
   const statusLine = (() => {
-    if (flash === "ok") return <span className="text-emerald-400/80 text-[10px]">Saved ✓</span>;
-    if (flash === "err") return <span className="text-red-400 text-[10px]">Invalid URL</span>;
-    if (testResult === "ok") return <span className="text-emerald-400/80 text-[10px]">Connected</span>;
-    if (testResult === "fail") return <span className="text-red-400 text-[10px]">Unreachable</span>;
+    if (flash === "ok") return <span className="text-white/70 text-[10px]">Saved ✓</span>;
+    if (flash === "err") return <span className="text-white/60 text-[10px]">Invalid URL</span>;
+    if (testResult === "ok") return <span className="text-white/70 text-[10px]">Connected</span>;
+    if (testResult === "fail") return <span className="text-white/50 text-[10px]">Unreachable</span>;
     return null;
   })();
-
-  const displayLabel = url.trim()
-    ? (() => {
-        try { return new URL(url.trim()).host; } catch { return "custom"; }
-      })()
-    : "Local";
 
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-colors",
-          open ? "bg-white/[0.08] text-white/90" : "text-white/40 hover:text-white/70 hover:bg-white/[0.05]",
+          "w-7 h-7 rounded-md flex items-center justify-center transition-colors duration-[120ms]",
+          open ? "bg-white/[0.09] text-white/95" : "text-white/35 hover:text-white/80 hover:bg-white/[0.05]",
         )}
         aria-label="Settings"
+        title="Settings"
       >
-        <Brain className="w-3.5 h-3.5" />
-        <span>{displayLabel}</span>
+        <Settings className="w-4 h-4" />
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl bg-[#0d0d12] border border-white/[0.1] shadow-2xl shadow-black/60">
+        <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
           {/* Tabs */}
-          <div className="flex border-b border-white/[0.06]">
+          <div className="flex border-b border-[rgba(255,255,255,0.09)]">
             {(["reasoning", "endpoint"] as const).map((t) => (
               <button key={t}
                 onClick={() => setTab(t)}
                 className={cn(
-                  "flex-1 py-2 text-[11px] uppercase tracking-wider transition-colors border-b-2",
+                  "flex-1 py-2 text-[11px] uppercase tracking-wider transition-colors duration-[120ms] border-b-2",
                   tab === t
-                    ? "text-white/80 border-indigo-400/60 bg-white/[0.03]"
+                    ? "text-white/90 border-white/70 bg-white/[0.03]"
                     : "text-white/30 border-transparent hover:text-white/60",
                 )}>
                 {t === "reasoning" ? "Reasoning" : "Endpoint"}
@@ -202,12 +196,12 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
                 <button key={e}
                   onClick={() => { onEffortChange(e); setOpen(false); }}
                   className={cn(
-                    "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors",
+                    "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors duration-[120ms]",
                     effort === e
-                      ? "text-indigo-400 bg-indigo-500/[0.1]"
-                      : "text-white/60 hover:bg-white/[0.04] hover:text-white/90",
+                      ? "text-white/95 bg-white/[0.07]"
+                      : "text-white/55 hover:bg-white/[0.04] hover:text-white/90",
                   )}>
-                  {effort === e && <span className="w-1 h-1 rounded-full bg-indigo-400" />}
+                  {effort === e && <span className="w-1 h-1 rounded-full bg-white/80" />}
                   {EFFORT_LABEL[e]}
                 </button>
               ))}
@@ -227,15 +221,15 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
                   onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
                   placeholder="http://127.0.0.1:8080/v1/chat/completions"
                   className={cn(
-                    "w-full px-2.5 py-1.5 rounded-lg bg-white/[0.05] border text-[11px] font-mono text-white/80 placeholder-white/20 outline-none transition-colors",
+                    "w-full px-2.5 py-1.5 rounded-lg bg-white/[0.05] border text-[11px] font-mono text-white/80 placeholder-white/20 outline-none transition-colors duration-[120ms]",
                     url && !URL_RE.test(url.trim())
-                      ? "border-red-500/40"
-                      : "border-white/[0.08] focus:border-indigo-400/50",
+                      ? "border-[rgba(255,255,255,0.35)]"
+                      : "border-[rgba(255,255,255,0.1)] focus:border-white/30",
                   )}
                   data-testid="settings-endpoint-input"
                 />
                 {url && !URL_RE.test(url.trim()) && (
-                  <p className="text-[10px] text-red-400/70 mt-1">Enter a full URL (http:// or https://)</p>
+                  <p className="text-[10px] text-white/50 mt-1">Enter a full URL (http:// or https://)</p>
                 )}
               </div>
 
@@ -250,9 +244,9 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
                   value={key}
                   onChange={(e) => setKey(e.target.value)}
                   placeholder="no-key"
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.05] border border-white/[0.08]
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-white/[0.05] border border-[rgba(255,255,255,0.1)]
                     text-[11px] font-mono text-white/80 placeholder-white/20 outline-none
-                    focus:border-indigo-400/50 transition-colors"
+                    focus:border-white/30 transition-colors duration-[120ms]"
                   data-testid="settings-key-input"
                 />
               </div>
@@ -265,10 +259,10 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
                   disabled={saving}
                   data-testid="settings-save"
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors",
+                    "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors duration-[120ms]",
                     saving
                       ? "bg-white/[0.05] text-white/30 cursor-wait"
-                      : "bg-indigo-500/[0.15] text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/[0.25]",
+                      : "bg-white/[0.12] text-white/90 border border-[rgba(255,255,255,0.15)] hover:bg-white/[0.18]",
                   )}>
                   {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                   Save
@@ -277,16 +271,16 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
                   disabled={testing || !url.trim() || !URL_RE.test(url.trim())}
                   data-testid="settings-test"
                   className={cn(
-                    "flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors border",
+                    "flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors duration-[120ms] border",
                     !url.trim() || !URL_RE.test(url.trim())
-                      ? "border-white/[0.06] text-white/20 cursor-not-allowed"
-                      : "border-white/[0.1] text-white/50 hover:text-white/80 hover:border-white/20",
+                      ? "border-[rgba(255,255,255,0.06)] text-white/20 cursor-not-allowed"
+                      : "border-[rgba(255,255,255,0.1)] text-white/55 hover:text-white/90 hover:border-white/25",
                   )}>
                   {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : "Test"}
                 </button>
                 <button onClick={handleReset}
                   title="Delete settings.json — revert to .env / defaults"
-                  className="p-1.5 rounded-lg text-white/25 hover:text-red-400/70 hover:bg-red-500/[0.06] transition-colors"
+                  className="p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/[0.06] transition-colors duration-[120ms]"
                   aria-label="Reset settings"
                   data-testid="settings-reset">
                   <Trash2 className="w-3.5 h-3.5" />

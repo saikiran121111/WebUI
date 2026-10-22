@@ -21,7 +21,9 @@ import { test, expect } from "@playwright/test";
  *    badge names the authority that actually decided ("Model-gated").
  */
 
-const INPUT = "textarea[placeholder^='Ask anything']";
+// Selector migrated with the landing redesign: the hero composer's
+// placeholder is now "How can I help you today?".
+const INPUT = "textarea[placeholder^='How can I help']";
 
 async function sendPrompt(page: import("@playwright/test").Page, text: string) {
   await page.goto("/");

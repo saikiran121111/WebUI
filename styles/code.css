@@ -110,7 +110,7 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 .code-block-ctl:hover { background: rgba(255, 255, 255, 0.04); color: var(--muted); }
-.code-block-ctl.is-active { color: var(--accent); background: var(--accent-soft); }
+.code-block-ctl.is-active { color: var(--foreground); background: rgba(255, 255, 255, 0.08); }
 .code-block-copy svg, .code-block-ctl svg { width: 0.875rem; height: 0.875rem; }
 .code-block-copy span { font-size: 0.6875rem; }
 
@@ -118,7 +118,7 @@
 .msg-copy-btn:focus-visible, .thinking-copy-btn:focus-visible,
 .md-table-csv:focus-visible, .md-table-ctl:focus-visible, .widget-submit:focus-visible,
 .diagram-stage:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--foreground);
   outline-offset: 1px;
   border-radius: 4px;
 }

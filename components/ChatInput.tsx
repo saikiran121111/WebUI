@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, X, StopCircle, Settings2, Loader2, AlertCircle, Check, Blocks } from "lucide-react";
+import { Send, Paperclip, X, StopCircle, SlidersHorizontal, Loader2, AlertCircle, Check, Blocks, ChevronDown, Plus, Mic, AudioWaveform, Sparkles } from "lucide-react";
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
 import type { SkillRecord } from "../lib/skills/types";
@@ -30,6 +30,11 @@ interface ChatInputProps {
   variant?: "hero" | "bar";
 }
 
+/**
+ * RUKE composer — one elevated glass surface. All control slots keep a fixed
+ * footprint so the layout never shifts while typing / streaming / loading;
+ * the input grows with content up to a max height, then scrolls internally.
+ */
 export default function ChatInput({
   onSend, onStop, isLoading, isThinking, reasoningContent,
   effort, onEffortChange, isResearchMode, onModeToggle,
@@ -37,16 +42,16 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [showEffortMenu, setShowEffortMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showSkillsModal, setShowSkillsModal] = useState(false);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const plusRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
-  const effortMenuRef = useRef<HTMLDivElement>(null);
 
   // Shared cross-component cache with in-flight dedup: the hero + bar
   // instances (and their remounts on view swaps) used to fire 2–4 identical
@@ -79,34 +84,37 @@ export default function ChatInput({
 
   useEffect(() => { setSlashDismissed(false); setSlashIndex(0); }, [value]);
 
+  // Hero "+" popover dismissal (outside click / Escape), same contract as the
+  // other popovers so two menus can never be open at once.
+  useEffect(() => {
+    if (!plusOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!plusRef.current?.contains(e.target as Node)) setPlusOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPlusOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [plusOpen]);
+
   const pickSlashSkill = useCallback((skillName: string) => {
     setValue("/" + skillName + " ");
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
 
+  const isHero = variant === "hero";
+
+  // Grow the textarea with content, capped — then it scrolls internally so
+  // the composer's footprint (and the app) never gets pushed out of place.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, variant === "hero" ? 180 : 200) + "px";
-  }, [value, variant]);
-
-  // Dismiss the effort menu on any outside click / Escape so it never lingers
-  // open while another menu is being used. The trigger button lives inside
-  // effortMenuRef, so clicking it again still toggles through onClick.
-  useEffect(() => {
-    if (!showEffortMenu) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!effortMenuRef.current?.contains(e.target as Node)) setShowEffortMenu(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowEffortMenu(false); };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [showEffortMenu]);
+    el.style.height = Math.min(el.scrollHeight, isHero ? 180 : 160) + "px";
+  }, [value, isHero]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -208,17 +216,18 @@ export default function ChatInput({
 
   const hasContent = value.trim().length > 0 || attachments.length > 0;
 
-  const isHero = variant === "hero";
+  const canSend = hasContent && !stillReading && !isLoading;
 
   return (
     <div
       onDragEnter={handleDragEnter} onDragOver={e => e.preventDefault()}
       onDragLeave={handleDragLeave} onDrop={handleDrop} onPaste={handlePaste}
+      data-composer-variant={variant}
     >
       {isDragging && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center">
-          <div className="px-10 py-5 rounded-2xl bg-white/[0.04] border border-white/[0.12] text-white/90 text-base font-medium">
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center">
+          <div className="px-10 py-5 rounded-2xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] text-white/90 text-base font-medium">
             Drop files to attach
           </div>
         </motion.div>
@@ -235,24 +244,25 @@ export default function ChatInput({
               <div key={att.id} data-testid="attachment-chip" data-status={att.status}
                 title={att.error ?? att.name}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-colors",
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-colors duration-[120ms]",
                   att.status === "error"
-                    ? "bg-red-500/[0.07] border-red-500/25"
-                    : "bg-white/[0.06] border-white/[0.08]",
+                    ? "bg-white/[0.04] border-[rgba(255,255,255,0.15)]"
+                    : "bg-white/[0.05] border-[rgba(255,255,255,0.09)]",
                 )}>
                 <AttachmentStatusIcon status={att.status} />
-                <span className={cn("max-w-40 truncate", att.status === "error" ? "text-red-300/80" : "text-white/60")}>
+                <span className={cn("max-w-40 truncate", att.status === "error" ? "text-white/70" : "text-white/60")}>
                   {att.name}
                 </span>
                 <span className="text-white/25 text-[10px]">{(att.size / 1024).toFixed(0)}K</span>
                 {att.indexed && (
                   <span data-testid="indexed-badge"
-                    className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/25 text-emerald-300/80 text-[10px] whitespace-nowrap">
+                    className="px-1.5 py-0.5 rounded bg-white/[0.07] border border-[rgba(255,255,255,0.12)] text-white/50 text-[10px] whitespace-nowrap">
                     indexed · {att.chunkCount ?? 0} chunks
                   </span>
                 )}
                 <button onClick={() => removeAttachment(att.id)}
-                  className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors">
+                  className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors duration-[120ms]"
+                  aria-label={`Remove ${att.name}`}>
                   <X className="w-3 h-3" />
                 </button>
               </div>
@@ -261,20 +271,18 @@ export default function ChatInput({
         </div>
       )}
 
-      <motion.div layoutId="composer"
-        className={cn("max-w-3xl mx-auto", isHero ? "px-0" : "px-4 pb-4")}>
+      <div className={cn("max-w-3xl mx-auto", isHero ? "px-0" : "px-4 pb-4")}>
         <div className={cn(
-          "relative rounded-2xl border transition-all duration-200",
-          isHero
-            ? "border-white/[0.12] bg-white/[0.05] shadow-2xl shadow-black/40"
-            : "border-white/[0.1] bg-white/[0.04] backdrop-blur-xl shadow-lg shadow-black/30",
-          "focus-within:border-white/25 focus-within:bg-white/[0.06]",
+          "surface-glass relative rounded-2xl transition-[border-color,background-color] duration-[150ms]",
+          isHero ? "shadow-lg shadow-black/30" : "shadow-md shadow-black/25",
+          "focus-within:border-[rgba(255,255,255,0.2)]",
         )}>
           {slashCandidates.length > 0 && !slashDismissed && (
             <div
               data-testid="slash-skill-menu"
               className="absolute bottom-full left-0 right-0 mb-2 z-30 py-1 rounded-xl
-                bg-[#0d0d12] border border-white/[0.1] shadow-xl shadow-black/50"
+                bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)]
+                backdrop-blur-md shadow-xl shadow-black/40"
             >
               <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-widest font-medium">
                 Skills — Enter or Tab to insert
@@ -284,15 +292,15 @@ export default function ChatInput({
                   key={s.skillName}
                   onClick={() => pickSlashSkill(s.skillName)}
                   className={cn(
-                    "w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2",
+                    "w-full text-left px-3 py-1.5 text-xs transition-colors duration-[120ms] flex items-center gap-2",
                     i === Math.min(slashIndex, slashCandidates.length - 1)
-                      ? "bg-white/[0.06] text-white/90"
-                      : "text-white/60 hover:bg-white/[0.04]",
+                      ? "bg-white/[0.08] text-white/90"
+                      : "text-white/55 hover:bg-white/[0.04]",
                   )}
                 >
                   <span className="font-mono text-white/80">/{s.skillName}</span>
                   {s.autoUse && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/[0.12] text-amber-400/80">
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.09] text-white/50">
                       auto
                     </span>
                   )}
@@ -302,8 +310,8 @@ export default function ChatInput({
           )}
 
           {(isThinking || reasoningContent) && (
-            <div className="px-3 pt-2.5 flex items-center gap-2 text-[11px] text-emerald-400/70">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 animate-pulse" />
+            <div className="px-3.5 pt-2.5 flex items-center gap-2 text-[11px] text-white/45">
+              <div className="w-1.5 h-1.5 rounded-full bg-white/50 animate-pulse" />
               <span>Reasoning…</span>
             </div>
           )}
@@ -314,78 +322,155 @@ export default function ChatInput({
               value={value}
               onChange={e => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isHero ? "Ask anything — try 'Explain async/await'…" : "Message…"}
+              placeholder={isHero ? "How can I help you today?" : "Message Ruke…"}
               rows={1}
+              aria-label="Message Ruke"
               className={cn(
-                "flex-1 bg-transparent text-white placeholder-white/35 text-sm leading-relaxed outline-none resize-none",
-                isHero ? "px-4 py-4 min-h-[52px] max-h-[180px]" : "px-3 py-3 min-h-[44px] max-h-[200px]",
+                "flex-1 bg-transparent text-white/90 placeholder-white/30 text-[15px] leading-relaxed outline-none resize-none",
+                isHero ? "px-4 py-4 min-h-[52px] max-h-[180px]" : "px-3.5 py-3 min-h-[44px] max-h-[160px]",
               )}
             />
 
-            <div className="flex items-center gap-0.5 pb-1.5 pr-1">
+            {/* Bar variant: fixed 44px control row — stable while typing */}
+            {!isHero && (
+            <div className={cn("flex items-center gap-0.5", "pb-2 pr-2", "h-11")}>
               <button onClick={() => setShowSkillsModal(true)}
-                className="p-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
+                className="w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
                 aria-label="Skills" title="Skills">
                 <Blocks className="w-4 h-4" />
               </button>
 
               <button onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
+                className="w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
                 aria-label="Attach file" title="Attach file">
                 <Paperclip className="w-4 h-4" />
               </button>
 
-              <div className="relative" ref={effortMenuRef}>
-                <button onClick={() => setShowEffortMenu(!showEffortMenu)}
-                  className={cn(
-                    "p-2 rounded-lg transition-colors",
-                    effort !== "off" ? "text-emerald-400/80" : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]",
-                  )}
-                  aria-label="Reasoning effort" title={`Reasoning: ${EFFORT_LABEL[effort]}`}>
-                  <Settings2 className="w-4 h-4" />
-                </button>
-                {showEffortMenu && (
-                  <EffortMenu effort={effort} onSelect={e => { onEffortChange(e); setShowEffortMenu(false); }} />
-                )}
-              </div>
+              <EffortControl effort={effort} onEffortChange={onEffortChange} />
 
               {isLoading ? (
                 <button onClick={onStop}
-                  className="p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  className="w-8 h-8 rounded-lg text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
                   aria-label="Stop generating">
                   <StopCircle className="w-4 h-4" />
                 </button>
               ) : (
                 <button onClick={handleSend} data-testid="send-button"
-                  disabled={!hasContent || stillReading}
-                  title={stillReading ? "Reading attached files…" : undefined}
+                  disabled={!canSend}
+                  title={stillReading ? "Reading attached files…" : "Send"}
                   className={cn(
-                    "p-2 rounded-lg transition-all",
-                    hasContent && !stillReading
+                    "w-8 h-8 rounded-lg transition-all duration-[120ms] flex items-center justify-center",
+                    canSend
                       ? "bg-white text-black hover:bg-white/90"
-                      : "bg-white/[0.08] text-white/30 cursor-not-allowed",
-                  )}>
+                      : "bg-white/[0.07] text-white/25 cursor-default",
+                  )}
+                  aria-label="Send message">
                   <Send className="w-4 h-4" />
                 </button>
               )}
             </div>
+            )}
           </div>
 
+          {/* Hero variant bottom row: "+" popover on the left, send/stop and
+              inert voice placeholders on the right. */}
+          {isHero && (
+            <div className="flex items-center justify-between px-3 pb-3">
+              <div className="relative" ref={plusRef}>
+                <button
+                  onClick={() => setPlusOpen(v => !v)}
+                  className={cn(
+                    "w-8 h-8 rounded-full border flex items-center justify-center transition-colors duration-[120ms]",
+                    plusOpen
+                      ? "border-white/30 bg-white/[0.08] text-white/90"
+                      : "border-[rgba(255,255,255,0.18)] text-white/55 hover:text-white/90 hover:bg-white/[0.05]",
+                  )}
+                  aria-label="Add" aria-haspopup="menu" aria-expanded={plusOpen}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                {plusOpen && (
+                  <div role="menu" onClick={e => e.stopPropagation()}
+                    className="absolute bottom-11 left-0 z-30 w-48 py-1 rounded-xl
+                      bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)]
+                      backdrop-blur-md shadow-xl shadow-black/40"
+                  >
+                    <button role="menuitem"
+                      onClick={() => { setPlusOpen(false); fileInputRef.current?.click(); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/[0.05] hover:text-white/95">
+                      <Paperclip className="w-3.5 h-3.5 text-white/40" /> Add files or photos
+                    </button>
+                    <button role="menuitem"
+                      onClick={() => { setPlusOpen(false); setShowSkillsModal(true); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/[0.05] hover:text-white/95">
+                      <Blocks className="w-3.5 h-3.5 text-white/40" /> Skills
+                    </button>
+                    {/* Placeholder — Plugins are not implemented yet. */}
+                    <button role="menuitem" disabled title="Plugins — coming soon"
+                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/30 cursor-default">
+                      <Sparkles className="w-3.5 h-3.5 text-white/30" /> Plugins
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1">
+                {isLoading ? (
+                  <button onClick={onStop}
+                    className="w-8 h-8 rounded-lg text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors duration-[120ms] flex items-center justify-center"
+                    aria-label="Stop generating">
+                    <StopCircle className="w-4 h-4" />
+                  </button>
+                ) : hasContent ? (
+                  <button onClick={handleSend} data-testid="send-button"
+                    disabled={!canSend}
+                    title={stillReading ? "Reading attached files…" : "Send"}
+                    className={cn(
+                      "w-8 h-8 rounded-lg transition-all duration-[120ms] flex items-center justify-center",
+                      canSend
+                        ? "bg-white text-black hover:bg-white/90"
+                        : "bg-white/[0.07] text-white/25 cursor-default",
+                    )}
+                    aria-label="Send message">
+                    <Send className="w-4 h-4" />
+                  </button>
+                ) : null}
+
+                {/* Voice controls — inert placeholders until a speech backend
+                    is wired up; kept visible to match the target layout. */}
+                <button disabled
+                  className="flex items-center h-8 px-1.5 rounded-lg text-white/30 cursor-default"
+                  aria-label="Voice input" title="Voice input — coming soon">
+                  <Mic className="w-4 h-4" />
+                  <ChevronDown className="w-3 h-3 ml-0.5" />
+                </button>
+                <button disabled
+                  className="w-8 h-8 rounded-lg text-white/30 flex items-center justify-center cursor-default"
+                  aria-label="Voice settings" title="Dictation — coming soon">
+                  <AudioWaveform className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Context row: mode on the left, effort on the right */}
           {!isHero && (
             <div className="flex items-center justify-between px-3 pb-2">
-              <span className="text-[10px] text-white/20">Enter to send · Shift+Enter for newline</span>
               <button onClick={onModeToggle}
+                aria-pressed={isResearchMode}
                 className={cn(
-                  "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
-                  isResearchMode ? "border-amber-500/30 text-amber-400/70 bg-amber-500/[0.06]"
-                               : "border-white/[0.08] text-white/30 hover:text-white/50",
+                  "text-[11px] px-2 py-0.5 rounded-full border transition-colors duration-[120ms]",
+                  isResearchMode
+                    ? "border-white/[0.2] text-white/85 bg-white/[0.07]"
+                    : "border-[rgba(255,255,255,0.09)] text-white/35 hover:text-white/60 hover:border-white/20",
                 )}>
                 {isResearchMode ? "Research" : "Chat"}
               </button>
+              <span className="text-[10px] text-white/25">Enter to send · Shift+Enter for newline</span>
             </div>
           )}
         </div>
-      </motion.div>
+      </div>
 
       <SkillsModal
         open={showSkillsModal}
@@ -399,23 +484,114 @@ export default function ChatInput({
 function AttachmentStatusIcon({ status }: { status: Attachment["status"] }) {
   if (status === "processing" || status === "pending")
     return <Loader2 className="w-3 h-3 animate-spin text-white/45" />;
-  if (status === "error") return <AlertCircle className="w-3 h-3 text-red-400" />;
-  return <Check className="w-3 h-3 text-emerald-400/80" />;
+  if (status === "error")
+    return <AlertCircle className="w-3 h-3 text-white/60" />;
+  return <Check className="w-3 h-3 text-white/60" />;
 }
 
-function EffortMenu({ effort, onSelect }: { effort: EffortLevel; onSelect: (e: EffortLevel) => void }) {
+/**
+ * Reasoning-effort selector: compact pill + popover. The pill keeps a stable
+ * width (tabular, min-width) so the row never reflows when the label changes.
+ */
+export function EffortControl({ effort, onEffortChange, variant = "pill" }: {
+  effort: EffortLevel;
+  onEffortChange: (e: EffortLevel) => void;
+  /** "pill" = composer control row; "text" = bare label for the landing row. */
+  variant?: "pill" | "text";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        onEffortChange(EFFORT_LEVELS[Math.min(EFFORT_LEVELS.indexOf(effort) + 1, EFFORT_LEVELS.length - 1)]);
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        onEffortChange(EFFORT_LEVELS[Math.max(EFFORT_LEVELS.indexOf(effort) - 1, 0)]);
+      }
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, effort, onEffortChange]);
+
+  const active = effort !== "off";
+
   return (
-    <div className="absolute bottom-10 right-0 z-30 w-36 py-1 rounded-xl bg-[#0d0d12] border border-white/[0.1] shadow-xl">
-      <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-widest font-medium">Reasoning effort</div>
-      {EFFORT_LEVELS.map(e => (
-        <button key={e} onClick={() => onSelect(e)}
-          className={cn(
-            "w-full text-left px-3 py-1.5 text-xs transition-colors",
-            effort === e ? "text-indigo-400 bg-indigo-500/[0.1]" : "text-white/60 hover:bg-white/[0.04] hover:text-white/90",
-          )}>
-          {EFFORT_LABEL[e]}
-        </button>
-      ))}
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        data-testid="effort-toggle"
+        className={cn(
+          "flex items-center justify-center gap-1 font-medium transition-colors duration-[120ms]",
+          variant === "pill"
+            ? cn(
+                "h-8 min-w-[4.5rem] px-2 rounded-lg text-[11px]",
+                active
+                  ? "bg-white/[0.1] text-white/85"
+                  : "text-white/40 hover:text-white/80 hover:bg-white/[0.06]",
+              )
+            : cn(
+                "h-6 px-1 rounded text-[12px]",
+                active
+                  ? "text-white/85 hover:text-white"
+                  : "text-white/40 hover:text-white/70",
+              ),
+        )}
+        aria-label={`Reasoning effort: ${EFFORT_LABEL[effort]}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {variant === "pill" && <SlidersHorizontal className="w-3 h-3" />}
+        <span className="tabular-nums">{EFFORT_LABEL[effort]}</span>
+        {variant === "pill" && (
+          <ChevronDown className={cn("w-2.5 h-2.5 text-white/30 transition-transform duration-[150ms]", open && "rotate-180")} />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute bottom-9 right-0 z-30 w-36 py-1 rounded-xl
+              bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)]
+              backdrop-blur-md shadow-xl shadow-black/40"
+            role="menu"
+          >
+            <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-widest font-medium">
+              Reasoning effort
+            </div>
+            {EFFORT_LEVELS.map(e => (
+              <button
+                key={e}
+                role="menuitemradio"
+                aria-checked={effort === e}
+                onClick={() => { onEffortChange(e); setOpen(false); }}
+                className={cn(
+                  "w-full text-left px-3 py-1.5 text-xs transition-colors duration-[120ms] flex items-center gap-2",
+                  effort === e ? "text-white/95 bg-white/[0.07]" : "text-white/55 hover:bg-white/[0.05]",
+                )}>
+                {effort === e && <span className="w-1 h-1 rounded-full bg-white/80" />}
+                {EFFORT_LABEL[e]}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

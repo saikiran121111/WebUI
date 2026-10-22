@@ -1,10 +1,11 @@
 "use client";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Check, Pencil, X, CheckCircle2, AlertCircle, Zap } from "lucide-react";
+import { Copy, Check, Pencil, CheckCircle2, AlertCircle, Zap, Info } from "lucide-react";
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ResearchTrailCard from "./render/ResearchTrailCard";
+import ProcessingStatus from "./ProcessingStatus";
 import { copyText } from "../lib/render/clipboard";
 import type { Message } from "../lib/types";
 
@@ -22,6 +23,11 @@ interface ChatMessageProps {
   onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
 }
 
+/**
+ * A single chat message. Memoized; the outer list in app/page.tsx owns the
+ * one-shot entrance animation, so the message tree is stable between stream
+ * chunks (only the live message's content changes — no per-token remounts).
+ */
 export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRuntimeError }: ChatMessageProps) {
   const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error, usedSkill } = message;
   const isUser = role === "user";
@@ -84,14 +90,13 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
   // ── User message ──────────────────────────────────────────────────────
   if (isUser) {
     return (
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-        className="flex justify-end mb-4 group/user gap-2 items-start">
+      <div className="flex justify-end mb-4 group/user gap-2 items-start">
         <div className="max-w-[85%] md:max-w-[75%]">
-          <div className="px-4 py-2.5 rounded-2xl rounded-br-sm bg-white/[0.07] shadow-sm shadow-black/20">
+          <div className="px-4 py-2.5 rounded-2xl rounded-br-lg bg-white/[0.07]">
             <p
               data-testid="user-message-bubble"
               className={cn(
-                "text-sm leading-relaxed text-white/85 whitespace-pre-wrap",
+                "text-sm leading-relaxed text-white/90 whitespace-pre-wrap",
                 isLongUserMessage && !userMsgExpanded && "user-msg-collapsed",
               )}
             >
@@ -103,11 +108,11 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
                 data-testid="user-msg-toggle"
                 aria-expanded={userMsgExpanded}
                 className="mt-1.5 flex items-center gap-1 text-[11px] font-medium
-                  text-white/40 hover:text-white/70 transition-colors">
+                  text-white/40 hover:text-white/80 transition-colors duration-[120ms]">
                 {userMsgExpanded ? "Show less" : "Show more"}
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  className={cn("transition-transform duration-200", userMsgExpanded && "rotate-180")}>
+                  className={cn("transition-transform duration-[150ms]", userMsgExpanded && "rotate-180")}>
                   <path d="m6 9 6 6 6-6" />
                 </svg>
               </button>
@@ -116,7 +121,7 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {attachments.map(att => (
                   <span key={att.id} className="text-[10px] px-1.5 py-0.5 rounded
-                    bg-white/[0.06] text-white/50 border border-white/[0.08]">
+                    bg-white/[0.05] text-white/50 border border-[rgba(255,255,255,0.09)]">
                     {att.name}
                   </span>
                 ))}
@@ -129,15 +134,15 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         {state !== "streaming" && (
           <button onClick={startEdit}
             className="opacity-0 group-hover/user:opacity-100
-              transition-opacity p-1.5 rounded-lg
-              text-white/40 hover:text-white/80 hover:bg-white/[0.08]
+              transition-opacity duration-[120ms] p-1.5 rounded-lg
+              text-white/40 hover:text-white/85 hover:bg-white/[0.07]
               flex-shrink-0 mt-0.5"
             aria-label="Edit message">
             <Pencil className="w-3.5 h-3.5" />
           </button>
         )}
 
-        {/* Edit modal — clean, professional, theme-matched */}
+        {/* Edit modal — clean, theme-matched */}
         <AnimatePresence>
           {isEditing && (
             <EditModal
@@ -150,16 +155,13 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
             />
           )}
         </AnimatePresence>
-      </motion.div>
+      </div>
     );
   }
 
   // ── Assistant message ─────────────────────────────────────────────────
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+    <div
       className="mb-5"
       id={"msg-" + message.id}
       data-testid="assistant-message"
@@ -167,10 +169,10 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
     >
       {/* Skill engine: the pill names the skill that fired for this reply. */}
       {usedSkill && (
-        <div className="flex items-center gap-1.5 mb-1.5" data-testid="used-skill-pill">
-          <Zap className="w-3 h-3 text-amber-400/80" />
+        <div className="flex items-center gap-1.5 mb-2" data-testid="used-skill-pill">
+          <Zap className="w-3 h-3 text-white/50" />
           <span className="text-[11px] font-medium text-white/45">
-            Used skill: <span className="text-white/70">{usedSkill}</span>
+            Used skill: <span className="text-white/80">{usedSkill}</span>
           </span>
         </div>
       )}
@@ -178,7 +180,7 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
       {/* Thinking indicator */}
       {reasoning && !state?.startsWith("streaming") && (
         <div className="flex items-center gap-2 py-1.5 mb-1.5">
-          <CheckCircle2 className="w-3 h-3 text-emerald-500/70" />
+          <CheckCircle2 className="w-3 h-3 text-white/50" />
           <span className="text-xs text-white/40 font-medium">
             {reasoningMs ? `Thought for ${formatDuration(reasoningMs)}` : "Reasoned"}
           </span>
@@ -190,13 +192,13 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         <ReasoningBlock text={reasoning} />
       )}
 
-      {/* Error state */}
+      {/* Error state — neutral surface, symbol + label, no red */}
       {error && (
         <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl mb-3
-          bg-red-500/[0.06] border border-red-500/15">
-          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+          bg-white/[0.03] border border-[rgba(255,255,255,0.12)]">
+          <AlertCircle className="w-4 h-4 text-white/60 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-white/75">{error}</p>
           </div>
         </div>
       )}
@@ -206,17 +208,17 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         <div className="space-y-1.5 mb-3">
           {toolCalls.map(tc => (
             <div key={tc.id} className="flex items-start gap-2 px-3 py-2 rounded-lg
-              bg-white/[0.03] border border-white/[0.07] text-xs">
+              bg-white/[0.02] border border-[rgba(255,255,255,0.07)] text-xs">
               <div className="flex-1">
-                <span className="text-white/50 font-mono">{tc.name}</span>
+                <span className="text-white/55 font-mono">{tc.name}</span>
                 {tc.args && (
                   <span className="ml-2 text-white/30 font-mono text-[10px]">
                     {tc.args.slice(0, 100)}
                   </span>
                 )}
               </div>
-              {tc.status === "error" && <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
-              {tc.status === "ok" && <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
+              {tc.status === "error" && <AlertCircle className="w-3 h-3 text-white/60 flex-shrink-0" />}
+              {tc.status === "ok" && <CheckCircle2 className="w-3 h-3 text-white/50 flex-shrink-0" />}
             </div>
           ))}
         </div>
@@ -252,15 +254,10 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         <span className="inline-block w-[2px] h-4 ml-0.5 bg-white/80 animate-pulse" />
       )}
 
-      {/* Loading dots when waiting for first token */}
+      {/* Live processing line while waiting for the first token — names the
+          real phase (search / tool call / reasoning elapsed), no fake verbs. */}
       {state === "streaming" && !content && !reasoning && (
-        <div className="flex items-center gap-1.5 py-4">
-          {[0, 1, 2].map(i => (
-            <motion.span key={i} className="w-1.5 h-1.5 rounded-full bg-white/40"
-              animate={{ scale: [1, 1.3, 1], opacity: [0.3, 0.8, 0.3] }}
-              transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }} />
-          ))}
-        </div>
+        <ProcessingStatus message={message} />
       )}
 
       {/* Actions */}
@@ -270,15 +267,15 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
             <button onClick={handleCopy} aria-live="polite"
               className="msg-copy-btn flex items-center gap-1.5">
               {copyStatus === "copied"
-                ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500 text-xs">Copied</span></>
+                ? <><Check className="w-3 h-3 text-white/80" /><span className="text-white/80 text-xs">Copied</span></>
                 : copyStatus === "failed"
-                  ? <><AlertCircle className="w-3 h-3 text-red-400" /><span className="text-red-400 text-xs">Failed</span></>
+                  ? <><AlertCircle className="w-3 h-3 text-white/60" /><span className="text-white/60 text-xs">Failed</span></>
                   : <><Copy className="w-3 h-3" /><span className="text-xs">Copy</span></>}
             </button>
           )}
         </div>
       )}
-    </motion.div>
+    </div>
   );
 });
 
@@ -347,15 +344,13 @@ function ReasoningBlock({ text }: { text: string }) {
       <button
         onClick={() => setExpanded(!expanded)}
         className="thinking-trigger inline-flex items-center gap-1.5"
+        aria-expanded={expanded}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 16v-4" />
-          <path d="M12 8h.01" />
-        </svg>
-        <span className="text-xs">{expanded ? "Hide reasoning" : "View reasoning"}</span>
+        <Info className="w-3.5 h-3.5 text-white/40" />
+        <span className="text-xs text-white/50">{expanded ? "Hide reasoning" : "View reasoning"}</span>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-          className={cn("transition-transform duration-200", expanded && "rotate-180")}>
+          strokeLinecap="round" strokeLinejoin="round"
+          className={cn("text-white/30 transition-transform duration-[150ms]", expanded && "rotate-180")}>
           <path d="m6 9 6 6 6-6" />
         </svg>
       </button>
@@ -367,15 +362,15 @@ function ReasoningBlock({ text }: { text: string }) {
           transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
           className="thinking-expanded"
         >
-          <div className="text-xs leading-relaxed text-white/50 whitespace-pre-wrap font-mono">
+          <div className="text-xs leading-relaxed text-white/45 whitespace-pre-wrap font-mono">
             {text}
           </div>
           <button onClick={handleCopy} aria-live="polite"
-            className="thinking-copy-btn mt-2.5 flex items-center gap-1.5 text-[11px]">
+            className="thinking-copy-btn mt-2.5 flex items-center gap-1.5 text-[11px] text-white/45">
             {copyStatus === "copied"
-              ? <><Check className="w-3 h-3 text-emerald-500" /><span className="text-emerald-500">Copied</span></>
+              ? <><Check className="w-3 h-3 text-white/80" /><span className="text-white/80">Copied</span></>
               : copyStatus === "failed"
-                ? <><AlertCircle className="w-3 h-3 text-red-400" /><span className="text-red-400">Failed</span></>
+                ? <><AlertCircle className="w-3 h-3 text-white/60" /><span className="text-white/60">Failed</span></>
                 : <><Copy className="w-3 h-3" /><span>Copy</span></>}
           </button>
         </motion.div>
@@ -386,17 +381,17 @@ function ReasoningBlock({ text }: { text: string }) {
 
 function CitationsBlock({ citations }: { citations: any[] }) {
   return (
-    <div className="mt-4 pt-3 border-t border-white/[0.06] space-y-1.5">
+    <div className="mt-4 pt-3 border-t border-[rgba(255,255,255,0.09)] space-y-1.5">
       <div className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">
         Sources
       </div>
       {citations.map(c => (
         <a key={c.n} href={c.url} target="_blank" rel="noopener noreferrer"
           className="flex items-start gap-2 group/cite p-2 rounded-lg
-            hover:bg-white/[0.03] transition-colors">
+            hover:bg-white/[0.03] transition-colors duration-[120ms]">
           <span className="text-xs font-medium text-white/40 flex-shrink-0">[{c.n}]</span>
           <div className="flex-1 min-w-0">
-            <div className="text-xs text-white/70 group-hover/cite:text-white/90 truncate">
+            <div className="text-xs text-white/75 group-hover/cite:text-white/95 truncate">
               {c.title}
             </div>
             <div className="text-[10px] text-white/30 truncate">{c.domain}</div>
@@ -428,6 +423,9 @@ function EditModal({
       transition={{ duration: 0.12 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit message"
     >
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
       <motion.div
@@ -436,9 +434,7 @@ function EditModal({
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
         onClick={e => e.stopPropagation()}
-        className="relative w-full max-w-lg rounded-xl
-          bg-[#0d0d12] border border-white/[0.1]
-          shadow-2xl shadow-black/60"
+        className="surface-glass relative w-full max-w-lg rounded-2xl shadow-2xl shadow-black/60"
       >
         <textarea
           ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
@@ -447,23 +443,23 @@ function EditModal({
           onKeyDown={onKeyDown}
           rows={4}
           autoFocus
-          className="w-full bg-transparent text-white placeholder-white/30 text-sm
+          className="w-full bg-transparent text-white/90 placeholder-white/30 text-sm
             leading-relaxed outline-none resize-none p-4 pb-3"
           placeholder="Edit message…"
         />
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-white/[0.06]">
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[rgba(255,255,255,0.09)]">
           <button onClick={onCancel}
             className="px-3 py-1.5 text-xs font-medium rounded-lg
-              text-white/50 hover:text-white/80 hover:bg-white/[0.06]
-              transition-colors">
+              text-white/55 hover:text-white/90 hover:bg-white/[0.06]
+              transition-colors duration-[120ms]">
             Cancel
           </button>
           <button onClick={onSave} disabled={!value.trim()}
             className={cn(
-              "px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all",
+              "px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-[120ms]",
               value.trim()
-                ? "bg-white text-black hover:bg-white/90 shadow-sm shadow-black/20"
-                : "bg-white/[0.08] text-white/30 cursor-not-allowed",
+                ? "bg-white text-black hover:bg-white/90"
+                : "bg-white/[0.07] text-white/30 cursor-default",
             )}>
             Save & regenerate
           </button>

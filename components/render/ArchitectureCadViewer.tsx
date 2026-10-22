@@ -92,7 +92,7 @@ interface CadTheme {
 }
 
 const CAD_THEMES: CadTheme[] = [
-  { key: "autocad-dark", label: "AutoCAD Dark", bg: "#090d16", grid: "#141d31", gridStrong: "#1d2b47", text: "#e2e8f0", crosshair: "#38BDF8" },
+  { key: "autocad-dark", label: "AutoCAD Dark", bg: "#090d16", grid: "#141d31", gridStrong: "#1d2b47", text: "#e2e8f0", crosshair: "#d9d9d9" },
   { key: "cyanotype", label: "Cyanotype", bg: "#0a2540", grid: "#123354", gridStrong: "#1a4470", text: "#bfe3ff", crosshair: "#7dd3fc" },
   { key: "white-plot", label: "White Plot Sheet", bg: "#ffffff", grid: "#e6ebf2", gridStrong: "#cfd9e6", text: "#0f172a", crosshair: "#0284c7" },
   { key: "thermal", label: "Thermal / Energy", bg: "#101018", grid: "#1c2230", gridStrong: "#273044", text: "#f1f5f9", crosshair: "#fbbf24" },
@@ -105,7 +105,7 @@ const CAD_THEMES: CadTheme[] = [
  */
 const ROLE_COLORS: Record<string, Record<string, string>> = {
   "autocad-dark": {
-    "layer-structural": "#e2e8f0", "layer-architectural": "#38bdf8", "layer-furniture": "#94a3b8",
+    "layer-structural": "#e2e8f0", "layer-architectural": "#d9d9d9", "layer-furniture": "#94a3b8",
     "layer-mep": "#f59e0b", "layer-dimensions": "#64748b", "layer-annotations": "#e2e8f0",
   },
   "white-plot": {
@@ -1240,7 +1240,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                   return (
                     <g key={hotspot.id}>
                       <circle data-testid={`cad-hotspot-${hotspot.id}`} cx={hx} cy={-hy} r={hotspotR}
-                        fill={hotspotSel?.id === hotspot.id ? "#38BDF8" : "transparent"} stroke="#38BDF8" strokeWidth={1.4}
+                        fill={hotspotSel?.id === hotspot.id ? "#d9d9d9" : "transparent"} stroke="#d9d9d9" strokeWidth={1.4}
                         vectorEffect="non-scaling-stroke" className="cad-hotspot-dot"
                         onClick={() => setHotspotSel(hotspotSel?.id === hotspot.id ? null : hotspot)} />
                     </g>
@@ -1302,7 +1302,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                 {roomTags.tags.map((tag, i) => (
                   <g key={`rt${i}`} data-testid="cad-room-tag" className="cad-room-tag" pointerEvents="none">
                     <rect x={tag.cx - tag.w / 2} y={-(tag.cy + tag.h / 2)} width={tag.w} height={tag.h} rx={tag.h * 0.28}
-                      fill={theme.key === "white-plot" ? "#ffffff" : "#0b101b"} stroke="#38bdf8" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+                      fill={theme.key === "white-plot" ? "#ffffff" : "#0b101b"} stroke="#d9d9d9" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
                     {/* The .cad-room-tag CSS rule zeroes the text halo stroke:
                         Chromium mis-paints the non-scaling halo on tspan-wrapped
                         labels (giant dark disc + dropped first line at fit zoom).
@@ -1319,7 +1319,7 @@ function ArchitectureCadViewer({ spec, onSend }: { spec: CadSpec; onSend?: (text
                       </text>
                     )}
                     <text x={tag.cx} y={-tag.subY} fontSize={(8 * tag.fontScale) / pxPerModel} textAnchor="middle"
-                      fill={theme.key === "white-plot" ? "#0369a1" : "#38bdf8"}>{tag.sub}</text>
+                      fill={theme.key === "white-plot" ? "#0369a1" : "#d9d9d9"}>{tag.sub}</text>
                   </g>
                 ))}
               </svg>

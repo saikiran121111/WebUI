@@ -7,7 +7,9 @@ test("greeting reply stays local — no Research Trail card, no citation crash",
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  const input = page.locator("textarea[placeholder^='Ask anything']");
+  // Selector migrated with the landing redesign: the hero composer's
+  // placeholder is now "How can I help you today?".
+  const input = page.locator("textarea[placeholder^='How can I help']");
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill("Hey there how are you");
 
@@ -54,7 +56,9 @@ test("thinking model shows the live Reasoning indicator during the reasoning pha
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  const input = page.locator("textarea[placeholder^='Ask anything']");
+  // Selector migrated with the landing redesign: the hero composer's
+  // placeholder is now "How can I help you today?".
+  const input = page.locator("textarea[placeholder^='How can I help']");
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill("how about a html to create a todo app");
 
