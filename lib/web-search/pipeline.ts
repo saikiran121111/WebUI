@@ -120,6 +120,14 @@ export type PipelineStage =
 export interface PipelineProgress {
   stage: PipelineStage;
   detail?: string;
+  /**
+   * Real counters for honest client-side progress (chat route bridges these
+   * into `ruke_stage` SSE frames): `total` = plans / pages / passages for the
+   * phase, `done` = pages extracted so far, `coverage` = evidence coverage 0..1.
+   */
+  total?: number;
+  done?: number;
+  coverage?: number;
 }
 
 export interface EvidenceBundle {
@@ -247,6 +255,7 @@ export async function runWebResearch(
   onProgress?.({
     stage: "searching",
     detail: `Searching ${plans.length} source pool(s)…`,
+    total: plans.length,
   });
 
   let fromCache = false;
@@ -324,12 +333,26 @@ export async function runWebResearch(
   }
 
   // ── extract (first hop) ────────────────────────────────────────────────
+  const readTotal = Math.min(10, searchResults.length);
   onProgress?.({
     stage: "reading",
-    detail: `Reading top ${Math.min(10, searchResults.length)} pages…`,
+    detail: `Reading top ${readTotal} pages…`,
+    total: readTotal,
   });
   const t = performance.now();
-  const packets = ceilingHit() ? [] : await extractAll(searchResults, 10);
+  // onPage: real per-page completion inside the single extractAll await — the
+  // client's "Reading web sources — page X of Y" step advances on measured
+  // fetches, never on a timer.
+  const packets = ceilingHit() ? [] : await extractAll(
+    searchResults,
+    10,
+    (donePages, totalPages) => onProgress?.({
+      stage: "reading",
+      detail: `Read ${donePages} of ${totalPages} pages…`,
+      done: donePages,
+      total: totalPages,
+    }),
+  );
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
   const qTexts = lfm.decision.queries.map((q) => q.query);
@@ -352,6 +375,7 @@ export async function runWebResearch(
     onProgress?.({
       stage: "gap-search",
       detail: `Coverage ${Math.round(coverage.coverage * 100)}% — firing targeted 2nd-hop search for missing entities…`,
+      coverage: coverage.coverage,
     });
     log.info(
       { coverage: coverage.coverage, missing: coverage.missingEntities, gapQuery: coverage.gapQuery },
@@ -384,6 +408,8 @@ export async function runWebResearch(
     detail: `Evidence ready: ${topPassages.length} passages (coverage ${Math.round(
       coverage.coverage * 100,
     )}%)`,
+    total: topPassages.length,
+    coverage: coverage.coverage,
   });
 
   return {

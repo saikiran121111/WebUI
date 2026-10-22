@@ -248,3 +248,19 @@
 - vitest: 497 passed | 1 skipped (46 files) — +16 hardening tests, zero regressions.
 - tsc --noEmit: EXIT=2, only the 4 pre-existing tests/render.spec.ts:977-980 errors.
 - Lock created before the run, removed via trap on exit; foreground, no polling.
+
+## 2026-10-22d — Progress chip/panel feature verification (§1 lock) [GREEN]
+- NEW `tests/progress-panel.spec.ts` (6 tests, model-free paced `ruke_stage` SSE
+  upstream via route.continue to a local Node http server — route.fulfill delivers
+  all at once, unusable mid-stream): `npx playwright test tests/progress-panel.spec.ts`
+  → 6 passed (35.6 s), PW_EXIT=0.
+- Regression guard: `npx playwright test tests/edit-stop-collapse.spec.ts`
+  → 5 passed (18.2 s), PW_EXIT=0. (First run after the feature: test at :124 timed
+  out 60 s — root cause: the panel AUTO-OPENED as a 300 px z-50 popup under the top
+  bar and occluded the fresh-thread user bubble's "Edit message" button, so the
+  click hung. FIX: panel opens only on chip click (ProgressChip.tsx auto-open effect
+  removed). Re-run green, that test 4.1 s.)
+- Route-restructure guard: `npx playwright test tests/search-gate.spec.ts`
+  → 3 passed (2.4 m, real model traffic), PW_EXIT=0 — decision headers + web_meta
+  migration intact.
+- vitest: 573 passed | 1 skipped (51 files). `tsc --noEmit`: EXIT=0.

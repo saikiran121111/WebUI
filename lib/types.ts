@@ -244,12 +244,47 @@ export interface StreamToolCallDelta {
 }
 
 /** Normalised, transport-independent view of one SSE chunk. */
+/**
+ * Live server-side phase event emitted by app/api/chat/route.ts BEFORE the
+ * model's first byte (routing, skill load, attachment retrieval, web-research
+ * gate). Carries only real counts measured by the pipeline — the client's
+ * progress engine (lib/progress/turnProgress.ts) turns these into honest
+ * per-step percentages. Web-tier metadata (citations, gate summary) rides a
+ * `web_meta` stage instead of response headers on streamed turns.
+ */
+export interface StageEvent {
+  /** decision_done | skill | retrieval | retrieval_done | web_meta | web:<PipelineStage> */
+  stage: string;
+  detail?: string;
+  /** decision mode at decision_done */
+  mode?: RendererMode;
+  ms?: number;
+  done?: number;
+  total?: number;
+  coverage?: number;
+  webCitations?: Record<string, {
+    sourceId: string;
+    url: string;
+    title: string;
+    domain: string;
+    publishedAt?: string;
+  }>;
+  researchLfm?: {
+    depth: string;
+    freshness: string;
+    decidedBy?: string;
+    queries: { query: string; intent: string }[];
+  };
+}
+
 export interface StreamEvent {
   content?: string;
   reasoning?: string;
   toolCalls?: StreamToolCallDelta[];
   finishReason?: string | null;
   usage?: Usage;
+  /** Server progress phase (ruke_stage SSE frame). */
+  stage?: StageEvent;
 }
 
 /* ── Research orchestration ──────────────────────────────────────────────── */

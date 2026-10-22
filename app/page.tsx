@@ -6,6 +6,7 @@ import ChatMessage from "../components/ChatMessage";
 import ChatInput, { EffortControl } from "../components/ChatInput";
 import SettingsMenu from "../components/SettingsMenu";
 import TopBar from "../components/TopBar";
+import ProgressChip from "../components/ProgressChip";
 import { USER_NAME } from "../lib/user";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
@@ -31,6 +32,7 @@ export default function HomePage() {
   const {
     messages, status, error, isThinking, reasoningContent,
     send, stop, retry, edit, load, clear, setEffort, effort, requestFenceRepair,
+    turnProgress, dismissProgress,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
 
   // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
@@ -310,6 +312,7 @@ export default function HomePage() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(v => !v)}
         settings={<SettingsMenu effort={effort} onEffortChange={setEffort} />}
+        progress={<ProgressChip progress={turnProgress} onDismiss={dismissProgress} />}
       />
       <div className="flex flex-1 min-h-0">
       <Sidebar

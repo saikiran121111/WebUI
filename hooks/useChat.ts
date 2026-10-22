@@ -13,6 +13,11 @@ import {
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
 import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
+import {
+  computeBaselines,
+  TurnProgressTracker,
+  type TurnProgressSnapshot,
+} from "../lib/progress/turnProgress";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
@@ -38,6 +43,10 @@ export interface UseChatReturn {
   setEffort: (level: EffortLevel) => void;
   effort: EffortLevel;
   requestFenceRepair: (assistantId: string, info: { lang: string; body: string; error: string }) => void;
+  /** Live honest turn progress for the top-right chip/panel (null when none). */
+  turnProgress: TurnProgressSnapshot | null;
+  /** Hide the chip/panel once the turn has ended. */
+  dismissProgress: () => void;
 }
 
 function uid(prefix = ""): string {
@@ -55,6 +64,41 @@ export function useChat({
   const [isThinking, setIsThinking] = useState(false);
   const [reasoningContent, setReasoningContent] = useState("");
   const [effort, setEffort] = useState<EffortLevel>("medium");
+  const [turnProgress, setTurnProgress] = useState<TurnProgressSnapshot | null>(null);
+
+  // Honest progress engine (lib/progress/turnProgress.ts). Mutated by real
+  // signals only: ruke_stage frames, streamed bytes, repair rounds. The React
+  // snapshot refreshes on stage events + a 1 s tick (NOT per token — the rAF
+  // batching in §5.3 stays intact; a snapshot is a cheap object).
+  const progressRef = useRef<TurnProgressTracker | null>(null);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fenceOpenedRef = useRef(false);
+
+  const flushProgress = useCallback(() => {
+    const t = progressRef.current;
+    if (t) setTurnProgress(t.snapshot(Date.now()));
+  }, []);
+
+  const stopProgressTick = useCallback(() => {
+    if (progressTimerRef.current != null) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+  }, []);
+
+  const finishProgress = useCallback((state: "complete" | "error" | "aborted") => {
+    const t = progressRef.current;
+    stopProgressTick();
+    if (!t) return;
+    t.finish(state);
+    setTurnProgress(t.snapshot(Date.now()));
+  }, [stopProgressTick]);
+
+  const dismissProgress = useCallback(() => {
+    if (progressRef.current && progressRef.current.snapshot(Date.now()).state === "running") return;
+    progressRef.current = null;
+    setTurnProgress(null);
+  }, []);
 
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -128,7 +172,11 @@ export function useChat({
     reasoningStartRef.current = null;
     pendingContentRef.current = "";
     pendingReasoningRef.current = "";
-  }, []);
+    stopProgressTick();
+    progressRef.current = null;
+    fenceOpenedRef.current = false;
+    setTurnProgress(null);
+  }, [stopProgressTick]);
 
   const clear = useCallback(() => {
     abortRef.current?.abort();
@@ -146,13 +194,41 @@ export function useChat({
     setReasoningContent("");
     reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
-  }, []);
+    stopProgressTick();
+    progressRef.current = null;
+    fenceOpenedRef.current = false;
+    setTurnProgress(null);
+  }, [stopProgressTick]);
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
 
+    // Server phase frames (ruke_stage): real counts into the tracker, plus
+    // web metadata that streamed turns deliver in-band instead of headers.
+    if (ev.stage) {
+      if (ev.stage.stage === "web_meta") {
+        const id = assistantIdRef.current;
+        if (id && (ev.stage.webCitations || ev.stage.researchLfm)) {
+          setMessages(prev => prev.map(m => m.id === id ? {
+            ...m,
+            ...(ev.stage.webCitations ? { webCitations: ev.stage.webCitations } : {}),
+            ...(ev.stage.researchLfm ? { researchLfm: ev.stage.researchLfm } : {}),
+          } : m));
+        }
+      }
+      const t = progressRef.current;
+      if (t) {
+        t.noteStage(ev.stage);
+        setTurnProgress(t.snapshot(Date.now()));
+      }
+      return;
+    }
+
     if (ev.reasoning) {
-      if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
+      if (reasoningStartRef.current == null) {
+        reasoningStartRef.current = Date.now();
+        progressRef.current?.noteReasoningStart();
+      }
       pendingReasoningRef.current += ev.reasoning;
       setIsThinking(true);
       scheduleFlush();
@@ -161,7 +237,24 @@ export function useChat({
       streamContentRef.current += ev.content;
       pendingContentRef.current += ev.content;
       setIsThinking(false);
+      const t = progressRef.current;
+      if (t) {
+        t.noteContent(streamContentRef.current.length);
+        // A fence opening in the stream = a real output artifact appearing.
+        if (!fenceOpenedRef.current && streamContentRef.current.includes("```")) {
+          fenceOpenedRef.current = true;
+          t.openOutput();
+        }
+      }
       scheduleFlush();
+    }
+    if (ev.usage) {
+      // Stored on the message: feeds the next turn's honest ETA baselines
+      // (persistence is verbatim, so they accumulate across sessions).
+      const id = assistantIdRef.current;
+      if (id) {
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, usage: ev.usage } : m));
+      }
     }
     if (ev.finishReason === "abort" || ev.finishReason === "error") {
       setStatus(ev.finishReason === "abort" ? "aborted" : "error");
@@ -191,6 +284,12 @@ export function useChat({
       const lang = broken[0].lang ?? "anatomy";
       if (lang !== "anatomy") {
         setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing 3D/CAD model…" } : m)));
+        // Real round count into the progress panel (auto-repair turns only).
+        const t = progressRef.current;
+        if (t && t.snapshot(Date.now()).state === "running") {
+          t.setRepair(attempt + 1, MAX_FENCE_REPAIRS);
+          setTurnProgress(t.snapshot(Date.now()));
+        }
       }
 
       let reply = "";
@@ -310,6 +409,13 @@ export function useChat({
       streamContentRef.current = "";
       decisionModeRef.current = null;
 
+      // Fresh honest tracker seeded with THIS user's measured ETAs.
+      progressRef.current = new TurnProgressTracker(computeBaselines(messagesRef.current));
+      fenceOpenedRef.current = false;
+      setTurnProgress(progressRef.current.snapshot(Date.now()));
+      stopProgressTick();
+      progressTimerRef.current = setInterval(flushProgress, 1000);
+
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -326,6 +432,9 @@ export function useChat({
           const mode = hdrs.decisionMode;
           if (mode) {
             decisionModeRef.current = mode;
+            // Streams without stage frames (mock servers, upstream direct)
+            // still label the writing step + outputs honestly from the header.
+            progressRef.current?.noteStage({ stage: "decision_done", mode });
             setMessages(prev => prev.map(m =>
               m.id === assistantMsg.id ? { ...m, decisionMode: mode } : m
             ));
@@ -370,6 +479,7 @@ export function useChat({
         setStatus("complete");
         setReasoningContent("");
         reasoningContentStateRef.current = "";
+        finishProgress("complete");
       } else {
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && m.state === "streaming"
@@ -377,6 +487,7 @@ export function useChat({
             : m
         ));
         setStatus("aborted");
+        finishProgress("aborted");
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
@@ -386,15 +497,20 @@ export function useChat({
           m.id === assistantId ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
+        finishProgress("error");
+      } else {
+        finishProgress("aborted");
       }
       setReasoningContent("");
     } finally {
       setIsThinking(false);
       abortRef.current = null;
       sendBusyRef.current = false;
+      stopProgressTick();
       setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
-  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending]);
+  }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending,
+      flushProgress, stopProgressTick, finishProgress]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;
@@ -411,7 +527,8 @@ export function useChat({
     setStatus(prev => (prev === "streaming" ? "aborted" : prev));
     setError(null);
     setIsThinking(false);
-  }, [flushPending]);
+    finishProgress("aborted");
+  }, [flushPending, finishProgress]);
 
   const retry = useCallback(() => {
     if (lastInputRef.current) {
@@ -452,5 +569,6 @@ export function useChat({
     load, clear, send, stop, retry, edit,
     clearError: () => setError(null),
     setEffort, effort, requestFenceRepair,
+    turnProgress, dismissProgress,
   };
 }

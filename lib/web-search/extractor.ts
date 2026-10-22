@@ -795,10 +795,18 @@ export async function extractUrl(
 export async function extractAll(
   ranked: RankedResult[],
   maxUrls = 10,
+  /** Real per-page completion counter (this batch only) — used by the
+      chat route's live progress bridge; optional, existing callers unaffected. */
+  onPage?: (done: number, total: number) => void,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
+  let donePages = 0;
   const settled = await Promise.all(
-    top.map((r) => limit(() => extractUrl(r))),
+    top.map((r) => limit(() => extractUrl(r)).then((p) => {
+      donePages++;
+      onPage?.(donePages, top.length);
+      return p;
+    })),
   );
   // Assign S1..Sn in rank order
   settled.forEach((packet, i) => {

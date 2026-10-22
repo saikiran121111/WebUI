@@ -10,6 +10,8 @@ interface TopBarProps {
   onToggleSidebar: () => void;
   /** The SettingsMenu trigger, hosted by the page and dropped in here. */
   settings: ReactNode;
+  /** The turn progress chip (ProgressChip), hosted by the page. */
+  progress?: ReactNode;
 }
 
 const ghost =
@@ -25,7 +27,7 @@ const ghost =
  * they exist so the desktop wrapper can wire them up later without a layout
  * change.
  */
-export default function TopBar({ sidebarOpen, onToggleSidebar, settings }: TopBarProps) {
+export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progress }: TopBarProps) {
   return (
     <header
       data-testid="topbar"
@@ -67,8 +69,9 @@ export default function TopBar({ sidebarOpen, onToggleSidebar, settings }: TopBa
         </button>
       </div>
 
-      {/* ── Right: settings ───────────────────────────────────────────── */}
-      <div className="ml-auto flex items-center gap-0.5">
+      {/* ── Right: progress chip + settings ───────────────────────────── */}
+      <div className="ml-auto flex items-center gap-1">
+        {progress}
         {settings}
       </div>
     </header>

@@ -114,6 +114,15 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
     let json: any;
     try { json = JSON.parse(data); } catch { return; }
 
+    // Route-level progress phases (app/api/chat/route.ts). Upstream JSON never
+    // carries these keys, so mock specs and third-party streams are untouched.
+    if (json?.ruke_stage) { push({ stage: json.ruke_stage }); return; }
+    if (json?.ruke_error) {
+      // Same surface as today's non-200 upstream: finishReason "error".
+      push({ finishReason: "error" });
+      return;
+    }
+
     const choice = json?.choices?.[0];
     const delta = choice?.delta;
     const finish = choice?.finish_reason;
