@@ -1,11 +1,19 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Settings, Server, Key, RotateCcw, Trash2, Loader2,
+  Settings, Server, Key, RotateCcw, Trash2, Loader2, GitMerge,
 } from "lucide-react";
 import type { EffortLevel } from "../lib/types";
 import { cn } from "../lib/utils";
 import { fetchSettings, saveSettings, clearSettingsRemote, LlmSettings } from "../lib/settings/client";
+import {
+  COMPACT_CUSTOM_MAX,
+  COMPACT_CUSTOM_MIN,
+  COMPACT_PRESETS,
+  compactThresholdsFromSettings,
+  primeCompactThresholds,
+  type CompactThresholds,
+} from "../lib/chat/compactConfig";
 
 const EFFORT_LEVELS: EffortLevel[] = ["off", "low", "medium", "high", "max"];
 const EFFORT_LABEL: Record<EffortLevel, string> = {
@@ -14,19 +22,30 @@ const EFFORT_LABEL: Record<EffortLevel, string> = {
 
 const URL_RE = /^https?:\/\/\S+$/;
 
+/** The three context presets, shown with their "k" suffix. */
+const PRESET_LABELS: Array<{ value: number; label: string }> = [
+  { value: 32_000, label: "32k" },
+  { value: 64_000, label: "64k" },
+  { value: 128_000, label: "128k" },
+  { value: 256_000, label: "256k" },
+];
+
 interface SettingsMenuProps {
   effort: EffortLevel;
   onEffortChange: (e: EffortLevel) => void;
+  /** Manual "Compact now" trigger (the hook's compact()). */
+  onCompactNow?: () => void;
 }
 
 /**
  * The top-right "Reasoning" settings menu.
- * Combines reasoning-effort selection and LLM endpoint configuration
- * (settings.json) into a single dropdown.
+ * Combines reasoning-effort selection, LLM endpoint configuration
+ * (settings.json), and the auto-compact context threshold into a single
+ * dropdown with three tabs.
  */
-export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuProps) {
+export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"reasoning" | "endpoint">("reasoning");
+  const [tab, setTab] = useState<"reasoning" | "context" | "endpoint">("reasoning");
   const [settings, setSettings] = useState<LlmSettings>({});
   const [url, setUrl] = useState("");
   const [key, setKey] = useState("");
@@ -34,16 +53,31 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
   const [flash, setFlash] = useState<"ok" | "err" | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
+  // Auto-compact context state
+  const [compact, setCompact] = useState<CompactThresholds>({ auto: 0, tokens: 0 });
+  const [customInput, setCustomInput] = useState<string>("");
   const ref = useRef<HTMLDivElement>(null);
+  // True once the user touched any compact control this menu-open cycle. The
+  // load-on-open fetch can resolve AFTER a fast first click (cold dev-server
+  // compile makes /api/settings slow); without this guard that fetch clobbers
+  // the just-clicked preset/toggle back to the on-disk value.
+  const compactDirtyRef = useRef(false);
 
   // Load settings once the menu is opened.
   useEffect(() => {
     if (!open) return;
+    compactDirtyRef.current = false;
+    let ignore = false;
     fetchSettings().then((s) => {
+      if (ignore) return;
       setSettings(s);
       setUrl(s.llm_api_url ?? "");
       setKey(s.llm_api_key ?? "");
+      if (compactDirtyRef.current) return; // user already chose — don't overwrite
+      setCompact(compactThresholdsFromSettings(s as Record<string, unknown>));
+      setCustomInput(String(compactThresholdsFromSettings(s as Record<string, unknown>).tokens));
     });
+    return () => { ignore = true; };
   }, [open]);
 
   // Close on outside click / Escape.
@@ -150,6 +184,59 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
     }
   }, [url, key]);
 
+  /* ── Auto-compact context ──────────────────────────────────────────── */
+
+  const customValid =
+    compact.tokens !== COMPACT_PRESETS[0] &&
+    compact.tokens !== COMPACT_PRESETS[1] &&
+    compact.tokens !== COMPACT_PRESETS[2] &&
+    compact.tokens !== COMPACT_PRESETS[3];
+
+  const customError = (() => {
+    const n = parseInt(customInput, 10);
+    if (customInput !== "" && (isNaN(n) || n < COMPACT_CUSTOM_MIN || n > COMPACT_CUSTOM_MAX)) {
+      return `Enter ${COMPACT_CUSTOM_MIN.toLocaleString()} – ${COMPACT_CUSTOM_MAX.toLocaleString()}`;
+    }
+    return null;
+  })();
+
+  const handleCompactPreset = useCallback((tokens: number) => {
+    compactDirtyRef.current = true;
+    setCompact((prev) => ({ ...prev, tokens, auto: 1 }));
+  }, []);
+
+  const handleCompactCustom = useCallback(() => {
+    const n = parseInt(customInput, 10);
+    if (isNaN(n)) return;
+    compactDirtyRef.current = true;
+    setCompact({ auto: 1, tokens: n });
+  }, [customInput]);
+
+  const handleCompactToggle = useCallback(() => {
+    compactDirtyRef.current = true;
+    setCompact((prev) => ({ ...prev, auto: prev.auto === 1 ? 0 : 1 }));
+  }, []);
+
+  const handleSaveCompact = useCallback(async () => {
+    if (customError) return;
+    setSaving(true);
+    setFlash(null);
+    try {
+      await saveSettings({ compact_thresholds: compact } as unknown as LlmSettings);
+      // Keep the chat hook's gate fresh: fetchCompactThresholds() returns
+      // the module cache once primed, so a mid-session save must push
+      // through here or auto-compact would keep the stale threshold.
+      primeCompactThresholds(compact);
+      setFlash("ok");
+      flashClear();
+    } catch {
+      setFlash("err");
+      flashClear();
+    } finally {
+      setSaving(false);
+    }
+  }, [compact, customError, flashClear]);
+
   const statusLine = (() => {
     if (flash === "ok") return <span className="text-white/70 text-[10px]">Saved ✓</span>;
     if (flash === "err") return <span className="text-white/60 text-[10px]">Invalid URL</span>;
@@ -176,21 +263,140 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
         <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
           {/* Tabs */}
           <div className="flex border-b border-[rgba(255,255,255,0.09)]">
-            {(["reasoning", "endpoint"] as const).map((t) => (
+            {(["reasoning", "context", "endpoint"] as const).map((t) => (
               <button key={t}
                 onClick={() => setTab(t)}
+                data-testid={`settings-tab-${t}`}
                 className={cn(
                   "flex-1 py-2 text-[11px] uppercase tracking-wider transition-colors duration-[120ms] border-b-2",
                   tab === t
                     ? "text-white/90 border-white/70 bg-white/[0.03]"
                     : "text-white/30 border-transparent hover:text-white/60",
                 )}>
-                {t === "reasoning" ? "Reasoning" : "Endpoint"}
+                {t === "reasoning" ? "Reasoning" : t === "context" ? "Context" : "Endpoint"}
               </button>
             ))}
           </div>
 
-          {tab === "reasoning" ? (
+          {tab === "context" ? (
+            /* ── Context tab: auto-compact threshold ─────────────────── */
+            <div className="p-3 space-y-2.5" data-testid="settings-context-tab">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-[10px] text-white/35 uppercase tracking-wider">
+                  <GitMerge className="w-3 h-3" />
+                  Auto-compact
+                </label>
+                <button
+                  onClick={handleCompactToggle}
+                  role="switch"
+                  aria-checked={compact.auto === 1}
+                  aria-label="Auto-compact context"
+                  data-testid="compact-toggle"
+                  data-state={compact.auto === 1 ? "on" : "off"}
+                  className={cn(
+                    "relative w-9 h-5 rounded-full transition-colors duration-[150ms]",
+                    compact.auto === 1 ? "bg-white/70" : "bg-white/15",
+                  )}>
+                  <span className={cn(
+                    "absolute top-0.5 w-4 h-4 rounded-full bg-[#1d1d1d] transition-transform duration-[150ms] left-0.5",
+                    compact.auto === 1 ? "translate-x-4" : "translate-x-0",
+                  )} />
+                </button>
+              </div>
+
+              <p className="text-[10px] text-white/35 leading-snug">
+                When the conversation reaches the threshold, older turns are folded
+                into a single summary before the next reply.
+              </p>
+
+              {/* Presets */}
+              <div className="grid grid-cols-5 gap-1">
+                {PRESET_LABELS.map((p) => (
+                  <button
+                    key={p.value}
+                    onClick={() => handleCompactPreset(p.value)}
+                    data-testid={`compact-preset-${p.label}`}
+                    aria-pressed={compact.auto === 1 && compact.tokens === p.value}
+                    className={cn(
+                      "px-1 py-1.5 rounded-lg text-[10px] font-medium tabular-nums transition-colors duration-[120ms]",
+                      compact.auto === 1 && compact.tokens === p.value
+                        ? "bg-white/[0.14] text-white/95 border border-[rgba(255,255,255,0.2)]"
+                        : "bg-white/[0.04] text-white/50 border border-[rgba(255,255,255,0.08)] hover:bg-white/[0.08] hover:text-white/80",
+                    )}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom */}
+              <div>
+                <label className="flex items-center gap-1.5 text-[10px] text-white/35 uppercase tracking-wider mb-1">
+                  Custom threshold
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={COMPACT_CUSTOM_MIN}
+                  max={COMPACT_CUSTOM_MAX}
+                  step={1000}
+                  value={customInput}
+                  onChange={(e) => setCustomInput(e.target.value)}
+                  onBlur={handleCompactCustom}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCompactCustom(); }}
+                  placeholder={`${COMPACT_CUSTOM_MIN} – ${COMPACT_CUSTOM_MAX}`}
+                  data-testid="compact-custom-input"
+                  className={cn(
+                    "w-full px-2.5 py-1.5 rounded-lg bg-white/[0.05] border text-[11px] font-mono text-white/80 placeholder-white/20 outline-none transition-colors duration-[120ms]",
+                    customError
+                      ? "border-[rgba(255,255,255,0.35)]"
+                      : "border-[rgba(255,255,255,0.1)] focus:border-white/30",
+                  )}
+                />
+                {customError ? (
+                  <p className="text-[10px] text-white/50 mt-1" data-testid="compact-custom-error">{customError}</p>
+                ) : (
+                  <p className="text-[10px] text-white/25 mt-1">
+                    {COMPACT_CUSTOM_MIN.toLocaleString()} – {COMPACT_CUSTOM_MAX.toLocaleString()} tokens
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button onClick={handleSaveCompact}
+                  disabled={saving || !!customError}
+                  data-testid="compact-save"
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors duration-[120ms]",
+                    saving || customError
+                      ? "bg-white/[0.05] text-white/30 cursor-wait"
+                      : "bg-white/[0.12] text-white/90 border border-[rgba(255,255,255,0.15)] hover:bg-white/[0.18]",
+                  )}>
+                  {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  Save
+                </button>
+                <span className="text-[10px] text-white/35 tabular-nums" data-testid="compact-status">
+                  {compact.auto === 1
+                    ? `On · ${Math.round(compact.tokens / 1000)}k`
+                    : "Off"}
+                </span>
+              </div>
+
+              {/* Manual compaction of the open conversation (same as /compact). */}
+              <button
+                onClick={() => { onCompactNow?.(); setOpen(false); }}
+                disabled={!onCompactNow}
+                data-testid="compact-now"
+                className={cn(
+                  "w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors duration-[120ms]",
+                  onCompactNow
+                    ? "text-white/60 hover:text-white/90 hover:bg-white/[0.06] border border-[rgba(255,255,255,0.08)]"
+                    : "text-white/20 border border-[rgba(255,255,255,0.05)] cursor-not-allowed",
+                )}>
+                <GitMerge className="w-3 h-3" />
+                Compact now
+              </button>
+            </div>
+          ) : tab === "reasoning" ? (
             <div className="py-1">
               {EFFORT_LEVELS.map((e) => (
                 <button key={e}
@@ -252,7 +458,7 @@ export default function SettingsMenu({ effort, onEffortChange }: SettingsMenuPro
               </div>
 
               {/* Status line */}
-              {statusLine && <div className="flex items-center">{statusLine}</div>}
+              {statusLine && tab === "endpoint" && <div className="flex items-center">{statusLine}</div>}
 
               <div className="flex items-center gap-1.5">
                 <button onClick={handleSave}

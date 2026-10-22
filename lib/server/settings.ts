@@ -18,6 +18,12 @@ const LLM_KEY_FALLBACK = "no-key";
 interface SettingsShape {
   llm_api_url?: string;
   llm_api_key?: string;
+  /**
+   * Auto-compact threshold + on/off flag, written by the SettingsMenu "Context"
+   * tab (see lib/chat/compactConfig.ts). The chat UI is the sole reader — the
+   * server only persists it; it never touches the LLM endpoint.
+   */
+  compact_thresholds?: { auto: 0 | 1; tokens: number };
 }
 
 let cachedMtimeMs: number | null = null;

@@ -10,7 +10,8 @@ import { cn } from "../../lib/utils";
 import { formatActivityLabel, listGroups } from "../../lib/chat/recentsFilters";
 
 /**
- * Full-screen Recents browser (Claude-desktop parity): serif heading,
+ * Centered ~60%-of-viewport popup over a dimmed backdrop (closes on backdrop
+ * click; rows sit in a centered column): serif heading,
  * Active | Shared (placeholder) | Archived tabs, search, a Groups chip bar,
  * and a select mode whose toolbar bulk-pins / moves to group / marks unread /
  * archives / deletes. Escape or × closes; row click opens the chat.
@@ -107,10 +108,19 @@ export default function RecentsModal({
 
   return (
     <motion.div
-      data-testid="recents-modal"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.16 }}
-      className="fixed inset-0 z-[200] bg-[var(--bg)] flex flex-col"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-8 bg-black/55"
     >
+      <motion.div
+        data-testid="recents-modal"
+        initial={{ opacity: 0, scale: 0.97, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        className="flex flex-col overflow-hidden rounded-2xl border border-[var(--border)]
+          bg-[var(--bg)] shadow-2xl shadow-black/60
+          w-[min(60vw,1000px)] max-w-[calc(100vw-2rem)]
+          h-[min(60vh,680px)] max-h-[calc(100vh-2rem)] min-h-[min(400px,calc(100vh-2rem))]"
+      >
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center gap-4 px-6 pt-5 pb-3 flex-shrink-0 flex-wrap">
         <h2 className="font-serif text-[22px] text-white/95 leading-none">Recents</h2>
@@ -277,43 +287,46 @@ export default function RecentsModal({
         </div>
       )}
 
-      {/* ── Rows ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-6">
-        {rows.length === 0 && (
-          <div className="px-3 py-10 text-center text-sm text-white/45">
-            {query ? "No matches." : tab === "active" ? "No active chats." : "No archived chats."}
-          </div>
-        )}
-        {rows.map(c => (
-          <div
-            key={c.id}
-            data-testid="recents-modal-row"
-            onClick={() => { if (selectMode) toggleSelect(c.id); else onOpenChat(c.id); }}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer max-w-3xl",
-              "transition-colors duration-[120ms]",
-              selected.has(c.id)
-                ? "bg-white/[0.09] text-white/95"
-                : activeId === c.id
-                  ? "bg-white/[0.05] text-white/90"
-                  : "hover:bg-white/[0.04] text-white/80",
-            )}
-          >
-            {selectMode && <Checkbox checked={selected.has(c.id)} />}
-            {c.unread && (
-              <span
-                data-testid="recents-modal-unread-dot" title="Unread"
-                className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] flex-shrink-0"
-              />
-            )}
-            <span className="flex-1 min-w-0 text-[14px] truncate">{c.title}</span>
-            {c.pinned && !selectMode && <Pin className="w-3 h-3 flex-shrink-0 text-white/45" />}
-            <span className="text-[12px] text-white/40 flex-shrink-0 tabular-nums">
-              {formatActivityLabel(c.updatedAt)}
-            </span>
-          </div>
-        ))}
+      {/* ── Rows (centered column, spaced below the header) ──────────── */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-3 pb-6">
+        <div className="max-w-2xl mx-auto">
+          {rows.length === 0 && (
+            <div className="px-3 py-10 text-center text-sm text-white/45">
+              {query ? "No matches." : tab === "active" ? "No active chats." : "No archived chats."}
+            </div>
+          )}
+          {rows.map(c => (
+            <div
+              key={c.id}
+              data-testid="recents-modal-row"
+              onClick={() => { if (selectMode) toggleSelect(c.id); else onOpenChat(c.id); }}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer",
+                "transition-colors duration-[120ms]",
+                selected.has(c.id)
+                  ? "bg-white/[0.09] text-white/95"
+                  : activeId === c.id
+                    ? "bg-white/[0.05] text-white/90"
+                    : "hover:bg-white/[0.04] text-white/80",
+              )}
+            >
+              {selectMode && <Checkbox checked={selected.has(c.id)} />}
+              {c.unread && (
+                <span
+                  data-testid="recents-modal-unread-dot" title="Unread"
+                  className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] flex-shrink-0"
+                />
+              )}
+              <span className="flex-1 min-w-0 text-[14px] truncate">{c.title}</span>
+              {c.pinned && !selectMode && <Pin className="w-3 h-3 flex-shrink-0 text-white/45" />}
+              <span className="text-[12px] text-white/40 flex-shrink-0 tabular-nums">
+                {formatActivityLabel(c.updatedAt)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
+      </motion.div>
     </motion.div>
   );
 }

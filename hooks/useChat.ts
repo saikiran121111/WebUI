@@ -3,6 +3,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
 import {
+  compactConversation,
+  type CompactResult,
+  type CompactMode,
+} from "../lib/chat/compact";
+import {
+  loadCompactThresholds,
+  saveCompactThresholds,
+  fetchCompactThresholds,
+  type CompactThresholds,
+} from "../lib/chat/compactConfig";
+import { estimateConversationTokens, formatTokens } from "../lib/chat/tokens";
+import {
   MAX_FENCE_REPAIRS,
   applyFenceRepair,
   extractFenceBody,
@@ -47,6 +59,18 @@ export interface UseChatReturn {
   turnProgress: TurnProgressSnapshot | null;
   /** Hide the chip/panel once the turn has ended. */
   dismissProgress: () => void;
+  /** Run a manual or auto compaction over the active LLM history. */
+  compact: (mode?: CompactMode) => Promise<CompactResult | null>;
+  /** State of the last compaction + divider badge position. */
+  compactState: {
+    lastRun: CompactResult | null;
+    isCompacting: boolean;
+    badgeAt: number;
+  };
+  /** Token count of the active LLM history (estimate). */
+  activeTokenCount: () => number;
+  compactThresholds: CompactThresholds | null;
+  setCompactThresholds: (t: CompactThresholds) => void;
 }
 
 function uid(prefix = ""): string {
@@ -65,6 +89,150 @@ export function useChat({
   const [reasoningContent, setReasoningContent] = useState("");
   const [effort, setEffort] = useState<EffortLevel>("medium");
   const [turnProgress, setTurnProgress] = useState<TurnProgressSnapshot | null>(null);
+
+  // ── Auto-compact context ─────────────────────────────────────────────
+  // TWO histories live here:
+  //   • `messages` (state)  — the FULL original conversation. It is what
+  //     the UI renders and what gets persisted, so the user can always
+  //     scroll back and read every old turn. Compaction NEVER touches it.
+  //   • `llmHistoryRef`      — the array actually SENT to the model. After a
+  //     compaction it becomes
+  //     [system?, compacted-context message, ...recent tail, ...new turns].
+  const compactThresholdsRef = useRef<CompactThresholds | null>(null);
+  const compactingRef = useRef(false);
+
+  // Post-turn rebuild of the model-facing history, applied LAZILY. When a
+  // turn ends we remember the LLM array as it stood BEFORE the turn (the
+  // mirror, or a compacted replacement) plus the UI length it covers. At the
+  // next send/compact — by which point React has committed every streamed
+  // and repair update into messagesRef — the finished turn's messages are
+  // appended onto that base. Mirroring `messagesRef` at turn END instead
+  // would (a) race the last rAF-batched deltas and (b) silently UNDO a
+  // compaction by shipping the full UI history back to the model.
+  const llmPendingRef = useRef<{ base: Message[]; uiLen: number } | null>(null);
+
+  const materializeLlmHistory = useCallback(() => {
+    const p = llmPendingRef.current;
+    if (p) {
+      llmPendingRef.current = null;
+      llmHistoryRef.current = [...p.base, ...messagesRef.current.slice(p.uiLen)];
+    }
+  }, []);
+  const [compactState, setCompactState] = useState<{
+    /** The last compaction result (null = never compacted this session). */
+    lastRun: CompactResult | null;
+    /** True while a compaction call is in flight. */
+    isCompacting: boolean;
+    /**
+     * Index in the UI message list where the compaction divider belongs —
+     * i.e. the number of original messages that preceded the compaction.
+     */
+    badgeAt: number;
+  }>({ lastRun: null, isCompacting: false, badgeAt: -1 });
+  const compactStateRef = useRef(compactState);
+  compactStateRef.current = compactState;
+
+  /** Wire shape (role + content) of a UI message, as the model receives it. */
+  const wireMessage = useCallback((m: Message) => ({
+    role: m.role as string,
+    content: m.content,
+    ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+    ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+    ...(m.usage?.promptTokens ? { usage: { promptTokens: m.usage.promptTokens } } : {}),
+  }), []);
+
+  /**
+   * Run the sliding-window compaction pipeline over the ACTIVE LLM history
+   * and replace it with [system?, compacted context, ...recent tail].
+   *
+   * The UI/persisted history is deliberately left alone — the user keeps
+   * scrolling through the real conversation; only what the model sees
+   * changes. A divider badge is rendered at `badgeAt` to make the swap
+   * visible.
+   */
+  const compact = useCallback(async (
+    mode: CompactMode = "manual",
+    opts: { badgeAt?: number } = {},
+  ): Promise<CompactResult | null> => {
+    if (compactingRef.current) return null;
+    compactingRef.current = true;
+    setCompactState((s) => ({ ...s, isCompacting: true }));
+
+    // Fold the finished previous turn into the active LLM array first, so
+    // compaction always runs against the real model-facing history.
+    materializeLlmHistory();
+    // The divider position is fixed NOW, synchronously. The message list
+    // re-renders during the multi-second compaction call, and reading
+    // messagesRef afterwards would place the divider after the in-flight
+    // turn's bubbles instead of before them.
+    const badgeAt = opts.badgeAt ?? messagesRef.current.length;
+
+    // Refresh the in-memory threshold mirror if it has never been loaded.
+    if (!compactThresholdsRef.current) {
+      try {
+        compactThresholdsRef.current = await fetchCompactThresholds();
+      } catch {
+        compactThresholdsRef.current = loadCompactThresholds();
+      }
+    }
+
+    try {
+      const result = await compactConversation(
+        llmHistoryRef.current.map(wireMessage),
+        { model, apiUrl, apiKey, mode },
+      );
+
+      if (result.compacted) {
+        // The LLM array becomes: [system?, compacted context, ...recent tail].
+        // The compacted-context block rides as a `user` message — that is the
+        // role the compaction model itself authored it for.
+        llmHistoryRef.current = result.replacementLlmMessages.map((lm, i) => ({
+          id: i === 0 ? "compact_" + Date.now().toString(36) : "compact_tail_" + i,
+          conversationId: "",
+          role: lm.role as Message["role"],
+          content: lm.content,
+          reasoning: "",
+          attachments: [],
+          toolCalls: [],
+          citations: [],
+          createdAt: Date.now(),
+          state: "complete",
+          mode: "chat",
+        }));
+        setCompactState((s) => ({ ...s, lastRun: result, badgeAt }));
+      } else {
+        setCompactState((s) => ({ ...s, lastRun: result }));
+      }
+      return result;
+    } catch (e) {
+      const failed: CompactResult = {
+        ok: false,
+        compacted: false,
+        context: "",
+        compactedMessages: 0,
+        replacementLlmMessages: [],
+        beforeTokens: 0,
+        afterTokens: 0,
+        label: "Compaction failed",
+        error: e instanceof Error ? e.message : String(e),
+      };
+      setCompactState((s) => ({ ...s, lastRun: failed }));
+      return failed;
+    } finally {
+      compactingRef.current = false;
+      setCompactState((s) => ({ ...s, isCompacting: false }));
+    }
+  }, [model, apiUrl, apiKey, wireMessage, materializeLlmHistory]);
+
+  /**
+   * The token count of the ACTIVE LLM history — what the threshold is
+   * compared against.
+   */
+  const activeTokenCount = useCallback(
+    () => estimateConversationTokens(llmHistoryRef.current),
+    [],
+  );
+
 
   // Honest progress engine (lib/progress/turnProgress.ts). Mutated by real
   // signals only: ruke_stage frames, streamed bytes, repair rounds. The React
@@ -111,6 +279,12 @@ export function useChat({
   const sendBusyRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const decisionModeRef = useRef<RendererMode | null>(null);
+
+  // The array actually sent to the model. Normally a mirror of `messages`;
+  // after a compaction it diverges — it holds [system?, compacted context,
+  // ...recent tail] while `messages` keeps the full original history.
+  // Kept in a ref (not state) because it never drives a re-render on its own.
+  const llmHistoryRef = useRef<Message[]>([]);
 
   // Phase 4: rAF-batched stream delta. content/reasoning accumulate in a
   // mutable ref and flush to React state at most once per animation frame,
@@ -163,6 +337,12 @@ export function useChat({
   const load = useCallback((conversation: Conversation) => {
     setMessages(conversation.messages ?? []);
     messagesRef.current = conversation.messages ?? [];
+    // A new conversation always starts with a fresh LLM history that
+    // mirrors the UI messages (no compaction state crosses conversations).
+    llmHistoryRef.current = conversation.messages ?? [];
+    llmPendingRef.current = null;
+    compactThresholdsRef.current = null;
+    setCompactState({ lastRun: null, isCompacting: false, badgeAt: -1 });
     lastInputRef.current = null;
     setStatus("complete");
     setError(null);
@@ -183,6 +363,10 @@ export function useChat({
     abortRef.current = null;
     setMessages([]);
     messagesRef.current = [];
+    llmHistoryRef.current = [];
+    llmPendingRef.current = null;
+    compactThresholdsRef.current = null;
+    setCompactState({ lastRun: null, isCompacting: false, badgeAt: -1 });
     lastInputRef.current = null;
     assistantIdRef.current = null;
     streamContentRef.current = "";
@@ -360,6 +544,13 @@ export function useChat({
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     if (!text.trim() || sendBusyRef.current) return;
     sendBusyRef.current = true;
+    // Fold the finished previous turn into the model-facing array before
+    // this turn measures tokens or reads the history (the rebuild is lazy so
+    // it never races rAF-batched stream deltas).
+    materializeLlmHistory();
+    // UI length BEFORE this turn's bubbles are pushed — used to place the
+    // compaction divider and to rebuild the LLM array when the turn ends.
+    const uiLenAtSend = messagesRef.current.length;
     let assistantId: string | null = null;
     try {
       const mode = opts.mode ?? "chat";
@@ -421,7 +612,41 @@ export function useChat({
 
       const client = new ChatClient(apiUrl, apiKey, model);
       const tools = mode === "research" ? buildResearchToolDefs() : undefined;
-      const requestHistory = [...messagesRef.current, userMsg];
+
+      // ── Pre-send auto-compact gate ─────────────────────────────
+      // Before the model ever sees this turn, check whether the active
+      // LLM history has outgrown the user's threshold. One check per send
+      // keeps a single oversized conversation to exactly one compaction.
+      // Read the thresholds through the compactConfig cache — primed from
+      // /api/settings on first use and refreshed by the Settings save. A
+      // bare hook-mirror read could miss a setting saved mid-session.
+      let thresholds: CompactThresholds;
+      try {
+        thresholds = await fetchCompactThresholds();
+      } catch {
+        thresholds = loadCompactThresholds();
+      }
+      compactThresholdsRef.current = thresholds;
+      if (thresholds.auto === 1 && thresholds.tokens > 0) {
+        // Count the tokens that the model would receive on this turn, which
+        // is the active LLM history plus the incoming user message.
+        const projectedTokens =
+          estimateConversationTokens(llmHistoryRef.current) +
+          estimateConversationTokens([userMsg]);
+        if (projectedTokens >= thresholds.tokens && !compactingRef.current) {
+          // Fold the oldest turns into a dense summary. The UI keeps the
+          // full original conversation; only the model-facing array shrinks.
+          // badgeAt = the UI length before this turn's bubbles: the divider
+          // lands between the last old message and the new user bubble.
+          await compact("auto", { badgeAt: uiLenAtSend });
+        }
+      }
+
+      // The LLM history is what the model actually sees. Before compaction
+      // this mirrors `messages`; after a compaction it is the reduced
+      // [system?, compacted context, ...recent tail] array. The new user
+      // message is appended to BOTH the UI history and the LLM history.
+      const requestHistory = [...llmHistoryRef.current, userMsg];
 
       await client.chat(
         { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
@@ -470,6 +695,9 @@ export function useChat({
           curMode,
           (content) => findBrokenRenderFences(content, curMode),
         );
+        // No mirror here — appending this turn to the model-facing base is
+        // queued in `finally` and applied lazily by materializeLlmHistory.
+        // Mirroring `messagesRef` would UNDO any compaction.
       }
 
       if (!controller.signal.aborted) {
@@ -503,6 +731,11 @@ export function useChat({
       }
       setReasoningContent("");
     } finally {
+      // Queue the deferred rebuild for this turn. It also covers aborted and
+      // failed turns: the slice is taken from messagesRef at the NEXT
+      // materialize — after every stream, repair and final-state update has
+      // committed — so the LLM array can never capture half-streamed text.
+      llmPendingRef.current = { base: llmHistoryRef.current, uiLen: uiLenAtSend };
       setIsThinking(false);
       abortRef.current = null;
       sendBusyRef.current = false;
@@ -510,7 +743,7 @@ export function useChat({
       setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
   }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending,
-      flushProgress, stopProgressTick, finishProgress]);
+      flushProgress, stopProgressTick, finishProgress, compact, materializeLlmHistory]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;
@@ -533,17 +766,33 @@ export function useChat({
   const retry = useCallback(() => {
     if (lastInputRef.current) {
       const { text, mode, attachments } = lastInputRef.current;
-      setMessages(prev => {
-        const reversed = [...prev].reverse();
-        const idx = reversed.findIndex(m => m.role === "assistant");
-        if (idx >= 0) {
-          const removeId = reversed[idx].id;
-          const filtered = prev.filter(m => m.id !== removeId);
-          messagesRef.current = filtered;
-          return filtered;
+      // Compute the filtered history synchronously from messagesRef (kept
+      // current by the render-time sync) — the rewind below must see it
+      // BEFORE send() starts, which an updater-form setMessages cannot
+      // guarantee.
+      const prev = messagesRef.current;
+      const reversed = [...prev].reverse();
+      const idx = reversed.findIndex(m => m.role === "assistant");
+      if (idx >= 0) {
+        const removeId = reversed[idx].id;
+        const filtered = prev.filter(m => m.id !== removeId);
+        messagesRef.current = filtered;
+        setMessages(filtered);
+        // Rewind the model-facing history in lockstep with the UI. Normally
+        // the retried turn still lives inside a PENDING rebuild: rolling
+        // back to that base drops BOTH the old reply and the user message
+        // being re-sent — send() appends the fresh user message itself.
+        const p = llmPendingRef.current;
+        if (p) {
+          llmPendingRef.current = null;
+          llmHistoryRef.current = p.base;
+        } else {
+          // No rebuild pending (e.g. a manual /compact ran after that
+          // turn): drop the retried reply by id. A compacted replacement
+          // array carries synthetic ids, so it is left untouched by design.
+          llmHistoryRef.current = llmHistoryRef.current.filter(m => m.id !== removeId);
         }
-        return prev;
-      });
+      }
       setError(null);
       send(text, { mode, attachments });
     }
@@ -558,6 +807,10 @@ export function useChat({
     if (idx < 0) return;
     const filtered = prev.slice(0, idx);
     messagesRef.current = filtered;
+    llmHistoryRef.current = filtered; // an edit rewinds both histories
+    // Discard any pending rebuild — its base/uiLen predate the edit and its
+    // re-slice would re-append the truncated messages at the next send.
+    llmPendingRef.current = null;
     lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
     setMessages(filtered);
     setStatus("complete");
@@ -570,5 +823,13 @@ export function useChat({
     clearError: () => setError(null),
     setEffort, effort, requestFenceRepair,
     turnProgress, dismissProgress,
+    // Auto-compact context
+    compact,
+    compactState,
+    activeTokenCount,
+    compactThresholds: compactThresholdsRef.current,
+    setCompactThresholds: (t: CompactThresholds) => {
+      compactThresholdsRef.current = t;
+    },
   };
 }

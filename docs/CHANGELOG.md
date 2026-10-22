@@ -1,5 +1,73 @@
 # CHANGELOG
 
+## 2026-10-22g — Feature: Auto-Compact Context (threshold UI, /compact command, pre-send gate, divider badge)
+Per the "Auto-Compact Context" spec:
+- **Settings → new "Context" tab** (`components/SettingsMenu.tsx`): auto-compact toggle,
+  32k/64k/128k/256k preset chips, Custom input with inline error + Save disabled outside
+  8,000–1,000,000, status line "On · 32k"/"Off", and a "Compact now" button for manual
+  compaction (`onCompactNow`). Values persist to `settings.json` as
+  `compact_thresholds:{auto,tokens}` (`app/api/settings/route.ts` + `lib/server/settings.ts`;
+  the server only stores them — the chat UI is the sole reader).
+- **Token tracking** (`lib/chat/tokens.ts`): ~4 chars/token + 4 framing per message; the
+  gate projects the model-facing history plus the pending user message, so the compared
+  number is what the model would actually receive (estimate, not an exact tokenizer).
+- **Triggers** (`hooks/useChat.ts`): the pre-send gate in `send()` awaits
+  `fetchCompactThresholds()` (module cache; a Settings save calls
+  `primeCompactThresholds()` so the very next send sees the new value) and runs
+  `compact("auto")` first when estimate ≥ threshold. `/compact` (`components/ChatInput.tsx`)
+  and the Settings "Compact now" button both route `app/page.tsx` → `compact("manual")`
+  (guarded while streaming/compacting).
+- **Pipeline** (`lib/chat/compact.ts`): folds everything except the last 4 raw messages
+  (RECENT_TAIL = 4) into the exact "Context Compaction Engine" system prompt;
+  `extractCompactedContext()` keeps ONLY `<compacted_context>` and strips the `<analysis>`
+  scratchpad (tolerant of a missing close tag); when everything already fits, no model
+  call is made ("Context already fits…").
+- **History replacement:** the model-facing `llmHistoryRef` becomes
+  [system messages…, compacted context as one user message, …last 4]; the next send ships
+  exactly `[compacted block, 4 tail, new user]` and later turns do NOT re-fold (lazy
+  `llmPendingRef` rebuild applied at the start of the next send/compact). Persisted +
+  rendered history is untouched — the full conversation stays scrollable.
+- **Divider badge** (`components/ui/CompactDividerBadge.tsx`): "Context compacted
+  (128.4k -> 5.2k tokens)" (`compact-divider`, data-state compacting → done) rendered at
+  the fold point in the transcript; `/compact` never reaches the model as a chat turn.
+- **Real bug found + fixed via E2E:** the SettingsMenu menu-open `fetchSettings()`
+  (~566 ms cold dev compile) raced a just-clicked preset — resolving after the click it
+  reset compact state to the on-disk value, silently swallowing the user's choice. Fixed
+  with a `compactDirtyRef` guard: a late fetch never overwrites a selection.
+- **Tests:** `__tests__/compact-pipeline.test.ts` (split/extract/label units) +
+  `tests/auto-compact.spec.ts` (3 browser tests: Context-tab validation + save round-trip
+  + reload; manual `/compact` fold/badge/no-bubble/full-history-intact; auto gate folds
+  once past threshold, ships `[block, 4 tail, user]` with no folded-turn markers and never
+  re-compacts on the following send). Fake paced SSE upstream via `route.continue` — zero
+  inference-backend load.
+- **Verification:** auto-compact 3/3, edit-stop-collapse 5/5, progress-panel 6/6 (all
+  lock-protocol, PW_EXIT=0); vitest 595 passed | 1 skipped (52 files); tsc --noEmit EXIT=0.
+
+## 2026-10-22f — UX: web-research trail is a click-to-open popup (gradient card removed)
+Reported symptom: the cyan "Web research · 10 sources · 5 domains [Model-gated ⌄]"
+gradient bar above the reply "feels pretty bad — completely".
+- `components/render/ResearchTrailCard.tsx` DELETED; `ChatMessage.tsx` no longer
+  renders it. After the answer streams, sources stay reachable through the [S#]
+  citation pills in the reply.
+- `components/ProcessingStatus.tsx`: while a gated search runs, the RUKE
+  processing line itself is clickable (`web-search-toggle`) and opens a popup
+  listing the queries and every source with its link; clicking anywhere outside
+  the popup (or pressing Escape) closes it. Testids `research-trail-card` /
+  `-gate-badge` / `-source` are kept inside the popup; the gate badge is plain
+  grey (no cyan).
+- Tests: `search-gate.spec.ts` migrated to the popup contract (click the line
+  during the search phase); greeting/search-gate `[data-domain]` assertions fixed
+  to `a[data-citation]` — the old locator never matched the rendered pills.
+- Verification: search-gate 3/3 (2.4 m real model traffic), greeting 2/2,
+  vitest 595/596 (1 skip), tsc EXIT=0 — all lock-protocol, PW_EXIT=0.
+
+## 2026-10-22f — UX: View-all Recents modal is a centered ~60% popup (was full-screen)
+- `components/ui/RecentsModal.tsx`: dimmed backdrop + centered dialog
+  (`min(60vw,1000px) × min(60vh,680px)`), rounded border + shadow, backdrop
+  click closes; conversation rows sit in a centered `max-w-2xl` column a bit
+  below the header instead of pinned top-left. All testids unchanged.
+- Playwright recents specs → 11/11 green, exit 0.
+
 ## 2026-10-22 — Fix: sidebar edge drag no longer collapses/rebounds; open/close is top-bar only
 Reported symptom: dragging the sidebar's right border "glitches — it instantly
 collapses or comes back to normal size" in both directions.

@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Pencil, CheckCircle2, AlertCircle, Zap, Info } from "lucide-react";
 import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
-import ResearchTrailCard from "./render/ResearchTrailCard";
 import ProcessingStatus from "./ProcessingStatus";
 import { copyText } from "../lib/render/clipboard";
 import type { Message } from "../lib/types";
@@ -222,11 +221,6 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
             </div>
           ))}
         </div>
-      )}
-
-      {/* Research trail: collapsible LFM decision + source cards */}
-      {message.webCitations && Object.keys(message.webCitations).length > 0 && (
-        <ResearchTrailCard message={message} />
       )}
 
       {/* Main content */}

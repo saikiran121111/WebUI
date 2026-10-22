@@ -19,6 +19,19 @@ export async function PUT(req: Request) {
   if (typeof body.llm_api_key === "string") {
     patch.llm_api_key = body.llm_api_key;
   }
+  // Auto-compact threshold (the chat UI's own setting — server persists it,
+  // never reads it into the LLM path).
+  const ct = body.compact_thresholds;
+  if (ct && typeof ct === "object" && "auto" in ct && "tokens" in ct) {
+    const auto = (ct as { auto?: unknown }).auto;
+    const tokens = (ct as { tokens?: unknown }).tokens;
+    patch.compact_thresholds = {
+      auto: auto === 1 ? 1 : 0,
+      tokens: typeof tokens === "number" && Number.isFinite(tokens)
+        ? Math.max(0, Math.round(tokens))
+        : 0,
+    };
+  }
   const settings = updateSettings(patch);
   return NextResponse.json({ settings });
 }

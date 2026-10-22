@@ -11,6 +11,7 @@ import { USER_NAME } from "../lib/user";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import RecentsModal from "../components/ui/RecentsModal";
+import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
@@ -36,7 +37,16 @@ export default function HomePage() {
     messages, status, error, isThinking, reasoningContent,
     send, stop, retry, edit, load, clear, setEffort, effort, requestFenceRepair,
     turnProgress, dismissProgress,
+    compact, compactState, activeTokenCount,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
+
+  // Manual compaction command: `/compact` in the composer (and a TopBar pill)
+  // runs the sliding-window pipeline over the active LLM history right now,
+  // instead of waiting for the auto threshold.
+  const runCompact = useCallback(() => {
+    if (compactState.isCompacting || status === "streaming") return;
+    void compact("manual");
+  }, [compact, compactState.isCompacting, status]);
 
   // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
   // deterministic interactive sample via load() — no model server needed.
@@ -358,7 +368,7 @@ export default function HomePage() {
       <TopBar
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(v => !v)}
-        settings={<SettingsMenu effort={effort} onEffortChange={setEffort} />}
+        settings={<SettingsMenu effort={effort} onEffortChange={setEffort} onCompactNow={runCompact} />}
         progress={<ProgressChip progress={turnProgress} onDismiss={dismissProgress} />}
       />
       <div className="flex flex-1 min-h-0">
@@ -406,6 +416,15 @@ export default function HomePage() {
                       onSend={(text) => runSend(text)}
                       onFenceRuntimeError={(info) => requestFenceRepair(m.id, info)}
                     />
+                    {/* Context-compaction divider: marks where the model-facing
+                        history was folded into a summary. The original
+                        messages above stay fully readable. */}
+                    {compactState.badgeAt === i + 1 && (
+                      <CompactDividerBadge
+                        result={compactState.lastRun}
+                        compacting={compactState.isCompacting}
+                      />
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -471,6 +490,7 @@ export default function HomePage() {
                   isResearchMode={false}
                   onModeToggle={() => {}}
                   onAttachmentsChange={() => {}}
+                  onCompactCommand={runCompact}
                   variant="bar"
                 />
               </div>

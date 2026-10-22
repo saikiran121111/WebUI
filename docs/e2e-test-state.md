@@ -266,8 +266,9 @@
 - vitest: 573 passed | 1 skipped (51 files). `tsc --noEmit`: EXIT=0.
 
 ## 2026-10-22e — Recents Claude-desktop parity (§1 lock) [GREEN]
-- Feature: filter-menu Delete row + icon swap; full-screen View-all modal
-  (`components/ui/RecentsModal.tsx`, z-[200]); meta fields `group`/`unread`;
+- Feature: filter-menu Delete row + icon swap; View-all modal
+  (`components/ui/RecentsModal.tsx`, z-[200]; restyled 2026-10-22f to centered
+  ~60% popup — specs re-ran 11/11 green, exit 0); meta fields `group`/`unread`;
   Groups flyout + chip bar; unread dots; bulk pin/unread/group/delete handlers.
 - `npx playwright test tests/recents-controls.spec.ts` → **6 passed, PW_EXIT=0**
   (incl. new filter-Delete-row test + collapsed pill opens modal, chevron expands).
@@ -285,3 +286,22 @@
   `tsc --noEmit`: EXIT=0. Gotchas: modal rows must be scoped
   (`recents-modal` container) — sidebar mirrors the same titles; filter flyout clicks
   work only with the aside keeping `z-50` (stacking fix, locked in Sidebar.tsx).
+
+## 2026-10-22f — UX restyles: Recents 60% popup + sources popup replaces trail card [GREEN]
+- RecentsModal restyle (full-screen → centered ~60% popup, rows in centered
+  `max-w-2xl` column): `recents-controls` + `recents-modal` specs → **11 passed
+  (27.9 s), PW_EXIT=0**. Visual geometry confirmed via one-shot headless
+  screenshot (lock-held, model-free seeded row, cleaned up after).
+- ResearchTrailCard DELETED; ProcessingStatus line gains the click-to-open
+  sources popup (`web-search-toggle` → `research-trail-card` / `-gate-badge` /
+  `-source`; outside click + Escape close). Spec contracts migrated:
+  `search-gate.spec.ts` clicks the processing line during the search phase and
+  reads the popup; dead `[data-domain]` locators fixed to `a[data-citation]`
+  (the pill component never forwarded data-domain to the DOM).
+- `npx playwright test tests/greeting.spec.ts` → **2 passed (51.0 s), PW_EXIT=0**.
+- `npx playwright test tests/search-gate.spec.ts` → **3 passed (2.4 m, real model
+  traffic), PW_EXIT=0** — popup flow exercised live: toggle visible, opened,
+  badge "Model-gated", on-topic hrefs, keyword-form queries containing "nvidia".
+- vitest: 595 passed | 1 skipped (52 files). `tsc --noEmit`: EXIT=0. Gotcha:
+  the popup lives inside ProcessingStatus, which unmounts at the first answer
+  token — popup assertions must run during the search phase, not after settle.

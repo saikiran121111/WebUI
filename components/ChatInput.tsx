@@ -26,6 +26,11 @@ interface ChatInputProps {
   isResearchMode: boolean;
   onModeToggle: () => void;
   onAttachmentsChange: (attachments: Attachment[]) => void;
+  /**
+   * Fired when the user types `/compact` (the manual context-compaction
+   * command). Absent = the command is not offered in this surface.
+   */
+  onCompactCommand?: () => void;
   /** Render as centered hero input (empty state) or bottom bar (chat active) */
   variant?: "hero" | "bar";
 }
@@ -38,7 +43,7 @@ interface ChatInputProps {
 export default function ChatInput({
   onSend, onStop, isLoading, isThinking, reasoningContent,
   effort, onEffortChange, isResearchMode, onModeToggle,
-  onAttachmentsChange, variant = "bar",
+  onAttachmentsChange, onCompactCommand, variant = "bar",
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -176,6 +181,13 @@ export default function ChatInput({
     // Attachments must finish being read first — sending early would ship a
     // file the model never got to see.
     if (!trimmed || isLoading || stillReading) return;
+    // `/compact` is a local command, not a prompt for the model.
+    if (/^\/compact\s*$/i.test(trimmed)) {
+      onCompactCommand?.();
+      setValue("");
+      setTimeout(() => textareaRef.current?.focus(), 0);
+      return;
+    }
     onSend(trimmed, attachments.filter(a => a.status === "ready"));
     setValue("");
     // Failed attachments stay in the tray so the reason is still visible.
@@ -185,7 +197,7 @@ export default function ChatInput({
       return kept;
     });
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [value, isLoading, stillReading, attachments, onSend, onAttachmentsChange]);
+  }, [value, isLoading, stillReading, attachments, onSend, onAttachmentsChange, onCompactCommand]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     const menuOpen = slashCandidates.length > 0 && !slashDismissed;

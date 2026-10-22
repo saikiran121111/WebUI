@@ -4,9 +4,13 @@
  * update() so the Settings UI feels instant.
  */
 
+import type { CompactThresholds } from "../chat/compactConfig";
+
 export interface LlmSettings {
   llm_api_url?: string;
   llm_api_key?: string;
+  /** Auto-compact threshold + on/off flag (see lib/chat/compactConfig.ts). */
+  compact_thresholds?: CompactThresholds;
 }
 
 let cached: LlmSettings | null = null;
