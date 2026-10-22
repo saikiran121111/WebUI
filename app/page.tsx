@@ -325,7 +325,6 @@ export default function HomePage() {
         onSearch={() => {}}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        onOpen={() => setSidebarOpen(true)}
       />
 
       <main className="flex-1 flex flex-col min-w-0 relative">

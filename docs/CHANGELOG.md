@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 2026-10-22 — Fix: sidebar edge drag no longer collapses/rebounds; open/close is top-bar only
+Reported symptom: dragging the sidebar's right border "glitches — it instantly
+collapses or comes back to normal size" in both directions.
+- Root cause: the edge drag had a hidden collapse gesture (drag left below
+  `SIDEBAR_MIN - COLLAPSE_SLACK` = 232 px closed the rail and snapped the
+  width back to the pre-drag value), plus an invisible 8 px drag-to-reveal
+  strip at the left screen edge when closed. Combined with the ¼-viewport
+  width ceiling (at 1280 px windows the 316 px default leaves only 4 px of
+  rightward travel), most drags felt dead or springy.
+- `hooks/useSidebarResize.ts`: collapse-on-drag and the "reveal" drag mode
+  removed; `beginDrag(clientX)` now only resizes, clamped
+  `[SIDEBAR_MIN, innerWidth/4]` with the floor winning when a tiny window
+  pushes the ceiling below it (matches the CSS, so the handle stays glued to
+  the border). `SIDEBAR_MIN` is now 232 — the width the collapse used to fire
+  at — so leftward travel is smooth all the way down with no snap-back.
+- `components/ui/Sidebar.tsx`: left-edge reveal strip deleted; `onOpen` prop
+  dropped; CSS `sm:min-w-[280px]` → `sm:min-w-[232px]`. Top-bar
+  "Toggle sidebar" button is now the only open/close control.
+- `app/page.tsx`: stopped passing `onOpen`.
+- Playwright (ms-playwright chromium, 1600×900): drag right +184 px → 400
+  (¼ ceiling), held on mouseup; drag left −300 → 232 and stayed open;
+  dragged 82 px past 232 → stayed 232 (no collapse); re-drag right → 400.
+  Toggle closed → zero separators (no reveal strip) and rail off-canvas;
+  toggle re-opened at saved width; reload persisted 400 (`sidebar-width=400`).
+  Console: only the pre-existing favicon.ico 404. Typecheck clean.
+
 ## 2026-10-21e — Fix: web-search gate is decided by the MAIN model, not the 1.2B router
 Reported symptom: a pure LeetCode algorithm prompt ("partition s … minimum cuts …
 palindrome" plus a Rust `impl Solution` stub) triggered a web search whose cited

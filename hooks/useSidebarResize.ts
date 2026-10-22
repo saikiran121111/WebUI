@@ -1,32 +1,28 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export const SIDEBAR_MIN = 280;
+// The rail drags no narrower than the width where a collapse used to trigger
+// (the old 280 minimum minus the 48px collapse slack). Open/close belongs
+// solely to the top-bar toggle now; the drag never collapses or reveals.
+export const SIDEBAR_MIN = 232;
 export const SIDEBAR_DEFAULT = 316;
-// Dragging this far past the minimum collapses the rail (Claude-style).
-const COLLAPSE_SLACK = 48;
 const WIDTH_KEY = "sidebar-width";
 
 /** Hard user ceiling: one quarter of the viewport. */
 const maxWidth = () => Math.floor(window.innerWidth / 4);
-const clampW = (w: number) => Math.min(maxWidth(), Math.max(SIDEBAR_MIN, w));
-
-interface ResizeOptions {
-  onClose: () => void;
-  onOpen: () => void;
-}
+// The floor wins when a very narrow window pushes the ceiling under it —
+// mirrors the CSS min-width, which also overrides max-width, so the drag
+// handle always sits exactly on the rail's border.
+const clampW = (w: number) => Math.max(SIDEBAR_MIN, Math.min(maxWidth(), w));
 
 /**
- * Pointer-drag width for the desktop sidebar. Two entry points:
- * - "edge": grab the open rail's right border; width follows the drag delta.
- *   Pushing well past SIDEBAR_MIN collapses the rail and restores the
- *   pre-drag width, so a later toggle-reopen is not stuck at the minimum.
- * - "reveal": grab the collapsed screen-edge strip; the rail reopens and its
- *   width tracks the pointer x directly.
- * The width survives reloads via localStorage; the component also clamps
- * rendering with min/max CSS so window resizes can never exceed the ceiling.
+ * Pointer-drag width for the desktop sidebar. Grab the open rail's right
+ * border; left/right dragging resizes between SIDEBAR_MIN and the 1/4
+ * viewport ceiling — it never closes the rail. The width survives reloads
+ * via localStorage; the component also clamps rendering with CSS min/max so
+ * window resizes can never exceed the ceiling.
  */
-export function useSidebarResize({ onClose, onOpen }: ResizeOptions) {
+export function useSidebarResize() {
   const [width, setWidth] = useState(SIDEBAR_DEFAULT);
   const [isDragging, setIsDragging] = useState(false);
   const widthRef = useRef(width);
@@ -48,44 +44,29 @@ export function useSidebarResize({ onClose, onOpen }: ResizeOptions) {
     };
   }, [isDragging]);
 
-  const beginDrag = useCallback((clientX: number, mode: "edge" | "reveal") => {
-    if (mode === "reveal") {
-      onOpen();
-      // Reveal starts pinned to the minimum at the left edge, then follows
-      // the pointer — no jump to the previous width mid-drag.
-      setWidth(clampW(clientX));
-    }
+  const beginDrag = useCallback((clientX: number) => {
     const startX = clientX;
-    const startW = mode === "reveal" ? SIDEBAR_MIN : widthRef.current;
+    const startW = widthRef.current;
     let live = startW;
-    let collapsed = false;
     setIsDragging(true);
 
     const onMove = (e: PointerEvent) => {
-      if (collapsed) return;
-      const raw = mode === "reveal" ? e.clientX : startW + (e.clientX - startX);
-      if (mode === "edge" && raw < SIDEBAR_MIN - COLLAPSE_SLACK) {
-        collapsed = true;
-        setWidth(startW);
-        onClose();
-        return;
-      }
-      live = clampW(raw);
+      live = clampW(startW + (e.clientX - startX));
       setWidth(live);
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       setIsDragging(false);
-      if (!collapsed) localStorage.setItem(WIDTH_KEY, String(live));
+      localStorage.setItem(WIDTH_KEY, String(live));
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [onClose, onOpen]);
+  }, []);
 
-  // Re-clamp the stored width when the window shrinks under the ceiling.
+  // Re-clamp the width when the window crosses either bound.
   useEffect(() => {
-    const onResize = () => setWidth(w => (w > maxWidth() ? maxWidth() : w));
+    const onResize = () => setWidth(w => (w === clampW(w) ? w : clampW(w)));
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);

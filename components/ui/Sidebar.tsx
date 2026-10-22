@@ -24,7 +24,6 @@ interface SidebarProps {
   onSearch: (q: string) => void;
   isOpen: boolean;
   onClose: () => void;
-  onOpen: () => void;
 }
 
 /**
@@ -33,15 +32,15 @@ interface SidebarProps {
  * surface (no blur on a full-height container: the recents list scrolls
  * independently). Projects/Artifacts/Customize and the apps button are inert
  * placeholders kept for future features. Desktop: the right border is a drag
- * handle (resize up to 1/4 of the screen, past the minimum collapses it); a
- * collapsed rail can be dragged back open from the left screen edge.
+ * handle (resize between the minimum and 1/4 of the viewport — it never
+ * closes the rail); open/close belongs to the top-bar toggle.
  */
 export default function Sidebar({
   conversations, activeId, onSelect, onNew, onDelete, onDeleteSelected,
-  onTogglePin, onToggleArchive, onRename, onSearch, isOpen, onClose, onOpen,
+  onTogglePin, onToggleArchive, onRename, onSearch, isOpen, onClose,
 }: SidebarProps) {
   const [query, setQuery] = useState("");
-  const { width, isDragging, beginDrag } = useSidebarResize({ onClose, onOpen });
+  const { width, isDragging, beginDrag } = useSidebarResize();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -89,30 +88,18 @@ export default function Sidebar({
     <>
       {/* Mobile: the sidebar is an overlay drawer. Desktop (sm+): fixed column. */}
       {isOpen && <div className="fixed inset-0 bg-black/60 z-40 sm:hidden" onClick={onClose} />}
-      {/* Collapsed (desktop): invisible strip at the left screen edge — dragging
-          it right reopens the rail, width tracking the pointer. */}
-      {!isOpen && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Drag to show sidebar"
-          title="Drag to show sidebar"
-          onPointerDown={e => { e.preventDefault(); e.stopPropagation(); beginDrag(e.clientX, "reveal"); }}
-          className="hidden sm:block fixed left-0 top-10 bottom-0 w-2 z-40 cursor-ew-resize
-            hover:bg-white/[0.05] active:bg-white/[0.08] transition-colors duration-[120ms]"
-        />
-      )}
-      {/* Open (desktop) resize handle straddling the rail's right border: drag
-          to resize (ceiling 1/4 of the viewport); pushed past the minimum it
-          collapses the rail. It is a fixed sibling rather than an absolute
-          child because the static aside cannot anchor absolute children. */}
+      {/* Open (desktop) resize handle straddling the rail's right border:
+          left/right dragging resizes between the minimum and 1/4 of the
+          viewport — it never closes the rail. It is a fixed sibling rather
+          than an absolute child because the static aside cannot anchor
+          absolute children. */}
       {isOpen && (
         <div
           role="separator"
           aria-orientation="vertical"
           aria-label="Drag to resize sidebar"
           title="Drag to resize"
-          onPointerDown={e => { e.preventDefault(); e.stopPropagation(); beginDrag(e.clientX, "edge"); }}
+          onPointerDown={e => { e.preventDefault(); e.stopPropagation(); beginDrag(e.clientX); }}
           style={{ left: `${width - 4}px` }}
           className={cn(
             "hidden sm:block fixed top-10 bottom-0 w-2 z-40 cursor-ew-resize duration-200",
@@ -138,7 +125,7 @@ export default function Sidebar({
           // CSS min/max mirror the hook's clamp so a window resize can never
           // push the rail past a quarter of the viewport (min wins on very
           // narrow desktops, same as before).
-          "w-[316px] max-w-[85vw] sm:w-[var(--sb-w)] sm:min-w-[280px] sm:max-w-[25vw]",
+          "w-[316px] max-w-[85vw] sm:w-[var(--sb-w)] sm:min-w-[232px] sm:max-w-[25vw]",
         )}
         aria-label="Navigation"
       >
