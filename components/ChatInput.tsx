@@ -5,6 +5,7 @@ import { Send, Paperclip, X, StopCircle, SlidersHorizontal, Loader2, AlertCircle
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
 import type { SkillRecord } from "../lib/skills/types";
+import { meterText, meterTooltip, type TokenMeterSnapshot } from "../lib/chat/tokenMeter";
 import { fetchSkills } from "../lib/skills/client-cache";
 import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib/files";
 import SkillsModal from "./SkillsModal";
@@ -33,6 +34,12 @@ interface ChatInputProps {
   onCompactCommand?: () => void;
   /** Render as centered hero input (empty state) or bottom bar (chat active) */
   variant?: "hero" | "bar";
+  /**
+   * Live token stats (speed + context filled / max) shown in the bar's meta
+   * row. All values come from /api/model-stats and the stream's own server
+   * usage frames — never fabricated. Absent = meter hidden.
+   */
+  tokenMeter?: TokenMeterSnapshot;
 }
 
 /**
@@ -43,7 +50,7 @@ interface ChatInputProps {
 export default function ChatInput({
   onSend, onStop, isLoading, isThinking, reasoningContent,
   effort, onEffortChange, isResearchMode, onModeToggle,
-  onAttachmentsChange, onCompactCommand, variant = "bar",
+  onAttachmentsChange, onCompactCommand, variant = "bar", tokenMeter,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -486,8 +493,15 @@ export default function ChatInput({
               </button>
             </div>
 
-            <span className="text-[11px] text-white/35 select-none text-center">
-              Output varies based on model that's being used.
+            {/* Live token meter (replaces the old static safety note). Fixed
+                footprint + tabular digits so the meta row never jitters while
+                numbers tick. */}
+            <span
+              data-testid="token-meter"
+              title={tokenMeter ? meterTooltip(tokenMeter) : undefined}
+              className="text-[11px] text-white/35 select-none text-center tabular-nums whitespace-nowrap min-w-[15rem]"
+            >
+              {tokenMeter ? meterText(tokenMeter) : ""}
             </span>
 
             <div className="flex items-center gap-3 justify-self-end">

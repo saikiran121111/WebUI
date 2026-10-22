@@ -36,6 +36,14 @@ reasoningMs / completionTokens), never fake timers. Status: IMPLEMENTED + FULLY 
 fixed). No open work on this feature.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 2026-10-23b Composer token meter (E2E 1/1 PW_EXIT=0, vitest 14, tsc 0 — do not re-open):
+  `app/api/model-stats/route.ts` (new proxy: /props→n_ctx, ?live=1→/slots prompt_tokens;
+  {ok:false}+200 when backend down); `lib/chat/tokenMeter.ts` (new pure helpers + formatters);
+  `hooks/useTokenMeter.ts` (new: /props once/load; 1 Hz ?live=1 poll ONLY while streaming; EMA
+  window rate; exact usage frame takes over at turn end, survives reload via persisted usage);
+  ChatInput meta-row span replaced by [data-testid="token-meter"] (tokenMeter? prop, tabular-nums,
+  min-w-[15rem], provenance title tooltip); app/page.tsx wires useTokenMeter({status,messages})
+  into the BAR ChatInput only (hero has no meta row). Old static "Output varies…" text is GONE.
 - 2026-10-23 Compaction-actually-works fix (E2E 5/5 real exit 0 incl. REAL backend, do not re-open):
   - lib/chat/types.ts: `purpose?: "compact"` on ChatRequest; lib/chat/client.ts buildBody forwards it.
   - app/api/chat/route.ts: after parse, `payload.purpose==="compact"` → delete marker,
@@ -236,6 +244,13 @@ fixed). No open work on this feature.
   history, COMPACTION_ANCHOR_PROMPT user turn]; anchor never enters the replacement array;
   300 s client abort cap; divider testid compact-divider with data-state
   compacting|done|failed|noop (failed/noop now VISIBLE).
+- Token meter contract (2026-10-23b): `GET /api/model-stats` → `{ok, model_alias, n_ctx,
+  total_slots}` (proxies upstream /props, 3 s timeout, api-key header server-side only);
+  `GET /api/model-stats?live=1` → `{ok, processing, prompt_tokens, n_ctx}` (upstream /slots);
+  unreachable → `{ok:false}` (HTTP 200 — client MUST render dashes, never fake numbers).
+  Footer span `[data-testid="token-meter"]`, text `Speed: {2dp} tk/s · Context: {used}/{max}`
+  (em dashes when unknown); ChatInput prop `tokenMeter?: TokenMeterSnapshot`; hook poll is 1 Hz
+  ONLY while status==="streaming".
 - Lock file `.ai-coordination/playwright.lock`; no npm test:e2e — real command
   `npx playwright test <specs>` (baseURL :3000, workers:1, headless:false, slowMo 300,
   PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright). Bash foreground runs are capped at 600 s —
@@ -260,6 +275,12 @@ fixed). No open work on this feature.
   written via setTimeout + per-frame `alive()` liveness — never req.on("close") inside
   req.on("end") (fires instantly, wipes timers, hangs the fetch). readingDelay override
   widens the progress-spec reading window for label asserts.
+- 2026-10-23b verified: tests/token-meter.spec.ts 1/1 (5.0 s, PW_EXIT=0, single lock, one file
+  per call) — model-free: fake upstream streams usage+timings frame (`{"usage":…,"timings":…}`
+  before [DONE]) and /api/model-stats fulfilled via pathname predicate route (query-aware);
+  asserts mid-stream live band AND final exact "Speed: 42.50 tk/s · Context: 4542/100000".
+  Spec never touches /api/settings. vitest __tests__/token-meter.test.ts 14/14; endpoint curl
+  smoke against real backend: n_ctx 131072, live prompt_tokens 60770 (zero inference cost).
 
 [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
 - None open. Resolved 2026-10-23 (user report "compact is not working at all… 100k…

@@ -14,6 +14,7 @@ import RecentsModal from "../components/ui/RecentsModal";
 import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
+import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
 import { buildAnatomyDemoConversation } from "../lib/render/anatomyDemoShowcase";
@@ -39,6 +40,9 @@ export default function HomePage() {
     turnProgress, dismissProgress,
     compact, compactState, activeTokenCount,
   } = useChat({ model: process.env.NEXT_PUBLIC_MODEL_ID ?? "" });
+
+  // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.
+  const tokenMeter = useTokenMeter({ status, messages });
 
   // Manual compaction command: `/compact` in the composer (and a TopBar pill)
   // runs the sliding-window pipeline over the active LLM history right now,
@@ -492,6 +496,7 @@ export default function HomePage() {
                   onAttachmentsChange={() => {}}
                   onCompactCommand={runCompact}
                   variant="bar"
+                  tokenMeter={tokenMeter}
                 />
               </div>
             </motion.div>
