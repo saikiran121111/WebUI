@@ -4,13 +4,13 @@
  * Usage:  npx tsx scripts/test-web-search.ts
  *
  * Runs 13 checks:
- *   1. LFM gate: trivial greeting → no-search short-circuit (zero LLM tokens);
+ *   1. search gate: trivial greeting → no-search short-circuit (zero LLM tokens);
  *      static question (LLM reachable) → model decides.
  *   2. Parallel metasearch: >8 unique URLs (no artificial speed ceiling).
  *   3. Extraction + BM25 rerank: at least half of pages fully extracted.
  *   4. RSS memory budget (10-URL concurrent scrape): <2048MB (2GB).
  *   5. No files created outside the project root (spot check).
- *   6. LFM gate uses 60s timeout without premature regex short-circuiting.
+ *   6. search gate uses 60s timeout without premature regex short-circuiting.
  *   7. Large PDF extraction: fetch a real >3MB arXiv PDF and verify text
  *      is extracted from both page 1 and the final page.
  *   8. Unbroken tables & code chunks: verify 2,000–8,000 char chunks keep
@@ -25,7 +25,7 @@
  *  13. Unbroken tables & code chunks exceed 1,500 chars (atomic blocks).
  */
 import {
-  runLfmGate,
+  runSearchGate,
   runWebResearch,
   evidenceBlock,
   closeCache,
@@ -109,9 +109,9 @@ function mockPacket(
 async function main() {
   console.log(BOLD("\n── Web Search Engine Self-Test ──\n"));
 
-  /* ── 1. LFM gate: trivial greeting short-circuit ───────────────────── */
-  console.log(BOLD("1. LFM gate (trivial greeting → zero-token skip)"));
-  const greeting = await runLfmGate({ userPrompt: "hello" });
+  /* ── 1. search gate: trivial greeting short-circuit ─────────────────── */
+  console.log(BOLD("1. search gate (trivial greeting → zero-token skip)"));
+  const greeting = await runSearchGate({ userPrompt: "hello" });
   check(
     "Trivial greeting → search_required=false (zero LLM tokens)",
     greeting.decision.search_required === false && greeting.source === "rules",
@@ -225,7 +225,7 @@ async function main() {
     `got: ${JSON.stringify(urls)}`,
   );
   // Trivial greeting must NOT call the LLM (zero tokens, zero risk)
-  const g = await runLfmGate({ userPrompt: "hi" });
+  const g = await runSearchGate({ userPrompt: "hi" });
   check(
     "'hi' → no LLM call (source=rules, search_required=false)",
     g.source === "rules" && g.decision.search_required === false,
@@ -236,7 +236,7 @@ async function main() {
   console.log(BOLD("\n7. PDF extraction (arXiv)"));
   try {
     const { fetchPage, PDF_LIMIT_BYTES } = await import(
-      "../lib/web-search/tls-client"
+      "../lib/web-search/net"
     );
     const { structuralExtractAsync } = await import(
       "../lib/web-search/universal-extractor"
@@ -515,8 +515,8 @@ async function main() {
   /* ── 14. E2E: 5 diverse real-world queries (universal architecture) ── */
   console.log(BOLD("\n14. E2E: 5 diverse real-world queries (universal general-web pool)"));
 
-  const { ddgSearch, yahooSearch, startpageSearch, braveSearch, aolSearch,
-          mojeekSearch, searxSearch, redditSearch, queryCoreTokens } = await import(
+  const { ddgSearch, googleSearch, bingSearch, yahooSearch, braveSearch,
+          redditSearch, queryCoreTokens } = await import(
     "../lib/web-search/index"
   );
 
@@ -555,12 +555,10 @@ async function main() {
 
   const engineProbes: Array<[string, () => Promise<any[]>, string]> = [
     ["ddgSearch",       () => ddgSearch(q1),       "duckduckgo"],
+    ["googleSearch",    () => googleSearch(q1),    "google"],
     ["yahooSearch",     () => yahooSearch(q1),     "yahoo"],
-    ["startpageSearch", () => startpageSearch(q1), "startpage"],
+    ["bingSearch",      () => bingSearch(q1),      "bing"],
     ["braveSearch",     () => braveSearch(q1),     "brave"],
-    ["aolSearch",       () => aolSearch(q1),       "aol"],
-    ["mojeekSearch",    () => mojeekSearch(q1),    "mojeek"],
-    ["searxSearch",     () => searxSearch(q1),     "searxng"],
     ["redditSearch",    () => redditSearch(q1),    "reddit"],
   ];
 
@@ -587,13 +585,13 @@ async function main() {
     const b = await runWebResearch(
       { userPrompt: sc.prompt, history: [] },
       (p) => {
-        if (p.stage === "skipped") console.log(YELLOW("     [skip] LFM: no web search required"));
+        if (p.stage === "skipped") console.log(YELLOW("     [skip] gate: no web search required"));
       },
     );
     const ms = Date.now() - t0;
 
     if (!b) {
-      console.log(YELLOW("     LFM gate: no search required — main model answers from knowledge"));
+      console.log(YELLOW("     search gate: no search required — main model answers from knowledge"));
       continue;
     }
 

@@ -19,6 +19,7 @@ import {
   type RendererMode,
 } from "../../../lib/decision/types";
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
+import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
 import type { StageEvent } from "../../../lib/types";
 
@@ -62,7 +63,7 @@ function streamHeaders(
   usedSkill: string | null,
   decisionMode: RendererMode,
   webCitations?: Record<string, any> | null,
-  researchLfm?: ResearchMeta | null,
+  searchGate?: ResearchMeta | null,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": contentType ?? "text/event-stream",
@@ -81,8 +82,8 @@ function streamHeaders(
     headers["X-Web-Citations"] = encodeURIComponent(JSON.stringify(webCitations));
   }
   // Search-gate summary: shown collapsed in the Research Trail card.
-  if (researchLfm) {
-    headers["X-Research-Lfm"] = encodeURIComponent(JSON.stringify(researchLfm));
+  if (searchGate) {
+    headers["X-Search-Gate"] = encodeURIComponent(JSON.stringify(searchGate));
   }
   return headers;
 }
@@ -102,7 +103,7 @@ function streamUpstream(
   model: string,
   onSettled: () => void,
   webCitations?: Record<string, any> | null,
-  researchLfm?: ResearchMeta | null,
+  searchGate?: ResearchMeta | null,
 ): Response {
   const started = Date.now();
   let chunks = 0;
@@ -135,7 +136,7 @@ function streamUpstream(
       usedSkill,
       decisionMode,
       webCitations,
-      researchLfm,
+      searchGate,
     ),
   });
 }
@@ -147,7 +148,7 @@ async function forwardStream(
   signal?: AbortSignal,
   model = "default",
   webCitations?: Record<string, any> | null,
-  researchLfm?: ResearchMeta | null,
+  searchGate?: ResearchMeta | null,
 ): Promise<Response> {
   // Claim the shared inference slot for the user's turn: this aborts any
   // in-flight background title call (user traffic always wins) and blocks
@@ -188,7 +189,7 @@ async function forwardStream(
       model,
       release,
       webCitations,
-      researchLfm,
+      searchGate,
     );
   } catch (err) {
     // AbortError is the browser walking away mid-stream — expected, not a fault.
@@ -287,6 +288,22 @@ async function forwardStreamInto(
   }
 }
 
+/**
+ * Image data URLs carried by the last user turn. These feed the Vision-to-
+ * Search entity pre-pass (lib/web-search/vision-prepass.ts) when the gate
+ * decides to search, and flip SearchGateContext.hasImageAttachment so the
+ * Stage 0 image+lookup-intent bypass can fire.
+ */
+function turnImageParts(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const out: string[] = [];
+  for (const part of content) {
+    const u = part?.type === "image_url" ? part?.image_url?.url : null;
+    if (typeof u === "string" && u.startsWith("data:")) out.push(u);
+  }
+  return out;
+}
+
 /** Does this turn carry an internal attachment_ref (indexed-document turn)? */
 function turnHasAttachmentRef(content: unknown): boolean {
   return (
@@ -323,7 +340,7 @@ function historyBefore(messages: any[], lastUserIdx: number): { role: string; co
     const role = messages[i]?.role;
     if (role !== "user" && role !== "assistant") continue;
     const content = extractUserText(messages[i]?.content);
-    // The LFM router only needs the gist of prior turns — attachment
+    // The per-turn decision pass only needs the gist of prior turns — attachment
     // spine/preview blocks can be long, so each entry is capped.
     if (content.trim()) history.push({ role, content: content.slice(0, 500) });
   }
@@ -399,7 +416,7 @@ async function runTurnPipeline(
     hasAttachmentRefs: boolean;
     model: string;
   },
-): Promise<{ webCitationMap: Record<string, any> | null; researchLfmMeta: ResearchMeta | null }> {
+): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null }> {
   const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, model } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
@@ -449,16 +466,22 @@ async function runTurnPipeline(
   let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
   let inferenceTurnActive = false;
   let webCitationMap: Record<string, any> | null = null;
-  let researchLfmMeta: ResearchMeta | null = null;
-  const webResearchDisabled = process.env.WEB_SEARCH_LFM_DISABLED === "1";
+  let searchGateMeta: ResearchMeta | null = null;
+  const webResearchDisabled = gateDisabledByEnv();
   try {
     if (webResearchDisabled) {
-      log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_LFM_DISABLED)");
+      log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_GATE_DISABLED)");
     } else {
     beginUserTurn();
     inferenceTurnActive = true;
+    const imageParts = turnImageParts(payload.messages?.[lastUserIdx]?.content);
     researchBundle = await runWebResearch(
-      { userPrompt: fullText, history },
+      {
+        userPrompt: fullText,
+        history,
+        hasImageAttachment: imageParts.length > 0,
+        imageDataUrls: imageParts,
+      },
       (p) => {
         log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
         // Live bridge: every real gate/pipeline boundary becomes a client-
@@ -469,6 +492,8 @@ async function runTurnPipeline(
           total: p.total,
           done: p.done,
           coverage: p.coverage,
+          url: p.url,
+          domain: p.domain,
         });
       },
       signal,
@@ -496,11 +521,11 @@ async function runTurnPipeline(
       // No post-stream claim audit since 2026-10-22: the answer carries
       // [S#] citations and the model's own honest wording, which is the
       // whole verification story now.
-      researchLfmMeta = {
-        depth: researchBundle.lfm.decision.depth,
-        freshness: researchBundle.lfm.decision.freshness,
-        decidedBy: researchBundle.lfm.source,
-        queries: researchBundle.lfm.decision.queries.map((q) => ({
+      searchGateMeta = {
+        depth: researchBundle.searchGate.decision.depth,
+        freshness: researchBundle.searchGate.decision.freshness,
+        decidedBy: researchBundle.searchGate.source,
+        queries: researchBundle.searchGate.decision.queries.map((q) => ({
           query: q.query,
           intent: q.intent,
         })),
@@ -509,7 +534,7 @@ async function runTurnPipeline(
         {
           passages: researchBundle.topPassages.length,
           results: researchBundle.searchResults.length,
-          gateSource: researchBundle.lfm.source,
+          gateSource: researchBundle.searchGate.source,
           fromCache: researchBundle.fromCache,
           citations: Object.keys(webCitationMap).length,
           gapSearch: researchBundle.gapSearchFired,
@@ -535,7 +560,7 @@ async function runTurnPipeline(
     "turn decision",
   );
 
-  return { webCitationMap, researchLfmMeta };
+  return { webCitationMap, searchGateMeta };
 }
 
 export async function POST(req: NextRequest) {
@@ -551,7 +576,24 @@ export async function POST(req: NextRequest) {
   let usedSkill: string | null = null;
   let decisionMode: RendererMode = "standard_chat";
   let webCitationMap: Record<string, any> | null = null;
-  let researchLfmMeta: ResearchMeta | null = null;
+  let searchGateMeta: ResearchMeta | null = null;
+
+  // Compaction's own call (lib/chat/compact.ts): forward it VERBATIM.
+  // Running the per-turn pipeline over it is actively destructive: the decision
+  // pass classifies the STALE last user message inside the history being
+  // folded, and a non-chat mode injects a renderer skill contract mid-
+  // payload — which collides with the "Context Compaction Engine" system
+  // prompt and the model never emits <compacted_context>. The web-research
+  // gate then burns minutes of the compaction timeout researching that stale
+  // prompt. The compaction system prompt IS the whole contract; the history
+  // must reach the model untouched. (No progress frames either: the
+  // compaction client parses content deltas only.)
+  if (payload?.purpose === "compact") {
+    delete payload.purpose; // transport marker: never reaches the upstream
+    if (Array.isArray(payload.messages)) stripAttachmentRefs(payload.messages);
+    log.info({ model }, "compaction passthrough: skipping decision pipeline");
+    return forwardStream(JSON.stringify(payload), null, "standard_chat", req.signal, model);
+  }
 
   if (payload && Array.isArray(payload.messages) && payload.messages.length > 0) {
     // 1) user-tier slash skill (explicit intent, zero tokens otherwise)
@@ -670,7 +712,7 @@ export async function POST(req: NextRequest) {
                 ch.stage({
                   stage: "web_meta",
                   webCitations: meta.webCitationMap as StageEvent["webCitations"],
-                  researchLfm: meta.researchLfmMeta ?? undefined,
+                  searchGate: meta.searchGateMeta ?? undefined,
                 });
               }
 
@@ -717,7 +759,7 @@ export async function POST(req: NextRequest) {
         model,
       });
       webCitationMap = meta.webCitationMap;
-      researchLfmMeta = meta.researchLfmMeta;
+      searchGateMeta = meta.searchGateMeta;
     }
   }
 
@@ -733,6 +775,6 @@ export async function POST(req: NextRequest) {
     req.signal,
     model,
     webCitationMap,
-    (webCitationMap ? researchLfmMeta : null),
+    (webCitationMap ? searchGateMeta : null),
   );
 }

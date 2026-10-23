@@ -70,11 +70,17 @@ function median(xs: number[]): number | null {
 /* ── real phase bands (fixed weights; counts subdivide them) ─────────────── */
 
 const WEB_BAND: Record<string, { label: string; band: number }> = {
+  "web:gate": { label: "Deciding whether a web search is needed", band: 10 },
+  // Legacy alias — streams persisted before the 2026-10-23 LFM→gate rename
+  // emitted "web:lfm"; it must keep mapping to the same band.
   "web:lfm": { label: "Deciding whether a web search is needed", band: 10 },
   "web:planning": { label: "Planning the search", band: 25 },
   "web:searching": { label: "Searching the web", band: 55 },
   "web:recovery": { label: "Searching more sources", band: 65 },
   "web:reading": { label: "Reading web sources", band: 80 },
+  // Login-wall report inside the reading band — informational; the
+  // in-app Browser panel (web:auth_required) is handled by useChat.
+  "web:auth_required": { label: "Some sources need sign-in", band: 84 },
   "web:reranking": { label: "Ranking the evidence", band: 92 },
   "web:gap-search": { label: "Searching for missing details", band: 96 },
   "web:done": { label: "Web evidence ready", band: 100 },

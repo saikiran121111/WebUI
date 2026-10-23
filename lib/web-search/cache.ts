@@ -174,10 +174,12 @@ export function getCachedQuery(
     | undefined;
   if (!row) return null;
   try {
-    return {
-      results: JSON.parse(row.results_json) as RankedResult[],
-      freshness: row.freshness,
-    };
+    const results = JSON.parse(row.results_json) as RankedResult[];
+    // A zero-result row means that run was starved (engine breakers /
+    // outage), not that the web has nothing — treat it as a miss so a
+    // poisoned entry can never short-circuit a later healthy run.
+    if (results.length === 0) return null;
+    return { results, freshness: row.freshness };
   } catch {
     return null;
   }
@@ -189,6 +191,9 @@ export function putCachedQuery(
   freshness: string,
 ): void {
   maybePurge();
+  // Never persist a zero-result SERP: it would poison this plan set for
+  // the whole TTL and the next run would replay emptiness in milliseconds.
+  if (results.length === 0) return;
   const key = queryCacheKey(plans);
   const now = Date.now();
   db()
@@ -243,7 +248,7 @@ export function getCachedPage(url: string): {
 export function putCachedPage(
   url: string,
   extracted: string,
-  tier: "direct" | "jina" | "adapter" | "metadata" | "wayback",
+  tier: "direct" | "jina" | "adapter" | "metadata" | "wayback" | "browser",
 ): void {
   // Refuse to write if the extracted content is a degraded snippet
   // (<200 chars of signal) or contains WAF challenge boilerplate.

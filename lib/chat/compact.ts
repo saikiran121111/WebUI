@@ -68,6 +68,23 @@ Output the final state inside <compacted_context> tags using this exact Markdown
 - **Pending Todo List:** [Unfinished items mentioned earlier]
 </compacted_context>`;
 
+/**
+ * The END-OF-HISTORY anchor, appended as a final user turn AFTER the history
+ * being folded. Without it small local chat models read the payload as a
+ * conversation to CONTINUE: the last real turn sits at the end, the model
+ * answers (or echoes) it, and no <compacted_context> block is ever emitted
+ * (observed live against the shared backend on 2026-10-23 — the model's
+ * entire content was literally the last assistant line replayed). The
+ * anchor's instruction is the freshest thing in the context, and the block
+ * contract holds (same backend, same prompt: clean five-section output).
+ * Ephemeral: it exists only inside the compaction request — the replacement
+ * history the caller installs never contains it.
+ */
+export const COMPACTION_ANCHOR_PROMPT =
+  "END OF CONVERSATION. Everything above is past conversation to COMPRESS — do NOT answer it, do not continue it.\n" +
+  "Now act as the Context Compaction Engine described in your system instructions and output the state snapshot.\n" +
+  'Your entire reply must be only this block, starting with the literal characters "<compacted_context>" and ending with "</compacted_context>". Do not write anything else.';
+
 export type CompactMode = "auto" | "manual";
 
 export interface CompactResult {
@@ -240,19 +257,31 @@ export async function compactConversation(
   const client = new ChatClient(opts.apiUrl, opts.apiKey, opts.model);
   let reply = "";
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000); // 2 min hard cap
+  // Hard cap generous enough for a LARGE folded history: a 100k-token prefill
+  // plus an up-to-8192-token summary on a local laptop backend can exceed a
+  // 2 min cap all by itself. The purpose marker strips the decision/gate
+  // pipeline from this call, so the wait is prefill + summary generation only.
+  const timer = setTimeout(() => controller.abort(), 300_000); // 5 min hard cap
   try {
     await client.chat(
       {
         messages: [
           { role: "system", content: COMPACTION_SYSTEM_PROMPT },
           ...wireToCompact.map((w) => ({ ...w, role: w.role as "system" | "user" | "assistant" | "tool" })),
+          // Anchor LAST — see COMPACTION_ANCHOR_PROMPT. It never enters the
+          // replacement history, so the main model never sees it.
+          { role: "user", content: COMPACTION_ANCHOR_PROMPT },
         ],
         model: opts.model ?? "",
         stream: true,
         max_tokens: opts.maxTokens ?? 8192,
         // No thinking: a summary is a deterministic fold, not a hard problem.
         reasoning_effort: "off",
+        // The chat route must forward this verbatim: no router, no skill
+        // block, no web gate — an injected renderer contract mid-history
+        // destroys the <compacted_context> output, and the web gate burns
+        // the timeout budget on stale prompts.
+        purpose: "compact",
       },
       (ev: any) => {
         if (ev?.content) reply += ev.content;

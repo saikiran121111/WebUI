@@ -11,6 +11,7 @@ import {
   COMPACT_CUSTOM_MIN,
   COMPACT_PRESETS,
   compactThresholdsFromSettings,
+  isValidCustom,
   primeCompactThresholds,
   type CompactThresholds,
 } from "../lib/chat/compactConfig";
@@ -74,8 +75,12 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
       setUrl(s.llm_api_url ?? "");
       setKey(s.llm_api_key ?? "");
       if (compactDirtyRef.current) return; // user already chose — don't overwrite
-      setCompact(compactThresholdsFromSettings(s as Record<string, unknown>));
-      setCustomInput(String(compactThresholdsFromSettings(s as Record<string, unknown>).tokens));
+      const t = compactThresholdsFromSettings(s as Record<string, unknown>);
+      setCompact(t);
+      // Seed the input from the saved threshold; empty (not "0") when unset,
+      // otherwise "0" trips the 8k–1M validator on every open and Save is
+      // permanently disabled.
+      setCustomInput(t.tokens > 0 ? String(t.tokens) : "");
     });
     return () => { ignore = true; };
   }, [open]);
@@ -203,19 +208,30 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
   const handleCompactPreset = useCallback((tokens: number) => {
     compactDirtyRef.current = true;
     setCompact((prev) => ({ ...prev, tokens, auto: 1 }));
+    // Keep the custom input in sync with the preset; a stale out-of-range
+    // value would keep the validator error up and block Save.
+    setCustomInput(String(tokens));
   }, []);
 
   const handleCompactCustom = useCallback(() => {
     const n = parseInt(customInput, 10);
-    if (isNaN(n)) return;
+    if (!isValidCustom(n)) return; // out of range: error is visible, keep last valid value
     compactDirtyRef.current = true;
     setCompact({ auto: 1, tokens: n });
   }, [customInput]);
 
   const handleCompactToggle = useCallback(() => {
     compactDirtyRef.current = true;
-    setCompact((prev) => ({ ...prev, auto: prev.auto === 1 ? 0 : 1 }));
-  }, []);
+    if (compact.auto === 1) {
+      setCompact({ auto: 0, tokens: compact.tokens });
+      return;
+    }
+    // Turning on with no usable threshold would write "On · 0k" (a no-op the
+    // send gate ignores); arm the default preset instead.
+    const tokens = isValidCustom(compact.tokens) ? compact.tokens : COMPACT_PRESETS[0];
+    setCompact({ auto: 1, tokens });
+    setCustomInput(String(tokens));
+  }, [compact]);
 
   const handleSaveCompact = useCallback(async () => {
     if (customError) return;
@@ -367,9 +383,11 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
                   data-testid="compact-save"
                   className={cn(
                     "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors duration-[120ms]",
-                    saving || customError
+                    saving
                       ? "bg-white/[0.05] text-white/30 cursor-wait"
-                      : "bg-white/[0.12] text-white/90 border border-[rgba(255,255,255,0.15)] hover:bg-white/[0.18]",
+                      : customError
+                        ? "bg-white/[0.05] text-white/30 cursor-not-allowed"
+                        : "bg-white/[0.12] text-white/90 border border-[rgba(255,255,255,0.15)] hover:bg-white/[0.18]",
                   )}>
                   {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                   Save

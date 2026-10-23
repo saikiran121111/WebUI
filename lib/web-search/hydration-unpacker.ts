@@ -324,6 +324,161 @@ function youtubeUnpack(html: string): string {
   return out.join("\n\n");
 }
 
+/* ── generic recursive JSON → entity-card walker (universal) ───────────── */
+
+/**
+ * Semantic key patterns (no site hardcoding): any object that exposes at
+ * least two of these field names is treated as an "entity card" and
+ * emitted as a compact line. This is what makes the hydration unpacker
+ * site-agnostic — a Myntra product object, a Zomato restaurant object,
+ * a BookMyShow event object, a Workday job posting, or a Flipkart listing
+ * all share a handful of field names (`name`, `title`, `headline`,
+ * `price`, `mrp`, `rating`, `address`, `showtime`, `cast`, `salary`,
+ * `inStock`, ...) and this walker recognizes them without knowing the
+ * site.
+ */
+const ENTITY_FIELD_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /^(name|title|headline|heading|label|displayname|displayName)$/i, label: "name" },
+  { re: /^(description|desc|summary|synopsis|shortdescription|shortDescription|blurb|tagline)$/i, label: "desc" },
+  { re: /^(price|mrp|offerprice|offerPrice|discountedprice|discountedPrice|sellingprice|sellingPrice|finalprice|finalPrice|listprice|listPrice|cost|rate|amount|salary|salaryrange|salaryRange|baseprice|basePrice|minprice|minPrice|maxprice|maxPrice)$/i, label: "price" },
+  { re: /^(currency|pricecurrency|priceCurrency|ccy)$/i, label: "currency" },
+  { re: /^(rating|ratingvalue|ratingValue|stars|starrating|starRating|score|avgRating|avgrating|reviewcount|reviewCount|ratingscount|ratingsCount|voteCount|votes)$/i, label: "rating" },
+  { re: /^(availability|instock|inStock|stockstatus|stockStatus|outofstock|outOfStock|soldout|soldOut)$/i, label: "availability" },
+  { re: /^(address|location|locality|area|city|state|region|country|venue|venueid|venueId|geo|addressline|addressLine|fulladdress|fullAddress|postalcode|postalCode|pincode|pinCode|zip|zipcode|zipCode|nearby)$/i, label: "address" },
+  { re: /^(cuisine|cuisines|category|subcategory|subCategory|genre|type|tag|tags|kind|domain|department|brand|vendor|company|organization|organisation|artist|author|director|producer|host|channel)$/i, label: "category" },
+  { re: /^(showtime|showtimes|showTimes|showtimes|start|startTime|end|endTime|date|time|datetime|datePublished|eventdate|eventDate|schedule|session|sessions|slot|slots|day|dayofweek|dayOfWeek|weekday|weekend|morning|afternoon|evening|late)$/i, label: "time" },
+  { re: /^(cast|castmembers|castMembers|crew|director|actors|actress|performer|performers|artist|artists|writer|writers)$/i, label: "cast" },
+  { re: /^(url|link|href|path|permalink|slug|website|webpage|webPage|shareurl|shareUrl|canonical|id|identifier|sku|mpn|ean|upc|asin|isbn)$/i, label: "id" },
+  { re: /^(ingredients|components|parts|features|highlights|benefits|specs|specifications|sizes|variants|flavors|flavours|colours|colors|options)$/i, label: "list" },
+  { re: /^(review|reviews|testimonial|testimonials|feedback|comment|comments|pr|pros|cons|verdict|summary)$/i, label: "review" },
+  { re: /^(phone|contact|contactnumber|contactNumber|customerCare|support|supportphone|supportPhone|email|helpdesk|helpDesk)$/i, label: "contact" },
+  { re: /^(hours|openingHours|openhours|openHours|servicehours|serviceHours|availabilityhours|availabilityHours|operatinghours|operatingHours|schedule)$/i, label: "hours" },
+  { re: /^(delivery|deliverytime|deliveryTime|deliverable|deliverablein|deliverableIn|shipping|shippable|shippablein|shippableIn|shippableIn|arrival|expectedarrival|expectedArrival|sla|warranty|guarantee|refund)$/i, label: "delivery" },
+  { re: /^(image|imageurl|imageUrl|img|thumbnail|thumb|cover|banner|poster|hero|media|videourl|videoUrl|video|thumbnailurl|thumbnailUrl)$/i, label: "image" },
+  { re: /^(quantity|qty|count|num|total|size|weight|dimension|dimensions|measure|measurements|capacity|volume|power|battery|screen|resolution|storage|ram|cpuspeed|cpuSpeed|memory|os|platform|architecture|bit)$/i, label: "spec" },
+];
+
+const SKIP_KEYS = new Set([
+  "@context", "@type", "@id", "@graph", "id", "key", "component",
+  "children", "props", "scriptUrl", "css", "cssUrl", "style",
+  "classId", "dataId", "hash", "nonce", "bundlePath", "entry", "manifest",
+  "webpack", "webpackChunk", "webpackJsonp", "require", "module",
+  "react", "webpackPreload", "_r", "_s", "url", "href", "src", "alt",
+  "width", "height", "format", "mime", "contentType", "charset", "encoding",
+  "cookie", "token", "auth", "apiKey", "session", "csrf", "sentry",
+]);
+
+/**
+ * Walk an arbitrary JSON object and emit compact entity cards for every
+ * object that matches ≥2 semantic field patterns. Recurses up to 14
+ * levels, stops when `maxCards` is reached, and deduplicates on (name,
+ * id-ish field) so the same card doesn't repeat across parent/child
+ * copies of a state tree.
+ */
+export interface WalkerOptions {
+  /** Max number of entity cards to emit (default 60). */
+  maxCards?: number;
+  /** Label for the output header (the window-key that owned the JSON). */
+  label?: string;
+  /** Max recursion depth (default 14). */
+  maxDepth?: number;
+}
+
+/**
+ * Generic recursive JSON → readable-entity-card markdown.
+ * This is THE universal mechanism (Part 4): any site, any SPA framework,
+ * any shape of hydration state — if the objects carry the semantic keys
+ * above, they surface here as readable cards without per-site rules.
+ */
+export function walkGenericJsonForEntities(
+  root: unknown,
+  opts: WalkerOptions = {},
+): string {
+  const maxCards = opts.maxCards ?? 60;
+  const maxDepth = opts.maxDepth ?? 14;
+  const label = opts.label ?? "hydration";
+
+  const cards: string[] = [];
+  const seen = new Set<string>();
+
+  function emit(o: Record<string, unknown>): boolean {
+    const matched = new Map<string, string>();
+    let matchedFields = 0;
+    for (const [k, v] of Object.entries(o)) {
+      if (v === undefined || v === null || v === "") continue;
+      const isObj = typeof v === "object";
+      if (isObj && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
+      for (const p of ENTITY_FIELD_PATTERNS) {
+        if (p.re.test(k)) {
+          matched.set(p.label, String(v).slice(0, 300).replace(/\s+/g, " "));
+          matchedFields++;
+          break;
+        }
+      }
+      void isObj;
+    }
+    // An object must match ≥2 distinct semantic labels to count as an
+    // entity card — a random config blob with one `name` key is not an
+    // entity. (E.g. {name, price, rating, availability} = product;
+    // {name, address, cuisine, hours} = restaurant; {title, showtime,
+    // cast, venue} = event.)
+    if (matchedFields < 2) return false;
+    const keyParts = [o.name, o.title, o.headline, o.id, o.sku, o.url, o.slug]
+      .filter((x) => typeof x === "string" && (x as string).length > 0)
+      .map((x) => String(x).toLowerCase());
+    const dedupeKey = keyParts.join("|") || matched.size > 0 ? JSON.stringify([...matched.entries()].sort()) : "anon";
+    if (seen.has(dedupeKey)) return false;
+    seen.add(dedupeKey);
+
+    const lines: string[] = [];
+    const nameVal =
+      o.name ?? o.title ?? o.headline ?? o.displayName ?? o.label;
+    if (typeof nameVal === "string" && nameVal.length > 0) {
+      lines.push("### " + nameVal.slice(0, 200));
+    }
+    const ordered: string[] = [];
+    for (const lbl of ["desc", "price", "currency", "rating", "availability", "address", "category", "time", "cast", "contact", "hours", "delivery", "list", "spec", "review"]) {
+      if (matched.has(lbl)) ordered.push("- " + lbl + ": " + matched.get(lbl));
+    }
+    lines.push(...ordered);
+    // Also surface any `url` field the pattern matched so the caller can
+    // cite the exact source page of this card.
+    if (typeof o.url === "string" || typeof o.link === "string" || typeof o.href === "string") {
+      const linkVal = o.url ?? o.link ?? o.href;
+      lines.push("- link: " + String(linkVal).slice(0, 200));
+    }
+    cards.push(lines.join("\n"));
+    return cards.length >= maxCards;
+  }
+
+  function walk(node: unknown, depth: number): boolean {
+    if (depth > maxDepth || cards.length >= maxCards) return true;
+    if (Array.isArray(node)) {
+      for (const item of node.slice(0, 200)) {
+        if (walk(item, depth + 1)) return true;
+      }
+      return cards.length >= maxCards;
+    }
+    if (node && typeof node === "object") {
+      const obj = node as Record<string, unknown>;
+      if (emit(obj)) return true;
+      for (const [k, v] of Object.entries(obj)) {
+        if (SKIP_KEYS.has(k) || String(k).startsWith("__")) continue;
+        if (v === null || v === undefined) continue;
+        if (walk(v, depth + 1)) return true;
+      }
+    }
+    return cards.length >= maxCards;
+  }
+
+  walk(root, 0);
+  if (cards.length === 0) return "";
+  return (
+    "## " + label + " — " + cards.length + " entity card(s) (universal JSON walk)\n" +
+    cards.join("\n\n")
+  );
+}
+
 /* ── public API ─────────────────────────────────────────────────────── */
 
 /**
@@ -331,8 +486,8 @@ function youtubeUnpack(html: string): string {
  * and return the combined clean markdown. The extractor prepends this to
  * the DOM extraction so content trapped in script state is recovered.
  *
- * This is the universal equivalent of `extractHydrationState()` in
- * domain-adapters.ts — it covers Next.js App Router, Nuxt 3, Remix,
+ * This is the extractor's universal hydration channel (Pass A) — it
+ * covers Next.js App Router, Nuxt 3, Remix,
  * SvelteKit, Astro, Gatsby, and YouTube, not just `__NEXT_DATA__` and
  * `ytInitialData`.
  */

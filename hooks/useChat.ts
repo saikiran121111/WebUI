@@ -37,6 +37,11 @@ export interface UseChatOptions {
   model?: string;
   apiUrl?: string;
   apiKey?: string;
+  /**
+   * The web pipeline hit a login wall (web:auth_required stage) — the page
+   * opens its in-app Browser panel targeted at the walled URL (Part 3).
+   */
+  onAuthRequired?: (info: { url?: string; domain?: string }) => void;
 }
 
 export interface UseChatReturn {
@@ -81,7 +86,13 @@ export function useChat({
   model = "",
   apiUrl,
   apiKey,
+  onAuthRequired,
 }: UseChatOptions = {}): UseChatReturn {
+  // Stable ref: handleEvent stays dependency-free but always sees the
+  // page's latest auth-required handler.
+  const onAuthRequiredRef = useRef(onAuthRequired);
+  onAuthRequiredRef.current = onAuthRequired;
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus]   = useState<SendStatus>("complete");
   const [error, setError]     = useState<string | null>(null);
@@ -156,16 +167,18 @@ export function useChat({
   ): Promise<CompactResult | null> => {
     if (compactingRef.current) return null;
     compactingRef.current = true;
-    setCompactState((s) => ({ ...s, isCompacting: true }));
 
     // Fold the finished previous turn into the active LLM array first, so
     // compaction always runs against the real model-facing history.
     materializeLlmHistory();
-    // The divider position is fixed NOW, synchronously. The message list
-    // re-renders during the multi-second compaction call, and reading
-    // messagesRef afterwards would place the divider after the in-flight
-    // turn's bubbles instead of before them.
+    // The divider position is fixed NOW, synchronously — and published with
+    // isCompacting so the in-flight spinner actually renders (badgeAt must
+    // already be set for the badge to mount). The message list re-renders
+    // during the multi-second compaction call, and reading messagesRef
+    // afterwards would place the divider after the in-flight turn's bubbles
+    // instead of before them.
     const badgeAt = opts.badgeAt ?? messagesRef.current.length;
+    setCompactState((s) => ({ ...s, isCompacting: true, badgeAt }));
 
     // Refresh the in-memory threshold mirror if it has never been loaded.
     if (!compactThresholdsRef.current) {
@@ -201,7 +214,10 @@ export function useChat({
         }));
         setCompactState((s) => ({ ...s, lastRun: result, badgeAt }));
       } else {
-        setCompactState((s) => ({ ...s, lastRun: result }));
+        // Failure OR "already fits": still publish badgeAt — a silent
+        // failure is indistinguishable from "nothing happened", which is
+        // exactly how this bug went unnoticed at 100k context.
+        setCompactState((s) => ({ ...s, lastRun: result, badgeAt }));
       }
       return result;
     } catch (e) {
@@ -216,7 +232,7 @@ export function useChat({
         label: "Compaction failed",
         error: e instanceof Error ? e.message : String(e),
       };
-      setCompactState((s) => ({ ...s, lastRun: failed }));
+      setCompactState((s) => ({ ...s, lastRun: failed, badgeAt }));
       return failed;
     } finally {
       compactingRef.current = false;
@@ -392,13 +408,19 @@ export function useChat({
     if (ev.stage) {
       if (ev.stage.stage === "web_meta") {
         const id = assistantIdRef.current;
-        if (id && (ev.stage.webCitations || ev.stage.researchLfm)) {
+        const gateMeta = ev.stage.searchGate ?? ev.stage.researchLfm;
+        if (id && (ev.stage.webCitations || gateMeta)) {
           setMessages(prev => prev.map(m => m.id === id ? {
             ...m,
             ...(ev.stage.webCitations ? { webCitations: ev.stage.webCitations } : {}),
-            ...(ev.stage.researchLfm ? { researchLfm: ev.stage.researchLfm } : {}),
+            ...(gateMeta ? { searchGate: gateMeta } : {}),
           } : m));
         }
+      }
+      if (ev.stage.stage === "web:auth_required") {
+        // Login-wall report (Part 3): surface the Browser panel aimed at the
+        // walled page. The progress tracker already shows the info band.
+        onAuthRequiredRef.current?.({ url: ev.stage.url, domain: ev.stage.domain });
       }
       const t = progressRef.current;
       if (t) {
@@ -674,9 +696,9 @@ export function useChat({
               m.id === assistantMsg.id ? { ...m, webCitations: hdrs.webCitations } : m
             ));
           }
-          if (hdrs.researchLfm) {
+          if (hdrs.searchGate) {
             setMessages(prev => prev.map(m =>
-              m.id === assistantMsg.id ? { ...m, researchLfm: hdrs.researchLfm } : m
+              m.id === assistantMsg.id ? { ...m, searchGate: hdrs.searchGate } : m
             ));
           }
         },

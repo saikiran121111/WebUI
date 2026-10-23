@@ -12,6 +12,8 @@ interface TopBarProps {
   settings: ReactNode;
   /** The turn progress chip (ProgressChip), hosted by the page. */
   progress?: ReactNode;
+  /** The Browser (login panel) trigger, hosted by the page. */
+  browser?: ReactNode;
 }
 
 const ghost =
@@ -27,7 +29,7 @@ const ghost =
  * they exist so the desktop wrapper can wire them up later without a layout
  * change.
  */
-export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progress }: TopBarProps) {
+export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progress, browser }: TopBarProps) {
   return (
     <header
       data-testid="topbar"
@@ -69,8 +71,9 @@ export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progres
         </button>
       </div>
 
-      {/* ── Right: progress chip + settings ───────────────────────────── */}
+      {/* ── Right: browser / progress chip / settings ─────────────────── */}
       <div className="ml-auto flex items-center gap-1">
+        {browser}
         {progress}
         {settings}
       </div>

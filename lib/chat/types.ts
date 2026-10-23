@@ -13,6 +13,13 @@ export interface ChatRequest {
   attachments?: Attachment[];
   /** Pin the mode for a follow-up round (fence repair) — skips re-deciding. */
   decision_mode?: RendererMode;
+  /**
+   * Internal transport marker. "compact" = the Context Compaction Engine's
+   * own call: the route must NOT run slash routing, the Decision Engine,
+   * skill injection, or the web-research gate over it — the compaction
+   * system prompt IS the contract and the history must stay verbatim.
+   */
+  purpose?: "compact";
 }
 
 /**

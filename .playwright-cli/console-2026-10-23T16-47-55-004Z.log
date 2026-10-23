@@ -1,0 +1,6 @@
+[       1ms] Error: Page crashed and was reset to about:blank.
+    at _Tab.logErrorMessage (C:\Users\Ruku\AppData\Roaming\npm\node_modules\@playwright\cli\node_modules\playwright-core\lib\coreBundle.js:66471:62)
+    at Context.ensureTab (C:\Users\Ruku\AppData\Roaming\npm\node_modules\@playwright\cli\node_modules\playwright-core\lib\coreBundle.js:66862:28)
+    at async Object.handle (C:\Users\Ruku\AppData\Roaming\npm\node_modules\@playwright\cli\node_modules\playwright-core\lib\coreBundle.js:65612:20)
+    at async BrowserBackend.callTool (C:\Users\Ruku\AppData\Roaming\npm\node_modules\@playwright\cli\node_modules\playwright-core\lib\coreBundle.js:67582:11)
+    at async connection.onmessage (C:\Users\Ruku\AppData\Roaming\npm\node_modules\@playwright\cli\node_modules\playwright-core\lib\coreBundle.js:76275:29)

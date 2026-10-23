@@ -37,10 +37,10 @@ function normalizeFreshness(f: string): SearchDecision["freshness"] {
  * old model outputs are still valid.
  *
  * `intent` is intentionally parsed as a free string first, then coerced
- * to the canonical enum (unknown values → "general"). The small LFM
- * router on :8791 occasionally emits free-form intent labels like
- * "restaurant recommendation"; coercing instead of rejecting keeps the
- * fast path usable rather than falling through to :8080 for ~5s.
+ * to the canonical enum (unknown values → "general"). The gate model
+ * occasionally emits free-form intent labels like "restaurant
+ * recommendation"; coercing instead of rejecting keeps an otherwise
+ * valid decision usable instead of failing the schema.
  */
 export const SearchDecisionSchemaCompat = z
   .object({
@@ -80,7 +80,7 @@ export function coerceIntent(raw: string): SearchDecision["queries"][number]["in
   for (const k of known) {
     if (lower === k || lower.startsWith(k)) return k;
   }
-  // Fuzzy matches for common off-enum labels the LFM router emits.
+  // Fuzzy matches for common off-enum labels the gate model emits.
   if (lower.includes("news") || lower.includes("current") || lower.includes("breaking"))
     return "news";
   if (lower.includes("doc") || lower.includes("manual") || lower.includes("reference"))
@@ -153,30 +153,37 @@ export interface EvidencePacket {
   classification?: string;
 }
 
-/** The exact context the LFM gate accepts. */
-export interface LfmGateContext {
+/** The exact context the search gate accepts. */
+export interface SearchGateContext {
   userPrompt: string;
   /** A few preceding turns so a bare "what's new?" gets context. */
   history?: { role: string; content: string }[];
+  /**
+   * True when the turn carries an image/screenshot attachment. Enables the
+   * Stage 0 image+lookup-intent bypass and pairs with the vision entity
+   * pre-pass (Vision-to-Search) in the chat route.
+   */
+  hasImageAttachment?: boolean;
+  /**
+   * Image data URLs attached to the user's turn (when hasImageAttachment).
+   * Consumed by the Vision-to-Search entity pre-pass before query planning.
+   */
+  imageDataUrls?: string[];
 }
 
-export interface LfmDecision {
+export interface SearchGateResult {
   decision: SearchDecision;
   /**
    * Which authority produced the decision + query plan:
-   *   "main-model" — the main LLM on :8080. AUTHORITATIVE: it decides for
-   *                  itself and writes keyword-form, entity-anchored
-   *                  queries (measured 100% on scripts/eval-search-gate.mjs).
-   *   "lfm"        — the LFM2.5-1.2B router on :8791. Fallback path, used
-   *                  only when the main model is unreachable: it measured
-   *                  55% (13 FP / 7 FN) and must never veto the main model.
-   *   "rules"      — deterministic emergency fallback (all endpoints down).
+   *   "deterministic" — STAGE 0 hard bypass: the message names a URL, a
+   *                  known domain/shortener, or an unambiguous web/freshness
+   *                  intent (or an image + lookup intent). 0 ms, no LLM call.
+   *   "main-model"  — the main LLM (settings.json llm_api_url). The ONLY
+   *                  model authority: it decides for itself and writes
+   *                  keyword-form, entity-anchored queries.
+   *   "rules"       — deterministic emergency fallback (model unreachable).
    */
-  source: "main-model" | "lfm" | "rules";
-  /** Milliseconds spent in the gate (0 when rules short-circuited). */
-  lfmMs: number;
-  /** The informational LFM2.5 verdict, when it answered (null = unreachable). */
-  lfmVerdict?: boolean | null;
-  /** Whether the informational LFM verdict matched the authoritative one. */
-  agreement?: "agree" | "disagree" | "lfm-unavailable";
+  source: "deterministic" | "main-model" | "rules";
+  /** Milliseconds spent in the gate (0 when Stage 0 or rules short-circuited). */
+  gateMs: number;
 }

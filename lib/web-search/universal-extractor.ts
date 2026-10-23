@@ -287,7 +287,7 @@ async function extractDocument(
   }
 
   // Unknown binary — return the full content (caller's memory is bounded
-  // by the tls-client 50MB cap, so no unbounded allocation here)
+  // by the net.ts 50MB cap, so no unbounded allocation here)
   return html;
 }
 
@@ -505,7 +505,7 @@ function extractStructuralSync(html: string): string {
     return md.replace(/\n{3,}/g, "\n\n").trim();
   } catch (e: any) {
     // linkedom parse failed — raw text extraction (last resort, full
-    // content — the tls-client 50MB cap already bounds the input)
+    // content — the net.ts 50MB cap already bounds the input)
     return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
 }

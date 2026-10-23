@@ -7,25 +7,21 @@
  * Engine backbones:
  *   - DDG HTML POST      → DuckDuckGo's own index (cookie-primed)
  *   - DDG lite POST      → fallback when html POST is anomaly-blocked
+ *   - Google             → Google live web index (got-scraping fingerprints)
  *   - Yahoo              → Bing global web index (RU= redirect unwrap)
- *   - Startpage          → Google live web index (SSR HTML)
  *   - Brave              → Brave's own index (SSR HTML + __INITIAL_STATE__)
- *   - AOL                → Bing index (RU= redirect unwrap, same as Yahoo)
- *   - Mojeek             → independent UK web index
- *   - SearXNG            → aggregated multi-engine (HTML mode, dynamic instance)
  *   - Reddit             → old.reddit.com JSON (community ground-truth)
  *
- * All scrapers use impit Chrome TLS fingerprint via fetchPage/fetchUrl
- * from tls-client.ts. Each engine has a 40-second wall-clock ceiling.
+ * All scrapers go through fetchPage/fetchUrl in net.ts — got-scraping
+ * (header-generator fingerprints) first, impit TLS rotation as the internal
+ * fallback. Each engine has a 40-second wall-clock ceiling.
  *
  * Per-engine pacing: one in-flight request per host, 250–450 ms jitter
- * between sub-queries, so 4 LFM sub-queries never fire 32 simultaneous
+ * between sub-queries, so 4 planned sub-queries never fire 32 simultaneous
  * requests at any single search-engine host.
  */
 import { parseHTML } from "linkedom";
 import pLimit from "p-limit";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
 import type { RawSearchResult } from "./types";
 import {
   fetchPage,
@@ -34,7 +30,7 @@ import {
   apiHeaders,
   isSafeUrl,
   newCookieJar,
-} from "./tls-client";
+} from "./net";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("web-search/general-pool");
@@ -42,7 +38,7 @@ const log = childLogger("web-search/general-pool");
 /**
  * Per-request ceiling for a single engine fetch. A blocked / captcha-walled
  * engine still takes a few seconds to return its challenge, so we allow 40s
- * for the *first* attempt at a slow-but-valid host (arXiv, SearXNG) while
+ * for the *first* attempt at a slow-but-valid host (arXiv, Google) while
  * the pool-level wall-clock budget below caps the total.
  */
 const ENGINE_TIMEOUT_MS = 40_000;
@@ -67,10 +63,14 @@ const ENGINE_WALL_CLOCK_MS = 55_000;
  * subsequent calls to that engine are skipped for 60 seconds. This stops
  * a rate-limited DDG from stalling metasearch for 3×12s = 36s on every
  * sub-query when Bing/Brave/Reddit/GitHub already returned 30+ results
- * in <2.5s. The breaker trips on 0-result outcomes AND on the specific
- * HTTP codes that signal throttling; it does NOT trip on a clean 200
- * with 0 results (that is a legitimate "no results" answer, not a
- * throttle signal).
+ * in <2.5s. A single 0-result call is NOT enough to trip: a narrow
+ * `site:` operator query can legitimately have zero hits, and tripping
+ * the whole engine on that starves every later healthy query for 60s
+ * (measured: a `site:linkedin.com/in/` zero put DDG in cooldown and
+ * killed the regional variant that actually had the hit). The breaker
+ * therefore trips on the SECOND consecutive 0-result outcome within a
+ * 2-minute window — a genuinely blocked/throttled engine returns 0 on
+ * every sub-query, so it still trips almost immediately.
  */
 
 /* ── per-engine pacing & circuit breaker ──────────────────────────────────── */
@@ -80,11 +80,22 @@ const ENGINE_WALL_CLOCK_MS = 55_000;
  *
  * The jitter is applied BETWEEN consecutive calls to the same engine,
  * so sub-query 1 → DDG at t=0ms, sub-query 2 → DDG at t=350ms, etc.
- * This prevents the self-DDoS burst where 4 LFM sub-queries fire at
+ * This prevents the self-DDoS burst where 4 gate sub-queries fire at
  * the same host at the exact same millisecond and get bot-flagged.
  */
 const ENGINE_COOLDOWN_MS = 60_000;
 const engineCooldownUntil = new Map<string, number>();
+/**
+ * Consecutive-zero tracking: engine → {count, at}. tripCircuitBreaker is
+ * only called on 0-result outcomes, so each call means "another zero" —
+ * and each ENGINE CALL contributes at most one zero observation.
+ * The streak resets whenever that engine next serves real results
+ * (noteEngineSuccess) or when the previous zero is older than
+ * ZERO_STREAK_WINDOW_MS (a lone niche zero expires out of the window).
+ */
+const engineZeroStreaks = new Map<string, { count: number; at: number }>();
+const ZERO_STREAK_TO_TRIP = 2;
+const ZERO_STREAK_WINDOW_MS = 120_000;
 const enginePacers = new Map<string, { limit: ReturnType<typeof pLimit>; lastCall: number }>();
 
 /**
@@ -103,12 +114,48 @@ function engineIsCoolingDown(engine: string): boolean {
 }
 
 /**
- * Trip the circuit breaker for an engine: subsequent calls will be
- * skipped for ENGINE_COOLDOWN_MS (60s).
+ * Remaining breaker cooldown for an engine, in ms (0 when not cooling).
+ * Lets targeted recovery hops wait the cooldown out exactly instead of
+ * firing seconds later straight into a blackholed engine.
+ */
+export function engineCooldownRemainingMs(engine: string): number {
+  const until = engineCooldownUntil.get(engine);
+  if (until === undefined) return 0;
+  return Math.max(0, until - Date.now());
+}
+
+/**
+ * Record a 0-result outcome for an engine and trip the breaker only on
+ * the SECOND consecutive zero (within ZERO_STREAK_WINDOW_MS). Callers
+ * invoke this on every 0-result path; the streak logic lives here so a
+ * single legitimate "no hits for this query" answer cannot blackhole a
+ * healthy engine for the whole cooldown window.
  */
 function tripCircuitBreaker(engine: string, reason: string): void {
-  engineCooldownUntil.set(engine, Date.now() + ENGINE_COOLDOWN_MS);
+  const now = Date.now();
+  const prev = engineZeroStreaks.get(engine);
+  const streak =
+    prev && now - prev.at <= ZERO_STREAK_WINDOW_MS ? prev.count + 1 : 1;
+  if (streak < ZERO_STREAK_TO_TRIP) {
+    engineZeroStreaks.set(engine, { count: streak, at: now });
+    log.info(
+      { engine, reason, streak },
+      "engine 0-result outcome — breaker not tripped yet (single zero may be query-specific)",
+    );
+    return;
+  }
+  engineZeroStreaks.delete(engine);
+  engineCooldownUntil.set(engine, now + ENGINE_COOLDOWN_MS);
   log.info({ engine, reason, cooldownMs: ENGINE_COOLDOWN_MS }, "engine circuit breaker tripped");
+}
+
+/**
+ * The engine served real results — clear its zero streak so a future
+ * lone zero (a genuinely empty niche `site:` query) can never tip it
+ * into cooldown.
+ */
+function noteEngineSuccess(engine: string): void {
+  engineZeroStreaks.delete(engine);
 }
 
 /**
@@ -139,7 +186,7 @@ async function enginePacerWithBreaker(engine: string): Promise<boolean> {
 /**
  * Plain pacer without the circuit-breaker guard.
  * Used by engines that trip the breaker explicitly at their own call
- * sites (e.g. bingSearch, bingNewsRssSearch, searxSearch, redditSearch).
+ * sites (e.g. bingSearch, bingNewsRssSearch, redditSearch).
  */
 async function enginePacer(engine: string): Promise<void> {
   const jitter = 250 + Math.floor(Math.random() * 200);
@@ -462,15 +509,17 @@ export async function ddgSearch(query: string): Promise<RawSearchResult[]> {
   const allowed = await enginePacerWithBreaker("duckduckgo");
   if (!allowed) return [];
   const stageA = await ddgHtml(query).catch(() => [] as RawSearchResult[]);
-  if (stageA.length > 0) return stageA;
-  // Stage A returned 0 results: trip the breaker for the html host
-  // (this is usually a 202 challenge or 403/429 rate-limit).
-  tripCircuitBreaker("duckduckgo", "stage-A html returned 0 results");
+  if (stageA.length > 0) { noteEngineSuccess("duckduckgo"); return stageA; }
+  // Stage A 0-result is NOT a trip observation by itself: the lite
+  // endpoint may still answer, and a genuinely empty query (a niche
+  // `site:` operator) legitimately 0s on every endpoint. One zero
+  // observation per engine CALL — tripping per stage let a single empty
+  // query self-cooldown DDG before a re-hop seconds later (measured).
   const stageB = await ddgLite(query).catch(() => [] as RawSearchResult[]);
-  if (stageB.length > 0) return stageB;
-  // Both Stage A and B failed — skip Stage C entirely (VQD will also be
-  // throttled when the IP is rate-limited).
-  tripCircuitBreaker("duckduckgo", "stage-A + stage-B both returned 0 results");
+  if (stageB.length > 0) { noteEngineSuccess("duckduckgo"); return stageB; }
+  // Both endpoints 0 for this query. Skip Stage C entirely (VQD will
+  // also be throttled when the IP is rate-limited).
+  tripCircuitBreaker("duckduckgo", "both endpoints returned 0 results for this query");
   return [];
 }
 
@@ -523,9 +572,9 @@ export async function yahooSearch(query: string): Promise<RawSearchResult[]> {
         });
         if (out.length >= 15) break;
       }
-      if (out.length >= 2) return out;
+      if (out.length >= 2) { noteEngineSuccess("yahoo"); return out; }
       if (isBlocked(res.body)) continue;
-      if (out.length > 0) return out;
+      if (out.length > 0) { noteEngineSuccess("yahoo"); return out; }
     } catch { /* try next regional URL */ }
   }
   // Both regions returned 0 results — trip the breaker.
@@ -533,50 +582,84 @@ export async function yahooSearch(query: string): Promise<RawSearchResult[]> {
   return [];
 }
 
-/* ── Startpage (Google live index, SSR HTML) ─────────────────────────────── */
+/* ── Google (Web SERP, got-scraping header fingerprints) ────────────────── */
 
-export async function startpageSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("startpage");
+/** Unwrap legacy /url?q= redirect links Google emits for organic results. */
+function unwrapGoogleHref(href: string): string {
+  try {
+    const u = new URL(href, "https://www.google.com");
+    if (u.pathname === "/url") {
+      const q = u.searchParams.get("q");
+      if (q) return decodeURIComponent(q);
+      const m = u.href.match(/[?&]url=([^&]+)/);
+      if (m) return decodeURIComponent(m[1]);
+    }
+    return u.href;
+  } catch {
+    return href;
+  }
+}
+
+/**
+ * Google Web search through the classic HTML SERP endpoint. got-scraping's
+ * header-generator fingerprints (rotating Chrome/Firefox HTTP/2 headers via
+ * net.ts) get past the consent/bot heuristics that sink raw fetches.
+ * Parse-first rule: the page is only judged blocked when the parser finds
+ * zero results (isBlockedAfterParse), never before.
+ */
+export async function googleSearch(query: string): Promise<RawSearchResult[]> {
+  const allowed = await enginePacerWithBreaker("google");
   if (!allowed) return [];
-  const res = await fetchUrl("https://www.startpage.com/sp/search", {
-    timeoutMs: ENGINE_TIMEOUT_MS,
-    method: "POST",
-    body: "query=" + encodeURIComponent(query) + "&cat=web&language=english",
-    headers: {
-      ...realisticHeaders({
-        "content-type": "application/x-www-form-urlencoded",
-        origin: "https://www.startpage.com",
-        referer: "https://www.startpage.com/",
-      }),
-    },
-  } as any);
-  if (!res?.ok || !res?.text) return [];
-  const doc = docOf(res.text);
+  const res = await fetchPage(
+    "https://www.google.com/search?q=" +
+      encodeURIComponent(query) +
+      "&num=20&hl=en&gl=us",
+    {
+      timeoutMs: ENGINE_TIMEOUT_MS,
+      headers: realisticHeaders({ referer: "https://www.google.com/" }),
+    } as any,
+  );
+  if (!res?.body || res.body.length < 500) return [];
+
+  const doc = docOf(res.body);
   const out: RawSearchResult[] = [];
-  // Startpage: parse first, then check block. .w-gl__result / .result blocks
-  // carry a.result-link / .result-title / .result-description.
-  const blocks: any[] = doc.querySelectorAll(".w-gl__result, .result, article, div[class*='result']");
-  for (const block of blocks) {
-    const a = block.querySelector("a.result-link, a.result-title, h2 a, a[href^='http']");
+  const blocks: any[] = doc.querySelectorAll("div.g, .MjjYud, div.s");
+  for (const div of blocks) {
+    const a = div.querySelector("a[href^='http'], a[href^='/url']");
     if (!a) continue;
-    const href = a.getAttribute("href") ?? "";
-    if (!isSafeUrl(href)) continue;
+    const url = unwrapGoogleHref(a.getAttribute("href") ?? "");
+    if (!isSafeUrl(url)) continue;
+    try {
+      const host = new URL(url).hostname;
+      if (host === "google.com" || host.endsWith(".google.com")) continue;
+    } catch {
+      continue;
+    }
     out.push({
-      title: a.textContent?.trim() ?? block.querySelector("h2, .result-title")?.textContent?.trim() ?? "",
-      url: href,
+      title:
+        div.querySelector("h3")?.textContent?.trim() ??
+        a.textContent?.trim() ??
+        "",
+      url,
       snippet:
-        block.querySelector(".w-gl__description, .result-description, .description, p")?.textContent?.trim() ?? "",
-      engine: "startpage",
+        div.querySelector(".VwiC3b, .IsZvec, span.st, .st")?.textContent?.trim() ??
+        "",
+      engine: "google",
       rank: out.length + 1,
     });
     if (out.length >= 15) break;
   }
-  if (out.length >= 2) return out;
-  if (isBlocked(res.text)) return [];
+
+  if (out.length >= 2) { noteEngineSuccess("google"); return out; }
+  if (!res.ok || isBlocked(res.body)) {
+    tripCircuitBreaker("google", "google returned " + res.status + " with no results");
+    return [];
+  }
+  if (out.length > 0) noteEngineSuccess("google");
   return out;
 }
 
-/* ── Brave Search ─────────────────────────────────────────────────────────── */
+/* ── Brave (own index, SSR HTML + __INITIAL_STATE__) ────────────────────── */
 
 export async function braveSearch(query: string): Promise<RawSearchResult[]> {
   const allowed = await enginePacerWithBreaker("brave");
@@ -643,386 +726,17 @@ export async function braveSearch(query: string): Promise<RawSearchResult[]> {
 
   // Return results whenever the parser found ≥2 — regardless of the HTTP
   // status (429 with a valid body still serves real results).
-  if (out.length >= 2) return out.slice(0, 15);
+  if (out.length >= 2) { noteEngineSuccess("brave"); return out.slice(0, 15); }
   // No results: a non-200 status or a genuine block → trip the breaker.
   if (!res.ok || isBlocked(res.body)) {
     tripCircuitBreaker("brave", "brave returned " + res.status + " with no results");
     return [];
   }
+  if (out.length > 0) noteEngineSuccess("brave");
   return out.slice(0, 15);
 }
 
-/* ── AOL (Bing index, RU= redirect unwrap) ──────────────────────────────── */
-
-export async function aolSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("aol");
-  if (!allowed) return [];
-  // AOL search endpoint (the /aol/ path is the correct one, not /aol/search).
-  const url = "https://search.aol.com/aol/search?q=" + encodeURIComponent(query);
-  const res = await fetchPage(url, {
-    timeoutMs: ENGINE_TIMEOUT_MS,
-    headers: realisticHeaders({ referer: "https://www.aol.com/" }),
-  } as any);
-  // Parse FIRST: AOL may return 307/404 but still serve a valid SERP body
-  // on redirect-follow (impit follows redirects automatically).
-  if (!res?.body || res.body.length < 500) return [];
-  const doc = docOf(res.body);
-  const out: RawSearchResult[] = [];
-  const results: any[] = doc.querySelectorAll(
-    "a[href*='RU='], div.algo a[href^='http'], div.Sr a[href^='http'], [class*='result'] a[href^='http'], .serp-result a[href^='http']",
-  );
-  for (const a of results) {
-    const href = a.getAttribute("href") ?? "";
-    let target = unwrapRuHref(href, "https://search.aol.com");
-    if (target.startsWith("/")) target = new URL(target, "https://search.aol.com").href;
-    if (!isSafeUrl(target)) continue;
-    try {
-      const tHost = new URL(target).hostname.toLowerCase();
-      if (/^(www\.)?aol\.com$/.test(tHost) && !target.includes("/r/")) continue;
-      if (tHost.includes(".yahoo.") || tHost.includes("bing.com/aclick")) continue;
-    } catch { /* ignore */ }
-    out.push({
-      title: a.textContent?.trim() ?? "",
-      url: target,
-      snippet:
-        a.closest("div, li")?.querySelector(".snippet, .compText, .fb, p")?.textContent?.trim() ?? "",
-      engine: "aol",
-      rank: out.length + 1,
-    });
-    if (out.length >= 15) break;
-  }
-  if (out.length >= 2) return out;
-  if (isBlocked(res.body)) return [];
-  return out;
-}
-
-/* ── Mojeek ──────────────────────────────────────────────────────────────── */
-
-export async function mojeekSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("mojeek");
-  if (!allowed) return [];
-  const res = await fetchPage(
-    "https://www.mojeek.com/search?q=" + encodeURIComponent(query),
-    {
-      timeoutMs: ENGINE_TIMEOUT_MS,
-      headers: realisticHeaders({ referer: "https://www.mojeek.com/" }),
-    } as any,
-  );
-  if (!res?.ok || !res?.body) return [];
-  const doc = docOf(res.body);
-  const out: RawSearchResult[] = [];
-  // Mojeek parse-first (captcha in script tags ≠ real block).
-  const blocks: any[] = doc.querySelectorAll(
-    "#results .result, article.result, div.result, .results li, [class*='result']",
-  );
-  for (const div of blocks) {
-    const a = div.querySelector("a.result-link, h3 a, a[href^='http']");
-    if (!a) continue;
-    const href = a.getAttribute("href") ?? "";
-    if (!isSafeUrl(href)) continue;
-    out.push({
-      title: a.textContent?.trim() ?? div.querySelector("h3")?.textContent?.trim() ?? "",
-      url: href,
-      snippet:
-        div.querySelector(".snippet, p.result-description, .result-description, p")?.textContent?.trim() ?? "",
-      engine: "mojeek",
-      rank: out.length + 1,
-    });
-    if (out.length >= 15) break;
-  }
-  if (out.length >= 2) return out;
-  if (isBlocked(res.body)) return [];
-  return out;
-}
-
-/* ── SearXNG (HTML mode, sharded verified-instance pool) ───────────────── */
-
-/**
- * Sharded SearXNG pool:
- *   1. On first use, probe candidate instances in parallel with a test
- *      query, keep the ones that returned ≥1 result, and write the
- *      verified list to `.local-search/vendor/searx-instances.json`
- *      with a 5-hour wall-clock TTL.
- *   2. On subsequent reads within the TTL, reuse the verified list
- *      (no re-probe — saves the network round-trip).
- *   3. `searxSearch` shards LFM sub-queries across DIFFERENT verified
- *      instances in parallel (Q1→inst[0], Q2→inst[1], …) so a single
- *      instance's CAPTCHA wall can't block the whole pool.
- */
-
-const SEARX_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours wall-clock
-const SEARX_MIN_VERIFIED = 3;            // keep at least this many working instances
-const SEARX_MAX_SHARDS = 6;             // shard sub-queries across at most 6 instances
-
-/**
- * Candidate SearXNG instances to probe when the verified list is empty
- * or expired. These are public, non-onion instances known to serve HTML
- * to a Referer header from the same origin.
- */
-const SEARX_CANDIDATES: string[] = [
-  "https://opnxng.com/",
-  "https://search.banke.cloud/",
-  "https://etsi.me/",
-  "https://priv.au/",
-  "https://search.anoni.net/",
-  "https://search.undertale.uk/",
-  "https://search.femboy.ad/",
-  "https://search.hbubli.cc/",
-  "https://search.serpensin.com/",
-  "https://search.unredacted.org/",
-  "https://search.zina.dev/",
-  "https://search.chocolatemoo53.com/",
-];
-
-interface SearxCache {
-  verified: string[];
-  verifiedAt: number; // epoch ms
-}
-
-function searxCachePath(): string {
-  return join(process.cwd(), ".local-search", "vendor", "searx-instances.json");
-}
-
-/**
- * Read the 5-hour wall-clock verified SearXNG instance list. Returns
- * [] when the cache file is missing, unparseable, or older than 5 hours.
- */
-function loadSearxInstances(): string[] {
-  try {
-    const file = searxCachePath();
-    if (!existsSync(file)) return [];
-    const raw = JSON.parse(readFileSync(file, "utf8"));
-    // Two shapes: the new {verified, verifiedAt} cache, or the legacy
-    // {instances: [...]} list from searx.space (pre-verification).
-    if (Array.isArray(raw.verified) && typeof raw.verifiedAt === "number") {
-      if (Date.now() - raw.verifiedAt < SEARX_TTL_MS) return raw.verified;
-      return []; // stale — re-probe
-    }
-    // Legacy: no verifiedAt — trust it if fresh enough (fetchedAt field)
-    if (Array.isArray(raw.instances)) {
-      const ts = raw.fetchedAt ? new Date(raw.fetchedAt).getTime() : 0;
-      if (Date.now() - ts < SEARX_TTL_MS) {
-        return raw.instances
-          .map((i: any) => (typeof i === "string" ? i : i.url ?? null))
-          .filter((u: string | null): u is string => !!u && u.startsWith("https://") && !u.includes(".onion"));
-      }
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-function writeSearxCache(verified: string[]): void {
-  try {
-    const file = searxCachePath();
-    mkdirSync(join(process.cwd(), ".local-search", "vendor"), { recursive: true });
-    const cache: SearxCache = { verified, verifiedAt: Date.now() };
-    writeFileSync(file, JSON.stringify(cache, null, 2) + "\n", "utf8");
-    log.info({ verified, count: verified.length }, "searx verified list written to cache");
-  } catch {
-    /* cache write failure is non-fatal */
-  }
-}
-
-/**
- * Probe SEARX_CANDIDATES in parallel with a test query, keep instances
- * that returned ≥1 result, write the verified list to cache, and return
- * the verified list (at least SEARX_MIN_VERIFIED if possible).
- *
- * This is called lazily by `searxSearch` when the cache is empty/stale.
- * It is deliberately throttled: the 5-hour wall-clock TTL means it only
- * runs once every 5 hours per process.
- */
-let searxProbeInFlight: Promise<string[]> | null = null;
-
-export async function probeAndCacheSearxInstances(): Promise<string[]> {
-  if (searxProbeInFlight) return searxProbeInFlight;
-  searxProbeInFlight = (async () => {
-    const settled = await Promise.allSettled(
-      SEARX_CANDIDATES.map(async (base) => {
-        try {
-          const url =
-            base.replace(/\/$/, "") +
-            "/search?q=" +
-            encodeURIComponent("test query biryani hyderabad");
-          const res = await fetchPage(url, {
-            timeoutMs: 15_000,
-            headers: realisticHeaders({ referer: base, accept: "text/html" }),
-          } as any);
-          if (!res?.ok || !res?.body) return false;
-          if (res.body.length < 5_000) return false; // challenge / empty shell
-          if (/verifyngo|challenge|anomaly|captcha/i.test(res.body.slice(0, 3_000))) return false;
-          const doc = docOf(res.body);
-          const articles: any[] = doc.querySelectorAll("article.result, .result");
-          return articles.length > 0;
-        } catch {
-          return false;
-        }
-      }),
-    );
-    const verified = settled
-      .filter((s) => s.status === "fulfilled" && s.value)
-      .map((_, i) => SEARX_CANDIDATES[i]);
-    if (verified.length > 0) writeSearxCache(verified);
-    else {
-      // No instance worked — fall back to the candidates list so the
-      // pool is never completely empty (they may work intermittently).
-      writeSearxCache(SEARX_CANDIDATES.slice(0, SEARX_MAX_SHARDS));
-    }
-    return verified.length > 0 ? verified : SEARX_CANDIDATES.slice(0, SEARX_MAX_SHARDS);
-  })();
-  try {
-    return await searxProbeInFlight;
-  } finally {
-    searxProbeInFlight = null;
-  }
-}
-
-/**
- * Load verified instances, probing + caching on first use.
- */
-async function getVerifiedSearxInstances(): Promise<string[]> {
-  const cached = loadSearxInstances();
-  if (cached.length > 0) return cached;
-  return probeAndCacheSearxInstances();
-}
-
-/**
- * SearXNG sharded pool: distributes sub-queries across DIFFERENT verified
- * instances in parallel. Q1→inst[0], Q2→inst[1], Q3→inst[2], …
- *
- * A CAPTCHA/challenge page returns 0 results; that instance is skipped
- * for the current round (it will be re-probed on the next 5-hour cache
- * refresh).
- *
- * `shardIndex` (0-based) selects which instance to use; callers that
- * don't care about sharding just call without it and we rotate round-robin.
- */
-/**
- * Build same-origin headers for a SearXNG instance.
- *
- * SearXNG's built-in botdetection filter blocks requests whose
- * Referer/Origin do not match the instance's own origin (cross-site
- * triggers the WAF). We must set:
- *   Referer:  https://<instance-host>/
- *   Origin:   https://<instance-host>
- *   Sec-Fetch-Site: same-origin
- *   Sec-Fetch-Mode: navigate
- */
-function searxHeaders(instanceUrl: string): Record<string, string> {
-  let host = "";
-  try { host = new URL(instanceUrl).origin; } catch { host = instanceUrl; }
-  return {
-    referer: host + "/",
-    origin: host,
-    "sec-fetch-site": "same-origin",
-    "sec-fetch-mode": "navigate",
-    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  };
-}
-
-/** Parse SearXNG HTML — handles all modern themes (plain, simple, etc.). */
-function parseSearxHtml(html: string, engine: string): RawSearchResult[] {
-  const doc = docOf(html);
-  const out: RawSearchResult[] = [];
-  // Modern SearXNG themes: article.result / div.result / h3 a / h4 a /
-  // a.url_header / p.content / div.content — all covered by the union.
-  const articles: any[] = doc.querySelectorAll(
-    "article.result, div.result, h3 a, h4 a, a.url_header, p.content, div.content",
-  );
-  // Fall back to any result blocks if the theme selectors above missed.
-  if (articles.length === 0) {
-    articles.push(...doc.querySelectorAll("[class*='result']"));
-  }
-  const seen = new Set<string>();
-  for (const article of articles) {
-    const a = article.querySelector?.("a.url_header, a.result-title, a[href^='http']") ?? article;
-    if (!a) continue;
-    const href = a.getAttribute?.("href") ?? "";
-    if (!href || !isSafeUrl(href)) continue;
-    // Simple URL normalization for dedup: lowercase host, strip www + trailing slash.
-    let norm = href;
-    try {
-      const u = new URL(href);
-      norm = u.href.replace(/^www\./, "").replace(/\/$/, "");
-    } catch { norm = href; }
-    if (seen.has(norm)) continue;
-    seen.add(norm);
-    out.push({
-      title: a.textContent?.trim() ?? article.querySelector?.("h3, h4")?.textContent?.trim() ?? "",
-      url: href,
-      snippet:
-        (article.querySelector?.(".result-content, .content, p.result, p")?.textContent?.trim() ?? "")
-          .slice(0, 400),
-      engine,
-      rank: out.length + 1,
-    });
-  }
-  return out;
-}
-
-export async function searxSearch(
-  query: string,
-  shardIndex: number = 0,
-): Promise<RawSearchResult[]> {
-  await enginePacer("searxng");
-  const instances = await getVerifiedSearxInstances();
-  if (instances.length === 0) return [];
-
-  const base = instances[shardIndex % instances.length];
-  const url =
-    base.replace(/\/$/, "") + "/search?q=" + encodeURIComponent(query) + "&language=en";
-  const res = await fetchPage(url, {
-    timeoutMs: Math.min(ENGINE_TIMEOUT_MS, 30_000),
-    headers: searxHeaders(base),
-  } as any);
-  if (!res?.ok || !res?.body) return [];
-  const out = parseSearxHtml(res.body, "searxng");
-  if (out.length >= 2) return out.slice(0, 15);
-  if (isBlocked(res.body)) return [];
-  return out.slice(0, 15);
-}
-
-/**
- * Sharded SearXNG search: distribute multiple sub-queries across
- * DIFFERENT verified instances in parallel. Each sub-query acquires
- * the searxng pacer individually (concurrency=1 + jitter).
- *
- * Returns the merged raw result list (ranks are per-instance; RRF
- * fusion happens in metasearch.ts).
- */
-export async function searxSearchSharded(queries: string[]): Promise<RawSearchResult[]> {
-  if (queries.length === 0) return [];
-  const instances = await getVerifiedSearxInstances();
-  if (instances.length === 0) return [];
-
-  const settled = await Promise.allSettled(
-    queries.map(async (q, i) => {
-      await enginePacer("searxng");
-      const base = instances[i % instances.length];
-      const url =
-        base.replace(/\/$/, "") + "/search?q=" + encodeURIComponent(q) + "&language=en";
-      const res = await fetchPage(url, {
-        timeoutMs: Math.min(ENGINE_TIMEOUT_MS, 30_000),
-        headers: searxHeaders(base),
-      } as any);
-      if (!res?.ok || !res?.body) return [] as RawSearchResult[];
-      const out = parseSearxHtml(res.body, "searxng");
-      if (out.length >= 2) return out.slice(0, 15);
-      if (isBlocked(res.body)) return [];
-      return out.slice(0, 15);
-    }),
-  );
-
-  const out: RawSearchResult[] = [];
-  for (const s of settled) {
-    if (s.status === "fulfilled") out.push(...s.value);
-  }
-  return out;
-}
-
-/* ── Reddit (community ground-truth, always in general pool) ─────────────── */
+/* ── Reddit (3-stage keyless community cascade) ─────────────────────────── */
 
 /**
  * 3-stage keyless Reddit cascade:
@@ -1616,6 +1330,7 @@ export async function devToSearch(query: string): Promise<RawSearchResult[]> {
   }
 
   if (out.length === 0) tripCircuitBreaker("devto", "dev.to returned 0 results");
+  else noteEngineSuccess("devto");
   return out.slice(0, 15);
 }
 
@@ -1624,7 +1339,7 @@ export async function devToSearch(query: string): Promise<RawSearchResult[]> {
 /**
  * Deduplicate sub-queries that share >80% token overlap.
  *
- * Before the LFM gate's 4 sub-queries are fanned out to the pool, this
+ * Before the search gate's 4 sub-queries are fanned out to the pool, this
  * collapses near-duplicates so we don't waste 4× requests on essentially
  * the same query. "best biryani restaurant in Manikonda Hyderabad" and
  * "top rated biryani places in Manikonda Hyderabad" share ~80% tokens
@@ -1669,23 +1384,17 @@ export function deduplicateQueries(queries: string[]): string[] {
  * (bingNewsRssSearch, githubSearch, devToSearch) are routed by intent
  * in metasearch.ts, NOT run on every sub-query.
  *
- * Every sub-query in an LFM plan is distributed across this pool with
+ * Every sub-query in a plan is distributed across this pool with
  * per-engine pacing (one in-flight per host, 250–450 ms jitter) so that
- * 4 sub-queries × 9 engines never fire 36 simultaneous requests at any
+ * 4 sub-queries × 6 engines never fire 24 simultaneous requests at any
  * single host.
- *
- * `searxSearch` is the single-shard version; `searxSearchSharded` is
- * the multi-shard version used by `metasearchSharded`.
  */
 export const GENERAL_WEB_ENGINES = [
   ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage)
+  googleSearch,          // Google live web index (got-scraping fingerprints, parse-first)
   bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first)
   yahooSearch,           // Bing global web index (RU= unwrap, parse-first)
-  startpageSearch,       // Google live web index (SSR HTML, parse-first)
   braveSearch,           // Brave's own index
-  aolSearch,             // Bing index (RU= unwrap, parse-first)
-  mojeekSearch,          // independent UK index (parse-first)
-  searxSearch,           // aggregated multi-engine (HTML mode, single shard, same-origin headers)
   redditSearch,          // community ground-truth (3-stage: RSS → PullPush → JSON)
 ] as const;
 
@@ -1707,12 +1416,11 @@ export async function runGeneralWebSearch(query: string): Promise<RawSearchResul
 
 /**
  * Sharded metasearch: distribute multiple sub-queries across DIFFERENT
- * instances / engines to minimise per-host burst load.
+ * engines to minimise per-host burst load.
  *
  * - `primaryQuery` (from `deduplicateQueries[0]`) is sent to the
- *   rate-sensitive direct scrapers (DDG, Bing, Brave) once.
- * - All queries are distributed across the SearXNG sharded pool.
- * - All queries are sent to the Reddit 3-stage cascade and the other
+ *   rate-sensitive direct scrapers (DDG, Google, Bing, Brave) once.
+ * - All queries are sent to the Bing + Reddit engines and the remaining
  *   general engines in parallel (their per-engine pacer handles the
  *   jitter between sub-queries automatically).
  *
@@ -1722,29 +1430,23 @@ export async function runGeneralWebSearchSharded(
   primaryQuery: string,
   allQueries: string[],
 ): Promise<RawSearchResult[]> {
-  // 1. Primary query → rate-sensitive direct scrapers (DDG, Bing, Brave)
+  // 1. Primary query → rate-sensitive direct scrapers (DDG, Google, Bing, Brave)
   const directPromises = [
     ddgSearch(primaryQuery),
+    googleSearch(primaryQuery),
     bingSearch(primaryQuery),
     braveSearch(primaryQuery),
   ];
 
-  // 2. All deduplicated queries → sharded SearXNG pool.
-  //    Bing and Reddit are fast + unblocked, so they run on every
+  // 2. Bing and Reddit are fast + unblocked, so they run on every
   //    deduplicated sub-query (not just the primary) to give every
-  //    scenario strong coverage without the old 11-engine flood.
-  const searxSharded = searxSearchSharded(allQueries);
+  //    scenario strong coverage without an all-engines flood.
   const bingAll = allQueries.map((q) => bingSearch(q));
   const redditAll = allQueries.map((q) => redditSearch(q));
 
   // 3. All queries → remaining general engines (rate-limited by their
   //    individual pacer, so all sub-queries get through with jitter).
-  const otherEngines = [
-    yahooSearch,
-    startpageSearch,
-    aolSearch,
-    mojeekSearch,
-  ];
+  const otherEngines = [yahooSearch];
   const othersPromises = allQueries.flatMap((q) =>
     otherEngines.map((fn) => fn(q)),
   );
@@ -1752,7 +1454,6 @@ export async function runGeneralWebSearchSharded(
   const settled = await Promise.allSettled(
     [
       ...directPromises,
-      searxSharded,
       ...bingAll,
       ...redditAll,
       ...othersPromises,

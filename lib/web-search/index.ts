@@ -1,9 +1,12 @@
 export {
-  runLfmGate,
+  runSearchGate,
   rulesBasedPlan,
   callLlm,
   extractPromptUrls,
-} from "./lfm-gate";
+  deterministicHardBypass,
+  gateDisabledByEnv,
+  promptHasExternalEntity,
+} from "./search-gate";
 export {
   metasearch,
   metasearchWithBudget,
@@ -20,12 +23,8 @@ export {
   ddgSearch,
   bingSearch,
   yahooSearch,
-  startpageSearch,
+  googleSearch,
   braveSearch,
-  aolSearch,
-  mojeekSearch,
-  searxSearch,
-  searxSearchSharded,
   redditSearch,
   bingNewsRssSearch,
   githubSearch,
@@ -33,12 +32,12 @@ export {
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,
-  probeAndCacheSearxInstances,
   GENERAL_WEB_ENGINES,
-} from "./general-pool";
+} from "./engines";
 export {
   extractAll,
   extractUrl,
+  baselinePacketsFor,
 } from "./extractor";
 export {
   rerank,
@@ -85,33 +84,31 @@ export {
   pickFingerprint,
   type BrowserFingerprint,
   type CookieJar,
-} from "./tls-client";
+} from "./net";
 export {
-  detectBlock,
-  detectBlockInText,
-  stripWafChallengeText,
-  hasMeaningfulContent,
-  type BlockKind,
-  type BlockVerdict,
-} from "./block-detector";
-export {
-  domainAdapter,
-  extractStructuredMeta,
-  extractHydrationState,
+  platformAdapter,
   type AdapterResult,
-} from "./domain-adapters";
+} from "./platform-api";
 export {
-  universalDiscovery,
-  universalSchemaExtract,
-  tryMarkdownNegotiation,
-  tryLlmsTxt,
-  discourseAdapter,
-  shopifyAdapter,
-  cmsAdapter,
-  type DiscoveredChannel,
-} from "./universal-discovery";
+  schemaExtract,
+  schemaExtractFromBlocks,
+} from "./schema-extract";
+export {
+  getYouTubeEvidence,
+  parseYouTubeVideoId,
+  youTubeCompanionQuery,
+  type YouTubeEvidence,
+} from "./youtube";
+export {
+  isShortLinkUrl,
+  unwrapRedirect,
+  unwrapShortLink,
+  SHORTLINK_HOSTS,
+} from "./redirect-unwrap";
 export {
   unpackHydration,
+  walkGenericJsonForEntities,
+  type WalkerOptions,
 } from "./hydration-unpacker";
 export {
   structuralExtract,
@@ -129,6 +126,9 @@ export {
   planQueries,
   evaluateCoverage,
   runGapMetasearch,
+  extractBrandTokens,
+  inferBrandDomain,
+  buildDeepIndexQuery,
   type PlannedQuery,
   type CoverageReport,
 } from "./query-planner";
@@ -139,7 +139,7 @@ export {
   type RawSearchResult,
   type EvidencePassage,
   type EvidencePacket,
-  type LfmDecision,
-  type LfmGateContext,
+  type SearchGateResult,
+  type SearchGateContext,
   type RankedResult,
 } from "./types";

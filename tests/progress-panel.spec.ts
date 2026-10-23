@@ -37,7 +37,7 @@ function startProgressUpstream(overrides: Partial<{ readingDelay: number }> = {}
   const readingDelay = overrides.readingDelay ?? 450;
   const stageFrames: StageFrame[] = [
     { json: { ruke_stage: { stage: "decision_done", mode: "ppt", ms: 421 } }, delay: 150 },
-    { json: { ruke_stage: { stage: "web:lfm" } }, delay: 300 },
+    { json: { ruke_stage: { stage: "web:gate" } }, delay: 300 },
     { json: { ruke_stage: { stage: "web:searching", total: 2 } }, delay: 450 },
     { json: { ruke_stage: { stage: "web:reading", total: 3 } }, delay: 450 },
     { json: { ruke_stage: { stage: "web:reading", done: 1, total: 3 } }, delay: readingDelay },

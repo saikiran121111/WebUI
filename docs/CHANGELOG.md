@@ -1,5 +1,60 @@
 # CHANGELOG
 
+## 2026-10-23 — Feature: Live token meter in the composer footer (Speed tk/s · Context used/max)
+User request: replace the static "Output varies based on model that's being used." note with
+real, API-sourced stats — `Speed: 56.45 tk/s · Context: 3456/131072` — with no fabricated numbers.
+- **Custom endpoint** (`app/api/model-stats/route.ts`, new): server-side proxy so the browser
+  never sees the model URL/key; zero inference cost (status reads only).
+  `GET /api/model-stats` → upstream `/props` (3 s timeout) → `{ok, model_alias, n_ctx, total_slots}`
+  (n_ctx = real max context, 131072 live); `?live=1` → upstream `/slots` → `{ok, processing,
+  prompt_tokens, n_ctx}` (exact in-flight prompt size). Upstream unreachable → `{ok:false}` with a
+  200 → honest dashes in the UI.
+- **Pure logic** (`lib/chat/tokenMeter.ts`, new): `TokenMeterSnapshot {maxContext, contextUsed,
+  speedTps, source:"exact"|"measured"|"estimate"|null, backendOk}`; `latestRealUsage` (exact
+  prompt+completion from persisted usage frames), `measureLiveSpeed` (real tokens ÷ real elapsed),
+  `estimateTokensFromChars` (reuses CHARS_PER_TOKEN), `meterText`/`meterTooltip` (provenance tooltip).
+- **Hook** (`hooks/useTokenMeter.ts`, new): /props once per page load; during streaming ONE 1 Hz
+  poll (`?live=1`) + EMA-smoothed real rate measured over poll windows; exact server usage takes
+  over the instant the turn ends (usage already persists on messages, so exact numbers survive
+  reloads). No per-delta state churn — rAF rule §5.3 untouched.
+- **UI** (`components/ChatInput.tsx`, `app/page.tsx`): static span replaced by
+  `[data-testid="token-meter"]` with tabular-nums + fixed min-width footprint (zero jitter); hero
+  variant unchanged (no meta row).
+- **Honesty model:** after a turn = server-measured `timings.predicted_per_second` + exact usage
+  tokens; mid-stream = exact `n_prompt_tokens` + measured output (this llama.cpp build exposes no
+  live generated-token counter via /slots) — the tooltip states exactly this.
+- Verified: tsc 0; vitest 14 new units (`__tests__/token-meter.test.ts`); Playwright
+  `tests/token-meter.spec.ts` model-free (paced fake SSE with a real-shaped usage+timings frame +
+  fulfilled /api/model-stats JSON) — 1/1, 5.0 s, PW_EXIT=0 under §1 lock; endpoint curl smoke:
+  real n_ctx 131072 / live prompt_tokens 60770.
+
+## 2026-10-23 — Fix: Compaction actually runs on the real backend (bypass, anchor prompt, visible failures)
+User report: "compact is not working at all — context crossed ~100k, auto-compact set at
+32k; even manual compact is not working". Four stacked causes fixed end-to-end:
+- **Route bypass** (`lib/chat/types.ts`, `lib/chat/client.ts`, `app/api/chat/route.ts`):
+  compaction's own /api/chat call now carries `purpose:"compact"`; the route forwards it
+  VERBATIM — no slash routing, no Decision Engine, no skill injection, no web-research
+  gate. Previously the router classified the stale last message of the history being
+  folded and could inject a renderer skill contract mid-payload, destroying the
+  `<compacted_context>` output, while the web gate burned minutes of the timeout.
+- **Model compliance** (`lib/chat/compact.ts`): `COMPACTION_ANCHOR_PROMPT` — an
+  "END OF CONVERSATION… output ONLY the block" user turn appended AFTER the folded
+  history. The small local model otherwise treats the payload as a conversation to
+  continue (observed: it replayed the last assistant line). The anchor is ephemeral and
+  never enters the replacement history. Timeout raised 120 s → 300 s for large prefills.
+- **Failures are visible** (`hooks/useChat.ts`, `components/ui/CompactDividerBadge.tsx`):
+  `badgeAt` now publishes with `isCompacting` (in-flight "Compacting context…" spinner
+  finally mounts) and on failure/no-op runs; the divider renders `data-state="failed"`
+  (red, error in tooltip) or `"noop"` ("Context already fits") instead of vanishing.
+  Previously every failure was indistinguishable from "nothing happened".
+- **Test gap closed** (`tests/auto-compact.spec.ts`): all earlier compaction tests
+  intercepted `**/api/chat`, so the real route never ran. Added two unmocked tests
+  against the real shared backend: route contract (`purpose=compact` → zero `ruke_stage`
+  frames; identical plain turn → frames) and full manual `/compact` end-to-end (settles
+  "done", "Context compacted (x -> y tokens)", follow-up replies). Verified 5/5, real
+  exit 0, single foreground run under the `.ai-coordination` lock; the user's live
+  32k auto setting (wiped by the spec's afterEach reset) was restored.
+
 ## 2026-10-22g — Feature: Auto-Compact Context (threshold UI, /compact command, pre-send gate, divider badge)
 Per the "Auto-Compact Context" spec:
 - **Settings → new "Context" tab** (`components/SettingsMenu.tsx`): auto-compact toggle,

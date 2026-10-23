@@ -1,0 +1,4 @@
+[     164ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:38559
+[     288ms] [WARNING] You have Reduced Motion enabled on your device. Animations may not appear as expected. @ webpack-internal:///(app-pages-browser)/./node_modules/framer-motion/dist/es/utils/warn-once.mjs:8
+[     304ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[  144018ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ :0
