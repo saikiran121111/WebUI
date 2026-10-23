@@ -18,11 +18,11 @@
  * constrained query, so the main model never bypasses the gate).
  */
 import type { SearchPlan } from "./metasearch";
-import type { LfmGateContext, SearchDecision } from "./types";
+import type { SearchGateContext, SearchDecision } from "./types";
 import { metasearch } from "./metasearch";
 import { tokenize } from "./reranker";
 
-type LfmQuery = SearchDecision["queries"][number];
+type GateQuery = SearchDecision["queries"][number];
 
 /* ── entity extraction (cheap, no LLM) ───────────────────────────────── */
 
@@ -62,6 +62,10 @@ function extractEntities(prompt: string): string[] {
 function sourceClass(prompt: string): string | null {
   const p = prompt.toLowerCase();
   if (/\bfiletype\s*:\s*pdf\b|\bpaper\b|\bpdf\b|\bwhite ?paper\b/.test(p)) return "pdf";
+  // LinkedIn person/profile lookups (the Vision-to-Search pre-pass feeds
+  // the entity hints; the targeted query adds site:linkedin.com/in/).
+  if (/\blinked ?in\b|lnkd\.in|\/profile\b|person profile|\bfind (this|the|that) (guy|person|profile)\b/.test(p))
+    return "linkedin";
   if (/\bsite\s*:\s*github\.com\b|github|repo(sitory)?\s+(page)?\b/.test(p)) return "github";
   if (/\bdocs?\b|documentation|manual|guide|reference|readme/.test(p)) return "docs";
   if (/\breview|rating|versus|vs\b|comparison|benchmark/.test(p)) return "review";
@@ -92,23 +96,46 @@ export interface PlannedQuery {
 }
 
 /**
+ * Merge the Vision-to-Search entity hints (Fix 2) ahead of the cheap
+ * regex entities — vision-extracted names/companies/handles are higher
+ * precision, so they anchor the entity + targeted queries.
+ */
+function mergeEntities(hints: string[], auto: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const e of [...hints, ...auto]) {
+    const t = String(e ?? "").trim();
+    if (!t || t.length < 2 || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+/**
  * Decompose the user prompt into 2–4 orthogonal sub-queries.
  *
  * The planner is deterministic (no LLM call — the LLM gate has already
  * classified search_required on the raw prompt). It splits on entity
  * density: a prompt with 3+ distinct entities gets an entity query and a
  * targeted-source query in addition to the broad semantic query.
+ *
+ * `entityHints` come from the Vision-to-Search pre-pass when the turn
+ * carries an image attachment (Fix 2) — they take precedence over the
+ * regex-extracted entities.
  */
 export function planQueries(
   userPrompt: string,
-  lfmQueries: LfmQuery[],
+  gateQueries: GateQuery[],
+  entityHints?: string[],
 ): PlannedQuery[] {
   const plans: PlannedQuery[] = [];
 
   // 1. Broad semantic query — use the LLM's own queries if it produced
   // them, else the raw prompt (capped at 200 chars so the engine pool
   // gets a clean string).
-  for (const q of lfmQueries.slice(0, 2)) {
+  for (const q of gateQueries.slice(0, 2)) {
     plans.push({
       query: q.query,
       intent: q.intent,
@@ -124,7 +151,7 @@ export function planQueries(
     });
   }
 
-  const entities = extractEntities(userPrompt);
+  const entities = mergeEntities(entityHints ?? [], extractEntities(userPrompt));
   const cls = sourceClass(userPrompt);
 
   // 2. Exact entity / technical query — quoted entities survive the
@@ -170,6 +197,16 @@ export function planQueries(
         opQuery = `pricing "${base}"`;
         opIntent = "pricing";
         break;
+      case "linkedin": {
+        // Person lookup: anchor on the two strongest entity hints (the
+        // vision pre-pass usually supplies Full Name + Company/handle).
+        const anchor =
+          entities.length >= 2 ? `"${entities[0]}" "${entities[1]}"` : `"${base}"`;
+        opQuery = `${anchor} site:linkedin.com/in/`;
+        opIntent = "general";
+        domains = ["linkedin.com"];
+        break;
+      }
     }
     if (opQuery) {
       plans.push({ query: opQuery, intent: opIntent, preferredDomains: domains, origin: "targeted" });

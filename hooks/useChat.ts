@@ -397,11 +397,12 @@ export function useChat({
     if (ev.stage) {
       if (ev.stage.stage === "web_meta") {
         const id = assistantIdRef.current;
-        if (id && (ev.stage.webCitations || ev.stage.researchLfm)) {
+        const gateMeta = ev.stage.searchGate ?? ev.stage.researchLfm;
+        if (id && (ev.stage.webCitations || gateMeta)) {
           setMessages(prev => prev.map(m => m.id === id ? {
             ...m,
             ...(ev.stage.webCitations ? { webCitations: ev.stage.webCitations } : {}),
-            ...(ev.stage.researchLfm ? { researchLfm: ev.stage.researchLfm } : {}),
+            ...(gateMeta ? { searchGate: gateMeta } : {}),
           } : m));
         }
       }
@@ -679,9 +680,9 @@ export function useChat({
               m.id === assistantMsg.id ? { ...m, webCitations: hdrs.webCitations } : m
             ));
           }
-          if (hdrs.researchLfm) {
+          if (hdrs.searchGate) {
             setMessages(prev => prev.map(m =>
-              m.id === assistantMsg.id ? { ...m, researchLfm: hdrs.researchLfm } : m
+              m.id === assistantMsg.id ? { ...m, searchGate: hdrs.searchGate } : m
             ));
           }
         },

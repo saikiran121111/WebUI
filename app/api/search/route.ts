@@ -60,11 +60,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       evidenceBlock: block,
       webCitations,
-      lfm: {
-        source: bundle.lfm.source,
-        depth: bundle.lfm.decision.depth,
-        freshness: bundle.lfm.decision.freshness,
-        queries: bundle.lfm.decision.queries.map((q) => q.query),
+      searchGate: {
+        source: bundle.searchGate.source,
+        depth: bundle.searchGate.decision.depth,
+        freshness: bundle.searchGate.decision.freshness,
+        queries: bundle.searchGate.decision.queries.map((q) => q.query),
       },
     });
   } catch (err: unknown) {

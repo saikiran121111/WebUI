@@ -4,9 +4,11 @@
  * Composes the core modules into a single callable entry point:
  *
  *   user prompt
- *     → runLfmGate (the MAIN model decides whether a web search is needed and
- *       writes the queries; rules are the unreachable-fallback — see
- *       lfm-gate.ts. No LFM router, no verification adjudication in the gate)
+ *     → runSearchGate (Stage 0 hard bypass answers literal URLs / known
+ *       domains / live-intent words in 0 ms; otherwise the MAIN model
+ *       decides whether a web search is needed and writes the queries;
+ *       rules are the unreachable-fallback — see search-gate.ts. No
+ *       separate LFM router, no verification adjudication in the gate)
  *     → metasearch (parallel sources + RRF fusion)
  *     → extractAll (p-limited 3-tier extraction, cache-aware)
  *     → rerank (CPU BM25, top 12–15, ≤3/domain)
@@ -23,8 +25,8 @@
  * route can surface "Deciding…" / "Searching…" / "Reading…" / "Reranking…"
  * to the WebUI in real time.
  */
-import { runLfmGate } from "./lfm-gate";
-import type { LfmGateContext } from "./types";
+import { runSearchGate } from "./search-gate";
+import type { SearchGateContext } from "./types";
 import {
   metasearch,
   metasearchWithFreshnessRecovery,
@@ -39,7 +41,7 @@ import {
   getCachedQuery,
   putCachedQuery,
 } from "./cache";
-import type { EvidencePacket, EvidencePassage, LfmDecision } from "./types";
+import type { EvidencePacket, EvidencePassage, SearchGateResult } from "./types";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("web-search/pipeline");
@@ -107,7 +109,7 @@ function countRelevantResults(
 }
 
 export type PipelineStage =
-  | "lfm"
+  | "gate"
   | "planning"
   | "searching"
   | "recovery"
@@ -131,8 +133,8 @@ export interface PipelineProgress {
 }
 
 export interface EvidenceBundle {
-  /** The gate decision (main-model authority). */
-  lfm: LfmDecision;
+  /** The gate decision (Stage 0 deterministic or main-model authority). */
+  searchGate: SearchGateResult;
   /** Normalized + fused search results (top N). */
   searchResults: RankedResult[];
   /** Parsed web pages. */
@@ -174,7 +176,7 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
     bySource.set(p.sourceId, arr);
   }
 
-  const depth = bundle.lfm.decision.depth;
+  const depth = bundle.searchGate.decision.depth;
   const charBudget = depth === "deep" ? 60_000 : 35_000;
 
   const lines: string[] = [
@@ -214,7 +216,7 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
  * the chat route can stream status messages back to the WebUI.
  */
 export async function runWebResearch(
-  ctx: LfmGateContext,
+  ctx: SearchGateContext,
   onProgress?: (p: PipelineProgress) => void,
   signal?: AbortSignal,
 ): Promise<EvidenceBundle | null> {
@@ -226,27 +228,26 @@ export async function runWebResearch(
     : ceilingSignal;
   const ceilingHit = () => abortSignal.aborted;
 
-  // ── search gate (main model only) ───────────────────────────────────
-  // Stage id stays "lfm" (the SSE/UI progress contract keys on it).
-  onProgress?.({ stage: "lfm", detail: "Deciding whether a web search is needed…" });
-  const lfm = await runLfmGate(ctx);
-  if (!lfm.decision.search_required) {
+  // ── search gate (Stage 0 hard bypass → main model) ─────────────────
+  onProgress?.({ stage: "gate", detail: "Deciding whether a web search is needed…" });
+  const gate = await runSearchGate(ctx);
+  if (!gate.decision.search_required) {
     onProgress?.({ stage: "skipped", detail: "No web search required" });
     return null; // pipeline caller must fall back to main model directly
   }
   log.info(
-    { gateMs: lfm.lfmMs, source: lfm.source, queries: lfm.decision.queries.length },
+    { gateMs: gate.gateMs, source: gate.source, queries: gate.decision.queries.length },
     "search gate passed",
   );
 
   // ── query planning (multi-hop decomposer) ────────────────────────────
   onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries…" });
-  const planned = planQueries(ctx.userPrompt, lfm.decision.queries);
+  const planned = planQueries(ctx.userPrompt, gate.decision.queries);
   const plans: SearchPlan[] = planned.map((p) => ({
     query: p.query,
     intent: p.intent as SearchPlan["intent"],
     preferredDomains: p.preferredDomains,
-    freshness: lfm.decision.freshness,
+    freshness: gate.decision.freshness,
     relevanceAnchor: ctx.userPrompt,
   }));
   log.info({ planned: planned.length, origins: planned.map((p) => p.origin) }, "query plan built");
@@ -267,11 +268,11 @@ export async function runWebResearch(
   } else if (!ceilingHit()) {
     const t = performance.now();
     const { results: fused, freshnessRecoveryUsed } = await metasearchWithFreshnessRecovery(
-      plans.map((p) => ({ ...p, freshness: lfm.decision.freshness })),
+      plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
       20,
     );
     searchResults = fused;
-    putCachedQuery(plans, searchResults, lfm.decision.freshness);
+    putCachedQuery(plans, searchResults, gate.decision.freshness);
     log.info(
       { ms: Math.round(performance.now() - t), results: searchResults.length, freshnessRecoveryUsed },
       "metasearch complete",
@@ -322,7 +323,7 @@ export async function runWebResearch(
   if (searchResults.length === 0) {
     onProgress?.({ stage: "done", detail: "No search results returned" });
     return {
-      lfm,
+      searchGate: gate,
       searchResults: [],
       packets: [],
       topPassages: [],
@@ -355,7 +356,7 @@ export async function runWebResearch(
   );
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
-  const qTexts = lfm.decision.queries.map((q) => q.query);
+  const qTexts = gate.decision.queries.map((q) => q.query);
   const promptUrls = ctx.userPrompt.match(/https?:\/\/[^\s"'<>[\]]+/gi) ?? [];
   const singleUrlQuery = promptUrls.length === 1;
 
@@ -413,7 +414,7 @@ export async function runWebResearch(
   });
 
   return {
-    lfm,
+    searchGate: gate,
     searchResults,
     packets,
     topPassages,

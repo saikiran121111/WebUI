@@ -21,7 +21,7 @@
  */
 import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
-import type { RawSearchResult, RankedResult, LfmDecision } from "./types";
+import type { RawSearchResult, RankedResult } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, fetchPage, isSafeUrl, realisticHeaders, apiHeaders } from "./tls-client";
 import {

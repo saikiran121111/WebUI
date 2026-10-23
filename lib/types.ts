@@ -176,7 +176,18 @@ export interface Message {
   /**
    * Search-gate summary shown in the Research Trail card: which queries
    * were generated, at what depth/freshness, and which authority decided
-   * (since 2026-10-22 always "main-model").
+   * ("deterministic" Stage-0 bypass, or "main-model").
+   */
+  searchGate?: {
+    depth: string;
+    freshness: string;
+    decidedBy?: string;
+    queries: { query: string; intent: string }[];
+  };
+  /**
+   * @deprecated renamed `searchGate` on 2026-10-23 (LFM → SEARCH-GATE).
+   * Kept ONLY as a back-compat reader for conversations persisted before
+   * the rename; new turns never populate it.
    */
   researchLfm?: {
     depth: string;
@@ -275,6 +286,13 @@ export interface StageEvent {
     domain: string;
     publishedAt?: string;
   }>;
+  searchGate?: {
+    depth: string;
+    freshness: string;
+    decidedBy?: string;
+    queries: { query: string; intent: string }[];
+  };
+  /** @deprecated pre-rename spelling (2026-10-23); read as a fallback. */
   researchLfm?: {
     depth: string;
     freshness: string;

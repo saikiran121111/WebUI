@@ -10,7 +10,9 @@ export interface DecodedSseHeaders {
   decisionMode?: RendererMode;
   skill?: string;
   webCitations?: Message["webCitations"];
-  researchLfm?: Message["researchLfm"];
+  searchGate?: Message["searchGate"];
+  /** @deprecated pre-rename header reader — kept for older responses. */
+  researchLfm?: Message["searchGate"];
 }
 
 /**
@@ -36,9 +38,9 @@ export function decodeSseHeaders(
     try { out.webCitations = JSON.parse(decodeURIComponent(raw)); } catch { /* */ }
   }
 
-  const rawLfm = headers.get("X-Research-Lfm");
-  if (rawLfm) {
-    try { out.researchLfm = JSON.parse(decodeURIComponent(rawLfm)); } catch { /* */ }
+  const rawGate = headers.get("X-Search-Gate") ?? headers.get("X-Research-Lfm");
+  if (rawGate) {
+    try { out.searchGate = JSON.parse(decodeURIComponent(rawGate)); } catch { /* */ }
   }
 
   return out;

@@ -12,7 +12,7 @@ verifiable evidence with inline `[S#]` citations.
 user prompt
    │
    ▼
-LFM gate  (lib/web-search/lfm-gate.ts)
+SEARCH-GATE  (lib/web-search/search-gate.ts)
    │  1. deterministic short-circuit (trigger / no-search rules)
    │  2. LLM call → JSON matching SearchDecisionSchema
    │  3. 2500ms ceiling → rule-based fallback
@@ -64,9 +64,9 @@ WebUI       (components/render/ResearchTrailCard.tsx + MarkdownRenderer)
 
 | File | Responsibility |
 | --- | --- |
-| `types.ts` | Zod schemas + shared types (`SearchDecision`, `RankedResult`, `EvidencePacket`, `LfmDecision`) |
+| `types.ts` | Zod schemas + shared types (`SearchDecision`, `RankedResult`, `EvidencePacket`, `SearchGateResult`) |
 | `tls-client.ts` | Impit pool (Chrome/Firefox/Edge rotation), SSRF guards, 2MB body cap, rotating realistic headers, per-request cookie jar for redirect chains |
-| `lfm-gate.ts` | LLM classification + deterministic trigger/no-search short-circuits + 2500ms fallback |
+| `search-gate.ts` | LLM classification + deterministic trigger/no-search short-circuits + 2500ms fallback |
 | `metasearch.ts` | 8 keyless source fetchers + RRF fusion + URL normalization + `urlSearchFallback` for blocked URLs |
 | `block-detector.ts` | Pre-DOM classification of Cloudflare / Akamai / PerimeterX / DataDome / CAPTCHA / login-wall / JS-shell responses |
 | `domain-adapters.ts` | Zero-key smart extractors: Reddit .json, GitHub raw / README, YouTube oEmbed + hydration, OSM Nominatim / OSM API |

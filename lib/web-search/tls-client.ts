@@ -9,7 +9,8 @@
  * by search-engine CDNs within seconds.
  */
 import { Impit } from "impit";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, brotliDecompressSync } from "node:zlib";
+import https from "node:https";
 
 /* ── Shared TLS-impersonated pool ────────────────────────────────────────── */
 // One lazily-created Impit instance: Impit keeps a per-host HTTP/2
@@ -343,6 +344,13 @@ export interface PageResponse {
   fingerprint: BrowserFingerprint;
   /** Set-Cookie header pairs from the final hop (empty when none). */
   cookies: string[];
+  /**
+   * The FINAL URL after the full 301/302/303/307/308 redirect chain
+   * ("" on network failure). Short links (maps.app.goo.gl, bit.ly, t.co,
+   * Firebase dynamic links) surface their real destination here so the
+   * pipeline can extract the RESOLVED page, not the redirect stub.
+   */
+  resolvedUrl: string;
 }
 
 /**
@@ -411,6 +419,115 @@ export function newCookieJar(): CookieJar {
       store.set(host, current);
     },
   };
+}
+
+/* ── Gov TLS tolerance ─────────────────────────────────────────────────────
+ * Government / institutional hosts (.gov, .gov.in, .nic.in, agency and
+ * university mirrors) frequently serve expired, self-signed, or
+ * incomplete certificate chains.  impit throws a TLS handshake error on
+ * those, which the pipeline would otherwise file as FAIL_NETWORK_OR_CRASH —
+ * so on a cert-shaped error we retry ONCE through node:https with
+ * rejectUnauthorized:false (manual redirect follow + bounded body), which
+ * reads the real circular/page instead of losing it.
+ */
+const CERT_ERROR_RE =
+  /unable to verify|self[- ]signed|certificate has expired|cert_has_expired|unable_to_verify_leaf|unable to get (?:local )?issuer|ssl(?:routines)?|tlsv1 alert|wrong version number|handshake failure|no shared cipher|EPROTO/i;
+
+export function isCertError(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? `${err.message} ${(err as any)?.code ?? ""} ${(err as any)?.reason ?? ""}`
+      : String(err ?? "");
+  return CERT_ERROR_RE.test(msg);
+}
+
+/**
+ * rejectUnauthorized:false GET for cert-broken gov pages.  Follows up to
+ * 6 redirects (re-running the SSRF guard on every hop), decompresses
+ * gzip/br bodies, and caps the body at limitBytes.  Returns null on ANY
+ * failure so the caller falls back to the normal failure path.
+ */
+async function tlsTolerantGet(
+  url: string,
+  timeoutMs = 45_000,
+  limitBytes: number = PAGE_LIMIT_BYTES,
+): Promise<PageResponse | null> {
+  const t0 = performance.now();
+  let settled = false;
+  return new Promise<PageResponse | null>((resolve) => {
+    const finish = (r: PageResponse | null) => {
+      if (!settled) {
+        settled = true;
+        resolve(r);
+      }
+    };
+    const visit = (u: string, hops: number) => {
+      if (hops > 6 || !isSafeUrl(u)) return finish(null);
+      let req: import("node:http").ClientRequest;
+      try {
+        req = https.get(
+          u,
+          {
+            rejectUnauthorized: false,
+            timeout: Math.max(5_000, timeoutMs),
+            headers: realisticHeaders(),
+          },
+          (res) => {
+            const status = res.statusCode ?? 0;
+            const loc = res.headers["location"];
+            if (
+              [301, 302, 303, 307, 308].includes(status) &&
+              loc &&
+              hops < 6
+            ) {
+              res.resume();
+              try {
+                return visit(new URL(loc, u).toString(), hops + 1);
+              } catch {
+                return finish(null);
+              }
+            }
+            const chunks: Buffer[] = [];
+            let total = 0;
+            res.on("data", (c: Buffer) => {
+              if (total >= limitBytes) return;
+              chunks.push(c);
+              total += c.length;
+            });
+            res.on("end", () => {
+              let buf = Buffer.concat(chunks);
+              const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
+              try {
+                if (enc.includes("gzip")) buf = gunzipSync(buf);
+                else if (enc.includes("br")) buf = brotliDecompressSync(buf);
+              } catch {
+                /* keep the raw bytes */
+              }
+              finish({
+                status,
+                ok: status >= 200 && status < 400,
+                body: buf.toString("utf8"),
+                contentType: String(res.headers["content-type"] ?? ""),
+                elapsedMs: Math.round(performance.now() - t0),
+                fingerprint: "chrome",
+                cookies: [],
+                resolvedUrl: u,
+              });
+            });
+            res.on("error", () => finish(null));
+          },
+        );
+      } catch {
+        return finish(null);
+      }
+      req.on("error", () => finish(null));
+      req.on("timeout", () => {
+        req.destroy();
+        finish(null);
+      });
+    };
+    visit(url, 0);
+  });
 }
 
 /**
@@ -497,10 +614,19 @@ export async function fetchPage(
           elapsedMs,
           fingerprint: fp,
           cookies: rawCookies,
+          resolvedUrl: String((res as any)?.url ?? url),
         };
       }
       // Block status: fall through to the next fingerprint in the rotation.
-    } catch {
+    } catch (err: unknown) {
+      // Gov TLS tolerance: expired / self-signed / incomplete-chain certs
+      // (common on .gov, .gov.in, .nic.in circulars) throw a cert error —
+      // retry ONCE through a rejectUnauthorized:false path so the page is
+      // still readable instead of classifying as FAIL_NETWORK_OR_CRASH.
+      if (isCertError(err)) {
+        const tolerant = await tlsTolerantGet(url, opts.timeoutMs ?? defaultTimeout);
+        if (tolerant) return tolerant;
+      }
       // Timeout / network error: if we've tried all fingerprints, surface
       // null; otherwise the next attempt uses a different fingerprint.
       if (attempt === fpOrder.length - 1) {
@@ -512,6 +638,7 @@ export async function fetchPage(
           elapsedMs: Math.round(performance.now() - t0),
           fingerprint: fp,
           cookies: [],
+          resolvedUrl: "",
         };
       }
     }
@@ -643,6 +770,7 @@ export async function fetchWithLinkPreviewBots(
         elapsedMs: 0,
         fingerprint: "chrome",
         cookies: rawCookies,
+        resolvedUrl: String((res as any)?.url ?? url),
         botName: bot.name,
       };
     } catch {

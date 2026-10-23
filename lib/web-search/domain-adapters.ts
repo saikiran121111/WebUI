@@ -14,6 +14,9 @@
  */
 import { fetchPage, fetchUrl } from "./tls-client";
 import { parseHTML } from "linkedom";
+import { getYouTubeEvidence } from "./youtube";
+import { getGoogleMapsEvidence, isGoogleMapsUrl } from "./google-maps";
+import { isShortLinkUrl, unwrapShortLink } from "./redirect-unwrap";
 
 /**
  * Extract JSON-LD, OpenGraph, Twitter, and known hydration-state payloads
@@ -205,6 +208,7 @@ export interface AdapterResult {
  */
 export async function domainAdapter(
   url: string,
+  depth = 0,
 ): Promise<AdapterResult | null> {
   let u: URL;
   try {
@@ -212,7 +216,23 @@ export async function domainAdapter(
   } catch {
     return null;
   }
-  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  const host = u.hostname
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/^(?:m|music)\./, "");
+
+  // Short links (maps.app.goo.gl, bit.ly, t.co, …): unwrap the redirect
+  // chain FIRST, then dispatch the adapter on the DESTINATION — the stub
+  // itself has no extractable content.
+  if (depth < 2 && isShortLinkUrl(url)) {
+    const resolved = await unwrapShortLink(url);
+    if (resolved && resolved !== url) return domainAdapter(resolved, depth + 1);
+    return null;
+  }
+
+  // Google Maps (place page, /maps?q=, or a Maps short link — the
+  // evidence module follows the chain itself).
+  if (isGoogleMapsUrl(url)) return mapsAdapter(url);
 
   switch (host) {
     case "reddit.com":
@@ -223,7 +243,8 @@ export async function domainAdapter(
       return githubAdapter(u);
     case "youtube.com":
     case "youtu.be":
-      return youtubeAdapter(u, url);
+    case "youtube-nocookie.com":
+      return youtubeAdapter(url);
     case "openstreetmap.org":
       return osmAdapter(u, url);
     default:
@@ -343,53 +364,33 @@ async function githubAdapter(u: URL): Promise<AdapterResult | null> {
 }
 
 /**
- * YouTube: extract `ytInitialPlayerResponse` / `ytInitialData` hydration
- * state from the watch page, or use oEmbed when that's unavailable.
+ * YouTube: the dedicated evidence module (Fix 1) parses EVERY URL format
+ * (youtu.be, /watch?v=, /shorts/, /embed/, /v/, /live/, m./music. hosts),
+ * pulls title + channel via keyless oEmbed, the InnerTube ANDROID-client
+ * player API, and the watch-page `ytInitialPlayerResponse`, then
+ * downloads + parses the timedtext caption track into a timestamped
+ * transcript. The whole block is returned as primary adapter evidence.
  */
 async function youtubeAdapter(
-  u: URL,
   originalUrl: string,
 ): Promise<AdapterResult | null> {
-  // oEmbed is keyless and lightweight for watch URLs
-  let videoId = "";
-  if (u.hostname === "youtu.be") {
-    videoId = u.pathname.slice(1).split("/")[0] ?? "";
-  } else if (u.pathname.startsWith("/watch")) {
-    videoId = u.searchParams.get("v") ?? "";
-  } else if (u.pathname.startsWith("/shorts/")) {
-    videoId = u.pathname.split("/")[2] ?? "";
-  }
-  if (videoId) {
-    const res = await fetchUrl(
-      `https://www.youtube.com/oembed?url=${encodeURIComponent(
-        "https://www.youtube.com/watch?v=" + videoId,
-      )}&format=json`,
-      { timeoutMs: 45_000 },
-    );
-    if (res && res.ok) {
-      try {
-        const data: any = JSON.parse(res.text);
-        const lines: string[] = [];
-        lines.push("## YouTube video: " + (data.title ?? videoId));
-        lines.push("By: " + (data.author_name ?? "unknown"));
-        lines.push("Duration: " + (data.length ?? "unknown"));
-        lines.push("Embed: https://www.youtube.com/embed/" + videoId);
-        // Also fetch the watch page and pull ytInitialPlayerResponse
-        const watch = await fetchPage(originalUrl, { timeoutMs: 3000 });
-        if (watch && watch.body.length > 0) {
-          const hydration = extractHydrationState(watch.body);
-          if (hydration) lines.push(hydration);
-        }
-        const markdown = lines.join("\n\n");
-        return markdown.length >= 80
-          ? { markdown, kind: "adapter", isPrimary: true }
-          : null;
-      } catch {
-        /* fall through */
-      }
-    }
-  }
-  return null;
+  const ev = await getYouTubeEvidence(originalUrl);
+  if (!ev) return null;
+  return { markdown: ev.markdown, kind: "adapter", isPrimary: true };
+}
+
+/**
+ * Google Maps (Fix 3): unwrap the Firebase dynamic short link, decode the
+ * place name / address / @lat,lng from the RESOLVED URL, scrape the place
+ * page's og:title / og:description / APP_INITIALIZATION_STATE, and fall
+ * back to Nominatim reverse geocoding when the page is a bare JS shell.
+ */
+async function mapsAdapter(
+  originalUrl: string,
+): Promise<AdapterResult | null> {
+  const ev = await getGoogleMapsEvidence(originalUrl);
+  if (!ev) return null;
+  return { markdown: ev.markdown, kind: "adapter", isPrimary: true };
 }
 
 /**

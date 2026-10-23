@@ -25,7 +25,7 @@
  *  13. Unbroken tables & code chunks exceed 1,500 chars (atomic blocks).
  */
 import {
-  runLfmGate,
+  runSearchGate,
   runWebResearch,
   evidenceBlock,
   closeCache,
@@ -111,7 +111,7 @@ async function main() {
 
   /* ── 1. LFM gate: trivial greeting short-circuit ───────────────────── */
   console.log(BOLD("1. LFM gate (trivial greeting → zero-token skip)"));
-  const greeting = await runLfmGate({ userPrompt: "hello" });
+  const greeting = await runSearchGate({ userPrompt: "hello" });
   check(
     "Trivial greeting → search_required=false (zero LLM tokens)",
     greeting.decision.search_required === false && greeting.source === "rules",
@@ -225,7 +225,7 @@ async function main() {
     `got: ${JSON.stringify(urls)}`,
   );
   // Trivial greeting must NOT call the LLM (zero tokens, zero risk)
-  const g = await runLfmGate({ userPrompt: "hi" });
+  const g = await runSearchGate({ userPrompt: "hi" });
   check(
     "'hi' → no LLM call (source=rules, search_required=false)",
     g.source === "rules" && g.decision.search_required === false,

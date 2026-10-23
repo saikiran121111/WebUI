@@ -55,11 +55,19 @@ describe("TurnProgressTracker — phases", () => {
 
   it("skipped web gate removes the step instead of faking it", () => {
     const t = new TurnProgressTracker(NO_BASELINES);
-    t.noteStage(stage({ stage: "web:lfm" }));
+    t.noteStage(stage({ stage: "web:gate" }));
     t.noteStage(stage({ stage: "web:skipped" }));
     const s = t.snapshot(Date.now());
     expect(s.steps.find(st => st.id === "websearch")).toBeUndefined();
     expect(s.chipLabel).toBe("Step 1 of 1");
+  });
+
+  it("legacy web:lfm stage keeps mapping to the same band (rename back-compat)", () => {
+    const t = new TurnProgressTracker(NO_BASELINES);
+    t.noteStage(stage({ stage: "web:lfm" }));
+    const ws = t.snapshot(Date.now()).steps.find(st => st.id === "websearch")!;
+    expect(ws.label).toBe("Deciding whether a web search is needed");
+    expect(ws.percent).toBe(10);
   });
 
   it("web bands use real counters: query pools and page x/y subdivide reading", () => {
@@ -198,7 +206,7 @@ describe("TurnProgressTracker — repair, finish, overall", () => {
     expect(t.snapshot(Date.now()).overall).toBe(60); // routing alone
     // Web search opens at band 10 with weight 3: raw weighted mean would DIP
     // to 33 — the bar must hold its floor, not rewind.
-    t.noteStage(stage({ stage: "web:lfm" }));
+    t.noteStage(stage({ stage: "web:gate" }));
     expect(t.snapshot(Date.now()).overall).toBe(60);
     t.noteStage(stage({ stage: "web:reranking" })); // (100 + 92*3)/4 = 94 > floor
     expect(t.snapshot(Date.now()).overall).toBe(94);
@@ -206,7 +214,7 @@ describe("TurnProgressTracker — repair, finish, overall", () => {
 
   it("chip label tracks the active step position", () => {
     const t = new TurnProgressTracker(NO_BASELINES);
-    t.noteStage(stage({ stage: "web:lfm" })); // routing done, websearch active
+    t.noteStage(stage({ stage: "web:gate" })); // routing done, websearch active
     t.noteContent(10); // websearch + routing done, writing active
     expect(t.snapshot(Date.now()).chipLabel).toBe("Step 3 of 3");
   });

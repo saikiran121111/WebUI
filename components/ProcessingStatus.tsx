@@ -7,7 +7,7 @@ import type { Message } from "../lib/types";
  * a reply is still finding its first token. Every phase it names is derived
  * from a real signal on the message — never a fake "thinking harder" verb:
  *
- *   - webCitations / researchLfm headers → the gated search already ran and
+ *   - webCitations / searchGate headers → the gated search already ran and
  *     pages were fetched, so the line names the queries and the domains.
  *     While sources exist the line is clickable and opens a popup with the
  *     queries + source links (2026-10-22: the cyan gradient ResearchTrailCard
@@ -23,6 +23,7 @@ import type { Message } from "../lib/types";
 
 /** Which authority decided for this turn → the badge the user sees. */
 const GATE_BADGE: Record<string, string> = {
+  deterministic: "Auto-gated",
   "main-model": "Model-gated",
   lfm: "LFM-gated", // historical — no new turns use this label
   rules: "Rule-gated",
@@ -72,7 +73,7 @@ export default function ProcessingStatus({ message }: { message: Message }) {
 
   const secs = Math.max(0, Math.floor((now - message.createdAt) / 1000));
 
-  const gate = message.researchLfm;
+  const gate = message.searchGate ?? message.researchLfm;
   const entries = Object.values(message.webCitations ?? {})
     .filter(c => !!c && typeof c.url === "string")
     .sort((a, b) => a.sourceId.localeCompare(b.sourceId, undefined, { numeric: true }));

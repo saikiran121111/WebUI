@@ -1,9 +1,11 @@
 export {
-  runLfmGate,
+  runSearchGate,
   rulesBasedPlan,
   callLlm,
   extractPromptUrls,
-} from "./lfm-gate";
+  deterministicHardBypass,
+  gateDisabledByEnv,
+} from "./search-gate";
 export {
   metasearch,
   metasearchWithBudget,
@@ -139,7 +141,7 @@ export {
   type RawSearchResult,
   type EvidencePassage,
   type EvidencePacket,
-  type LfmDecision,
-  type LfmGateContext,
+  type SearchGateResult,
+  type SearchGateContext,
   type RankedResult,
 } from "./types";

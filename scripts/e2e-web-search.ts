@@ -2,7 +2,7 @@
  * E2E verification of the 2026-10-22 "no LFM, no validation" pipeline.
  *
  * The pipeline under test is now:
- *   runLfmGate (main model :8080 only — LFM router is gone, no deterministic
+ *   runSearchGate (main model :8080 only — LFM router is gone, no deterministic
  *   follow-up escalation, no rule-based search fallback)
  *   -> metasearch (general-web pool + relevance floor)
  *   -> extractAll
@@ -15,7 +15,7 @@
  * Usage:  npx tsx scripts/e2e-web-search.ts
  */
 import {
-  runLfmGate,
+  runSearchGate,
   runWebResearch,
   metasearch,
   queryCoreTokens,
@@ -89,11 +89,11 @@ async function testTrivialShortCircuit() {
     "thanks",
   ];
   for (const p of prompts) {
-    const r = await runLfmGate({ userPrompt: p });
+    const r = await runSearchGate({ userPrompt: p });
     check(
-      `runLfmGate("${p}") → no search (decidedBy=${r.source})`,
+      `runSearchGate("${p}") → no search (decidedBy=${r.source})`,
       r.decision.search_required === false,
-      `gateMs=${r.lfmMs}`,
+      `gateMs=${r.gateMs}`,
     );
   }
 }
@@ -130,8 +130,8 @@ async function testLiveScenarios() {
       continue;
     }
     check(
-      `${s.name}: gate decided (source=${bundle.lfm.source})`,
-      bundle.lfm.source === "main-model",
+      `${s.name}: gate decided (source=${bundle.searchGate.source})`,
+      bundle.searchGate.source === "main-model",
     );
     check(
       `${s.name}: evidence block carries no <verification> contract`,
