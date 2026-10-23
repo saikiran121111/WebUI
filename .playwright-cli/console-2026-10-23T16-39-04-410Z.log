@@ -1,0 +1,4 @@
+[     611ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'browsing-topics'. @ :0
+[     612ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://www.zepto.com/en/city:0
+[    1456ms] [LOG] PWA is installable - debug log @ https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.5.1/_next/static/chunks/2998-9c3f85bf280e1857.js:10
+[    1456ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://www.zepto.com/en/city:0

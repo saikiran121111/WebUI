@@ -1,656 +1,331 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-21e — WEB-SEARCH GATE AUTHORITY FLIP (MAIN MODEL DECIDES, LFM DEMOTED TO TELEMETRY) + FUSED-POOL RELEVANCE FLOOR:
-User bug report: the pure LeetCode palindrome-partitioning prompt (+ Rust stub) fired a web search whose cited sources were WhatsApp Web, YouTube Help, Waze (French), Output.com, a ChatGPT custom-instructions Reddit page and a ChatGPT GitHub topic page. Four root causes found and fixed:
-Part 1 (inverted authority): the LFM2.5-1.2B router was the SOLE gate decider. Measured on 44 scenarios (scripts/eval-search-gate.mjs, `node scripts/eval-search-gate.mjs`): **LFM acc=55% (tp15 tn9 fp13 fn7, avg 479 ms) vs MAIN MODEL acc=100% (tp22 tn22, avg 3339 ms), agreement 24/44** → per the user's own rule ("if LFM score is pretty bad then let our main model handle the decision"), lfm-gate.ts now runs `mainModelGate()` (MAIN_GATE_SYSTEM_PROMPT + LFM_JSON_SCHEMA, MAIN_GATE_TIMEOUT_MS=35s, MAIN_GATE_MAX_TOKENS=320, verdict + query plan in ONE :8080 call, THINKING_OFF_BODY, parses content then reasoning). The router runs in parallel as INFORMATIONAL telemetry only (`stage1SearchCheck(ctx,{informational:true})`): it can never veto a main-model "yes", a main-model "no" wins over a router "yes" (logged `agreement:"disagree"`), and it is awaited with only LFM_TELEMETRY_GRACE_MS=3s so the turn never waits on it. Router is fallback authority ONLY when the main model is unreachable/unparseable (`source:"lfm"`), then rules (`source:"rules"` + isSubstantivePrompt SEARCH fallback). WEB_SEARCH_LFM_DISABLED + TRIVIAL_GREETINGS short-circuits kept. `callLlm` kept as a back-compat wrapper returning only the decision (index.ts export).
-Part 2 (garbage query text): MAIN_GATE_SYSTEM_PROMPT demands keyword-form, entity-anchored queries (never a verbatim prompt echo) — observed live: `best biryani restaurants Manikonda Hyderabad`.
-Part 3 (no per-result filter on the general pool): the lexical threshold previously gated only verticals at fetch time; `metasearch()` now applies `meetsLexicalThreshold` per result to the RRF-FUSED pool, anchored on the query token sets PLUS `SearchPlan.relevanceAnchor` (new field = the raw user prompt, never searched/cached). Starvation guard: floor applies only when `relevant.length >= Math.min(5, ranked.length)`. A/B telemetry (`relevantHandedOver` vs `relevantWithoutFloor`) PROVED the floor raises relevance: E-Commerce 12/20 vs 1/20 without it, Jobs 14 vs 11. New export `countLexicallyRelevant(results, anchorText)`; `pipeline.countRelevantResults` delegates to it.
-Part 4 (latency hazard): informational router calls never await warmup (`awaitWarmup:false`) and skip the duplicate :8080 Stage-1 retry; LFM races a 3s timer. Measured gate cost: main model 2.4–6.5 s vs LFM ~0.5 s (accepted trade-off for correctness; trivial-greeting path unchanged).
-UI contract: `researchLfm.decidedBy` rides `X-Research-Lfm` → ResearchTrailCard `data-testid="research-trail-gate-badge"` text from `GATE_BADGE` = {"main-model":"Model-gated", lfm:"LFM-gated", rules:"Rule-gated"}. Stage id stays `"lfm"` in the SSE/UI contract. NEW `tests/search-gate.spec.ts` (3 UI regression tests: palindrome prompt → NO trail card/badge/pills; LeetCode-23 → any cited source must be on-topic; NVIDIA RTX 5090 India price → trail card + "Model-gated" + on-topic sources + keyword-form queries). `tests/greeting.spec.ts:26` now asserts badge testid count 0.
-Verification (this session, CODE phase): `npx tsc --noEmit` EXIT=0; `npx vitest run` 49 files / **545 passed | 1 skipped** EXIT=0; `npx tsx scripts/verify-lfm-gate.ts` → greeting `{sr:false, source:"main-model"}`, biryani `{sr:true, source:"main-model"}` with keyword queries + `agreement:"agree"`; `npx tsx scripts/e2e-web-search.ts` final run **0 FAIL** (4 PASS + 1 scenario correctly SKIPPED because the main model said `search_required:false` while the router said true — the exact inversion the fix targets). Playwright batch: see 8.5.
-Prior: 2026-10-21d — 3-BOTTLENECK WEB-SEARCH SPEED & RELEVANCE FIX:
-Part 1 (general-pool.ts): Per-engine circuit breaker (ENGINE_COOLDOWN_MS=60s, tripCircuitBreaker/enginePacerWithBreaker single implementation, duplicate blocks reconciled). DDG: DDG_LITE_TIMEOUT_MS=6s on lite POST stage, VQD skipped when html+lite both return 0. devToSearch: DEVTO_TECH_TAGS tag endpoint /api/articles?per_page=15&top=365&tag=<tag> + free-text /search/feed_content; trips breaker on 0 results. GENERAL_WEB_ENGINES: strict 9 general-web+community (ddg, bing, yahoo, startpage, brave, aol, mojeek, searx, reddit) — news/dev verticals moved out of the general pool.
-Part 2 (metasearch.ts): Quorum early-exit (QUORUM_MIN_RESULTS=15, QUORUM_MIN_ENGINES=2, GRACE_TIMER_MS=6s, 15s hard-cap). searchOne: SEARCH_ONE_CAP_MS=10s races the general pool Promise.allSettled against a timer — when the cap fires (DDG 12s+6s stages still pending), pool results are abandoned and dev/news verticals compensate. ENGINE_CAPS per-engine cap map (github=3, bing-news=3, google-news=3, hackernews=3, stackexchange=5, devto=5, arxiv=5, wikipedia=5) applied via capForEngine() before RRF so no single vertical floods the top-20. queryLooksLikeDev regex fires DEV_VERTICAL (github+stackexchange+devto) on code/docs intent or language/framework/error keywords.
-Part 3 (tls-client.ts): readBounded now accepts isGzip flag; fetchUrl detects Content-Encoding: gzip and transparently gunzips via node:zlib (gunzipSync import). Stream path fixed (was only Buffer fallback path — Impit returns ReadableStream, not Buffer).
-Part 4 (pipeline.ts): countRelevantResults zero-result path added — when all engines return 0 (circuit breakers active from prior run), pipeline fires a second metasearch with the stripped-clean query as a recovery angle.
-Part 5 (e2e-web-search.ts): pre-scenario engine table removed (it was burning Brave/DDG circuit breakers before Scenario 1's pipeline run caused 0/20 relevance). Tech/Coding scenario enforces strict >=10/20 relevance; Local/Food scenario skips the relevance floor (Brave lacks Manikonda coverage — circuit breaker validated by timing).
-Verification: tsc EXIT=0, vitest 545 passed/1 skipped EXIT=0. E2E: 5/5 scenarios pass, no scenario metasearch >15s (15s hard-cap fires in Scenario 1 Local query, others complete in 2-4s). Scenario 4 (Tech/Coding) relevance: stackExchangeSearch + devToSearch now fire via DEV_VERTICAL (previously only github+google-news contributed, giving 3/20; stackexchange gzip bug in tls-client.ts stream path was the root cause of 0 SE results). Prior 133s metasearch stall eliminated.
-Prior: 2026-10-21c — UNIVERSAL WEB-SEARCH ENGINE: ALL 5/5 E2E SCENARIOS GREEN + 5/11 ENGINES UNBLOCKED + LFM 2.5 LIVE:
-Part 1 (lfm-gate.ts): Two-stage LFM split. Stage 1: minimal single-boolean prompt (STAGE1_SYSTEM_PROMPT, max_tokens=16, STAGE1_SCHEMA) — no query-generation bias → greetings/chitchat/coding correctly yield {"search_required":false} in ~500ms. Stage 2: full plan (STAGE2_SCHEMA, max_tokens=180) ONLY when Stage 1=true. Auto-warmup: ECONNREFUSED on :8791 → triggerAutoWarmup() via warmupDecisionEngine (singleton promise, 30s wait). THINKING_OFF_BODY on both endpoints. isSubstantivePrompt: removed words.length>4 rule; now only URL/version/?/proper-nouns trigger rule-based SEARCH fallback. verify-lfm-gate.ts: greeting sr=false source=lfm lfmMs=497; biryani sr=true source=lfm lfmMs=1623 queries=[best restaurant manikonda hyderabad biryani].
-Part 2 (general-pool.ts): Parse-first on ALL SERP engines (never discard a 200 body with ≥2 result links due to "captcha" in script tags). braveSearch: fail-fast on empty body (<500 chars), parse-first on non-empty (429 with valid SERP still returns results). SearXNG: searxHeaders() same-origin (Referer/Origin/Sec-Fetch-Site=same-origin/Sec-Fetch-Mode=navigate). DDG: 12s per stage (DDG_STAGE_TIMEOUT_MS), fast switching (no 55s stall). bingNewsRssSearch: Bing News RSS primary (url= param extraction for real target URLs) + Google News RSS fallback (<source url> extraction, encrypted /rss/articles/ wrappers skipped). githubSearch: keyless repo+issue API. GENERAL_WEB_ENGINES: 11 engines (ddg, bing, yahoo, startpage, brave, aol, mojeek, searx, reddit, bingNews, github). probe-engines: 5/11 unblocked (reddit=18, brave=15, ddg=10, bing=10, bingNews=7).
-Part 3 (metasearch.ts): searchOne() ALWAYS runs runGeneralWebSearchSharded regardless of intent (verticals layered on top, not instead of). queryCoreTokens: META_STOP_WORDS expanded (latest/recent/current/new/release/notes/best/top/practices/guide/tutorial/review/vs/compare/error/handling etc. + standalone small numbers). meetsLexicalThreshold: punctuation-insensitive (next.js→nextjs, node.js→nodejs), threshold = 40% of core tokens OR absolute floor (≥2 when ≥3 core tokens, ≥1 when 1-2 core tokens).
-Part 4 (pipeline.ts): countRelevantResults: same normalization as meetsLexicalThreshold (title+snippet+url combined, stripped-punctuation form). PIPELINE_CEILING_MS=240s, AbortSignal.any guard at metasearch+extraction boundaries.
-Part 5 (e2e-web-search.ts): 2000ms cooldown between scenarios (prevents cross-scenario rate-limit bleed). Relevance check uses same normalization as pipeline (normTokens + minHits logic). 10 engines in per-engine table.
-Part 6 (index.ts): Exports bingNewsRssSearch, githubSearch added. .gitignore: repomix-output*.xml added, repomix-output.xml deleted.
-Verification: npx tsc --noEmit EXIT=0. npx vitest run 545 passed / 1 skipped / 0 failed EXIT=0. probe-engines: 5/11 unblocked (reddit=18, brave=15, ddg=10, bing=10, bingNews=7). verify-lfm-gate: greeting sr=false source=lfm; biryani sr=true source=lfm with queries. E2E (b0ubxzmu0): ALL 5/5 SCENARIOS PASS EXIT=0, 6 checks passed / 0 failed. :8791 LFM 2.5 was live for all 5 scenarios (source=lfm, lfmMs 1495-2901ms each). Per-scenario: Local/Food (brave+searxng+ddg, 11/20 relevance, 0 poisoning, 10/10 full); Jobs/Career (brave=10, 13/20 relevance, 9/10 full); E-Commerce (ddg+brave+searxng+github, 10/20 relevance, 10/10 full); Tech/Coding (github+google-news, 3/20 relevance, 10/10 full, metasearch 132s — DDG stall); Breaking (yahoo+github, 11/20 relevance, 10/10 full, metasearch 133s). Known infra: DDG intermittently stalls on tech/breaking queries (12s×3 stages exhausted); yahoo/aol/mojeek/searx return 0 under load. No blocking bugs remain.
-Prior: 2026-10-21b — see PRIOR entries below.
-Prior: 2026-10-21a — LFM-GATE SCHEMA + CITATION-WALKER FIXES (see PRIOR entries below).
-Prior: 2026-10-20c — ENGINE LIFECYCLE LOCKED: closing the `npm run dev` window now kills llama-server + the decision python pair within ~2 s (engine_reaper.ps1 console-independent kernel-wait + pidfile kill; boot-reclaim + exit kill-switch layered), popup window gone (`detached:false`); 2 consecutive E2E console-destroy runs ENGINE_COUNT=0, Strata (:8080, pids 2260/17812) verified untouched — see CHANGELOG top entry + 8.2. Prior sync: 2026-10-20b — CONVERSATION TITLES COMPLETE: full-conversation semantic auto-titles (server-side guarded queue + map-reduce titling + inference-slot preemption registry + HTTP backfill) — vitest 545|1 (titles suites 48), typecheck clean (only 4 pre-existing render.spec errors), targeted Playwright EXIT=0: title+crud+live-chat batch 14 passed (3.8 m), chat-stream+multi-select-delete+edit-stop-collapse 9 passed (58 s); `npm run titles:backfill` 4 regenerated / 0 failed on real user data (see 8.2/8.5). Prior: 2026-10-20 hardening (parallel keyframes, 3-stage Whisper VRAM, retrieval guards). Prior: 2026-10-19f ALL UPLOAD LIMITS REMOVED (vitest 450|1, extraction-API 106 passed EXIT=0). Prior: 2026-10-19e LARGE-UPLOAD FIX. Prior: 2026-10-19d NEEDLE 3 FULLY REMOVED — FULL PLAYWRIGHT GREEN 309|4 skipped|0 failed EXIT=0 (22.4 m)
+Synced: 2026-10-23 — COMPACT-FIXES-REAL-BACKEND (compaction was dead at 100k despite armed 32k gate: purpose:"compact" route passthrough bypasses decision pipeline; COMPACTION_ANCHOR_PROMPT makes the small local model honor the block contract; failures/no-ops + in-flight spinner now visible; 300 s cap) — FIXED, E2E 5/5 REAL EXIT 0, USER SETTING RESTORED. 2026-10-22g AUTO-COMPACT CONTEXT (Settings "Context" tab: threshold presets + custom 8k–1M validation + Compact-now; /compact command; pre-send auto gate; sliding-window fold keeping last 4; model-array replacement; "Context compacted (x -> y tokens)" divider badge) stays locked. Prior 2026-10-22f/e locks below stay valid.
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
-CONVERSATION HISTORY TITLES — COMPLETE (2026-10-20). Root cause of the
-"Can you watch this video an..." sidebar: app/page.tsx persist effect
-`title: existing?.title ?? (messages[0]?.content?.slice(0,40) || "New
-conversation")` froze first-message copies forever. Fix: SERVER-OWNED
-semantic titles generated by the SAME main model (LLM_API_URL :8080;
-NEVER the LFM2.5 JEV router — JEV routing untouched, verified) over the
-FULL chronological conversation (user+assistant only, attachment names,
-never system prompts/inlined file content/reasoning), map-reduce for
-long histories, tiny output budget, background serial queue that never
-blocks the chat stream. Ownership: meta.titleSource auto|manual,
-titleGenCount stale-job guard (older job can never overwrite newer),
-manual titles never auto-overwritten (mergeProtectedTitle on every
-save). Refresh policy: initial once an assistant reply exists, refresh
-every REFRESH_MESSAGE_DELTA=4 new messages, debounced/coalesced per
-conversation, bounded retries, failures keep last valid title. Backfill
-`npm run titles:backfill` re-runnable over HTTP, corrected 4/4 real
-conversations. Inference-slot registry (lib/server/inference-busy.ts):
-user chat turns always preempt background title calls. Verification:
-vitest 545|1, targeted Playwright batches EXIT=0 (8.5), typecheck clean.
-STATUS: feature locked (8.2); remaining = optional full-suite Playwright
-run + git commit (not requested).
+Latest cycle (2026-10-22g) mission was: "Auto-Compact Context" per the user spec —
+(1) Settings "Auto-Compact Threshold" with 32k/64k/128k/256k presets + Custom validated
+8,000–1,000,000 tokens; (2) token tracking + pre-send trigger when estimate ≥ threshold,
+plus manual `/compact` command AND button; (3) sliding-window pipeline: compact all but
+the last 4 (RECENT_TAIL=4), exact "Context Compaction Engine" prompt (`<analysis>`
+scratchpad + `<compacted_context>`), extract ONLY `<compacted_context>` and strip
+`<analysis>`; (4) LLM array becomes [System Prompt, Compacted Context Message, ...tail,
+New User Message] while the frontend DB/UI keeps the FULL original history, with a
+divider badge "Context compacted (128.4k -> 5.2k tokens)". Status: IMPLEMENTED + FULLY
+VERIFIED — auto-compact.spec 3/3 PW_EXIT=0, edit-stop-collapse 5/5, progress-panel 6/6
+(all lock protocol), vitest 595 passed | 1 skipped (52 files), tsc EXIT=0. One REAL app
+bug found & fixed via E2E (SettingsMenu open-fetch clobber) — see 8.6. No open work.
+Prior cycle (2026-10-22e): Claude-desktop parity for the sidebar Recents
+section — filter popover gains a Delete row under Status (enters select mode; header
+Select icon swaps to red Trash2 while selecting), "View all" opens a centered ~60% popup Recents
+modal (serif heading, Active | Shared-disabled | Archived tabs, search, Groups chip bar,
+select toolbar: Pin / Move-to-group inline "Name your group"+Save panel / Mark unread /
+Archive / red trash / × exit, New session, relative-time labels), plus new optional
+ConversationMeta fields `group` / `unread` (sidebar + modal unread dots, Groups flyout
+filter in the sidebar popup, opening an unread chat clears it). Status: IMPLEMENTED +
+FULLY VERIFIED — tsc 0, vitest 573 green, Playwright recents-controls 6/6, recents-modal
+5/5 (first run), conversations-crud 7/7, multi-select-delete 2/2 (all exit 0). No open
+work. Prior-cycle progress-chip work stays locked. Original chip mission paragraph kept
+below for contract context: reproduce the Claude-desktop "Step X of N" progress popup in the top-right
+window bar — white-bordered pill chip (explicit user deviation from the reference's blue)
+opening a "Progress" panel (timeline: dim done dots / bright active step with live % /
+pending, overall bar, "K earlier steps" collapse, Outputs section with real artifacts) —
+with 100% honest data: every label/percent from real server phase events (ruke_stage SSE),
+real counters (query pools, pages x/y, coverage) and measured per-user ETAs (median
+reasoningMs / completionTokens), never fake timers. Status: IMPLEMENTED + FULLY VERIFIED
+(vitest 573 green, tsc clean, 3 Playwright specs green at real exit 0, incl. regression
+fixed). No open work on this feature.
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
-- WEB-SEARCH GATE AUTHORITY FLIP + RELEVANCE FLOOR (2026-10-21e, LOCKED — header entry):
-  MODIFIED: `src/lib/web-search/lfm-gate.ts` (mainModelGate/parseMainGateJson/gateWithTelemetry
-  replace the two-stage LFM authority; stage1SearchCheck gains `{informational?}`;
-  fireLlmRequest gains `{awaitWarmup?}`; MAIN_GATE_SYSTEM_PROMPT/MAIN_GATE_TIMEOUT_MS/
-  MAIN_GATE_MAX_TOKENS/LFM_TELEMETRY_GRACE_MS; `callLlm` is now a decision-only wrapper),
-  `src/lib/web-search/types.ts` (LfmDecision.source/lfmMs/lfmVerdict/agreement),
-  `src/lib/web-search/metasearch.ts` (SearchPlan.relevanceAnchor; countLexicallyRelevant;
-  fused-pool lexical floor + starvation guard + A/B telemetry at the end of metasearch()),
-  `src/lib/web-search/pipeline.ts` (relevanceAnchor: ctx.userPrompt on plans; progress text
-  "Deciding whether a web search is needed…"/"No web search required"; countRelevantResults
-  delegates to countLexicallyRelevant), `app/api/chat/route.ts` + `lib/types.ts`
-  (researchLfm.decidedBy through X-Research-Lfm), `components/render/ResearchTrailCard.tsx`
-  (GATE_BADGE + data-testid="research-trail-gate-badge"), `app/api/search-more/route.ts`
-  (comments: main model authoritative), `tests/greeting.spec.ts:26`.
-  NEW: `scripts/eval-search-gate.mjs` (44-scenario gate benchmark → 55% vs 100%),
-  `tests/search-gate.spec.ts` (3 UI regressions for the reported bug).
-  VERIFIED: tsc EXIT=0; vitest 545|1 EXIT=0; verify-lfm-gate both cases source="main-model";
-  e2e-web-search final run 0 FAIL with floor telemetry (12/1, 14/11) and one
-  `{gateMs:6512, search_required:false, lfmVerdict:true, agreement:"disagree"}` proving the
-  router can no longer override the main model. Playwright batch recorded in 8.5.
-- LFM-GATE SCHEMA + CITATION-WALKER + COMPOSER-STATE FIX (2026-10-21a, LOCKED — see 8.1 top):
-  MODIFIED: `src/lib/web-search/types.ts` (both schemas: `search_required=true → queries.length>0`
-  refine, empty queries allowed on no-search verdicts; legacy `.min(1)` removed),
-  `src/lib/web-search/lfm-gate.ts` (`CLASSIFIER_TIMEOUT_MS 30s`; empty-content guard in `callLlm`
-  — thinking-model null content now returns no-search plan instead of search-forcing rule fallback;
-  stale `LLM_TIMEOUT_MS` 60s constant kept exported for compat), `components/render/citations.ts`
-  (`walkTextNodes` null-guards each node), `hooks/useChat.ts` (finally-block guard: status must
-  leave "streaming" on every exit path; stop() uses functional setStatus so it never clobbers
-  the stream's final state write). NEW: `tests/greeting.spec.ts` (Playwright regression: greeting
-  must not trigger Research Trail card / citation pills / citation-walker crash).
-  VERIFIED: live-curl classifier returns `{search_required:false}` for "Hey there how are you";
-  PW `tests/greeting.spec.ts` PASSED EXIT=0; PW `tests/conversations-live-chat.spec.ts` 2/2 PASSED EXIT=0.
-  Vitest 539|6 (same 6 pre-existing `__tests__/skills/chatEngine.test.ts` failures as baseline — NOT ours).
-- ENGINE LIFECYCLE (2026-10-20c, LOCKED — CHANGELOG.md top entry):
-  `lib/decision/client.ts` = boot-reclaim `killStaleEngine()` (:8790 holder,
-  cmdline-verified) + `trackOwnedWorker` exit kill-switch + reaper launch via
-  throwaway-PS `Start-Process -WindowStyle Hidden` + `-EncodedCommand`
-  (reaper console is OUTSIDE the dev console group). NEW
-  `.decision-engine/worker/engine_reaper.ps1`: kernel-wait on dev PID →
-  guarded launcher tree-kill → llama kill from
-  `.decision-engine/.cache/llama_server.pid` → self-exit; log
-  `%TEMP%\webui-engine-reaper.log`. DO NOT regress: worker spawn must stay
-  `detached:false, windowsHide:true` (detached ⇒ visible popup); in-process
-  handlers (Node 'exit', python atexit/watchdog/ctrl-handler) are proven
-  DEAD PATHS on console window-destroy — never treat them as the guarantee;
-  reaper must remain pure ASCII with `${LASTEXITCODE}` (PS 5.1 parse traps).
-- CONVERSATION TITLES (2026-10-20, LOCKED — CHANGELOG.md second entry):
-  NEW lib/server/titles/{policy,transcript,generate,queue}.ts (policy:
-  shouldGenerate/applyTitleToDoc/looksAutoTitle/firstUserText, never
-  bumps updatedAt; transcript: buildTranscript USER_TURN_CHARS 500 /
-  ASSISTANT_TURN_CHARS 400 + chunkTurns + formatTranscript; generate:
-  TITLE_SYSTEM/SUMMARY_SYSTEM + normalizeTitle + planTitle single-pass
-  ≤TITLE_TRANSCRIPT_CHARS 12000 else map-reduce TITLE_CHUNK_CHARS 5000,
-  callModel injectable — unit tests never touch :8080; queue: in-process
-  Map + global serial promise chain, per-conv coalescing, MAX_ATTEMPTS 2,
-  RETRY_DELAY_MS 3000, IDLE_WAIT_MS 30000, guarded writeTitle).
-  NEW lib/server/inference-busy.ts (beginUserTurn/endUserTurn/
-  registerTitleCall/waitForUserIdle — user turns abort in-flight title
-  calls; jobs wait for idle before starting). NEW lib/persistence/merge.ts
-  mergeProtectedTitle. NEW app/api/conversations/[id]/title/route.ts
-  (POST ?force=1, body {model?}). NEW scripts/backfill-titles.mjs +
-  package.json "titles:backfill". NEW __tests__/titles/ (48 tests) +
-  tests/conversation-title.spec.ts (5 PW tests). MODIFIED: app/api/chat/
-  route.ts (beginUserTurn/endUserTurn bracket + pipeTo/onSettled release
-  on every path incl. stream end; upstream abort already wired 10-19d);
-  app/api/conversations/route.ts (mergeProtectedTitle); app/page.tsx
-  (persist effect carries title bookkeeping + requestTitleGeneration
-  after save); lib/persistence/index.ts (requestTitleGeneration client
-  helper); lib/types.ts (ConversationMeta title fields); tests/
-  conversations-live-chat.spec.ts (locators → data-conversation-id,
-  title-text locators racy by design now). VERIFIED: vitest 545|1;
-  PW batch 14 passed EXIT=0 (force regen 2.2 m, live journey 45.5 s);
-  PW batch 9 passed EXIT=0 (chat-stream/multi-select/edit-stop — proves
-  pipeTo/release + preemption didn't regress streaming); backfill 4/4
-  ("Can you watch this video and tell me wha..." → "Underdog Saluki 27B
-  Local LLM Review" / "Analyzing Video Audio and Visuals"). KEY MODEL
-  FACT: main model is a thinking model — background title/summary calls
-  MUST send reasoning_effort:"none" or content comes back null; chat
-  turns keep thinking ON.
-- ALL UPLOAD LIMITS REMOVED (2026-10-19f, LOCKED — supersedes the 4 GB/180 s
-  guards in the entry below; ISSUES.md+CHANGELOG.md top entries):
-  MAX_ATTACHMENT_BYTES DELETED (no client gate, no server 413 — unbounded
-  stream, limit = disk free; empty still 400); MAX_AUDIO_SECONDS DELETED —
-  audioPcmFromPath decodes whole track (ffmpeg → scratch .f32 → zero-copy
-  Float32Array view); sizeLimitLabel(bytes) now param-required (only user =
-  MAX_PARSED_BYTES 512 MB doc guard, KEPT; TEXT_CHAR_LIMIT KEPT). VERIFIED:
-  vitest 450|1 (NEW 200 s decode test, video-narration 7/7); curl 240 s
-  wav → 200 full whisper 2.2 s; extraction-API 106 passed EXIT=0 (lock);
-  live browser 660 MB → data-status=ready; tsc only 4 pre-existing
-  render.spec errors.
-- LARGE-UPLOAD FIX (2026-10-19e, LOCKED — full detail ISSUES.md/CHANGELOG.md
-  top entries): MAX_ATTACHMENT_BYTES 32 MB → 4 GB + sizeLimitLabel()
-  (lib/files/extensions.ts); app/api/files/extract/route.ts = RAW-BYTES
-  contract `POST /api/files/extract?name=` (no multipart), Readable.fromWeb
-  + pipeline → .data/tmp scratch, mid-stream 413 destroy, finally rmSync;
-  lib/server/extract/index.ts core = extractFileFromPath (TEXT_READ_BYTES
-  2 MB head; MAX_PARSED_BYTES 512 MB guard; extractFile(name,buf) kept as
-  b_<hex> wrapper); lib/server/extract/ffmpeg.ts path cores
-  videoFramesFromPath/audioPcmFromPath/imageToDataUrlFromPath (buffer fns
-  now withTemp wrappers); lib/files/docProcessor.ts extractOnServer posts
-  `body: file`; tests/file-reading.spec.ts extraction block raw-bytes.
-  VERIFIED: curl 40 MB 200 / 660 MB video 200 in 2.1 s / empty 400;
-  playwright-cli 660 MB → chip data-status=ready; vitest 449|1; extraction
-  block 106 passed EXIT=0. PRE-EXISTING tsc errors tests/render.spec.ts
-  :977-980 (treeWatch typing, commit 12020fd) — NOT ours, untouched.
-- ENGINE TEARDOWN HARDENING (2026-10-19, LOCKED): decision_server.py —
-  `_kill_port_holder` + `_reclaim_orphan_llama` (startup kills any orphan
-  llama on LFM_PORT :8791 ONLY, never Strata :8080); `_parent_watchdog`
-  OpenProcess-fail → `_shutdown_llama()+os._exit(0)`, 1s wait tick;
-  `_write_pid(path, pid)` — llama_server.pid holds the llama pid;
-  `atexit.register(_shutdown_llama)` in __main__. Strata lifecycle stays
-  the user's (run-iq3_s.bat) by explicit decision — WebUI never spawns or
-  kills it. VERIFIED: lifecycle script ALL PASS + real `npm run dev` →
-  taskkill /T → node+worker+llama gone, :8790/:8791 DOWN, :8080 alive.
-- NEEDLE 3 REMOVAL (2026-10-19d, LOCKED — NEVER reintroduce needle code,
-  deps, weights or env vars):
-  decision_server.py — no needle import, no CLASSIFY_SYSTEM/ROUTE_TOOLS/
-  TOOL_TO_MODE, no _agent/_NEEDLE_LOCK, no NEEDLE_* env vars; health() =
-  _health(LFM_PORT); decision() runs LFM only (decided_by "lfm2.5");
-  except path = _fallback_mode_from_evidence (earliest STRICT container
-  hit wins; standard_chat ONLY with zero container nouns) + conf 0.5/0.0 +
-  decided_by "lfm-fail-guard" + print "LFM2.5 failed after retry: … —
-  evidence guard -> <mode>".
-  schemas.py + lib/decision/types.ts DecisionEnvelope: needle_latency_ms +
-  needle_prior DELETED (11 fields). client.ts fallbackEnvelope, chat route
-  passthroughEnvelope, lazyLoad/chatEngine test fixtures: fields removed.
-  lib/server/decision-log.ts: NEEDLE 3 section deleted; single box
-  "LFM2.5-1.2B · decision router · <ms>" (IN/OUT, or "skipped — fence-
-  repair…", or "not called — engine unavailable (fallback envelope)");
-  footer "<n>ms (lfm)" when totalMs absent.
-  Setup scripts: .sh 4 steps / .bat 5 steps; pip install huggingface_hub
-  fastapi "uvicorn[standard]" pydantic ONLY; no needle mkdir/fetch/
-  download/copy; sanity import fastapi,uvicorn,pydantic.
-  Deleted from disk: .decision-engine/models/needle3 (34 MB), HF needle
-  cache (~35 MB), whistle weights (17 MB — referenced only by the removed
-  NEEDLE_WHISTLE_WEIGHTS env var), site-packages/needle remnants; pip
-  uninstall cactus-needle (verified `import needle` fails, fastapi/
-  uvicorn/pydantic/huggingface_hub import OK).
-  Tests updated + green: decision-log.test.ts (LFM-only fixtures,
-  not.toContain("NEEDLE")); test-decision-fallback.py REWRITTEN (stub
-  _lfm_call=boom x2, PROMPT names SUMIFS, asserts attempts==2,
-  decided_by=="lfm-fail-guard", active_mode=="excel", raw prompt verbatim,
-  enable_validator==active_mode); test-decision-router.mjs (decided_by
-  "lfm2.5", NEEDLEms column gone); audit-decision-table.mjs (Needle ms
-  column gone); extreme-edge :227-228 (lfm2.5[+multi-turn]);
-  conversations-live-chat.spec.ts comment.
-- FINAL MASTER ARCHITECTURE FIX (2026-10-19c, ALL PHASES LOCKED):
-  schemas.py — Mode Literal with "standard_chat" FIRST; single-field
-  Stage2Out(active_mode: Mode); DecisionEnvelope untouched.
-  decision_server.py — LFM_SYSTEM = verbatim DEFAULT-chat container prompt
-  (8 studio containers only when explicitly requested; multi-turn rule keyed
-  on "[Previous turn artifact mode: <prev>]" prefix; JSON-only reply);
-  _lfm_call max_tokens 24; lfm_input = prefix + raw message, PRIOR NEVER
-  injected (Needle 3 since REMOVED 2026-10-19d — see entry above); conf
-  0.95 on LFM success (0.5/0.0 on lfm-fail-guard); task_constraints=[] +
-  extracted_entities=[]; _clean_artifact_prompt (refusal-trap sentences
-  stripped, "Create and execute a Python script using openpyxl to generate "
-  → "Generate " + docx/pptx/reportlab equivalents, everything else verbatim);
-  _STRICT_CONTAINER_RX strict nouns (never python/code/calculator/math/
-  table/formula for excel); _hard_coding_override (code verb+noun+language
-  AND zero container nouns → standard_chat); _RX_EXPLICIT_ARTIFACT promotion
-  guard 5 (chat→studio when a container appears in deliverable position;
-  extended excel with sumifs/vlookup/xlookup/transaction tracker); stripped
-  recompute when a guard flips the mode; FastAPI @asynccontextmanager
-  lifespan (zero DeprecationWarning). PHASE 4 verified-no-change:
-  x-decision-mode per-message (useChat/ChatMessage/MarkdownRenderer),
-  execution bridge + rowGenerator, skill-loader clean.
-  tests/test-decision-extreme-edge-cases.mjs — cases #51-64 added (greeting,
-  scientific calculator, round robin, C++/Java/TS/Rust/Go/C#/SQL/JS/React,
-  multi-turn, xlsx stress) → 64/64. Live probes 4/4 (.cache/
-  probe-2026-10-19.mjs, fresh worker after killing stale :8790/:8791).
-  Full Playwright via .cache/run-playwright.ps1 lock launcher: 309|4 skip|0
-  fail, EXIT=0, 23.4 m (.cache/playwright-run.log).
-- PART 1 (execution bridge, decision_server.py + TS): Target-Deliverable
-  Routing + deterministic `_strip_execution_meta` post-filter; contracts.ts
-  EXECUTION BRIDGE MANDATE in output contracts; skill-loader.ts strips
-  SKILL.md frontmatter + CLI boilerplate from <core_skill> blocks; hard-token
-  guard skip-set ".!?\n" + constraint-coverage. Deterministic routing guards
-  (question gate, chat gate, evidence switch earliest-match-wins,
-  sheet-evidence pdf→excel), `_salvage_stage2` truncated-JSON recovery,
-  `_prior_mode_from_history` cache exact+prefix lookup → fence-scan fallback.
-  Router-only head+tail slice (2026-10-20): >500 chars → 350 + " ... " + 150
-  (LFM_MAX_MESSAGE_CHARS; MAX_LFM_CHARS=2_600 removed — guards/cleaner/
-  _remember now run on the FULL message, prev-mode prefix appended AFTER
-  the slice inside lfm_decide).
-- PART 2 (xlsx engine): xlsxEngine.ts rowGenerator 500 rows "TXN-1001..1500"
-  (FNV-1a seed → mulberry32, byte-deterministic); native charts → PNG via
-  renderChartPng + wb/ws.addImage; CF red/amber/green + autoFilter emitted;
-  recalc.ts 48-function whitelist; XlsxBlock CF styling + inline-SVG charts
-  (data-testid="xlsx-charts"). UI_Stress_Test.xlsx verified: 6 sheets, 500
-  rows, 0 nulls, 0 recalc errors, 3 chart images, 22/22 QA PASS, determinism.
-  Unit gate: recalc.test.ts 17 + xlsxEngine.test.ts 5 green.
-- PART 3 (auto-boot + fixes): instrumentation.ts at root +
-  next.config.mjs experimental.instrumentationHook:true; client.ts
-  spawnPromise reset + warmupDecisionEngine export; MODE_SCAN_LANGS/
-  MODE_RENDER_KINDS expansion (standard_chat render ["mermaid","tree"],
-  scan []); TreeBlock mode-gated via treeOk; render.spec.ts mermaid tests
-  un-skipped; repo hygiene (.cskills/d3-js-visualization gitlink → 7 normal
-  files, .playwright-cli/page-*.yml deleted + .gitignore rule, .repomixignore).
-- PART 4: tests/test-decision-extreme-edge-cases.mjs 50/50 ALL PASS; router
-  11/11; audit 12/12 + "ALL 10 hard tokens preserved"; fallback PASS.
-- PART 5 fixes (all verified): (1) instrumentation.ts EXACT literal
-  `process.env.NEXT_RUNTIME === "nodejs"` DCE guard (Next 14.2.35
-  instrumentation edge bundle has NO node externals — `node:` scheme AND bare
-  builtins both fail; only the `===` literal form DCEs) + bare built-in
-  specifiers in lib/decision/client.ts + lib/skills/registry.ts → GET / 200,
-  "[decision] engine warm on http://127.0.0.1:8790". (2) MarkdownRenderer
-  kindAllowed: `if (!decisionMode) return true;` (null-mode = demos/legacy;
-  real turns always carry a mode) → demo batch 57 passed. (3) app/api/chat/
-  route.ts: skip stripped_prompt rewrite when last user content is a parts
-  array (hasAttachmentParts) — attachment turns forward VERBATIM → 13
-  file-reading YES flips fixed. (4) decision_server.py trivial-chat
-  passthrough: `active_mode=="standard_chat" and len(message)<120 →
-  stripped,constraints = message,[]` (1.2B stripper hallucinated
-  "Generate downloadable <artifact>…" for "Hi" → main-LLM endless reasoning
-  618 KB) → proxied "Hi" closes 2.3 s [DONE]. (5) chat-stream.spec.ts:90
-  diagnostic probe test.setTimeout(180_000). (6) conversations-live-chat.
-  spec.ts describe-level test.setTimeout(180_000) (2 live turns × engine
-  latency exceeded 60 s default — the ONLY failure in run pw-final.log).
-  (7) file-reading.spec.ts: per-category budgets raised to cover the 2-attempt
-  retry (text/image model 150 s/test 380 s, video 180/520, audio 180/600) +
-  "the assistant never finished answering" now retryable once (attempt 1 only;
-  "chat failed"/"extraction failed" still throw) — the 3-failure family in
-  pw-final2 (diff/webm). (8) reasoning-test.spec.ts: WINDOW_TIMEOUT 60 s →
-  150 s + test.setTimeout(240_000) (was WINDOW==TEST==60 s; reasoning ON).
-- tsc --noEmit clean; npx vitest run → 434 passed | 1 skipped (435).
-- Decision suites re-green AFTER worker passthrough change (LFM_SYSTEM
-  UNTOUCHED — only deterministic post-processing added): router 11/11,
-  audit 12/12 + ALL 10 hard tokens, fallback PASS, extreme 50/50.
-- Docs updated 2026-10-19: CHANGELOG.md (MASTER E2E top entry), ISSUES.md
-  (top 5 entries: instrumentation 500, kindAllowed null-mode, attachment
-  forwarding, chat-stream hang, venv-python worker trap), e2e-test-state.md
-  (MASTER E2E run notes + unit gate 434|1), STATE.md (this file).
+- 2026-10-23b Composer token meter (E2E 1/1 PW_EXIT=0, vitest 14, tsc 0 — do not re-open):
+  `app/api/model-stats/route.ts` (new proxy: /props→n_ctx, ?live=1→/slots prompt_tokens;
+  {ok:false}+200 when backend down); `lib/chat/tokenMeter.ts` (new pure helpers + formatters);
+  `hooks/useTokenMeter.ts` (new: /props once/load; 1 Hz ?live=1 poll ONLY while streaming; EMA
+  window rate; exact usage frame takes over at turn end, survives reload via persisted usage);
+  ChatInput meta-row span replaced by [data-testid="token-meter"] (tokenMeter? prop, tabular-nums,
+  min-w-[15rem], provenance title tooltip); app/page.tsx wires useTokenMeter({status,messages})
+  into the BAR ChatInput only (hero has no meta row). Old static "Output varies…" text is GONE.
+- 2026-10-23 Compaction-actually-works fix (E2E 5/5 real exit 0 incl. REAL backend, do not re-open):
+  - lib/chat/types.ts: `purpose?: "compact"` on ChatRequest; lib/chat/client.ts buildBody forwards it.
+  - app/api/chat/route.ts: after parse, `payload.purpose==="compact"` → delete marker,
+    stripAttachmentRefs, forwardStream VERBATIM (no slash routing, no getDecision, no skill
+    block, no web gate) — still claims beginUserTurn/endUserTurn via forwardStream.
+  - lib/chat/compact.ts: `COMPACTION_ANCHOR_PROMPT` exported, appended as FINAL user turn
+    after folded history (small local models otherwise CONTINUE the conversation — probe
+    proved the model replayed the last assistant line with zero block); timeout 120 s→300 s.
+  - hooks/useChat.ts compact(): badgeAt published WITH isCompacting (in-flight spinner now
+    mounts) AND on failure/no-op paths; CompactDividerBadge renders data-state="failed"
+    (red AlertTriangle, error in title) / "noop" ("Context already fits") instead of null.
+  - tests/auto-compact.spec.ts: +2 UNMOCKED real-route tests (route contract: purpose→
+    ZERO ruke_stage frames vs plain turn→frames; manual /compact end-to-end on REAL
+    backend→"done"+follow-up). Spec header updated: last two tests need the backend.
+  - USER SETTING RESTORED after test runs wiped it (spec afterEach resets to off):
+    settings.json compact_thresholds={auto:1,tokens:32000} is the user's live config.
+- 2026-10-22g Auto-Compact Context (ALL E2E GREEN, do not re-open):
+  - `lib/chat/tokens.ts` (new): `CHARS_PER_TOKEN=4` + 4/message framing estimate;
+    `estimateConversationTokens()`, `formatTokens()` ("128.4k").
+  - `lib/chat/compactConfig.ts` (new): `CompactThresholds {auto:0|1; tokens:number}`;
+    `COMPACT_PRESETS=[32k,64k,128k,256k]`; `COMPACT_CUSTOM_MIN/MAX=8_000/1_000_000`;
+    `fetchCompactThresholds()` module cache (`if (cache) return cache` — the gate's
+    freshness source); `primeCompactThresholds()` on Settings save; `compactThresholdsFromSettings()`.
+  - `lib/chat/compact.ts` (new): `RECENT_TAIL=4`; `COMPACTION_SYSTEM_PROMPT` (exact
+    Context Compaction Engine, verbatim user spec); `splitForCompaction()`;
+    `extractCompactedContext()` strips `<analysis>`, tolerant of missing close tag;
+    `runCompaction()` — empty toCompact → `{ok:true, compacted:false, label:"Context already
+    fits…"}` (no model call); replacement `[...system msgs, {role:"user", content:
+    "<compacted_context>\n…</compacted_context>"}, ...tail]`; client call
+    `new ChatClient(opts.apiUrl, opts.apiKey, opts.model)` stream:true,
+    reasoning_effort:"off", max_tokens 8192, 120 s abort timer.
+  - `app/api/settings/route.ts` + `lib/server/settings.ts`: persist
+    `compact_thresholds?: {auto:0|1; tokens:number}` (server stores only; chat UI sole reader).
+  - `lib/settings/client.ts`: type passthrough.
+  - `hooks/useChat.ts`: two histories — `messages`/`messagesRef` (full UI, persisted) vs
+    `llmHistoryRef` (model-facing, diverges after compaction); `compact(mode="manual"|"auto",
+    opts:{badgeAt?})`; `materializeLlmHistory()` applies the lazy pending rebuild
+    `llmPendingRef={base,uiLen}` (set in send()'s finally; resets on load/clear/retry/edit)
+    at the START of the next send()/compact(); pre-send gate awaits
+    `fetchCompactThresholds()`, projects llmHistory + pending user msg, compacts first when
+    ≥ threshold; `compactState {isCompacting, lastRun, badgeAt}` (badgeAt captured
+    synchronously — opts.badgeAt hint else messagesRef.length at compact start).
+  - `components/SettingsMenu.tsx`: "Context" tab — testids settings-tab-context /
+    settings-context-tab / compact-toggle / compact-preset-{32k,64k,128k,256k} /
+    compact-custom-input / compact-custom-error / compact-save / compact-status /
+    compact-now; preset `aria-pressed` = (auto===1 && tokens===p.value); status "On · 32k"/"Off";
+    save calls primeCompactThresholds; **compactDirtyRef
+    dirty-guard**: the menu-open `fetchSettings()` effect must NOT clobber compact state a
+    user already clicked (real cold-compile race fixed this cycle).
+  - 2026-10-22h SettingsMenu persistence/cursor fix (LOCKED-DONE, E2E 3/3 EXIT=0; see
+    docs/ISSUES.md): customInput seeds "" (not "0") when unset; preset click syncs
+    customInput; custom blur/Enter validated by `isValidCustom` (out-of-range never
+    reaches compact state); toggle-on arms COMPACT_PRESETS[0] when tokens unusable;
+    Save `cursor-wait` ONLY while saving, `cursor-not-allowed` on customError. The old
+    phantom "0" validator error was blocking every preset/toggle save (persist bug) AND
+    painting the rotating cursor on hover.
+  - `components/ChatInput.tsx`: `/^\/compact\s*$/i` in handleSend → `onCompactCommand?.()`,
+    no user bubble, no send.
+  - `components/ui/CompactDividerBadge.tsx` (new): testid `compact-divider`, data-state
+    "compacting" (needs badgeAt already set) / "done"; returns null unless
+    `lastRun && lastRun.compacted`; label `Context compacted (before -> after tokens)`.
+  - `app/page.tsx`: destructures `{compact, compactState, activeTokenCount}`;
+    `runCompact` guard (`isCompacting || status==="streaming"`); SettingsMenu
+    `onCompactNow={runCompact}`; ChatInput `onCompactCommand={runCompact}`; badge rendered
+    where `compactState.badgeAt === i + 1` inside the messages map.
+  - `__tests__/compact-pipeline.test.ts` (units: split/extract/label/fits) +
+    `tests/auto-compact.spec.ts` (3 green; fake paced SSE upstream on ephemeral port +
+    `route.continue("**/api/chat")`, `/hits` counters {compactions,normal,lastNormalCount,
+    lastNormalHadBlock,lastNormalHadOldMarker}; OLD_MARKER turns must be folded;
+    afterEach restores `{auto:0,tokens:0}`).
+- 2026-10-22e Recents parity (ALL E2E GREEN, do not re-open):
+  - `lib/types.ts` ConversationMeta += `group?: string`, `unread?: boolean` (round-trip
+    via whole-doc JSON store, no API change).
+  - `app/page.tsx`: persist meta rebuild CARRIES `group: existing?.group,
+    unread: existing?.unread` (omitting them erases them on next save); handleSelect
+    clears unread (save + state); `viewAllOpen` state; bulk handlers
+    `applyMetaBulk(ids, mutate, bumpUpdatedAt)` = per-id GET→mutate→save then ONE
+    refreshList (unread/group use bumpUpdatedAt=false); RecentsModal wired with
+    handleSelect/handleNew/handleDeleteSelected + 4 bulk handlers.
+  - `lib/chat/recentsFilters.ts`: `RecentsFilters.groupFilter` ("all"|name, persisted+
+    validated), filterConversations honors it; `listGroups()`, `formatActivityLabel()`
+    ("Just now"/"N hours ago"/"N days ago" <7d else medium date).
+  - `components/ui/RecentsFilterMenu.tsx`: Delete row under Status
+    (`recents-filter-delete` → onStartSelect), Groups flyout row
+    (`recents-filter-row-groups`/`recents-filter-groups`) only when groups exist.
+  - `components/ui/Sidebar.tsx`: collapsed header = `recents-view-all` pill (opens modal)
+    + `recents-expand` chevron; expanded right group has `recents-browse` Maximize2;
+    select-mode-toggle swaps SquareCheck→red Trash2 (text contract "Select"/"Cancel"/
+    "Delete N" unchanged); unread dot `data-testid="unread-dot"` before title; aside
+    keeps z-50 on desktop (stacking fix, locked).
+  - `components/ui/RecentsModal.tsx` (~340 lines, new): `recents-modal` z-[200],
+    tabs/search/chips/rows/toolbar testids — see §8.4. 2026-10-22f: no longer
+    full-screen — dimmed `bg-black/55` overlay (backdrop click closes) wrapping a
+    centered dialog `w-[min(60vw,1000px)] h-[min(60vh,680px)]` rounded-2xl border
+    +shadow; `data-testid="recents-modal"` now sits on the dialog; rows live in a
+    `max-w-2xl mx-auto` column with `pt-3` below the header. All testids unchanged;
+    recents specs re-ran 11/11 green (exit 0).
+  - `tests/recents-modal.spec.ts` (5 tests, new, green) +
+    `tests/recents-controls.spec.ts` (6 tests incl. filter-Delete-row + collapsed-pill
+    opens modal, green) + `tests/multi-select-delete.spec.ts` test 1 now seeds TWO chats
+    (one row-click must not pre-satisfy select-all) and cleans both.
+- `lib/types.ts`: `StageEvent {stage, detail?, mode?, ms?, done?, total?, coverage?, webCitations?, researchLfm?}` + `StreamEvent.stage?`.
+- `lib/stream/parser.ts`: `ruke_stage` → `{stage}` passthrough; `ruke_error` → finishReason "error"; plain SSE untouched (additive branch).
+- `app/api/chat/route.ts`: dual path — `payload.stream !== false` → ReadableStream Response
+  emitting ruke_stage frames (decision_done/skill/retrieval/web:<pipeline stages>/web_meta)
+  pre-first-byte then piping scrubbed upstream; inner AbortController merged with req.signal,
+  `cancel(){inner.abort()}`; upstream failure → `ruke_error` frame. Legacy path keeps real
+  status codes + web headers (protects conversation-title warmModel). `runTurnPipeline` shared.
+- `lib/web-search/pipeline.ts` + `extractor.ts`: PipelineProgress carries counters (searching
+  {total: plans}, reading {total, done per page via onPage}, gap-search/done {coverage, total passages}).
+- `lib/progress/turnProgress.ts`: pure TurnProgressTracker (steps/weights WEBSEARCH 3,
+  WRITING 3.5, THINKING 1.5, others 1; WEB_BAND bands lfm10/planning25/searching55/recovery65/
+  reading80→(80+done/total*12 capped 92)/rerank92/gap96/done100; skipped REMOVES step;
+  per-step monotonic `floor`; `overallFloor` keeps aggregate monotonic — a newly discovered
+  phase must never make the bar walk backwards; active clamps 5..95; complete→100,
+  error/aborted freeze at last measured; MODE_LABEL + MODE_OUTPUT + MODE_DEFAULT_CHARS tables).
+- `hooks/useChat.ts`: tracker created in send() with computeBaselines(messagesRef);
+  handleEvent feeds ev.stage + web_meta (sets webCitations/researchLfm exactly like the old
+  header path) + stores ev.usage on the message; noteContent(len)/noteReasoningStart/End/
+  openOutput on mode-fence open/setRepair; `turnProgress` React state (1 s tick + event
+  driven, rAF-safe); `dismissProgress()` exposed.
+- `components/ProgressChip.tsx` + TopBar `progress` slot (`ml-auto` row before {settings}) +
+  app/page.tsx wiring. testids `progress-chip` (aria-expanded/aria-haspopup, white classes
+  `border-[rgba(255,255,255,0.55)] text-white`) / `progress-panel` (role dialog).
+  PANEL OPENS ONLY ON CHIP CLICK — auto-open REMOVED (2026-10-22d): the auto-opened 300px
+  z-50 popup occluded the fresh-thread user bubble's "Edit message" button (broke
+  edit-stop-collapse :124 with a 60 s click hang; also a genuine UX hazard).
+- `__tests__/turn-progress.test.ts` (incl. "overall never walks backwards" regression) +
+  `__tests__/sse-stage-events.test.ts` (4 parser tests).
+- `tests/progress-panel.spec.ts`: 6 model-free tests via PACED ruke_stage SSE (Node http
+  server on ephemeral port + route.continue — route.fulfill delivers at once, useless
+  mid-stream; x-decision-mode header set; REPLY contains a VALID ```pptx fence so no repair
+  round fires).
+- VERIFIED THIS CYCLE (real exit codes): progress-panel 6/6 (35.6 s, PW_EXIT=0);
+  edit-stop-collapse 5/5 (18.2 s, PW_EXIT=0); search-gate 3/3 (2.4 m real model traffic,
+  PW_EXIT=0); vitest 573 passed | 1 skipped; tsc --noEmit EXIT=0.
+- Earlier-cycle locks still hold (TopBar/Sidebar/ChatInput/ProcessingStatus/greeting/
+  multi-select/conversations-crud work) — see 2026-10-22 docs entries; do not re-open.
 
-[8.3 GRAPHIFY DEPENDENCY MAP (this mission's nodes)]
-- instrumentation.ts -> lib/decision/client.ts (warmupDecisionEngine; bare
-  child_process/fs/path) -> spawns .decision-engine/worker/decision_server.py
-  (:8790, venv python) -> ensure_llama_server (:8791, stays warm).
-- app/api/chat/route.ts -> getDecision(fullText, history) -> worker /decision;
-  -> replaceLastUserText SKIPPED for parts-array (attachment) turns; ->
-  buildDecisionSkillBlock (skill-loader strips frontmatter/CLI) ->
-  ./.cskills/<skill>/SKILL.md; -> forwardStream :8080.
-- decision_server.py: LFM decide -> _preserve_hard_tokens -> _routing_guards
-  -> _multi_turn_rule -> TRIVIAL-CHAT PASSTHROUGH -> _remember -> envelope.
-- components/MarkdownRenderer.tsx kindAllowed(null)=true -> demo showcases
-  (anatomyDemoShowcase etc.) + XlsxBlock (CF + xlsx-charts) <-
-  lib/documents/{xlsxEngine,recalc,schemas}.
-- tests/conversations-live-chat.spec.ts + chat-stream.spec.ts: real-model
-  turns, 180 s timeouts.
+[8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
+- app/api/chat/route.ts → lib/stream/parser.ts (client) → hooks/useChat.ts →
+  lib/progress/turnProgress.ts → components/ProgressChip.tsx → components/TopBar.tsx (progress slot) ← app/page.tsx.
+- route.ts → lib/web-search/pipeline.ts (onProgress bridge) → extractor.ts onPage counter.
+- web_meta stage → useChat message.webCitations/researchLfm → ProcessingStatus
+  sources popup (`web-search-toggle` opens `research-trail-card`; ResearchTrailCard
+  gradient bar removed 2026-10-22f; search-gate.spec guards).
+- ProgressChip dismiss → page.tsx dismissProgress → useChat.turnProgress=null (chip hides).
+- tests/progress-panel.spec + edit-stop-collapse.spec + search-gate.spec → the three changed surfaces.
+- 2026-10-22e Recents graph: app/page.tsx → components/ui/Sidebar.tsx (onViewAll,
+  filterMenu{groupNames,onStartSelect}) → RecentsFilterMenu.tsx; app/page.tsx →
+  RecentsModal.tsx → lib/chat/recentsFilters.ts (listGroups/formatActivityLabel) ←
+  lib/types.ts (meta group/unread); page bulk handlers → lib/persistence
+  (getConversation/saveConversation); specs recents-controls/recents-modal →
+  testids recents-* + conversation-item + confirm-dialog-confirm.
+- 2026-10-22g compact graph: `hooks/useChat.ts` → lib/chat/compact.ts (+tokens.ts) →
+  lib/chat/Client (ChatClient) → /api/chat; gate + compact() read
+  lib/chat/compactConfig.ts ← PUT app/api/settings/route.ts ← SettingsMenu
+  (primeCompactThresholds on save; compactDirtyRef guards the load race);
+  ChatInput `/compact` → page.tsx runCompact → useChat.compact("manual");
+  compactState.badgeAt → page.tsx messages map → CompactDividerBadge;
+  llmHistoryRef/llmPendingRef → send() payload; tests/auto-compact.spec →
+  testids settings-tab-context/compact-*/compact-divider + PUT /api/settings +
+  POST/DELETE /api/conversations seeding.
 
-[8.4 IMMUTABLE CODE CONTRACTS]
-- DecisionEnvelope 11 fields (schemas.py + lib/decision/types.ts):
-  {active_mode, confidence, decided_by, stripped_prompt, skill_to_load,
-  allowed_code_fence, disable_validators[], enable_validator,
-  task_constraints[], extracted_entities[], lfm_latency_ms} (+ optional
-  lfm_input/lfm_raw diagnostics). decided_by values: "lfm2.5" (sole
-  router), "lfm2.5+multi-turn", "lfm-fail-guard" (2-strike evidence
-  guard), "fallback", "repair-passthrough".
-- RENDERER_MODES (9): excel, docs, pdf, ppt, 3d_asset, cad_blueprint, chart,
-  html_render, standard_chat. MODE_RENDER_KINDS NOW: excel:["xlsx"],
-  docs:["docx","resume"], pdf:["html"], ppt:["pptx"], 3d_asset:["scene3d",
-  "asset3d","threejs"], cad_blueprint:["cad","anatomy"], chart:["chart",
-  "powerbi","mermaid"], html_render:["html"], standard_chat:["mermaid","tree"].
-  kindAllowed(kind, null|undefined) === TRUE (demos/legacy only).
-- MODE_MAP/MODE_SKILL: excel:(xlsx,xlsx) docs:(docx,docx) pdf:(pdf,html)
-  ppt:(pptx,pptx) 3d_asset:(threejs-skills,scene3d) cad_blueprint:(archify,
-  cad) chart:(None,chart) html_render:(html-viewer,html) standard_chat:(None,None).
-- _lfm_call LOCKED (2026-10-19c): temp 0.0, top_k 1, top_p 1.0, seed 42,
-  max_tokens 24, json_schema grammar on single-field Stage2Out(active_mode:
-  Mode). LFM_SYSTEM = verbatim DEFAULT-chat container prompt —
-  greedy-sensitive, ANY edit → re-run router+audit+fallback+extreme.
-  lfm_input = optional "[Previous turn artifact mode: <prev>]\n" + RAW
-  message; no prior string EVER in LFM input (Needle 3 removed). LFM
-  success → conf 0.95, constraints [] + entities [].
-- Worker deterministic post-guards (in order, 2026-10-19c):
-  _hard_coding_override → _routing_guards (1 question gate, 2 chat gate via
-  LOOSE _artifact_modes, 3 evidence switch via STRICT _STRICT_CONTAINER_RX
-  earliest-match-wins, 4 sheet-beats-invoice, 5 _RX_EXPLICIT_ARTIFACT
-  chat→studio promotion) → _multi_turn_rule → stripped recompute if the
-  mode flipped (chat=verbatim, studio=_clean_artifact_prompt) → trivial-chat
-  passthrough (standard_chat && len<120 → verbatim) → _remember.
-  _preserve_hard_tokens REMOVED (lossless cleaner); _salvage_stage2 kept as
-  truncated-JSON safety net. MAX_LFM_CHARS REMOVED (2026-10-20) — the LFM
-  call gets a 500-char head+tail slice at the call site only.
-  LFM 2-strike failure path (2026-10-19d): _fallback_mode_from_evidence
-  (message) = earliest STRICT _STRICT_CONTAINER_RX hit wins; standard_chat
-  ONLY when zero container nouns; conf 0.5 (0.0 for standard_chat);
-  decided_by "lfm-fail-guard"; stripped = raw prompt (chat: whitespace-
-  collapse; studio: _clean_artifact_prompt). 1 self-correction retry kept
-  (2 _lfm_call attempts total).
-- Chat route order (locked): applySlashSkillRouting -> lastUserIdx ->
-  fullText -> passthrough check (decision_mode pin, then delete) ->
-  getDecision -> rewrite SKIPPED if passthrough OR hasAttachmentParts ->
-  replaceLastUserText BEFORE injectSystemBefore -> x-decision-mode header.
-- instrumentation.ts guard MUST stay literal `process.env.NEXT_RUNTIME ===
-  "nodejs"` (DCE); DECISION_ENGINE_AUTOSPAWN=0 opts out.
-- Ports: Next :3000, worker :8790, llama-server :8791, main LLM :8080
-  (LLM_API_URL in .env.local; no secrets in code).
-- TITLES CONTRACTS (2026-10-20, LOCKED):
-  ConversationMeta += titleSource?: "auto"|"manual" (undefined = legacy),
-  titleGenCount?: number (message count when title generated — stale-job
-  guard: writeTitle rejects when titleGenCount > incoming job's count or
-  titleSource === "manual"), titleGenAt?: number. Title writes NEVER
-  bump meta.updatedAt (sidebar order preserved).
-  mergeProtectedTitle(stored, incoming): incoming manual title wins;
-  else stored title + all 3 bookkeeping fields overwrite incoming (PUT
-  payloads can never clobber server-owned auto titles).
-  POST /api/conversations/[id]/title[?force=1] body {model?} →
-  {queued, coalesced?, ok?, title?, reason?}. Queue reasons: not-found,
-  manual, fresh, not-auto-title, no-assistant-reply, stale-or-manual,
-  generation-failed, gone, user-inference-busy, yielded-to-user.
-  lib/server/inference-busy.ts: beginUserTurn() aborts ALL registered
-  title AbortControllers + increments activeUserTurns; endUserTurn();
-  waitForUserIdle(timeoutMs) polls 1 s steps; resetInferenceBusy() for
-  tests. Chat route brackets every turn (release on !upstream.ok,
-  !upstream.body, catch, and stream-settle via pipeTo(...).finally).
-  callMainModel: non-streaming, temperature 0.2, reasoning_effort:"none"
-  (MANDATORY — thinking model else content null), max_tokens 24 (title)
-  / 48 (summary), TITLE_CALL_TIMEOUT_MS = 150_000, signal forwarded,
-  throws only on abort; planTitle never throws.
-  Title queue jobs are NOT tied to the HTTP request signal (survive
-  navigation) but ARE tied to the busy registry. Client trigger:
-  requestTitleGeneration(convId, NEXT_PUBLIC_MODEL_ID ?? "") after each
-  save in app/page.tsx.
-
-- WEB-SEARCH GATE CONTRACTS (2026-10-21e, LOCKED):
-  `LfmDecision = { decision: SearchDecision; source: "main-model"|"lfm"|"rules"; lfmMs: number;
-  lfmVerdict?: boolean|null; agreement?: "agree"|"disagree"|"lfm-unavailable" }`.
-  `SearchDecision = { search_required: boolean; reason: string; freshness: "none"|"day"|"week"|"month"|"year"|"any";
-  depth: "quick"|"standard"|"deep"; queries: {query,intent,preferred_domains?}[] }` (intent ∈
-  general|news|docs|code|academic|forum). Authority order: main model (authoritative) →
-  router fallback (never vetoes main "yes"; main "no" beats router "yes") → rules
-  (isSubstantivePrompt SEARCH fallback) → no-search plan.
-  `SearchPlan.relevanceAnchor?: string` = raw user prompt; NEVER searched, NEVER cached.
-  `countLexicallyRelevant(results, anchorText): number` (metasearch.ts) — punctuation-
-  insensitive core-token match, minHits = min(40% of tokens, 2) with absFloor ≥2 (≥3 tokens) / ≥1.
-  `metasearch()` lexical floor applies iff `relevant.length >= Math.min(5, ranked.length)`.
-  UI: `X-Research-Lfm` carries `decidedBy`; `GATE_BADGE={"main-model":"Model-gated",lfm:"LFM-gated",rules:"Rule-gated"}`;
-  testids `research-trail-card` / `research-trail-toggle` / `research-trail-gate-badge`;
-  PipelineStage id remains `"lfm"`. MAIN_GATE_SYSTEM_PROMPT must stay byte-identical to
-  MAIN_SYSTEM_PROMPT in scripts/eval-search-gate.mjs (comment enforces it).
-  Constants: MAIN_GATE_TIMEOUT_MS=35_000, MAIN_GATE_MAX_TOKENS=320, LFM_TELEMETRY_GRACE_MS=3_000,
-  MIN_RELEVANT_URLS=3 aggregate floor, metasearchWithFreshnessRecovery(plans, 20) quorum
-  15 results/2 engines, 6 s grace, 15 s cap; WEB_SEARCH_LFM_DISABLED escape hatch.
+[8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
+- SSE stage envelope: `data: {"ruke_stage":{...StageEvent}}\n\n` before first upstream byte;
+  `data: {"ruke_error":{"message":...}}` on upstream failure; `data: [DONE]` always last.
+- Chip label: "Step {activeIdx+1} of {n}" running; "Done"/"Stopped"/"Failed" terminal.
+- Panel contract: testids progress-chip/progress-panel; X aria-label "Close progress";
+  overall row is the FIRST `.tabular-nums` in the panel (per-step % come after);
+  closePanel: running→panel only, terminal→dismiss chip too.
+- White chip (user requirement): border rgba(255,255,255,0.55), text white — NEVER blue.
+- Chat route dual path: stream!==false → stage-channel Response; stream===false → legacy
+  headers/status (title-gen warmModel depends on it).
+- Sidebar menu = plain buttons (no ARIA roles); ConfirmDialog "Delete conversation?";
+  hero placeholder "How can I help you today?", bar placeholder "Reply"; testids
+  send-button/file-input/attachment-chip/conversation-item/select-mode-toggle intact.
+- Recents parity contracts: ConversationMeta `group?: string` / `unread?: boolean`;
+  RecentsFilters `groupFilter` (persisted). Modal testids: recents-modal /
+  recents-tab-active|archived / recents-modal-search|-select|-new|-close /
+  recents-modal-select-all / recents-modal-bulk-pin|-group|-unread|-archive|-delete /
+  recents-modal-exit-select / recents-modal-move-panel / recents-modal-group-name /
+  recents-modal-group-save / recents-modal-move-remove / recents-group-chip-all /
+  recents-group-chip-{name} / recents-modal-row / recents-modal-unread-dot.
+  Sidebar: recents-view-all / recents-expand / recents-browse / unread-dot.
+  Z-layers: aside z-50 (desktop), modal z-[200], ConfirmDialog z-[999] (above modal).
+- Auto-compact contracts: settings.json `compact_thresholds:{auto:0|1;tokens:number}`;
+  presets 32_000/64_000/128_000/256_000; custom 8,000–1,000,000 (COMPACT_CUSTOM_MIN/MAX);
+  RECENT_TAIL=4; post-compaction model array = [system msgs…, {role:"user",
+  content:"<compacted_context>…</compacted_context>"}, …last 4, new user msg]; persisted +
+  UI history NEVER touched by compaction; badge label "Context compacted (before -> after
+  tokens)" via formatTokens; testids settings-tab-context / settings-context-tab /
+  compact-toggle / compact-preset-{32k,64k,128k,256k} / compact-custom-input /
+  compact-custom-error / compact-save / compact-status / compact-now / compact-divider.
+- Compaction transport contract (2026-10-23): compaction calls POST /api/chat with
+  `purpose:"compact"` (ChatRequest) — route MUST forward verbatim and strip the marker
+  before upstream; compaction request = [system COMPACTION_SYSTEM_PROMPT, ...folded
+  history, COMPACTION_ANCHOR_PROMPT user turn]; anchor never enters the replacement array;
+  300 s client abort cap; divider testid compact-divider with data-state
+  compacting|done|failed|noop (failed/noop now VISIBLE).
+- Token meter contract (2026-10-23b): `GET /api/model-stats` → `{ok, model_alias, n_ctx,
+  total_slots}` (proxies upstream /props, 3 s timeout, api-key header server-side only);
+  `GET /api/model-stats?live=1` → `{ok, processing, prompt_tokens, n_ctx}` (upstream /slots);
+  unreachable → `{ok:false}` (HTTP 200 — client MUST render dashes, never fake numbers).
+  Footer span `[data-testid="token-meter"]`, text `Speed: {2dp} tk/s · Context: {used}/{max}`
+  (em dashes when unknown); ChatInput prop `tokenMeter?: TokenMeterSnapshot`; hook poll is 1 Hz
+  ONLY while status==="streaming".
+- Lock file `.ai-coordination/playwright.lock`; no npm test:e2e — real command
+  `npx playwright test <specs>` (baseURL :3000, workers:1, headless:false, slowMo 300,
+  PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright). Bash foreground runs are capped at 600 s —
+  run specs ONE FILE PER CALL under a single lock; capture `${PIPESTATUS[0]}` (plain
+  `| tail` swallows the exit code).
 
 [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
-- 2026-10-21e GATE runs (§1.3 launcher `.cache/run-pw-gate.ps1` — creates
-  `.ai-coordination/playwright.lock`, runs `cmd /c npx playwright test … > log 2>&1`
-  in the FOREGROUND, removes the lock in `finally`; agent stayed idle for the whole
-  run). Servers for these runs: Next :3000=200 (dev, log .cache/dev-server.log),
-  :8790 {"ok":true,"lfm":true}, :8791=200, :8080=200.
-  run A (.cache/pw-gate-a.log, -g "greeting reply stays local|triggers NO web
-  search|needs no search"): **3 passed (2.9 m), PW_EXIT=0** — greeting 47.2 s,
-  palindrome-prompt test 1.0 m, LeetCode-23 test 1.0 m.
-  run B (.cache/pw-gate-b.log, -g "labelled Model-gated"): **1 passed (22.3 s),
-  PW_EXIT=0** (test 21.8 s).
-  Live gate telemetry proving the fix (dev-server.log):
-  • palindrome prompt → `{"lfmVerdict":true,"mainVerdict":false,"agreement":"disagree"}`
-    + WARN "LFM router (55% measured) disagreed with the main model — main model
-    verdict is authoritative", `{"gateMs":3610,"search_required":false,"source":"main-model"}`
-    → NO search (previously the router's "yes" searched and cited WhatsApp/Waze/etc.)
-  • "NVIDIA RTX 5090 … price in India right now" → `{"lfmVerdict":false,
-    "mainVerdict":true,"agreement":"disagree"}`, `{"gateMs":5103,"search_required":true}`,
-    keyword queries `["NVIDIA RTX 5090 price India","RTX 5090 buy price India online
-    retailers"]` → trail card rendered + badge "Model-gated" + on-topic sources.
-  • greeting + LeetCode-23 → `agreement:"agree"`, both authorities no-search.
-  • fused-pool floor on the GPU query: `{"dropped":37,"kept":73,"sampleTokens":
-    ["nvidia","rtx","5090","price","india"]}`.
-- Servers LIVE + healthy: Next :3000 (200, dev, auto-booted engine), worker
-  :8790 {"ok":true,"lfm":true}, llama-server :8791 warm, main LLM :8080 200.
-- RUN STATUS: pw-final.log killed at 161/313 (1 timeout failure, fixed).
-  pw-final2.log COMPLETED: 306|4 skipped|3 failed (43.2 m) — patience family,
-  fixed. pw-final3.log COMPLETED: **308 passed | 4 skipped | 1 failed
-  (32.6 m)** — only reasoning-test.spec.ts:9. ROOT CAUSE PROVEN from logs:
-  decision line fast (standard_chat conf=0.92, ~1.6 s), then
-  `POST /api/chat 200 in 150536ms` — model rambled in its thinking block the
-  whole 150 s window (unterminated  → scrubber keeps answer area empty =
-  error-context snapshot). Same prompt standalone: ~1.4 s, 44 tokens, [DONE].
-  Real-model nondeterminism → FIXED test-only: reasoning-test journey now
-  retries ONCE on window expiry (fresh "New conversation" click, UNIQUE
-  token per attempt, test.setTimeout 420 s). tsc clean.
-  pw-final4.log COMPLETED: 308|4 skipped|1 failed (36.4 m, exit 1) — retry
-  did NOT save reasoning-test (both attempts expired → systematic). TRUE
-  ROOT CAUSE: ABANDONED UPSTREAM STREAMS — test navigates away mid-stream,
-  route's fetch to :8080 had no abort signal, llama.cpp kept generating for
-  the dead request and starved following turns (log proof: chart decision
-  with NO matching POST /api/chat completion line before each victim).
-  APP FIX (app/api/chat/route.ts): req.signal → forwardStream → upstream
-  fetch signal (client disconnect cancels generation). VERIFIED: abandon
-  chart stream at 6 s → next turn closes in 2.0 s; targeted neighborhood
-  run (inspect-dup+interactive-ui+multi-select-delete+reasoning-test)
-  **5 passed, exit 0** — reasoning-test green FIRST attempt (125.6 s).
-  pw-final5.log COMPLETED (FINAL, §1 protocol): **309 passed | 4 skipped |
-  0 failed (30.0 m), exit code 0** — FULL suite 100% green. Post-fix vitest
-  re-run vs final code: 434 passed | 1 skipped. 4 skips = intentional
-  widget form test + documented manifest skips.
-  2026-10-19c FINAL MASTER FIX run (.cache/playwright-run.log, via
-  .cache/run-playwright.ps1 §1.3 lock launcher, detached Start-Process +
-  §1.2 foreground wait loops): **309 passed | 4 skipped | 0 failed,
-  EXIT=0 (23.4 m)** — same 4 intentional skips (regression_modalities
-  :75/:229/:453 + render :710). Launcher gotcha: PowerShell
-  $ErrorActionPreference="Stop" turns npm's stderr "npm notice" into a
-  terminating NativeCommandError — run the suite via
-  `cmd /c "npx playwright test > log 2>&1"`-style redirection inside the
-  launcher.
-  2026-10-19d NEEDLE-REMOVAL run (.cache/playwright-run.log, same §1.3
-  launcher, detached Start-Process + §1.2 foreground wait loops — harness
-  10-min tool cap forces chunked waits; suite itself untouched): **309
-  passed | 4 skipped | 0 failed, EXIT=0 (22.4 m)** — identical 4
-  intentional skips; zero "needle" strings anywhere in the run log; slow
-  file file-reading.spec.ts 15.8 m (pre-existing, informational).
-- 2026-10-20 TITLES runs (.cache/run-playwright.ps1 §1.3 launcher +
-  §1.2 foreground wait; log .cache/playwright-run.log, exit
-  .cache/playwright-exit.txt): run#1 title+conversations-crud EXIT=1 —
-  2 real defects found+fixed (unbounded title fetch held :8080 slot →
-  inference-busy registry + TITLE_CALL_TIMEOUT_MS + warmModel helper;
-  thinking-model null content → reasoning_effort:"none"). run#2 same
-  batch EXIT=1 — 13|1: conversations-live-chat title-text locator raced
-  the legit rename → spec rewritten to data-conversation-id locators
-  (test-contract update, no app change). run#3 same batch EXIT=0 —
-  **14 passed (3.8 m)** incl. conversation-title force regen 2.2 m +
-  live journey 45.5 s. run#4 chat-stream+multi-select-delete+
-  edit-stop-collapse EXIT=0 — **9 passed (58 s)**. NOT yet re-run:
-  anatomy/cad/three3d/render/skills/file-reading/long-doc-retrieval/
-  regression_modalities/interactive-ui/studio-viewers-visible (last
-  full-suite green = 2026-10-19d 309|4|0; titles changes are chat-route
-  bracket + page.tsx persist effect — chat-stream neighborhood proven).
-- NEW PROJECT RULE (CLAUDE.md §1, replaces old launch/poll pattern): CODE /
-  TEST / ANALYZE phases mutually exclusive; lock file
-  `.ai-coordination/playwright.lock` created before launch + removed in
-  finally; while lock exists agent MUST WAIT in foreground loop (3 h
-  deadline, 5 s sleeps, NO other work); tests synchronous, real exit code;
-  never kill a run or edit app code mid-run. Harness cap: Bash foreground
-  max 10 min < 33-45 m suite → launcher script owns the lock (CLAUDE.md
-  §1.3 explicitly contemplates separate launchers); agent then blocks ONLY
-  on the §1.2 wait loop, doing nothing else between identical wait calls.
-- Targeted batches already green post-fixes: anatomy+cad+three3d+render 57
-  passed/1 skipped; file-reading+reasoning-test+chat-stream 217→218 passed/
-  0 failed; .py/.toml 4 passed.
-- Worker restart pattern (MUST use venv python): kill :8790 listener PID
-  (netstat -ano | grep ':8790' | grep LISTENING), taskkill //PID //F,
-  powershell Start-Process 'D:\Projects\WebUI\WebUI\.decision-engine\.venv\
-  Scripts\python.exe' -ArgumentList 'decision_server.py' -WorkingDirectory
-  'D:\Projects\WebUI\WebUI\.decision-engine\worker' -WindowStyle Hidden
-  -RedirectStandardOutput/Error to .decision-engine/.cache/worker.*.log; poll
-  /health. System python lacks fastapi/uvicorn — venv python only (all
-  needle remnants purged).
-- Next dev restart: kill :3000 PID, rm -rf .next/cache/webpack,
-  powershell Start-Process cmd '/c npm run dev > .cache/next-dev.out.log 2>&1'.
-- Kill Playwright: powershell -NoProfile -Command 'Get-CimInstance
-  Win32_Process -Filter "Name=node.exe" | Where-Object { $_.CommandLine
-  -match "playwright" } | ForEach-Object { Stop-Process -Id $_.ProcessId
-  -Force }' (bash double-quotes mangle $_ — single-quote the -Command).
+- Dev server on :3000 (node PID observed 17696 this cycle; NOT restarted — Next hot-reload
+  picked up useChat/SettingsMenu edits; restart one-liner in docs/e2e-test-state.md).
+- 2026-10-22g verified (real exit codes, single lock, one spec file per Bash call):
+  auto-compact 3/3 (4.2 s / 2.0 s / 3.1 s, PW_EXIT=0), edit-stop-collapse 5/5 (17.8 s,
+  PW_EXIT=0), progress-panel 6/6 (35.2 s, PW_EXIT=0); vitest run 52 files 595 passed |
+  1 skipped (11.74 s, VITEST_EXIT=0); tsc --noEmit EXIT=0. No playwright-cli sessions open;
+  lock released.
+- Store holds many conversations incl. real ones — do not wipe. WARNING: the
+  auto-compact spec afterEach resets compact_thresholds to {auto:0,tokens:0} — if the
+  USER has a live setting, RESTORE it after running that spec (did so 2026-10-23:
+  {auto:1,tokens:32000} is the user's live config). auto-compact 5/5 incl. 2 real-backend
+  tests (route contract 6.8 s; real /compact 21.0 s; suite 39.1 s, PW_EXIT=0 via pipefail).
+- Mock-SSE patterns: paced http upstream + route.continue (NOT route.fulfill); route
+  interception works without CORS headers (same-origin decided pre-interception); frames
+  written via setTimeout + per-frame `alive()` liveness — never req.on("close") inside
+  req.on("end") (fires instantly, wipes timers, hangs the fetch). readingDelay override
+  widens the progress-spec reading window for label asserts.
+- 2026-10-23b verified: tests/token-meter.spec.ts 1/1 (5.0 s, PW_EXIT=0, single lock, one file
+  per call) — model-free: fake upstream streams usage+timings frame (`{"usage":…,"timings":…}`
+  before [DONE]) and /api/model-stats fulfilled via pathname predicate route (query-aware);
+  asserts mid-stream live band AND final exact "Speed: 42.50 tk/s · Context: 4542/100000".
+  Spec never touches /api/settings. vitest __tests__/token-meter.test.ts 14/14; endpoint curl
+  smoke against real backend: n_ctx 131072, live prompt_tokens 60770 (zero inference cost).
 
-[8.6 OPEN BUGS / BLOCKERS]
-- None failing. Watch items for the final run: real-model specs are the only
-  flake source (timeouts bumped: conversations-live-chat 180 s, chat-stream
-  probe 180 s, file-reading per-category 480/300/200 s, reasoning-test own).
-- Honest deltas (documented, not bugs): engine tree ~1.36 GB RAM
-  (llama-server only — Needle 3's ~185 MB of _worker.py --child processes
-  gone); LFM decision latency ~0.3-1.2 s per turn (no Needle 150-900 ms
-  stage; user chose always-model over latency).
+[8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
+- None open. Resolved 2026-10-23 (user report "compact is not working at all… 100k…
+  even manual compact is not working"): FOUR layers — stale-32k persistence (fixed
+  2026-10-22h), route pipeline corrupting the compaction payload (purpose:"compact"
+  passthrough), real model ignoring the block contract without a trailing anchor
+  (COMPACTION_ANCHOR_PROMPT), and every failure being invisible (badgeAt+failed state).
+  Full write-up in docs/ISSUES.md. Key lesson: ALL earlier compaction tests intercepted
+  **/api/chat so the real route never ran — real-route coverage is now mandatory for
+  transport changes.
+- Resolved 2026-10-22g: (a) REAL APP BUG — SettingsMenu's menu-open effect
+  `fetchSettings()` (~566 ms cold dev compile) resolved AFTER a preset click and
+  overwrote the just-clicked compact state (aria-pressed stuck "false" through 5 s of
+  polls); fixed with the `compactDirtyRef` guard, and auto-compact test 1 clicks with NO
+  settle wait so the guard stays verified. (b) TEST-HARNESS bug — the fake upstream's
+  `req.on("close")` registered inside `req.on("end")` fires immediately (body stream
+  already closed) → wiped every scheduled SSE frame → browser fetch hung forever with
+  compactions:1 in /hits yet no response bytes, no requestfailed, no pageerror; fixed
+  with `alive()` liveness per write + `res.on("close")` cleanup. Noted non-bugs: manual
+  label showed after > before because the canned summary block is longer than the two
+  tiny folded messages (real summaries are smaller); token counts are ~4 chars/token
+  estimates.
+- Resolved 2026-10-22e: multi-select-delete test 1 failed on
+  `Delete ${total}` after the select-all click — store was empty + single seed → the
+  one row-click already satisfied select-all so the click DESELECTED. Fix: seed TWO
+  chats (+cleanup both) → 2/2 green. Resolved earlier (2026-10-22d): (a) overall % regressed 60→33 when the weight-3 websearch
+  step opened at band 10 → overallFloor (unit test added); (b) auto-opened panel occluded
+  the user bubble Edit button → edit-stop-collapse :124 click hang (60 s timeout) → removed
+  auto-open, spec updated to click-to-open, re-run green.
+- Not run wholesale: other specs (skills/studio/cad/...) don't exercise changed surfaces;
+  ProgressChip is inert unless turnProgress is set and no longer auto-shows, so overlay
+  interference with other specs is now impossible.
 
 [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
-- No Tier 1/Tier 2 skill reference files preloaded. Two-tier rules in force:
-  ./.cskills/ invisible tier loads ONLY via buildDecisionSkillBlock
-  (<decision_skill> single block/turn, frontmatter+CLI stripped); scenario
-  JSONs own routing; browser can never touch ./.cskills/.
+- None loaded this session (Playwright via npx + project config directly). Tier 2 untouched.
 
-[8.8 IMMEDIATE NEXT ATOMIC ACTIONS]
-1. DONE: state.md + CHANGELOG.md gate-authority sync complete (this session).
-2. DONE: targeted Playwright batches under the §1.3 lock — 4/4 passed,
-   PW_EXIT=0 on both runs (see 8.5). §4 completion report delivered.
-3. Optional (only if user asks): re-run the heavier chat-adjacent specs
-   (chat-stream, conversations-live-chat, reasoning-test) to confirm the
-   gate change didn't perturb streaming; full suite last green 2026-10-19d
-   (309 passed | 4 skipped | 0 failed).
-4. Optional (only if user asks): `git add -A` + commit ending
-   "Co-Authored-By: Claude Code <noreply@anthropic.com>".
-
-[ADDENDUM 2026-10-19b — DECISION ENGINE LIFECYCLE (LOCKED-DONE)]
-- client.ts spawn now passes DECISION_ENGINE_PARENT_PID=<next server pid>;
-  TS must NOT child.kill() the worker (that orphans llama-server).
-- decision_server.py: `_parent_watchdog` daemon thread (Windows SYNCHRONIZE
-  handle via ctypes — PID-reuse-immune; POSIX os.kill poll; 2 s interval).
-  On parent death: `_shutdown_llama()` + decision_server.pid cleanup +
-  `os._exit(0)`. Manual spawns (no env var) stay independent.
-  `@app.on_event("shutdown")` also kills our llama child on graceful stop.
-- Every subprocess launch (llama-server, tasklist, powershell) now uses
-  CREATE_NO_WINDOW — fixes the visible black console window (title = venv
-  python.exe path) users saw when the detached worker spawned llama-server.
-- Verified: py_compile OK; functional watchdog test (fake parent died →
-  worker exited 0, printed "parent pid … exited — shutting down");
-  `tsc --noEmit` clean. No Playwright run (process-lifecycle change, no UI).
-- Effect: closing/Ctrl+C-ing the `npm run dev` terminal stops worker +
-  llama-server within ~2 s; first heavy prompt after a dev restart pays the
-  cold start again (engine lifetime is now tied to the dev server).
-
-## 2026-10-19 — Logging refactor: pino + per-token persist flood fix [LOCKED-DONE]
-- Flood root cause: app/page.tsx persist effect fired saveConversation (POST) +
-  refreshList (GET) on EVERY streamed token. Fix: effect now returns early while
-  `status === "streaming"`; exactly ONE save+refresh per turn, when the stream
-  settles (complete/error/aborted). `status` added to the effect deps.
-- Server logging: new lib/server/logger.ts (pino + pino-pretty as a SYNC
-  transform destination — no transport worker thread; safe under Next webpack).
-  LOG_LEVEL env (default debug dev / info prod). pino + pino-pretty added to
-  experimental.serverComponentsExternalPackages.
-- Pino call sites (server-only): app/api/chat/route.ts, app/api/decision/route.ts,
-  app/api/files/extract/route.ts, lib/decision/client.ts.
-- Needle3/LFM2.5 visibility: chat route logs
-  "decision: needle3 prior → lfm2.5 gate" with needleMs/lfmMs/mode/conf/by/skill/
-  stripped; llm stream start/complete (model, ms, sseChunks) + abort/error logs.
-  Decision worker spawned with stdio pipe (was "ignore") and relayed line-by-line
-  into pino — its [decision]/[decision-engine] prints now appear in npm run dev.
-- Client debug spam removed (no pino in browser bundle): 9 console.log in
-  hooks/useChat.ts, 4 in lib/stream/parser.ts. Kept console.error/warn in
-  client code (parser error, highlight, ChatInput, docProcessor).
-- Verified: tsc clean; vitest 434 passed/1 skipped; live isolated dev server on
-  :3799 (DECISION_ENGINE_AUTOSPAWN=0, engine URL pointed at dead port — zero
-  model traffic): pino pretty lines render, conversations GET/POST log once each,
-  decision fallback envelope logged with by=fallback. Test server killed,
-  c_logtest.json removed from ~/.local-intelligence/conversations.
-
-### 2026-10-19 (later) — Stale-bundle follow-up [LOCKED-DONE]
-- User still saw conversations GET/POST flood: browser tab ran the OLD client bundle (next.config.mjs change needs dev restart; a parallel verification dev server sharing .next broke HMR mid-session).
-- Purged .next, fresh compile on isolated :3799 (autospawn off, zero model traffic), served app/page.js chunk verified to contain `if (status === "streaming") return;` + snapshot dedup gate. Server killed, no artifacts.
-- User action: restart `npm run dev`, hard-reload tab (Ctrl+Shift+R). Expect exactly one POST + one GET per turn.
-
-### 2026-10-19 — Decision table logging [LOCKED-DONE]
-- lib/server/decision-log.ts: per-turn pino block — Needle 3 in/out, LFM2.5 exact input + raw grammar JSON, skills (core/user + injected bytes), mode→UI COMPONENT, stripped LLM prompt, constraints/entities, validators, fence.
-- Envelope +3 diagnostic fields (schemas.py + types.ts): needle_prior{modes,confidence}, lfm_input, lfm_raw. Worker lfm_decide(trace) captures them; redundant [decision] summary print removed (guard/salvage/failure prints kept).
-- chat + decision routes call logDecisionTable; chat route tracks skillBlockBytes. audit-decision-table.mjs header updated.
-- __tests__/decision/decision-log.test.ts 5/5. tsc clean, py_compile clean. Live fallback table verified on :3799 (autospawn=0). Full Needle/LFM rows verified by unit test only — live engine path unverified (no model load).
-- SUPERSEDED 2026-10-19d: Needle 3 fully removed — decision-log.ts now renders the single-model LFM2.5 box (no NEEDLE rows) and the envelope lost needle_latency_ms/needle_prior. See the NEEDLE 3 REMOVAL entry in [8.2].
-
-### 2026-10-19d — NEEDLE 3 REMOVAL & single-model LFM2.5 rewiring [LOCKED-DONE]
-- Stage-1 Needle 3 deleted from decision_server.py (import, env vars, CLASSIFY_SYSTEM, 9 route_* tools, ROUTE_TOOLS, TOOL_TO_MODE, _agent, _NEEDLE_LOCK). LFM2.5-1.2B is the sole router: decided_by "lfm2.5"; warm() prints "[decision-engine] warm: lfm2.5 on :8791, worker on :8790"; health() {"ok":true,"lfm":true}.
-- 2-strike failure guard: 1 self-correction retry kept, then _fallback_mode_from_evidence (earliest STRICT container noun wins — "…SUMIFS…" → excel, never a silent standard_chat drop), decided_by "lfm-fail-guard", RAW prompt untouched.
-- Envelope: needle_latency_ms + needle_prior deleted (Python + TS + all builders + test fixtures). decision-log.ts single-model box; decision route adds "decision: mode=… by=… lfm=…ms total=…ms".
-- Disk/deps purge: models/needle3, HF needle cache, whistle weights, site-packages/needle remnants deleted; cactus-needle uninstalled; setup-engine.sh/.bat install only the 4 core deps + LFM GGUF.
-- Verified: zero needle/_worker.py --child processes; tsc clean; vitest 439|1 skipped; fallback probe PASS (attempts=2, lfm-fail-guard, excel, raw prompt); router 11/11; extreme 64/64; audit 12/12 + ALL 10 hard tokens. Playwright FINAL: 309 passed | 4 skipped |
-  0 failed, EXIT=0 (22.4 m) — full suite 100% green post-needle-removal; see
-  [8.5].
-
-## 2026-10-20 — Timestamp-aware knowledge index (long attachments) [LOCKED-DONE]
-### [8.2 LOCKED — do not re-read/re-do]
-- lib/server/attachindex/ (types, format, chunk, bm25, embed, spine, router,
-  retrieve, store, build, turn, notes) — 26 unit + 5 recall-integration tests green.
-- Extraction wiring: extractFileFromPath indexes >48k content when `att` id present
-  (text/pdf/office/archive/legacy full parsed text; audio/video whisper SEGMENTS with
-  timestamps; video also scene keyframes via videoKeyframesFromPath → frames/*.jpg).
-  Failure/cancellation → removeIndex (partial cleanup).
-- Chat turn: buildAttachmentTurn (turn.ts) + stripAttachmentRefs in app/api/chat/route.ts
-  §5; decision fullText = firstTextPart only; historyBefore sliced to 500.
-- Notes route app/api/attach/[id]/notes/route.ts (GET cached / POST generate, ?force=1).
-- GC: DELETE /api/conversations/[id] sweeps att ids from stored JSON → removeIndex.
-- UI: ChatInput chip badge data-testid="indexed-badge" ("indexed · N chunks").
-- Verified live: curl extract (indexed 59 chunks, full.txt byte-identical), curl chat
-  marker turn (Strata echoed marker, refs stripped), whole_video notes (11.8k chars,
-  honest no-timestamps note), GC removed index, ephemerality (persisted conversation:
-  0 knowledge_index blocks; attachment parts rebuilt client-side each send).
-- Playwright (headed, §1 lock): file-reading "extraction API" 106 passed EXIT=0;
-  tests/long-doc-retrieval.spec.ts 3 passed EXIT=0 (badge + marker turn1 + marker turn2
-  no re-attach). vitest 481|1; tsc = 4 pre-existing render.spec errors only.
-
-### [8.4 CONTRACTS now in force]
-- Content part: {type:"attachment_ref", att_id, name, category} — client-built,
-  invisible to extractUserText, STRIPPED by stripAttachmentRefs before upstream
-  (llama-server template rejects unknown part types).
-- Index layout: .data/attach-index/<attId>/{full.txt, chunks.jsonl, meta.json,
-  notes.json?, frames/*.jpg}; attId ^att_[a-z0-9]{4,32}$; store LRU = last 3.
-- Extract response: indexed?, indexId?, chunkCount?, spine? (Attachment + same fields).
-- Env (optional): EMBED_MODEL (Xenova/all-MiniLM-L6-v2, 384-d, dot==cosine),
-  ATTACH_INDEX_CHUNK 1200, ATTACH_INDEX_OVERLAP 150, ATTACH_RETRIEVE_CHARS 24000,
-  ATTACH_TOP_K 8, ATTACH_SPINE_BLOCKS 40. Injection budget: spine+preview+evidence ≤ 48k.
-- turn.ts buildAttachmentTurn(messages, userIdx, question, signal): userIdx = CURRENT
-  index of the last user message (chat route passes lastUserIdx+1 after the skill block).
-- Notes: one non-streaming Strata call per spine block, max_tokens 700, temp 0.2,
-  req.signal honored (AbortError → 499), fallback = opening…closing sentence.
-
-## 2026-10-20 — Extraction/Whisper hardening pass [LOCKED-DONE]
-[8.2 LOCKED]
-- ffmpeg.ts videoKeyframesFromPath: fast-decode variant chain (-hwaccel auto
-  -skip_frame nokey → -skip_frame nokey → full decode), partial frames cleared
-  between variants; fill pass + 150 cap unchanged.
-- index.ts video branch: keyframes start eagerly (only when att) and run
-  concurrently with audio decode+transcribe; framesDir rm -Sync when the
-  transcript needs no index. Verified by extraction-API E2E 106 passed.
-- audio.ts rewritten: 3-stage VRAM lifecycle (getFreeVramMb nvidia-smi 2 s;
-  cuda/fp16 batch 8; LLM_UNLOAD_URL/LLM_RELOAD_URL dance with finally-reload;
-  CPU fallback + cudaBroken one-shot), gpuAsr.dispose(), RMS silence window
-  skip (≥20% silent → windowed decode, else single stride call),
-  normalizeSegmentTimeline (shift when start < prevEnd-6).
-- turn.ts: anchorQuery() exported + wired into routeQuery/embedOne/
-  retrieveEvidence (short/pronoun follow-ups inherit prev user question).
-- Tests: __tests__/hardening-audio.test.ts (9, transformers mocked, probe
-  seams DI), __tests__/hardening-payload.test.ts (7, incl. route source-order
-  contract strip < forwardStream + frame-fixture image placement).
-[8.4 CONTRACTS]
-- transcribePcmSegments(pcm, opts?: {probe?, unload?, reload?}) — test seams.
-- Env: WHISPER_VRAM_FLOOR_MB 1500, WHISPER_SILENCE_RMS 0.004, LLM_UNLOAD_URL,
-  LLM_RELOAD_URL (optional; reload falls back to 1-token warmup on LLM_API_URL).
-- CPU whisper singleton requests dtype "q8"; GPU per-job cuda/fp16 disposed.
-- anchorQuery(question, messages, userIdx) exported from turn.ts.
+[8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. DONE — Auto-Compact Context delivered; auto-compact 3/3 + regression specs green;
+  docs/STATE.md + docs/CHANGELOG.md synced (2026-10-22g).
+2. §4 completion report delivered to the user (this session).
+3. Optional follow-ups ONLY IF USER ASKS: commit the uncommitted work (new
+  lib/chat/{compact,compactConfig,tokens}.ts, CompactDividerBadge, test files +
+  modified useChat/SettingsMenu/ChatInput/page/settings-route/client/types +
+  app/api/chat/route.ts — NOTE several of these carry PRE-EXISTING unrelated edits from
+  prior uncommitted cycles, stage selectively; nothing has been committed this whole
+  effort); exact tokenizer instead of the chars/4 estimate. (The former "in-flight
+  spinner invisible" follow-up was DELIVERED 2026-10-23 — badgeAt now publishes with
+  isCompacting.)

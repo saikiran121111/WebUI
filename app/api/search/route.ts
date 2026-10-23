@@ -2,16 +2,18 @@
  * /api/search?q=<query>
  *
  * Unified search entry point: routes through the full web-research
- * pipeline (LFM gate → multi-engine metasearch → 5-tier extraction →
- * BM25 rerank) so the caller gets structured evidence rather than raw
- * engine hits. For a plain "just get me search results" use case the
- * `?raw=1` param returns the legacy SearXNG-format result list.
+ * pipeline (search-by-default gate → multi-engine metasearch →
+ * tiered extraction → BM25 rerank) so the caller gets structured
+ * evidence rather than raw engine hits. For a plain "just get me
+ * search results" use case the `?raw=1` param returns the raw
+ * multi-engine result list (no gate, no extraction).
  *
  * The pipeline allows up to 300 seconds (5 minutes) for deep
  * multi-hop research on a local workstation.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { runWebResearch, evidenceBlock } from "../../../src/lib/web-search/pipeline";
+import { runWebResearch, evidenceBlock } from "../../../lib/web-search/pipeline";
+import { runGeneralWebSearch } from "../../../lib/web-search/engines";
 
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");
@@ -20,18 +22,11 @@ export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get("raw") === "1";
 
   if (raw) {
-    // Legacy path: direct SearXNG proxy (no LLM gate, no extraction)
+    // Legacy path: raw multi-engine SERPs (no gate, no extraction) —
+    // the general-web engine pool runs directly through net.ts.
     try {
-      const url = new URL("http://127.0.0.1:8888/search");
-      url.searchParams.set("q", query);
-      url.searchParams.set("format", "json");
-      url.searchParams.set("engines", "google,duckduckgo,brave,wikipedia");
-      const res = await fetch(url.toString(), {
-        signal: AbortSignal.timeout(45_000),
-      });
-      if (!res.ok) throw new Error("SearXNG returned " + res.status);
-      const data = await res.json();
-      return NextResponse.json(data);
+      const results = await runGeneralWebSearch(query);
+      return NextResponse.json({ query, results });
     } catch {
       return NextResponse.json({ error: "Search unavailable", results: [] }, { status: 502 });
     }
@@ -60,11 +55,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       evidenceBlock: block,
       webCitations,
-      lfm: {
-        source: bundle.lfm.source,
-        depth: bundle.lfm.decision.depth,
-        freshness: bundle.lfm.decision.freshness,
-        queries: bundle.lfm.decision.queries.map((q) => q.query),
+      searchGate: {
+        source: bundle.searchGate.source,
+        depth: bundle.searchGate.decision.depth,
+        freshness: bundle.searchGate.decision.freshness,
+        queries: bundle.searchGate.decision.queries.map((q) => q.query),
       },
     });
   } catch (err: unknown) {

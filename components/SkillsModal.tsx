@@ -246,7 +246,7 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
                       className={cn(
                         "flex items-start gap-2 px-3 py-2 rounded-lg text-xs leading-relaxed",
                         errorLine
-                          ? "bg-red-500/[0.06] border border-red-500/15 text-red-400"
+                          ? "bg-white/[0.05] border border-[rgba(255,255,255,0.15)] text-white/70"
                           : "bg-white/[0.03] border border-white/[0.07] text-white/50",
                       )}
                     >
@@ -285,7 +285,7 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
                             onClick={() => handleDelete(skill.skillName)}
                             disabled={busy}
                             aria-label={"Delete " + skill.skillName}
-                            className="ml-auto p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/[0.08] transition-colors"
+                            className="ml-auto p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/[0.06] transition-colors duration-[120ms]"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -294,7 +294,7 @@ export default function SkillsModal({ open, onClose }: SkillsModalProps) {
                           <p className="text-[11px] text-white/40 leading-relaxed line-clamp-2">{skill.description}</p>
                         )}
                         {skill.blockedReason && (
-                          <p className="text-[11px] text-red-400/80">{skill.blockedReason} — this skill needs an external image/video generation service.</p>
+                          <p className="text-[11px] text-white/40">{skill.blockedReason} — this skill needs an external image/video generation service.</p>
                         )}
                         <label className={cn(
                           "flex items-center gap-2 text-xs cursor-pointer select-none",
@@ -361,7 +361,7 @@ function SkillBadge({ skill }: { skill: SkillRecord }) {
   if (skill.blockedReason) {
     return (
       <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full
-        bg-red-500/[0.1] text-red-400/90 border border-red-500/20">
+        bg-white/[0.06] text-white/55 border border-[rgba(255,255,255,0.15)]">
         <ShieldAlert className="w-2.5 h-2.5" /> Blocked
       </span>
     );
@@ -369,7 +369,7 @@ function SkillBadge({ skill }: { skill: SkillRecord }) {
   if (skill.autoUse && skill.enabled) {
     return (
       <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full
-        bg-amber-500/[0.1] text-amber-400/90 border border-amber-500/20">
+        bg-white/[0.08] text-white/70 border border-[rgba(255,255,255,0.12)]">
         <Zap className="w-2.5 h-2.5" /> Auto-Scenario
       </span>
     );

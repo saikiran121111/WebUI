@@ -1,0 +1,124 @@
+/* Code block */
+/* Code block */
+.code-block {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+.code-block-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.4rem 0.875rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.015);
+}
+.code-block-body pre {
+  margin: 0; padding: 0;
+  background: transparent !important;
+  border: none; border-radius: 0;
+}
+.code-block-body code {
+  background: transparent !important;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.code-block-lang {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-block-copy {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.code-block-copy:hover { background: rgba(255,255,255,0.04); color: var(--muted); }
+
+
+/* ── Shiki dual-theme output ────────────────────────────────────────────
+   highlight.ts emits both palettes as CSS vars on every token; the app is
+   dark-only, so we display the dark vars. !important is required because
+   the light palette arrives as an inline style (Shiki defaultColor:false). */
+.code-block-body .shiki,
+.code-block-body .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg, transparent) !important;
+  font-style: var(--shiki-dark-font-style, inherit) !important;
+  font-weight: var(--shiki-dark-font-weight, inherit) !important;
+  text-decoration: var(--shiki-dark-text-decoration, inherit) !important;
+}
+
+/* Code body: exact source whitespace, horizontal scroll, no reformatting */
+.code-block-body {
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+}
+.code-block-body pre {
+  white-space: pre;
+  tab-size: 4;
+  -moz-tab-size: 4;
+}
+/* Inter-line newlines are stripped by the Shiki transformer, so empty
+   source lines need their full line box from min-height (1.65 = line-height). */
+.code-block-body .line { display: block; min-height: 1.65em; }
+.code-block-body.code-wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-block-body.code-collapsed pre { max-height: 24rem; overflow: hidden; }
+
+/* Line-number gutter (CSS counters — never reaches the clipboard) */
+.code-block-body.line-numbers { counter-reset: code-line; }
+.code-block-body.line-numbers .line {
+  counter-increment: code-line;
+  position: relative;
+  padding-left: 3.25rem;
+}
+.code-block-body.line-numbers .line::before {
+  content: counter(code-line);
+  position: absolute;
+  left: 0;
+  width: 2.25rem;
+  text-align: right;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* Restrained diff tinting */
+.code-block-body .diff-add { background: rgba(148, 198, 122, 0.08); }
+.code-block-body .diff-del { background: rgba(224, 163, 163, 0.08); }
+.code-block-body .diff-hunk { background: rgba(110, 168, 224, 0.06); }
+
+/* Block header controls */
+.code-block-controls { display: inline-flex; align-items: center; gap: 2px; }
+.code-block-ctl {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.3rem;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.code-block-ctl:hover { background: rgba(255, 255, 255, 0.04); color: var(--muted); }
+.code-block-ctl.is-active { color: var(--foreground); background: rgba(255, 255, 255, 0.08); }
+.code-block-copy svg, .code-block-ctl svg { width: 0.875rem; height: 0.875rem; }
+.code-block-copy span { font-size: 0.6875rem; }
+
+.code-block-copy:focus-visible, .code-block-ctl:focus-visible,
+.msg-copy-btn:focus-visible, .thinking-copy-btn:focus-visible,
+.md-table-csv:focus-visible, .md-table-ctl:focus-visible, .widget-submit:focus-visible,
+.diagram-stage:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 1px;
+  border-radius: 4px;
+}

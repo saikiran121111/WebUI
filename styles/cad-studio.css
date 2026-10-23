@@ -1,0 +1,120 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Autodesk / Blender workstation chrome — shared by ArchitectureCadViewer
+   and ThreeStudioViewer. Loaded AFTER globals.css so these tokens and
+   component rules win on equal specificity.
+   ════════════════════════════════════════════════════════════════════════ */
+:root {
+  --cad-bg-canvas: #060a12; --cad-bg-ribbon: #0b101b; --cad-bg-dock: rgba(11, 16, 27, 0.92);
+  --cad-bg-control: #131b2e; --cad-bg-control-hover: #1e293b; --cad-bg-control-active: #0284c7;
+  --cad-border: #1e293b; --cad-border-subtle: rgba(148, 163, 184, 0.14);
+  --cad-text-primary: #e2e8f0; --cad-text-muted: #94a3b8; --cad-accent-cyan: #d9d9d9;
+  --cad-font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, monospace;
+}
+.cad-workstation-shell { position: relative; width: 100%; height: 680px; min-height: 680px;
+  background: radial-gradient(ellipse at 50% 45%, #0d1526 0%, #050811 100%);
+  border: 1px solid var(--cad-border); border-radius: 8px; overflow: hidden; display: flex;
+  flex-direction: column; font-family: var(--cad-font-mono); color: var(--cad-text-primary);
+  user-select: none; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65); }
+.cad-ribbon-bar { height: 38px; min-height: 38px; background: var(--cad-bg-ribbon);
+  border-bottom: 1px solid var(--cad-border); display: flex; align-items: center; gap: 2px;
+  padding: 0 6px; overflow-x: auto; scrollbar-width: none; z-index: 20; }
+.cad-ribbon-bar button { white-space: nowrap; }
+.cad-ribbon-group { display: inline-flex; align-items: center; gap: 2px; padding-right: 4px;
+  margin-right: 2px; border-right: 1px solid var(--cad-border); }
+.cad-btn { height: 26px; padding: 0 8px; font-size: 11px; font-family: var(--cad-font-mono);
+  font-weight: 500; letter-spacing: 0.02em; color: var(--cad-text-primary);
+  background: var(--cad-bg-control); border: 1px solid var(--cad-border-subtle); border-radius: 4px;
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+  transition: all 120ms ease; }
+.cad-btn:hover { background: var(--cad-bg-control-hover); border-color: rgba(56, 189, 248, 0.45); }
+.cad-btn[data-active="true"] { background: rgba(255, 255, 255, 0.14); border-color: var(--cad-accent-cyan);
+  color: #ffffff; box-shadow: inset 0 0 8px rgba(56, 189, 248, 0.25); }
+.cad-dock-left, .cad-dock-right { position: absolute; top: 46px; bottom: 42px; width: 230px;
+  background: var(--cad-bg-dock); backdrop-filter: blur(12px); border: 1px solid var(--cad-border);
+  border-radius: 6px; z-index: 15; display: flex; flex-direction: column; overflow: hidden; }
+.cad-dock-left { left: 8px; } .cad-dock-right { right: 8px; }
+.cad-dock-header { height: 28px; padding: 0 10px; background: rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid var(--cad-border); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--cad-text-muted);
+  display: flex; align-items: center; justify-content: space-between; }
+.cad-status-bar { height: 30px; min-height: 30px; background: var(--cad-bg-ribbon);
+  border-top: 1px solid var(--cad-border); padding: 0 12px; font-size: 11px;
+  color: var(--cad-text-muted); display: flex; align-items: center; justify-content: space-between; z-index: 20; }
+/* NOTE: stroke-width here is in SVG USER UNITS unless non-scaling-stroke is on.
+   The viewBox is ~24 model units wide, so 3.5 user units = ~126 px halos that
+   merge into giant dark blobs behind room tags. Keep non-scaling-stroke.
+   Room-tag pill text opts out with stroke="none" (Chromium mis-paints the
+   halo on tspan-wrapped labels); the pill fill provides the contrast. */
+.cad-svg-canvas text { font-family: var(--cad-font-mono); paint-order: stroke fill;
+  stroke: #060a12; stroke-width: 3.5px; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+/* Room-tag pill text carries NO halo (stroke none beats the rule above):
+   Chromium mis-paints even a non-scaling halo on tspan-wrapped labels —
+   giant dark disc + dropped first line at fit zoom. Pill fill = contrast. */
+.cad-svg-canvas g.cad-room-tag text { stroke: none; }
+
+/* ── Compat layer: keeps the locked 16:9 / fullscreen sizing and the
+   existing testids working while the workstation chrome is active. ───── */
+.cad-ribbon-bar { flex-wrap: nowrap; }
+.cad-ribbon-bar select { height: 26px; font-size: 11px; font-family: var(--cad-font-mono);
+  background: var(--cad-bg-control); color: var(--cad-text-primary);
+  border: 1px solid var(--cad-border-subtle); border-radius: 4px; padding: 0 4px; max-width: 128px; }
+.cad-ribbon-title { font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--cad-text-muted); margin-right: 5px; white-space: nowrap; }
+.cad-workstation-shell:fullscreen { height: 100vh; min-height: 0; border-radius: 0; }
+.cad-workstation-shell .cad-body { max-height: none; }
+.cad-dock.cad-dock-left, .cad-dock.cad-dock-right { padding: 0; }
+.cad-dock-hint { padding: 6px 10px; font-size: 10px; line-height: 1.4; color: var(--cad-text-muted);
+  background: rgba(56, 189, 248, 0.07); border-bottom: 1px solid var(--cad-border); }
+.cad-dock-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0.4rem 0.5rem; scrollbar-width: thin; }
+.cad-viewcube { position: absolute; z-index: 16; display: flex; gap: 3px; }
+.cad-viewcube-studio { top: 6.7rem; right: 0.5rem; }
+.cad-viewcube-cad { top: 8px; right: 246px; }
+.studio-right-dock { top: 8.9rem; }
+.cad-ribbon-bar .scene3d-tool-btn { height: 26px; padding: 0 8px; }
+.cad-ribbon-bar .cad-seg { border-color: var(--cad-border-subtle); }
+@media (prefers-reduced-motion: reduce) { .cad-btn { transition: none; } }
+
+.cad-pane-3d{position:relative}.cad-bim-host{position:absolute;inset:0}
+
+/* ── Studio ribbon: the 3D studio carries ~1.9k px of tool groups in a
+   ≤1058 px block — wrap onto extra rows instead of hiding the tail behind
+   the hidden scrollbar (fullscreen/transform/overlay/export were cut off).
+   The CAD ribbon above stays nowrap + fits by design (e2e guard). ─────── */
+.scene3d-toolbar.cad-ribbon-bar { flex-wrap: wrap; height: auto; min-height: 38px;
+  overflow-x: visible; padding: 4px 6px; row-gap: 3px; }
+
+/* ViewCube HTML fallback chips — unstyled buttons read as stray floating
+   text over the viewport; give them real chip chrome. */
+.cad-viewcube button { height: 20px; padding: 0 6px; font-size: 9px; font-weight: 600;
+  letter-spacing: 0.05em; font-family: var(--cad-font-mono); color: var(--cad-text-muted);
+  background: rgba(11, 16, 27, 0.82); border: 1px solid var(--cad-border-subtle);
+  border-radius: 4px; cursor: pointer; transition: all 120ms ease; }
+.cad-viewcube button:hover { color: #fff; border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(255, 255, 255, 0.16); }
+
+/* ── Collapsible dock panels (studio + CAD workstations): minimize when
+   not needed, reopen chips restore them; scene stays live throughout. ── */
+.studio-dock-titlebar { display: flex; align-items: center; justify-content: space-between;
+  gap: 0.4rem; margin-bottom: 0.25rem; }
+.studio-right-dock > .studio-dock-titlebar { padding: 0.45rem 0.55rem 0.1rem; }
+.studio-dock-collapse, .cad-dock-collapse { display: inline-flex; align-items: center;
+  justify-content: center; width: 20px; height: 18px; padding: 0; flex: 0 0 auto;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--cad-text-muted); cursor: pointer; transition: all 120ms ease; }
+.studio-dock-collapse:hover, .cad-dock-collapse:hover { color: #fff;
+  background: var(--cad-bg-control-hover); border-color: rgba(56, 189, 248, 0.45); }
+.cad-dock-header { gap: 6px; }
+.studio-dock-reopen, .cad-dock-reopen { position: absolute; z-index: 16;
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  font-family: var(--cad-font-mono); color: var(--cad-text-muted);
+  background: var(--cad-bg-dock); backdrop-filter: blur(10px);
+  border: 1px solid var(--cad-border); border-radius: 6px; cursor: pointer;
+  transition: all 120ms ease; }
+.studio-dock-reopen:hover, .cad-dock-reopen:hover { color: #fff;
+  border-color: var(--cad-accent-cyan); }
+.studio-dock-reopen-left { left: 0.5rem; top: 2.1rem; }
+.studio-dock-reopen-right { right: 0.5rem; bottom: 3.4rem; }
+.cad-dock-reopen-left { left: 8px; top: 46px; }
+.cad-dock-reopen-right { right: 8px; top: 46px; }

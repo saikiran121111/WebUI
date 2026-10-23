@@ -3,9 +3,9 @@
  *
  * The main model (after synthesizing from the initial evidence) may call
  * this at most ONCE per conversation turn if a specific fact is missing.
- * It re-runs the gated pipeline against the original query set plus any
- * new targeted queries the model supplies, and returns a fresh evidence
- * block in the same [S#]-labelled shape.
+ * It re-runs the pipeline against the original query set plus any new
+ * targeted queries the model supplies, and returns a fresh evidence block
+ * in the same [S#]-labelled shape.
  *
  * Body:  { queries: string[] }   (max 3 new queries, ≤ 100 chars each)
  * Returns: { evidenceBlock, webCitations }
@@ -16,11 +16,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   runWebResearch,
-  buildMainModelContext,
   evidenceBlock,
-} from "../../../src/lib/web-search/pipeline";
-import { runLfmGate } from "../../../src/lib/web-search/lfm-gate";
-import { childLogger } from "../../../lib/server/logger";
+} from "../../../lib/web-search/pipeline";
+import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("api/search-more");
 
@@ -46,29 +44,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Re-run the gate against the FIRST new query so it can extend the
-  // source pool (e.g. add arxiv for academic follow-ups). The main model
-  // is authoritative here too (see lfm-gate.ts). If the gate rejects all
-  // queries, fall back to the rule-based plan.
-  const lfm = await runLfmGate({ userPrompt: queries[0] ?? "" });
-
-  const plans = lfm.decision.search_required
-    ? lfm.decision.queries.map((q) => ({
-        query: q.query,
-        intent: q.intent,
-        preferredDomains: q.preferred_domains,
-      }))
-    : // No LLM decision AND no trigger: build a minimal pool from the raw
-      // queries so we still get something back (the tool is a fallback).
-      queries.map((q: string) => ({
-        query: q.slice(0, 200),
-        intent: "general" as const,
-      }));
-
-  void plans; // plans feed into the search pool; the pipeline re-derives
-  // them from the userPrompt passed to runWebResearch below.
-
   const t0 = performance.now();
+  // The pipeline's gate decides (main model, rules fallback) whether these
+  // follow-up queries still warrant a search.
   const bundle = await runWebResearch(
     { userPrompt: queries.join(" ") },
     undefined,
@@ -87,8 +65,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  void buildMainModelContext; // imported for API completeness; the raw
-  // evidenceBlock shape is what the tool returns to the main model.
   const block = evidenceBlock(bundle);
 
   const webCitations: Record<string, any> = {};

@@ -7,6 +7,11 @@
 
 import type { FileCategory } from "./files/extensions";
 import type { RendererMode } from "./decision/types";
+// Verification layer (server-side) types, needed for the Evidence-trail rows
+// and the post-answer claim audit. Type-only: erased at compile time, so no
+// server code enters the browser bundle.
+// (The web-verify imports that lived here were retired 2026-10-22 with the
+// ledger + claim audit; older stored messages carry those fields as `unknown`.)
 
 export type Role = "user" | "assistant" | "system" | "tool";
 
@@ -157,7 +162,7 @@ export interface Message {
   citations: Citation[];
   /**
    * Web-research citations from the gated search pipeline (main-model
-   * decision, LFM router fallback): keyed by sourceId ("S1", "S2", ...),
+   * decision only since 2026-10-22): keyed by sourceId ("S1", "S2", ...),
    * passed to MarkdownRenderer so [S#] markers in the reply become
    * clickable pills.
    */
@@ -170,8 +175,19 @@ export interface Message {
   }>;
   /**
    * Search-gate summary shown in the Research Trail card: which queries
-   * were generated, at what depth/freshness, and WHICH AUTHORITY decided
-   * ("main-model" authoritative | "lfm" router fallback | "rules").
+   * were generated, at what depth/freshness, and which authority decided
+   * ("deterministic" Stage-0 bypass, or "main-model").
+   */
+  searchGate?: {
+    depth: string;
+    freshness: string;
+    decidedBy?: string;
+    queries: { query: string; intent: string }[];
+  };
+  /**
+   * @deprecated renamed `searchGate` on 2026-10-23 (LFM → SEARCH-GATE).
+   * Kept ONLY as a back-compat reader for conversations persisted before
+   * the rename; new turns never populate it.
    */
   researchLfm?: {
     depth: string;
@@ -179,6 +195,13 @@ export interface Message {
     decidedBy?: string;
     queries: { query: string; intent: string }[];
   };
+  /**
+   * @deprecated 2026-10-22 — the web-verify ledger and the post-answer claim
+   * audit are gone; these fields stay in the type surface only so older
+   * stored conversations still parse. New turns never populate them.
+   */
+  webLedger?: unknown;
+  webVerification?: unknown;
   usage?: Usage;
   createdAt: number;
   finishedAt?: number;
@@ -214,6 +237,12 @@ export interface ConversationMeta {
    * generation win the race against an older in-flight title job. */
   titleGenCount?: number;
   titleGenAt?: number;
+  /** Optional user-named group (Recents Groups surface). Absent = ungrouped.
+   *  Round-trips untouched through the disk store (whole-doc JSON). */
+  group?: string;
+  /** true = the user marked this chat unread (Claude parity): sidebar and
+   *  modal rows show a dot; opening the chat clears it. */
+  unread?: boolean;
 }
 
 export interface Conversation {
@@ -232,12 +261,58 @@ export interface StreamToolCallDelta {
 }
 
 /** Normalised, transport-independent view of one SSE chunk. */
+/**
+ * Live server-side phase event emitted by app/api/chat/route.ts BEFORE the
+ * model's first byte (routing, skill load, attachment retrieval, web-research
+ * gate). Carries only real counts measured by the pipeline — the client's
+ * progress engine (lib/progress/turnProgress.ts) turns these into honest
+ * per-step percentages. Web-tier metadata (citations, gate summary) rides a
+ * `web_meta` stage instead of response headers on streamed turns.
+ */
+export interface StageEvent {
+  /** decision_done | skill | retrieval | retrieval_done | web_meta | web:<PipelineStage> */
+  stage: string;
+  detail?: string;
+  /** decision mode at decision_done */
+  mode?: RendererMode;
+  ms?: number;
+  done?: number;
+  total?: number;
+  coverage?: number;
+  /** web:auth_required only: the login-walled URL and its domain — the
+   *  client opens its in-app Browser panel targeted at this page. */
+  url?: string;
+  domain?: string;
+  webCitations?: Record<string, {
+    sourceId: string;
+    url: string;
+    title: string;
+    domain: string;
+    publishedAt?: string;
+  }>;
+  searchGate?: {
+    depth: string;
+    freshness: string;
+    decidedBy?: string;
+    queries: { query: string; intent: string }[];
+  };
+  /** @deprecated pre-rename spelling (2026-10-23); read as a fallback. */
+  researchLfm?: {
+    depth: string;
+    freshness: string;
+    decidedBy?: string;
+    queries: { query: string; intent: string }[];
+  };
+}
+
 export interface StreamEvent {
   content?: string;
   reasoning?: string;
   toolCalls?: StreamToolCallDelta[];
   finishReason?: string | null;
   usage?: Usage;
+  /** Server progress phase (ruke_stage SSE frame). */
+  stage?: StageEvent;
 }
 
 /* ── Research orchestration ──────────────────────────────────────────────── */
