@@ -1,28 +1,37 @@
 /**
- * SEARCH-GATE — main-model-only edition (renamed from lfm-gate.ts 2026-10-23).
+ * SEARCH-BY-DEFAULT gate — search_required = true is the DEFAULT for any
+ * non-trivial prompt; the model gets to veto a search ONLY for the two
+ * narrow classes of self-contained prompts. No domain whitelists, no
+ * narrow keyword lists.
  *
- * The decision is made by exactly ONE model authority: the main model from
- * settings.json (`llm_api_url`, `reasoning_effort: "none"`) — never a
- * separate LFM/small model or extra port. On top of the model verdict the
- * gate has a deterministic STAGE 0 HARD BYPASS: a message that names a URL,
- * a known domain/shortener, or an unambiguous web/freshness intent MUST
- * search without paying any LLM latency (0 ms).
+ * Decision flow:
+ *   0. Hard bypass (URL / known-domain / web-intent / image+intent) →
+ *      search, 0 ms.
+ *   1. Trivial 1-2 word greetings → NO-SEARCH (zero tokens, zero risk).
+ *   2. Main-model gate (one JSON call, 35s ceiling): the model says
+ *      search_required=true unless the prompt is strictly
+ *      (a) pure conversational filler, OR
+ *      (b) a self-contained offline code/math/text transformation where
+ *          the user supplied 100% of the input AND mentioned zero
+ *          external brands, websites, people, places, products, events
+ *          or facts.
+ *      Whenever ANY proper noun, brand, website, product, movie,
+ *      restaurant, location, URL, or factual question appears → ALWAYS
+ *      search. This inversion is encoded in the system prompt below and
+ *      in the parser: a model `search_required=false` verdict is
+ *      RE-VERIFIED against the "external entity present" heuristic, and
+ *      overturned to `true` when a proper noun / brand / URL /
+ *      time-sensitive fact is detected in the prompt.
+ *   3. Main model unreachable / unparseable → SEARCH-BY-DEFAULT:
+ *      `rulesBasedPlan()` (search_required=true), NOT a no-search
+ *      fallback. The gate errs on the side of running a search rather
+ *      than missing live facts — a junk search is far cheaper than a
+ *      confidently wrong answer.
  *
- *   0. Hard bypass: URL / known-domain / web-intent / image+lookup-intent
- *      → search_required=true, reason "deterministic_url_or_intent", 0 ms.
- *   1. Trivial 1-2 word greetings ("hi", "hello", "thanks") → no-search
- *      short-circuit (zero tokens, zero risk).
- *   2. Main-model gate (one JSON call, 35s ceiling): {search_required,
- *      reason, freshness, depth, queries[]}.
- *   3. Main model unreachable / unparseable → NO-SEARCH (the conservative
- *      policy from 2026-10-22: never force a junk search the model didn't
- *      ask for), unless Stage 0 already fired.
- *
- * Historical: the LFM2.5-1.2B router (:8791) was removed from this gate on
- * 2026-10-22; the file itself (lib/web-search/lfm-gate.ts) was deleted on
- * 2026-10-23 and replaced by this search-gate.ts. Progress stage renamed
- * web:lfm → web:gate; old stage/field names stay readable (back-compat
- * readers) in lib/progress/turnProgress.ts and lib/types.ts.
+ * Authority is exactly ONE model (the main model from settings.json);
+ * no separate LFM / secondary router. Historical note: the LFM2.5-1.2B
+ * router (:8791) was removed 2026-10-22; lfm-gate.ts was deleted 2026-10-23
+ * and replaced by this file.
  */
 import { childLogger } from "@/lib/server/logger";
 import { llmApiUrl, llmApiKey } from "@/lib/server/settings";
@@ -206,6 +215,45 @@ export function deterministicHardBypass(
   };
 }
 
+/* ── external-entity detector (the search-by-default re-verify) ───────── */
+
+/**
+ * Deterministic "external entity present" check. Under the search-by-default
+ * policy a model `search_required=false` verdict is only honored when the
+ * prompt contains NONE of: a URL, a known-site token, a domain-shaped
+ * token, a proper-noun phrase (2+ consecutive capitalized words), a
+ * version number, a time-sensitivity signal, or an attached image with
+ * lookup intent. If any of these fire, the verdict is overturned to
+ * search_required=true by the parser (see parseMainGateJson), so a lazy
+ * "I can answer from memory" answer can never suppress a live-facts
+ * lookup for Blinkit / Myntra / a local business / any proper noun.
+ */
+export function promptHasExternalEntity(prompt: string): boolean {
+  const p = prompt ?? "";
+  if (p.trim().length === 0) return false;
+  // 1. Explicit URL
+  if (extractPromptUrls(p).length > 0) return true;
+  // 2. Known-site / domain-shaped tokens (re-use the Stage 0 detectors)
+  if (KNOWN_SITE_TOKEN_RE.test(p) || DOMAIN_TLD_TOKEN_RE.test(p) || WWW_TOKEN_RE.test(p)) return true;
+  // 3. Proper-noun phrase: two consecutive capitalized words ("Blinkit deal",
+  //    "BookMyShow movie", "NVIDIA stock"). One capitalized word at
+  //    sentence start is NOT enough (English sentences start capitalized);
+  //    two in a row is a strong proper-noun signal.
+  const properNounPhrase = /\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b/.test(p);
+  if (properNounPhrase) return true;
+  // 4. Version numbers / model numbers (v1.2.3, 15.2, 3090, RTX 4090, ...)
+  if (/\bv?\d+\.\d+(?:\.\d+)?\b/.test(p) || /\b[A-Z]{2,}\s?\d{2,4}\b/.test(p)) return true;
+  // 5. Time-sensitivity signal (prices, "today", "current", a specific
+  //    year digit)
+  if (/\b(today|current|latest|recent|20(?:[012]\d))\b/i.test(p)) return true;
+  // 6. Proper-noun-ish single capitalized token of 4+ chars that is not
+  //    the sentence's first word. Heuristic: a capitalized word appearing
+  //    after position 4 in the prompt.
+  const nonLeadingCap = p.slice(4).match(/\b[A-Z][a-z]{3,}\b/);
+  if (nonLeadingCap) return true;
+  return false;
+}
+
 /* ── deterministic fallback plans (emergency only) ───────────────────── */
 
 export function rulesBasedPlan(ctx: SearchGateContext): SearchGateResult {
@@ -224,8 +272,12 @@ export function rulesBasedPlan(ctx: SearchGateContext): SearchGateResult {
   }
   return {
     decision: {
+      // SEARCH-BY-DEFAULT: the rules fallback always searches. The no-
+      // search path is reserved for the trivial-greeting short-circuit
+      // above — a junk search is far cheaper than a confidently-wrong
+      // live-facts answer.
       search_required: true,
-      reason: "rule-based fallback: main model unreachable",
+      reason: "rule-based search-by-default plan (main model unreachable)",
       freshness: hasTimeSignal ? "day" : hasVersion ? "month" : "any",
       depth: "standard",
       queries,
@@ -260,8 +312,23 @@ function noSearchPlan(reason = "trivial prompt — no web content needed"): Sear
 import { THINKING_OFF_BODY } from "./llm-json";
 
 const MAIN_GATE_SYSTEM_PROMPT = `You are the search router for your own answering pipeline.
-Decide whether YOU need live web data to answer the user's latest message
-accurately, and — if yes — write the web search queries.
+SEARCH-BY-DEFAULT POLICY: answer search_required = true for essentially
+every real question. The ONLY prompts that get search_required = false are
+exactly these two:
+  (a) Pure conversational filler / greetings / thanks / assistant chitchat
+      ("hi", "hello", "thank you", "which model are you") — no external
+      facts are being asked about.
+  (b) A completely self-contained offline task (code, math, text
+      transformation) where the user supplied 100% of the input AND the
+      task mentions zero external brands, websites, people, places,
+      products, events, versions, prices, or facts from the world.
+If ANY proper noun, brand name, website, product, movie, restaurant,
+location, company, person, version number, price, or factual question
+appears — including a Blinkit/Myntra/Zepto/BookMyShow/Zomato style
+platform name, a local business, or a niche tool — search_required MUST
+be true. When in doubt between "I might know" and "I don't know exactly",
+ALWAYS search: the user would rather have a verified answer than a
+confident guess.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
@@ -269,33 +336,18 @@ Answer with ONLY valid JSON:
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
 
-Decision rules (check yourself honestly):
-- search_required = false when you can answer reliably from your own
-  knowledge: greetings, chitchat, questions about the ASSISTANT ITSELF
-  ("what are you doing", "which model are you", "who are you"), coding
-  problems and algorithm questions you know, math, writing, translation,
-  explanations of concepts, static facts, and library APIs you are
-  confident about. For assistant chitchat / static knowledge answer
-  {"search_required": false, "reason": "assistant chitchat or static
-  knowledge", "freshness": "none", "depth": "quick", "queries": []}.
-- search_required = true when the answer depends on facts that change over
-  time (news, prices, stock/crypto rates, weather, sports results,
-  releases, product availability, local places/businesses, current
-  events), OR when the user asks about a specific entity, problem,
-  version, or document that you CANNOT recall with confidence. If you are
-  unsure whether you actually know the exact details of a specific named
-  thing, search.
-- If the message contains an explicit URL, search_required = true.
-- The conversation history above is part of the request. A FOLLOW-UP turn
-  that asks for a direct LINK/URL or "where to buy|watch|read|apply|
-  download", or for the CURRENT availability/stock/price/open-closed
-  status of something earlier in the conversation, or for details/reviews
-  of an entity you recommended: search_required = true — you cannot know
-  whether a page is still live or in stock, and you must never write the
-  link yourself. Resolve "it / this / that" against the history first.
-- A NEW, unrelated question ("what are you doing?", a chit-chat follow-up,
-  a personal question about the assistant) is NOT a follow-up on the
-  conversation's entities: answer it from your own knowledge, no search.
+Decision rules (search-first):
+- search_required = true for: news, prices, stock/crypto rates, weather,
+  sports results, releases, product availability, local places/businesses,
+  current events, restaurant menus, movie showtimes, job listings,
+  anything about a specific named entity you are not 100% sure of,
+  any explicit URL, any follow-up that asks for a LINK/URL or the CURRENT
+  availability/stock/price/open-closed status of something in the
+  conversation, or details/reviews of an entity you recommended.
+- The conversation history is part of the request: resolve "it / this /
+  that" against it before deciding.
+- A NEW, unrelated chit-chat turn about the ASSISTANT itself (not about
+  a world fact) is the only follow-up that may be no-search.
 
 Query rules (only when search_required = true):
 - 2-4 queries. KEYWORD FORM, not full sentences. Never paste the user's
@@ -406,6 +458,34 @@ function parseMainGateJson(raw: string, ctx: SearchGateContext): SearchDecision 
       if (typeof parsed?.search_required !== "boolean") continue;
 
       if (!parsed.search_required) {
+        // Search-by-default re-verify: the model may only veto a search
+        // for genuinely self-contained prompts. If the prompt carries an
+        // external entity (URL, brand, proper noun, version, time signal,
+        // image+lookup intent), the "I can answer from memory" answer is
+        // overturned — this is what makes the gate search-by-default in
+        // practice, not just in the system prompt.
+        const vetoAllowed =
+          !promptHasExternalEntity(ctx.userPrompt) &&
+          !(ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(ctx.userPrompt));
+        if (!vetoAllowed) {
+          const urls = extractPromptUrls(ctx.userPrompt);
+          const queries: SearchDecision["queries"] = urls.map(
+            (u) => ({ query: u, intent: "general" as const }),
+          );
+          if (queries.length === 0) {
+            queries.push({
+              query: ctx.userPrompt.replace(/\s+/g, " ").trim().slice(0, 300),
+              intent: "general",
+            });
+          }
+          return {
+            search_required: true,
+            reason: "search-by-default: model veto overturned (external entity present)",
+            freshness: "any",
+            depth: "standard",
+            queries,
+          };
+        }
         return {
           search_required: false,
           reason: String(parsed.reason ?? "main model: no live web content needed").slice(0, 300),
@@ -475,16 +555,29 @@ export function gateDisabledByEnv(): boolean {
 }
 
 /**
- * THE gate. Stage 0 (deterministic hard bypass) → trivial skip → main model.
+ * THE gate. SEARCH-BY-DEFAULT policy.
  *
  * Precedence:
  *   0. hard bypass (URL / known domain / web intent / image+intent) →
  *      search, 0 ms, source "deterministic", reason "deterministic_url_or_intent"
  *   1. trivial greeting / assistant-identity prompt → no-search, zero tokens
- *   2. main model says yes/no → that verdict, full stop
- *   3. main model unreachable / unparseable → NO-SEARCH, full stop.
+ *   2. main model verdict, re-verified against promptHasExternalEntity —
+ *      a model `false` is flipped to `true` whenever an external entity
+ *      (brand, URL, proper noun, version, time signal, image+intent) is
+ *      present.
+ *   3. main model unreachable / unparseable → SEARCH-BY-DEFAULT rules
+ *      plan (a junk search is far cheaper than a confidently-wrong
+ *      offline answer).
  */
 export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateResult> {
+  // Search-by-default override (the Part 1 mandate): unless the prompt is
+  // a trivial 1-2 word greeting/chit-chat, the gate NEVER returns
+  // search_required=false — a junk search is far cheaper than a
+  // confidently-wrong answer on live facts (prices, stock, showtimes,
+  // local businesses, versions). The model's role narrows to writing the
+  // queries, not to vetoing the search.
+  const searchByDefault = !isTrivialPrompt(ctx.userPrompt);
+
   // Test / CI escape hatch: skip the network call entirely.
   if (gateDisabledByEnv()) {
     const bypass = deterministicHardBypass(ctx);
@@ -517,25 +610,60 @@ export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateR
   const t0 = performance.now();
   const main = await mainModelGate(ctx);
   if (main) {
+    let decision = main;
+    // Search-by-default re-verify: a model "no" only holds when the
+    // prompt is truly self-contained (no URL / brand / proper noun /
+    // version / time signal / image+lookup intent).
+    if (!main.search_required && promptHasExternalEntity(ctx.userPrompt)) {
+      decision = {
+        ...main,
+        search_required: true,
+        reason: "search-by-default: external entity in prompt — search even though the model vetoed",
+        depth: "standard",
+        queries: main.queries.length > 0 ? main.queries : buildFallbackQueries(ctx.userPrompt),
+      };
+    }
     const out: SearchGateResult = {
-      decision: { ...main },
+      decision,
       source: "main-model",
       gateMs: Math.round(performance.now() - t0),
     };
     log.info(
-      { source: out.source, search_required: out.decision.search_required, gateMs: out.gateMs },
+      {
+        source: out.source,
+        search_required: out.decision.search_required,
+        gateMs: out.gateMs,
+        overridden: main.search_required !== out.decision.search_required,
+      },
       "search gate verdict (main model)",
     );
     return out;
   }
 
-  // Main model failed → no-search, no forced search (the conservative
-  // no-junk-search policy; Stage 0 already had its chance above).
+  // Main model failed → SEARCH-BY-DEFAULT: rules-based plan (search
+  // required), NOT a no-search fallback. The gate errs on the side of
+  // running a search rather than missing live facts.
   log.warn(
     { prompt: ctx.userPrompt.slice(0, 80), gateMs: Math.round(performance.now() - t0) },
-    "main model unreachable — no-search (the model answers from its own knowledge)",
+    "main model unreachable — search-by-default rules plan",
   );
-  return noSearchPlan("search gate: main model unreachable — answering from knowledge");
+  return rulesBasedPlan(ctx);
+}
+
+/**
+ * Build a minimal keyword-form query list from the prompt when the model
+ * was unreachable or returned none. Used by the search-by-default
+ * override and by rulesBasedPlan.
+ */
+function buildFallbackQueries(prompt: string): SearchDecision["queries"] {
+  const urls = extractPromptUrls(prompt);
+  const out: SearchDecision["queries"] = urls.slice(0, 3).map((u) => ({ query: u, intent: "general" }));
+  const hasTimeSignal = /latest|recent|new|current|today|this (week|month|year|quarter)/i.test(prompt);
+  out.unshift({
+    query: prompt.replace(/\s+/g, " ").trim().slice(0, 300),
+    intent: (hasTimeSignal ? "news" : "general") as SearchDecision["queries"][number]["intent"],
+  });
+  return out;
 }
 
 /**

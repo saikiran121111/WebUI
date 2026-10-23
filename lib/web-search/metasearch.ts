@@ -1,65 +1,60 @@
 /**
  * Zero-API parallel discovery across multiple free sources.
  *
- * General Web Index Pool (always included for every intent):
- *   DDG HTML POST (3-stage) → Yahoo (Bing) → Startpage (Google)
- *   → Brave → AOL (Bing) → Mojeek → SearXNG (HTML) → Reddit (JSON)
+ * General Web Index Pool (always included for every intent; scrapers
+ * live in engines.ts and run on got-scraping via net.ts):
+ *   DDG HTML POST (3-stage) → Google Web SERP → Bing (RSS→HTML)
+ *   → Yahoo (Bing) → Brave → Reddit (JSON)
  *
- * Vertical sources (gated by intent + lexical overlap):
- *   Wikipedia → HackerNews → arXiv → StackExchange
+ * Vertical / genre APIs (gated by intent + lexical overlap):
+ *   Wikipedia → Wikidata → HackerNews (Algolia) → arXiv
+ *   → Semantic Scholar → StackExchange → IMDb suggestion API
+ *   (+ GitHub / Dev.to / Bing News RSS routed by intent)
  *
  * Results are URL-normalized, deduplicated, and fused with
  * source-weighted Reciprocal Rank Fusion:
  *   general-web 1.2× · reddit 1.0× · vertical 0.65×
  *   RRF(d) = Σ_e 1/(60 + rank_e(d)) × weight(engine)
  *
- * Vertical sources are additionally gated: any Wikipedia / HN / arXiv /
- * StackExchange result whose title + snippet matches < 50% of the
- * query's core non-stopword tokens is DROPPED before fusion, so a
- * fuzzy "Manikonda Chalapathi Rau → Lucknow" match can never poison
- * the evidence bundle.
+ * Lexical-gated verticals are additionally gated: any Wikipedia / HN /
+ * arXiv / StackExchange / Wikidata / Semantic Scholar result whose title
+ * + snippet matches < 40% of the query's core non-stopword tokens is
+ * DROPPED before fusion, so a fuzzy "Manikonda Chalapathi Rau → Lucknow"
+ * match can never poison the evidence bundle. The IMDb suggestion API is
+ * NOT gated — it is an exact-name lookup keyed by the query itself.
  */
 import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
 import type { RawSearchResult, RankedResult } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
-import { fetchUrl, fetchPage, isSafeUrl, realisticHeaders, apiHeaders } from "./tls-client";
+import { fetchUrl, isSafeUrl } from "./net";
 import {
-  ddgSearch,
-  bingSearch,
-  yahooSearch,
-  startpageSearch,
-  braveSearch,
-  aolSearch,
-  mojeekSearch,
-  searxSearch,
-  redditSearch,
+  googleSearch,
   bingNewsRssSearch,
   githubSearch,
   devToSearch,
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,
-  probeAndCacheSearxInstances,
-} from "./general-pool";
+} from "./engines";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("web-search/metasearch");
 
 // Give all metasearch fetchers up to 40 seconds per request. Slow high-
-// value engines (arXiv, SearXNG) are never cut off just because a faster
-// engine returned first — Promise.allSettled waits for ALL engines.
+// value engines (arXiv, Google SERP) are never cut off just because a
+// faster engine returned first — Promise.allSettled waits for ALL engines.
 const ENGINE_TIMEOUT_MS = 40_000;
 // One automatic retry with 2s backoff on 429/503 (transient rate-limit).
 const RETRY_BACKOFF_MS = 2000;
 
 /* ── engine concurrency ─────────────────────────────────────────────────── */
 
-// General-web engines are paced per-host by general-pool.ts (one in-flight
+// General-web engines are paced per-host by engines.ts (one in-flight
 // per host, 250–450ms jitter). The global limit here bounds the total
 // number of engine calls that can run in parallel across ALL sub-queries.
 //
-// Default is 8 (production: ≤5 LFM plans × a few sources each). The
+// Default is 8 (production: ≤5 gate plans × a few sources each). The
 // INSANE stress runner sets WEB_SEARCH_ENGINE_CONCURRENCY to match its
 // worker pool so every worker can fan out in parallel.
 const ENGINE_CONCURRENCY = Math.max(
@@ -370,6 +365,106 @@ async function stackExchangeSearch(query: string): Promise<RawSearchResult[]> {
   }
 }
 
+async function wikidataSearch(query: string): Promise<RawSearchResult[]> {
+  const url =
+    "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
+    "&language=en&uselang=en&limit=5&search=" +
+    encodeURIComponent(query);
+  const res = await fetchUrlWithRetry(url, { headers: { accept: "application/json" } });
+  if (!res || !res.ok) return [];
+  try {
+    const data: any = JSON.parse(res.text);
+    const core = queryCoreTokens(query);
+    return (data?.search ?? [])
+      .filter((s: any) =>
+        meetsLexicalThreshold(`${s.label ?? ""} ${s.description ?? ""}`, core),
+      )
+      .map(
+        (s: any, i: number): RawSearchResult => ({
+          title: [s.label, s.description].filter(Boolean).join(" — ") || s.id,
+          url: s.concepturi ?? `https://www.wikidata.org/wiki/${s.id}`,
+          snippet: s.description ?? "",
+          engine: "wikidata",
+          rank: i + 1,
+        }),
+      );
+  } catch {
+    return [];
+  }
+}
+
+async function semanticScholarSearch(query: string): Promise<RawSearchResult[]> {
+  const url =
+    "https://api.semanticscholar.org/graph/v1/paper/search?limit=5" +
+    "&fields=title,abstract,url,year,externalIds&query=" +
+    encodeURIComponent(query);
+  const res = await fetchUrlWithRetry(url, { headers: { accept: "application/json" } });
+  if (!res || !res.ok) return [];
+  try {
+    const data: any = JSON.parse(res.text);
+    const core = queryCoreTokens(query);
+    return (data?.data ?? [])
+      .filter((p: any) =>
+        meetsLexicalThreshold(`${p.title ?? ""} ${p.abstract ?? ""}`, core),
+      )
+      .map(
+        (p: any, i: number): RawSearchResult => ({
+          title: p.title ?? "",
+          url:
+            p.url ??
+            (p.externalIds?.DOI ? `https://doi.org/${p.externalIds.DOI}` : ""),
+          snippet: (p.abstract ?? "").slice(0, 400),
+          engine: "semantic-scholar",
+          publishedDate: p.year ? `${p.year}-01-01` : undefined,
+          rank: i + 1,
+        }),
+      )
+      .filter((r: RawSearchResult) => r.url);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * IMDb suggestion API (keyless, free): exact-name lookup for movies,
+ * TV shows, and people. NOT lexically gated — the API itself matches on
+ * the query string, and gating would drop the very entity the user named
+ * (e.g. "irumudi imdb rating" → "Irumudi (2025)"). The returned IMDB
+ * title URL is what the extractor's Pass A then reads for the rating
+ * (ld+json aggregateRating / OpenGraph), and the SERP baseline passages
+ * from other engines carry the numeric rating too.
+ */
+async function imdbSuggestionSearch(query: string): Promise<RawSearchResult[]> {
+  const url =
+    "https://v3.sg.media-imdb.com/suggestion/x/" +
+    encodeURIComponent(query) +
+    ".json?include_WARNINGS=false";
+  const res = await fetchUrlWithRetry(url, { headers: { accept: "application/json" } });
+  if (!res || !res.ok) return [];
+  try {
+    const data: any = JSON.parse(res.text);
+    const out: RawSearchResult[] = [];
+    for (const d of data?.d ?? []) {
+      const id = String(d?.id ?? "");
+      if (!/^tt\d{7,10}$/.test(id)) continue;
+      const kind = String(d?.q ?? d?.description ?? "").toLowerCase();
+      // Titles only (movie / TV series / TV movie / mini-series / film).
+      if (!/(movie|series|film)/.test(kind)) continue;
+      out.push({
+        title: String(d?.display ?? d?.name ?? ""),
+        url: "https://www.imdb.com/title/" + id + "/",
+        snippet: [d?.q, d?.y ? `(${d.y})` : ""].filter(Boolean).join(" "),
+        engine: "imdb",
+        rank: out.length + 1,
+      });
+      if (out.length >= 5) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /* ── source pool selection by intent ────────────────────────────────────── */
 
 type Intent = "general" | "news" | "docs" | "code" | "academic" | "forum";
@@ -389,8 +484,11 @@ type SourceFn = (query: string) => Promise<RawSearchResult[]>;
  */
 const VERTICAL_ENGINES = new Set([
   "wikipedia", "hackernews", "arxiv", "stackexchange",
-  "github", "devto", "bing-news",
+  "github", "devto", "bing-news", "wikidata", "semantic-scholar",
 ]);
+// NOTE: `imdb` is deliberately NOT in this set — its suggestion API is an
+// exact-name lookup keyed by the query itself, so it gets the general-
+// indexer weight (1.2×) instead of the fuzzy-vertical penalty (0.65×).
 
 /**
  * Engines that are vertical (intended) for specific intents.
@@ -399,11 +497,11 @@ const VERTICAL_ENGINES = new Set([
  */
 const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
   code:     [stackExchangeSearch, devToSearch],
-  academic: [arxivSearch, wikipediaSearch],
+  academic: [arxivSearch, wikipediaSearch, semanticScholarSearch],
   forum:    [hackerNewsSearch],
   news:     [hackerNewsSearch],
-  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch],
-  general:  [wikipediaSearch],
+  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch, wikidataSearch],
+  general:  [wikipediaSearch, imdbSuggestionSearch, wikidataSearch],
 };
 
 /**
@@ -461,6 +559,9 @@ const ENGINE_CAPS: Record<string, number> = {
   "arxiv": 5,
   "stackexchange": 5,
   "devto": 5,
+  "wikidata": 3,
+  "semantic-scholar": 5,
+  "imdb": 3,
 };
 
 function capForEngine(engine: string): number {
@@ -472,13 +573,14 @@ function capForEngine(engine: string): number {
  * merged raw result list (ranks are per-source; fusion happens later).
  *
  * Per-engine pacing (250–450ms jitter, one in-flight per host) is
- * handled by general-pool.ts enginePacer() for all general-web engines.
+ * handled by engines.ts enginePacer() for all general-web engines.
  *
- * For the "general" intent (the common case), we use the sharded pool:
- * the primary query goes to the rate-sensitive direct scrapers (DDG,
- * Bing, Brave) once, and all sub-queries are distributed across the
- * SearXNG shard + other general engines in parallel. This stops the
- * 4×8=32 simultaneous-request burst that triggered bot detection.
+ * For the "general" intent (the common case), we use the sharded pool
+ * in engines.ts: the primary query goes to the rate-sensitive direct
+ * scrapers (DDG, Google, Bing, Brave) once, and all sub-queries are
+ * distributed across the remaining general engines (Bing, Yahoo,
+ * Reddit) in parallel. This stops the 4×8=32 simultaneous-request
+ * burst that triggered bot detection.
  *
  * News/dev verticals are routed by intent:
  *   - bingNewsRssSearch ONLY when freshness !== "any" OR intent is "news"
@@ -489,7 +591,7 @@ function capForEngine(engine: string): number {
 /**
  * Per-searchOne wall-clock cap: a single plan's general-web pool call
  * must not block the metasearch for more than this many milliseconds.
- * The general pool (9 engines) can take 18s+ when DDG's 3 stages all
+ * The general pool (6 engines) can take 18s+ when DDG's 3 stages all
  * time out (12s html + 6s lite). This cap fires at 10s and fuses
  * whatever has settled so far, letting the metasearch quorum logic
  * complete in time. Verticals (dev/news) are awaited separately with
@@ -593,9 +695,10 @@ const PREFERRED_BOOST = 0.015;
 
 /**
  * Per-engine weights for the RRF fusion:
- *   - General-web indexers (DDG, Yahoo, Startpage, Brave, AOL, Mojeek,
- *     SearXNG) get 1.2× — they are ranked by the engine's own relevance
- *     model and are the highest-signal source for most queries.
+ *   - General-web indexers (DDG, Google, Bing, Yahoo, Brave) get 1.2× —
+ *     they are ranked by the engine's own relevance model and are the
+ *     highest-signal source for most queries. IMDb title hits get the
+ *     same weight: they are exact matches by construction.
  *   - Reddit gets 1.0× — community ground-truth for local places, jobs,
  *     products, and troubleshooting.
  *   - Vertical/encyclopedia APIs (Wikipedia, HN, arXiv, StackExchange)
@@ -717,7 +820,7 @@ export interface SearchPlan {
  *
  * The timer is armed inside the Promise.all wrapper: we run all
  * per-plan searches in parallel, but resolve early when the quorum is
- * met. The grace timer gives slow-but-valuable engines (arXiv, SearXNG)
+ * met. The grace timer gives slow-but-valuable engines (arXiv, Google)
  * up to 6s to contribute after the quorum fires.
  */
 const QUORUM_MIN_RESULTS = 15;
@@ -733,7 +836,7 @@ const GRACE_TIMER_MS = 6_000;
  * Quorum early-exit: once >= QUORUM_MIN_RESULTS raw results from
  * >= QUORUM_MIN_ENGINES have resolved, start a GRACE_TIMER_MS countdown.
  * Any engine still running when the countdown expires is abandoned —
- * its late results are discarded (the circuit breaker in general-pool.ts
+ * its late results are discarded (the circuit breaker in engines.ts
  * will prevent it from retrying for 60s).
  *
  * Returns the top N unique URLs after source-weighted RRF fusion.
@@ -910,7 +1013,7 @@ export async function metasearch(
 }
 
 /**
- * Freshness filter trap recovery: if the LFM gate applied a time filter
+ * Freshness filter trap recovery: if the search gate applied a time filter
  * (freshness !== "any") and the first pass returned fewer than 5 results,
  * automatically re-run the same plans with freshness "any" — a 30-day
  * filter on an evergreen/local/product query drops 99% of relevant pages.
@@ -962,8 +1065,8 @@ export async function metasearchWithBudget(
 /**
  * URL-targeted search fallback: when a specific URL in the user's prompt
  * or a search result points to a hard-blocked / auth-walled page, harvest
- * the aggregated snippets for that exact URL across the DDG / Brave / SearX
- * source pool so the LLM still receives verified facts from OTHER engines
+ * the aggregated snippets for that exact URL across the DDG / Google /
+ * Brave source pool so the LLM still receives verified facts from OTHER engines
  * that DID index it.
  *
  * The returned `RankedResult[]` is fused from all engines that returned a
@@ -982,8 +1085,8 @@ export async function urlSearchFallback(
   const ddg = await searchOne(query, "general");
   raw.push(...ddg);
 
-  const searx = await searxSearch(query).catch(() => [] as RawSearchResult[]);
-  raw.push(...searx);
+  const g = await googleSearch(query).catch(() => [] as RawSearchResult[]);
+  raw.push(...g);
 
   let targetHost = "";
   let targetPath = "";

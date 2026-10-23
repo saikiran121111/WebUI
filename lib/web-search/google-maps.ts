@@ -12,7 +12,7 @@
  *   4. reverse-geocodes the coordinates through Nominatim when the shell
  *      carries nothing — so the model still sees the real place + address.
  */
-import { fetchPage, fetchUrl, apiHeaders } from "./tls-client";
+import { fetchPage, fetchUrl, apiHeaders } from "./net";
 import { unwrapShortLink } from "./redirect-unwrap";
 
 export interface MapsEvidence {

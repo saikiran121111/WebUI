@@ -1,16 +1,21 @@
 /**
  * Low-RAM concurrent page reader — the extraction half of the pipeline.
  *
- * 5-tier anti-bot extraction per URL:
+ * 7-tier anti-bot extraction per URL (Pass A got-scraping + Pass B
+ * fingerprinted Playwright):
  *   Tier 0   — SQLite cache hit (instant)
- *   Tier 1   — direct TLS-impersonated fetch → block-detector gate →
+ *   Tier 1   — direct got-scraping fetch (impit TLS fallback + fingerprint
+ *              rotation inside net.ts) → in-file block gate →
  *              structural-mode DOM extraction (article / portfolio /
- *              docs / document) PLUS universal schema/hydration/protocol
- *              discovery (JSON-LD across 14 schema types, OpenGraph,
- *              __NEXT_DATA__, __NUXT_DATA__, ytInitialData, Discourse,
- *              Shopify, CMS RSS alternates, /llms.txt, .md twins).
- *   Tier 1.5 — domain adapter (Reddit .json, GitHub raw, YouTube
- *              oEmbed, OSM Nominatim, ...) for known hard hosts.
+ *              docs / document) PLUS Pass A structured facts:
+ *              schema-extract.ts (JSON-LD across all schema types incl.
+ *              Product offers + Movie/TVSeries aggregateRating, Microdata,
+ *              OpenGraph/Twitter) and hydration-unpacker.ts (__NEXT_DATA__,
+ *              self.__next_f, __PRELOADED_STATE__, __myx,
+ *              __INITIAL_STATE__, ytInitialData).
+ *   Tier 1.5 — keyless platform API adapter (platform-api.ts: Reddit
+ *              .json, GitHub raw/README, YouTube youtubei.js, Google Maps,
+ *              OSM Nominatim) for known hard hosts.
  *   Tier 2   — Cloudflare/SPA / WAF fallback: free markdown reader at
  *              r.jina.ai.
  *   Tier 3   — Wayback Machine snapshot (archive.org CDX +
@@ -36,12 +41,11 @@ import {
   fetchWithLinkPreviewBots,
   PDF_LIMIT_BYTES,
   type PageResponse,
-} from "./tls-client";
+} from "./net";
 import type { RankedResult } from "./metasearch";
 import { getCachedPage, putCachedPage } from "./cache";
-import { detectBlock, detectBlockInText, stripWafChallengeText, hasMeaningfulContent } from "./block-detector";
-import { domainAdapter } from "./domain-adapters";
-import { universalDiscovery, universalSchemaExtract } from "./universal-discovery";
+import { schemaExtract, schemaExtractFromBlocks } from "./schema-extract";
+import { platformAdapter } from "./platform-api";
 import { unpackHydration } from "./hydration-unpacker";
 import {
   structuralExtractAsync,
@@ -50,6 +54,14 @@ import {
 } from "./universal-extractor";
 import { normalizeBody, detectCharset } from "./charset-normalizer";
 import { urlSearchFallback, slugTriangulation } from "./metasearch";
+import {
+  extractPageInOnePass,
+  closeBrowserPool,
+  type PageExtraction,
+} from "@/lib/browser/agentBrowser";
+import {
+  walkGenericJsonForEntities,
+} from "./hydration-unpacker";
 import type { EvidencePacket } from "./types";
 
 // Per-tier timeouts (7-tier cascade):
@@ -91,11 +103,234 @@ const JINA_CONCURRENCY = Math.max(
 );
 const jinaLimit = pLimit(JINA_CONCURRENCY);
 
+/* ── Block gate (inlined; replaces the retired block-detector.ts) ────────
+ *
+ * Runs on the RAW HTML before DOM parsing so a WAF/challenge page is
+ * never fed to the structural extractor or the BM25 reranker, and on the
+ * EXTRACTED text afterwards to catch "silent" blocks (200 OK + challenge
+ * body) that survived the DOM pass.
+ *
+ * The reason strings are load-bearing: the classification tail of
+ * extractUrl() regex-matches them — /login|sign in|auth/i routes to
+ * FAIL_SILENT_LOGIN_WALL (surfaced by the pipeline as web:auth_required
+ * so the user can sign in through the in-app browser panel) and
+ * /cloudflare|akamai|perimeterx|datadome|captcha|bot|js/i routes to
+ * FAIL_SILENT_BOT_BLOCK. Do not casually reword these strings.
+ */
+
+interface BlockVerdict {
+  blocked: boolean;
+  reason: string;
+}
+
+// Order matters: the first matching signature wins. Each entry is a
+// substring check against the first 4 KB of body, lower-cased
+// (challenge pages front-load the signal).
+const BLOCK_SIGNATURES: {
+  match: (head: string, status: number) => boolean;
+  reason: string;
+}[] = [
+  // Cloudflare Turnstile / challenge
+  {
+    reason: "Cloudflare challenge / Turnstile",
+    match: (head, status) =>
+      head.includes("cf-chl") ||
+      head.includes("challenge-platform") ||
+      head.includes("cf-turnstile") ||
+      head.includes("__cf_chl") ||
+      head.includes("Just a moment") ||
+      head.includes("Checking your browser") ||
+      (status === 503 && head.includes("cf-ray")),
+  },
+  // Akamai Bot Manager
+  {
+    reason: "Akamai Bot Manager block",
+    match: (head) =>
+      (head.includes("akamai") &&
+        (head.includes("bot") || head.includes("dm_oo") || head.includes("akb"))) ||
+      (head.includes("please enable cookies") && head.includes("akamai")),
+  },
+  // PerimeterX / HUMAN
+  {
+    reason: "PerimeterX / HUMAN bot challenge",
+    match: (head) =>
+      head.includes("_pxhd") ||
+      head.includes("_px2") ||
+      head.includes("perimeterx") ||
+      head.includes("px-captcha"),
+  },
+  // DataDome
+  {
+    reason: "DataDome bot challenge",
+    match: (head) =>
+      head.includes("_ddg") ||
+      head.includes("datadome") ||
+      (head.includes("dd-") && head.includes("captcha")),
+  },
+  // Generic CAPTCHA (reCAPTCHA, hCaptcha, Arkose/FunCaptcha)
+  {
+    reason: "CAPTCHA challenge",
+    match: (head) =>
+      head.includes("g-recaptcha") ||
+      head.includes("hcaptcha") ||
+      head.includes("funcaptcha") ||
+      head.includes("arkoselabs") ||
+      head.includes("please verify you are not a robot") ||
+      head.includes("i'm not a robot"),
+  },
+  // "Enable JavaScript and cookies to continue"
+  {
+    reason: "JavaScript + cookies required (SPA shell)",
+    match: (head) =>
+      head.includes("enable javascript and cookies") ||
+      head.includes("please enable cookies") ||
+      head.includes("js is required") ||
+      (head.length < 800 && head.includes("<noscript") && head.includes("javascript")),
+  },
+  // LinkedIn: 999 status or /uas/login redirect
+  {
+    reason: "LinkedIn login wall",
+    match: (head, status) =>
+      status === 999 ||
+      head.includes("linkedin.com/uas/login") ||
+      head.includes('href="https://www.linkedin.com/login') ||
+      (head.includes("Sign in to LinkedIn") && head.length < 20000),
+  },
+  // Instagram / Facebook login walls
+  {
+    reason: "Instagram / Facebook login wall",
+    match: (head) =>
+      ((head.includes("instagram.com") || head.includes("facebook.com")) &&
+        (head.includes("log in") || head.includes("login") || head.includes("password")) &&
+        head.includes("auth_session")) ||
+      head.includes("please log in to continue"),
+  },
+  // Amazon robot check
+  {
+    reason: "Amazon robot / captcha check",
+    match: (head) =>
+      head.includes("validatecaptcha") ||
+      head.includes("enter the characters you see") ||
+      (head.includes("type the characters") && head.includes("captcha")),
+  },
+  // AWS WAF challenge (Zepto, Zeptonow, and other AWS-WAF-protected Indian sites)
+  // The challenge page is delivered with HTTP 202 and contains "awsWaf"
+  // global + a challenge.js script from *.awswaf.com.
+  {
+    reason: "AWS WAF bot challenge",
+    match: (head, status) =>
+      head.includes("awswaf") ||
+      head.includes("aws-waf") ||
+      head.includes("challenge.js") ||
+      (status === 202 && head.includes("challenge")),
+  },
+];
+
+/**
+ * Classify a raw HTTP response for silent block signals. Called BEFORE
+ * DOM extraction — a hit short-circuits Tier 1.
+ */
+function detectBlock(
+  html: string,
+  status: number,
+  _contentType: string,
+): BlockVerdict {
+  if (status === 999) {
+    return { blocked: true, reason: "HTTP 999 (LinkedIn-style auth redirect)" };
+  }
+  const head = html.slice(0, 4000).toLowerCase();
+  for (const sig of BLOCK_SIGNATURES) {
+    if (sig.match(head, status)) return { blocked: true, reason: sig.reason };
+  }
+  return { blocked: false, reason: "" };
+}
+
+/**
+ * Post-extraction text gate — catches silent blocks that the DOM pass
+ * "cleaned up" but left the challenge wording in. Kept small and cheap:
+ * a handful of regexes over the first 2000 chars.
+ */
+function detectBlockInText(text: string): BlockVerdict {
+  const lower = text.slice(0, 2000).toLowerCase();
+
+  // Silent Cloudflare "Just a moment" that survived the DOM pass
+  if (lower.includes("just a moment")) {
+    return { blocked: true, reason: "Cloudflare challenge text survived extraction" };
+  }
+  // Login wall
+  const loginWallPatterns: RegExp[] = [
+    /sign in to (linkedin|facebook|instagram|twitter|x|youtube)/i,
+    /log (in|sign in) to (continue|begin)/i,
+    /please (log in|sign in|create an account) (to|and)/i,
+    /your session has expired/i,
+  ];
+  for (const re of loginWallPatterns) {
+    if (re.test(lower)) return { blocked: true, reason: "Login wall text in extraction" };
+  }
+  // CAPTCHA
+  if (
+    lower.includes("captcha") ||
+    lower.includes("verify you are human") ||
+    lower.includes("i'm not a robot")
+  ) {
+    return { blocked: true, reason: "CAPTCHA text in extraction" };
+  }
+  // Empty JS shell
+  if (text.replace(/\s+/g, " ").trim().length < 100) {
+    return { blocked: true, reason: "Extraction under 100 meaningful chars (JS shell)" };
+  }
+  return { blocked: false, reason: "" };
+}
+
+/**
+ * Strip residual WAF challenge / CAPTCHA / "checking your browser"
+ * wording from recovered text so triangulated snippets never leak
+ * challenge boilerplate into the BM25 index. Final line of defense
+ * before a link-preview / triangulation result is handed to the reranker.
+ */
+const WAF_BOILERPLATE_RE = new RegExp(
+  [
+    "checking your browser",
+    "just a moment",
+    "please enable javascript and cookies",
+    "verify you are human",
+    "i'm not a robot",
+    "are you a robot",
+    "enable cookies to continue",
+    "cf-chl",
+    "cf-turnstile",
+    "turnstile",
+    "please wait",
+    "verifying connection",
+    "access to this page has been limited",
+    "you are being redirected",
+  ].join("|"),
+  "gi",
+);
+
+function stripWafChallengeText(text: string): string {
+  if (!text) return "";
+  // Cut out each boilerplate phrase and its surrounding ~80-char window
+  let cleaned = text;
+  for (const m of text.matchAll(WAF_BOILERPLATE_RE)) {
+    const start = Math.max(0, (m.index ?? 0) - 80);
+    const end = Math.min(text.length, (m.index ?? 0) + m[0].length + 80);
+    cleaned = cleaned.slice(0, start) + " " + cleaned.slice(end);
+  }
+  return cleaned.replace(/\s{3,}/g, "  ").trim();
+}
+
+/** True when the text (after stripping) still has meaningful content. */
+function hasMeaningfulContent(text: string, minChars = 100): boolean {
+  return text.replace(/\s+/g, " ").trim().length >= minChars;
+}
+
 /* ── Extraction tier results (internal) ───────────────────────────────── */
 
 type Tier =
   | "direct"
   | "adapter"
+  | "browser"
   | "metadata"
   | "jina"
   | "wayback"
@@ -118,11 +353,11 @@ interface TierOutput {
 }
 
 /**
- * Tier 1: direct fetch + block gate + structural-mode DOM extraction +
- * universal schema / hydration / protocol discovery.
+ * Tier 1 (Pass A): direct got-scraping fetch + block gate + structural-
+ * mode DOM extraction + schema-extract / hydration facts.
  *
- * Fingerprint rotation on 403/429/503 is handled INSIDE fetchPage
- * (tls-client.ts). The caller no longer re-fires Tier 1 with a second
+ * Fingerprint rotation and the impit TLS fallback on 403/429/503 are
+ * handled INSIDE fetchPage (net.ts). The caller no longer re-fires Tier 1 with a second
  * fingerprint — that was the double-fetch that kept Jina from ever
  * seeing the clean HTML response on hosts like news.ycombinator.com
  * (a fingerprint the direct fetch had already recovered under).
@@ -150,7 +385,7 @@ async function extractDirect(
 
   // Normalize the body's charset before anything else — this is what
   // keeps Shift_JIS / GB18030 / EUC-KR / Windows-1252 pages readable
-  // instead of garbled. (No-op for UTF-8, the common case: impit's
+  // instead of garbled. (No-op for UTF-8, the common case: net.ts's
   // readBounded already decoded it, so we only re-decode when the
   // content-type names a non-UTF-8 charset.)
   const bytes = new TextEncoder().encode(page.body);
@@ -234,11 +469,11 @@ async function extractDirect(
     }
   }
 
-  // Universal machine-readable discovery + SSR hydration unpacking.
+  // Pass A structured facts + SSR hydration unpacking.
   // ONLY fires when the structural DOM extraction came up thin — for a
   // page that already produced enough text, re-parsing the same body
-  // through 10 schema/hydration/protocol paths is pure waste (this is
-  // what was blowing the 4500ms cold-cache budget on plain HTML pages).
+  // through the schema/hydration channels is pure waste (this is what
+  // was blowing the cold-cache budget on plain HTML pages).
   //
   // Two cheap signals: the ORIGINAL HTML body's plain-text length (before
   // any extraction) and the structural extractor's markdown output.
@@ -251,23 +486,13 @@ async function extractDirect(
     bodyPlainLen < 1500 ||
     md.length < 800;
   if (domThin) {
-    // Cheap pure-HTML channels first (no network): universal schema +
+    // Pure-HTML channels only (no network): Pass A schema facts +
     // hydration unpacking. These parse the same body the DOM pass
     // already paid for.
-    const schemaMd = universalSchemaExtract(page.body);
+    const schemaMd = schemaExtract(page.body);
     const hydrationMd = unpackHydration(page.body);
     if (schemaMd || hydrationMd) {
       md = [schemaMd, hydrationMd, md].filter(Boolean).join("\n\n");
-    }
-    // Only when the body is genuinely a JS shell (<1500 plain-text
-    // chars) do we pay for the network-based discovery channels
-    // (Discourse .json, Shopify .json, CMS RSS, /llms.txt, markdown
-    // negotiation). For a normal page the DOM extraction already won.
-    if (bodyPlainLen < 1500) {
-      const universalMd = await universalDiscovery(url, page.body, page);
-      if (universalMd?.markdown) {
-        md = [universalMd.markdown, md].filter(Boolean).join("\n\n");
-      }
     }
   }
 
@@ -307,9 +532,9 @@ async function extractDirect(
   };
 }
 
-/** Tier 1.5: domain adapter (keyless JSON rewrite). */
+/** Tier 1.5: keyless platform API adapter (JSON rewrite; platform-api.ts). */
 async function extractAdapter(url: string): Promise<TierOutput | null> {
-  const result = await domainAdapter(url);
+  const result = await platformAdapter(url);
   if (!result) return null;
   return {
     tier: "adapter",
@@ -318,6 +543,154 @@ async function extractAdapter(url: string): Promise<TierOutput | null> {
     blocked: false,
     blockedReason: "",
   };
+}
+
+/**
+ * Universal SERP-snippet baseline — guaranteed to survive every stage.
+ * The search engine's own index (title + rich snippet) is always a valid
+ * evidence passage even when every direct extraction tier fails. This is
+ * what keeps the pipeline from ever returning 0 passages for a blocked
+ * Myntra / Zomato / BookMyShow page.
+ */
+function serpBaselinePassage(result: RankedResult): EvidencePacket["passages"][number] | null {
+  const snippet = (result.snippet || result.title || "").trim();
+  if (snippet.length < 12) return null;
+  return {
+    sourceId: "",
+    url: result.canonical,
+    title: result.title,
+    domain: result.domain,
+    publishedAt: result.publishedDate,
+    passageText:
+      "[SERP snippet baseline — the page itself was blocked or empty. " +
+      "The following is the search engine's own indexed title + snippet, " +
+      "guaranteed evidence even when every direct connection fails.]\n" +
+      snippet.slice(0, 2000),
+    bm25Score: 0,
+  };
+}
+
+/**
+ * Bundle-level SERP-baseline guarantee: results OUTSIDE the extractor's
+ * read window (rank 11+) still contribute their engine-indexed title +
+ * snippet as a snippet-only packet, so a blocked site's facts (a LinkedIn
+ * profile's headline, a 999-walled page's indexed description) can never
+ * be lost just because we chose not to fetch that URL. The pipeline
+ * merges these after extractAll(); extractUrl() already carries the same
+ * baseline inside every packet it returns.
+ */
+export function baselinePacketsFor(
+  ranked: RankedResult[],
+  extractedUrls: Set<string>,
+  max = 10,
+): (EvidencePacket & { classification: string })[] {
+  const out: (EvidencePacket & { classification: string })[] = [];
+  for (const r of ranked) {
+    if (out.length >= max) break;
+    if (extractedUrls.has(r.canonical)) continue;
+    const baseline = serpBaselinePassage(r);
+    if (!baseline) continue;
+    out.push({
+      sourceId: "",
+      url: r.canonical,
+      title: r.title,
+      domain: r.domain,
+      publishedAt: r.publishedDate,
+      extraction: "snippet-only",
+      passages: [baseline],
+      classification: "SUCCESS_SNIPPET_FALLBACK",
+    });
+  }
+  return out;
+}
+
+/**
+ * Browser-tier extraction — real Playwright Chromium (lib/browser/agentBrowser.ts).
+ * Runs when Stage A (fast HTTP) was blocked/empty and the page is a known
+ * WAF-heavy SPA or JS shell. The browser executes the full SPA bundle, so
+ * Myntra / Zomato / BookMyShow / Blinkit hydration payloads that never
+ * reach a raw fetch are recovered here.
+ */
+async function extractBrowser(
+  result: RankedResult,
+): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string } | null> {
+  try {
+    const r = await extractPageInOnePass(result.canonical, { timeoutMs: 45_000 });
+    if (!r.ok) {
+      return {
+        markdown: "",
+        status: r.status ?? 0,
+        blocked: r.status === 403 || r.status === 429 || r.status === 503,
+        blockedReason: r.error ?? "browser extraction failed",
+      };
+    }
+    const parts: string[] = [];
+
+    // 1. Live-rendered DOM body text (the primary payload — this is what
+    //    a raw HTTP fetch can never produce for a JS-only SPA).
+    if (r.bodyText.length >= 100) {
+      parts.push("## Rendered page body (Playwright stealth Chromium)\n" + r.bodyText.slice(0, 12_000));
+    }
+
+    // 2. Final URL after JS/HTTP redirects — the real target of the SERP.
+    if (r.finalUrl && r.finalUrl !== result.canonical) {
+      parts.push("Final URL after redirects: " + r.finalUrl);
+    }
+
+    // 3. Title
+    if (r.title) parts.push("# " + r.title);
+
+    // 4. JSON-LD (same formatter as the Pass A HTML path)
+    if (r.jsonLd.length > 0) {
+      const schemaMd = schemaExtractFromBlocks(r.jsonLd).join("\n\n");
+      if (schemaMd) parts.push("[Structured Page Facts]\n\n" + schemaMd);
+    }
+
+    // 5. OpenGraph / Twitter meta
+    if (Object.keys(r.meta).length > 0) {
+      const lines = Object.entries(r.meta)
+        .filter(([k]) => /^(og:|twitter:)/.test(k) || k === "description")
+        .map(([k, v]) => "- " + k + ": " + String(v).slice(0, 300));
+      if (lines.length > 0) parts.push("## Page Metadata (browser)\n" + lines.join("\n"));
+    }
+
+    // 6. Universal window global hydration state — run the generic JSON
+    //    entity walker (Part 4, 100% schema-agnostic) so a Myntra
+    //    product catalog, Zomato menu, or BookMyShow event listing buried
+    //    in `window.__PRELOADED_STATE__` etc. is unpacked without any
+    //    per-site hardcoding.
+    for (const [key, raw] of Object.entries(r.windowState)) {
+      try {
+        const parsed = JSON.parse(raw);
+        const cards = walkGenericJsonForEntities(parsed, { maxCards: 60, label: key });
+        if (cards) parts.push("## Hydration state (" + key + ")\n" + cards);
+      } catch {
+        /* not valid JSON under this key — skip */
+      }
+    }
+
+    // 7. ARIA semantic snapshot — the accessibility-tree view of the
+    //    rendered page. This is what pierces Shadow DOM, React portals,
+    //    and cross-origin iframes that `document.body.innerText` on the
+    //    main document misses. Capped so one hostile page can't blow
+    //    out the reranker's context budget.
+    if (r.ariaSnapshot && r.ariaSnapshot.length >= 100) {
+      parts.push("## ARIA snapshot (accessibility tree)\n" + r.ariaSnapshot.slice(0, 8_000));
+    }
+
+    const markdown = parts.filter(Boolean).join("\n\n");
+    if (markdown.length < 60) {
+      return { markdown, status: r.status, blocked: false, blockedReason: "browser returned little content" };
+    }
+    return { markdown, status: r.status ?? 200, blocked: false, blockedReason: "" };
+  } catch (e: any) {
+    return {
+      markdown: "",
+      status: 0,
+      blocked: false,
+      blockedReason: "browser pool error: " + (e?.message ?? String(e)),
+    };
+  }
 }
 
 /**
@@ -344,7 +717,7 @@ async function extractLinkPreview(
   if (block.blocked) return null;
 
   // Extract structured metadata + DOM text from the bot-fetched body.
-  const schemaMd = universalSchemaExtract(page.body);
+  const schemaMd = schemaExtract(page.body);
   const hydrationMd = unpackHydration(page.body);
   const structOut = await structuralExtractAsync(
     page.body,
@@ -497,7 +870,18 @@ export async function extractUrl(
     passages: [],
   };
 
-  // Tier 0: SQLite cache hit
+    // ── Universal SERP snippet baseline ────────────────────────────────
+    // Guaranteed to survive every stage: the search engine's own indexed
+    // title + snippet is evidence even when every direct connection to
+    // the target page fails. Pushed FIRST so the reranker always has
+    // something to score when the tier cascade comes up empty.
+    const baseline = serpBaselinePassage(result);
+    if (baseline) {
+      packet.passages.push(baseline);
+      packet.extraction = "snippet-only";
+    }
+
+    // Tier 0: SQLite cache hit
   const cached = getCachedPage(url);
   if (cached && cached.extracted.length >= 200) {
     const cachedTier = cached.tier as string;
@@ -529,7 +913,7 @@ export async function extractUrl(
     return { ...packet, classification };
   }
 
-  // Tier 1.5: domain adapter first (cheapest for known hosts)
+  // Tier 1.5: platform API adapter first (cheapest for known hosts)
   const adapterOut = await extractAdapter(url);
   if (adapterOut && adapterOut.markdown.length >= 200) {
     packet.extraction = "direct";
@@ -615,6 +999,37 @@ export async function extractUrl(
       });
       putCachedPage(url, linkPreviewOut.markdown, "direct");
       return { ...packet, classification: "SUCCESS_DIRECT" };
+    }
+  }
+
+  // Browser-tier fallback — runs when Stage A (direct HTTP) was blocked,
+  // challenged (HTTP 202 = Zepto/DataDome bot-challenge page), returned
+  // an empty JS shell, or produced < 200 chars of markdown. The Playwright
+  // pool executes the full page with per-context fingerprints; the JSON-walker
+  // unpacks whatever `window` global hydration payload the SPA shipped.
+  const directThinnedOrBlocked =
+    (directOut?.blocked ?? false) ||
+    (directOut?.status === 0) ||
+    (directOut?.status === 202) ||  // WAF challenge page (Zepto, DataDome)
+    (directOut?.status === 403) ||
+    (directOut?.status === 429) ||
+    (directOut?.markdown.length < 200 && directOut?.tier === "crash") ||
+    (directOut?.markdown.length < 100 && !(directOut?.tier === "crash"));
+  if (directThinnedOrBlocked) {
+    const browserOut = await extractBrowser(result);
+    if (browserOut && browserOut.markdown.length >= 200 && !browserOut.blocked) {
+      packet.extraction = "direct";
+      packet.passages.push({
+        sourceId: "",
+        url,
+        title: result.title,
+        domain: result.domain,
+        publishedAt: result.publishedDate,
+        passageText: browserOut.markdown,
+        bm25Score: 0,
+      });
+      putCachedPage(url, browserOut.markdown, "browser");
+      return { ...packet, classification: "SUCCESS_BROWSER" };
     }
   }
 

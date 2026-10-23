@@ -8,7 +8,7 @@
  * so the pipeline extracts the DESTINATION page (a Maps place, a video,
  * a job board) instead of the worthless redirect shell.
  */
-import { fetchPage } from "./tls-client";
+import { fetchPage } from "./net";
 
 /** Hosts that are (almost) always redirect stubs, never final content. */
 export const SHORTLINK_HOSTS: ReadonlySet<string> = new Set([

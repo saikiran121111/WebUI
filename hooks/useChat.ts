@@ -37,6 +37,11 @@ export interface UseChatOptions {
   model?: string;
   apiUrl?: string;
   apiKey?: string;
+  /**
+   * The web pipeline hit a login wall (web:auth_required stage) — the page
+   * opens its in-app Browser panel targeted at the walled URL (Part 3).
+   */
+  onAuthRequired?: (info: { url?: string; domain?: string }) => void;
 }
 
 export interface UseChatReturn {
@@ -81,7 +86,13 @@ export function useChat({
   model = "",
   apiUrl,
   apiKey,
+  onAuthRequired,
 }: UseChatOptions = {}): UseChatReturn {
+  // Stable ref: handleEvent stays dependency-free but always sees the
+  // page's latest auth-required handler.
+  const onAuthRequiredRef = useRef(onAuthRequired);
+  onAuthRequiredRef.current = onAuthRequired;
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus]   = useState<SendStatus>("complete");
   const [error, setError]     = useState<string | null>(null);
@@ -405,6 +416,11 @@ export function useChat({
             ...(gateMeta ? { searchGate: gateMeta } : {}),
           } : m));
         }
+      }
+      if (ev.stage.stage === "web:auth_required") {
+        // Login-wall report (Part 3): surface the Browser panel aimed at the
+        // walled page. The progress tracker already shows the info band.
+        onAuthRequiredRef.current?.({ url: ev.stage.url, domain: ev.stage.domain });
       }
       const t = progressRef.current;
       if (t) {

@@ -279,6 +279,10 @@ export interface StageEvent {
   done?: number;
   total?: number;
   coverage?: number;
+  /** web:auth_required only: the login-walled URL and its domain — the
+   *  client opens its in-app Browser panel targeted at this page. */
+  url?: string;
+  domain?: string;
   webCitations?: Record<string, {
     sourceId: string;
     url: string;

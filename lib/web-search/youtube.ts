@@ -1,24 +1,23 @@
 /**
- * YouTube deep evidence (Fix 1).
+ * YouTube deep evidence — built on youtubei.js (InnerTube client).
  *
  * The model must be able to "watch" ANY YouTube URL format:
  *   youtu.be/<id> · youtube.com/watch?v=<id> · /shorts/<id> · /embed/<id>
  *   /v/<id> · /live/<id> · m.youtube.com/* · music.youtube.com/*
  *
  * Evidence stack, in order of reliability:
- *   1. Keyless oEmbed  → real title + channel name (works without consent).
- *   2. InnerTube player API (youtubei/v1/player, ANDROID embedded client
- *      context + CONSENT=YES cookie) → videoDetails (title / author /
- *      shortDescription / lengthSeconds / viewCount) + captionTracks.
- *   3. Watch-page scrape → brace-unpack `ytInitialPlayerResponse` when the
- *      API path fails.
- *   4. Download + parse the `timedtext` caption track (fmt=json3) into a
- *      timestamped transcript — the actual "video content".
+ *   1. youtubei.js Innertube.create() → getInfo() — real title / channel /
+ *      description / views / upload date / tags, plus getTranscript()
+ *      (the actual "video content") and top comments when captions exist.
+ *   2. ANDROID client retry when the web session is consent-gated.
+ *   3. Keyless oEmbed → real title + channel name (last-resort metadata).
+ *   4. No-caption videos → metadata + description + tags + top comments;
+ *      the pipeline runs `youTubeCompanionQuery` (title + channel) through
+ *      metasearch to identify the video's topic from the open web.
  */
-import { fetchPage, fetchUrl, apiHeaders } from "./tls-client";
+import { fetchUrl } from "./net";
 
 const CONSENT_COOKIE = "CONSENT=YES+cb.20210328-17-p0.en+FX+700";
-const INNER_TUBE_PLAYER = "https://www.youtube.com/youtubei/v1/player";
 
 export interface YouTubeEvidence {
   videoId: string;
@@ -68,70 +67,53 @@ export function parseYouTubeVideoId(url: string): { videoId: string; canonicalUr
   return null;
 }
 
-/* ── JSON brace-unpack for watch-page state vars ──────────────────────── */
+/* ── youtubei.js sessions ──────────────────────────────────────────────── */
 
-function braceMatchJson(html: string, marker: string): any | null {
-  const idx = html.indexOf(marker);
-  if (idx < 0) return null;
-  const start = html.indexOf("{", idx);
-  if (start < 0) return null;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  const scanEnd = Math.min(html.length, start + 2_000_000);
-  for (let i = start; i < scanEnd; i++) {
-    const ch = html[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(html.slice(start, i + 1));
-        } catch {
-          return null;
-        }
-      }
-    }
+// youtubei.js v18 is ESM — lazy-load once, cache the web-client session so
+// N videos don't each re-handshake InnerTube. The ANDROID fallback session
+// is created per-call only when the web session is blocked (rare).
+let _itPromise: Promise<any> | null = null;
+
+async function innertubeCreate(clientType?: string): Promise<any> {
+  const m: any = await import("youtubei.js");
+  const Innertube = m?.Innertube ?? m?.default?.Innertube;
+  if (!Innertube) throw new Error("youtubei.js unavailable");
+  const opts: any = { cookie: CONSENT_COOKIE };
+  if (clientType) opts.client_type = clientType;
+  return await Innertube.create(opts);
+}
+
+function innertube(): Promise<any> {
+  if (!_itPromise) {
+    _itPromise = innertubeCreate().catch(() => {
+      _itPromise = null; // allow a retry on the next call after a failure
+      throw new Error("innertube session failed");
+    });
   }
-  return null;
+  return _itPromise;
 }
 
 /* ── evidence sources ─────────────────────────────────────────────────── */
 
-async function innerTubePlayer(videoId: string): Promise<any | null> {
-  const res = await fetchUrl(INNER_TUBE_PLAYER, {
-    method: "POST",
-    timeoutMs: 20_000,
-    headers: {
-      ...apiHeaders(),
-      "content-type": "application/json",
-      cookie: CONSENT_COOKIE,
-    },
-    body: JSON.stringify({
-      context: {
-        client: {
-          clientName: "ANDROID",
-          clientVersion: "19.09.37",
-          androidSdkVersion: 30,
-          hl: "en",
-        },
-      },
-      videoId,
-    }),
-  });
-  if (!res || !res.ok) return null;
+async function getInfo(videoId: string): Promise<any | null> {
+  // Web session (cached).
   try {
-    return JSON.parse(res.text);
+    const it = await innertube();
+    const info = await it.getInfo(videoId);
+    if (info?.basic_info?.title ?? info?.title) return info;
   } catch {
-    return null;
+    /* fall through to ANDROID */
   }
+  // ANDROID client fallback — different consent surface, often works
+  // when the web session is gated.
+  try {
+    const itA = await innertubeCreate("ANDROID");
+    const info = await itA.getInfo(videoId);
+    if (info?.basic_info?.title ?? info?.title) return info;
+  } catch {
+    /* oEmbed will cover metadata */
+  }
+  return null;
 }
 
 async function oEmbed(videoId: string): Promise<{ title: string; channel: string } | null> {
@@ -150,42 +132,52 @@ async function oEmbed(videoId: string): Promise<{ title: string; channel: string
   }
 }
 
-async function watchPagePlayerResponse(canonicalUrl: string): Promise<any | null> {
-  const page = await fetchPage(canonicalUrl, {
-    timeoutMs: 25_000,
-    headers: { cookie: CONSENT_COOKIE },
-  });
-  if (!page || !page.ok || !page.body) return null;
-  return braceMatchJson(page.body, "ytInitialPlayerResponse");
-}
-
-/** timedtext track → "[mm:ss] line" transcript. */
-async function fetchTranscript(baseUrl: string): Promise<string> {
-  let url = baseUrl.replace(/&fmt=json3$/, "");
-  url += (url.includes("?") ? "&" : "?") + "fmt=json3";
-  const res = await fetchUrl(url, { timeoutMs: 25_000 });
-  if (!res || !res.ok || !res.text) return "";
+/** info.getTranscript() → "[mm:ss] line" timestamped transcript. */
+async function transcriptFromInfo(info: any): Promise<string> {
   try {
-    // Guard the XSSI prefix some timedtext variants emit.
-    const data = JSON.parse(res.text.replace(/^\)\]\}'/, ""));
-    const events: any[] = Array.isArray(data?.events) ? data.events : [];
+    const tr = await info.getTranscript();
+    const rawSegs: any[] =
+      tr?.segments ?? tr?.transcript?.body?.initial_segments ?? [];
     const lines: string[] = [];
-    for (const ev of events) {
-      const segs: any[] = Array.isArray(ev?.segs) ? ev.segs : [];
-      const text = segs
-        .map((s) => String(s?.utf8 ?? ""))
-        .join("")
-        // form-feed (\f) is a word-wrap marker in json3
-        .replace(/[\r\n\f ]+/g, " ")
+    for (const s of rawSegs) {
+      const seg = s?.segment?.transcript_segment ?? s;
+      const text = String(seg?.text?.content ?? seg?.text ?? "")
+        .replace(/[\r\n\f\u2028]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
       if (!text) continue;
-      const sec = Math.round((Number(ev?.tStartMs) || 0) / 1000);
-      lines.push(`[${fmtClock(sec)}] ${text}`);
+      const ms = Number(s?.start_ms ?? seg?.start_ms ?? s?.start ?? seg?.start ?? 0);
+      lines.push(`[${fmtClock(Math.round(ms / 1000))}] ${text}`);
+      if (lines.join("\n").length >= 12_000) break;
     }
     return lines.join("\n").slice(0, 12_000);
   } catch {
     return "";
+  }
+}
+
+/** Top comments (sorted TOP) as short one-liners. */
+async function topComments(info: any, n = 10): Promise<string[]> {
+  try {
+    const res = await info.getComments({ comment_sort: "TOP" });
+    const arr: any[] = Array.isArray(res) ? res : res?.comments ?? [];
+    const out: string[] = [];
+    for (const c of arr) {
+      const text = String(c?.comment?.content ?? c?.text?.content ?? c?.text ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 300);
+      if (!text) continue;
+      const author = String(c?.comment?.author ?? c?.author ?? "").trim();
+      const likes = Number(c?.comment?.like_count ?? c?.like_count ?? 0);
+      out.push(
+        `${author ? author + (likes ? ` (${likes.toLocaleString("en-US")}👍)` : "") + ": " : ""}${text}`,
+      );
+      if (out.length >= n) break;
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
 
@@ -214,24 +206,44 @@ function chaptersFromDescription(desc: string): string[] {
  * Gather the full YouTube evidence block for ANY youtube/youtu.be URL.
  * Returns null only when the video id cannot be parsed OR no title can be
  * resolved from ANY source (dead/private video).
+ *
+ * Memoized per video id: the pipeline's companion-query hop and the
+ * extractor's platform adapter both call this for the same video inside
+ * one turn — the InnerTube getInfo/transcript round-trips run once.
  */
+const EVIDENCE_TTL_MS = 10 * 60_000;
+const evidenceCache = new Map<string, { at: number; value: YouTubeEvidence | null }>();
+
 export async function getYouTubeEvidence(url: string): Promise<YouTubeEvidence | null> {
-  const info = parseYouTubeVideoId(url);
-  if (!info) return null;
-  const { videoId, canonicalUrl } = info;
+  const parsed = parseYouTubeVideoId(url);
+  if (!parsed) return null;
+  const hit = evidenceCache.get(parsed.videoId);
+  if (hit && Date.now() - hit.at < EVIDENCE_TTL_MS) return hit.value;
+  const value = await collectYouTubeEvidence(url, parsed);
+  if (evidenceCache.size >= 64) evidenceCache.clear();
+  evidenceCache.set(parsed.videoId, { at: Date.now(), value });
+  return value;
+}
 
-  // 1) InnerTube player (ANDROID client) — richest single source.
-  let player = await innerTubePlayer(videoId);
-  // 2) watch-page fallback.
-  if (!player?.videoDetails?.title) {
-    const wp = await watchPagePlayerResponse(canonicalUrl);
-    if (wp?.videoDetails) player = wp;
-  }
-  const details: any = player?.videoDetails ?? null;
-  const micro: any = player?.microformat?.playerMicroformatRenderer ?? null;
+async function collectYouTubeEvidence(
+  url: string,
+  parsed: { videoId: string; canonicalUrl: string },
+): Promise<YouTubeEvidence | null> {
+  const { videoId, canonicalUrl } = parsed;
 
-  let title = String(details?.title ?? "");
-  let channel = String(details?.author ?? "");
+  // 1) youtubei.js getInfo (web → ANDROID fallback).
+  const info = await getInfo(videoId);
+  const bi: any = info?.basic_info ?? info ?? {};
+
+  let title = String(bi?.title ?? "");
+  // youtubei.js basic_info.channel is an OBJECT {id,name,url} in v13+ —
+  // String() would yield "[object Object]" and poison the companion query.
+  let channel =
+    bi?.channel && typeof bi.channel === "object"
+      ? String(bi.channel.name ?? "")
+      : String(bi?.channel_name ?? bi?.channel ?? bi?.author ?? "");
+
+  // 2) oEmbed last-resort metadata (works even when InnerTube is gated).
   if (!title || !channel) {
     const oe = await oEmbed(videoId);
     if (oe) {
@@ -241,20 +253,17 @@ export async function getYouTubeEvidence(url: string): Promise<YouTubeEvidence |
   }
   if (!title) return null; // nothing real to report
 
-  const description = String(details?.shortDescription ?? micro?.description?.simpleText ?? "");
-  const lengthSeconds = Number(details?.lengthSeconds) || (player && Number(player?.playabilityStatus) ? 0 : 0) || 0;
-  const viewCount = Number(details?.viewCount) || 0;
-  const publishDate = String(micro?.publishDate ?? "").slice(0, 10);
+  const description = String(bi?.short_description ?? bi?.description ?? "");
+  const lengthSeconds = Number(bi?.duration) || 0;
+  const viewCount = Number(String(bi?.view_count ?? "0").replace(/,/g, "")) || 0;
+  const publishDate = String(bi?.upload_date ?? "").slice(0, 10);
+  const tags: string[] = Array.isArray(bi?.tags)
+    ? bi.tags.map((t: any) => String(t)).slice(0, 12)
+    : [];
 
-  // 3) transcript from the caption tracks (prefer English, any track beats none).
-  let transcript = "";
-  const tracks: any[] = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
-  if (tracks.length > 0) {
-    const track =
-      tracks.find((t) => String(t?.languageCode ?? "").toLowerCase().startsWith("en")) ??
-      tracks[0];
-    if (track?.baseUrl) transcript = await fetchTranscript(String(track.baseUrl));
-  }
+  // 3) transcript (real captions first) + top comments.
+  const transcript = info ? await transcriptFromInfo(info) : "";
+  const comments = info ? await topComments(info) : [];
 
   const chapters = chaptersFromDescription(description);
 
@@ -270,6 +279,7 @@ export async function getYouTubeEvidence(url: string): Promise<YouTubeEvidence |
   facts.push(`Watch URL: ${canonicalUrl}`);
   if (url !== canonicalUrl) facts.push(`Original link: ${url}`);
   parts.push(facts.join(" | "));
+  if (tags.length > 0) parts.push(`Tags: ${tags.join(", ")}`);
 
   if (description) {
     parts.push("### Video description");
@@ -282,11 +292,20 @@ export async function getYouTubeEvidence(url: string): Promise<YouTubeEvidence |
   if (transcript) {
     parts.push("### Video transcript (captions, timestamped)");
     parts.push(transcript);
+  } else if (comments.length > 0) {
+    parts.push(
+      "### Transcript",
+      "(No caption track available — metadata, description and top community comments below are the full retrievable content for this video.)",
+    );
   } else {
     parts.push(
       "### Transcript",
-      "(No caption track available for this video — the description + metadata above are the full retrievable content.)",
+      "(No caption track and no comments available for this video — the description + metadata above are the full retrievable content.)",
     );
+  }
+  if (comments.length > 0) {
+    parts.push("### Top comments");
+    parts.push(comments.map((c) => `- ${c}`).join("\n"));
   }
 
   const markdown = parts.filter(Boolean).join("\n\n").slice(0, 18_000);
@@ -310,7 +329,9 @@ export async function getYouTubeEvidence(url: string): Promise<YouTubeEvidence |
 /**
  * Companion metasearch query for a video: "<Title>" "<Channel>" — surfaces
  * articles/reactions/summaries ABOUT the video that the transcript alone
- * cannot cover.
+ * cannot cover. This is also the mandated fallback for videos WITHOUT
+ * captions: the pipeline searches title + channel so the topic (e.g. the
+ * game played in a playthrough) is identified from the open web.
  */
 export function youTubeCompanionQuery(ev: YouTubeEvidence): string | null {
   const t = ev.title.trim();

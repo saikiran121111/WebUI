@@ -1,16 +1,62 @@
 /**
- * Anti-bot network layer: single TLS-impersonated Impit client (Chrome
- * impersonation) + SSRF guards, size/time limits, and rotating realistic
- * headers.
+ * Anti-bot network layer — got-scraping first, impit TLS rotation as the
+ * internal fallback.
  *
  * Every external fetch in the web-search pipeline MUST go through
- * fetchPage / fetchUrl here — native Node fetch is not allowed for
- * scraper traffic because it fingerprints as a Node client and gets 403'd
- * by search-engine CDNs within seconds.
+ * fetchPage / fetchUrl here.  Pass A is `got-scraping` (v4) driven by
+ * header-generator fingerprints (rotating Chrome/Firefox HTTP/2 header
+ * sets + scraping defaults).  When got returns a block status
+ * (403/429/503) or throws, Pass B re-tries through the TLS-impersonated
+ * impit clients with the chrome → firefox → edge header rotation.
+ * Native Node fetch is not allowed for scraper traffic because it
+ * fingerprints as a Node client and gets 403'd by search-engine CDNs.
+ *
+ * SSRF guarding lives in ssrf.ts (shared with lib/browser); this module
+ * re-exports isSafeUrl so existing importers keep working.
  */
 import { Impit } from "impit";
+
+/* wreq-js — Rust-backed browser-TLS HTTP client (JA3/JA4 spoofing).
+   Used as Pass C: fires when got-scraping AND all three impit
+   fingerprints have been blocked.  wreq-js's TLS emulation is
+   implemented in Rust and produces a different JA3/JA4 signature
+   than impit's Python/Node C-extension, so it can clear challenges
+   that impit trips.  Lazy-imported so a broken install degrades
+   gracefully to the impit-only path. */
+let _wreqReady: Promise<typeof import("wreq-js")> | null = null;
+function wreqLoad(): Promise<typeof import("wreq-js")> {
+  if (!_wreqReady) _wreqReady = import("wreq-js").catch(() => (null as any));
+  return _wreqReady;
+}
+async function wreqFetch(
+  url: string,
+  opts: { method?: "GET" | "POST"; headers?: Record<string, string>; timeoutMs?: number },
+): Promise<{ status: number; ok: boolean; body: string; contentType: string } | null> {
+  try {
+    const wreq = await wreqLoad();
+    if (!wreq) return null;
+    const method: "GET" | "POST" = opts.method ?? "GET";
+    const res = await (method === "POST" ? wreq.post : wreq.get)(url, {
+      headers: opts.headers ?? {},
+      timeout: (opts.timeoutMs ?? 30_000) / 1000, // wreq takes seconds
+      emulate: "chrome",
+    } as any);
+    const body: string = await res.text();
+    return {
+      status: res.status,
+      ok: res.status >= 200 && res.status < 400,
+      body,
+      contentType: String(res.headers?.get?.("content-type") ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
 import { gunzipSync, brotliDecompressSync } from "node:zlib";
 import https from "node:https";
+import { isSafeUrl } from "./ssrf";
+
+export { isSafeUrl };
 
 /* ── Shared TLS-impersonated pool ────────────────────────────────────────── */
 // One lazily-created Impit instance: Impit keeps a per-host HTTP/2
@@ -23,7 +69,7 @@ import https from "node:https";
 // retries instead of spawning second pools.
 let _client: Impit | null = null;
 
-export type BrowserFingerprint = "chrome" | "firefox" | "safari" | "edge";
+export type BrowserFingerprint = "chrome" | "firefox" | "safari" | "edge" | "wreq-chrome";
 
 /**
  * Social link-preview crawler User-Agents.
@@ -131,25 +177,6 @@ export function closeTlsClient(): void {
   _clientSafari = null;
 }
 
-/* ── SSRF ───────────────────────────────────────────────────────────────── */
-
-const PRIVATE_HOST_RE =
-  /^(localhost|0\.0\.0\.0|127\.|10\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1|fc|fd)/i;
-
-/**
- * Block file://, data:, and any URL resolving to loopback / private /
- * link-local ranges. Returns the URL if safe, else null.
- */
-export function isSafeUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-    return !PRIVATE_HOST_RE.test(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
 /* ── Header rotation ───────────────────────────────────────────────────── */
 
 // Chrome 131 + Firefox 131 fingerprints: the Sec-CH-UA triplet must agree
@@ -177,6 +204,12 @@ const FINGERPRINTS: Record<BrowserFingerprint, { secChUa: string | null; platfor
     platform: '"Windows"',
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+  },
+  "wreq-chrome": {
+    secChUa: '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
+    platform: '"Windows"',
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   },
   safari: {
     secChUa: '"Chromium";v="131", "Not_A Brand";v="24", "Safari";v="131"',
@@ -330,6 +363,141 @@ export async function readBounded(
     return gunzipSync(out).toString("utf8");
   }
   return new TextDecoder("utf-8").decode(out);
+}
+
+/* ── got-scraping (Pass A) ─────────────────────────────────────────────── */
+
+const BLOCK_STATUSES = [403, 429, 503];
+
+// got-scraping v4 is ESM-only — lazy-load it once and cache the module so
+// a broken/absent install degrades to the impit fallback instead of
+// crashing the pipeline.
+let _gotPromise: Promise<any> | null = null;
+async function gotModule(): Promise<any> {
+  if (!_gotPromise) {
+    _gotPromise = import("got-scraping")
+      .then((m: any) => m?.default ?? m)
+      .catch(() => null);
+  }
+  const mod = await _gotPromise;
+  if (!mod) {
+    _gotPromise = null; // allow a retry after a transient load failure
+    throw new Error("got-scraping unavailable");
+  }
+  return mod;
+}
+
+/**
+ * got-scraping page fetch with the shared cookie jar + bounded body.
+ * Returns null on any network/timeout failure so the caller falls through
+ * to the impit TLS rotation; cert-shaped errors (broken gov chains) get
+ * the one-shot rejectUnauthorized:false retry via tlsTolerantGet.
+ */
+async function gotPageFetch(
+  url: string,
+  opts: {
+    headers?: Record<string, string>;
+    method?: "GET" | "POST";
+  },
+  jar: CookieJar,
+  limitBytes: number,
+  timeoutMs: number,
+  t0: number,
+): Promise<PageResponse | null> {
+  try {
+    const got = await gotModule();
+    const cookieVal = jar.cookieFor(url);
+    const res = await got(url, {
+      method: opts.method ?? "GET",
+      headers: {
+        ...realisticHeaders(cookieVal ? { cookie: cookieVal } : {}),
+        ...(opts.headers ?? {}),
+      },
+      // got-scraping v4 REQUIRES the proxy option to be present — pass
+      // false so it never picks up unexpected system proxy env vars.
+      proxy: false,
+      throwHttpErrors: false,
+      maxRedirects: 10,
+      retry: 0,
+      decompress: true,
+      timeout: { request: timeoutMs },
+    } as any);
+
+    const status: number = res.statusCode ?? 0;
+    const setCookieHeader = res.headers?.["set-cookie"];
+    const rawCookies: string[] = Array.isArray(setCookieHeader)
+      ? setCookieHeader.map(String)
+      : setCookieHeader
+        ? [String(setCookieHeader)]
+        : [];
+    if (rawCookies.length > 0) jar.absorb(url, rawCookies);
+
+    const contentType = String(res.headers?.["content-type"] ?? "");
+    // Text-ish payloads use got's decompressed body; everything else
+    // keeps the raw-bytes path identical to the readBounded behavior.
+    const isText = /text\/|html|json|xml|javascript/i.test(contentType);
+    let body = isText
+      ? String(res.body ?? "")
+      : (res.rawBody ?? Buffer.alloc(0)).toString("utf8");
+    if (body.length > limitBytes) body = body.slice(0, limitBytes);
+
+    const redirects: string[] = Array.isArray(res.redirectUrls)
+      ? res.redirectUrls.map(String)
+      : [];
+    const resolvedUrl =
+      redirects.length > 0 ? redirects[redirects.length - 1] : String(res.url ?? url);
+
+    return {
+      status,
+      ok: status >= 200 && status < 400,
+      body,
+      contentType,
+      elapsedMs: Math.round(performance.now() - t0),
+      fingerprint: "chrome",
+      cookies: rawCookies,
+      resolvedUrl,
+    };
+  } catch (err: unknown) {
+    if (isCertError(err)) {
+      const tolerant = await tlsTolerantGet(url, timeoutMs, limitBytes);
+      if (tolerant) return tolerant;
+    }
+    return null; // got failed / timed out → impit rotation takes over
+  }
+}
+
+/** got-scraping fetch for JSON-ish / form-POST endpoints. */
+async function gotUrlFetch(
+  url: string,
+  opts: {
+    timeoutMs?: number;
+    body?: string;
+    method?: "GET" | "POST";
+    limitBytes?: number;
+  },
+  headers: Record<string, string>,
+): Promise<{ status: number; ok: boolean; text: string } | null> {
+  try {
+    const got = await gotModule();
+    const res = await got(url, {
+      method: opts.method ?? "GET",
+      headers,
+      ...(opts.body !== undefined ? { body: opts.body } : {}),
+      proxy: false,
+      throwHttpErrors: false,
+      maxRedirects: 10,
+      retry: 0,
+      decompress: true,
+      timeout: { request: opts.timeoutMs ?? 40_000 },
+    } as any);
+    const status: number = res.statusCode ?? 0;
+    let text = String(res.body ?? "");
+    const cap = opts.limitBytes ?? 50 * 1024 * 1024;
+    if (text.length > cap) text = text.slice(0, cap);
+    return { status, ok: status >= 200 && status < 300, text };
+  } catch {
+    return null;
+  }
 }
 
 /* ── Fetch helpers ─────────────────────────────────────────────────────── */
@@ -531,19 +699,22 @@ async function tlsTolerantGet(
 }
 
 /**
- * Tier-1 direct page fetch: TLS-impersonated, bounded body, wall-clock
- * deadline. All limits live here so no caller can accidentally exceed them.
+ * Tier-1 direct page fetch with the two-pass anti-bot strategy:
  *
- * When `opts.retryOnBlock` is true (default), a 403/429/503 from the
- * first fingerprint triggers ONE retry under the next fingerprint in the
- * rotation, with the redirect cookie jar re-applied. The returned
- * `fingerprint` tells the caller which profile produced the result.
+ *   Pass A — got-scraping (header-generator fingerprints, HTTP/2).
+ *   Pass B — on a 403/429/503 (or a got network failure) the request is
+ *            re-run through the TLS-impersonated impit clients, rotating
+ *            chrome → firefox → edge with the shared redirect cookie jar.
  *
- * Default timeout is 45 seconds (up from 3.5s): WAF-heavy sites
- * (Cloudflare, DataDome) legitimately take 10-20s to serve a challenge
- * page, and arXiv/SearXNG can be slow on first hit. 45s keeps the
- * pipeline fast for real pages while never aborting a slow-but-valid
- * response.
+ * When BOTH passes end on a block status, whichever response carries more
+ * body bytes wins (challenge pages differ per fingerprint — one of them
+ * often leaks the real page). All size/time limits live here so no caller
+ * can accidentally exceed them.
+ *
+ * Default timeout is 45 seconds: WAF-heavy sites (Cloudflare, DataDome)
+ * legitimately take 10-20s to serve a challenge page, and arXiv/Google
+ * can be slow on first hit. 45s keeps the pipeline fast for real pages
+ * while never aborting a slow-but-valid response.
  */
 export async function fetchPage(
   url: string,
@@ -554,7 +725,9 @@ export async function fetchPage(
     method?: "GET" | "POST";
     /** Rotate fingerprint on 403/429/503 (default: true). */
     retryOnBlock?: boolean;
-    /** Use a specific fingerprint instead of rotating (default: auto). */
+    /** Use a specific fingerprint instead of rotating (default: auto).
+     *  Pinning a fingerprint skips got-scraping and drives the impit
+     *  TLS profiles directly. */
     fingerprint?: BrowserFingerprint;
     /** Byte cap for the response body. Default: PAGE_LIMIT_BYTES (50MB).
      *  Pass PDF_LIMIT_BYTES (150MB) for PDF downloads. */
@@ -571,6 +744,16 @@ export async function fetchPage(
   const limitBytes = opts.limitBytes ?? PAGE_LIMIT_BYTES;
   const defaultTimeout = 45_000;
 
+  // ── Pass A: got-scraping + header-generator ─────────────────────────────
+  let gotResp: PageResponse | null = null;
+  if (opts.fingerprint === undefined) {
+    gotResp = await gotPageFetch(url, opts, jar, limitBytes, opts.timeoutMs ?? defaultTimeout, t0);
+    if (gotResp && gotResp.status > 0 && !BLOCK_STATUSES.includes(gotResp.status)) {
+      return gotResp;
+    }
+  }
+
+  // ── Pass B: impit TLS-impersonation rotation ────────────────────────────
   for (let attempt = 0; attempt < (opts.retryOnBlock === false ? 1 : fpOrder.length); attempt++) {
     const fp = fpOrder[attempt];
     const cookieVal = jar.cookieFor(url);
@@ -603,10 +786,10 @@ export async function fetchPage(
           "",
       );
       const elapsedMs = Math.round(performance.now() - t0);
-      const isBlock = status === 403 || status === 429 || status === 503;
+      const isBlock = BLOCK_STATUSES.includes(status);
 
       if (!isBlock || attempt === fpOrder.length - 1) {
-        return {
+        const resp: PageResponse = {
           status,
           ok: status >= 200 && status < 400,
           body,
@@ -616,6 +799,11 @@ export async function fetchPage(
           cookies: rawCookies,
           resolvedUrl: String((res as any)?.url ?? url),
         };
+        // Both passes blocked → the fatter body wins.
+        if ((isBlock || status === 0) && gotResp && gotResp.body.length > body.length) {
+          return gotResp;
+        }
+        return resp;
       }
       // Block status: fall through to the next fingerprint in the rotation.
     } catch (err: unknown) {
@@ -630,6 +818,7 @@ export async function fetchPage(
       // Timeout / network error: if we've tried all fingerprints, surface
       // null; otherwise the next attempt uses a different fingerprint.
       if (attempt === fpOrder.length - 1) {
+        if (gotResp) return gotResp;
         return {
           status: 0,
           ok: false,
@@ -643,7 +832,49 @@ export async function fetchPage(
       }
     }
   }
-  return null; // unreachable — the loop above always returns
+  /* Pass C — wreq-js (Rust TLS, different JA3 signature than impit).
+     Fires only when ALL three impit fingerprints also hit block.  The
+     two TLS stacks have different handshake fingerprints, so a site that
+     trips impit's Chrome emulation may accept wreq-js's emulation. */
+  const impitAllBlocked = gotResp?.status
+    ? BLOCK_STATUSES.includes(gotResp.status) || gotResp.status === 0
+    : true;
+  if (impitAllBlocked && opts.retryOnBlock !== false) {
+    const elapsedW = Math.round(performance.now() - t0);
+    const wr = await wreqFetch(url, {
+      method: opts.method ?? "GET",
+      headers: opts.headers,
+      timeoutMs: opts.timeoutMs ?? 30_000,
+    });
+    if (wr && wr.status > 0 && !BLOCK_STATUSES.includes(wr.status)) {
+      return {
+        status: wr.status,
+        ok: wr.ok,
+        body: wr.body,
+        contentType: wr.contentType,
+        elapsedMs: Math.round(performance.now() - t0),
+        fingerprint: "wreq-chrome",
+        cookies: [],
+        resolvedUrl: url,
+      };
+    }
+    /* wreq also blocked — surface whichever body is bigger so the
+       extractor's detectBlock has the most signal.  PageResponse shape
+       requires the full interface — spread wr onto it explicitly. */
+    if (wr && gotResp && wr.body.length > gotResp.body.length) {
+      return {
+        status: wr.status,
+        ok: wr.ok,
+        body: wr.body,
+        contentType: wr.contentType,
+        elapsedMs: Math.round(performance.now() - t0),
+        fingerprint: "wreq-chrome",
+        cookies: [],
+        resolvedUrl: url,
+      };
+    }
+  }
+  return gotResp; // unreachable in the happy path — the loop above always returns
 }
 
 /** Quick read of a JSON-ish endpoint (algolia, arxiv, reddit, ...). */
@@ -658,7 +889,7 @@ export async function fetchUrl(
     fingerprint?: BrowserFingerprint;
     /**
      * Use realistic browser-navigate headers instead of apiHeaders.
-     * For HTML form-POST scraping (search engines, SearXNG) the server
+     * For HTML form-POST scraping (search-engine SERPs) the server
      * checks the full browser header set; apiHeaders sends
      * Accept: application/json which DDG's anomaly detector flags as a bot.
      */
@@ -668,15 +899,23 @@ export async function fetchUrl(
   } = {},
 ): Promise<{ status: number; ok: boolean; text: string } | null> {
   if (!isSafeUrl(url)) return null;
+
+  const fp = opts.fingerprint ?? "chrome";
+  const baseHeaders = opts.useRealisticHeaders
+    ? realisticHeaders(opts.headers, fp)
+    : apiHeaders(opts.headers, fp);
+  const headers: Record<string, string> = { ...baseHeaders };
+  if (opts.body && !headers["content-type"]) {
+    headers["content-type"] = "application/x-www-form-urlencoded";
+  }
+
+  // ── Pass A: got-scraping. Anything that isn't a block status is final. ──
+  const gotResp = await gotUrlFetch(url, opts, headers);
+  if (gotResp && gotResp.ok) return gotResp;
+  if (gotResp && !BLOCK_STATUSES.includes(gotResp.status)) return gotResp;
+
+  // ── Pass B: impit TLS-impersonation fallback ────────────────────────────
   try {
-    const fp = opts.fingerprint ?? "chrome";
-    const baseHeaders = opts.useRealisticHeaders
-      ? realisticHeaders(opts.headers, fp)
-      : apiHeaders(opts.headers, fp);
-    const headers: Record<string, string> = { ...baseHeaders };
-    if (opts.body && !headers["content-type"]) {
-      headers["content-type"] = "application/x-www-form-urlencoded";
-    }
     const res = await tlsClient(fp).fetch(url, {
       method: opts.method ?? "GET",
       headers,
@@ -694,9 +933,13 @@ export async function fetchUrl(
     const text = await readBounded((res as any).body, opts.limitBytes ?? 50 * 1024 * 1024, isGzip).catch(
       () => "",
     );
-    return { status, ok: status >= 200 && status < 300, text };
+    const resp = { status, ok: status >= 200 && status < 300, text };
+    // Both passes blocked → the fatter body wins.
+    if (!resp.ok && gotResp && gotResp.text.length > text.length) return gotResp;
+    return resp;
   } catch {
-    return null;
+    // impit failed — surface whatever got-scraping observed (null if both failed).
+    return gotResp;
   }
 }
 
@@ -760,7 +1003,7 @@ export async function fetchWithLinkPreviewBots(
       );
 
       // A successful bot fetch is the end of the probe — return it. The
-      // caller's block-detector gate will verify the body is real content
+      // caller's block gate (extractor.ts) will verify the body is real content
       // (not a residual challenge page slipped through as a 200).
       return {
         status,

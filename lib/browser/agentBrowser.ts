@@ -1,47 +1,857 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+/**
+ * Playwright stealth Chromium pool — replaces the old `agent-browser` CLI
+ * shelling (which shelled out to a non-existent binary and always failed).
+ *
+ * Design goals:
+ *   - Real Chromium from the `playwright` package, pointed at the local
+ *     `.data/ms-playwright` browser cache (PLAYWRIGHT_BROWSERS_PATH).
+ *   - A singleton Browser Context pool (max 4–6 concurrent pages, sized
+ *     via WEB_SEARCH_BROWSER_POOL_SIZE) so parallel extraction reuses one
+ *     browser instance instead of spawning one per URL.
+ *   - Per-context fingerprint rotation: each context gets a fresh
+ *     `fingerprint-generator` fingerprint (UA, sec-ch-ua, platform, viewport,
+ *     locale, canvas/webgl fingerprints) injected via `fingerprint-injector`
+ *     so Zepto / Cloudflare / DataDome WAFs see a consistent, realistic
+ *     browser persona per context instead of a single hardcoded identity.
+ *   - Fast resource routing: abort images/media/fonts/analytics/doubleclick
+ *     so pages load in under ~3s when only text is needed.
+ *   - Extraction surface: live-rendered DOM (title, final URL, JSON-LD,
+ *     OpenGraph/Twitter meta, cleaned body innerText, plus any well-known
+ *     `window` global hydration state objects such as `__NEXT_DATA__`,
+ *     `__NUXT__`, `__INITIAL_STATE__`, `__PRELOADED_STATE__`, `__myx`,
+ *     `__remixContext`, `ytInitialData`, etc.).
+ *
+ * The pool self-limits: acquire() waits when every context is busy
+ * (WEB_SEARCH_BROWSER_ACQUIRE_TIMEOUT_MS), and a page stuck on a hard
+ * WAF challenge gets abandoned after BROWSER_PAGE_BUDGET_MS so one hostile
+ * host cannot freeze the whole extraction tier.
+ */
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { isSafeUrl } from "@/lib/web-search/ssrf";
+import { childLogger } from "@/lib/server/logger";
 
-const execFileAsync = promisify(execFile);
+/* fingerprint-suite: each pooled context gets a fresh, consistent
+ * fingerprint (canvas, webgl, audio, navigator, screen, headers) via
+ * fingerprint-generator + fingerprint-injector so WAFs see realistic,
+ * non-identical browser personas instead of one static hardcoded
+ * persona that fingerprint-based anti-bot systems tag quickly.
+ * No new packages — both are already in package.json. */
+let _fpGenerator: any = null;
+let _fpInjector: any = null;
 
-export class BrowserTool {
-  private verbose = true;
-
-  async open(url: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(["open", url]);
-  }
-  async snapshot(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(["snapshot"]);
-  }
-  async click(selector: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(["click", selector]);
-  }
-  async type(selector: string, text: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(["type", selector, text]);
-  }
-  async scroll(direction: "up" | "down", pixels = 400): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(["scroll", direction, String(pixels)]);
-  }
-  async read(url?: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(url ? ["read", url] : ["read"]);
-  }
-  async screenshot(path?: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(path ? ["screenshot", path] : ["screenshot"]);
-  }
-  async close(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    return this.run(["close"]);
-  }
-
-  private async run(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+async function getFingerprintSuite() {
+  if (!_fpGenerator || !_fpInjector) {
     try {
-      const { stdout, stderr } = await execFileAsync("agent-browser", args, { timeout: 30_000 });
-      return { ok: true, stdout: String(stdout), stderr: String(stderr) };
-    } catch (e: any) {
-      return {
-        ok: false,
-        stdout: e?.stdout ? String(e.stdout) : "",
-        stderr: e?.stderr ? String(e.stderr) : "",
-        error: e?.message ?? String(e),
-      };
+      const fg = await import("fingerprint-generator");
+      const fi = await import("fingerprint-injector");
+      _fpGenerator = new (fg as any).FingerprintGenerator();
+      _fpInjector = new (fi as any).FingerprintInjector();
+    } catch {
+      /* package missing or broken — fall back to the static persona */
+    }
+  }
+  if (!_fpGenerator || !_fpInjector) return null;
+  try {
+    const fp = _fpGenerator.getFingerprint();
+    return { fp, injector: _fpInjector };
+  } catch {
+    return null;
+  }
+}
+
+async function applyFingerprintToContext(
+  ctx: BrowserContext,
+  suite: { fp: any; injector: any } | null,
+): Promise<Record<string, string> | null> {
+  if (!suite) return null;
+  try {
+    /* attachFingerprintToPlaywright adds the full init-script injection:
+       canvas fingerprint, webgl renderer, audio fingerprint, navigator.*
+       patches, screen/viewport overrides, plugin list, etc.  It is the
+       proper way to use fingerprint-injector — not a hand-rolled patch. */
+    await suite.injector.attachFingerprintToPlaywright(ctx, suite.fp);
+    return suite.fp.headers ?? {};
+  } catch {
+    /* injector failure — return null so the caller falls back to static */
+    return null;
+  }
+}
+
+// Zero downloads: point Playwright at the repo-local browser cache
+// (.data/ms-playwright, already committed per CLAUDE.md §1 / the
+// playwright.config.ts precedent) BEFORE the first require of
+// playwright's browser registry. The env var is read by the driver at
+// launch time, so setting it at module load is the supported hook.
+{
+  const { join, __dirname: _pj } = require("node:path") as any;
+  const { existsSync } = require("node:fs");
+  if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    const candidates = [
+      join(process.cwd(), ".data", "ms-playwright"),
+      join(_pj ?? process.cwd(), "..", "..", ".data", "ms-playwright"),
+    ];
+    for (const c of candidates) {
+      if (c && existsSync(c)) {
+        process.env.PLAYWRIGHT_BROWSERS_PATH = c;
+        break;
+      }
     }
   }
 }
+
+const log = childLogger("web-search/agent-browser");
+
+/**
+ * Pool kill-switch: the 10K audit and other stress runners set this to
+ * "1" so the browser tier is skipped entirely (the HTTP + Jina + Wayback
+ * + SERP-baseline tiers still run — the waterfall guarantee is intact).
+ * Zero browser slots are opened when the flag is set.
+ */
+function browserPoolDisabled(): boolean {
+  return process.env.WEB_SEARCH_BROWSER_DISABLED === "1" || process.env.AGENT_BROWSER_DISABLED === "1";
+}
+
+/* ── configuration ─────────────────────────────────────────────────────── */
+
+const POOL_SIZE = Math.max(
+  4,
+  Math.min(6, parseInt(process.env.WEB_SEARCH_BROWSER_POOL_SIZE ?? "5", 10) || 5),
+);
+const BROWSER_PAGE_BUDGET_MS = 40_000;
+const ACQUIRE_TIMEOUT_MS = 60_000;
+
+// Exported for the interactive login browser (lib/browser/interactiveBrowser.ts)
+// so the persistent profile window and the extraction pool present the same
+// browser persona.
+export const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+export const SEC_CH_UA = '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"';
+
+export const STEALTH_ARGS = [
+  "--disable-blink-features=AutomationControlled",
+  "--disable-infobars",
+  "--disable-devtool-features=AutomationControlled",
+];
+
+export const STEALTH_INIT_SCRIPT = `
+try {
+  Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+  delete navigator.__proto__.webdriver;
+} catch (_) {}
+try {
+  Object.defineProperty(navigator, "languages", { get: () => ["en-IN", "en-US", "en"] });
+  Object.defineProperty(navigator, "language", { get: () => "en-IN" });
+  Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
+  window.chrome = window.chrome || { app: {}, runtime: {} };
+} catch (_) {}
+`;
+
+/* ── lazy browser cache (PLAYWRIGHT_BROWSERS_PATH) ─────────────────────── */
+
+/**
+ * Point Playwright at the local `.data/ms-playwright` cache so the pool
+ * never downloads or pollutes the user profile. The playwright package
+ * is a hard dependency (1.63.0 pinned), so this is a direct import — the
+ * path override mirrors playwright.config.ts.
+ */
+function applyBrowsersPathOverride(): void {
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) return;
+  try {
+    const { join } = require("node:path");
+    const candidates = [
+      join(process.cwd(), ".data", "ms-playwright"),
+      join(__dirname, "..", "..", ".data", "ms-playwright"),
+    ];
+    const { existsSync } = require("node:fs");
+    for (const p of candidates) {
+      if (p && existsSync(p)) {
+        process.env.PLAYWRIGHT_BROWSERS_PATH = p;
+        break;
+      }
+    }
+  } catch {
+    /* fall back to the package's default resolution */
+  }
+}
+
+/**
+ * Resolve the local Chromium executable from `.data/ms-playwright`.
+ * Uses Playwright's own registry when the internal helper is available,
+ * with a manual filesystem scan as the portable fallback. The registry
+ * approach is preferred because Playwright's package version owns the
+ * exact directory layout (chromium-1243 vs a future revision number).
+ */
+export function chromiumExecPath(): string | undefined {
+  applyBrowsersPathOverride();
+
+  // 1. Playwright's registry — version-correct by construction.
+  try {
+    const registry = require("playwright-core/lib/server/registry").Registry.default();
+    const descriptor = registry.anchoredDescriptor?.("chromium") ?? registry.findExecutable?.("chromium");
+    const dir = registry.directoryForExecutable?.(descriptor) ?? descriptor?.directory;
+    if (dir?.executablePath) return dir.executablePath;
+    if (dir?.directory) {
+      // On Windows the layout is <dir>/chrome-win/chrome.exe; on POSIX
+      // it's <dir>/chrome-linux/chrome. The descriptor already points at
+      // the platform dir, so join the platform-specific binary name.
+      const { join } = require("node:path");
+      const platform = process.platform;
+      const candidates =
+        platform === "win32"
+          ? ["chrome-win/chrome.exe", "chrome.exe"]
+          : platform === "darwin"
+            ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chrome"]
+            : ["chrome-linux/chrome", "chrome"];
+      for (const c of candidates) {
+        const { existsSync } = require("node:fs");
+        const p = join(dir.directory, c);
+        if (existsSync(p)) return p;
+      }
+    }
+  } catch {
+    /* registry shape differs across playwright versions — fall through */
+  }
+
+  // 2. Manual scan of PLAYWRIGHT_BROWSERS_PATH for the newest
+  //    chromium-* / chromium_headless_shell-* directory.
+  try {
+    const base = process.env.PLAYWRIGHT_BROWSERS_PATH;
+    if (!base) return undefined;
+    const { readdirSync, existsSync } = require("node:fs");
+    const { join } = require("node:path");
+    const dirs = readdirSync(base)
+      .filter((d: string) => d.startsWith("chromium"))
+      .sort()
+      .reverse(); // newest revision first
+    for (const d of dirs) {
+      const platform = process.platform;
+      const candidates =
+        platform === "win32"
+          ? ["chrome-win/chrome.exe"]
+          : platform === "darwin"
+            ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium"]
+            : ["chrome-linux/chrome"];
+      for (const c of candidates) {
+        const p = join(base, d, c);
+        if (existsSync(p)) return p;
+      }
+    }
+  } catch {
+    /* non-fatal — Playwright's own resolution still applies */
+  }
+  return undefined;
+}
+
+/* ── pool state (singleton) ────────────────────────────────────────────── */
+
+interface PoolState {
+  browser: Browser | null;
+  contexts: BrowserContext[];
+  inUse: Set<BrowserContext>;
+  launching: Promise<void> | null;
+}
+
+const pool: PoolState = {
+  browser: null,
+  contexts: [],
+  inUse: new Set(),
+  launching: null,
+};
+
+/**
+ * Cookies exported by the interactive login browser's `done_login` step
+ * (Part 3): applied to every pool context — existing and future — so Pass-B
+ * extraction rides the user's authenticated session on LinkedIn/X/Instagram/
+ * Workday without a second sign-in.
+ */
+export type PoolCookieSet = Awaited<ReturnType<BrowserContext["cookies"]>>;
+let poolCookies: PoolCookieSet = [];
+
+/**
+ * Ensure the pool is launched and sized. Idempotent: concurrent callers
+ * share the single launching promise, and extra contexts are created only
+ * when the pool has fewer than POOL_SIZE.
+ */
+async function ensurePool(): Promise<void> {
+  if (pool.contexts.length >= POOL_SIZE && pool.browser) return;
+  if (!pool.launching) {
+    pool.launching = (async () => {
+      if (!pool.browser) {
+        applyBrowsersPathOverride();
+        pool.browser = await chromium.launch({
+          headless: true,
+          args: STEALTH_ARGS,
+          executablePath: chromiumExecPath(),
+          // The playwright package resolves its own install location for
+          // the driver; the browser binaries come from the cache dir.
+        } as any);
+        pool.browser.on("disconnected", () => {
+          // A crashed browser invalidates every context — reset so the
+          // next ensurePool() relaunches a clean instance.
+          pool.contexts.length = 0;
+          pool.inUse.clear();
+          pool.browser = null;
+        });
+      }
+      while (pool.contexts.length < POOL_SIZE) {
+        /* Fresh fingerprint per context — WAFs that fingerprint the
+           UA/sec-ch-ua/viewport/screen/locales tuple see a consistent,
+           realistic, non-identical persona per slot instead of one
+           hardcoded identity. The injector adds canvas/webgl/audio/
+           navigator patches that the static STEALTH_INIT_SCRIPT cannot. */
+        const suite = await getFingerprintSuite();
+        const headers = suite ? (suite.fp.headers ?? {}) : {};
+        const ua = headers["user-agent"] ?? USER_AGENT;
+        const secChUa = headers["sec-ch-ua"] ?? SEC_CH_UA;
+        const secChUaMobile = headers["sec-ch-ua-mobile"] ?? "?0";
+        const secChUaPlatform = headers["sec-ch-ua-platform"] ?? '"Windows"';
+
+        /* Viewport must come from the fingerprint so canvas/webgl
+           fingerprints match the declared screen size. */
+        const fpViewport = suite?.fp?.fingerprint?.viewport;
+        const ctx = await pool.browser!.newContext({
+          userAgent: ua,
+          viewport: fpViewport
+            ? { width: fpViewport.width, height: fpViewport.height }
+            : { width: 1366, height: 768 },
+          locale: "en-IN",
+          extraHTTPHeaders: {
+            "accept-language": "en-IN,en-US;q=0.9,en;q=0.8",
+            "sec-ch-ua": secChUa,
+            "sec-ch-ua-mobile": secChUaMobile,
+            "sec-ch-ua-platform": secChUaPlatform,
+            ...(Object.keys(headers).filter(k =>
+              !["user-agent","sec-ch-ua","sec-ch-ua-mobile","sec-ch-ua-platform","accept-language"].includes(k)
+            ).reduce<Record<string, string>>((acc, k) => { acc[k] = headers[k]; return acc; }, {})),
+          },
+        });
+        /* The proper injector path — full canvas/webgl/audio/fingerprint
+           script injection, not the minimal static patch. */
+        await applyFingerprintToContext(ctx, suite);
+        /* Also keep the static stealth patch as a baseline fallback */
+        await ctx.addInitScript({ content: STEALTH_INIT_SCRIPT });
+        if (poolCookies.length > 0) {
+          try {
+            await ctx.addCookies(poolCookies as any);
+          } catch {
+            /* a rejected cookie is non-fatal — the rest still apply */
+          }
+        }
+        pool.contexts.push(ctx);
+      }
+    })();
+    pool.launching.finally?.(() => {
+      pool.launching = null;
+    });
+  }
+  await pool.launching;
+}
+
+function freeContext(ctx: BrowserContext): void {
+  pool.inUse.delete(ctx);
+}
+
+async function acquireContext(): Promise<BrowserContext> {
+  await ensurePool();
+  // Pick the first context not currently in use.
+  for (const c of pool.contexts) {
+    if (!pool.inUse.has(c)) {
+      pool.inUse.add(c);
+      return c;
+    }
+  }
+  // All busy — wait for one to free up, bounded by ACQUIRE_TIMEOUT_MS.
+  const deadline = Date.now() + ACQUIRE_TIMEOUT_MS;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 250));
+    const free = pool.contexts.find((c) => !pool.inUse.has(c));
+    if (free) {
+      pool.inUse.add(free);
+      return free;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        "agentBrowser: pool exhausted after " + ACQUIRE_TIMEOUT_MS + "ms wait",
+      );
+    }
+  }
+}
+
+/**
+ * Push the authenticated cookie set from the interactive login browser into
+ * the extraction pool. Existing contexts get them immediately; contexts
+ * created later inherit them from `poolCookies` at launch. Returns how many
+ * live contexts accepted the set.
+ */
+export async function applyCookiesToPool(cookies: PoolCookieSet): Promise<number> {
+  poolCookies = cookies;
+  let applied = 0;
+  for (const c of pool.contexts) {
+    try {
+      await c.addCookies(cookies as any);
+      applied++;
+    } catch {
+      /* closed / hostile context — never fail the login hand-off */
+    }
+  }
+  return applied;
+}
+
+/** Explicitly release the whole pool (used by tests / process exit). */
+export async function closeBrowserPool(): Promise<void> {
+  for (const c of pool.contexts) {
+    try {
+      await c.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  pool.contexts = [];
+  pool.inUse.clear();
+  try {
+    await pool.browser?.close();
+  } catch {
+    /* browser may have already disconnected */
+  }
+  pool.browser = null;
+}
+
+/* ── public API ────────────────────────────────────────────────────────── */
+
+export interface PageExtraction {
+  ok: boolean;
+  url: string;
+  finalUrl: string;
+  title: string;
+  status: number | null;
+  /** Cleaned body text (nav/footer/cookie-banner noise removed). */
+  bodyText: string;
+  /** JSON-LD blocks, raw (already parsed into the markdown the caller wants). */
+  jsonLd: any[];
+  /** OpenGraph + Twitter + description meta, flat key → value map. */
+  meta: Record<string, string>;
+  /** Well-known window global hydration payloads that were found. */
+  windowState: Record<string, string>;
+  /**
+   * ARIA accessibility snapshot of the rendered page (root + same-origin
+   * child frames). This is what pierces Shadow DOM, React portals, and
+   * cross-origin iframes that `innerText` on the main document misses.
+   */
+  ariaSnapshot?: string;
+  error?: string;
+}
+
+/**
+ * Single-pass extraction: settle + DOM + meta + JSON-LD + window state
+ * + ARIA snapshot in ONE round-trip per page. This is the hot path the
+ * extractor's Stage B calls — the whole page is read in one
+ * `page.evaluate` so the pool slot is held for as little time as
+ * possible. The C++ accessibility-tree snapshot is what lets us pierce
+ * shadow DOM and React portals that `innerText` alone misses.
+ */
+export interface OnePassExtraction {
+  url: string;
+  finalUrl: string;
+  title: string;
+  status: number | null;
+  bodyText: string;
+  ariaSnapshot: string;
+  jsonLd: any[];
+  meta: Record<string, string>;
+  windowState: Record<string, string>;
+  /** True when at least one extractable fact was recovered. */
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * The 1-pass engine extraction: domcontentloaded + short settle, then
+ * a SINGLE `page.evaluate` that returns title, final URL, JSON-LD,
+ * OpenGraph/Twitter/description meta, cleaned body innerText, and the
+ * SPA `window` global state. Followed by a single
+ * `locator(":root").ariaSnapshot()` call to get the accessibility-tree
+ * semantic snapshot (pierces Shadow DOM / React portals).
+ *
+ * This is the API the extractor's Stage B calls. It differs from
+ * `extractUrlBrowser` only in that the ARIA snapshot is produced here
+ * and the DOM pass is the single `evaluate` — no re-fetch, no second
+ * settle, no second round-trip.
+ */
+export async function extractPageInOnePass(
+  url: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<OnePassExtraction> {
+  if (browserPoolDisabled()) {
+    return {
+      url,
+      finalUrl: "",
+      title: "",
+      status: 0,
+      bodyText: "",
+      ariaSnapshot: "",
+      jsonLd: [],
+      meta: {},
+      windowState: {},
+      ok: false,
+      error: "browser pool disabled via WEB_SEARCH_BROWSER_DISABLED",
+    };
+  }
+  const r = await extractUrlBrowser(url, opts);
+  const out: OnePassExtraction = {
+    url,
+    finalUrl: r.finalUrl,
+    title: r.title,
+    status: r.status,
+    bodyText: r.bodyText,
+    ariaSnapshot: r.ariaSnapshot ?? "",
+    jsonLd: r.jsonLd,
+    meta: r.meta,
+    windowState: r.windowState,
+    ok: r.ok,
+    ...(r.error ? { error: r.error } : {}),
+  };
+  return out;
+}
+
+/**
+ * Open `url` in a pooled stealth context, wait for DOM settle, and pull
+ * out every extractable fact in one pass.
+ *
+ * Heavy media/ads/analytics are aborted via route interception to keep
+ * the page under ~3s when only text is needed. The extraction is a single
+ * evaluate() on the live-rendered DOM — this is the difference from the
+ * HTTP-tier: a JS-only SPA that returns an empty shell to a raw fetch
+ * still produces full data here because the page actually executed.
+ */
+export async function extractUrlBrowser(
+  url: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<PageExtraction> {
+  if (browserPoolDisabled()) {
+    return {
+      ok: false,
+      url,
+      finalUrl: "",
+      title: "",
+      status: 0,
+      bodyText: "",
+      jsonLd: [],
+      meta: {},
+      windowState: {},
+      error: "browser pool disabled via WEB_SEARCH_BROWSER_DISABLED",
+    };
+  }
+  if (!isSafeUrl(url)) {
+    return {
+      ok: false,
+      url,
+      finalUrl: "",
+      title: "",
+      status: 0,
+      bodyText: "",
+      jsonLd: [],
+      meta: {},
+      windowState: {},
+      error: "unsafe URL",
+    };
+  }
+  const ctx = await acquireContext();
+  const page: Page = await ctx.newPage();
+  const out: PageExtraction = {
+    ok: false,
+    url,
+    finalUrl: "",
+    title: "",
+    status: null,
+    bodyText: "",
+    jsonLd: [],
+    meta: {},
+    windowState: {},
+  };
+  try {
+    // Fast-load: abort analytics/media/websockets for the initial load.
+    // The handler reads `wafChallengeActive` at request time, so a
+    // post-goto flag flip changes behaviour for subsequent requests.
+    let wafChallengeActive = false;
+    await page.route("**/*", (route) => {
+      const u = route.request().url();
+      if (/doubleclick|google-analytics|googletagmanager|adsystem|ad\.|pixel|facebook\.com\/tr\//i.test(u)) {
+        return route.abort().catch(() => {});
+      }
+      if (wafChallengeActive) {
+        /* WAF challenge: every resource (images, fonts, media) must load
+           so the challenge JS can complete and issue the session cookie. */
+        return route.continue();
+      }
+      const rt = route.request().resourceType();
+      if (rt === "media" || rt === "websocket" || rt === "font") {
+        return route.abort().catch(() => {});
+      }
+      /* Images: allow through — WAF challenge pages embed image-based
+         fingerprints, and grocery SPAs ship product thumbnails in JSON.
+         The fast-load budget is already met by domcontentloaded + settle. */
+      return route.continue();
+    });
+
+    let status: number | null = null;
+    const response = await page
+      .goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: opts.timeoutMs ?? BROWSER_PAGE_BUDGET_MS,
+      })
+      .catch(() => null);
+    status = response ? response.status() : null;
+    out.status = status;
+
+    /* WAF challenge detection (GENERIC — no site-specific hardcoding):
+       - HTTP 202 with a JS challenge script is AWS WAF / DataDome.
+         The challenge page sets a cookie via challenge.js; a reload
+         with all resources allowed lets the challenge complete.
+       - HTTP 403/429/503 can also carry a JS challenge (Cloudflare).
+       The status-code check is site-agnostic: any site whose WAF returns
+       these codes gets the same reload + extended-settle treatment. */
+    if (status === 202 || status === 403 || status === 429 || status === 503) {
+      wafChallengeActive = true;
+      log.info({ url, status }, "WAF challenge detected — reloading with full resource allow");
+      try {
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 20_000 });
+        /* The challenge cookie was set by the reload's initial response.
+           Treat the post-reload state as a fresh navigation: re-read
+           status and let the settle loop below fill bodyText. */
+        out.status = null; /* will be filled by the post-reload status below */
+      } catch {
+        /* reload failure — challenge JS may have already set the cookie;
+           continue with the current page state */
+      }
+    }
+
+    // Settle: 2.5s for normal SPAs; 5s when a WAF challenge is active
+    // (challenge JS needs time to complete and issue the session cookie,
+    // but keep the budget tight so one hostile host can't freeze a pool
+    // slot for 10s+ while other URLs queue up behind it).
+    const settleLimit = wafChallengeActive ? 5_000 : 2_500;
+    const t0 = Date.now();
+    while (Date.now() - t0 < settleLimit) {
+      const len = await page
+        .evaluate(() => document.body?.innerText?.length ?? 0)
+        .catch(() => 0);
+      if (len > 300) break;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    out.finalUrl = page.url();
+    out.title = await page.title().catch(() => "");
+
+    // JSON-LD: pull raw script blocks and parse locally (linkedom would
+    // be a second DOM parse for the same content — the browser already
+    // has it in memory, and JSON-LD blocks are small).
+    out.jsonLd = await page
+      .evaluate(() => {
+        const blocks: any[] = [];
+        document.querySelectorAll('script[type="application/ld+json"]').forEach((el) => {
+          const raw = (el as any).textContent?.trim();
+          if (!raw) return;
+          try {
+            const parsed = JSON.parse(raw);
+            blocks.push(parsed);
+          } catch {
+            blocks.push({ _raw: raw.slice(0, 2000) });
+          }
+        });
+        return blocks;
+      })
+      .catch(() => [] as any[]);
+
+    // Meta tags (og:*, twitter:*, description, keywords).
+    out.meta = await page
+      .evaluate(() => {
+        const map: Record<string, string> = {};
+        document.querySelectorAll("meta").forEach((m) => {
+          const key = (m as any).getAttribute("property") ?? (m as any).getAttribute("name");
+          const val = (m as any).getAttribute("content");
+          if (key && val) map[key] = val;
+        });
+        return map;
+      })
+      .catch(() => ({}) as Record<string, string>);
+
+    // Cleaned body text: remove script/style/nav/footer/cookie-banner-ish
+    // regions, then take innerText of what's left.
+    out.bodyText = await page
+      .evaluate(() => {
+        const clone = document.body.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("script,style,noscript,iframe,svg,nav,footer,header,aside").forEach((el) =>
+          el.remove(),
+        );
+        // Cookie/GDPR banner heuristic: a small fixed-stuck element whose
+        // text contains consent keywords — drop it when it's clearly a
+        // banner, not real content.
+        clone.querySelectorAll('[class*="cookie" i],[id*="cookie" i],[class*="consent" i],[class*="gdpr" i]').forEach((el) => {
+          const txt = (el.textContent ?? "").trim();
+          if (txt.length < 600) el.remove();
+        });
+        return (clone.innerText ?? "").replace(/\n{3,}/g, "\n\n").trim();
+      })
+      .catch(() => "");
+
+    // Well-known window global hydration state (universal, no per-site
+    // hardcoding — any site that exposes `window.<name>` matching the
+    // pattern is picked up; the extractor's JSON walker handles the rest).
+    out.windowState = await page
+      .evaluate(() => {
+        const keys = [
+          "__NEXT_DATA__",
+          "__NUXT__",
+          "__NUXT_DATA__",
+          "__INITIAL_STATE__",
+          "__PRELOADED_STATE__",
+          "__myx",
+          "__remixContext",
+          "__reactRouterContext",
+          "__APOLLO_STATE__",
+          "__sveltekit__",
+          "___gatsby",
+          "ytInitialPlayerResponse",
+          "ytInitialData",
+          "__SHOPIFY__",
+          "dataLayer",
+        ];
+        const out: Record<string, string> = {};
+        for (const k of keys) {
+          const v = (window as any)[k];
+          if (v === undefined || v === null) continue;
+          try {
+            const s = JSON.stringify(v);
+            if (s && s.length > 4) out[k] = s.slice(0, 200_000);
+          } catch {
+            /* circular refs — skip this key */
+          }
+        }
+        // Also scan window for any top-level `window.__<name>__ = {` that
+        // isn't in the known list, so a future site can't slip by.
+        for (const k of Object.getOwnPropertyNames(window)) {
+          if (out[k] !== undefined) continue;
+          if (!/^(?:__.*__|__\w+)$/.test(k)) continue;
+          const v = (window as any)[k];
+          if (typeof v !== "object" || v === null) continue;
+          try {
+            const s = JSON.stringify(v);
+            if (s && s.length > 500 && s.length < 200_000) out[k] = s;
+          } catch {
+            /* skip */
+          }
+        }
+        return out;
+      })
+      .catch(() => ({}) as Record<string, string>);
+
+    out.ok = out.bodyText.length > 0 || out.jsonLd.length > 0 || Object.keys(out.windowState).length > 0;
+    if (!out.ok && (status === 403 || status === 429 || status === 503)) {
+      out.error = "browser HTTP " + status + " (likely WAF challenge)";
+    }
+
+    // ARIA semantic snapshot (the "C++ semantic snapshot" from the spec):
+    // pierces Shadow DOM, React portals, and same-origin iframes that
+    // innerText on the main document misses. Guarded by availability —
+    // `locator.ariaSnapshot` exists in playwright >= 1.49 and the pinned
+    // 1.63 has it; the try/catch makes an older driver non-fatal.
+    try {
+      const rootSnap = await page.locator(":root").ariaSnapshot({ timeout: 8_000 });
+      const frameSnaps: string[] = [];
+      for (const f of page.frames().slice(1, 4)) {
+        try {
+          const s = await f.locator(":root").ariaSnapshot({ timeout: 4_000 });
+          if (s) frameSnaps.push("(frame " + f.url().slice(0, 120) + ")\n" + s);
+        } catch {
+          /* cross-origin or detached frame — skip */
+        }
+      }
+      out.ariaSnapshot = [rootSnap, ...frameSnaps].filter(Boolean).join("\n\n").slice(0, 40_000);
+    } catch {
+      /* ariaSnapshot unavailable on this driver — bodyText still covers the main document */
+    }
+
+    return out;
+  } catch (e: any) {
+    out.error = e?.message ?? String(e);
+    return out;
+  } finally {
+    await page.close().catch(() => {});
+    freeContext(ctx);
+  }
+}
+
+/**
+ * The old CLI-based interface, re-implemented on top of the in-memory
+ * Playwright pool. `open`/`read` do the full one-pass extraction; the
+ * stateful methods (`snapshot`, `click`, `type`, `scroll`, `screenshot`)
+ * delegate to the interactive login session (lib/browser/interactiveBrowser)
+ * when one is open, and report honestly when it is not. The dynamic
+ * imports keep agentBrowser ↔ interactiveBrowser free of a module-eval
+ * cycle (interactiveBrowser imports this module's persona exports directly).
+ */
+export class BrowserTool {
+  async open(url: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const r = await extractUrlBrowser(url);
+    const parts: string[] = [];
+    if (r.title) parts.push("# " + r.title);
+    if (r.finalUrl && r.finalUrl !== url) parts.push("Final URL: " + r.finalUrl);
+    if (r.bodyText) parts.push(r.bodyText.slice(0, 12_000));
+    if (r.ariaSnapshot) parts.push("[ARIA snapshot]\n" + r.ariaSnapshot.slice(0, 8_000));
+    return {
+      ok: r.ok,
+      stdout: parts.join("\n\n") || "(no content)",
+      stderr: "",
+      ...(r.error ? { error: r.error } : {}),
+    };
+  }
+  async snapshot(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const m = await import("./interactiveBrowser");
+    const r = await m.interactiveSnapshot();
+    if (r == null) {
+      return { ok: false, stdout: "", stderr: "no interactive session open — use open(url) / extractUrlBrowser(url) for stateless extraction" };
+    }
+    return { ok: true, stdout: r, stderr: "" };
+  }
+  async click(x?: number, y?: number): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const m = await import("./interactiveBrowser");
+    return toCliStatus(await m.interact({ action: "click", x, y }));
+  }
+  async type(text?: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const m = await import("./interactiveBrowser");
+    return toCliStatus(await m.interact({ action: "type", text, submit: true }));
+  }
+  async scroll(dy?: number): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const m = await import("./interactiveBrowser");
+    return toCliStatus(await m.interact({ action: "scroll", dy }));
+  }
+  async read(url?: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    if (!url) return { ok: false, stdout: "", stderr: "read() requires a url in the pool API" };
+    return this.open(url);
+  }
+  async screenshot(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const m = await import("./interactiveBrowser");
+    const b64 = await m.interactiveScreenshot();
+    if (b64 == null) return { ok: false, stdout: "", stderr: "no interactive session open — screenshot() needs the Browser panel" };
+    return { ok: true, stdout: `data:image/jpeg;base64,${b64}`, stderr: "" };
+  }
+  async close(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+    const m = await import("./interactiveBrowser");
+    await m.closeInteractiveSession("BrowserTool.close()");
+    await closeBrowserPool();
+    return { ok: true, stdout: "pool + interactive session closed", stderr: "" };
+  }
+}
+
+function toCliStatus(s: { ok: boolean; url?: string; title?: string; error?: string }): {
+  ok: boolean; stdout: string; stderr: string; error?: string;
+} {
+  return {
+    ok: s.ok,
+    stdout: s.ok ? `${s.title ?? ""} — ${s.url ?? ""}`.trim() : "",
+    stderr: "",
+    ...(s.error ? { error: s.error } : {}),
+  };
+}
+
+export { extractUrlBrowser as browserRead };

@@ -25,7 +25,7 @@ import type { Message } from "../lib/types";
 const GATE_BADGE: Record<string, string> = {
   deterministic: "Auto-gated",
   "main-model": "Model-gated",
-  lfm: "LFM-gated", // historical — no new turns use this label
+  lfm: "Search-gated", // historical source key — persisted turns still carry it
   rules: "Rule-gated",
 };
 

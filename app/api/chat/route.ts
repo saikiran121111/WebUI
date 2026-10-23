@@ -340,7 +340,7 @@ function historyBefore(messages: any[], lastUserIdx: number): { role: string; co
     const role = messages[i]?.role;
     if (role !== "user" && role !== "assistant") continue;
     const content = extractUserText(messages[i]?.content);
-    // The LFM router only needs the gist of prior turns — attachment
+    // The per-turn decision pass only needs the gist of prior turns — attachment
     // spine/preview blocks can be long, so each entry is capped.
     if (content.trim()) history.push({ role, content: content.slice(0, 500) });
   }
@@ -492,6 +492,8 @@ async function runTurnPipeline(
           total: p.total,
           done: p.done,
           coverage: p.coverage,
+          url: p.url,
+          domain: p.domain,
         });
       },
       signal,
@@ -577,8 +579,8 @@ export async function POST(req: NextRequest) {
   let searchGateMeta: ResearchMeta | null = null;
 
   // Compaction's own call (lib/chat/compact.ts): forward it VERBATIM.
-  // Running the per-turn pipeline over it is actively destructive: the LFM
-  // router classifies the STALE last user message inside the history being
+  // Running the per-turn pipeline over it is actively destructive: the decision
+  // pass classifies the STALE last user message inside the history being
   // folded, and a non-chat mode injects a renderer skill contract mid-
   // payload — which collides with the "Context Compaction Engine" system
   // prompt and the model never emits <compacted_context>. The web-research

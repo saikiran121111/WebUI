@@ -9,7 +9,7 @@
  *   2. a hard timeout, so a cold model load can never hold the single
  *      inference slot indefinitely (see lib/server/inference-busy.ts).
  *
- * `THINKING_OFF_BODY` lives here so lfm-gate.ts and the claim audit send
+ * `THINKING_OFF_BODY` lives here so the search gate and the claim audit send
  * byte-identical flags.
  */
 import { childLogger } from "@/lib/server/logger";

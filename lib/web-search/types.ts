@@ -37,10 +37,10 @@ function normalizeFreshness(f: string): SearchDecision["freshness"] {
  * old model outputs are still valid.
  *
  * `intent` is intentionally parsed as a free string first, then coerced
- * to the canonical enum (unknown values → "general"). The small LFM
- * router on :8791 occasionally emits free-form intent labels like
- * "restaurant recommendation"; coercing instead of rejecting keeps the
- * fast path usable rather than falling through to :8080 for ~5s.
+ * to the canonical enum (unknown values → "general"). The gate model
+ * occasionally emits free-form intent labels like "restaurant
+ * recommendation"; coercing instead of rejecting keeps an otherwise
+ * valid decision usable instead of failing the schema.
  */
 export const SearchDecisionSchemaCompat = z
   .object({
@@ -80,7 +80,7 @@ export function coerceIntent(raw: string): SearchDecision["queries"][number]["in
   for (const k of known) {
     if (lower === k || lower.startsWith(k)) return k;
   }
-  // Fuzzy matches for common off-enum labels the LFM router emits.
+  // Fuzzy matches for common off-enum labels the gate model emits.
   if (lower.includes("news") || lower.includes("current") || lower.includes("breaking"))
     return "news";
   if (lower.includes("doc") || lower.includes("manual") || lower.includes("reference"))
