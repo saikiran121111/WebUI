@@ -159,13 +159,15 @@ export default memo(function MarkdownRenderer({
                   title={title}
                   data-citation={sourceId}
                   className="inline-flex items-center gap-0.5 text-[11px] font-medium
-                    px-1.5 py-0.5 rounded
-                    bg-[#38E8FF]/10 text-[#38E8FF]
-                    hover:bg-[#38E8FF]/20 transition-colors"
+                    px-1.5 py-0.5 rounded-md
+                    bg-transparent text-[#38E8FF]
+                    outline-none
+                    transition-colors
+                    hover:text-[#6beeff] focus-visible:ring-1 focus-visible:ring-[#38E8FF]/40"
                 >
                   <span>{sourceId}</span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
+                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-60">
                     <path d="M7 17 17 7M7 7h10v10" />
                   </svg>
                 </a>

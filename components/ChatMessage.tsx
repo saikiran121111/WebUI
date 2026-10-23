@@ -30,6 +30,15 @@ interface ChatMessageProps {
 export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRuntimeError }: ChatMessageProps) {
   const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error, usedSkill } = message;
   const isUser = role === "user";
+  // A pasted URL is a piece of the user's own message — surface it as an
+  // attachment chip (what the model reads as "attached URL"), never as a
+  // giant text blob inside the bubble.
+  const urls = useMemo(
+    () => (isUser
+      ? Array.from(content.matchAll(/https?:\/\/\S+/g)).map((m) => m[0])
+      : []),
+    [isUser, content],
+  );
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -95,7 +104,7 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
             <p
               data-testid="user-message-bubble"
               className={cn(
-                "text-sm leading-relaxed text-white/90 whitespace-pre-wrap",
+                "text-sm leading-relaxed text-white/90 whitespace-pre-wrap select-text break-words",
                 isLongUserMessage && !userMsgExpanded && "user-msg-collapsed",
               )}
             >
@@ -117,12 +126,26 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
               </button>
             )}
             {attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
+              <div className="flex flex-wrap gap-1.5 mt-2 select-text">
                 {attachments.map(att => (
                   <span key={att.id} className="text-[10px] px-1.5 py-0.5 rounded
                     bg-white/[0.05] text-white/50 border border-[rgba(255,255,255,0.09)]">
                     {att.name}
                   </span>
+                ))}
+              </div>
+            )}
+            {urls.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2 select-text">
+                {urls.map((u, i) => (
+                  <a key={i} href={u} target="_blank" rel="noopener noreferrer"
+                    className="text-[10px] px-1.5 py-0.5 rounded
+                      bg-white/[0.05] text-white/50 border border-[rgba(255,255,255,0.09)]
+                      hover:text-white/85 hover:bg-white/[0.08] transition-colors
+                      max-w-full truncate"
+                    title={u}>
+                    {hostOf(u)}
+                  </a>
                 ))}
               </div>
             )}
@@ -223,9 +246,10 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         </div>
       )}
 
-      {/* Main content */}
+      {/* Main content — user-selectable so answers (including their [S#]
+          source pills) can be copied/quoted in one motion. */}
       {content && (
-        <div className="msg-content">
+        <div className="msg-content select-text">
           <MarkdownRenderer
             content={content}
             streaming={state === "streaming"}
@@ -461,6 +485,14 @@ function EditModal({
       </motion.div>
     </motion.div>
   );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 function formatDuration(ms: number): string {
