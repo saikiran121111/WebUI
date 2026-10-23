@@ -40,6 +40,7 @@ import {
   SearchGateContext,
   SearchDecision,
 } from "./types";
+import { detectUrlsAndDomains, detectPromptUrls, type DetectedUrl } from "./url-detector";
 
 const log = childLogger("web-search/search-gate");
 
@@ -116,8 +117,10 @@ function isTrivialPrompt(prompt: string): boolean {
 
 /** Detect an explicit http:// or https:// URL in the user prompt. */
 export function extractPromptUrls(prompt: string): string[] {
-  const m = prompt.match(/https?:\/\/[^\s"'<>[\]]+/gi);
-  return m ? [...new Set(m)] : [];
+  // tldts-based detector: catches full URLs AND bare domains (skiran.dev,
+  // lite.ego.app, rbi.org.in) across all 1,440+ IANA TLDs with a
+  // code-filename guard so "app.ts" is never mistaken for a domain.
+  return detectPromptUrls(prompt);
 }
 
 /* ── STAGE 0: deterministic hard bypass (0 ms, no LLM call) ──────────── */
@@ -158,6 +161,8 @@ const IMAGE_LOOKUP_INTENT_RE =
 
 export interface HardBypassHit {
   matched: "url" | "known_site" | "web_intent" | "image_intent";
+  /** tldts-detected URLs/bare-domains (normalised https:// form). */
+  detected: DetectedUrl[];
 }
 
 /** Returns the bypass verdict (queries pre-filled from the URLs/entities)
@@ -168,17 +173,16 @@ export function deterministicHardBypass(
   const p = ctx.userPrompt.trim();
   if (!p) return null;
 
+  const detected = detectUrlsAndDomains(p);
   let hit: HardBypassHit | null = null;
-  const urls = extractPromptUrls(p);
 
-  if (urls.length > 0) hit = { matched: "url" };
-  else if (KNOWN_SITE_TOKEN_RE.test(p) || DOMAIN_TLD_TOKEN_RE.test(p) || WWW_TOKEN_RE.test(p)) hit = { matched: "known_site" };
-  else if (WEB_INTENT_RE.test(p)) hit = { matched: "web_intent" };
-  else if (ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(p)) hit = { matched: "image_intent" };
+  if (detected.length > 0) hit = { matched: "url", detected };
+  else if (WEB_INTENT_RE.test(p)) hit = { matched: "web_intent", detected: [] };
+  else if (ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(p)) hit = { matched: "image_intent", detected: [] };
   if (!hit) return null;
 
   const queries: SearchDecision["queries"] = [];
-  for (const u of urls.slice(0, 4)) queries.push({ query: u, intent: "general" });
+  for (const d of hit.detected.slice(0, 4)) queries.push({ query: d.url, intent: "general" });
 
   // Keyword-form companion query: strip fillers + the URL itself so the
   // metasearch pool still learns WHAT to look for around the link.
@@ -209,7 +213,7 @@ export function deterministicHardBypass(
       search_required: true,
       reason: "deterministic_url_or_intent",
       freshness: isNewsy ? "week" : "any",
-      depth: urls.length > 0 ? "deep" : "standard",
+      depth: hit.detected.length > 0 ? "deep" : "standard",
       queries,
     },
   };
@@ -231,10 +235,8 @@ export function deterministicHardBypass(
 export function promptHasExternalEntity(prompt: string): boolean {
   const p = prompt ?? "";
   if (p.trim().length === 0) return false;
-  // 1. Explicit URL
-  if (extractPromptUrls(p).length > 0) return true;
-  // 2. Known-site / domain-shaped tokens (re-use the Stage 0 detectors)
-  if (KNOWN_SITE_TOKEN_RE.test(p) || DOMAIN_TLD_TOKEN_RE.test(p) || WWW_TOKEN_RE.test(p)) return true;
+  // 1. Explicit URL or bare domain (tldts-based, all 1,440+ TLDs)
+  if (detectUrlsAndDomains(p).length > 0) return true;
   // 3. Proper-noun phrase: two consecutive capitalized words ("Blinkit deal",
   //    "BookMyShow movie", "NVIDIA stock"). One capitalized word at
   //    sentence start is NOT enough (English sentences start capitalized);
@@ -388,6 +390,10 @@ function buildMainGateMessages(ctx: SearchGateContext): { role: string; content:
 
 function stripAndRepair(raw: string): string {
   let s = raw.trim();
+  // Strip thinking/reasoning blocks some backends embed in the payload —
+  // terminated or truncated (a thinking model cut off mid-think by
+  // max_tokens leaves an orphan open tag; consume to end of output).
+  s = s.replace(/<(?:think|thinking)>[\s\S]*?(?:<\/(?:think|thinking)>|$)/gi, "");
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
   const braceStart = s.indexOf("{");
   if (braceStart > 0) s = s.slice(braceStart);
@@ -405,6 +411,9 @@ async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | n
     messages: buildMainGateMessages(ctx),
     temperature: 0,
     ...THINKING_OFF_BODY,
+    // Extra thinking-disables for backends that use a different flag name.
+    thinking: { type: "disabled" },
+    response_format: { type: "json_object" },
     max_tokens: MAIN_GATE_MAX_TOKENS,
   };
 
@@ -438,10 +447,9 @@ async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | n
     const decision = parseMainGateJson(raw, ctx);
     if (decision) return decision;
   }
-  log.warn(
-    { content: content.slice(0, 120), reasoning: reasoning.slice(0, 120) },
-    "main-model gate produced no parseable verdict",
-  );
+  // Silent fallback: the caller (runSearchGate) routes to rulesBasedPlan.
+  // No WARN log here — an unparseable verdict from a small local model is
+  // expected noise, not an error worth dumping to the terminal.
   return null;
 }
 

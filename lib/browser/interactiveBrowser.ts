@@ -159,15 +159,19 @@ export async function closeInteractiveSession(reason = "closed"): Promise<void> 
 /** Best-effort realistic fingerprint; the pool's stealth persona is the fallback. */
 function makeFingerprint(): any | null {
   try {
-    const { FingerprintGenerator } = require("fingerprint-generator");
+    const fgMod: any = require("fingerprint-generator");
+    const FingerprintGenerator = fgMod?.FingerprintGenerator ?? fgMod?.default ?? fgMod;
     const gen = new FingerprintGenerator({
       limit: 1,
       browsers: ["chrome"],
       operatingSystems: ["windows"],
     });
-    return gen.getFingerprint().fingerprint ?? null;
+    // Return the FULL { fingerprint, headers } wrapper (BrowserFingerprintWithHeaders):
+    // attachFingerprintToPlaywright destructures `.fingerprint` from its 2nd arg,
+    // so handing it the unwrapped fingerprint throws "Cannot destructure 'navigator'".
+    return gen.getFingerprint() ?? null;
   } catch (e) {
-    log.warn({ err: String(e) }, "fingerprint-generator unavailable — using the pool persona");
+    log.warn({ err: String(e) }, "fingerprint-generator unavailable -- using the pool persona");
     return null;
   }
 }
@@ -203,7 +207,7 @@ function launchArgs(fp: any | null) {
     headless: false,
     executablePath: chromiumExecPath(),
     args: [...STEALTH_ARGS],
-    userAgent: (fp?.userAgent as string | undefined) ?? USER_AGENT,
+    userAgent: ((fp?.headers?.userAgent ?? fp?.userAgent) as string | undefined) ?? USER_AGENT,
     viewport: VIEWPORT,
     locale: "en-IN",
     ignoreDefaultArgs: ["--enable-automation"],
@@ -241,7 +245,8 @@ async function launch(): Promise<Page> {
 
   if (fp) {
     try {
-      const { FingerprintInjector } = require("fingerprint-injector");
+      const fiMod: any = require("fingerprint-injector");
+      const FingerprintInjector = fiMod?.FingerprintInjector ?? fiMod?.default ?? fiMod;
       // Types reference fingerprint-injector's own playwright-core revision —
       // structurally compatible with ours; cast at the seam.
       await new FingerprintInjector().attachFingerprintToPlaywright(context as any, fp);

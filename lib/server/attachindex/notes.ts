@@ -77,7 +77,7 @@ export async function generateNotes(
       log.warn({ attId, err: (err as Error).message }, "note block generation failed");
     }
     // Model unavailable / failed: degrade to the block's own spine summary.
-    parts.push(note ? `${header}\n${note}` : `${header}\n${blk.opening} … ${blk.closing}`);
+    parts.push(note ? `${header}\n${note}` : `${header}\n${blk.opening} ... ${blk.closing}`);
   }
 
   const notes = parts.join("\n\n").trim();

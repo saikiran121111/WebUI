@@ -178,7 +178,7 @@ export async function buildAttachmentTurn(
       let notes = readNotes(ref.attId);
       if (!notes) notes = (await generateNotes(ref.attId, index, signal)) || null;
       if (notes) {
-        if (notes.length > NOTES_BUDGET) notes = notes.slice(0, NOTES_BUDGET) + "\n[…]";
+        if (notes.length > NOTES_BUDGET) notes = notes.slice(0, NOTES_BUDGET) + "\n[...]";
         blocks.push(
           `<course_notes name="${ref.name}">\n` +
             `Course notes distilled from the COMPLETE content of "${ref.name}" (every part was read):\n` +

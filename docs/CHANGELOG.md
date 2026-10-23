@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## 2026-10-24 — Fix: browser 422s, universal bare-domain Stage-0 scraping, deterministic gate, engine sharding, ASCII logs
+Six diagnosed bugs fixed in one pass (browser launch, `skiran.dev` direct search, gate latency, 429 cascade, log mojibake):
+- **Browser launch (lib/browser/agentBrowser.ts + interactiveBrowser.ts)**: removed the broken
+  `require("playwright-core/lib/server/registry").Registry.default()` deep import (exports-map blocked →
+  3-5 traces/request); safe CJS/ESM interop for `fingerprint-generator`/`fingerprint-injector`
+  (`mod?.X ?? mod?.default ?? mod`); filesystem scan for the Chromium executable now matches
+  `chrome-win64/` (Chromium 1243 layout, not `chrome-win/`); interactive path now passes the FULL
+  `{fingerprint, headers}` wrapper to `attachFingerprintToPlaywright` (raw fingerprint threw
+  "Cannot destructure property 'navigator'"). `POST /api/browser` start/navigate/done_login → 200.
+- **next.config.mjs**: playwright, playwright-core, @crawlee/playwright, fingerprint-generator/-injector,
+  header-generator, got-scraping, impit, youtubei.js, linkedom, tldts added to server-external packages —
+  header-generator's `__dirname`-relative `data_files/headers-order.json` no longer ENOENTs under bundling.
+- **Universal bare-domain detection (lib/web-search/url-detector.ts, new + tldts)**: all 1,440+ IANA TLDs +
+  multi-part public suffixes; subdomains under registrable domains and wildcard suffixes (vercel.app/github.io)
+  accepted; code-filename guard (ts/tsx/js/…/gguf excluded unless http(s):// or www.); paths preserved;
+  `.sh` (Saint Helena ccTLD) deliberately NOT guarded. Stage 0 Direct Target in pipeline.ts: prompt URLs are
+  fetched DIRECTLY (engine "direct-target", unshifted before the SERP pool → [S1]) even when every engine 429s;
+  extractor tier cascade auto-renders SPA/blocked shells via the Playwright pool.
+- **Search gate (search-gate.ts + llm-json.ts)**: 0 ms deterministic bypass when a URL/bare domain is present
+  (`gateMs:0 source:"deterministic"` live); gate LLM calls send reasoning_effort/chat_template_kwargs/thinking/
+  response_format off-flags; `<think|thinking>` blocks stripped before JSON parse (unclosed blocks included);
+  silent fallback to rulesBasedPlan (no WARN).
+- **Engines (engines.ts)**: DDG Lite POST (form + cookie prime), GitHub users endpoint, sharded tiering with
+  150-300 ms stagger — no same-millisecond 5-engine burst; per-engine circuit breakers contain 429s
+  (google/brave/ddg 429'd on this IP → breakers trip, direct target + RSS/JSON engines still deliver evidence).
+- **Logs**: `…` → `...` across lib/web-search, lib/browser, lib/server (live logs: zero `ΓÇª`, zero ellipsis).
+- **Test**: `__tests__/web-search/url-detector.test.ts` (8 cases: exact user sentence, TLD spread, wildcard
+  subdomains, paths/dedup, file guard, version noise, prose). tsc 0; vitest 618 passed | 1 skipped; live
+  skiran.dev chat → 200 with S1=skiran.dev (stage-0 SUCCESS_DIRECT) + S2=github profile evidence.
+
 ## 2026-10-23 — Feature: Live token meter in the composer footer (Speed tk/s · Context used/max)
 User request: replace the static "Output varies based on model that's being used." note with
 real, API-sourced stats — `Speed: 56.45 tk/s · Context: 3456/131072` — with no fabricated numbers.

@@ -42,10 +42,12 @@ let _fpInjector: any = null;
 async function getFingerprintSuite() {
   if (!_fpGenerator || !_fpInjector) {
     try {
-      const fg = await import("fingerprint-generator");
-      const fi = await import("fingerprint-injector");
-      _fpGenerator = new (fg as any).FingerprintGenerator();
-      _fpInjector = new (fi as any).FingerprintInjector();
+      const fgMod: any = await import("fingerprint-generator");
+      const fiMod: any = await import("fingerprint-injector");
+      // CJS/ESM interop: the package may export the class as a named
+      // export, a default export, or the module itself.
+      _fpGenerator = new (fgMod?.FingerprintGenerator ?? fgMod?.default ?? fgMod)();
+      _fpInjector = new (fiMod?.FingerprintInjector ?? fiMod?.default ?? fiMod)();
     } catch {
       /* package missing or broken — fall back to the static persona */
     }
@@ -176,68 +178,35 @@ function applyBrowsersPathOverride(): void {
 
 /**
  * Resolve the local Chromium executable from `.data/ms-playwright`.
- * Uses Playwright's own registry when the internal helper is available,
- * with a manual filesystem scan as the portable fallback. The registry
- * approach is preferred because Playwright's package version owns the
- * exact directory layout (chromium-1243 vs a future revision number).
+ * Pure filesystem scan — no dependency on playwright-core's internal
+ * registry (its exports map blocks deep requires, which dumped 3-5
+ * stack traces per request in the Next.js dev server). The scan finds
+ * the newest chromium-* revision directory and joins the platform-specific
+ * binary path.
  */
 export function chromiumExecPath(): string | undefined {
   applyBrowsersPathOverride();
 
-  // 1. Playwright's registry — version-correct by construction.
-  try {
-    const registry = require("playwright-core/lib/server/registry").Registry.default();
-    const descriptor = registry.anchoredDescriptor?.("chromium") ?? registry.findExecutable?.("chromium");
-    const dir = registry.directoryForExecutable?.(descriptor) ?? descriptor?.directory;
-    if (dir?.executablePath) return dir.executablePath;
-    if (dir?.directory) {
-      // On Windows the layout is <dir>/chrome-win/chrome.exe; on POSIX
-      // it's <dir>/chrome-linux/chrome. The descriptor already points at
-      // the platform dir, so join the platform-specific binary name.
-      const { join } = require("node:path");
-      const platform = process.platform;
-      const candidates =
-        platform === "win32"
-          ? ["chrome-win/chrome.exe", "chrome.exe"]
-          : platform === "darwin"
-            ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chrome"]
-            : ["chrome-linux/chrome", "chrome"];
-      for (const c of candidates) {
-        const { existsSync } = require("node:fs");
-        const p = join(dir.directory, c);
-        if (existsSync(p)) return p;
-      }
+  const base = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!base) return undefined;
+  const { readdirSync, existsSync } = require("node:fs");
+  const { join } = require("node:path");
+  const dirs = readdirSync(base)
+    .filter((d: string) => d.startsWith("chromium") && !d.includes("_"))
+    .sort()
+    .reverse(); // newest revision first
+  for (const d of dirs) {
+    const platform = process.platform;
+    const candidates =
+      platform === "win32"
+        ? ["chrome-win64/chrome.exe", "chrome-win/chrome.exe", "chrome.exe"]
+        : platform === "darwin"
+          ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chrome"]
+          : ["chrome-linux/chrome", "chrome"];
+    for (const c of candidates) {
+      const p = join(base, d, c);
+      if (existsSync(p)) return p;
     }
-  } catch {
-    /* registry shape differs across playwright versions — fall through */
-  }
-
-  // 2. Manual scan of PLAYWRIGHT_BROWSERS_PATH for the newest
-  //    chromium-* / chromium_headless_shell-* directory.
-  try {
-    const base = process.env.PLAYWRIGHT_BROWSERS_PATH;
-    if (!base) return undefined;
-    const { readdirSync, existsSync } = require("node:fs");
-    const { join } = require("node:path");
-    const dirs = readdirSync(base)
-      .filter((d: string) => d.startsWith("chromium"))
-      .sort()
-      .reverse(); // newest revision first
-    for (const d of dirs) {
-      const platform = process.platform;
-      const candidates =
-        platform === "win32"
-          ? ["chrome-win/chrome.exe"]
-          : platform === "darwin"
-            ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium"]
-            : ["chrome-linux/chrome"];
-      for (const c of candidates) {
-        const p = join(base, d, c);
-        if (existsSync(p)) return p;
-      }
-    }
-  } catch {
-    /* non-fatal — Playwright's own resolution still applies */
   }
   return undefined;
 }

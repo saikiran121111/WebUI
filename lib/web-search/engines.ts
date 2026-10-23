@@ -488,6 +488,56 @@ async function ddgVqd(query: string): Promise<RawSearchResult[]> {
   return out.slice(0, 10);
 }
 
+async function ddgLitePost(query: string): Promise<RawSearchResult[]> {
+  const allowed = await enginePacerWithBreaker("ddg-lite");
+  if (!allowed) return [];
+  const jar = newCookieJar();
+  const host = "https://lite.duckduckgo.com";
+
+  const prime = await fetchPage(host + "/lite/", {
+    timeoutMs: DDG_LITE_TIMEOUT_MS,
+    headers: realisticHeaders({ referer: host + "/" }),
+  } as any).catch(() => null);
+  if (prime?.cookies?.length) jar.absorb(host + "/", prime.cookies);
+  const cookieVal = jar.cookieFor(host + "/");
+
+  // POST with form-encoded body — much more resilient against 429s than
+  // a GET to html.duckduckgo.com (no referrer fingerprint, no JS).
+  const res = await fetchUrl(host + "/lite/", {
+    timeoutMs: DDG_LITE_TIMEOUT_MS,
+    method: "POST",
+    body: "q=" + encodeURIComponent(query) + "&b=chrome",
+    useRealisticHeaders: true,
+    headers: {
+      ...(cookieVal ? { cookie: cookieVal } : {}),
+      "content-type": "application/x-www-form-urlencoded",
+      origin: host,
+      referer: host + "/",
+      "sec-fetch-site": "same-origin",
+    },
+  }).catch(() => null);
+  if (!res?.text || res.status !== 200) return [];
+  const doc = docOf(res.text);
+  const out: RawSearchResult[] = [];
+  const links: any[] = doc.querySelectorAll("a.result-link, a.result-a");
+  for (const a of links) {
+    const href = a.getAttribute("href") ?? "";
+    if (!href) continue;
+    let url = decodeUddg(href);
+    if (!isSafeUrl(url)) continue;
+    out.push({
+      title: a.textContent?.trim() ?? "",
+      url,
+      snippet: a.closest("tr")?.querySelector("td.result-snippet")?.textContent?.trim() ?? "",
+      engine: "ddg-lite",
+      rank: out.length + 1,
+    });
+  }
+  if (out.length >= 2) noteEngineSuccess("ddg-lite");
+  else tripCircuitBreaker("ddg-lite", "ddg-lite POST returned 0 results");
+  return out.slice(0, 10);
+}
+
 /**
  * 3-stage DDG: try Stage A (cookie-primed html POST, 12s), fall back to
  * Stage B (lite POST, 6s fast timeout), then Stage C (VQD token, 12s)
@@ -1168,6 +1218,35 @@ export async function githubSearch(query: string): Promise<RawSearchResult[]> {
   if (!allowed) return [];
   const out: RawSearchResult[] = [];
 
+  // 0. User search — instant JSON for developer portfolios / named devs
+  //    (the .dev domain case: "skiran" → their GitHub profile).
+  try {
+    const userRes = await fetchUrl(
+      "https://api.github.com/search/users?q=" +
+        encodeURIComponent(query) +
+        "&per_page=5",
+      {
+        timeoutMs: 12_000,
+        headers: {
+          ...apiHeaders({ "accept": "application/vnd.github+json" }),
+          "x-github-api-version": "2022-11-28",
+        },
+      } as any,
+    );
+    if (userRes?.ok && userRes.text) {
+      const data: any = JSON.parse(userRes.text);
+      for (const u of data.items ?? []) {
+        out.push({
+          title: `GitHub: ${u.login}`,
+          url: u.html_url ?? "https://github.com/" + u.login,
+          snippet: `${u.type ?? "User"} — GitHub profile for "${query}"`,
+          engine: "github",
+          rank: out.length + 1,
+        });
+      }
+    }
+  } catch { /* try repos next */ }
+
   // 1. Repository search
   try {
     const repoRes = await fetchUrl(
@@ -1391,6 +1470,7 @@ export function deduplicateQueries(queries: string[]): string[] {
  */
 export const GENERAL_WEB_ENGINES = [
   ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage)
+  ddgLitePost,          // DDG Lite form-POST — resilient when html.duckduckgo.com 429s
   googleSearch,          // Google live web index (got-scraping fingerprints, parse-first)
   bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first)
   yahooSearch,           // Bing global web index (RU= unwrap, parse-first)
@@ -1416,13 +1496,21 @@ export async function runGeneralWebSearch(query: string): Promise<RawSearchResul
 
 /**
  * Sharded metasearch: distribute multiple sub-queries across DIFFERENT
- * engines to minimise per-host burst load.
+ * engines with 150-300ms stagger to minimise per-host burst load and
+ * prevent simultaneous rate-limit 429 cascades.
  *
- * - `primaryQuery` (from `deduplicateQueries[0]`) is sent to the
- *   rate-sensitive direct scrapers (DDG, Google, Bing, Brave) once.
- * - All queries are sent to the Bing + Reddit engines and the remaining
- *   general engines in parallel (their per-engine pacer handles the
- *   jitter between sub-queries automatically).
+ * Tier 1 (fast, zero-CAPTCHA feeds — hit on every query, staggered):
+ *   DDG Lite POST, Bing RSS, GitHub (repos + users + issues)
+ *
+ * Tier 2 (rate-sensitive direct scrapers — hit on primary query only):
+ *   DDG HTML, Google, Brave, Yahoo
+ *
+ * Tier 3 (community / news — hit on every query):
+ *   Reddit (RSS → PullPush → JSON), Bing News RSS
+ *
+ * The stagger between tiers (150-300 ms) ensures our IP never fires all
+ * engines at the same millisecond, which is what triggered the 429
+ * cascade observed in production.
  *
  * Returns the merged raw result list for RRF fusion.
  */
@@ -1430,34 +1518,43 @@ export async function runGeneralWebSearchSharded(
   primaryQuery: string,
   allQueries: string[],
 ): Promise<RawSearchResult[]> {
-  // 1. Primary query → rate-sensitive direct scrapers (DDG, Google, Bing, Brave)
-  const directPromises = [
-    ddgSearch(primaryQuery),
-    googleSearch(primaryQuery),
-    bingSearch(primaryQuery),
-    braveSearch(primaryQuery),
+  const stagger = () => new Promise((r) => setTimeout(r, 150 + Math.floor(Math.random() * 150)));
+
+  // Tier 1: fast zero-CAPTCHA feeds — every query, staggered by 200 ms.
+  const tier1: Promise<RawSearchResult[]>[] = [];
+  for (let i = 0; i < allQueries.length; i++) {
+    if (i > 0) await stagger();
+    tier1.push(ddgLitePost(allQueries[i]).catch(() => [] as RawSearchResult[]));
+  }
+
+  // Tier 2: rate-sensitive direct scrapers — primary query only, staggered.
+  await stagger();
+  const tier2: Promise<RawSearchResult[]>[] = [
+    ddgSearch(primaryQuery).catch(() => [] as RawSearchResult[]),
   ];
+  await stagger();
+  tier2.push(googleSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  await stagger();
+  tier2.push(braveSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  await stagger();
+  tier2.push(yahooSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
 
-  // 2. Bing and Reddit are fast + unblocked, so they run on every
-  //    deduplicated sub-query (not just the primary) to give every
-  //    scenario strong coverage without an all-engines flood.
-  const bingAll = allQueries.map((q) => bingSearch(q));
-  const redditAll = allQueries.map((q) => redditSearch(q));
+  // Tier 3: community / news — every query, staggered.
+  const tier3: Promise<RawSearchResult[]>[] = [];
+  for (let i = 0; i < allQueries.length; i++) {
+    if (i > 0) await stagger();
+    tier3.push(redditSearch(allQueries[i]).catch(() => [] as RawSearchResult[]));
+  }
+  await stagger();
+  tier3.push(bingSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  await stagger();
+  tier3.push(bingNewsRssSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
 
-  // 3. All queries → remaining general engines (rate-limited by their
-  //    individual pacer, so all sub-queries get through with jitter).
-  const otherEngines = [yahooSearch];
-  const othersPromises = allQueries.flatMap((q) =>
-    otherEngines.map((fn) => fn(q)),
-  );
+  // GitHub: instant JSON, zero CAPTCHA — fires in parallel with tier 1.
+  const github = githubSearch(primaryQuery).catch(() => [] as RawSearchResult[]);
 
   const settled = await Promise.allSettled(
-    [
-      ...directPromises,
-      ...bingAll,
-      ...redditAll,
-      ...othersPromises,
-    ],
+    [...tier1, ...tier2, ...tier3, github],
   );
   const out: RawSearchResult[] = [];
   for (const s of settled) {

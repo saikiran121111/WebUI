@@ -54,6 +54,7 @@
     "shiki": "^4.5.0",
     "tailwind-merge": "^2.6.0",
     "three": "^0.186.1",
+    "tldts": "^7.4.19",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "unpdf": "^1.8.1",

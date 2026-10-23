@@ -22,7 +22,7 @@
  * second-guess it with claim status lines.
  *
  * Each stage streams progress through an onProgress callback so the chat
- * route can surface "Deciding…" / "Searching…" / "Reading…" / "Reranking…"
+ * route can surface "Deciding..." / "Searching..." / "Reading..." / "Reranking..."
  * to the WebUI in real time.
  */
 import { runSearchGate } from "./search-gate";
@@ -41,6 +41,7 @@ import {
   renumberPackets,
   nextSourceIndex,
   baselinePacketsFor,
+  extractUrl,
 } from "./extractor";
 import { rerank } from "./reranker";
 import {
@@ -60,6 +61,7 @@ import {
   getCachedQuery,
   putCachedQuery,
 } from "./cache";
+import { detectUrlsAndDomains } from "./url-detector";
 import type { EvidencePacket, EvidencePassage, SearchGateResult } from "./types";
 import { childLogger } from "@/lib/server/logger";
 
@@ -308,7 +310,7 @@ export async function runWebResearch(
   const ceilingHit = () => abortSignal.aborted;
 
   // ── search gate (Stage 0 hard bypass → main model) ─────────────────
-  onProgress?.({ stage: "gate", detail: "Deciding whether a web search is needed…" });
+  onProgress?.({ stage: "gate", detail: "Deciding whether a web search is needed..." });
   const gate = await runSearchGate(ctx);
   if (!gate.decision.search_required) {
     onProgress?.({ stage: "skipped", detail: "No web search required" });
@@ -320,7 +322,7 @@ export async function runWebResearch(
   );
 
   // ── query planning (multi-hop decomposer) ────────────────────────────
-  onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries…" });
+  onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries..." });
   const planned = planQueries(ctx.userPrompt, gate.decision.queries);
   const plans: SearchPlan[] = planned.map((p) => ({
     query: p.query,
@@ -333,7 +335,9 @@ export async function runWebResearch(
 
   // Literal URLs from the prompt: used for the YouTube + Maps companion
   // hops just below and for the single-URL rerank relaxation further down.
-  const promptUrls = ctx.userPrompt.match(/https?:\/\/[^\s"'<>[\]]+/gi) ?? [];
+  // tldts-based: catches full URLs AND bare domains (skiran.dev, etc.).
+  const promptDomains = detectUrlsAndDomains(ctx.userPrompt);
+  const promptUrls = promptDomains.map((d) => d.url);
 
   // ── YouTube companion hop (mandated no-caption fallback) ──────────────
   // A video without a caption track cannot self-identify its topic ("what
@@ -400,7 +404,7 @@ export async function runWebResearch(
   // ── search (first hop) ───────────────────────────────────────────────
   onProgress?.({
     stage: "searching",
-    detail: `Searching ${plans.length} source pool(s)…`,
+    detail: `Searching ${plans.length} source pool(s)...`,
     total: plans.length,
   });
 
@@ -412,14 +416,63 @@ export async function runWebResearch(
     searchResults = cached.results;
   } else if (!ceilingHit()) {
     const t = performance.now();
+
+    // ── Stage 0 direct targets: the prompt's OWN URLs/domains ─────────
+    // If the user wrote "skiran.dev can you search this portfolio", we
+    // fetch https://skiran.dev DIRECTLY in parallel with metasearch. Even
+    // if every search engine returns 429, the user's linked page is read.
+    // These results are unshifted ahead of the SERP pool so they land in
+    // the top-10 extraction window and become [S1] in the evidence block.
+    let directResults: RankedResult[] = [];
+    if (promptDomains.length > 0 && !ceilingHit()) {
+      const directTargets = promptDomains.slice(0, 4).map((d) => ({
+        url: d.url,
+        canonical: d.url,
+        title: d.domain,
+        snippet: "",
+        engine: "direct-target",
+        domain: d.domain,
+        rrf: Number.MAX_SAFE_INTEGER,
+        engines: ["direct-target"],
+        engineRanks: { "direct-target": 1 },
+      }));
+      for (const target of directTargets) {
+        if (ceilingHit()) break;
+        try {
+          const packet = await extractUrl(target);
+          directResults.push({
+            ...target,
+            title: packet.title || target.domain,
+            snippet: (packet.passages?.[0]?.passageText ?? "").slice(0, 300),
+          });
+          log.info(
+            { domain: target.domain, classification: packet.classification, passages: packet.passages.length },
+            "stage-0 direct target extracted",
+          );
+        } catch {
+          log.warn({ domain: target.domain }, "stage-0 direct target failed — SERP pool still covers it");
+        }
+      }
+      if (directResults.length > 0) {
+        log.info({ domains: directResults.map((r) => r.domain) }, "stage-0 direct targets ready");
+      }
+    }
+
     const { results: fused, freshnessRecoveryUsed } = await metasearchWithFreshnessRecovery(
       plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
       20,
     );
-    searchResults = fused;
+    // Merge: direct targets first, then SERP results (dedup by canonical).
+    if (directResults.length > 0) {
+      const seen = new Set(directResults.map((d) => d.canonical));
+      const filtered = fused.filter((f) => !seen.has(f.canonical));
+      searchResults = [...directResults, ...filtered];
+    } else {
+      searchResults = fused;
+    }
     putCachedQuery(plans, searchResults, gate.decision.freshness);
     log.info(
-      { ms: Math.round(performance.now() - t), results: searchResults.length, freshnessRecoveryUsed },
+      { ms: Math.round(performance.now() - t), results: searchResults.length, directResults: directResults.length, freshnessRecoveryUsed },
       "metasearch complete",
     );
   }
@@ -432,7 +485,7 @@ export async function runWebResearch(
     if (hasRealResults && cleanQuery.length > 3) {
       onProgress?.({
         stage: "recovery",
-        detail: `Only ${relevantCount} relevant result(s) — firing broad recovery pass…`,
+        detail: `Only ${relevantCount} relevant result(s) - firing broad recovery pass...`,
       });
       log.info({ relevantCount }, "relevance floor not met — broad recovery pass");
       const recoveryResults = await metasearch(
@@ -454,7 +507,7 @@ export async function runWebResearch(
     } else if (!hasRealResults && cleanQuery.length > 0) {
       onProgress?.({
         stage: "recovery",
-        detail: "Zero results from all engines — retrying with stripped query…",
+        detail: "Zero results from all engines - retrying with stripped query...",
       });
       log.info("zero-result recovery — retrying with stripped query");
       searchResults = await metasearch(
@@ -606,7 +659,7 @@ export async function runWebResearch(
   const readTotal = Math.min(10, searchResults.length);
   onProgress?.({
     stage: "reading",
-    detail: `Reading top ${readTotal} pages…`,
+    detail: `Reading top ${readTotal} pages...`,
     total: readTotal,
   });
   const t = performance.now();
@@ -621,7 +674,7 @@ export async function runWebResearch(
     10,
     (donePages, totalPages) => onProgress?.({
       stage: "reading",
-      detail: `Read ${donePages} of ${totalPages} pages…`,
+      detail: `Read ${donePages} of ${totalPages} pages...`,
       done: donePages,
       total: totalPages,
     }),
@@ -654,7 +707,7 @@ export async function runWebResearch(
     const w = loginWalls[0];
     onProgress?.({
       stage: "auth_required",
-      detail: `${loginWalls.length} source(s) hit a login wall (${w.domain}) — open the Browser panel to sign in for full content.`,
+      detail: `${loginWalls.length} source(s) hit a login wall (${w.domain}) - open the Browser panel to sign in for full content.`,
       url: w.url,
       domain: w.domain,
     });
@@ -675,7 +728,7 @@ export async function runWebResearch(
   const singleUrlQuery = promptUrls.length === 1;
 
   // ── rerank ─────────────────────────────────────────────────────────────
-  onProgress?.({ stage: "reranking", detail: "Reranking with BM25…" });
+  onProgress?.({ stage: "reranking", detail: "Reranking with BM25..." });
   const t2 = performance.now();
   let topPassages = rerank(packets, ctx.userPrompt, qTexts, 30, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
@@ -689,7 +742,7 @@ export async function runWebResearch(
   if (coverage.needsGapSearch && coverage.gapQuery) {
     onProgress?.({
       stage: "gap-search",
-      detail: `Coverage ${Math.round(coverage.coverage * 100)}% — firing targeted 2nd-hop search for missing entities…`,
+      detail: `Coverage ${Math.round(coverage.coverage * 100)}% - firing targeted 2nd-hop search for missing entities...`,
       coverage: coverage.coverage,
     });
     log.info(
