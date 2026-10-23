@@ -1,0 +1,194 @@
+[     219ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:38559
+[     321ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[   29890ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./lib/web-search/youtube.ts
+./lib/web-search/domain-adapters.ts
+./lib/web-search/extractor.ts
+./lib/web-search/pipeline.ts
+./app/api/chat/route.ts @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   30916ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:186
+[   31697ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./lib/web-search/youtube.ts
+./lib/web-search/domain-adapters.ts
+./lib/web-search/extractor.ts
+./lib/web-search/pipeline.ts
+./app/api/chat/route.ts @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   32003ms] [LOG] [Fast Refresh] done in 1088ms @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:43
+[   32199ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./lib/web-search/youtube.ts
+./lib/web-search/domain-adapters.ts
+./lib/web-search/extractor.ts
+./lib/web-search/pipeline.ts
+./app/api/chat/route.ts @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   32385ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./lib/web-search/youtube.ts
+./lib/web-search/domain-adapters.ts
+./lib/web-search/extractor.ts
+./lib/web-search/pipeline.ts
+./app/api/chat/route.ts @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   32505ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/model-stats?live=1:0
+[   32508ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/chat:0
+[   32508ms] [ERROR] [PARSER] error: Error: Upstream returned 500: <!DOCTYPE html><html><head><style data-next-hide-fouc="true">body{display:none}</style><noscript data-next-hide-fouc="true"><style>body{display:block}</style></noscript><meta charSet="utf-8"/><meta name="viewport" content="width=device-width"/><meta name="next-head-count" content="2"/><noscript data
+    at pump (webpack-internal:///(app-pages-browser)/./lib/stream/parser.ts:47:23) @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   32513ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/?_rsc=1p60s:0
+[   32521ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   32527ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/?_rsc=1p60s:0
+[   32537ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:186
+[   32722ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./lib/web-search/youtube.ts
+./lib/web-search/domain-adapters.ts
+./lib/web-search/extractor.ts
+./lib/web-search/pipeline.ts
+./app/api/chat/route.ts @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   33014ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./lib/web-search/youtube.ts
+./lib/web-search/domain-adapters.ts
+./lib/web-search/extractor.ts
+./lib/web-search/pipeline.ts
+./app/api/chat/route.ts @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[   33024ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   33026ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/?_rsc=1p60s:0
+[   33030ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations/c_6tauolff5mvkkezva/title:0
+[   33041ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/:0
+[   33190ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ webpack-internal:///./node_modules/react-dom/cjs/react-dom.development.js:29889
+[   33218ms] ModuleBuildError: Module build failed (from ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js):
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+
+Caused by:
+    Syntax Error
+    at processResult (file://D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\webpack\bundle5.js:28:400590)
+    at <unknown> (file://D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\webpack\bundle5.js:28:402302)
+    at <unknown> (file://D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\loader-runner\LoaderRunner.js:1:8645)
+    at <unknown> (file://D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\loader-runner\LoaderRunner.js:1:5019)
+    at r.callback (file://D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\loader-runner\LoaderRunner.js:1:4039)
+[   33218ms] [LOG] [HMR] connected @ webpack-internal:///./node_modules/next/dist/client/components/react-dev-overlay/pages/websocket.js:38
+[   33218ms] [ERROR] ./lib/web-search/youtube.ts
+Error: 
+  x Unterminated regexp literal
+     ,-[D:\Projects\WebUI\WebUI\lib\web-search\youtube.ts:176:1]
+ 176 |         .map((s) => String(s?.utf8 ?? ""))
+ 177 |         .join("")
+ 178 |         // form-feed (\f) is a word-wrap marker in json3
+ 179 |         .replace(/[\r\n\f ]+/g, " ")
+     :                  ^^^^^^^^
+ 180 |         .replace(/\s+/g, " ")
+ 181 |         .trim();
+ 182 |       if (!text) continue;
+     `----
+
+Caused by:
+    Syntax Error @ webpack-internal:///./node_modules/next/dist/client/components/react-dev-overlay/internal/helpers/hydration-error-info.js:62

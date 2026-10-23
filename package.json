@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/auto-update-search.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -14,18 +15,24 @@
     "titles:backfill": "node scripts/backfill-titles.mjs"
   },
   "dependencies": {
+    "@crawlee/playwright": "^3.18.2",
     "@huggingface/transformers": "^4.3.1",
     "@mozilla/readability": "^0.6.0",
     "@shikijs/langs": "^4.5.0",
     "@shikijs/themes": "^4.5.0",
     "7zip-bin": "^5.2.0",
     "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
     "docx": "^9.12.0",
     "exceljs": "^4.4.0",
     "fflate": "^0.8.3",
     "ffmpeg-static": "^5.3.0",
+    "fingerprint-generator": "^2.1.89",
+    "fingerprint-injector": "^2.1.89",
     "framer-motion": "^11.15.0",
+    "got-scraping": "^4.2.2",
+    "header-generator": "^2.1.89",
     "idb-keyval": "^6.2.1",
     "impit": "^0.14.6",
     "katex": "^0.19.0",
@@ -48,7 +55,10 @@
     "tailwind-merge": "^2.6.0",
     "three": "^0.186.1",
     "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "unpdf": "^1.8.1",
+    "wreq-js": "^3.2.0",
+    "youtubei.js": "^18.3.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

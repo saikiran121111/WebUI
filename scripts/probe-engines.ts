@@ -1,6 +1,7 @@
 /**
  * One-shot probe of the general-web engines against a real query, via the
- * same impit TLS layer the pipeline uses. Each engine is probed in parallel
+ * same net.ts fetch layer (got-scraping + impit fallback) the pipeline
+ * uses. Each engine is probed in parallel
  * (they hit DIFFERENT hosts, so no burst on one host) and we collect
  * per-engine result counts + top domains.
  *
@@ -8,18 +9,16 @@
  */
 import {
   ddgSearch,
+  googleSearch,
   bingSearch,
   yahooSearch,
-  startpageSearch,
   braveSearch,
-  aolSearch,
-  mojeekSearch,
-  searxSearch,
   redditSearch,
   bingNewsRssSearch,
   githubSearch,
-} from "../src/lib/web-search/general-pool";
-import type { RawSearchResult } from "../src/lib/web-search/types";
+  devToSearch,
+} from "../lib/web-search/engines";
+import type { RawSearchResult } from "../lib/web-search/types";
 
 const Q = "best biryani restaurant in Manikonda Hyderabad";
 
@@ -63,14 +62,12 @@ async function main() {
     probe("ddgSearch", () => ddgSearch(Q)),
     probe("bingSearch", () => bingSearch(Q)),
     probe("yahooSearch", () => yahooSearch(Q)),
-    probe("startpage", () => startpageSearch(Q)),
+    probe("googleSearch", () => googleSearch(Q)),
     probe("braveSearch", () => braveSearch(Q)),
-    probe("aolSearch", () => aolSearch(Q)),
-    probe("mojeekSearch", () => mojeekSearch(Q)),
-    probe("searxSearch", () => searxSearch(Q)),
     probe("redditSearch", () => redditSearch(Q)),
     probe("bingNewsRss", () => bingNewsRssSearch(Q)),
     probe("githubSearch", () => githubSearch(Q)),
+    probe("devToSearch", () => devToSearch(Q)),
   ]);
   settled.sort((a, b) => b.count - a.count);
   for (const s of settled) console.log(s.line);

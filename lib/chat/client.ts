@@ -71,6 +71,8 @@ export class ChatClient {
     // Fence-repair follow-ups pin their mode so the chat route skips the
     // Decision Engine for that round (mode is already known).
     if (req.decision_mode) body.decision_mode = req.decision_mode;
+    // Compaction's own call bypasses the per-turn pipeline entirely.
+    if (req.purpose) body.purpose = req.purpose;
     if (body.stream) {
       body.stream_options = { include_usage: true };
     }

@@ -7,7 +7,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDecision } from "../../../lib/decision/client";
 import { childLogger } from "../../../lib/server/logger";
-import { logDecisionTable } from "../../../lib/server/decision-log";
 
 const log = childLogger("api/decision");
 
@@ -28,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   const t0 = Date.now();
   const env = await getDecision(message, history);
-  logDecisionTable(log, { input: message, env, totalMs: Date.now() - t0 });
+  log.info({ mode: env.active_mode, by: env.decided_by, totalMs: Date.now() - t0 }, "decision complete");
   log.info(`decision: mode=${env.active_mode} by=${env.decided_by} lfm=${env.lfm_latency_ms}ms total=${Date.now() - t0}ms`);
   return NextResponse.json(env);
 }

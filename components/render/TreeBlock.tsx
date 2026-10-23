@@ -96,8 +96,8 @@ export default memo(function TreeBlock({ source }: { source: string }) {
             aria-label="Copy structure"
             data-testid="tree-copy-btn"
           >
-            {copyStatus === "copied" ? <Check className="w-3.5 h-3.5 text-emerald-400" />
-              : copyStatus === "failed" ? <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+            {copyStatus === "copied" ? <Check className="w-3.5 h-3.5 text-white/80" />
+              : copyStatus === "failed" ? <AlertCircle className="w-3.5 h-3.5 text-white/60" />
                 : <Copy className="w-3.5 h-3.5" />}
             <span aria-live="polite" className="text-xs">
               {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Failed" : "Copy"}

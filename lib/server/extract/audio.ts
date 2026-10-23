@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { childLogger } from "../logger";
+import { llmApiUrl } from "../settings";
 
 const execFileP = promisify(execFile);
 const log = childLogger("extract/audio");
@@ -32,7 +33,6 @@ const MODEL_ID = process.env.WHISPER_MODEL ?? "Xenova/whisper-base.en";
 const VRAM_FLOOR_MB = Number(process.env.WHISPER_VRAM_FLOOR_MB ?? 1500);
 const SILENCE_RMS = Number(process.env.WHISPER_SILENCE_RMS ?? 0.004);
 const SR = 16000;
-const LLM_CHAT_URL = process.env.LLM_API_URL ?? "http://127.0.0.1:8080/v1/chat/completions";
 const LLM_UNLOAD_URL = process.env.LLM_UNLOAD_URL ?? "";
 const LLM_RELOAD_URL = process.env.LLM_RELOAD_URL ?? "";
 
@@ -109,7 +109,7 @@ async function tryLlmReload(): Promise<void> {
     return;
   }
   await postJson(
-    LLM_CHAT_URL,
+    llmApiUrl(),
     { model: "default", messages: [{ role: "user", content: "x" }], max_tokens: 1, stream: false },
     120_000,
   );

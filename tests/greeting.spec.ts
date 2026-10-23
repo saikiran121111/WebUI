@@ -7,7 +7,9 @@ test("greeting reply stays local — no Research Trail card, no citation crash",
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  const input = page.locator("textarea[placeholder^='Ask anything']");
+  // Selector migrated with the landing redesign: the hero composer's
+  // placeholder is now "How can I help you today?".
+  const input = page.locator("textarea[placeholder^='How can I help']");
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill("Hey there how are you");
 
@@ -21,12 +23,14 @@ test("greeting reply stays local — no Research Trail card, no citation crash",
     .waitFor({ state: "visible", timeout: 15000 });
   await page.waitForTimeout(45000);
 
-  // 1) No research trail on an ordinary greeting.
-  await expect(page.getByText("Research Trail")).toHaveCount(0);
+  // 1) No sources popup / gate badge on an ordinary greeting (the trail
+  // card testids now live inside the clickable processing-line popup).
+  await expect(page.getByTestId("web-search-toggle")).toHaveCount(0);
+  await expect(page.getByTestId("research-trail-card")).toHaveCount(0);
   await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
 
   // 2) No citation marker pills leaked into the greeting reply.
-  await expect(page.locator("[data-domain]")).toHaveCount(0);
+  await expect(page.locator("a[data-citation]")).toHaveCount(0);
 
   // 3) The reply actually arrived (model is reachable, answer came back).
   const mainText = await page.locator("main").first().innerText();
@@ -53,7 +57,9 @@ test("thinking model shows the live Reasoning indicator during the reasoning pha
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  const input = page.locator("textarea[placeholder^='Ask anything']");
+  // Selector migrated with the landing redesign: the hero composer's
+  // placeholder is now "How can I help you today?".
+  const input = page.locator("textarea[placeholder^='How can I help']");
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill("how about a html to create a todo app");
 

@@ -17,11 +17,20 @@ import { test, expect } from "@playwright/test";
  *        subject token with the queries can never be cited.
  *
  * 2) A live-fact question refused by the router. The main model's "yes"
- *    can never be vetoed by the router again, and the Research Trail
- *    badge names the authority that actually decided ("Model-gated").
+ *    can never be vetoed by the router again, and the sources popup badge
+ *    names the authority that actually decided ("Model-gated").
+ *
+ * UI contract (2026-10-22f): the cyan gradient ResearchTrailCard bar was
+ * removed. During the pre-first-token search phase the RUKE processing
+ * line becomes clickable (`web-search-toggle`) and opens a popup
+ * (`research-trail-card`) with the queries + source links; clicking
+ * outside closes it. After the answer streams, sources stay reachable
+ * through the [S#] citation pills (`a[data-citation]`).
  */
 
-const INPUT = "textarea[placeholder^='Ask anything']";
+// Selector migrated with the landing redesign: the hero composer's
+// placeholder is now "How can I help you today?".
+const INPUT = "textarea[placeholder^='How can I help']";
 
 async function sendPrompt(page: import("@playwright/test").Page, text: string) {
   await page.goto("/");
@@ -60,10 +69,12 @@ test("pure LeetCode algorithm prompt triggers NO web search", async ({ page }) =
   // The gate answers in a few seconds; give the whole turn time to settle.
   await page.waitForTimeout(60000);
 
-  // 1) No Research Trail card, no gate badge, no citation pills.
-  await expect(page.getByText("Research Trail")).toHaveCount(0);
+  // 1) No clickable search line, no sources popup, no gate badge, no
+  // citation pills. (Located by testid/data-attr, not visible text.)
+  await expect(page.getByTestId("web-search-toggle")).toHaveCount(0);
+  await expect(page.getByTestId("research-trail-card")).toHaveCount(0);
   await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
-  await expect(page.locator("[data-domain]")).toHaveCount(0);
+  await expect(page.locator("a[data-citation]")).toHaveCount(0);
 
   // 2) The answer itself arrived (an algorithm answer is long + has code).
   const mainText = await page.locator("main").first().innerText();
@@ -81,15 +92,12 @@ test("named LeetCode problem the model knows needs no search", async ({ page }) 
   await sendPrompt(page, "Can you give me rust code for leetcode problem 23. Merge k sorted lists");
   await page.waitForTimeout(60000);
 
-  const trail = await page.getByText("Research Trail").count();
-  if (trail > 0) {
-    // A search is only acceptable if the cited sources are on-topic; the
-    // garbage pool (messaging apps / help centers / mapping sites) is not.
-    const trailCard = page.getByTestId("research-trail-card");
-    await page.getByTestId("research-trail-toggle").first().click();
-    await expect(trailCard.first()).toBeVisible();
-    const hrefs = await trailCard
-      .locator("a[href]")
+  // A search is only acceptable if the cited sources are on-topic; the
+  // garbage pool (messaging apps / help centers / mapping sites) is not.
+  // After the answer streams, the cited sources are the [S#] citation pills.
+  const pills = page.getByTestId("citation-pill").locator("a");
+  if ((await pills.count()) > 0) {
+    const hrefs = await pills
       .evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
     expect(hrefs.length).toBeGreaterThan(0);
     const junk = hrefs.filter((h) => /whatsapp|waze\.com|output\.com|youtu\.?be/i.test(h));
@@ -102,7 +110,14 @@ test("live-fact question searches and is labelled Model-gated with on-topic sour
 
   await sendPrompt(page, "What is the NVIDIA RTX 5090 graphics card price in India right now?");
 
-  await expect(page.getByTestId("research-trail-card").first()).toBeVisible({ timeout: 170000 });
+  // While the gated search is running (before the first answer token) the
+  // RUKE processing line becomes clickable; open the sources popup.
+  const toggle = page.getByTestId("web-search-toggle").first();
+  await expect(toggle).toBeVisible({ timeout: 170000 });
+  await toggle.click();
+
+  const popup = page.getByTestId("research-trail-card").first();
+  await expect(popup).toBeVisible();
 
   // The badge names the AUTHORITY: the main model is authoritative now, so
   // a pipeline run decided by it must read "Model-gated".
@@ -110,18 +125,15 @@ test("live-fact question searches and is labelled Model-gated with on-topic sour
   await expect(badge).toBeVisible();
   await expect(badge).toHaveText("Model-gated");
 
-  // Expand and check every cited source is plausibly on-topic.
-  await page.getByTestId("research-trail-toggle").first().click();
-  const hrefs = await page
-    .getByTestId("research-trail-card")
-    .first()
+  // Every cited source in the popup must be plausibly on-topic.
+  const hrefs = await popup
     .locator("a[href]")
     .evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
   expect(hrefs.length).toBeGreaterThan(0);
   const junk = hrefs.filter((h) => /whatsapp|waze\.com|output\.com/i.test(h));
   expect(junk, `off-topic sources cited for a GPU-price query: ${junk.join(", ")}`).toEqual([]);
 
-  // The queries shown in the card must be keyword-form, not the raw prompt.
-  const cardText = await page.getByTestId("research-trail-card").first().innerText();
-  expect(cardText.toLowerCase()).toContain("nvidia");
+  // The queries shown in the popup must be keyword-form, not the raw prompt.
+  const popupText = await popup.innerText();
+  expect(popupText.toLowerCase()).toContain("nvidia");
 });

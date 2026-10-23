@@ -11,6 +11,11 @@ build/
 .data/
 tests/fixtures/
 
+# User-owned LLM endpoint settings (managed via the Settings UI).
+# Persists across restarts; delete the file to revert to .env / defaults.
+settings.json
+settings.json.tmp
+
 # Decision Engine: heavy artifacts stay out of git; worker code + setup
 # scripts under .decision-engine/ ARE tracked (100% project-local runtime).
 .decision-engine/.venv/

@@ -447,7 +447,7 @@ export default memo(function MarkdownTable({
         </span>
         <button type="button" className="md-table-csv" onClick={handleCopyCsv}
           aria-label="Copy table as CSV" data-testid="table-csv-btn">
-          {copyStatus === "copied" ? <Check className="w-3.5 h-3.5 text-emerald-400" />
+          {copyStatus === "copied" ? <Check className="w-3.5 h-3.5 text-white/80" />
             : copyStatus === "failed" ? <span className="text-xs">Failed</span>
               : <Copy className="w-3.5 h-3.5" />}
           <span className="text-xs">{copyStatus === "copied" ? "CSV copied" : "CSV"}</span>
