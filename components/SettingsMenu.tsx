@@ -1,11 +1,17 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Settings, Server, Key, RotateCcw, Trash2, Loader2, GitMerge,
+  Settings, Server, Key, RotateCcw, Trash2, Loader2, GitMerge, Globe2,
 } from "lucide-react";
 import type { EffortLevel } from "../lib/types";
 import { cn } from "../lib/utils";
 import { fetchSettings, saveSettings, clearSettingsRemote, LlmSettings } from "../lib/settings/client";
+import {
+  BROWSER_ENGINES,
+  DEFAULT_BROWSER_ENGINE,
+  ENGINE_LABELS,
+  type BrowserEngine,
+} from "../lib/browser/engineConfig";
 import {
   COMPACT_CUSTOM_MAX,
   COMPACT_CUSTOM_MIN,
@@ -46,7 +52,7 @@ interface SettingsMenuProps {
  */
 export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"reasoning" | "context" | "endpoint">("reasoning");
+  const [tab, setTab] = useState<"reasoning" | "context" | "endpoint" | "browser">("reasoning");
   const [settings, setSettings] = useState<LlmSettings>({});
   const [url, setUrl] = useState("");
   const [key, setKey] = useState("");
@@ -57,6 +63,8 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
   // Auto-compact context state
   const [compact, setCompact] = useState<CompactThresholds>({ auto: 0, tokens: 0 });
   const [customInput, setCustomInput] = useState<string>("");
+  // Browser engine (server-authoritative value mirrored in the UI).
+  const [engine, setEngine] = useState<BrowserEngine>(DEFAULT_BROWSER_ENGINE);
   const ref = useRef<HTMLDivElement>(null);
   // True once the user touched any compact control this menu-open cycle. The
   // load-on-open fetch can resolve AFTER a fast first click (cold dev-server
@@ -74,6 +82,7 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
       setSettings(s);
       setUrl(s.llm_api_url ?? "");
       setKey(s.llm_api_key ?? "");
+      setEngine(s.browser_engine ?? DEFAULT_BROWSER_ENGINE);
       if (compactDirtyRef.current) return; // user already chose — don't overwrite
       const t = compactThresholdsFromSettings(s as Record<string, unknown>);
       setCompact(t);
@@ -135,6 +144,30 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
       setSaving(false);
     }
   }, [url, key, settings, flashClear]);
+
+  /**
+   * Save the engine choice server-side, then broadcast it so app/page.tsx
+   * mounts/unmounts the right Browser panel immediately (no reload). The
+   * server value is authoritative — the event only mirrors it client-side.
+   */
+  const handleEngineChange = useCallback(async (next: BrowserEngine) => {
+    if (next === engine) return;
+    setEngine(next);
+    setSaving(true);
+    setFlash(null);
+    try {
+      await saveSettings({ browser_engine: next });
+      window.dispatchEvent(
+        new CustomEvent("browser-engine:changed", { detail: { engine: next } }),
+      );
+      setFlash("ok");
+    } catch {
+      setFlash("err");
+    } finally {
+      setSaving(false);
+      flashClear();
+    }
+  }, [engine, flashClear]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
@@ -276,10 +309,10 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
+        <div className="absolute top-full right-0 mt-2 w-72 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
           {/* Tabs */}
           <div className="flex border-b border-[rgba(255,255,255,0.09)]">
-            {(["reasoning", "context", "endpoint"] as const).map((t) => (
+            {(["reasoning", "context", "endpoint", "browser"] as const).map((t) => (
               <button key={t}
                 onClick={() => setTab(t)}
                 data-testid={`settings-tab-${t}`}
@@ -289,12 +322,44 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
                     ? "text-white/90 border-white/70 bg-white/[0.03]"
                     : "text-white/30 border-transparent hover:text-white/60",
                 )}>
-                {t === "reasoning" ? "Reasoning" : t === "context" ? "Context" : "Endpoint"}
+                {t === "reasoning" ? "Reasoning" : t === "context" ? "Context" : t === "endpoint" ? "Endpoint" : "Browser"}
               </button>
             ))}
           </div>
 
-          {tab === "context" ? (
+          {tab === "browser" ? (
+            /* ── Browser tab: which engine drives the agent ───────────── */
+            <div className="p-3 space-y-2.5" data-testid="settings-browser-tab">
+              <label
+                htmlFor="settings-browser-engine-select"
+                className="flex items-center gap-1.5 text-[10px] text-white/35 uppercase tracking-wider"
+              >
+                <Globe2 className="w-3 h-3" />
+                Browser engine
+              </label>
+              <select
+                id="settings-browser-engine-select"
+                data-testid="settings-browser-engine"
+                value={engine}
+                disabled={saving}
+                onChange={(e) => void handleEngineChange(e.target.value as BrowserEngine)}
+                className="w-full px-2 py-1.5 rounded-lg bg-[#2a2a2a] border border-[rgba(255,255,255,0.1)]
+                  text-[11px] text-white/85 outline-none focus:border-white/30
+                  transition-colors duration-[120ms]"
+              >
+                {BROWSER_ENGINES.map((e) => (
+                  <option key={e} value={e}>{ENGINE_LABELS[e]}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-white/35 leading-snug">
+                Your own browser opens visibly in its own window and the AI drives that
+                real window. There is no built-in WebUI browser and no live mirror.
+              </p>
+              <span className="text-[10px] text-white/35 tabular-nums" data-testid="browser-engine-status">
+                {flash === "ok" ? "Saved ✓" : flash === "err" ? "Save failed" : `Active · ${engine}`}
+              </span>
+            </div>
+          ) : tab === "context" ? (
             /* ── Context tab: auto-compact threshold ─────────────────── */
             <div className="p-3 space-y-2.5" data-testid="settings-context-tab">
               <div className="flex items-center justify-between">

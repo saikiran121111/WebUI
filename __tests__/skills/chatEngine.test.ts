@@ -144,6 +144,16 @@ function systemBlocks(payload: any, marker: string): string[] {
     .filter((c: string) => c.includes(marker));
 }
 
+// 2026-10-24: the standing browser block rides as its OWN system message
+// beside the user turn (route.ts step 5b) — with skill blocks shifting
+// indexes, address the user turn by role, never by array position.
+function lastUserMessage(payload: any): any {
+  for (let i = payload.messages.length - 1; i >= 0; i--) {
+    if (payload.messages[i]?.role === "user") return payload.messages[i];
+  }
+  return null;
+}
+
 describe("POST /api/chat — Decision Engine pipeline", () => {
   it("spreads deliverable-intent word → injects the matched core-skill block + studio fence", async () => {
     // 2026-10-22: the :8790 engine is gone; routing is in-process
@@ -177,7 +187,10 @@ describe("POST /api/chat — Decision Engine pipeline", () => {
     const payload = upstreamPayloads[0];
     expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
     expect(systemBlocks(payload, "<active_skill")).toHaveLength(0);
-    expect(payload.messages[payload.messages.length - 1].content).toBe("why is my useEffect firing twice");
+    // The browser standing block is a SEPARATE system message; the user's
+    // own words stay byte-verbatim, and no skill block is injected.
+    expect(lastUserMessage(payload).content).toBe("why is my useEffect firing twice");
+    expect(systemBlocks(payload, "## Browser agent")).toHaveLength(1);
   });
 
   it("engine down -> standard_chat fallback, every renderer stays off", async () => {
@@ -190,7 +203,8 @@ describe("POST /api/chat — Decision Engine pipeline", () => {
     expect(body).toContain("final answer");
     const payload = upstreamPayloads[0];
     expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
-    expect(payload.messages[payload.messages.length - 1].content).toBe("hello there");
+    expect(lastUserMessage(payload).content).toBe("hello there"); // verbatim
+    expect(systemBlocks(payload, "## Browser agent")).toHaveLength(1); // browser guidance present
   });
 
   it("decision_mode passthrough (fence repair) keeps the mode pinned, user text unchanged", async () => {
@@ -212,9 +226,9 @@ describe("POST /api/chat — user-tier slash skills (only surviving user trigger
     expect(body).toContain("final answer");
 
     const payload = upstreamPayloads[0];
-    const last = payload.messages[payload.messages.length - 1];
+    const last = lastUserMessage(payload); // skill + browser blocks shift indexes
     expect(last.role).toBe("user");
-    expect(last.content).toBe("explain recursion");
+    expect(last.content).toBe("explain recursion"); // slash prefix stripped, rest verbatim
     expect(systemBlocks(payload, "<active_skill")).toHaveLength(1);
     expect(systemBlocks(payload, "<active_skill")[0]).toContain("<active_skill name=\"test-skill\"");
     expect(systemBlocks(payload, "<active_skill")[0]).toContain("Always answer in exactly one sentence.");
@@ -226,7 +240,7 @@ describe("POST /api/chat — user-tier slash skills (only surviving user trigger
     const { res } = await postChat("/disabled-skill hello");
     expect(res.headers.get("X-Used-Skill")).toBeNull();
     const payload = upstreamPayloads[0];
-    expect(payload.messages[payload.messages.length - 1].content).toBe("/disabled-skill hello");
+    expect(lastUserMessage(payload).content).toBe("/disabled-skill hello"); // nothing stripped
     expect(systemBlocks(payload, "<active_skill")).toHaveLength(0);
   });
 

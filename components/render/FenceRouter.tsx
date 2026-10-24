@@ -18,6 +18,7 @@ import MermaidBlock from "./MermaidBlock";
 import ChartBlock from "./ChartBlock";
 import WidgetBlock from "./WidgetBlock";
 import TreeBlock from "./TreeBlock";
+import BrowserApiBlock from "./BrowserApiBlock";
 
 /* ── Heavy WebGL / 3D / CAD viewers — lazy-loaded on first fence mount ─ */
 const Scene3DBlock = dynamic(
@@ -121,6 +122,11 @@ export default function FenceRouter({ children }: { children?: ReactNode }) {
   if (kind === "mermaid" && interactive) return <MermaidBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "chart" && interactive)  return <ChartBlock source={source} streaming={streaming} onSend={onSend} />;
   if (kind === "widget" && interactive)  return <WidgetBlock source={source} streaming={streaming} onSend={onSend} />;
+  // The model's browser-control fence: executes the JSON action against
+  // /api/browser (the server owns the headful session) and chips the result.
+  // Mounted when the fence is closed (the router only renders it then);
+  // an older model that never emits it simply never mounts this block.
+  if (kind === "browser_api") return <BrowserApiBlock source={source} streaming={streaming} />;
 
   // --- Document modality fences ------------------------------------------
   if (kind === "html" && interactive)    return <HtmlArtifactBlock source={source} streaming={streaming} />;

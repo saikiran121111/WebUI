@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>CANVAS PLAY</title></head>
+<body>
+<canvas id="c" width="200" height="60" style="position:fixed;left:100px;top:100px;"></canvas>
+<script>
+// Canvas-only UI: NO DOM targets at all. The fixture-set __vision_mock__
+// stands in for the LOCAL vision model (RUKE_VISION_MOCK=1 server) so the
+// visual-grounding ladder is deterministic in tests.
+var c = document.getElementById("c");
+var x = c.getContext("2d");
+x.fillStyle = "#38bdf8";
+x.fillRect(0, 0, 200, 60);
+x.fillStyle = "#082f49";
+x.fillRect(90, 20, 20, 20);
+c.addEventListener("click", function () {
+  document.title = "CANVAS:clicked";
+});
+window.__vision_mock__ = {
+  x: 100, y: 100, width: 200, height: 60,
+  label: "Canvas play button", confidence: 0.9,
+};
+</script>
+</body>
+</html>

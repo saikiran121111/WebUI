@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Broken dial</title></head>
+<body>
+<h1>Broken custom control</h1>
+<div id="dial"><span>vol 0</span></div>
+<script>
+// A broken widget exposes NO accessible/interactive DOM. The structured
+// failure must be reported honestly; the keyboard layer can still drive it.
+var v = 0;
+document.addEventListener("keydown", function (e) {
+  if (e.key === "ArrowUp") {
+    v += 10;
+    document.querySelector("#dial span").textContent = "vol " + v;
+    document.title = "VOL:" + v;
+  }
+});
+</script>
+</body>
+</html>

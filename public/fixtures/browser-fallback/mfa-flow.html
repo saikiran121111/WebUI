@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>MFA FLOW</title></head>
+<body>
+<h1>Funds transfer</h1>
+<label for="ref">Reference</label><input id="ref" type="text">
+<div id="v1"><button aria-label="Confirm transfer">transfer</button></div>
+<script>
+// Consequential op → server-side grant → success screen shows an MFA step →
+// human completes it → resume must NOT re-run the (non-idempotent) transfer.
+// Sections are built DYNAMICALLY: a hidden duplicate "Confirm transfer"
+// button would make role+name targeting ambiguous on purpose we do not want.
+document.getElementById("v1").addEventListener("click", function (e) {
+  var b = e.target.closest ? e.target.closest("button") : null;
+  if (!b || b.getAttribute("aria-label") !== "Confirm transfer") return;
+  this.innerHTML = "";
+  var p = document.createElement("p");
+  p.textContent = "Enter the verification code we sent to your device";
+  this.appendChild(p);
+  var d = document.createElement("button");
+  d.setAttribute("aria-label", "Done completing the code");
+  d.textContent = "done";
+  this.appendChild(d);
+  document.title = "TRANSFER:prepared";
+});
+document.addEventListener("click", function (e) {
+  var b = e.target.closest ? e.target.closest('button[aria-label="Done completing the code"]') : null;
+  if (!b) return;
+  var v = document.getElementById("v1");
+  v.innerHTML = "";
+  var c = document.createElement("button");
+  c.setAttribute("aria-label", "Confirm transfer");
+  c.textContent = "transfer again";
+  v.appendChild(c);
+  document.title = "MFA:done";
+});
+</script>
+</body>
+</html>

@@ -1,5 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  type BrowserEngine,
+  DEFAULT_BROWSER_ENGINE,
+  parseEngineValue,
+} from "@/lib/browser/engineConfig";
 
 /**
  * Project-root settings.json — the ONE source of truth for the custom model
@@ -24,6 +29,14 @@ interface SettingsShape {
    * server only persists it; it never touches the LLM endpoint.
    */
   compact_thresholds?: { auto: 0 | 1; tokens: number };
+  /**
+   * Which browser drives the agent session. The SERVER value is
+   * authoritative — the client's setting is only a view of this. The
+   * engine is always one of the user's own OS browsers (chrome/brave/
+   * edge/firefox), launched visibly. There is no built-in WebUI browser
+   * (no mirror, no screencast).
+   */
+  browser_engine?: BrowserEngine;
 }
 
 let cachedMtimeMs: number | null = null;
@@ -59,6 +72,11 @@ function readSettings(): SettingsShape {
  */
 export function llmApiUrl(): string {
   return readSettings().llm_api_url ?? process.env.LLM_API_URL ?? LLM_FALLBACK;
+}
+
+/** The authoritative browser engine (settings.json > default). */
+export function browserEngine(): BrowserEngine {
+  return parseEngineValue(readSettings().browser_engine) ?? DEFAULT_BROWSER_ENGINE;
 }
 
 export function llmApiKey(): string {

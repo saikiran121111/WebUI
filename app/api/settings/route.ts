@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings, clearSettings } from "../../../lib/server/settings";
+import { parseEngineValue } from "@/lib/browser/engineConfig";
+import { closeInteractiveSession } from "@/lib/browser/interactiveBrowser";
 
 export async function GET() {
   return NextResponse.json({ settings: getSettings() });
@@ -32,7 +34,33 @@ export async function PUT(req: Request) {
         : 0,
     };
   }
+  // Browser engine — the SERVER value is authoritative for every session.
+  // Reject unknown values; tear down any live panel session on change so
+  // the next action starts under the new engine (no mixed-engine sessions).
+  if ("browser_engine" in body) {
+    const engine =
+      typeof body.browser_engine === "string"
+        ? parseEngineValue(body.browser_engine)
+        : undefined;
+    if (!engine) {
+      return NextResponse.json(
+        { error: "browser_engine must be chrome, brave, edge, or firefox" },
+        { status: 400 },
+      );
+    }
+    patch.browser_engine = engine;
+  }
+  const engineChanged =
+    patch.browser_engine !== undefined &&
+    patch.browser_engine !== getSettings().browser_engine;
   const settings = updateSettings(patch);
+  if (engineChanged) {
+    try {
+      await closeInteractiveSession();
+    } catch {
+      // A stale session dies with the engine switch regardless.
+    }
+  }
   return NextResponse.json({ settings });
 }
 

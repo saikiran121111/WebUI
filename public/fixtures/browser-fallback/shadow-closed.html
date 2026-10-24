@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>SHADOW CLOSED</title></head>
+<body>
+<h1>Closed shadow root</h1>
+<div id="host"></div>
+<button id="ping" aria-label="Visible ping">ping</button>
+<script>
+// Closed roots are unreachable by design — the agent must fail HONESTLY
+// against their internals (never a fabricated success).
+var root = document.getElementById("host").attachShadow({ mode: "closed" });
+root.innerHTML = '<button id="secret" aria-label="Secret inner control">secret</button>';
+document.getElementById("ping").addEventListener("click", function () {
+  document.title = "PING:ok";
+});
+</script>
+</body>
+</html>

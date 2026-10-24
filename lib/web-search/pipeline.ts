@@ -806,7 +806,8 @@ export async function runWebResearch(
 export const ANTI_REFUSAL_DIRECTIVE =
   "CRITICAL: The server has ALREADY opened the user's URLs, resolved " +
   "short-links/redirects, extracted YouTube transcripts, read attached " +
-  "screenshots, and rendered live pages via our built-in browser engine. " +
+  "screenshots, and rendered live pages via our in-house Playwright page " +
+  "pool. " +
   "All live data is in the web context below. NEVER say you cannot watch " +
   "YouTube videos, cannot open Google Maps links, or cannot browse " +
   "LinkedIn/websites. Answer directly using the provided evidence.";

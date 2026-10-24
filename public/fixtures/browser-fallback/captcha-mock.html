@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Captcha gate</title></head>
+<body>
+<div id="wall">
+  <h2>reCAPTCHA</h2>
+  <p>Human verification required</p>
+  <p>Please verify you are a human</p>
+</div>
+<div id="app" hidden>
+  <button id="cont" aria-label="Continue to account">continue</button>
+</div>
+<!-- Simulates the human completing the check in the visible window. -->
+<button id="passbtn" aria-label="I passed the check">done</button>
+<script>
+document.getElementById("passbtn").addEventListener("click", function () {
+  document.getElementById("wall").remove();
+  document.getElementById("app").hidden = false;
+  this.remove();
+  document.title = "Check complete";
+});
+</script>
+</body>
+</html>

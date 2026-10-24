@@ -59,6 +59,7 @@ import {
   closeBrowserPool,
   type PageExtraction,
 } from "@/lib/browser/agentBrowser";
+import { readWithInteractiveProfile } from "@/lib/browser/interactiveBrowser";
 import {
   walkGenericJsonForEntities,
 } from "./hydration-unpacker";
@@ -694,6 +695,73 @@ async function extractBrowser(
 }
 
 /**
+ * Interactive-profile fallback — the user's saved sign-in read. Fires
+ * ONLY when every standard tier (direct / link-preview / stealth pool /
+ * Jina / Wayback) came up empty for a URL: that is the "normal search
+ * couldn't fetch it" case, i.e. a login wall or private feed. Rides the
+ * per-site profile under `.data/browser-profiles/<site>/` when it exists,
+ * so a site the user signed in to stays AI-readable; unauthenticated
+ * reads launch on the default profile (still better than nothing).
+ */
+async function extractInteractiveProfile(
+  result: RankedResult,
+): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string; authenticated: boolean; site?: string } | null> {
+  try {
+    const r = await readWithInteractiveProfile(result.canonical, { timeoutMs: 60_000 });
+    if (!r.ok) {
+      return {
+        markdown: "",
+        status: 0,
+        blocked: false,
+        blockedReason: r.error ?? "interactive profile read returned nothing",
+        authenticated: r.authenticated,
+        ...(r.site ? { site: r.site } : {}),
+      };
+    }
+    const parts: string[] = [];
+    if (r.authenticated) {
+      parts.push(
+        "## Read via the built-in login browser (signed-in profile: " +
+          (r.site ?? "default") + " — the user's saved cookies were used)\n",
+      );
+    } else {
+      parts.push("## Read via the built-in login browser (no saved sign-in for this site)\n");
+    }
+    if (r.title) parts.push("# " + r.title);
+    if (r.finalUrl && r.finalUrl !== r.url) parts.push("Final URL after redirects: " + r.finalUrl);
+    if (r.bodyText.length >= 100) {
+      parts.push(r.bodyText.slice(0, 12_000));
+    }
+    if (r.ariaSnapshot && r.ariaSnapshot.length >= 100) {
+      parts.push("## ARIA snapshot (accessibility tree)\n" + r.ariaSnapshot.slice(0, 8_000));
+    }
+    if (Object.keys(r.meta).length > 0) {
+      const lines = Object.entries(r.meta)
+        .filter(([k]) => /^(og:|twitter:)/.test(k) || k === "description")
+        .map(([k, v]) => "- " + k + ": " + String(v).slice(0, 300));
+      if (lines.length > 0) parts.push("## Page Metadata (login browser)\n" + lines.join("\n"));
+    }
+    const markdown = parts.filter(Boolean).join("\n\n");
+    return {
+      markdown,
+      status: 200,
+      blocked: false,
+      blockedReason: "",
+      authenticated: r.authenticated,
+      ...(r.site ? { site: r.site } : {}),
+    };
+  } catch (e: any) {
+    return {
+      markdown: "",
+      status: 0,
+      blocked: false,
+      blockedReason: "interactive profile read error: " + (e?.message ?? String(e)),
+      authenticated: false,
+    };
+  }
+}
+
+/**
  * Tier 2: social link-preview crawler bypass (WhatsApp / Facebook /
  * Twitter / Slack UAs). Hostile WAFs whitelist these bots, so a blocked
  * URL that 403'd under browser TLS often returns a clean 200 under a
@@ -1031,6 +1099,31 @@ export async function extractUrl(
       putCachedPage(url, browserOut.markdown, "browser");
       return { ...packet, classification: "SUCCESS_BROWSER" };
     }
+  }
+
+  // Tier 3b: interactive-profile read — the user's saved sign-in (or a
+  // clean headful launch when the site has no profile). This is the
+  // documented escalation when EVERY standard tier above failed for the
+  // URL: login walls, private feeds, auth-gated docs. Normal search
+  // results are unaffected; this path only runs for the URLs the
+  // waterfall could not fetch.
+  const interOut = await extractInteractiveProfile(result);
+  if (interOut && interOut.markdown.length >= 200 && !interOut.blocked) {
+    packet.extraction = "direct";
+    packet.passages.push({
+      sourceId: "",
+      url,
+      title: result.title,
+      domain: result.domain,
+      publishedAt: result.publishedDate,
+      passageText: interOut.markdown,
+      bm25Score: 0,
+    });
+    putCachedPage(url, interOut.markdown, "browser");
+    return {
+      ...packet,
+      classification: interOut.authenticated ? "SUCCESS_INTERACTIVE_LOGIN" : "SUCCESS_INTERACTIVE",
+    };
   }
 
   // Tier 4: Jina fallback — fires on any Tier 1/2 failure including

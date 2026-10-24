@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>KEY WIDGET</title></head>
+<body>
+<h1>Keyboard-driven widget</h1>
+<div id="w" tabindex="0" role="group" aria-label="Widget slot C">
+  <span id="v">0</span>
+</div>
+<script>
+// A focus/keyboard-only widget: no clickable controls that carry values —
+// the keyboard fallback layer drives it with an allow-listed key sequence.
+var val = 0;
+document.addEventListener("keydown", function (e) {
+  if (e.key === "ArrowRight") {
+    val += 10;
+    document.getElementById("v").textContent = String(val);
+    document.title = "SLIDER:" + val;
+  }
+});
+</script>
+</body>
+</html>

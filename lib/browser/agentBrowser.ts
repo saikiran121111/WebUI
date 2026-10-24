@@ -227,14 +227,6 @@ const pool: PoolState = {
   launching: null,
 };
 
-/**
- * Cookies exported by the interactive login browser's `done_login` step
- * (Part 3): applied to every pool context — existing and future — so Pass-B
- * extraction rides the user's authenticated session on LinkedIn/X/Instagram/
- * Workday without a second sign-in.
- */
-export type PoolCookieSet = Awaited<ReturnType<BrowserContext["cookies"]>>;
-let poolCookies: PoolCookieSet = [];
 
 /**
  * Ensure the pool is launched and sized. Idempotent: concurrent callers
@@ -299,13 +291,6 @@ async function ensurePool(): Promise<void> {
         await applyFingerprintToContext(ctx, suite);
         /* Also keep the static stealth patch as a baseline fallback */
         await ctx.addInitScript({ content: STEALTH_INIT_SCRIPT });
-        if (poolCookies.length > 0) {
-          try {
-            await ctx.addCookies(poolCookies as any);
-          } catch {
-            /* a rejected cookie is non-fatal — the rest still apply */
-          }
-        }
         pool.contexts.push(ctx);
       }
     })();
@@ -344,26 +329,6 @@ async function acquireContext(): Promise<BrowserContext> {
       );
     }
   }
-}
-
-/**
- * Push the authenticated cookie set from the interactive login browser into
- * the extraction pool. Existing contexts get them immediately; contexts
- * created later inherit them from `poolCookies` at launch. Returns how many
- * live contexts accepted the set.
- */
-export async function applyCookiesToPool(cookies: PoolCookieSet): Promise<number> {
-  poolCookies = cookies;
-  let applied = 0;
-  for (const c of pool.contexts) {
-    try {
-      await c.addCookies(cookies as any);
-      applied++;
-    } catch {
-      /* closed / hostile context — never fail the login hand-off */
-    }
-  }
-  return applied;
 }
 
 /** Explicitly release the whole pool (used by tests / process exit). */
@@ -750,77 +715,5 @@ export async function extractUrlBrowser(
   }
 }
 
-/**
- * The old CLI-based interface, re-implemented on top of the in-memory
- * Playwright pool. `open`/`read` do the full one-pass extraction; the
- * stateful methods (`snapshot`, `click`, `type`, `scroll`, `screenshot`)
- * delegate to the interactive login session (lib/browser/interactiveBrowser)
- * when one is open, and report honestly when it is not. The dynamic
- * imports keep agentBrowser ↔ interactiveBrowser free of a module-eval
- * cycle (interactiveBrowser imports this module's persona exports directly).
- */
-export class BrowserTool {
-  async open(url: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const r = await extractUrlBrowser(url);
-    const parts: string[] = [];
-    if (r.title) parts.push("# " + r.title);
-    if (r.finalUrl && r.finalUrl !== url) parts.push("Final URL: " + r.finalUrl);
-    if (r.bodyText) parts.push(r.bodyText.slice(0, 12_000));
-    if (r.ariaSnapshot) parts.push("[ARIA snapshot]\n" + r.ariaSnapshot.slice(0, 8_000));
-    return {
-      ok: r.ok,
-      stdout: parts.join("\n\n") || "(no content)",
-      stderr: "",
-      ...(r.error ? { error: r.error } : {}),
-    };
-  }
-  async snapshot(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const m = await import("./interactiveBrowser");
-    const r = await m.interactiveSnapshot();
-    if (r == null) {
-      return { ok: false, stdout: "", stderr: "no interactive session open — use open(url) / extractUrlBrowser(url) for stateless extraction" };
-    }
-    return { ok: true, stdout: r, stderr: "" };
-  }
-  async click(x?: number, y?: number): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const m = await import("./interactiveBrowser");
-    return toCliStatus(await m.interact({ action: "click", x, y }));
-  }
-  async type(text?: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const m = await import("./interactiveBrowser");
-    return toCliStatus(await m.interact({ action: "type", text, submit: true }));
-  }
-  async scroll(dy?: number): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const m = await import("./interactiveBrowser");
-    return toCliStatus(await m.interact({ action: "scroll", dy }));
-  }
-  async read(url?: string): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    if (!url) return { ok: false, stdout: "", stderr: "read() requires a url in the pool API" };
-    return this.open(url);
-  }
-  async screenshot(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const m = await import("./interactiveBrowser");
-    const b64 = await m.interactiveScreenshot();
-    if (b64 == null) return { ok: false, stdout: "", stderr: "no interactive session open — screenshot() needs the Browser panel" };
-    return { ok: true, stdout: `data:image/jpeg;base64,${b64}`, stderr: "" };
-  }
-  async close(): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-    const m = await import("./interactiveBrowser");
-    await m.closeInteractiveSession("BrowserTool.close()");
-    await closeBrowserPool();
-    return { ok: true, stdout: "pool + interactive session closed", stderr: "" };
-  }
-}
-
-function toCliStatus(s: { ok: boolean; url?: string; title?: string; error?: string }): {
-  ok: boolean; stdout: string; stderr: string; error?: string;
-} {
-  return {
-    ok: s.ok,
-    stdout: s.ok ? `${s.title ?? ""} — ${s.url ?? ""}`.trim() : "",
-    stderr: "",
-    ...(s.error ? { error: s.error } : {}),
-  };
-}
 
 export { extractUrlBrowser as browserRead };

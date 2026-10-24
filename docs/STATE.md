@@ -1,335 +1,306 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-24 — SIX-BUG-FIX-PASS [LOCKED-DONE] (browser 422 / universal bare-domain Stage-0 / 0ms gate / 429 sharding+breakers / ASCII logs): agentBrowser registry deep-import removed + fingerprint interop + chrome-win64 scan + interactive passes FULL {fingerprint,headers} wrapper to attachFingerprintToPlaywright — POST /api/browser 200s zero traces; next.config external packages (playwright*, @crawlee/playwright, fingerprint-*, header-generator, got-scraping, impit, youtubei.js, linkedom, tldts); lib/web-search/url-detector.ts (tldts universal TLDs, code-filename guard, `.sh` NOT guarded) + Stage 0 Direct Target (engine "direct-target" unshifted pre-SERP; live "stage-0 direct target extracted {domain skiran.dev, SUCCESS_DIRECT}"); deterministic gate bypass (gateMs:0, decidedBy deterministic) + thinking/reasoning/response_format off-flags + `<think>` strip in search-gate.ts & llm-json.ts + silent rulesBasedPlan fallback; engines.ts sharded 150-300ms stagger + ddgLitePost + github /search/users + breakers contain google/brave/ddg 429s; `…`→`...` everywhere in log strings (live ΓÇª=0, …=0, gate WARN=0). VERIFIED: tsc 0; vitest 618 passed|1 skip (54 files); browser start/navigate/done_login 200; live skiran.dev chat 200 (93.9s), S1=https://skiran.dev S2=github.com/Shakiran-Nannyombi. Lock released; dev :3000 logs to .ai-coordination/dev3.log. | 2026-10-23 COMPACT-FIXES-REAL-BACKEND (compaction was dead at 100k despite armed 32k gate: purpose:"compact" route passthrough bypasses decision pipeline; COMPACTION_ANCHOR_PROMPT makes the small local model honor the block contract; failures/no-ops + in-flight spinner now visible; 300 s cap) — FIXED, E2E 5/5 REAL EXIT 0, USER SETTING RESTORED. 2026-10-22g AUTO-COMPACT CONTEXT (Settings "Context" tab: threshold presets + custom 8k–1M validation + Compact-now; /compact command; pre-send auto gate; sliding-window fold keeping last 4; model-array replacement; "Context compacted (x -> y tokens)" divider badge) stays locked. Prior 2026-10-22f/e locks below stay valid.
+Synced: 2026-10-25 — BUGFIX CYCLE: stale task hijack of live sessions + verbatim URLs + sandboxed launch (no --no-sandbox infobar)
+[LOCKED-DONE, ALL VERIFIED]: TASK_TTL_MS=2h enforced in loadTask (raw AND cached
+branches, rm's the expired file → an old/test-run flow can never resurface, and its
+skip-if-done sigs stop poisoning real clicks); isStaleTask + authContext render a
+waiting_for_* park whose page contradicts the live tab as "STALE … Do NOT send
+resume_task for it" (park on the CURRENT page or browser closed KEEPS the resume
+directive — legit consent/login parks untouched); taskFlowMismatch + clearTask at
+chat route step 5b on explicit browser intent (a fresh request supersedes an old
+park); intent.extractBrowserUrl injects the user's url VERBATIM ("targets this
+EXACT url: … Copy it VERBATIM") + MEDIA play guidance (navigate verbatim → click
+player → else keyboard_nav ["k"]); interactiveBrowser BOTH visible launches pass
+chromiumSandbox: true — launched automation Chrome cmdline verified FREE of
+--no-sandbox, Chrome's warning infobar gone. Prior cycles (speed upgrade, universal
+agent, OS-only pivot) stay LOCKED-DONE below.
+FINAL VERIFICATION (real exit codes): `npx tsc --noEmit` EXIT:0; `npx vitest run`
+66 files / 721 passed / 1 skipped EXIT:0; `npx playwright test
+tests/browser-fallback.spec.ts` 17/17 (4.5 s) PW_EXIT:0; `npx playwright test
+tests/browser-engine-panel.spec.ts` 4/4 (49.2 s) PW_EXIT:0. Lock released.
 
 [8.1 CORE OBJECTIVE & ACTIVE PHASE]
-Current cycle (2026-10-24): six-bug fix pass — COMPLETE & LIVE-VERIFIED, details in the Synced header and
-docs/CHANGELOG.md 2026-10-24 entry. New immutable contracts: `detectUrlsAndDomains/detectPromptUrls` in
-lib/web-search/url-detector.ts (DetectedUrl {raw,url,domain,hasScheme}); pipeline.ts Stage 0 direct-target
-block; interactiveBrowser makeFingerprint returns the getFingerprint() WRAPPER (launchArgs reads
-fp.headers.userAgent). Prior cycle (2026-10-22g) mission was: "Auto-Compact Context" per the user spec —
-(1) Settings "Auto-Compact Threshold" with 32k/64k/128k/256k presets + Custom validated
-8,000–1,000,000 tokens; (2) token tracking + pre-send trigger when estimate ≥ threshold,
-plus manual `/compact` command AND button; (3) sliding-window pipeline: compact all but
-the last 4 (RECENT_TAIL=4), exact "Context Compaction Engine" prompt (`<analysis>`
-scratchpad + `<compacted_context>`), extract ONLY `<compacted_context>` and strip
-`<analysis>`; (4) LLM array becomes [System Prompt, Compacted Context Message, ...tail,
-New User Message] while the frontend DB/UI keeps the FULL original history, with a
-divider badge "Context compacted (128.4k -> 5.2k tokens)". Status: IMPLEMENTED + FULLY
-VERIFIED — auto-compact.spec 3/3 PW_EXIT=0, edit-stop-collapse 5/5, progress-panel 6/6
-(all lock protocol), vitest 595 passed | 1 skipped (52 files), tsc EXIT=0. One REAL app
-bug found & fixed via E2E (SettingsMenu open-fetch clobber) — see 8.6. No open work.
-Prior cycle (2026-10-22e): Claude-desktop parity for the sidebar Recents
-section — filter popover gains a Delete row under Status (enters select mode; header
-Select icon swaps to red Trash2 while selecting), "View all" opens a centered ~60% popup Recents
-modal (serif heading, Active | Shared-disabled | Archived tabs, search, Groups chip bar,
-select toolbar: Pin / Move-to-group inline "Name your group"+Save panel / Mark unread /
-Archive / red trash / × exit, New session, relative-time labels), plus new optional
-ConversationMeta fields `group` / `unread` (sidebar + modal unread dots, Groups flyout
-filter in the sidebar popup, opening an unread chat clears it). Status: IMPLEMENTED +
-FULLY VERIFIED — tsc 0, vitest 573 green, Playwright recents-controls 6/6, recents-modal
-5/5 (first run), conversations-crud 7/7, multi-select-delete 2/2 (all exit 0). No open
-work. Prior-cycle progress-chip work stays locked. Original chip mission paragraph kept
-below for contract context: reproduce the Claude-desktop "Step X of N" progress popup in the top-right
-window bar — white-bordered pill chip (explicit user deviation from the reference's blue)
-opening a "Progress" panel (timeline: dim done dots / bright active step with live % /
-pending, overall bar, "K earlier steps" collapse, Outputs section with real artifacts) —
-with 100% honest data: every label/percent from real server phase events (ruke_stage SSE),
-real counters (query pools, pages x/y, coverage) and measured per-user ETAs (median
-reasoningMs / completionTokens), never fake timers. Status: IMPLEMENTED + FULLY VERIFIED
-(vitest 573 green, tsc clean, 3 Playwright specs green at real exit 0, incl. regression
-fixed). No open work on this feature.
+Mission (delivered this cycle): the LIVE-FAILURE BUGFIX CYCLE — a Playwright
+fixture task parked on disk (`exhausted.html`) hijacked real chat turns into
+resume_task → about:blank, a youtu.be link was re-typed down to `youtu.be`, and
+the automation window showed Chrome's "--no-sandbox" warning infobar. Fixed by
+task TTL + STALE directive suppression + route-level supersede + verbatim-url
+injection + chromiumSandbox:true. Prior cycles stay locked: the browser-engine
+SPEED UPGRADE (six fixes + Tier-2 .cskills/browser-operator skill) and the
+universal multi-browser agent + OS-only pivot (user's own Chrome validated). All
+complete. Search-first routing
+(7-tier web-search pipeline, incl. Tier 3b readWithInteractiveProfile login-wall
+fallback) preserved untouched. Explicit browser intent acts immediately
+(hasExplicitBrowserIntent in app/api/chat/route.ts → standing "## Browser agent"
+block every turn via browserAuthContextBlock). Consent BEFORE private-account reads;
+consequential ops enforced SERVER-SIDE (client confirmConsequential never sufficient).
+No open phase — all specs green; work is in working tree (uncommitted, develop branch).
 
 [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
-- 2026-10-23b Composer token meter (E2E 1/1 PW_EXIT=0, vitest 14, tsc 0 — do not re-open):
-  `app/api/model-stats/route.ts` (new proxy: /props→n_ctx, ?live=1→/slots prompt_tokens;
-  {ok:false}+200 when backend down); `lib/chat/tokenMeter.ts` (new pure helpers + formatters);
-  `hooks/useTokenMeter.ts` (new: /props once/load; 1 Hz ?live=1 poll ONLY while streaming; EMA
-  window rate; exact usage frame takes over at turn end, survives reload via persisted usage);
-  ChatInput meta-row span replaced by [data-testid="token-meter"] (tokenMeter? prop, tabular-nums,
-  min-w-[15rem], provenance title tooltip); app/page.tsx wires useTokenMeter({status,messages})
-  into the BAR ChatInput only (hero has no meta row). Old static "Output varies…" text is GONE.
-- 2026-10-23 Compaction-actually-works fix (E2E 5/5 real exit 0 incl. REAL backend, do not re-open):
-  - lib/chat/types.ts: `purpose?: "compact"` on ChatRequest; lib/chat/client.ts buildBody forwards it.
-  - app/api/chat/route.ts: after parse, `payload.purpose==="compact"` → delete marker,
-    stripAttachmentRefs, forwardStream VERBATIM (no slash routing, no getDecision, no skill
-    block, no web gate) — still claims beginUserTurn/endUserTurn via forwardStream.
-  - lib/chat/compact.ts: `COMPACTION_ANCHOR_PROMPT` exported, appended as FINAL user turn
-    after folded history (small local models otherwise CONTINUE the conversation — probe
-    proved the model replayed the last assistant line with zero block); timeout 120 s→300 s.
-  - hooks/useChat.ts compact(): badgeAt published WITH isCompacting (in-flight spinner now
-    mounts) AND on failure/no-op paths; CompactDividerBadge renders data-state="failed"
-    (red AlertTriangle, error in title) / "noop" ("Context already fits") instead of null.
-  - tests/auto-compact.spec.ts: +2 UNMOCKED real-route tests (route contract: purpose→
-    ZERO ruke_stage frames vs plain turn→frames; manual /compact end-to-end on REAL
-    backend→"done"+follow-up). Spec header updated: last two tests need the backend.
-  - USER SETTING RESTORED after test runs wiped it (spec afterEach resets to off):
-    settings.json compact_thresholds={auto:1,tokens:32000} is the user's live config.
-- 2026-10-22g Auto-Compact Context (ALL E2E GREEN, do not re-open):
-  - `lib/chat/tokens.ts` (new): `CHARS_PER_TOKEN=4` + 4/message framing estimate;
-    `estimateConversationTokens()`, `formatTokens()` ("128.4k").
-  - `lib/chat/compactConfig.ts` (new): `CompactThresholds {auto:0|1; tokens:number}`;
-    `COMPACT_PRESETS=[32k,64k,128k,256k]`; `COMPACT_CUSTOM_MIN/MAX=8_000/1_000_000`;
-    `fetchCompactThresholds()` module cache (`if (cache) return cache` — the gate's
-    freshness source); `primeCompactThresholds()` on Settings save; `compactThresholdsFromSettings()`.
-  - `lib/chat/compact.ts` (new): `RECENT_TAIL=4`; `COMPACTION_SYSTEM_PROMPT` (exact
-    Context Compaction Engine, verbatim user spec); `splitForCompaction()`;
-    `extractCompactedContext()` strips `<analysis>`, tolerant of missing close tag;
-    `runCompaction()` — empty toCompact → `{ok:true, compacted:false, label:"Context already
-    fits…"}` (no model call); replacement `[...system msgs, {role:"user", content:
-    "<compacted_context>\n…</compacted_context>"}, ...tail]`; client call
-    `new ChatClient(opts.apiUrl, opts.apiKey, opts.model)` stream:true,
-    reasoning_effort:"off", max_tokens 8192, 120 s abort timer.
-  - `app/api/settings/route.ts` + `lib/server/settings.ts`: persist
-    `compact_thresholds?: {auto:0|1; tokens:number}` (server stores only; chat UI sole reader).
-  - `lib/settings/client.ts`: type passthrough.
-  - `hooks/useChat.ts`: two histories — `messages`/`messagesRef` (full UI, persisted) vs
-    `llmHistoryRef` (model-facing, diverges after compaction); `compact(mode="manual"|"auto",
-    opts:{badgeAt?})`; `materializeLlmHistory()` applies the lazy pending rebuild
-    `llmPendingRef={base,uiLen}` (set in send()'s finally; resets on load/clear/retry/edit)
-    at the START of the next send()/compact(); pre-send gate awaits
-    `fetchCompactThresholds()`, projects llmHistory + pending user msg, compacts first when
-    ≥ threshold; `compactState {isCompacting, lastRun, badgeAt}` (badgeAt captured
-    synchronously — opts.badgeAt hint else messagesRef.length at compact start).
-  - `components/SettingsMenu.tsx`: "Context" tab — testids settings-tab-context /
-    settings-context-tab / compact-toggle / compact-preset-{32k,64k,128k,256k} /
-    compact-custom-input / compact-custom-error / compact-save / compact-status /
-    compact-now; preset `aria-pressed` = (auto===1 && tokens===p.value); status "On · 32k"/"Off";
-    save calls primeCompactThresholds; **compactDirtyRef
-    dirty-guard**: the menu-open `fetchSettings()` effect must NOT clobber compact state a
-    user already clicked (real cold-compile race fixed this cycle).
-  - 2026-10-22h SettingsMenu persistence/cursor fix (LOCKED-DONE, E2E 3/3 EXIT=0; see
-    docs/ISSUES.md): customInput seeds "" (not "0") when unset; preset click syncs
-    customInput; custom blur/Enter validated by `isValidCustom` (out-of-range never
-    reaches compact state); toggle-on arms COMPACT_PRESETS[0] when tokens unusable;
-    Save `cursor-wait` ONLY while saving, `cursor-not-allowed` on customError. The old
-    phantom "0" validator error was blocking every preset/toggle save (persist bug) AND
-    painting the rotating cursor on hover.
-  - `components/ChatInput.tsx`: `/^\/compact\s*$/i` in handleSend → `onCompactCommand?.()`,
-    no user bubble, no send.
-  - `components/ui/CompactDividerBadge.tsx` (new): testid `compact-divider`, data-state
-    "compacting" (needs badgeAt already set) / "done"; returns null unless
-    `lastRun && lastRun.compacted`; label `Context compacted (before -> after tokens)`.
-  - `app/page.tsx`: destructures `{compact, compactState, activeTokenCount}`;
-    `runCompact` guard (`isCompacting || status==="streaming"`); SettingsMenu
-    `onCompactNow={runCompact}`; ChatInput `onCompactCommand={runCompact}`; badge rendered
-    where `compactState.badgeAt === i + 1` inside the messages map.
-  - `__tests__/compact-pipeline.test.ts` (units: split/extract/label/fits) +
-    `tests/auto-compact.spec.ts` (3 green; fake paced SSE upstream on ephemeral port +
-    `route.continue("**/api/chat")`, `/hits` counters {compactions,normal,lastNormalCount,
-    lastNormalHadBlock,lastNormalHadOldMarker}; OLD_MARKER turns must be folded;
-    afterEach restores `{auto:0,tokens:0}`).
-- 2026-10-22e Recents parity (ALL E2E GREEN, do not re-open):
-  - `lib/types.ts` ConversationMeta += `group?: string`, `unread?: boolean` (round-trip
-    via whole-doc JSON store, no API change).
-  - `app/page.tsx`: persist meta rebuild CARRIES `group: existing?.group,
-    unread: existing?.unread` (omitting them erases them on next save); handleSelect
-    clears unread (save + state); `viewAllOpen` state; bulk handlers
-    `applyMetaBulk(ids, mutate, bumpUpdatedAt)` = per-id GET→mutate→save then ONE
-    refreshList (unread/group use bumpUpdatedAt=false); RecentsModal wired with
-    handleSelect/handleNew/handleDeleteSelected + 4 bulk handlers.
-  - `lib/chat/recentsFilters.ts`: `RecentsFilters.groupFilter` ("all"|name, persisted+
-    validated), filterConversations honors it; `listGroups()`, `formatActivityLabel()`
-    ("Just now"/"N hours ago"/"N days ago" <7d else medium date).
-  - `components/ui/RecentsFilterMenu.tsx`: Delete row under Status
-    (`recents-filter-delete` → onStartSelect), Groups flyout row
-    (`recents-filter-row-groups`/`recents-filter-groups`) only when groups exist.
-  - `components/ui/Sidebar.tsx`: collapsed header = `recents-view-all` pill (opens modal)
-    + `recents-expand` chevron; expanded right group has `recents-browse` Maximize2;
-    select-mode-toggle swaps SquareCheck→red Trash2 (text contract "Select"/"Cancel"/
-    "Delete N" unchanged); unread dot `data-testid="unread-dot"` before title; aside
-    keeps z-50 on desktop (stacking fix, locked).
-  - `components/ui/RecentsModal.tsx` (~340 lines, new): `recents-modal` z-[200],
-    tabs/search/chips/rows/toolbar testids — see §8.4. 2026-10-22f: no longer
-    full-screen — dimmed `bg-black/55` overlay (backdrop click closes) wrapping a
-    centered dialog `w-[min(60vw,1000px)] h-[min(60vh,680px)]` rounded-2xl border
-    +shadow; `data-testid="recents-modal"` now sits on the dialog; rows live in a
-    `max-w-2xl mx-auto` column with `pt-3` below the header. All testids unchanged;
-    recents specs re-ran 11/11 green (exit 0).
-  - `tests/recents-modal.spec.ts` (5 tests, new, green) +
-    `tests/recents-controls.spec.ts` (6 tests incl. filter-Delete-row + collapsed-pill
-    opens modal, green) + `tests/multi-select-delete.spec.ts` test 1 now seeds TWO chats
-    (one row-click must not pre-satisfy select-all) and cleans both.
-- `lib/types.ts`: `StageEvent {stage, detail?, mode?, ms?, done?, total?, coverage?, webCitations?, researchLfm?}` + `StreamEvent.stage?`.
-- `lib/stream/parser.ts`: `ruke_stage` → `{stage}` passthrough; `ruke_error` → finishReason "error"; plain SSE untouched (additive branch).
-- `app/api/chat/route.ts`: dual path — `payload.stream !== false` → ReadableStream Response
-  emitting ruke_stage frames (decision_done/skill/retrieval/web:<pipeline stages>/web_meta)
-  pre-first-byte then piping scrubbed upstream; inner AbortController merged with req.signal,
-  `cancel(){inner.abort()}`; upstream failure → `ruke_error` frame. Legacy path keeps real
-  status codes + web headers (protects conversation-title warmModel). `runTurnPipeline` shared.
-- `lib/web-search/pipeline.ts` + `extractor.ts`: PipelineProgress carries counters (searching
-  {total: plans}, reading {total, done per page via onPage}, gap-search/done {coverage, total passages}).
-- `lib/progress/turnProgress.ts`: pure TurnProgressTracker (steps/weights WEBSEARCH 3,
-  WRITING 3.5, THINKING 1.5, others 1; WEB_BAND bands lfm10/planning25/searching55/recovery65/
-  reading80→(80+done/total*12 capped 92)/rerank92/gap96/done100; skipped REMOVES step;
-  per-step monotonic `floor`; `overallFloor` keeps aggregate monotonic — a newly discovered
-  phase must never make the bar walk backwards; active clamps 5..95; complete→100,
-  error/aborted freeze at last measured; MODE_LABEL + MODE_OUTPUT + MODE_DEFAULT_CHARS tables).
-- `hooks/useChat.ts`: tracker created in send() with computeBaselines(messagesRef);
-  handleEvent feeds ev.stage + web_meta (sets webCitations/researchLfm exactly like the old
-  header path) + stores ev.usage on the message; noteContent(len)/noteReasoningStart/End/
-  openOutput on mode-fence open/setRepair; `turnProgress` React state (1 s tick + event
-  driven, rAF-safe); `dismissProgress()` exposed.
-- `components/ProgressChip.tsx` + TopBar `progress` slot (`ml-auto` row before {settings}) +
-  app/page.tsx wiring. testids `progress-chip` (aria-expanded/aria-haspopup, white classes
-  `border-[rgba(255,255,255,0.55)] text-white`) / `progress-panel` (role dialog).
-  PANEL OPENS ONLY ON CHIP CLICK — auto-open REMOVED (2026-10-22d): the auto-opened 300px
-  z-50 popup occluded the fresh-thread user bubble's "Edit message" button (broke
-  edit-stop-collapse :124 with a 60 s click hang; also a genuine UX hazard).
-- `__tests__/turn-progress.test.ts` (incl. "overall never walks backwards" regression) +
-  `__tests__/sse-stage-events.test.ts` (4 parser tests).
-- `tests/progress-panel.spec.ts`: 6 model-free tests via PACED ruke_stage SSE (Node http
-  server on ephemeral port + route.continue — route.fulfill delivers at once, useless
-  mid-stream; x-decision-mode header set; REPLY contains a VALID ```pptx fence so no repair
-  round fires).
-- VERIFIED THIS CYCLE (real exit codes): progress-panel 6/6 (35.6 s, PW_EXIT=0);
-  edit-stop-collapse 5/5 (18.2 s, PW_EXIT=0); search-gate 3/3 (2.4 m real model traffic,
-  PW_EXIT=0); vitest 573 passed | 1 skipped; tsc --noEmit EXIT=0.
-- Earlier-cycle locks still hold (TopBar/Sidebar/ChatInput/ProcessingStatus/greeting/
-  multi-select/conversations-crud work) — see 2026-10-22 docs entries; do not re-open.
+- Universal agent core (LOCKED-DONE, 17/17 E2E on real Chrome — do not re-open):
+  - `lib/browser/browserToolProtocol.ts`: VALID_ACTIONS = 13 (navigate, click,
+    snapshot, fill, select, check, hover, press, keyboard_nav, fill_form, batch,
+    resume_task, authorize_browser_access); extractBrowserApiFence: last valid fence,
+    16 KB cap, target-field caps, keys ≤40, fields ≤32, batch steps ≤8, coordinates
+    DROPPED, legacy names (scroll/back/reload/type/done_login/start/play_media/
+    play_embed) → null.
+  - `lib/browser/browserActions.ts`: runExtendedAction dispatcher = EXACTLY the 13
+    cases. CONSEQUENTIAL_RE at ~L103 (conservative; `send\b` gates even "Send query"
+    — pinned by unit test) + exported `isConsequentialName()`. doClick gate flow:
+    skip-if-done (`click:<url>:<name>` sig) → block-with-park (requestConfirmation
+    "consequential_action_consent", taskState waiting_for_confirmation) → grant →
+    markNonIdempotentDone. probeChallenge parks after every action. Ladder:
+    semantic_dom → expanded_dom → keyboard → visual_grounding → authorized_
+    alternative → human_handoff. `text` doubles as target AND fill/press content.
+  - `lib/browser/browserTargeting.ts` (role+name/label/text/selector/ref,
+    frame-qualified `f1:eN`, stale-ref identity guard with role+name recovery),
+    `domIndexer.ts` ([eN] refs + snapshotId, password values NEVER surfaced),
+    `fallbackController.ts` (classifyFailure/nextStrategy), `keyboardFallback.ts`
+    (allow-listed keys), `visualGrounding.ts` (ONE transient jpeg; RUKE_VISION_MOCK=1
+    → conf 0.9 hit / "multiple plausible targets" refusal; screenshotsTaken stays 0),
+    `highlightOverlay.ts` (`__ruke_ai_highlight__`, fixed, pointer-events:none,
+    "AI Click/Fill/Focus", 25 ms fade + 25 ms remove = 50 ms cycle (was 1,100),
+    removed BEFORE the real click — dom-basic asserts gone=yes),
+    `securityChallengeDetector.ts` (captcha/mfa/403; cookie banner NOT a challenge),
+    `taskState.ts` (disk `.data/browser-task.json`; states running|
+    waiting_for_user_action|waiting_for_login|waiting_for_confirmation|completed|
+    failed; single-use 10-min consequential grant), `authContext.ts`
+    (browserAuthContextBlock(ctx: BrowserTurnContext = {}), one block/turn),
+    `panelState.ts` (fence outcome feed for next turn), `intent.ts`
+    (hasExplicitBrowserIntent).
+  - `lib/browser/engineConfig.ts`: BrowserEngine = "brave"|"chrome"|"edge"|"firefox";
+    BROWSER_ENGINES order [chrome,brave,edge,firefox]; DEFAULT_BROWSER_ENGINE="chrome";
+    labels "{Name} Browser (User's Own Browser)". NO "internal" —
+    parseEngineValue("internal") → undefined.
+  - `lib/browser/engineLauncher.ts`: OS launch ONLY — executablePath required (throws
+    EngineUnavailableError "No substitute browser will be launched."), env override
+    RUKE_BROWSER_PATH_<ENGINE>, Windows candidates, profile
+    `.data/browser-profiles/<engine>/`, headless:false forced, CDP loopback-only.
+  - `lib/browser/telemetry.ts`: DISK-BACKED `.data/browser-telemetry.json` (dev
+    per-route bundles don't share memory — same reason taskState is on disk);
+    counters+ring ≤100/kind, env labels local_fixture/mock/real_browser, never
+    URLs/page text/values.
+  - API: `app/api/browser/route.ts` POST = extended semantic protocol only (200
+    executed / 422 refused). GET `/api/browser/telemetry` (sanitized snapshot),
+    `/api/browser/read` (Tier-3b login-wall read) kept. DELETED: legacy GET/DELETE
+    action surface, `/api/browser/stream`, `/api/browser/last-frame` (all now 404),
+    `components/RightBrowserPanel.tsx`.
+  - Fence loop: ```browser_api fence → `components/render/BrowserApiBlock.tsx`
+    (registered in `lib/render/registry.ts` + `components/render/FenceRouter.tsx`)
+    POSTs verbatim, chips outcome → next-turn block reports it (act→see→act).
+- Live-session hijack + truncated urls + --no-sandbox fix (LOCKED-DONE 2026-10-25
+  bugfix cycle, verified — do not re-open):
+  - `taskState.ts`: `TASK_TTL_MS = 2*60*60_000` enforced in BOTH loadTask branches
+    (raw + cached; expired → current=null + rmSync taskFile) — expired tasks are
+    invisible everywhere, their completedNonIdempotent sigs stop skipping real
+    clicks; `sameFlowPage` (origin+pathname, trailing slashes trimmed, query/hash
+    ignored); `taskFlowMismatch(t, liveUrl?, targetUrl?)` (absent evidence is NOT
+    a mismatch — closed-browser parks survive); `isStaleTask` (TTL-expired OR
+    waiting_for_* AND live tab contradicts task.url).
+  - `authContext.ts`: BrowserTurnContext gains `targetUrl`; a waiting_for_* park
+    that isStaleTask passes renders "— STALE: … Do NOT send resume_task for it"
+    instead of the resume line; `MEDIA ("play this song/video")` guidance + "The
+    user's message targets this EXACT url: … Copy it VERBATIM" lines.
+  - `intent.ts`: `extractBrowserUrl(prompt)` — first http(s) match verbatim
+    (trailing [.,;:!?] trimmed), else bare tokens that carry a path or start www
+    (TLD allow-list) get https:// prefixed; prose domains → null.
+  - `app/api/chat/route.ts` step 5b: on explicit intent,
+    `taskFlowMismatch(currentTask(), live?.url, targetUrl)` → clearTask() BEFORE
+    injectSystemBefore; block receives `targetUrl`.
+  - `interactiveBrowser.ts`: `chromiumSandbox: true` in the interactive-session
+    launch opts AND in readProfileLaunchArgs (Playwright's default false injects
+    --no-sandbox → the infobar). Headless pool (agentBrowser, documents/browser)
+    untouched — never visible.
+  - Unit pins: `__tests__/browser-task-state.test.ts` staleness describe (fake
+    timers: TTL-expired invisible + sigs dead, 1h TTL survival, sameFlowPage,
+    taskFlowMismatch incl. about:blank-vs-fixture, isStaleTask);
+    `browser-intent.test.ts` extractBrowserUrl describe; `browser-context-
+    integration.test.ts` stale-park-suppressed / current-park-kept / verbatim-url
+    tests; `browser-engine-launcher.test.ts` source contract (exactly 2
+    `chromiumSandbox: true`, no `--no-sandbox` in code, comments stripped).
+- Browser speed upgrade + browser-operator skill (LOCKED-DONE 2026-10-25, verified
+  last cycle — do not re-open):
+  - `components/render/BrowserApiBlock.tsx`: fence dedupe is a `Map<string,number>`
+    with `FIRE_COOLDOWN_MS = 1500` — the same fence text in a LATER turn re-fires.
+  - Cross-bundle state: `panelState.ts` lastOutcome lives on
+    `globalThis.__ruke_last_browser_outcome__` (still client-safe, NO `fs` import —
+    BrowserApiBlock loads it); `domIndexer.ts` store/nextId/latestId on
+    `globalThis.__ruke_dom_snapshot_store__`; `executeBrowserAction` also records
+    the outcome SERVER-side when `!nested` (recordBrowserApiOutcome) — the loop
+    closes even if the chip reloads.
+  - `highlightOverlay.ts`: FADE_MS 25 + REMOVE_WAIT 25 → 50 ms insert→remove
+    cycle (was ~1,100; ~22× faster), DOM invariants byte-identical.
+  - `browserTargeting.ts`: `refIdentitySuspect()` — semantic_dom step 1 does NOT
+    trust a ref whose `snapshotId < currentSnapshot()` or whose live accessible
+    name mismatches `spec.role`+`spec.name` → falls through to expanded_dom
+    recovery (`recovered: true`).
+  - `browserActions.ts`: `STATE_CHANGING_ACTIONS` (click/fill/select/check/press/
+    keyboard_nav/fill_form/batch) AUTO-RE-INDEX on success when `!nested` —
+    result gains `snapshotId` + `snapshotText`; telemetry `snapshotsTaken` NOT
+    bumped (fallback spec #17 pins this). `submitControlWording()` probes
+    `button, input[type="submit"], [role="button"]` labels (pageText ONLY as
+    fallback when no such controls exist). `doFillForm` combobox ladder: native
+    `<select>` → selectOption; text-entry/CE → fill; else open popup + click
+    matching `[role="option"]`/text item; honest per-field error otherwise.
+  - Tier-2 skill `.cskills/browser-operator/SKILL.md` +
+    `.cskills-scenarios/browser-operator.json` (sourceRepo "composite",
+    autoUse true, whenToUse/triggerKeywords set) — fill_form ≤32 fields, batch
+    ≤8 steps, always ref+role+name. The GO FAST rules are ALSO mirrored inline
+    in `authContext.ts` BROWSER_CONTROL because the standing block (chat route
+    5b) is the real per-turn channel; MODE_SKILL unchanged (no browser
+    RendererMode; the python decision-engine is absent on this machine).
+- OS-only pivot surfaces (LOCKED-DONE, 4/4 E2E — do not re-open):
+  - `app/api/settings/route.ts` (PUT browser_engine ∈ chrome|brave|edge|firefox,
+    400 "browser_engine must be chrome, brave, edge, or firefox"; closes session on
+    change), `lib/server/settings.ts` (stale "internal" → chrome fallback),
+    `lib/settings/client.ts`, `components/SettingsMenu.tsx` (four options, testids
+    settings-browser-engine / browser-engine-status / settings-tab-browser; static
+    hint: "Your own browser opens visibly in its own window and the AI drives that
+    real window. There is no built-in WebUI browser and no live mirror.").
+  - Fixtures `public/fixtures/browser-fallback/*.html` env-gated by
+    `isFixtureAllowed` (lib/web-search/ssrf.ts): RUKE_TEST_FIXTURES=1 +
+    localhost:3000 + /fixtures/browser-fallback/<name>.html only.
+    dom-poor.html search button is "Run query" (NOT "Send" — deliberately-gated verb).
+- Unit tests green (721): browser-{api-fence,challenge,context-integration,
+  dom-index-summary,engine-config,engine-launcher,fallback-ladder,intent,task-state,
+  telemetry,consequential(new — pins gate vocabulary BOTH directions)}.
+- Specs: `tests/browser-fallback.spec.ts` (17: pre-flight, semantic/weak DOM, iframe,
+  shadow open/closed, canvas visual + ambiguous refusal, stale-ref, keyboard, CAPTCHA
+  park/resume, consequential consent→MFA→no-resubmit, 403, cookie banner, broken
+  control, exhausted handoff, popup adoption, telemetry), `tests/browser-engine-panel.spec.ts`
+  (4: four-engine dropdown, 400 rejects incl. "internal", zero panel/mirror DOM incl.
+  dead `browser-panel:open` event, 404 mirror endpoints). beforeAll rmSync's
+  `.data/browser-task.json` + `.data/browser-telemetry.json`.
+- Earlier-cycle locks (compaction engine, recents parity, token meter, progress chip)
+  stay valid — see git history + older docs entries; contracts preserved in 8.4.
 
 [8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
-- app/api/chat/route.ts → lib/stream/parser.ts (client) → hooks/useChat.ts →
-  lib/progress/turnProgress.ts → components/ProgressChip.tsx → components/TopBar.tsx (progress slot) ← app/page.tsx.
-- route.ts → lib/web-search/pipeline.ts (onProgress bridge) → extractor.ts onPage counter.
-- web_meta stage → useChat message.webCitations/researchLfm → ProcessingStatus
-  sources popup (`web-search-toggle` opens `research-trail-card`; ResearchTrailCard
-  gradient bar removed 2026-10-22f; search-gate.spec guards).
-- ProgressChip dismiss → page.tsx dismissProgress → useChat.turnProgress=null (chip hides).
-- tests/progress-panel.spec + edit-stop-collapse.spec + search-gate.spec → the three changed surfaces.
-- 2026-10-22e Recents graph: app/page.tsx → components/ui/Sidebar.tsx (onViewAll,
-  filterMenu{groupNames,onStartSelect}) → RecentsFilterMenu.tsx; app/page.tsx →
-  RecentsModal.tsx → lib/chat/recentsFilters.ts (listGroups/formatActivityLabel) ←
-  lib/types.ts (meta group/unread); page bulk handlers → lib/persistence
-  (getConversation/saveConversation); specs recents-controls/recents-modal →
-  testids recents-* + conversation-item + confirm-dialog-confirm.
-- 2026-10-22g compact graph: `hooks/useChat.ts` → lib/chat/compact.ts (+tokens.ts) →
-  lib/chat/Client (ChatClient) → /api/chat; gate + compact() read
-  lib/chat/compactConfig.ts ← PUT app/api/settings/route.ts ← SettingsMenu
-  (primeCompactThresholds on save; compactDirtyRef guards the load race);
-  ChatInput `/compact` → page.tsx runCompact → useChat.compact("manual");
-  compactState.badgeAt → page.tsx messages map → CompactDividerBadge;
-  llmHistoryRef/llmPendingRef → send() payload; tests/auto-compact.spec →
-  testids settings-tab-context/compact-*/compact-divider + PUT /api/settings +
-  POST/DELETE /api/conversations seeding.
+- Model text → ```browser_api fence → render/registry+FenceRouter → BrowserApiBlock.tsx
+  → POST /api/browser → browserActions.runExtendedAction → {browserTargeting,
+  domIndexer, fallbackController, keyboardFallback, visualGrounding, highlightOverlay,
+  securityChallengeDetector} over interactiveBrowser page handle (engineLauncher
+  resolves the exe; interactiveBrowser launches it — chrome validated — BOTH visible
+  launches now chromiumSandbox:true) → {taskState disk, telemetry disk,
+  panelState memory}.
+- Outcome → panelState → authContext.browserAuthContextBlock ← app/api/chat/route.ts
+  (liveTabInfo + currentEngineForSession + intent.hasExplicitBrowserIntent +
+  intent.extractBrowserUrl → targetUrl + currentTask/taskFlowMismatch → clearTask
+  supersede before inject; exactly ONE "## Browser agent" block/turn —
+  chatEngine.test contract).
+- authContext staleness reads taskState.isStaleTask(task, ctx.liveUrl); the
+  block's task line branches STALE vs resume directive on it.
+- GET /api/browser/telemetry reads the SAME disk file the action route writes.
+- lib/web-search/pipeline.ts (7 tiers, UNTOUCHED logic; only a directive comment
+  reworded) → extractor.ts Tier 3b → interactiveBrowser.readWithInteractiveProfile.
+- SettingsMenu → PUT /api/settings → lib/server/settings.ts → engineConfig →
+  chat-route block "Engine:" line + engineLauncher.
 
 [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
-- SSE stage envelope: `data: {"ruke_stage":{...StageEvent}}\n\n` before first upstream byte;
-  `data: {"ruke_error":{"message":...}}` on upstream failure; `data: [DONE]` always last.
-- Chip label: "Step {activeIdx+1} of {n}" running; "Done"/"Stopped"/"Failed" terminal.
-- Panel contract: testids progress-chip/progress-panel; X aria-label "Close progress";
-  overall row is the FIRST `.tabular-nums` in the panel (per-step % come after);
-  closePanel: running→panel only, terminal→dismiss chip too.
-- White chip (user requirement): border rgba(255,255,255,0.55), text white — NEVER blue.
-- Chat route dual path: stream!==false → stage-channel Response; stream===false → legacy
-  headers/status (title-gen warmModel depends on it).
-- Sidebar menu = plain buttons (no ARIA roles); ConfirmDialog "Delete conversation?";
-  hero placeholder "How can I help you today?", bar placeholder "Reply"; testids
-  send-button/file-input/attachment-chip/conversation-item/select-mode-toggle intact.
-- Recents parity contracts: ConversationMeta `group?: string` / `unread?: boolean`;
-  RecentsFilters `groupFilter` (persisted). Modal testids: recents-modal /
-  recents-tab-active|archived / recents-modal-search|-select|-new|-close /
-  recents-modal-select-all / recents-modal-bulk-pin|-group|-unread|-archive|-delete /
-  recents-modal-exit-select / recents-modal-move-panel / recents-modal-group-name /
-  recents-modal-group-save / recents-modal-move-remove / recents-group-chip-all /
-  recents-group-chip-{name} / recents-modal-row / recents-modal-unread-dot.
-  Sidebar: recents-view-all / recents-expand / recents-browse / unread-dot.
-  Z-layers: aside z-50 (desktop), modal z-[200], ConfirmDialog z-[999] (above modal).
-- Auto-compact contracts: settings.json `compact_thresholds:{auto:0|1;tokens:number}`;
-  presets 32_000/64_000/128_000/256_000; custom 8,000–1,000,000 (COMPACT_CUSTOM_MIN/MAX);
-  RECENT_TAIL=4; post-compaction model array = [system msgs…, {role:"user",
-  content:"<compacted_context>…</compacted_context>"}, …last 4, new user msg]; persisted +
-  UI history NEVER touched by compaction; badge label "Context compacted (before -> after
-  tokens)" via formatTokens; testids settings-tab-context / settings-context-tab /
-  compact-toggle / compact-preset-{32k,64k,128k,256k} / compact-custom-input /
-  compact-custom-error / compact-save / compact-status / compact-now / compact-divider.
-- Compaction transport contract (2026-10-23): compaction calls POST /api/chat with
-  `purpose:"compact"` (ChatRequest) — route MUST forward verbatim and strip the marker
-  before upstream; compaction request = [system COMPACTION_SYSTEM_PROMPT, ...folded
-  history, COMPACTION_ANCHOR_PROMPT user turn]; anchor never enters the replacement array;
-  300 s client abort cap; divider testid compact-divider with data-state
-  compacting|done|failed|noop (failed/noop now VISIBLE).
-- Token meter contract (2026-10-23b): `GET /api/model-stats` → `{ok, model_alias, n_ctx,
-  total_slots}` (proxies upstream /props, 3 s timeout, api-key header server-side only);
-  `GET /api/model-stats?live=1` → `{ok, processing, prompt_tokens, n_ctx}` (upstream /slots);
-  unreachable → `{ok:false}` (HTTP 200 — client MUST render dashes, never fake numbers).
-  Footer span `[data-testid="token-meter"]`, text `Speed: {2dp} tk/s · Context: {used}/{max}`
-  (em dashes when unknown); ChatInput prop `tokenMeter?: TokenMeterSnapshot`; hook poll is 1 Hz
-  ONLY while status==="streaming".
-- Lock file `.ai-coordination/playwright.lock`; no npm test:e2e — real command
-  `npx playwright test <specs>` (baseURL :3000, workers:1, headless:false, slowMo 300,
-  PLAYWRIGHT_BROWSERS_PATH=.data/ms-playwright). Bash foreground runs are capped at 600 s —
-  run specs ONE FILE PER CALL under a single lock; capture `${PIPESTATUS[0]}` (plain
-  `| tail` swallows the exit code).
+- Engine: `BrowserEngine = "brave"|"chrome"|"edge"|"firefox"`; DEFAULT chrome;
+  settings.json `browser_engine` validated server-side (400 on anything else incl.
+  legacy "internal"); profile `.data/browser-profiles/<engine>/` (automation
+  profile — never the user's normal Chrome profile; wipe = delete the dir).
+- POST /api/browser body = semantic action JSON (same schema as the fence);
+  200 ok:true executed | 422 ok:false + {error, strategies?, challenge?, needs_consent?,
+  consentReason?, taskState?, guidance?, skipped?, recovered?, snapshotId,
+  snapshotText, url, title}. GET/DELETE on /api/browser and the stream/last-frame
+  routes DO NOT EXIST (404).
+- Consequential gate: CONSEQUENTIAL_RE (pay|payment|purchase|buy now|checkout|
+  place order|send|post|publish|delete|remove|transfer|submit application|apply now|
+  sign contract/agreement|accept terms) — `isConsequentialName()` exported; grant
+  via authorize_browser_access (single-use, 10 min); skip-if-done sig
+  `click:<url>:<name>`; task persisted `.data/browser-task.json`.
+- Telemetry: `.data/browser-telemetry.json` = {counters{actions,screenshotsTaken,
+  snapshotsTaken,humanHandoffs,challengesSeen,fallbacksUsed,consequentialBlocked,
+  consequentialGranted,byStrategy}, kinds{kind:Sample[]≤100}}; snapshot via
+  GET /api/browser/telemetry = {ok, telemetry{kind stats w/ envs, counters, when}}.
+- Env gates: RUKE_TEST_FIXTURES=1 (fixture allow-list), RUKE_VISION_MOCK=1
+  (deterministic grounding), RUKE_BROWSER_PATH_<ENGINE> (launcher override).
+- Fence protocol: one JSON action per ```browser_api fence; caps per 8.2; `text`
+  alias for target AND fill/press content; NO coordinates, NO legacy verbs.
+- Speed contracts (pinned): client fence cooldown 1500 ms;
+  cross-bundle globalThis keys `__ruke_last_browser_outcome__` +
+  `__ruke_dom_snapshot_store__`; every successful state-changing action
+  auto-re-indexes and the ActionResult optionally carries `snapshotId`+
+  `snapshotText` — but `snapshotsTaken` counts ONLY explicit snapshot actions;
+  semantic_dom refuses stale/suspect refs via `refIdentitySuspect` so
+  expanded_dom role+name recovery fires (`recovered:true`); consequential
+  "submit" probe reads submit-CONTROL wording first; fill_form/select handle
+  native AND custom comboboxes.
+- Staleness & launch contracts (bugfix cycle, pinned): `TASK_TTL_MS`=2h is the
+  ONLY task expiry (loadTask enforces; expired = file rm'd); `isStaleTask`
+  suppresses ONLY the resume directive and ONLY when a waiting_for_* park
+  contradicts the live tab (or age > TTL); `taskFlowMismatch` NEVER fires on
+  absent evidence (closed-browser parks survive); chat 5b injects `targetUrl`
+  (verbatim) whenever extractBrowserUrl finds a url; both VISIBLE launches set
+  `chromiumSandbox: true` — the automation window must never carry
+  --no-sandbox / Chrome's infobar.
+- Still-valid pre-browser contracts (unchanged): SSE ruke_stage/ruke_error envelope;
+  compact purpose:"compact" passthrough + COMPACTION_ANCHOR_PROMPT; compact_thresholds
+  settings; token-meter /api/model-stats; ConversationMeta group/unread; recents/
+  progress testids; lock file `.ai-coordination/playwright.lock`; real test command
+  `npx playwright test <spec>` (ONE FILE PER foreground call under a single lock;
+  capture ${PIPESTATUS[0]}).
 
 [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
-- Dev server on :3000 (node PID observed 17696 this cycle; NOT restarted — Next hot-reload
-  picked up useChat/SettingsMenu edits; restart one-liner in docs/e2e-test-state.md).
-- 2026-10-22g verified (real exit codes, single lock, one spec file per Bash call):
-  auto-compact 3/3 (4.2 s / 2.0 s / 3.1 s, PW_EXIT=0), edit-stop-collapse 5/5 (17.8 s,
-  PW_EXIT=0), progress-panel 6/6 (35.2 s, PW_EXIT=0); vitest run 52 files 595 passed |
-  1 skipped (11.74 s, VITEST_EXIT=0); tsc --noEmit EXIT=0. No playwright-cli sessions open;
-  lock released.
-- Store holds many conversations incl. real ones — do not wipe. WARNING: the
-  auto-compact spec afterEach resets compact_thresholds to {auto:0,tokens:0} — if the
-  USER has a live setting, RESTORE it after running that spec (did so 2026-10-23:
-  {auto:1,tokens:32000} is the user's live config). auto-compact 5/5 incl. 2 real-backend
-  tests (route contract 6.8 s; real /compact 21.0 s; suite 39.1 s, PW_EXIT=0 via pipefail).
-- Mock-SSE patterns: paced http upstream + route.continue (NOT route.fulfill); route
-  interception works without CORS headers (same-origin decided pre-interception); frames
-  written via setTimeout + per-frame `alive()` liveness — never req.on("close") inside
-  req.on("end") (fires instantly, wipes timers, hangs the fetch). readingDelay override
-  widens the progress-spec reading window for label asserts.
-- 2026-10-23b verified: tests/token-meter.spec.ts 1/1 (5.0 s, PW_EXIT=0, single lock, one file
-  per call) — model-free: fake upstream streams usage+timings frame (`{"usage":…,"timings":…}`
-  before [DONE]) and /api/model-stats fulfilled via pathname predicate route (query-aware);
-  asserts mid-stream live band AND final exact "Speed: 42.50 tk/s · Context: 4542/100000".
-  Spec never touches /api/settings. vitest __tests__/token-meter.test.ts 14/14; endpoint curl
-  smoke against real backend: n_ctx 131072, live prompt_tokens 60770 (zero inference cost).
+- Dev server :3000 — boot pattern `nohup env RUKE_TEST_FIXTURES=1 RUKE_VISION_MOCK=1
+  npm run dev > .ai-coordination/dev8.log 2>&1 & echo $! > .ai-coordination/dev.pid`
+  (current pidfile 942, RUNNING — the user's plain-`npm run dev` restart, old pid
+  19892, was killed and re-homed WITH the fixture env). RESTART before each TEST
+  phase (hot reload can reset in-memory modules; disk stores keep telemetry,
+  globalThis stores repopulate on demand). If navigate answers "refused unsafe or
+  non-http(s) URL" on a fixture url → the server lacks RUKE_TEST_FIXTURES (the
+  isFixtureAllowed gate), that is NOT a code defect.
+- VERIFIED 2026-10-25 bugfix cycle (real Chrome, visible, SANDBOXED — the live
+  automation Chrome process cmdline was probed clean of --no-sandbox; a direct
+  navigate probe returned ok:true before the suites): `npx playwright test
+  tests/browser-fallback.spec.ts` 17/17 (4.5 s) PW_EXIT:0 (first attempt was
+  17/17 RED — infra only: server without the fixture env); `npx playwright test
+  tests/browser-engine-panel.spec.ts` 4/4 (49.2 s) PW_EXIT:0; one spec per
+  foreground call under the bash lock (trap EXIT releases). vitest 66 files /
+  721 passed / 1 skipped VITEST_EXIT:0; tsc EXIT:0. Post-run hygiene: rm
+  .data/browser-task.json (the exhausted.html park is a fixture artifact — the
+  new TTL/STALE logic neutralizes it anyway) + taskkill automation chrome.
+  Settings left at engine=chrome (specs restore it in afterAll).
+- First-run failures since fixed & re-verified: (1) weak-DOM "Send query" hit the
+  conservative send\b gate → fixture renamed "Run query" + heuristic pinned by unit
+  test; (2) telemetry counters 0 in separate route bundle → disk-backed telemetry;
+  (3) getByRole("button",{name:"Settings"}) substring-matched the disabled "Voice
+  settings" button → `getByTestId("topbar").getByRole(..., {exact:true})` in spec.
+- Fixture env labels stay `local_fixture`; screenshotsTaken=0 across all mock runs.
 
 [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
-- None open. Resolved 2026-10-23 (user report "compact is not working at all… 100k…
-  even manual compact is not working"): FOUR layers — stale-32k persistence (fixed
-  2026-10-22h), route pipeline corrupting the compaction payload (purpose:"compact"
-  passthrough), real model ignoring the block contract without a trailing anchor
-  (COMPACTION_ANCHOR_PROMPT), and every failure being invisible (badgeAt+failed state).
-  Full write-up in docs/ISSUES.md. Key lesson: ALL earlier compaction tests intercepted
-  **/api/chat so the real route never ran — real-route coverage is now mandatory for
-  transport changes.
-- Resolved 2026-10-22g: (a) REAL APP BUG — SettingsMenu's menu-open effect
-  `fetchSettings()` (~566 ms cold dev compile) resolved AFTER a preset click and
-  overwrote the just-clicked compact state (aria-pressed stuck "false" through 5 s of
-  polls); fixed with the `compactDirtyRef` guard, and auto-compact test 1 clicks with NO
-  settle wait so the guard stays verified. (b) TEST-HARNESS bug — the fake upstream's
-  `req.on("close")` registered inside `req.on("end")` fires immediately (body stream
-  already closed) → wiped every scheduled SSE frame → browser fetch hung forever with
-  compactions:1 in /hits yet no response bytes, no requestfailed, no pageerror; fixed
-  with `alive()` liveness per write + `res.on("close")` cleanup. Noted non-bugs: manual
-  label showed after > before because the canned summary block is longer than the two
-  tiny folded messages (real summaries are smaller); token counts are ~4 chars/token
-  estimates.
-- Resolved 2026-10-22e: multi-select-delete test 1 failed on
-  `Delete ${total}` after the select-all click — store was empty + single seed → the
-  one row-click already satisfied select-all so the click DESELECTED. Fix: seed TWO
-  chats (+cleanup both) → 2/2 green. Resolved earlier (2026-10-22d): (a) overall % regressed 60→33 when the weight-3 websearch
-  step opened at band 10 → overallFloor (unit test added); (b) auto-opened panel occluded
-  the user bubble Edit button → edit-stop-collapse :124 click hang (60 s timeout) → removed
-  auto-open, spec updated to click-to-open, re-run green.
-- Not run wholesale: other specs (skills/studio/cad/...) don't exercise changed surfaces;
-  ProgressChip is inert unless turnProgress is set and no longer auto-shows, so overlay
-  interference with other specs is now impossible.
+- None open. (Resolved in the bugfix cycle: stale fixture park hijacking live
+  chat turns → TTL + STALE directive suppression + route supersede; youtu.be
+  re-typed to `youtu.be` → verbatim targetUrl injection; Chrome --no-sandbox
+  infobar → chromiumSandbox:true; fallback 17/17 RED → server env, not code.
+  Prior cycle: consequential-gate false positive; disk-backed telemetry;
+  Settings/Voice-settings locator substring — exact:true.)
+- Known limitations (honest, not bugs): brave/edge/firefox launchers configured but
+  NOT live-validated (chrome is the user-validated engine per pivot); real vision
+  grounding not exercised (RUKE_VISION_MOCK keeps fixtures deterministic); the
+  .decision-engine python worker is absent on this machine so the "## Browser agent"
+  block is injected directly by the chat route rather than via a RendererMode
+  skill_to_load; live public-web journeys not automated (fixtures only).
 
 [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
-- None loaded this session (Playwright via npx + project config directly). Tier 2 untouched.
+- None loaded this session (Playwright via npx + project config; lock protocol by
+  bash trap; vitest direct). Tier 2 (.cskills): `browser-operator` ADDED this
+  cycle (scenario autoUse:true) — model-facing guidance reaches the model via the
+  standing authContext block today; skill_to_load wiring awaits the decision
+  engine. Never browser-listable/installable (installer rejects ./.cskills/).
 
 [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
-1. DONE — Auto-Compact Context delivered; auto-compact 3/3 + regression specs green;
-  docs/STATE.md + docs/CHANGELOG.md synced (2026-10-22g).
-2. §4 completion report delivered to the user (this session).
-3. Optional follow-ups ONLY IF USER ASKS: commit the uncommitted work (new
-  lib/chat/{compact,compactConfig,tokens}.ts, CompactDividerBadge, test files +
-  modified useChat/SettingsMenu/ChatInput/page/settings-route/client/types +
-  app/api/chat/route.ts — NOTE several of these carry PRE-EXISTING unrelated edits from
-  prior uncommitted cycles, stage selectively; nothing has been committed this whole
-  effort); exact tokenizer instead of the chars/4 estimate. (The former "in-flight
-  spinner invisible" follow-up was DELIVERED 2026-10-23 — badgeAt now publishes with
-  isCompacting.)
+1. Suggest the user re-run the live journey "open my browser and play this song
+  <youtu.be url>" in the WebUI — the fixes target exactly that journey; unit
+  coverage pins every decision, but the end-to-end model behavior is not
+  automated. If they ask us to verify it, run a fresh TEST phase under the lock.
+2. NOTHING ELSE REQUIRED — bugfix cycle complete, all suites green. Optional
+  only if the user asks: commit the working tree (this cycle + speed upgrade +
+  browser-operator + the prior feature/pivot; several files carry pre-existing
+  uncommitted edits — stage selectively; end commit msg with
+  "Co-Authored-By: Claude Code <noreply@anthropic.com>").
+3. Optional: wire the decision-engine worker → browser RendererMode → skill_to_load
+  for .cskills/browser-operator when the python backend returns (the inline GO
+  FAST block in authContext.ts is the stand-in). Dev server left running at :3000,
+  pidfile .ai-coordination/dev.pid = 942 (log dev8.log) — kill that pid to stop it;
+  note it was re-homed WITH RUKE_TEST_FIXTURES=1 + RUKE_VISION_MOCK=1.

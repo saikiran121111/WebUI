@@ -5,7 +5,8 @@
  */
 export type FenceKind =
   | "mermaid" | "chart" | "widget" | "scene3d" | "asset3d" | "threejs" | "anatomy" | "cad" | "code"
-  | "html" | "resume" | "docx" | "xlsx" | "pptx" | "powerbi";
+  | "html" | "resume" | "docx" | "xlsx" | "pptx" | "powerbi"
+  | "browser_api";
 
 const FENCE_OWNERS: Record<string, FenceKind> = {
   mermaid: "mermaid",
@@ -22,6 +23,10 @@ const FENCE_OWNERS: Record<string, FenceKind> = {
   xlsx: "xlsx",
   pptx: "pptx",
   powerbi: "powerbi",
+  // The model's browser-control fence (lib/browser/browserToolProtocol.ts):
+  // BrowserApiBlock executes the JSON action against /api/browser and
+  // records the outcome for the next turn's system context.
+  browser_api: "browser_api",
 };
 
 export function fenceKind(rawLang: string): FenceKind {
