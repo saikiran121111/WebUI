@@ -304,3 +304,47 @@ No open phase — all specs green; work is in working tree (uncommitted, develop
   FAST block in authContext.ts is the stand-in). Dev server left running at :3000,
   pidfile .ai-coordination/dev.pid = 942 (log dev8.log) — kill that pid to stop it;
   note it was re-homed WITH RUKE_TEST_FIXTURES=1 + RUKE_VISION_MOCK=1.
+
+---
+
+## Session 2026-10-25-B — Browser agent loop (act→see→act auto-continuation)
+
+### 8.1 Objective & milestone
+Fix: browser-agent chat stopped silently after the first executed fence. Implemented
+client-side bounded agent loop in hooks/useChat.ts. CODE phase complete: tsc exit 0,
+vitest 721 passed / 1 skipped / 0 failed. NOT yet verified live (TEST phase pending —
+:3000 dev server owned by user's own restart; fixture env state unknown).
+
+### 8.2 Locked completed
+- hooks/useChat.ts agent loop (final consolidated version, compiles + suite green):
+  BROWSER_CONTINUE_MSG module const; MAX_BROWSER_AGENT_STEPS=10; BROWSER_OUTCOME_WAIT_MS=90s;
+  browserLoopRef{round,consumedWhen}; turnGenRef (user-send/Stop supersedes scheduled rounds);
+  noteUserSend (fresh-browser-ask regex resets budget, cancels timer);
+  runBrowserRound(round,gen): waits for lastBrowserApiOutcome().when > consumedWhen, then
+  materializeLlmHistory + visible user(BROWSER_CONTINUE_MSG)+assistant bubbles (step label via
+  existing Message.fenceRepair field — renders through ChatMessage fence-repair note), pinned
+  decision_mode, rAF flush untouched, deferred llmPendingRef rebuild (base=llmHistoryRef,
+  uiLen=uiLenBeforeRound), llm chains naturally because the continue line IS a real UI bubble;
+  maybeContinueBrowserLoop(content,isRealUserTurn): acted = any VALID complete browser_api fence
+  (extractBrowserApiFence probe); no-fence turn ENDS loop; step-limit bubble at cap; 900ms timer.
+  Wiring: send() noteUserSend + post-repair maybeContinue(true); runBrowserRound tail
+  maybeContinue(false); stop()/clear()/edit() clearBrowserLoop().
+- components/render/BrowserApiBlock.tsx: repeat-navigate guard (identical fence source previously
+  fired + freshest outcome is ok navigate same url → skip POST; prevents refill wipe);
+  navigate label "Opened <host+path> in the browser (new tab)".
+- Root cause (locked): the loop closed because only the NEXT chat turn's server block (route.ts
+  step 5b) informs the model of outcomes, and nothing auto-sent that turn.
+
+### 8.5 Verification state
+No Playwright run this session. :3000 = user-restarted server (pidfile stale). New client code
+is live on next page load (Next dev compile). Next: user re-runs the selenium web-form journey
+with Strata-Gated, OR TEST phase: relaunch dev w/ RUKE_TEST_FIXTURES=1 RUKE_VISION_MOCK=1 under
+documented pattern + run browser-fallback.spec.ts (17) / browser-engine-panel.spec.ts (4) one per
+foreground call under .ai-coordination lock.
+
+### 8.8 Next 3
+1. User re-runs live journey (or approve TEST phase relaunch under fixtures).
+2. ANALYZE live/Playwright evidence; watch for: model re-emitting navigate after guard skips chip
+   (should be gone), step-note text, 90s outcome waits on slow pages.
+3. If loop misbehaves: tune BROWSER_CONTINUE_MSG wording and MAX steps; never touch fenceRepair
+   machinery.

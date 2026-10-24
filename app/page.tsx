@@ -628,7 +628,7 @@ function EmptyState({
             <button className="text-[12px] font-medium text-white/85
               hover:text-white transition-colors duration-[120ms]"
               title="Model selection — coming soon">
-              Sonnet 5.5
+              Local Model
             </button>
             <EffortControl effort={effort} onEffortChange={onEffortChange} variant="text" />
             <button className="text-[12px] font-medium text-white/85

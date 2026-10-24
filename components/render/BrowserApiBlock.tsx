@@ -18,7 +18,7 @@
 import { memo, useEffect, useState } from "react";
 import { Check, X, Loader2, Globe } from "lucide-react";
 import { extractBrowserApiFence, type BrowserApiAction } from "@/lib/browser/browserToolProtocol";
-import { recordBrowserApiOutcome } from "@/lib/browser/panelState";
+import { recordBrowserApiOutcome, lastBrowserApiOutcome } from "@/lib/browser/panelState";
 
 /**
  * Module-level dedup: which (source) strings fired a POST, and WHEN.
@@ -58,6 +58,24 @@ export default memo(function BrowserApiBlock({ source }: BrowserApiBlockProps) {
       // state optimistically instead of double-firing the action.
       setState({ ok: true });
       return;
+    }
+    // Repeat-navigate guard (beyond the remount cooldown): if THIS exact
+    // fence fired before and its navigate outcome is still the freshest
+    // result, re-POSTing would reload the page and wipe everything the
+    // agent already typed into it. A genuine "open it again" request is
+    // never the freshest outcome (other actions ran since), so it fires.
+    if (action.action === "navigate" && action.url) {
+      const last = lastBrowserApiOutcome();
+      if (
+        lastFired !== undefined &&
+        last?.ok &&
+        last.action === "navigate" &&
+        last.url === action.url &&
+        last.when >= lastFired
+      ) {
+        setState({ ok: true });
+        return;
+      }
     }
     executedFences.set(source, Date.now());
 
@@ -137,7 +155,9 @@ function summarizeSource(source: string): string {
   const a = m?.[1] ?? "browser action";
   const url = source.match(/"url"\s*:\s*"([^"]+)"/)?.[1];
   if (a === "navigate") {
-    return url ? `Opened ${shortUrl(url)} in the browser` : "Navigating the browser";
+    // "(new tab)" is truthful: the server opens a fresh tab in the user's
+    // browser per action — it never hijacks an existing window tab.
+    return url ? `Opened ${shortUrl(url)} in the browser (new tab)` : "Opening the page in a new browser tab";
   }
   return a[0].toUpperCase() + a.slice(1);
 }
