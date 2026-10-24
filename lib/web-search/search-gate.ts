@@ -182,10 +182,11 @@ export function deterministicHardBypass(
   if (!hit) return null;
 
   const queries: SearchDecision["queries"] = [];
-  for (const d of hit.detected.slice(0, 4)) queries.push({ query: d.url, intent: "general" });
-
-  // Keyword-form companion query: strip fillers + the URL itself so the
-  // metasearch pool still learns WHAT to look for around the link.
+  // Keyword form first: search engines index pages, not URL strings — a
+  // URL-as-query returns the domain's homepage (or nothing). The pipeline's
+  // Stage-0 direct-target fetch reads the prompt's own URLs in parallel,
+  // so the keyword query is all the engine pool needs to learn what to
+  // look for around the link.
   const filler = new Set([
     "tell", "me", "what", "is", "the", "a", "an", "i", "want", "to", "so",
     "you", "can", "could", "please", "how", "about", "in", "on", "at", "by",
@@ -202,6 +203,17 @@ export function deterministicHardBypass(
     .slice(0, 8)
     .join(" ");
   if (keywords.length > 3) queries.push({ query: keywords, intent: "general" });
+
+  // URL plans: kept as last queries (cache-key continuity) — metasearch()
+  // drops URL-shaped plans from the engine pool; the pipeline's Stage-0
+  // direct-target fetch is what actually reads the linked page.
+  if (hit.detected.length > 0) {
+    for (const d of hit.detected.slice(0, 4)) {
+      if (!queries.some((q) => q.query === d.url)) {
+        queries.push({ query: d.url, intent: "general" });
+      }
+    }
+  }
   if (queries.length === 0) {
     queries.push({ query: p.replace(/\s+/g, " ").trim().slice(0, 300), intent: "general" });
   }

@@ -26,7 +26,7 @@
  */
 import type { SearchPlan } from "./metasearch";
 import type { SearchGateContext, SearchDecision } from "./types";
-import { metasearch } from "./metasearch";
+import { metasearch, stripUrlPlans } from "./metasearch";
 import { tokenize } from "./reranker";
 
 type GateQuery = SearchDecision["queries"][number];
@@ -262,12 +262,17 @@ export function planQueries(
 
   // 1. Broad semantic query — use the LLM's own queries if it produced
   // them, else the raw prompt (capped at 200 chars so the engine pool
-  // gets a clean string).
-  for (const q of gateQueries.slice(0, 2)) {
+  // gets a clean string). URL-shaped gate queries are dropped: the
+  // pipeline's Stage-0 direct-target fetch reads the linked page in
+  // parallel, so the engine pool only needs the keyword form.
+  const keywordGateQueries = stripUrlPlans(
+    gateQueries.map((q) => ({ query: q.query, intent: q.intent as SearchPlan["intent"], preferredDomains: q.preferred_domains })),
+  );
+  for (const q of keywordGateQueries.slice(0, 2)) {
     plans.push({
       query: q.query,
       intent: q.intent,
-      preferredDomains: q.preferred_domains,
+      preferredDomains: q.preferredDomains,
       origin: "semantic",
     });
   }
