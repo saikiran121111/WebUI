@@ -18,14 +18,14 @@
  * `docs/web-search-10k-report.md`.
  *
  * ZERO-DOWNLOAD rule: this spec never runs `playwright install` — the
- * in-memory pool (lib/browser/agentBrowser.ts) resolves Chromium from
+ * in-memory pool (lib/web-search/agentBrowser.ts) resolves Chromium from
  * the repo-local `.data/ms-playwright` cache via
  * PLAYWRIGHT_BROWSERS_PATH, exactly like playwright.config.ts does.
  */
 import { test, expect } from "@playwright/test";
 import { readFileSync, existsSync, mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { extractPageInOnePass, closeBrowserPool } from "../lib/browser/agentBrowser";
+import { extractPageInOnePass, closeBrowserPool } from "../lib/web-search/agentBrowser";
 import { walkGenericJsonForEntities } from "../lib/web-search/hydration-unpacker";
 import { llmApiUrl, llmApiKey } from "../lib/server/settings";
 import { THINKING_OFF_BODY } from "../lib/web-search/llm-json";

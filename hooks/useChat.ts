@@ -24,8 +24,6 @@ import {
   type BrokenFence,
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
-import { extractBrowserApiFence } from "../lib/browser/browserToolProtocol";
-import { lastBrowserApiOutcome } from "../lib/browser/panelState";
 import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
 import {
   computeBaselines,
@@ -33,30 +31,12 @@ import {
   type TurnProgressSnapshot,
 } from "../lib/progress/turnProgress";
 
-/**
- * The continuation line the browser agent loop sends as each automatic
- * step. Deliberately terse: the action result + the current page's ref
- * map are injected SERVER-side (app/api/chat/route.ts standing browser
- * block, step 5b), so the wire payload stays small and the model only
- * has to re-decide the next move.
- */
-const BROWSER_CONTINUE_MSG =
-  "[agent loop] That step was executed — the result and the current page's ref map are in your context. " +
-  "Continue the user's browser task now: emit the next fence (prefer batch or fill_form to combine steps). " +
-  "If the task is complete, report the outcome to me in plain words; if you need consent, a login, or a " +
-  "choice from me, ask and stop. Never repeat an action that already succeeded.";
-
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
 export interface UseChatOptions {
   model?: string;
   apiUrl?: string;
   apiKey?: string;
-  /**
-   * The web pipeline hit a login wall (web:auth_required stage) — the page
-   * opens its in-app Browser panel targeted at the walled URL (Part 3).
-   */
-  onAuthRequired?: (info: { url?: string; domain?: string }) => void;
 }
 
 export interface UseChatReturn {
@@ -101,13 +81,7 @@ export function useChat({
   model = "",
   apiUrl,
   apiKey,
-  onAuthRequired,
 }: UseChatOptions = {}): UseChatReturn {
-  // Stable ref: handleEvent stays dependency-free but always sees the
-  // page's latest auth-required handler.
-  const onAuthRequiredRef = useRef(onAuthRequired);
-  onAuthRequiredRef.current = onAuthRequired;
-
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus]   = useState<SendStatus>("complete");
   const [error, setError]     = useState<string | null>(null);
@@ -392,9 +366,6 @@ export function useChat({
   const clear = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    clearBrowserLoop(); // deps intentionally not extended: the const is
-    // declared later in this hook; referencing it inside the callback body
-    // is safe (called post-render), listing it as a dep would TDZ-crash.
     setMessages([]);
     messagesRef.current = [];
     llmHistoryRef.current = [];
@@ -434,11 +405,6 @@ export function useChat({
             ...(gateMeta ? { searchGate: gateMeta } : {}),
           } : m));
         }
-      }
-      if (ev.stage.stage === "web:auth_required") {
-        // Login-wall report (Part 3): surface the Browser panel aimed at the
-        // walled page. The progress tracker already shows the info band.
-        onAuthRequiredRef.current?.({ url: ev.stage.url, domain: ev.stage.domain });
       }
       const t = progressRef.current;
       if (t) {
@@ -486,236 +452,6 @@ export function useChat({
       setIsThinking(false);
     }
   }, [scheduleFlush]);
-
-  // ── Browser agent loop ───────────────────────────────────────────────
-  // A ```browser_api fence is executed by the renderer (BrowserApiBlock);
-  // its outcome reaches the model through the NEXT turn's standing browser
-  // block (app/api/chat/route.ts step 5b). Without an automatic follow-up
-  // turn the loop stops at the first action: the model emits a fence, the
-  // action runs, and silence follows. These rounds close act → see → act:
-  // when a streamed turn ends having executed a browser fence, schedule a
-  // bounded agent round whose user message is the fixed BROWSER_CONTINUE
-  // line; the result/ref-map context rides the server-injected block. The
-  // loop self-stops the moment the model answers without a fence (final
-  // report, question, or parked consent) and is hard-capped regardless.
-  const MAX_BROWSER_AGENT_STEPS = 10;
-  // Outcome wait: navigate blocks until the page fully loads; give a
-  // generous ceiling so a slow page delays — never silences — the step.
-  const BROWSER_OUTCOME_WAIT_MS = 90_000;
-
-  // round = agent rounds run for the CURRENT task (reset per fresh ask).
-  // consumedWhen = outcome timestamp the loop has already accounted for.
-  const browserLoopRef = useRef({ round: 0, consumedWhen: 0 });
-  const browserLoopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped on every real user send and on Stop — a scheduled round whose
-  // generation changed was superseded by the human and must not fire.
-  const turnGenRef = useRef(0);
-
-  const clearBrowserLoop = useCallback(() => {
-    turnGenRef.current++;
-    if (browserLoopTimerRef.current != null) {
-      clearTimeout(browserLoopTimerRef.current);
-      browserLoopTimerRef.current = null;
-    }
-    browserLoopRef.current = { round: 0, consumedWhen: 0 };
-  }, []);
-
-  /** A user pressed send: kill any scheduled round; a fresh browser ask
-   *  (or any non-browser message) re-arms the step budget. Mid-task follow-
-   *  ups ("yes", "keep going") keep the budget so the cap can't be evaded. */
-  const noteUserSend = useCallback((text: string) => {
-    turnGenRef.current++;
-    if (browserLoopTimerRef.current != null) {
-      clearTimeout(browserLoopTimerRef.current);
-      browserLoopTimerRef.current = null;
-    }
-    const isFreshBrowserAsk =
-      /\b(browser|new tab|web ?page|web ?site|website|webapp)\b|https?:\/\//i.test(text);
-    if (isFreshBrowserAsk) {
-      browserLoopRef.current = { round: 0, consumedWhen: 0 };
-    }
-  }, []);
-
-  // Mutual recursion (round → continue-check → next round) through stable
-  // refs so timers always call the freshest closures.
-  const runBrowserRoundRef = useRef<((round: number, gen: number) => void) | null>(null);
-  const maybeContinueRef = useRef<((content: string, isRealUserTurn: boolean) => void) | null>(null);
-
-  const runBrowserRound = useCallback(async (round: number, genAtSchedule: number) => {
-    const loop = browserLoopRef.current;
-
-    // Wait for THIS round's fence outcome (BrowserApiBlock records it when
-    // its POST resolves) so the model sees real results. Timeout still
-    // proceeds: the SERVER records outcomes too, and the model's block is
-    // server-injected regardless of this client mirror.
-    const t0 = Date.now();
-    while (Date.now() - t0 < BROWSER_OUTCOME_WAIT_MS) {
-      if (turnGenRef.current !== genAtSchedule) return; // the user spoke — they own the loop now
-      const o = lastBrowserApiOutcome();
-      if (o && o.when > loop.consumedWhen) { loop.consumedWhen = o.when; break; }
-      await new Promise(r => setTimeout(r, 400));
-    }
-    if (turnGenRef.current !== genAtSchedule || sendBusyRef.current) return;
-
-    // Fold the previous round into the model-facing history, then build
-    // this round exactly like send(): visible user + assistant bubbles,
-    // request = materialized llmHistory + the new user message.
-    materializeLlmHistory();
-    const uiLenBeforeRound = messagesRef.current.length;
-    const userMsg: Message = {
-      id: uid("u_"),
-      conversationId: "",
-      role: "user",
-      content: BROWSER_CONTINUE_MSG,
-      reasoning: "",
-      attachments: [],
-      toolCalls: [],
-      citations: [],
-      createdAt: Date.now(),
-      state: "complete",
-      mode: "chat",
-    };
-    const assistantMsg: Message = {
-      id: uid("a_"),
-      conversationId: "",
-      role: "assistant",
-      content: "",
-      reasoning: "",
-      reasoningMs: undefined,
-      attachments: [],
-      toolCalls: [],
-      citations: [],
-      createdAt: Date.now(),
-      state: "streaming",
-      mode: "chat",
-      fenceRepair: `🌐 Browser step ${round}/${MAX_BROWSER_AGENT_STEPS}`,
-    };
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
-    setStatus("streaming");
-    setError(null);
-    setReasoningContent("");
-    reasoningContentStateRef.current = "";
-    reasoningStartRef.current = null;
-    setIsThinking(true);
-    assistantIdRef.current = assistantMsg.id;
-    streamContentRef.current = "";
-    pendingContentRef.current = "";
-    pendingReasoningRef.current = "";
-    // decisionModeRef keeps the mode pinned by the previous turn; the
-    // standing browser block rides the server-side injection regardless.
-    sendBusyRef.current = true;
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const client = new ChatClient(apiUrl, apiKey, model);
-    const curEffort = effortRef.current;
-    try {
-      await client.chat(
-        {
-          messages: [...llmHistoryRef.current, userMsg],
-          model,
-          stream: true,
-          reasoning_effort: curEffort === "off" ? undefined : curEffort,
-          ...(decisionModeRef.current ? { decision_mode: decisionModeRef.current } : {}),
-        },
-        (ev) => handleEvent(ev, controller),
-        controller.signal,
-      );
-      flushPending(true);
-      if (!controller.signal.aborted) {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now(), fenceRepair: undefined } : m
-        ));
-        setStatus("complete");
-      } else {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id && m.state === "streaming"
-            ? { ...m, state: "complete", finishedAt: Date.now(), fenceRepair: undefined }
-            : m
-        ));
-        setStatus("aborted");
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        const msg = e?.message ?? "Browser step failed";
-        setError(msg);
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id ? { ...m, state: "error", error: msg, fenceRepair: undefined } : m
-        ));
-        setStatus("error");
-      } else {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id && m.state === "streaming"
-            ? { ...m, state: "complete", fenceRepair: undefined }
-            : m
-        ));
-        setStatus("aborted");
-      }
-    } finally {
-      // Deferred LLM rebuild — same pattern as send(): the finished turn's
-      // bubbles are folded in lazily at the next materialize, never racing
-      // rAF-batched deltas and never undoing a compaction.
-      llmPendingRef.current = { base: llmHistoryRef.current, uiLen: uiLenBeforeRound };
-      setIsThinking(false);
-      abortRef.current = null;
-      sendBusyRef.current = false;
-      setStatus(prev => (prev === "streaming" ? "complete" : prev));
-    }
-
-    if (!controller.signal.aborted && turnGenRef.current === genAtSchedule) {
-      maybeContinueRef.current?.(streamContentRef.current, false);
-    }
-  }, [model, apiUrl, apiKey, handleEvent, flushPending, materializeLlmHistory]);
-
-  /**
-   * End-of-turn hook. A turn is "acting" when its content holds a valid
-   * ```browser_api fence — the renderer executes every such fence. An
-   * acting turn schedules the next bounded step; a turn that answered
-   * without a fence (report / question / parked consent) ENDS the loop.
-   */
-  const maybeContinueBrowserLoop = useCallback((content: string, isRealUserTurn: boolean) => {
-    const loop = browserLoopRef.current;
-    let acted = false;
-    const re = /```browser_api\s*\n([\s\S]*?)```/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) {
-      if (extractBrowserApiFence("```browser_api\n" + m[1] + "\n```") !== null) { acted = true; break; }
-    }
-
-    if (isRealUserTurn) {
-      loop.consumedWhen = lastBrowserApiOutcome()?.when ?? 0;
-      if (!acted) return; // the user turn didn't touch the browser
-    } else {
-      loop.round += 1;
-      if (!acted) return; // final report / question / park — the loop is over
-      if (loop.round >= MAX_BROWSER_AGENT_STEPS) {
-        setMessages(prev => [...prev, {
-          id: uid("a_"),
-          conversationId: "",
-          role: "assistant",
-          content: `⏹️ The browser agent reached its ${MAX_BROWSER_AGENT_STEPS}-step limit for this request without finishing. Send "continue" for a fresh budget, or restate what's left.`,
-          reasoning: "",
-          attachments: [],
-          toolCalls: [],
-          citations: [],
-          createdAt: Date.now(),
-          state: "complete",
-          mode: "chat",
-        }]);
-        return;
-      }
-    }
-
-    const gen = turnGenRef.current;
-    const nextRound = loop.round + 1;
-    browserLoopTimerRef.current = setTimeout(() => {
-      browserLoopTimerRef.current = null;
-      void runBrowserRoundRef.current?.(nextRound, gen);
-    }, 900);
-  }, []);
-
-  runBrowserRoundRef.current = runBrowserRound;
-  maybeContinueRef.current = maybeContinueBrowserLoop;
 
   const runRepairRounds = useCallback(async (
     assistantId: string,
@@ -814,9 +550,6 @@ export function useChat({
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     if (!text.trim() || sendBusyRef.current) return;
     sendBusyRef.current = true;
-    // Cancel any scheduled browser agent step; a fresh browser ask re-arms
-    // the step budget (mid-task follow-ups keep it, so the cap holds).
-    noteUserSend(text);
     // Fold the finished previous turn into the model-facing array before
     // this turn measures tokens or reads the history (the rebuild is lazy so
     // it never races rAF-batched stream deltas).
@@ -968,9 +701,6 @@ export function useChat({
           curMode,
           (content) => findBrokenRenderFences(content, curMode),
         );
-        // The browser agent loop: if this turn executed a browser fence,
-        // the act → see → act cycle continues automatically (bounded).
-        maybeContinueRef.current?.(streamContentRef.current, true);
         // No mirror here — appending this turn to the model-facing base is
         // queued in `finally` and applied lazily by materializeLlmHistory.
         // Mirroring `messagesRef` would UNDO any compaction.
@@ -1022,7 +752,6 @@ export function useChat({
       flushProgress, stopProgressTick, finishProgress, compact, materializeLlmHistory]);
 
   const stop = useCallback(() => {
-    clearBrowserLoop();
     const id = assistantIdRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
@@ -1038,7 +767,7 @@ export function useChat({
     setError(null);
     setIsThinking(false);
     finishProgress("aborted");
-  }, [flushPending, finishProgress, clearBrowserLoop]);
+  }, [flushPending, finishProgress]);
 
   const retry = useCallback(() => {
     if (lastInputRef.current) {
@@ -1078,7 +807,6 @@ export function useChat({
   const edit = useCallback((id: string, newContent: string) => {
     abortRef.current?.abort();
     abortRef.current = null;
-    clearBrowserLoop(); // an edit rewinds history — old agent steps are void
 
     const prev = messagesRef.current;
     const idx = prev.findIndex(m => m.id === id);

@@ -20,20 +20,6 @@ import {
 } from "../../../lib/decision/types";
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
-import { browserAuthContextBlock } from "../../../lib/browser/authContext";
-import {
-  liveTabInfo,
-  currentEngineForSession,
-} from "../../../lib/browser/interactiveBrowser";
-import {
-  hasExplicitBrowserIntent,
-  extractBrowserUrl,
-} from "../../../lib/browser/intent";
-import {
-  currentTask,
-  taskFlowMismatch,
-  clearTask,
-} from "../../../lib/browser/taskState";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
 import type { StageEvent } from "../../../lib/types";
 
@@ -469,49 +455,6 @@ async function runTurnPipeline(
   } catch (err: unknown) {
     log.error({ err: err instanceof Error ? err.message : err }, "attachment retrieval failed");
     if (hasAttachmentRefs) stage({ stage: "retrieval_done", done: 0, total: 0 });
-  }
-
-  // 5b) Standing browser-control block: the model can DRIVE the user's own
-  //     OS browser like a human (navigate / snapshot / click / fill /
-  //     fill forms / keyboard) on ANY site. Always injected — the browser
-  //     is a general capability, not a site-specific one.
-  try {
-    const lastUserMsg = payload.messages[lastUserIdx];
-    const lastUserText =
-      typeof lastUserMsg?.content === "string"
-        ? lastUserMsg.content
-        : Array.isArray(lastUserMsg?.content)
-          ? (lastUserMsg.content as Array<{ type?: string; text?: string }>)
-              .filter((p) => p?.type === "text")
-              .map((p) => p.text ?? "")
-              .join(" ")
-          : "";
-    const live = await liveTabInfo();
-    const intent = hasExplicitBrowserIntent(lastUserText);
-    const targetUrl = extractBrowserUrl(lastUserText) ?? undefined;
-    // A brand-new explicit browser request on a DIFFERENT page supersedes
-    // any parked task left by an earlier flow (or an old Playwright run) —
-    // the next fence then starts a fresh task instead of resuming a ghost.
-    if (intent) {
-      try {
-        const t = currentTask();
-        if (t && taskFlowMismatch(t, live?.url, targetUrl)) clearTask();
-      } catch {
-        /* best effort — the turn proceeds either way */
-      }
-    }
-    injectSystemBefore(
-      payload.messages,
-      lastUserIdx + 1,
-      browserAuthContextBlock({
-        engine: live?.engine ?? currentEngineForSession(),
-        ...(live?.url ? { liveUrl: live.url, liveTitle: live.title } : {}),
-        intent,
-        ...(targetUrl ? { targetUrl } : {}),
-      }),
-    );
-  } catch {
-    /* optional context — the turn proceeds without it */
   }
 
   // 6) Web-search gate (main model only): the main model decides whether

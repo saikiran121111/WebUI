@@ -12,7 +12,7 @@
  *      StackOverflow, Greenhouse jobs, docs)
  *
  * ZERO-DOWNLOAD rule: the in-memory Playwright pool
- * (lib/browser/agentBrowser.ts) resolves its Chromium from the repo-local
+ * (lib/web-search/agentBrowser.ts) resolves its Chromium from the repo-local
  * `.data/ms-playwright` cache via PLAYWRIGHT_BROWSERS_PATH — this suite
  * never runs `playwright install` or downloads anything.
  *

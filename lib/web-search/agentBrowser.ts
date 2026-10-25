@@ -122,9 +122,8 @@ const POOL_SIZE = Math.max(
 const BROWSER_PAGE_BUDGET_MS = 40_000;
 const ACQUIRE_TIMEOUT_MS = 60_000;
 
-// Exported for the interactive login browser (lib/browser/interactiveBrowser.ts)
-// so the persistent profile window and the extraction pool present the same
-// browser persona.
+// Exported so the headless extraction tiers and the 10K audit share one
+// consistent browser persona across the pool.
 export const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 export const SEC_CH_UA = '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"';

@@ -1,9 +1,9 @@
 /**
  * SSRF guard — the single source of truth for "may we fetch this URL?"
  *
- * Shared by every network layer (lib/web-search/net.ts) and the browser
- * layer (lib/browser/agentBrowser.ts) so a navigation can never reach
- * loopback / private / link-local ranges.
+ * Shared by every network layer (lib/web-search/net.ts) and the headless
+ * browser pool (lib/web-search/agentBrowser.ts) so a navigation can never
+ * reach loopback / private / link-local ranges.
  */
 
 const PRIVATE_HOST_RE =
