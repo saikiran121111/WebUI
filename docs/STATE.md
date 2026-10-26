@@ -348,3 +348,62 @@ foreground call under .ai-coordination lock.
    (should be gone), step-note text, 90s outcome waits on slow pages.
 3. If loop misbehaves: tune BROWSER_CONTINUE_MSG wording and MAX steps; never touch fenceRepair
    machinery.
+
+---
+
+## Session 2026-10-26-A — Rust migration Part 1 (workspace/core foundation)
+
+### 8.1 Objective & milestone
+Rule-governed migration of the TS backend to Rust (contract = `rust-backend/MIGRATION-MAP.md`,
+frozen §1–§9). Part 1 COMPLETE: Rust workspace scaffold + config/settings + tracing +
+CancellationToken core. No TS file touched; TS remains authoritative; no cutover, no proxies,
+no Playwright (Parts 1–2 constraint).
+
+### 8.2 Locked completed (do not re-read/re-do)
+- `rust-backend/Cargo.toml` workspace (edition 2021, resolver 2, tokio 1.54/axum 0.8.9/serde_json
+  1.0.154 preserve_order, [profile.release] lto/strip). Members under `rust-backend/crates/`.
+- `crates/ruke-contracts/src/{decision,stages,settings}.rs` — SHARED_CONTRACT types frozen to
+  MIGRATION-MAP §2; golden serialization tests pin field order/null-vs-omitted/MODE_SKILL/MODE_FENCE.
+- `crates/ruke-core/src/{config,settings,slot,turn}.rs` — RUKE_PROJECT_ROOT repo-root resolution
+  (Rule 13); SettingsStore parity of lib/server/settings.ts (mtime cache, corrupted-retry,
+  merge-order, 2-space+\n atomic tmp+rename); InferenceSlot parity of lib/server/inference-busy.ts
+  (title aborts on begin, saturating end, RAII UserTurnGuard/TitleCallGuard = Rule 6 exactly-once,
+  wait_for_user_idle); TurnCounter/TurnContext tokio-util CancellationToken hierarchy + turn_id span.
+- `crates/ruke-server/src/main.rs` — scaffold bin ONLY: tracing (RUKE_LOG/RUST_LOG, no secrets),
+  AppState{settings,slot,turns}, GET /api/ruke/health on 127.0.0.1:3101 (RUKE_BACKEND_PORT),
+  graceful ctrl_c. Test proves POST /api/chat|settings|search|conversations ⇒ 404 (no cut-over).
+- VERIFY: `cargo test` = 28 passed (7 contracts + 19 core + 2 server); `cargo clippy --all-targets`
+  0 warnings; `cargo build --release` OK (15.7s); live smoke: health JSON ok, :3101, killed clean.
+- ENV FIX: machine had NO C linker (rustc msvc, no VS/SDK/mingw; Git Bash coreutils link.exe
+  shadowed → "link: extra operand"). Fixed via winget Microsoft.VisualStudio.2022.BuildTools
+  + VCTools workload (VC 14.44.35207, Win SDK 10.0.26100). rustc auto-discovers; no config needed.
+  Standalone rust 1.99 at `C:/Program Files/Rust stable MSVC 1.99` — NO rustup on this machine.
+- MIGRATION-MAP.md §10 now carries the Part status tracker (Part 1 DONE row).
+
+### 8.3 Graphify map (Rust side)
+ruke-server→ruke-core→ruke-contracts. Callers of TS contracts frozen in map §2. No Rust symbol
+is referenced by any TS file (and vice versa) — fully additive tree.
+
+### 8.4 Immutable contracts added this session
+Env vars: RUKE_PROJECT_ROOT (explicit repo root), RUKE_BACKEND_PORT (default 3101), RUKE_LOG.
+Rust pub APIs in 8.2 are the Part 2+ foundation (SettingsStore::update_settings(&Map),
+InferenceSlot::begin_guard(), TurnCounter::turn()). KNOWN PARITY: serde_json emits `1.0` where
+JS emits `1` (DecisionEnvelope.confidence) — handle in Part 2 golden normalization or Part 4.
+
+### 8.5 E2E/verification state
+No Playwright. :3000 Next dev untouched; :8080 Strata untouched. ruke-server smoke ran on 3101
+and was stopped. No lock at .ai-coordination/.
+
+### 8.6 Open items
+- Part 2 not started: golden-fixture harness (19 §6 cases, mock upstream ~ reuse
+  scripts/e2e-llm-proxy.mjs idea → rust-backend/fixtures/).
+- Untracked: whole `rust-backend/` (user has not asked to commit).
+
+### 8.7 Skills/locks
+No Tier-1/Tier-2 skill bodies loaded. No scenario locks.
+
+### 8.8 Next 3
+1. Part 2a: mock-upstream harness + record TS baselines for §6 golden cases into
+   `rust-backend/fixtures/` (TS remains authoritative; capture via :3000 with RUKE_TEST_FIXTURES).
+2. Part 2b: Rust fixture-runner test that replays those goldens against ruke-server contract code.
+3. Normalize `confidence` number formatting decision informed by recorded goldens.

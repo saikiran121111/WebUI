@@ -1,0 +1,213 @@
+# Rust Backend Migration Map — Phase 0 Inventory (frozen 2026-10-26)
+
+Generated from the actual working tree on branch `develop` @ 791faed.
+**Do not start Part 1 until every open decision point in §9 is resolved.**
+
+---
+
+## 1. Stale assumptions in the migration brief (VERIFIED CORRECTIONS)
+
+| Brief claim | Actual tree (verified by find/git) |
+|---|---|
+| `lib/browser/**`, `app/api/browser/**` exist | **DELETED** in commits `86daf90`/`5b6ac0a`. Replaced by the `reverse-engineering/internal-browser/` (Codex Internal Browser) spec — a separate project, NOT part of this migration. Rule 2's "don't assume paths still exist" applies directly. |
+| `.decision-engine/` Python worker + LFM2.5-1.2B router | **GONE.** Since 2026-10-22 routing is **in-process regex intent matching** (`lib/decision/client.ts`, `decided_by:"in-process-deliverable-match"`, ~0 ms, no model call, `stripped_prompt` is always verbatim). The DecisionEnvelope contract survives; the LFM machinery does not. "decision calls" in the cancellation rules = a local function, not a network hop. |
+| `/api/internal/agent-browser` Node bridge exists | **Does not exist.** The only Playwright server usage today is `lib/web-search/agentBrowser.ts` (web-search Tier-3b interactive-profile fallback) and `lib/documents/browser.ts` (Chromium print-to-PDF for document export). The privileged internal RPC + shared secret from Rule 9 is a NEW design, not a port. |
+| `src/` removed | Mostly: one vestigial file `src/lib/web-verify/types.ts` (+ `lib/web-verify-types.ts`) remains — cleanup candidates, not migration targets. |
+| "existing per-chunk `<think>` parsing bug" | CONFIRMED: `app/api/chat/route.ts` `scrubThinkTags` runs **per chunk** and (a) splits tags/UTF-8 across chunk boundaries (also a `new TextDecoder()` per chunk — multibyte code points mangled), (b) **drops everything after an unterminated `<think>`** including the open tag's prefix handling. Rust state-machine rewrite is the approved fix (Rule 4). Client-side twin: `lib/stream/thinkTags.ts` stays TS. |
+
+Runtime topology right now: Next dev **`:3000`** (PID 13004, node, idle WS ≈ **1,931 MB**), Strata/llama.cpp **`:8080`** (`LLM_API_URL` default `http://127.0.0.1:8080/v1/chat/completions`). `:8790`/`:8791` are DEAD (hard ban per CLAUDE.md §5.2 — do not resurrect).
+
+---
+
+## 2. Wire-contract freeze (the golden-fixture spec)
+
+Extracted from `app/api/chat/route.ts` (780 L), `lib/chat/streamHelpers.ts`, `lib/stream/parser.ts`, `lib/types.ts`.
+
+### 2.1 `POST /api/chat` request handling
+- Body parsed as JSON; **non-JSON body → forwarded to upstream verbatim** (no pipeline, no headers metadata beyond `standard_chat` mode).
+- `payload.model` (string) used for logging only; body otherwise forwarded `JSON.stringify(payload)` after documented deletions below.
+- `payload.purpose === "compact"` → `delete purpose`, `stripAttachmentRefs`, **full passthrough** via `forwardStream` (no decision/skill/retrieval/web stages, no stage frames, `x-decision-mode: standard_chat`).
+- `payload.decision_mode` ∈ RendererMode → `passthroughEnvelope(mode, text)`, field deleted before upstream.
+- `payload.stream === false` → **legacy path**: single response, metadata travels in headers; any other value (incl. absent) → **progress path**: early-opened SSE, metadata travels in `web_meta` frame, headers carry only `x-decision-mode` + `X-Used-Skill`.
+- `attachment_ref` content parts: internal routing hint; `stripAttachmentRefs` removes ALL before upstream (both paths).
+- Decision/gate input = `firstTextPart(lastUser.content)` (FIRST text part only); `historyBefore` = user/assistant roles only, each capped `slice(0,500)`.
+
+### 2.2 Response headers
+Always on both stream paths: `Content-Type` (upstream's, else `text/event-stream`), `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, `X-Accel-Buffering: no`, `x-decision-mode: <mode>` (lowercase spelling as written).
+Conditional: `X-Used-Skill: <name>` only when a **user-tier slash skill** was applied (core skills never appear — invisibility rule). `X-Web-Citations` / `X-Search-Gate`: only on the **legacy non-stream path** (progress path sends them as the `web_meta` stage frame instead). Both are `encodeURIComponent(JSON.stringify(value))` only when non-null/non-empty.
+
+### 2.3 SSE frame grammar (progress path)
+- Frames: `data: <json>\n\n`. Stage: `{"ruke_stage":<StageEvent>}`. Error: `{"ruke_error":{"message":<string>}}` then `data: [DONE]\n\n`.
+- Stage sequence: `decision_done {mode,ms}` → optional `skill {detail?,ms}` → optional `retrieval` / `retrieval_done {done,total}` → `web:<PipelineStage>…` (carries `detail,total,done,coverage,url,domain`) → optional `web_meta {webCitations,searchGate?}` → raw upstream SSE bytes (scrubbed) → stream closes. Upstream's own `data: [DONE]` passes through inside the raw bytes; **the route never appends its own `[DONE]` after raw bytes** — only `fail()` does, and never twice (`closed` latch).
+- `StageEvent` exact fields: `stage, detail?, mode?, ms?, done?, total?, coverage?, url?, domain?, webCitations?{sourceId,url,title,domain,publishedAt?}` (+ see `lib/types.ts:272`).
+
+### 2.4 Error semantics (Rule 7)
+- Legacy path: upstream `!ok` → `JSON {error:"Upstream returned <status>[: <errText≤200 chars>]"}` **with upstream's status**; no body → `502 {error:"No response body from model"}`; unreachable → `503 {error:"Could not reach the model server at <host>."}` (host = URL host, or literal `"the configured port"` if URL unparsable).
+- Progress path: same conditions become `ruke_error` frames (message strings identical: `"Upstream returned…"`, `"No response body from model"`, `"Could not reach the model server at <host>."`).
+- Attachment retrieval failure → `retrieval_done {done:0,total:0}`, continue. Web-research failure → log + continue. Client abort → `AbortError` expected, release slot, no error frame beyond close.
+
+### 2.5 Other server contracts
+- `settings.json` (repo root): `{llm_api_url?, llm_api_key?, compact_thresholds?:{auto:0|1,tokens:number}}`; priority file > env > fallback; atomic tmp+rename; corrupt file keeps last parse.
+- Inference slot: single llama.cpp slot; `beginUserTurn/endUserTurn` (chat + web-gate + vision + title calls), `activeUserTurns` counter, background title AbortControllers aborted on `beginUserTurn`. Titles wait `waitForUserIdle` (poll 1 s).
+- Env vars in force: `LLM_API_URL`, `LLM_API_KEY`, `MESHY_API_KEY`, `EMBED_MODEL` (default `Xenova/all-MiniLM-L6-v2`), `WEB_SEARCH_GATE_DISABLED` (via `gateDisabledByEnv`), `RUKE_TEST_FIXTURES=1` (fixture allow-list `lib/web-search/ssrf.ts:isFixtureAllowed`).
+
+---
+
+## 3. Server-side dependency graph (compact)
+
+```
+chat/route.ts → {skills/lazy, decision/client, decision/skill-loader, server/inference-busy,
+                 server/attachindex/turn, web-search/pipeline, web-search/search-gate,
+                 server/settings, server/logger, lib/types(StageEvent)}
+attachindex/turn → {skills/lazy, attachindex/{embed,notes,router,retrieve,store,types}}
+attachindex/build (called from files/extract) → {chunk, embed, spine, store, files/extensions, types}
+attachindex/{retrieve→bm25,format,router} ; spine→{bm25,format}
+files/extract/route → {server/extract/index→(office,rtf,notebook,archives→zip,strings,pdf,ffmpeg,audio,build,store,types),
+                       files/extensions, server/logger}
+web-search/pipeline → {search-gate→(settings,llm-json→(settings,inference-busy),url-detector),
+                       metasearch→(net→ssrf, engines→net, cache→metasearch, better-sqlite3),
+                       engines, net→ssrf(impit), extractor→(net,cache,schema-extract,platform-api→
+                       (net,redirect-unwrap,google-maps,youtube), hydration-unpacker,
+                       universal-extractor→charset-normalizer, charset-normalizer, agentBrowser→playwright),
+                       reranker, youtube→net, google-maps→(net,redirect-unwrap), query-planner→(metasearch,reranker),
+                       cache, url-detector(tldts)}
+search-gate/vision-prepass → llm-json → fetch(llmApiUrl) + inference-busy
+skills/registry → (frontmatter, modality, types, fs, child_process[npx installer])
+decision/skill-loader → (skills/registry, contracts, types, fs)
+conversations routes → persistence/{disk,merge} ; [id]/title → server/titles/queue→(disk,inference-busy,policy,generate→(settings,transcript))
+documents routes → documents/{http,engines…, pdfEngine→documents/browser[playwright]}
+3d routes → three3d/{sceneSchema, providers/{index,meshy,types}}
+model-stats → server/settings ; settings route → server/settings ; decision route → decision/client
+```
+Client-only graph (hooks/useChat, lib/stream/*, lib/chat/client, lib/progress, lib/render, components) is FROZEN per Rule 1 — it defines the consuming end of §2.
+
+---
+
+## 4. Classification — app/api routes (25)
+
+| Route | Class | Notes |
+|---|---|---|
+| `chat/route.ts` | **MOVE_TO_RUST** | The heart. §2 is its spec. Ends as thin proxy (Rule 11). |
+| `search/route.ts`, `search-more/route.ts` | **MOVE_TO_RUST** | Delegate to Rust pipeline; Next route becomes thin proxy. |
+| `decision/route.ts` | **MOVE_TO_RUST** | Trivial (returns `getDecisionSync` envelope). |
+| `settings/route.ts` | **MOVE_TO_RUST** | Owns settings.json; Next keeps UI calling same URL. |
+| `model-stats/route.ts` | **MOVE_TO_RUST** | Trivial HTTP passthrough to Strata stats. |
+| `conversations/route.ts`, `conversations/[id]/route.ts`, `conversations/[id]/title/route.ts` | **MOVE_TO_RUST** | Server-owned disk state (Rule 1) + titles queue. |
+| `attach/[id]/notes/route.ts` | **MOVE_TO_RUST** | Notes live in attach store (read side moves). |
+| `files/extract/route.ts` | **KEEP_NODE_REQUIRED** | Extraction parsers + index BUILD stay Node (see §7). Becomes the Node sidecar's public ingest route. |
+| `skills/route.ts`, `skills/[skillName]/route.ts`, `skills/[skillName]/scenario/route.ts` | **MOVE_TO_RUST** | Registry fs reads; invisibility rule enforced here (never list `.cskills`). |
+| `skills/install/route.ts` | **MOVE_TO_RUST (spawn)** | Shells `npx -y skills add`; Rust `Command` spawn is parity-safe; must keep rejecting `./.cskills/` paths. Golden fixture: installer rejection contract. |
+| `documents/{docx,pdf,powerbi,pptx,resume,xlsx}/route.ts` | **KEEP_NODE_REQUIRED** | docx/exceljs/pptxgenjs + Chromium print-to-PDF. Materially superior in JS (Rule 10). |
+| `anatomy/export/route.ts` | **KEEP_NODE_REQUIRED** | `liveEngine.mjs` + headless-gl (`.mjs` kit). |
+| `3d/assets/[…]/route.ts` (3) | **KEEP_NODE_REQUIRED** (deferrable) | Meshy provider HTTP + fs; port only in an optional late part. |
+| `app/layout.tsx`, `app/page.tsx` | **KEEP_CLIENT_TS** | Next frontend. |
+| `app/api/browser/**` | **n/a — deleted** | Do not port ghosts. |
+
+## 5. Classification — lib/ modules
+
+| Module | Class | Notes |
+|---|---|---|
+| `lib/server/settings.ts` | **MOVE_TO_RUST** | SettingsShape = SHARED_CONTRACT. |
+| `lib/server/inference-busy.ts` | **MOVE_TO_RUST** | Rule 6: one CancellationToken per turn; slot exactly-once release. Rust: Notify/Barrier + abort handles. |
+| `lib/server/logger.ts` | **DELETE_AFTER_PARITY** | Rust uses `tracing` (Rule 17). pino stays until Node-only modules remain. |
+| `lib/server/attachindex/{store,types}.ts` | **SHARED_CONTRACT** | Disk format under `.data/attach-index/` frozen; both sides read/write it. |
+| `lib/server/attachindex/{build,chunk,embed,spine}.ts` | **KEEP_NODE_REQUIRED** | Index BUILD side stays Node (embed = ONNX `@huggingface/transformers`). See §7 ingest flow. |
+| `lib/server/attachindex/{bm25,format,router,retrieve,notes,turn}.ts` | **MOVE_TO_RUST** | Read/retrieval side + turn injection. Golden fixtures: `__tests__/attach-*.test.ts` outputs re-run against Rust on the SAME fixture store. |
+| `lib/server/extract/**` | **KEEP_NODE_REQUIRED** | unpdf, own office-XML parsers (node:zlib), 7z/xz/tar via `7zip-bin` child_process, ffmpeg+whisper audio. Text-extraction parity (not byte parity). |
+| `lib/server/titles/*` | **MOVE_TO_RUST** | Queue + policy + transcript + LLM generate; yield-to-user semantics per §2.5. |
+| `lib/decision/types.ts` | **SHARED_CONTRACT** | `RENDERER_MODES`, `MODE_SKILL`, `MODE_FENCE`, `DecisionEnvelope` — generate TS from Rust (ts-rs) or drift-test (Rule 14). |
+| `lib/decision/client.ts` | **MOVE_TO_RUST** | Regex INTENT_MATCHERS table must be ported EXACTLY (crate `regex`; fixture pins each matcher both directions). |
+| `lib/decision/contracts.ts` | **SHARED_CONTRACT** | JSON contract for envelope. |
+| `lib/decision/skill-loader.ts` | **MOVE_TO_RUST** | Reads `.cskills/<name>/SKILL.md`, one `<decision_skill>` block. |
+| `lib/skills/{registry,frontmatter,lazy,modality}.ts` | **MOVE_TO_RUST** | Slash routing = zero-token-when-unused contract; `applySlashSkillRouting`, `injectSystemBefore`, `lastUserIndex`, `extractUserText` are wire-visible behavior. |
+| `lib/skills/types.ts` | **SHARED_CONTRACT** | |
+| `lib/skills/client-cache.ts` | **KEEP_CLIENT_TS** | |
+| `lib/web-search/net.ts` | **MOVE_TO_RUST** | `impit` IS a Rust HTTP client — port natively (redirect policy + TLS parity pinned by fixtures). |
+| `lib/web-search/ssrf.ts` | **MOVE_TO_RUST** | + duplicated SSRF at Node bridge (Rule 9). Fixture allow-list contract included. |
+| `lib/web-search/{engines,metasearch,cache,redirect-unwrap,url-detector,schema-extract,hydration-unpacker,charset-normalizer,reranker,query-planner,google-maps,platform-api,youtube}.ts` | **MOVE_TO_RUST** | Parse parity is fixture-driven (linkedom/cheerio/turndown → Rust crates; `tldts` → tldrs crate). cache.ts better-sqlite3 schema = SHARED_CONTRACT (rusqlite same file, WAL check). |
+| `lib/web-search/search-gate.ts` | **MOVE_TO_RUST** | Gate LLM call via Rust llm-json; `WEB_SEARCH_GATE_DISABLED` honored. |
+| `lib/web-search/llm-json.ts` | **MOVE_TO_RUST** | |
+| `lib/web-search/vision-prepass.ts` | **MOVE_TO_RUST** | Vision pre-pass is Strata HTTP, not Node-local vision; RUKE_VISION_MOCK is the deleted browser subsystem — do not port. |
+| `lib/web-search/universal-extractor.ts` | **MOVE_TO_RUST** | readability/turndown parity is the highest-risk port — dedicated fixtures from live corpus (`web-search-10k`). |
+| `lib/web-search/extractor.ts` | **MOVE_TO_RUST** (Tier-3b hop) | Tier that calls `agentBrowser` becomes an RPC to the Node sidecar (§7). |
+| `lib/web-search/pipeline.ts` | **MOVE_TO_RUST** | 7-tier orchestrator; every `web:<stage>` event must fire identically. |
+| `lib/web-search/agentBrowser.ts` | **KEEP_NODE_REQUIRED** | Playwright. Behind internal RPC, shared secret, loopback, double SSRF, nav/response/operation timeouts (Rule 9). |
+| `lib/web-search/types.ts` | **SHARED_CONTRACT** | zod → serde + ts-rs. |
+| `lib/web-search/index.ts` | **DELETE_AFTER_PARITY** | Barrel. |
+| `lib/chat/client.ts`, `compact.ts`, `compactConfig.ts`, `tokens.ts`, `tokenMeter.ts`, `recentsFilters.ts`, `streamHelpers.ts`, `types.ts` | **KEEP_CLIENT_TS** | Compaction CLIENT decision logic stays (Rule 1); Rust only passthroughs `purpose:"compact"`. |
+| `lib/stream/{parser,sse,thinkTags,index}.ts` | **KEEP_CLIENT_TS** | Server-side scrubber is NEW Rust state machine (Rule 4 fix), not a port of these files. |
+| `lib/progress/turnProgress.ts` | **KEEP_CLIENT_TS** | Client aggregation of server stages; StageEvent = SHARED_CONTRACT. |
+| `lib/render/**` | **KEEP_CLIENT_TS** | Fence renderers/validators run in browser. (`lib/render/schemas.ts` mirrors SHARED_CONTRACTs.) |
+| `lib/persistence/{disk,merge}.ts` | **MOVE_TO_RUST** | Conversations disk state. `persistence/index.ts` = SHARED_CONTRACT types. |
+| `lib/files/extensions.ts` | **SHARED_CONTRACT** | |
+| `lib/files/docProcessor.ts`, `index.ts` | **KEEP_CLIENT_TS** | Browser-side attachment prep. |
+| `lib/documents/**` | **KEEP_NODE_REQUIRED** | Engines + Chromium; `documents/schemas.ts` = SHARED_CONTRACT (DTO validation on Rust edge). |
+| `lib/three3d/**` | **KEEP_CLIENT_TS** (viewer) / providers KEEP_NODE_REQUIRED (3d routes) | |
+| `lib/anatomy/**` | **KEEP_CLIENT_TS** + export engine KEEP_NODE_REQUIRED | |
+| `src/lib/web-verify/types.ts`, `lib/web-verify-types.ts` | **DELETE_AFTER_PARITY** | vestigial. |
+
+## 6. Tests (classification)
+
+- **Contract/golden candidates (vitest)**: `sse.test.ts`, `sse-stage-events.test.ts`, `parser-multi-chunk.test.ts` (→ Rule 4 split-frame fixtures), `compact-pipeline.test.ts`, `chatEngine.test.ts`, `citation-pills.test.ts`, `attach-index.test.ts`, `attach-retrieval-integration.test.ts`, `titles/*` (3), `token-meter.test.ts`, `turn-progress.test.ts`, `web-search/url-detector.test.ts`, `hardening-payload.test.ts`, `hardening-audio.test.ts`.
+- **Node-only regression (keep as-is)**: documents/*, cad/*, three3d/*, anatomy/*, render/* (client), skills/{registry,installer,modality}.
+- **Playwright (Part 10 only, per brief)**: all `tests/*.spec.ts` run unchanged against cutover stack; `tests/helpers/`, `tests/fixtures/**` reused.
+- **Fixture assets available now**: `scripts/e2e-llm-proxy.mjs` (:8099 recording proxy — reuse for upstream-request-body goldens), `tests/fixtures/**` (archives/audio/images/docs for extract parity).
+
+### Rule 3 golden-fixture checklist (status)
+All PENDING against Rust; TS baseline harness = existing vitest suites + a new `rust-backend/fixtures/` corpus recorded from TS with a **mock upstream** (deterministic SSE server):
+streaming | non-streaming | malformed/non-JSON passthrough | empty/minimal payload | compaction passthrough (assert purpose deleted + stripAttachmentRefs + no stage frames) | slash skill (X-Used-Skill + injection) | decision-mode passthrough | attachment retrieval | attachment retrieval failure (non-fatal) | web-search disabled | web-search success (web_meta/citations) | web-search failure (non-fatal) | image pre-pass (payload hasImage) | upstream 4xx/5xx (both paths) | unreachable upstream (both paths) | client abort | split SSE frames | split UTF-8 code points | `<think>` split at EVERY byte boundary (incl. unterminated — Rust fixes TS behavior; dedicated tests + explicit "approved deviation" record).
+
+## 7. Node sidecar design (KEEP_NODE_REQUIRED consumers)
+
+Rust owns: chat orchestration, decision, skills registry/injection, retrieval+notes, web-search pipeline (HTTP+parse+cache), settings, conversations, titles queue, model-stats, inference slot.
+Node keeps (single Next server, existing routes): `files/extract` (parse+index-build), attach INDEX STORE writing (embed ONNX), documents export, anatomy export, 3d assets, Playwright Tier-3b.
+- **Attach parity path**: Node continues BUILDING the index (extract → chunk → embed → store). Rust reads the same `.data/attach-index/` format (SHARED_CONTRACT §5) and owns RETRIEVE/turn/notes. Zero new RPC; parity fixtures pin the store JSON.
+- **Tier-3b hop**: Rust → `POST http://127.0.0.1:<next>/api/internal/browser-read` (NEW, loopback-only, random process-local secret generated by Next at startup, env/IPC handoff to Rust, SSRF re-validation, nav+response-size+operation timeouts) wrapping `extractor` Tier-3b/`agentBrowser.readWithInteractiveProfile` semantics. Rule 9 applies here — this is a NEW endpoint, not a port of a deleted one.
+- Windows process supervision: `npm run dev` must spawn `ruke-server.exe` as a DIRECT child (Rule 12) and kill it on exit.
+
+## 8. Performance baseline (Rule 15) — **RECORDED 2026-10-26, `rust-backend/perf/baseline-measure.sh` → `results-*.log` + `ws-13004.csv`**
+
+TS stack (Next dev `:3000` PID 13004, dev-mode; Strata `:8080` PID 14904 external, excluded):
+
+| Metric | Value |
+|---|---|
+| Idle WS | **1,931 MB** |
+| Peak WS across probe run | **2,514 MB** (504 samples @400 ms) |
+| Repeated-turn WS growth ×10 tiny non-stream | 2,212 → 2,156 MB — **no leak** |
+| GET routing latency (warm) | conversations 5.3–5.7 ms; settings 4.5–4.9 ms; model-stats 6.3–6.6 ms (first-hit cold: 0.68 s / 0.19 s) |
+| Time-to-first-progress-event (warm) | **39–47 ms** (`decision_done`, ms=0 — in-process router) |
+| TTFT tiny turn (gate unexpectedly searched: full research cycle) | **28.6 s** |
+| TTFT post-cancel tiny turn (no research) | **2.9 s** |
+| TTFT forced research turn | **12.7 s**; 18 stage frames (gate→planning→searching(3 pools)→reading(11)→reranking→done) |
+| Each tiny non-stream turn total | ≈ 4.0 s (gate generation + answer generation — the gate is a MAIN-MODEL call every turn; budget 2 generations per turn in Rust parity) |
+| Cancellation latency | curl killed at +3 s (175 bytes received); next turn first-stage at **47 ms** → slot released promptly, **no zombie turn** (TS behavior to match) |
+
+Caveats (honest): dev-mode Next (HMR/cache) inflates RSS — the Rust comparison MUST re-run this same harness on dev-mode for apples-to-apples, and additionally report prod `next start` numbers if the brief's RAM claims need justification. One "tiny" probe unexpectedly triggered the full research pipeline (gate misfire on a reply-only prompt) — logged as genuine baseline behavior the Rust gate port will be judged against. Rust re-measure post-Part 10 uses the identical script; report real deltas only (Rule 15).
+
+## 9. Architecture decisions — **FROZEN 2026-10-26 (user-approved)**
+
+1. **Embedding**: ONNX-in-Node (`@huggingface/transformers`, `.data/models`) — stays Node.
+2. **Attach index build**: stays Node (extract→chunk→embed→store); Rust owns read/retrieve/notes against the frozen store format.
+3. **3d/assets + anatomy + documents export**: stay Node.
+4. **Tier-3b browser access**: NEW loopback RPC with process-local secret (Rule 9).
+5. **Baseline load probes**: run now, as the closing step of Phase 0 (results in §8).
+
+## 10. Part sequence (proposal)
+
+### Part status tracker
+
+| Part | Status | Evidence / notes |
+|---|---|---|
+| 1 | **DONE 2026-10-26** | Workspace `rust-backend/` (`ruke-contracts`, `ruke-core`, `ruke-server` bin). 28 unit/contract tests green (`cargo test`), clippy clean, release build + loopback smoke: `GET /api/ruke/health` OK on 127.0.0.1:3101, `POST /api/chat` → 404 (zero cut-over). Env: machine had **no C linker**; installed VS 2022 Build Tools (VC++ 14.44 + Win SDK 10.0.26100) via winget — `x86_64-pc-windows-msvc` now builds. KNOWN PARITY NOTE: serde_json writes `confidence: 1` as `1.0` (JS writes `1`) — Part 2 goldens must normalize or Part 4 adds a JS-number serializer. |
+| 2–10 | PENDING | |
+
+1. Rust workspace scaffold + config/settings + `tracing` + CancellationToken core.
+2. Golden-fixture harness (TS baseline recorded; mock upstream server; all §6 rows green vs TS).
+3. Decision + skills/lazy + skill-loader + `passthroughEnvelope` parity.
+4. Chat core: stream scrubber state machine, both response paths, error contract, headers.
+5. Attach retrieval + notes + store reader (fixtures vs same `.data` store).
+6. Web-search: net/ssrf/cache/engines/metasearch + pipeline stages (Node bridge for Tier-3b).
+7. Conversations/titles/model-stats + inference-slot coordination.
+8. Thin proxies (Rule 11) + `npm run dev`/`build` supervision (Rules 12–13).
+9. Contract drift tests (ts-rs generation for SHARED_CONTRACT set).
+10. Playwright full suite (lock protocol) + perf re-measure + deletion pass (Rule 18).

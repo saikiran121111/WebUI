@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/ruke-contracts", "crates/ruke-core", "crates/ruke-server"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+
+[workspace.dependencies]
+ruke-contracts = { path = "crates/ruke-contracts" }
+ruke-core = { path = "crates/ruke-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
+tokio-util = { version = "0.7", features = ["full"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+parking_lot = "0.12"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+
+# Rule 13: production lifecycle compiles an optimized backend.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

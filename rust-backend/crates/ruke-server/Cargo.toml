@@ -1,0 +1,23 @@
+[package]
+name = "ruke-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Migrated Rust backend (Rule 12 binary: ruke-server.exe). Part 1 scaffold: config + settings + tracing + health only; no route cut-over yet."
+
+[[bin]]
+name = "ruke-server"
+path = "src/main.rs"
+
+[dependencies]
+ruke-contracts.workspace = true
+ruke-core.workspace = true
+axum.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+tempfile.workspace = true
