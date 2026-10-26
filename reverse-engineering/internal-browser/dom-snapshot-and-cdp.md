@@ -266,7 +266,8 @@ rendering: x=this.accessibilityCore.buildRevision(t.accessibilityRevision,_,{mod
 - Revision objects live in wasm memory; JS keeps identity/text via copy_* exports + length probes;
   `is_value_settable` gates `set_value` (`o.isValueSettable===!1 → "Accessibility element N has no settable value"`).
 - Diffing is **incremental state machine** (`buildRevision(prevRevision, current)`) with `auto` default, `full`
-  on `disableDiffing` **[verified]**; per-node `element_index` derives from rendered text order **[inferred]**.
+  on `disableDiffing` **[verified]**; per-node `element_index` = wasm revision element index, resolved back via
+  `identityForElement` → targets Map join (§5.1) **[verified — A16 closed, was inferred]**.
 - Action dispatch union `WR` (zod, verbatim fields): `paste{element_index?, text, format?:text|md|html}`,
   `click{target, mouse_button?:left|right|middle|l|r|m, click_count}`, `drag{from,to}`,
   `perform_secondary_action{element_index, action}` (only `Expand`/`Collapse` validated against
@@ -278,6 +279,136 @@ rendering: x=this.accessibilityCore.buildRevision(t.accessibilityRevision,_,{mod
   throws `"A JavaScript dialog is blocking the requested page element"` **[verified]**.
 - Input coordinates from AX: `Hv(...)` focus-then-input; mouse: `Input.dispatchMouseEvent` with
   `{x,y}` from quad/box (`$v(e,t,r.element_index,{clickCount:1})`).
+
+### 5.1 A16 closure — revision text grammar, wasm identity join, capture state machine, full action engine **[verified 2026-10-26; one boundary CLOSED-contract]**
+
+**REA instrument boundary (deciding instrument, recorded first):** `rea@6.8.0` `inspect-wasm-artifact`
+has a hard input cap of 8,388,608 B with **no runtime override**; decompressed
+`browser-accessibility.wasm` = 20,208,690 B → REA refused inline analysis (`out/wasm_rea.json`,
+evidence `ev_bfc0d6af…`). REA's returned tool_profile prescribes WABT 1.0.42
+(`--enable-all --ignore-custom-section-errors`; sha256: wasm-validate `4939f4bc…`,
+wasm-objdump `7f9cf21c…`, wasm2wat `9ccce93d…`, source_commit `ff0ef7e0…`); per that prescription
+WABT 1.0.42 was installed and sha256-verified at
+`C:/Users/Ruku/AppData/Local/Temp/codex_re/tools/wabt1042/` (user-authorized 2026-10-26) and used as
+REA's designated instrument (`out/wasm_objdump_x.txt`, `out/wasm_strings.txt`, `out/wasm_pool_A.txt/B.txt`).
+
+**Wasm module identity** (sha256 `489ab336ff6956ff66af93ad997e75f3d29fad395bc06e10afb1d68c60fec346`):
+34 WASI preview1 imports; **11 exports** = `memory` + `_initialize` + the exact 10-export glue manifest
+(H-BS-11 REQUIRED MANIFEST — corrects the earlier "9 exports" ledger row); Swift-compiled
+(`.swift1_autolink_entries`); 21 data segments.
+
+**Rendered-grammar string pool (verbatim, `out/wasm_pool_A.txt`, file offsets 16,424,000–16,438,000):**
+diff header "The following is a diff from the previous accessibility tree with ~ and + representing
+changed and added elements, respectively. Removed elements are summarized by ID range.";
+"There has been no change in the accessibility tree."; "Scroll to Visible"; "Removed element IDs: ";
+"The focused UI element is "; selected-text fence literal ```` `"Selected text: ```"` ````;
+selected-content Note ×2; "Secondary Actions"; "Remove unused rows"/"columns";
+`BrowserAccessibility*` type names; `ChromeAccessibilityWire*` = CDP Accessibility.getFullAXTree wire
+DTOs (carry `backendDOMNodeID`); role-token→AX-enum table; env knobs
+`TINYSKY_AX_TREE_DIFF_MIN_SAVED_RATIO`/`TINYSKY_AX_TREE_DIFF_MIN_SAVED_BYTES`;
+failure label `AccessibilityDifferenceLineBudgetExceeded`.
+
+**Line shape (JS-side half verbatim: Appendix H H-BS-12 Wte/$te/Gte + H-BS-21 jte/XN/Hte/YN/QN/e2):**
+2-space indent + `- <role>` + ` [attr]` groups + optional trailing `:`; JS post-processing strips
+`[ref=…]`/`[cursor=…]` (Wte), drops/tests iframe·generic·listitem·group·img lines ($te/Gte/XN/Hte/QN/e2),
+rebuilds removed-ID summary lines (e2). No ref/cursor/id format literals exist in the wasm printable
+pools — exact per-line id-tag emission lives in compiled Swift (short literals). That is the one
+**CLOSED-contract boundary**: replicate the line shape from the regexes + pool-A literals +
+`documents/**/accessibility.md` examples (already verbatim in Appendix C).
+
+**element_index → CDP join chain (proven verbatim; H-BS-24):**
+`zh.targetForElement(t,r)` → `n.accessibilityRevision.identityForElement(r)` (wasm
+`revision_identity_length`/`revision_copy_identity` ABI maps element_index → revision identity string) →
+`n.targets.get(identity)` → `{target, backendNodeId, frameId, loaderId, javaScriptDialog?,
+actionDescriptions, isOptionElement}`. Staleness errors: "Accessibility element ${r} is stale or
+missing"; "Accessibility element ${r} belongs to a previous page" (documentKey !==
+`Lr(mainFrameId,loaderId)` = `` `${mainFrameId}:${loaderId}` ``). Targets Map built in buildAXCandidate
+keyed by `Fv(tabId,node)` = join "|" over `[String(tabId), targetID??"", backendDOMNodeID??nodeID]`
+with TextEncoder byte-length prefixes. `actionDescriptions`: AX property
+`expanded===true→["Collapse"]`, `===false→["Expand"]` (origin of the Expand/Collapse secondary-action
+labels); `isOptionElement` via DOMSnapshot metadata tagName==="option";
+`isValueSettable` via wasm `revision_is_value_settable`.
+
+**Capture freshness state machine (`zh` head, H-BS-26) — constants verbatim:**
+`Hre=new Set(["firstMeaningfulPaint","firstContentfulPaint","firstPaint","firstImagePaint"])`,
+`Wre=1000`, `$re=500`; `nl=class extends Error{super("Accessibility capture belongs to a previous page")}`.
+capture(): screenshot-only fast path → 250 ms pendingNavigationState recheck → waitForNavigation
+(25 ms detect, then 5e3 until committed) → waitForFirstPaint (5e3 until painted/complete) →
+waitForAXQuiet (750 ms deadline; quiet threshold 50 ms when forced else 100 ms since
+lastAXUpdateMilliseconds; 25 ms poll) → 3-attempt captureCandidate loop (empty AX → "Accessibility
+capture was empty"; elementCount<100 && q2(probe) → 100 ms + one re-probe; j2 match or
+revision-stable/painted/screenshotUnavailable → commit; else repaint+quiet retry) → terminal
+"Accessibility capture changed before it stabilized". `q2` large-page probe:
+`documentElementCount>=Math.max(150,e*3)` or `e<50 && documentTextLength>=4e3`. `j2` worth-capture:
+dialog→elementCount>=3; else painted/complete + elementCount>=10 + same host+path.
+commitCapture state string: `Browser tab: ${a.id}, Title: ${JSON.stringify(title??"Unknown")}, URL:
+${JSON.stringify(url??"Unknown")}${", Site Specific Instructions: …"}.\n${rendered}` (getSiteInstruction
+hook) + captureProvenance WeakMap → validateCapture→nl. `ensureTracked`: Page.getFrameTree,
+Accessibility.enable per target (Wh key `` `${tabId}:${sessionId??targetId??"root"}` ``),
+Page.setLifecycleEventsEnabled, readDocumentState{includePaint}. probeNavigationState JS:
+`(() => { const body = document.body; return { readyState: document.readyState, elementCount:
+body?.querySelectorAll('*').length ?? 0, textLength: body?.innerText?.length ?? 0 }; })()`.
+performAction: prompt-dialog set_value/type_text bumps `revision+=1` (invalidates the diff).
+
+**Action engine (H-BS-24/H-BS-25, all verbatim):** `$h.perform()` serializes pendingInput per tab and
+races JavaScript dialogs via the `tl` wrapper (Page.javascriptDialogOpening, beforeunload skipped) —
+error: "Browser action \"${r.kind}\" interrupted by JavaScript ${s.type}: ${a} The action may already
+have taken effect; do not retry it. Inspect or dismiss the dialog before continuing.". `_re` kind switch:
+click `$v` (target = element_index | {point}; IAB owner chain `Ic` attach, errors "Click target is no
+longer available"/"Could not check the click target's shadow root"; option → `Bre` →
+"select-option" via `playwright.evaluateOnPlaywrightNode(Dre)` selectOptions ("Select changed before
+option activation") or "physical-click" when multiple/size>1/:open&&appearance==="base-select";
+`W2` hit-test settle loop: DOM.scrollIntoViewIfNeeded then poll `bre=25 ms`, deadline `yre=500 ms`,
+settle tolerance `wre=.5` across point/width/height — "Element ${id} couldn't be clicked. Try another
+element." / "did not settle after scrolling" / "is covered by ${hitTag??"another element"} or otherwise
+not hittable"), drag (8-point interpolated `dragPath`), `perform_secondary_action` `Tre` (only
+Expand/Collapse allowed AND must be in actionDescriptions → synthesized click), type_text `Hv`
+(3e3 ms; "Could not prepare accessibility element ${r} for input within 3000 ms. No input was sent."),
+paste `Zy` (virtual clipboard: clipboard.runExclusive paste/paste-plain-text/copy/cut cutToken
+crypto.randomUUID; `{mime_type:"text/plain"[,"text/html"]}`), press_key (`oo`/`Sp` keypress map else
+dom_cua `Bs`), scroll `Sre` (Input.dispatchMouseEvent mouseWheel; axis size `Math.max(dimension,100)*pages`;
+left/l/up/u negative), select_text `Oo+kre` (uniqueness `${prefix}${text}${suffix}` indexOf — "Text to
+select was not found"/"matches multiple locations"; input/textarea setSelectionRange else TreeWalker
+SHOW_TEXT + Range; text→end, cursor_before/after), set_value `Ere` (`isValueSettable===false → "has no
+settable value"`; in-page selector `H2`: checkbox/radio/switch value ∈ 0/1/false/true via native
+`HTMLInputElement` checked setter from getOwnPropertyDescriptor + indeterminate cleared + input/change
+dispatch + "did not retain the requested state"; select single = value match then unique label/text
+match with ambiguous/disabled errors + native option selected setter; input/textarea native value setter,
+color lowercased #rrggbb, file input refused, rollback+rejected error; role=tab "1"/"true" branch).
+All in-page selectors run through `Oo` = DOM.resolveNode + Runtime.callFunctionOn with wrapper
+`function (argument) { const __name = (target) => target; return (${r.toString()}).call(this, argument); }`
+returnByValue + userGesture + releaseObject. Coordinates validated via Page.getLayoutMetrics
+cssVisualViewport ("Coordinate is outside the active tab content viewport"; `Cre` array guard +
+telemetry `ar("tab_ax_action",t)`). Hit-test frame walk `Wv`: DOM.getContentQuads/getBoxModel per frame,
+`ui` clip into per-frame viewport, owner-node `Ire` shadow-root elementFromPoint loop →
+kinds hittable/covered(hitTag)/unpositioned; errors "Accessibility frame ${id} is unavailable" /
+"has no content bounds". `Rre` activation/point solver: getClientRects + Text ranges, visualViewport
+clamp midpoint, 17-selector control list, labels union, shadow `x()` slot/assignedSlot/host walk,
+pointerEvents:none rule, label-rect fallbackPoint. `Pre` activation: closest
+'a[href],button,input,select,textarea,label,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"]',
+label.control, contenteditable true/""/plaintext-only, detached/disabled/read-only errors, focus
+preventScroll + shadow activeElement verify else click. `Are` = Element.prototype.scrollIntoView
+instant-center. `L2` DOMSnapshot→maps (shadowRootType closed → "inside"), `U2` frame-owner join
+(warning `Iframe ${frameId} owner was not present in the accessibility tree`). JS-dialog AX surface:
+`F2` dialog nodes, frameId `javascript-dialog:${id}`, controls accept|dismiss|prompt, backendNodeId:0,
+Return/Enter→accept unless control==="dismiss", Escape→dismiss, prompt → updateJsDialogPrompt; fallback
+text: "Screenshot unavailable while a JavaScript ${s.type} dialog is open. Use tab.ax.get(\"state\") and
+tab.ax.click(elementIndex) to interact with its controls." Command layer: `$2=F("tab_ax_action")` —
+acquireAuthority().actInFrame assert, followSessionTab, Do catch → ax.capture("axState") +
+validateCapture → rethrow `` `${n.message}\n\n\n${o.state}` ``; `G2` no-op telemetry passthrough
+{withSpan,withCommandTelemetry,currentCommandAttrs,currentPlaywrightOperation};
+`J2=F("tab_ax_get_state")` — capture retry loop `for(let o=0;;o+=1)` re-throwing on session-id change
+(getCurrentSessionId). zh tail (H-BS-27) event wiring: Page.frameNavigated (main frame) →
+pendingNavigationState; Accessibility.loadComplete/nodesUpdated → lastAXUpdateMilliseconds=Date.now();
+Page.frameDetached + Target.detachedFromTarget → invalidateFrame/enabledTargets.delete;
+handleTabDetached → sessions.delete. readDocumentState (H-BS-23) evaluateJavascript probe:
+`{ href, readyState, painted: performance.getEntriesByType('paint').some(...'first-paint'...
+'first-contentful-paint') }` + topLevelUrlsByTabId href cache.
+Residual `BROWSER_USE_AUTOMATED_SAFETY_PRECHECKS_ENABLED` cluster (Uy/ci/gp @~156164) tracked in the
+Appendix I residual queue.
+
+**Checklist items 4 & 6: AX half now CLOSED** (only boundary = compiled-Swift id-tag literal emission,
+documented above as CLOSED-contract).
 
 ## 6. `tab_cdp_call` / `tab_cdp_events` raw capability **[verified contract, docs verbatim in annotation file]**
 Main buffers CDP events per tab with `sequence` + cursor paging (`limit` 1..1000, `hasMore`, `truncated`,
