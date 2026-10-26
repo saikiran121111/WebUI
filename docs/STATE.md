@@ -407,3 +407,160 @@ No Tier-1/Tier-2 skill bodies loaded. No scenario locks.
    `rust-backend/fixtures/` (TS remains authoritative; capture via :3000 with RUKE_TEST_FIXTURES).
 2. Part 2b: Rust fixture-runner test that replays those goldens against ruke-server contract code.
 3. Normalize `confidence` number formatting decision informed by recorded goldens.
+
+---
+
+## Session 2026-10-26-B — Rust migration Part 2 (golden-contract fixtures)
+
+### 8.1 Objective & milestone
+PART 2 of the Rust migration (contract = `rust-backend/MIGRATION-MAP.md`, frozen).
+Mission: record the DETERMINISTIC TypeScript wire-contract baseline under
+`rust-backend/fixtures/` covering ALL 19 frozen §6 scenarios — WITHOUT porting any
+feature. COMPLETE 2026-10-26: 44 fixtures + 7 vitest suites (41 tests) under
+`__tests__/rust-golden/`, driven in-process against a scripted mock upstream (no
+live Strata, no dev server, no Playwright). TS remains authoritative; no cutover,
+no proxies, no Rust feature work. Part 3 (decision + skills port) is next.
+
+### 8.2 Locked completed (do not re-read/re-do)
+- Harness `__tests__/rust-golden/support/golden.ts`: setGoldenEnv (LOG_LEVEL silent;
+  WEB_SEARCH_GATE_DISABLED toggled per suite), scripted mock upstream (upstreamCalls
+  ledger; llmApiUrl/llmApiKey mocked to unroutable 127.0.0.1:9 — fetch never
+  attempted), parseLogical (LOGICAL SSE frames = the contract, not TCP chunks),
+  normalizeBodyMs/normalizeMs (stage `ms` → "<ms>"), headerMap, skill-block ANCHORS
+  (sha256 + byte length + source-file hashes replace `<active_skill>`/`<decision_skill>`
+  bodies), and `writeJsonFixture` DRIFT GUARD (first-diff line on replay; stale
+  fixture = DELETE + re-record, never hand-edit).
+- 7 suites → 44 fixtures (scenario map in `rust-backend/fixtures/README.md`):
+  chat-core 11 (streaming, legacy, malformed, empty×3, compaction, decision_mode×2,
+  abort, search-disabled), errors 8 (4xx/5xx both paths, unreachable both paths,
+  empty-body), sse 3 (frame-split, UTF-8 matrix, `<think>` split-at-every-byte
+  matrix incl. unterminated — 02/03 APPROVED-DEVIATION recording expectedRust values),
+  skills 5 (slash user skill both paths, unknown-slash passthrough, core-tier via
+  decision, excel decision_mode passthrough), decision-serialization 5+1 (envelope
+  bytes + field ledger), attachments 6 (retrieval success, honest-block empty/missing
+  index, video keyframe paths ×2, legacy parity), web 5 (success progress w/ stages+
+  evidence+web_meta stage frame; success legacy X-Web-Citations/X-Search-Gate headers;
+  starved sentinel; internals-throw non-fatal; image-attachment intent gate w/
+  upstreamCalls.length===1 proving no vision hop).
+- Web mock boundary: cache/net/engines mocked (I/O seams; impit never loads; real
+  isSafeUrl + deduplicateQueries kept); gate, planner, metasearch, extractor, BM25
+  reranker, coverage logic REAL → evidence-block bytes derive only from scripted
+  SERP + pages.
+- Handler-load pattern (all 7 suites, tsc-safe): `setGoldenEnv()` at module top, then
+  `let POST: (req: NextRequest) => Promise<Response>; beforeAll(async () => { POST =
+  (await import("@/app/api/chat/route")).POST; });` — avoids TS1378 (top-level await
+  vs target es2015) and TS2694 (`import(...).POST` type access vs Next `.next/types`
+  route files); route import happens AFTER env is set; web-search flag reads verified
+  call-time (search-gate.ts gateDisabledByEnv) so ordering is safe.
+- VERIFY (real exits): `npx vitest run __tests__/rust-golden` run TWICE — record then
+  replay parity: Test Files 7 passed (7) / Tests 41 passed (41), exit 0. Full corpus
+  `npx vitest run`: Test Files 1 failed | 60 passed (61); Tests 2 failed | 657 passed |
+  1 skipped (660) — both failures in `__tests__/skills/chatEngine.test.ts`, PROVEN
+  PRE-EXISTING (fails standalone; tracked file, unmodified; user's in-progress
+  internal-browser work). `npx tsc --noEmit` TSC_EXIT:0. `cargo check` 0;
+  `cargo test` 28 passed exit 0; `cargo clippy --all-targets -- -D warnings` exit 0.
+- Docs: `rust-backend/fixtures/README.md` CREATED (layout, comparison classes,
+  determinism/normalization, env preconditions, web mock boundary, 10 pinned
+  discoveries, gaps, regeneration commands). MIGRATION-MAP §10 tracker ONLY updated
+  (Part 2 DONE 2026-10-26 row; `| 3–10 | PENDING | |`).
+- git tree proof of no-production-change: `M tsconfig.tsbuildinfo` (build cache) +
+  untracked `__tests__/rust-golden/`, `rust-backend/fixtures/` — zero TS source files
+  modified, §8 prohibitions intact.
+
+### 8.3 Graphify map (fixture consumers)
+- chat/ + sse/ goldens → future Rust chat-streaming port; errors/ → Rust error
+  contract; decision/ + serialization/ + skills/ → Part 3 decision+skills port;
+  attachments/ → attachment-retrieval port; web-search/ → web pipeline port. Each
+  Rust part replays via `writeJsonFixture`-compatible fixture-runner (Part 2b idea
+  from session A now folded into each part's acceptance test).
+- Suites import `@/app/api/chat/route` + `@/app/api/decision/route` directly and the
+  real lib modules (attachment search, web-search pipeline) — fixtures are ONLY
+  produced by these harnesses; nothing in the Rust workspace reads fixtures yet
+  (additive tree intact).
+
+### 8.4 Immutable contracts added this session (fixtures pin these bytes)
+- SSE grammar: `data: <json>\n\n`; stage frames `{"ruke_stage":<StageEvent>}`; error
+  frame `{"ruke_error":{"message"}}` + `data: [DONE]`; the route NEVER appends
+  [DONE] after raw upstream bytes. Legacy path = metadata headers + byte-exact body;
+  progress path = early-open SSE + stage frames (ms-normalized).
+- Error contract: legacy 4xx/5xx → upstream status PRESERVED +
+  `{"error":"Upstream returned <N>: <first 200 chars>"}`; empty body legacy → 502
+  `No response body from model`; unreachable legacy → 503 `Could not reach the model
+  server at 127.0.0.1:9.`; progress path → HTTP 200 + one ruke_error + [DONE].
+- Decision envelope: 11-key insertion order (active_mode, confidence, decided_by,
+  stripped_prompt, skill_to_load, allowed_code_fence, disable_validators,
+  enable_validator, task_constraints, extracted_entities, lfm_latency_ms);
+  `lfm_input`/`lfm_raw` OMITTED (absent, not null); `confidence` serializes integer
+  `1` — serde_json f64 `1.0` is BYTE-INEQUAL; Rust serializer must emit `1` or carry
+  an explicit approved deviation (Part 4 decision); skill_to_load/allowed_code_fence
+  nulls serialize as JSON null (present).
+- Web evidence block (pipeline.ts): empty bundle → exact sentinel `"No web evidence
+  could be retrieved. Proceed with your knowledge only."`; non-empty → block =
+  `ANTI_REFUSAL_DIRECTIVE + "\n\n" + <evidence>…</evidence>` guideline header, THEN
+  `\n[S#] title (published YYYY-MM-DD)\n    url` + ≤5 `    "…"  (BM25=x.xx)` excerpt
+  lines AFTER the closing tag — block NEVER starts with `<evidence>` and
+  `</evidence>` precedes `[S1]`.
+- `web_meta` = STAGE frame (`stage:"web_meta"` with webCitations map + searchGate)
+  emitted AFTER `web:done`; legacy path surfaces it ONLY via encodeURIComponent(JSON)
+  headers `X-Web-Citations`/`X-Search-Gate`, and only when citations non-empty.
+- Two web-failure shapes (both non-fatal): starved engines → non-null empty bundle →
+  sentinel block, NO web_meta/citation headers; internals THROW → route catch
+  swallows, NO block at all.
+- Skills: user-tier slash → `X-Used-Skill` header + detail block (progress) /
+  header-only (legacy); core-tier → `<decision_skill>` injection, NO header/detail.
+- RECORDED BUGS (NOT fixed, §8): injection off-by-one family — web-evidence,
+  attachment-retrieval and no-skill-block evidence land at `lastUserIdx + 1` (system
+  AFTER user; `web-search/01` pins roles `["user","system"]`); attachments carry the
+  same off-by-one (`attachments/01,04,06`; `05` shows skill-shifted path is correct).
+  `<think>` scrubber is boundary-dependent-buggy — fixtures sse/02 matrix records TS
+  mangling + expectedRust incremental-state-machine vectors (approved-deviation).
+  `runVisionEntityPrepass` DEAD (zero call sites); `KNOWN_SITE_TOKEN_RE`/
+  `DOMAIN_TLD_TOKEN_RE` dead; `metasearch()` leaves an uncleared 15 s hard-cap
+  setTimeout per call; `fallbackEnvelope` (in-process-fallback) unreachable via
+  public /api/decision (route guard) — internal-only, Rust keeps it internal; gate
+  hard-bypass never calls the main model (gateMs 0, decidedBy "deterministic").
+- Fixture discipline: comparison classes byte-exact / structural / semantic /
+  approved-deviation; logical frames (not TCP boundaries) are the contract EXCEPT the
+  think/utf8 matrices; regeneration = `npx vitest run __tests__/rust-golden` (replay,
+  first-diff on drift) or `rm -rf rust-backend/fixtures/<dir> && npx vitest run
+  __tests__/rust-golden/<suite>` (re-record).
+- All pre-browser + Part-1 contracts in the sections above remain in force verbatim.
+
+### 8.5 E2E/verification state
+- NO Playwright this session (forbidden by the Part 2 brief); no
+  `.ai-coordination/playwright.lock`. :3000 dev server and :8080 Strata never
+  touched — fixtures run in-process, mock upstream only (Rule: never consume the
+  shared Strata slot).
+- vitest golden dir replay-green (two consecutive runs, identical output); fixture
+  corpus deterministic on any machine without Strata/sqlite/browser.
+- cargo suite unchanged from Part 1 (28 tests) and still green.
+
+### 8.6 Open bugs & gaps (recorded, not skipped)
+- PRE-EXISTING repo failure (NOT Part 2, not ours to fix unasked):
+  `__tests__/skills/chatEngine.test.ts` 2/7 red standalone ("standard_chat injects
+  nothing…" and "engine down -> standard_chat fallback…" both expect a
+  `## Browser agent` system block, receive 0) — belongs to the user's in-progress
+  internal-browser work.
+- Fixture gaps: `whole_video` note path + exhaustive-retrieval mode unexercised;
+  sourceClass/extractEntities pinned only indirectly; extractor Tier-3b neutralized
+  by the net mock (no browser in Part 2).
+- `metasearch()` 15 s uncleared timer delays vitest worker exit (harmless; the Rust
+  port must still honour the 15 s cap semantics).
+- Part 4 serializer decision OPEN: emit `confidence: 1` byte-exact vs recorded
+  deviation (README discovery 1).
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded this session. No Playwright lock. Tier-2
+  `.cskills/browser-operator` (prior session) remains installed, untouched.
+
+### 8.8 Immediate next 3 atomic actions
+1. PART 3 (per MIGRATION-MAP): port the decision engine + core-skill loading to Rust
+   against `rust-backend/fixtures/decision/` + `serialization/01` + `skills/` goldens;
+   Rust fixture-runner test replays them byte-exact (11-key order, `1` integer,
+   omitted lfm fields, skill anchors reproduced from the same files).
+2. Then Part 4: chat SSE streaming port against `chat/` + `sse/` + `errors/` goldens;
+   sse/02/03 conform to the recorded `expectedRust*` vectors, never to the mangled TS
+   bytes.
+3. Only if the user asks: commit the working tree (untracked `__tests__/rust-golden/`
+   + `rust-backend/fixtures/` + modified MIGRATION-MAP/STATE; end commit msg with
+   "Co-Authored-By: Claude Code <noreply@anthropic.com>").

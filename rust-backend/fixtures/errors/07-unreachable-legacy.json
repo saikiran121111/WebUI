@@ -1,0 +1,41 @@
+{
+  "_meta": {
+    "scenario": "upstream fetch throws (legacy path)",
+    "semantics": "fetch() rejection (connection refused to 127.0.0.1:9) -> 503 {error:'Could not reach the model server at <host:port>.'} — the mock settings URL's host:port appears verbatim.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/errors.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+  },
+  "request": {
+    "rawBody": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}"
+    }
+  ],
+  "response": {
+    "status": 503,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "bytes": 60,
+      "utf8Lossy": "{\"error\":\"Could not reach the model server at 127.0.0.1:9.\"}"
+    }
+  },
+  "logicalFrames": [],
+  "streamDone": false,
+  "unterminatedTail": "{\"error\":\"Could not reach the model server at 127.0.0.1:9.\"}"
+}

@@ -1,0 +1,41 @@
+{
+  "_meta": {
+    "scenario": "upstream HTTP 400 (legacy stream:false path)",
+    "semantics": "Non-2xx upstream on the legacy path: the route answers a JSON error object; upstream status is preserved and the message is 'Upstream returned <status>: <first 200 chars of upstream error text>'.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/errors.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+  },
+  "request": {
+    "rawBody": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"fail please\"}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"fail please\"}]}"
+    }
+  ],
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "bytes": 54,
+      "utf8Lossy": "{\"error\":\"Upstream returned 400: bad request details\"}"
+    }
+  },
+  "logicalFrames": [],
+  "streamDone": false,
+  "unterminatedTail": "{\"error\":\"Upstream returned 400: bad request details\"}"
+}

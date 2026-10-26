@@ -1,0 +1,100 @@
+{
+  "_meta": {
+    "scenario": "decision_mode: excel repair passthrough (legacy path)",
+    "semantics": "decision_mode is REMOVED from the forwarded payload; envelope = passthrough (decided_by \"repair-passthrough\" — this attribute appears INSIDE the decision_skill block header and is pinned by block_sha256). Core xlsx skill + excel contract injected exactly as in fixture 04.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/skills.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text.",
+    "anchors": [
+      {
+        "path": ".cskills/xlsx/SKILL.md",
+        "sha256": "111e06521941d60feea6c160d9f67a0b9b95a383d3db0b4c95e65937eb12fb5a",
+        "bytes": 8697
+      }
+    ]
+  },
+  "request": {
+    "rawBody": "{\"decision_mode\":\"excel\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"re-emit the deliverable for this request\"}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"stream\":false,\"messages\":[{\"role\":\"system\",\"content\":\"<decision_skill mode=\\\"excel\\\" decided_by=\\\"repair-passthrough\\\">\\n<core_skill name=\\\"xlsx\\\">\\n# XLSX creation, editing, and analysis\\r\\n\\r\\n| Task | Approach |\\r\\n|---|---|\\r\\n| **Create** or **edit** with formulas/formatting | `openpyxl` — see gotchas below |\\r\\n| **Bulk data** in or out | `pandas` (`read_excel`, `to_excel`) |\\r\\n| **Quick look** at a sheet | `markitdown file.xlsx` — `## SheetName` per sheet; reads `.xlsm` too. No cell coordinates, so don't plan edits from it |\\r\\n| **Read** a model (formulas *and* values) | two `load_workbook` passes — see gotchas |\\r\\n\\r\\n> `openpyxl`, `pandas`, and `markitdown` are preinstalled — do not run `pip install` first; write the script and import directly. Only if an import fails (or the `markitdown` command is missing): `pip install` the missing package.\\r\\n\\r\\n> Script paths below are relative to this skill's directory.\\r\\n\\r\\n## Requirements for every output\\r\\n\\r\\n- **Professional font** (Arial, Times New Roman) throughout, unless the user says otherwise.\\r\\n- **Zero formula errors.** Never ship while `recalc.py` reports `errors_found`. If you think an error predates you, prove it: load the *original* with `data_only=True` and look at that cell. An error you introduced looks exactly like one you inherited.\\r\\n- **Use formulas, never hardcoded results.** Write `sheet['B10'] = '=SUM(B2:B9)'`, not the Python-computed total. The sheet must recalculate when its inputs change.\\r\\n- **Follow the user's spec literally.** Exact tab names, exact column headers, and the formula they spelled out. A redesign that computes something else fails, however elegant.\\r\\n- **Document every assumption and hardcoded number** where the reader will see it — a cell comment, or an adjacent cell at a table's end. Cite a real source when one exists (`Source: Company 10-K, FY2024, Page 45, Revenue Note, [SEC EDGAR URL]`); when the number came from the user, say so plainly.\\r\\n- **A workbook *you create* for someone to fill in** needs a short legend naming which cells to edit, and one example row of realistic values showing the expected format. Never add such a row to a file you were asked to edit.\\r\\n- **Editing an existing file: match its conventions exactly.** They override every guideline here. Find its designated input cells first — a distinct font color, fill, or shading marks them — write only there, and leave every existing formula untouched.\\r\\n\\r\\n## Recalculate (mandatory whenever the file contains formulas)\\r\\n\\r\\nopenpyxl writes formulas as strings with **no cached values**. Until you recalculate, every\\r\\nformula cell reads back as `None` to anything reading cached values — `pandas`,\\r\\n`load_workbook(data_only=True)`, and most previewers.\\r\\n\\r\\n\\r\\n\\r\\n\\n`status` (`success` | `errors_found`), `total_formulas`, `total_errors`, and an\\r\\n`error_summary` naming up to 100 cells per error type (`locations_truncated` says how many it\\r\\nwithheld — trust `total_errors`, not the length of the list). Fix what it names and run it\\r\\nagain. **JSON with an `error` key instead of a `status` means nothing was recalculated**, and\\r\\nonly that case exits non-zero — `errors_found` exits 0, so never treat a clean exit as a clean\\r\\nworkbook.\\r\\n\\r\\n**A green recalc proves your formulas *evaluate*, not that they are *right*.** An off-by-one\\r\\nrange or a reference to the wrong row yields a clean, error-free file with wrong numbers.\\r\\nWrite 2–3 formulas first and check they pull the values you expect, before building out a grid.\\r\\n\\r\\n**A workbook that links to another file loses those links** if you re-save it with openpyxl and\\r\\nthen recalculate. Such a formula reads `='[1]Returns Analysis'!$B$2` — the `[1]` is an index\\r\\ninto the workbook's external-reference list, naming a *separate file on disk*, not a sheet.\\r\\nThat file is rarely present here, so the cell's cached value is the only thing holding its\\r\\ndata. openpyxl strips that value on save; LibreOffice then has to resolve the reference for\\r\\nreal, fails, writes `#NAME?`, and deletes every link. `recalc.py` refuses to run in that state\\r\\n— copy those cells' values out of the original before you save over them (`--force` overrides,\\r\\nand accepts the loss).\\r\\n\\r\\n## Choosing formulas that survive verification\\r\\n\\r\\n\\nliteral `#NAME?` baked into the file you deliver.\\r\\n\\r\\n- **Prefer Excel-2007-era functions** — `SUMIFS`, `INDEX`, `MATCH`, `IFERROR`, `SUMPRODUCT` — which need no prefix.\\r\\n- **Six post-2007 functions work, but only with an `_xlfn.` prefix**, because openpyxl writes your formula into the XML verbatim and Excel stores post-2007 names prefixed (its UI hides the prefix): `_xlfn.TEXTJOIN`, `_xlfn.CONCAT`, `_xlfn.IFS`, `_xlfn.SWITCH`, `_xlfn.MAXIFS`, `_xlfn.MINIFS`. Written bare, each yields `#NAME?`.\\r\\n- **Never use `XLOOKUP`, `XMATCH`, `SORT`, `FILTER`, `UNIQUE`, or `SEQUENCE`.** The runtime's LibreOffice cannot evaluate them under *any* prefix. Newer builds do evaluate them, but they are spilling array functions and an openpyxl-written file has no spill metadata, so only the top-left cell of the range gets a value — and `recalc.py` reports `total_errors: 0` on the truncated result. Use `INDEX`/`MATCH` for lookups, and sort, filter, and de-duplicate in Python before writing the cells.\\r\\n- A formula LibreOffice could not parse is written back **lowercased** — a quick tell beside a `#NAME?`.\\r\\n\\r\\n## openpyxl gotchas\\r\\n\\r\\n- **Reading a model takes two loads.** `data_only=True` yields cached values with the formulas gone; the default yields formula strings with no values. One pass cannot give you both.\\r\\n- **`data_only=True` is destructive if you save.** That workbook has no formulas left, so saving replaces every one with a literal — permanently.\\r\\n- **`data_only=True` on a file openpyxl just wrote returns `None` everywhere** — run `recalc.py` first. (A formula whose result is `\\\"\\\"` also reads back as `None`.)\\r\\n- **Merged cells: write the top-left anchor only.** Every other cell in the range is a `MergedCell` whose `.value` is read-only.\\r\\n- **`.xlsm` loses its macros unless you pass `keep_vba=True`** to `load_workbook`.\\r\\n- **A sheet name containing a space must be quoted** in a cross-sheet reference: `='Assumptions Inputs'!$B$5`. Unquoted, it evaluates to `#VALUE!`.\\r\\n\\r\\n## Financial models\\r\\n\\r\\nUnless the user says otherwise, or the existing file already does something else.\\r\\n\\r\\n**Color:** blue text (`0,0,255`) for hardcoded inputs and scenario levers · black for formulas ·\\r\\ngreen (`0,128,0`) for links to another sheet · red (`255,0,0`) for links to another file ·\\r\\nyellow fill (`255,255,0`) for key assumptions and cells the user should fill in.\\r\\n\\r\\n**Numbers:** currency `$#,##0`, with the unit named in the header (`Revenue ($mm)`) · zeros\\r\\nrender as `-`, including in percentages (`$#,##0;($#,##0);-`) · negatives in parentheses ·\\r\\npercentages `0.0%`, **stored as fractions** (`0.15` renders `15.0%`; storing `15` renders\\r\\n`1500.0%`) · valuation multiples `0.0x` · years as text (`\\\"2024\\\"`, never `2,024`).\\r\\n\\r\\n**Structure:** every assumption in its own labeled cell, referenced by the formulas that use it\\r\\n(`=B5*(1+$B$6)`, never `=B5*1.05`) · formulas consistent across every projection period, since a\\r\\nlone edited cell mid-row is the commonest silent error · guard denominators that can be zero.\\r\\n\\r\\n## Dependencies\\r\\n\\r\\n`openpyxl`, `pandas`, `markitdown` (pip, preinstalled — install only if an import fails or the command is missing) · LibreOffice (`soffice`, auto-configured for sandboxed environments via `scripts/office/soffice.py`)\\n</core_skill>\\n\\nEXECUTION BRIDGE MANDATE (NON-NEGOTIABLE): In this WebUI, emitting the single fenced block specified below IS how you execute code, build and save the binary file, run headless recalculation/validation, and deliver the live interactive preview + download link!\\n- NEVER say \\\"I cannot execute code\\\", \\\"I cannot create or save a downloadable file\\\", or \\\"I cannot provide a download link in this environment.\\\"\\n- Even if the user asks you to \\\"create and execute a Python/openpyxl/docx/pptx script\\\" or says \\\"if execution or file creation is unavailable, state the limitation immediately\\\", you MUST fulfill the request immediately by emitting the complete fenced block below. The WebUI backend compiler executes your fenced spec automatically.\\n\\n<output_contract_xlsx>\\nProduce an Excel (.xlsx) workbook: one short intro sentence, then ONE ```xlsx fence with ONE JSON object:\\n{\\\"filename\\\",\\\"sheets\\\":[{\\\"name\\\",\\\"freezeHeader\\\":true,\\\"totalRow\\\":true,\\\"columns\\\":[{\\\"key\\\",\\\"label\\\",\\\"width\\\",\\\"format\\\":\\\"currency|percent|date|number|integer|text\\\",\\\"validation\\\":{\\\"type\\\":\\\"list\\\",\\\"values\\\":[...]}},{\\\"key\\\",\\\"label\\\",\\\"format\\\":\\\"number\\\",\\\"validation\\\":{\\\"type\\\":\\\"decimal\\\",\\\"min\\\":0,\\\"max\\\":1}}],\\\"rows\\\":[{\\\"<key>\\\":value}],\\\"rowGenerator\\\":{\\\"count\\\":500,\\\"startRow\\\":2,\\\"columns\\\":{\\\"<key>\\\":{\\\"pattern\\\":\\\"TXN-{1001..1500}\\\",\\\"cycle\\\":[\\\"Category A\\\",\\\"Category B\\\"],\\\"numberRange\\\":{\\\"min\\\":10,\\\"max\\\":500,\\\"decimals\\\":2},\\\"dateRange\\\":{\\\"start\\\":\\\"2025-01-01\\\",\\\"end\\\":\\\"2025-12-31\\\"},\\\"formulaTemplate\\\":\\\"=ROUND(D{row}*E{row}*(1-F{row})*(1+G{row}),2)\\\"}}},\\\"charts\\\":[{\\\"type\\\":\\\"bar|line|pie|donut|area\\\",\\\"title\\\",\\\"categories\\\":[\\\"...\\\"],\\\"series\\\":[{\\\"name\\\",\\\"data\\\":[1,2]}]}],\\\"conditionalFormatting\\\":[{\\\"columnKey\\\":\\\"status\\\",\\\"rule\\\":\\\"greaterThan|lessThan|equal|containsText|between\\\",\\\"value\\\":\\\"OVERSPEND\\\",\\\"min\\\":0,\\\"max\\\":0,\\\"fill\\\":\\\"#FEE2E2\\\",\\\"fontColor\\\":\\\"#991B1B\\\"}]}]}\\n- ZERO null/blank cells: numeric columns default 0, text defaults \\\"N/A\\\".\\n- 100% live formulas: every computed cell MUST be a formula string starting with \\\"=\\\" (SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/IF/IFS/IFERROR/IFNA/AND/OR/ROUND/ROUNDUP/ROUNDDOWN/INT/ABS/MOD/POWER/SQRT/SUMPRODUCT/SUMIF/SUMIFS/AVERAGEIF(S)/COUNTIF(S)/INDEX/MATCH/VLOOKUP/XLOOKUP/NPV/IRR/DATE/YEAR/MONTH/DAY/EDATE/EOMONTH/TODAY/LEN/TRIM/UPPER/LOWER/CONCAT/TEXTJOIN...); never hardcode a result. Post-2007 functions need the _xlfn. prefix (e.g. _xlfn.IFS, _xlfn.TEXTJOIN, _xlfn.XLOOKUP) — the engine strips it for its own evaluator.\\n- BULK ROWS: for >50 generated rows use \\\"rowGenerator\\\" (count + per-column pattern/cycle/numberRange/dateRange/formulaTemplate) — the engine deterministically expands it into real cells, so ~1,500 tokens cover 500 rows. {row} in formulaTemplate expands to the actual spreadsheet row number (per-row live formulas like =ROUND(D2*E2*(1-F2)*(1+G2),2)); {1001..1500} in a pattern increments per row. Only hand-write \\\"rows\\\" for small curated tables (e.g. a QA test matrix).\\n- CHARTS: \\\"charts\\\" (per sheet, or at workbook level) embed real chart images into the .xlsx AND render live in the preview — never describe a chart in prose.\\n- CONDITIONAL FORMATTING: \\\"conditionalFormatting\\\" colors cells by rule (greaterThan/lessThan/equal/containsText/between on columnKey or explicit range). Status words (OVERSPEND/FAIL/REORDER/OK/PASS) get default red/amber/green automatically.\\n- The engine adds freeze panes A2, autoFilter on every header row, auto-fit column widths, number formats ($#,##0.00 / 0.0% / yyyy-mm-dd) and runs a headless recalculation: any #REF!/#DIV/0!/#VALUE!/#NAME?/#N/A fails the build — keep ranges and refs correct the first time.\\n</output_contract_xlsx>\\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); never emit other renderer fences.\\n</decision_skill>\"},{\"role\":\"user\",\"content\":\"re-emit the deliverable for this request\"}]}",
+      "bodyJson": {
+        "stream": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "<decision_skill_block id=\"decision_skill:excel\">"
+          },
+          {
+            "role": "user",
+            "content": "re-emit the deliverable for this request"
+          }
+        ]
+      },
+      "anchors": [
+        {
+          "id": "decision_skill:excel",
+          "kind": "decision_skill",
+          "name": "excel",
+          "block_sha256": "ed1baf3fab23826c3d1370c38bac0f1f3cfe25099c08d8e6ac5343c5f37c596d",
+          "block_bytes": 11194,
+          "sources": [
+            {
+              "path": ".cskills/xlsx/SKILL.md",
+              "sha256": "111e06521941d60feea6c160d9f67a0b9b95a383d3db0b4c95e65937eb12fb5a",
+              "bytes": 8697
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "excel"
+    },
+    "body": {
+      "bytes": 84,
+      "utf8Lossy": "data: {\"id\":\"k1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"}}]}\n\ndata: [DONE]\n\n"
+    }
+  },
+  "logicalFrames": [
+    {
+      "kind": "data",
+      "obj": {
+        "id": "k1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "done"
+            }
+          }
+        ]
+      },
+      "raw": "{\"id\":\"k1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"}}]}"
+    },
+    {
+      "kind": "done"
+    }
+  ],
+  "streamDone": true,
+  "unterminatedTail": ""
+}

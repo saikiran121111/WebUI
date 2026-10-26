@@ -1,0 +1,41 @@
+{
+  "_meta": {
+    "scenario": "upstream 200 with null body (legacy path)",
+    "semantics": "Upstream responds but has no body -> 502 {error:'No response body from model'}.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/errors.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+  },
+  "request": {
+    "rawBody": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"silent model\"}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"silent model\"}]}"
+    }
+  ],
+  "response": {
+    "status": 502,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "bytes": 39,
+      "utf8Lossy": "{\"error\":\"No response body from model\"}"
+    }
+  },
+  "logicalFrames": [],
+  "streamDone": false,
+  "unterminatedTail": "{\"error\":\"No response body from model\"}"
+}

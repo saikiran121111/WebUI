@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "scenario": "POST /api/decision — malformed JSON",
+    "semantics": "JSON.parse throws -> 400 {\"error\":\"invalid JSON body\"} byte-exact.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/decision-serialization.test.ts",
+    "env": {
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none — the whole point is that these bytes contain NO timing/volatile fields."
+  },
+  "request": {
+    "rawBody": "{oops"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodyBytes": "{\"error\":\"invalid JSON body\"}"
+  },
+  "envelope": {
+    "error": "invalid JSON body"
+  },
+  "envelopeKeyOrder": [
+    "error"
+  ]
+}
