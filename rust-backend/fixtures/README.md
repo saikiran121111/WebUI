@@ -111,6 +111,38 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
   were updated to pin the removal (`## Browser agent` block asserted ABSENT, length 0).
   Suite 7/7 green; golden replay unaffected (fixtures byte-identical).
 
+## Part-4 Rust replay status (chat / errors / sse) — 2026-10-26
+
+- **sse/02 + sse/03 approved deviation: RESOLVED.** The Rust scrubber
+  (`crates/ruke-server/src/chat/scrubber.rs`) reproduces the atomic `expectedRust*` vectors at
+  EVERY recorded split point and under byte-at-a-time feeding
+  (`crates/ruke-server/tests/scrubber_vectors.rs`, 2/2 green); the mangled TS bytes are never
+  reproduced. The replay additionally forced a holdback refinement: only the longest tail that
+  is a *proper prefix* of a tag is held (a fixed `len(tag)-1` holdback stalls literal tail bytes
+  of a final SSE frame when the upstream goes quiet before EOF — chat/07 pinned the stall; the
+  atomic output is identical either way).
+- **chat/ replay:** `crates/ruke-server/tests/golden_replay.rs` 19/19 — byte-exact bodies plus
+  byte-identical forwarded upstream bodies for all success fixtures; 06a/06b reproduce the
+  recorded `<decision_skill …>` block byte-for-byte from the repo's real `.cskills`; chat/07
+  (semantic fixture) replays over a REAL socket: client drop ⇒ upstream-abort witness +
+  inference-slot release; frames before the abort equal `logicalFramesBeforeAbort`.
+- **errors/ replay:** all 8 assert the FULL application header set + body; the scripted upstream
+  error text is DERIVED from each fixture's recorded contract string, never retyped.
+  - **No-body class:** undici recorded `body === null`; the Rust replay scripts **HTTP 204**
+    (the real-HTTP no-body status — the route maps 204/205/304 ⇒ 502). A `200` with
+    `content-length: 0` HAS a body (empty stream) and must NOT become 502 (pinned in
+    `forward.rs`).
+  - **content-length handling:** the recorded header maps are the *application-level* set
+    `NextResponse.json` exposes — `content-type` only. axum 0.8's top-level route future injects
+    a `content-length` from the body's exact size hint (hyper likewise derives one from a
+    known-length body), so the Rust `json_error` presents its body as a one-frame stream: the
+    hint is unknown, the recorded set matches verbatim, and the wire framing (chunked here vs
+    content-length on Node's socket) is semantically identical to any fetch client. No fixture
+    was modified for this.
+  - **unreachable pair:** the Rust replay genuinely connects-refuses to `127.0.0.1:9`; the
+    fixture's `upstreamCalls` metadata was stubbed by the TS harness (fetch never attempted), so
+    the replay asserts the response contract there and not the stubbed call metadata.
+
 ## Regenerating
 
 ```

@@ -33,11 +33,29 @@ struct Cache {
 pub struct SettingsStore {
     path: PathBuf,
     cache: Mutex<Cache>,
+    /// Golden-replay seam (Part 4): pins the upstream url/key per store so
+    /// parallel cargo tests never race on process-global env vars and the
+    /// production resolution chain below stays untouched when unset.
+    /// Tests call `set_upstream_override`; production never does.
+    upstream_override: Mutex<Option<(String, String)>>,
 }
 
 impl SettingsStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into(), cache: Mutex::new(Cache::default()) }
+        Self {
+            path: path.into(),
+            cache: Mutex::new(Cache::default()),
+            upstream_override: Mutex::new(None),
+        }
+    }
+
+    /// Checked BEFORE file > env > fallback by `llm_api_url`/`llm_api_key`.
+    pub fn set_upstream_override(&self, url: impl Into<String>, key: impl Into<String>) {
+        *self.upstream_override.lock() = Some((url.into(), key.into()));
+    }
+
+    pub fn clear_upstream_override(&self) {
+        *self.upstream_override.lock() = None;
     }
 
     pub fn path(&self) -> &std::path::Path {
@@ -93,10 +111,16 @@ impl SettingsStore {
     }
 
     pub fn llm_api_url(&self) -> String {
+        if let Some((u, _)) = self.upstream_override.lock().as_ref() {
+            return u.clone();
+        }
         resolve_string(self.get("llm_api_url"), "LLM_API_URL", FALLBACK_LLM_API_URL)
     }
 
     pub fn llm_api_key(&self) -> String {
+        if let Some((_, k)) = self.upstream_override.lock().as_ref() {
+            return k.clone();
+        }
         resolve_string(self.get("llm_api_key"), "LLM_API_KEY", FALLBACK_LLM_API_KEY)
     }
 

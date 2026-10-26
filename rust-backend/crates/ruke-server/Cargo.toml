@@ -3,7 +3,11 @@ name = "ruke-server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Migrated Rust backend (Rule 12 binary: ruke-server.exe). Part 1 scaffold: config + settings + tracing + health only; no route cut-over yet."
+description = "Migrated Rust backend (Rule 12 binary: ruke-server.exe). Part 4: chat transport/core (/api/chat) beside the health scaffold; no route cut-over yet."
+
+[lib]
+name = "ruke_server"
+path = "src/lib.rs"
 
 [[bin]]
 name = "ruke-server"
@@ -12,11 +16,20 @@ path = "src/main.rs"
 [dependencies]
 ruke-contracts.workspace = true
 ruke-core.workspace = true
+ruke-skills.workspace = true
+ruke-decision.workspace = true
 axum.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+reqwest.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+url.workspace = true
+http-body-util.workspace = true
+tokio-stream.workspace = true
 
 [dev-dependencies]
 tower.workspace = true

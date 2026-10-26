@@ -17,6 +17,7 @@ rust-version = "1.85"
 ruke-contracts = { path = "crates/ruke-contracts" }
 ruke-core = { path = "crates/ruke-core" }
 ruke-skills = { path = "crates/ruke-skills" }
+ruke-decision = { path = "crates/ruke-decision" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
 tokio-util = { version = "0.7", features = ["full"] }
 axum = "0.8"
@@ -30,6 +31,17 @@ regex = "1"
 sha2 = "0.10"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
+# Part 4 (chat transport): upstream HTTP client + byte plumbing.
+# reqwest WITHOUT gzip/brotli features: upstream SSE bytes must travel
+# VERBATIM (the TS fetch baseline sends no Accept-Encoding, and the golden
+# corpus pins byte-exact bodies). default-tls ⇒ schannel on Windows,
+# matching the system trust store without a new crypto dependency tree.
+reqwest = { version = "0.12", default-features = false, features = ["stream", "default-tls"] }
+bytes = "1"
+futures-util = "0.3"
+url = "2"
+http-body-util = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Rule 13: production lifecycle compiles an optimized backend.
 [profile.release]

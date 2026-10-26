@@ -744,3 +744,142 @@ Part 4 (chat core SSE) is next.
    `rust-backend/crates/ruke-decision/`, `ruke-skills/`, `rust-backend/scripts/`, fixtures
    06 ×2; modified: MIGRATION-MAP, fixtures README, Cargo.toml/lock, tsconfig.tsbuildinfo;
    trailer "Co-Authored-By: Claude Code <noreply@anthropic.com>").
+
+---
+
+## Session 2026-10-26-E — Rust migration Part 4 (chat core: SSE transport, scrubber, error contract)
+
+### 8.1 Objective & milestone
+PART 4 complete 2026-10-26: the chat transport/core runs inside `ruke-server`
+(`crates/ruke-server/src/chat/`) and reproduces the frozen `POST /api/chat` wire contract —
+oracle `app/api/chat/route.ts` (780 L) FROZEN and untouched. Both response paths, the full
+error contract, application headers, abort propagation, slot discipline and the approved-
+deviation scrubber are ported and replayed green against `fixtures/{chat,errors,sse}`.
+Golden replays 19/19 + scrubber vectors 2/2; §28 check matrix ALL green with real exit codes.
+NO cutover: Next still serves 100% of live traffic; Rust `/api/chat` exists only inside the
+isolated ruke-server (direct-router oneshot + one real-socket test); no Playwright; Strata
+`:8080` never contacted (scripted mock upstreams only). Next: Part 5 (attachment retrieval).
+
+### 8.2 Locked completed (do not re-read/re-do)
+- `src/chat/mod.rs` + `handler.rs` — request parse (capped read `read_capped`, MAX_CHAT_BODY
+  128 MiB), malformed-JSON ⇒ raw bytes forwarded VERBATIM (gate never runs), `model` default
+  `"default"`, compaction passthrough (purpose deleted + `attachment_ref` parts stripped ⇒
+  always legacy + `standard_chat` gate result), pinned `decision_mode` passed into the gate
+  then ALWAYS deleted inside the gate, strict `payload.stream === false` ⇒ legacy path else
+  early-open progress path (spawned pump + `AbortOnDrop`), gate snapshot + decisionMs.
+- `src/chat/attach.rs` — port of `strip_attachment_refs` + `attachment_ref` part detection.
+- `src/chat/forward.rs` — `forward_legacy` (slot `begin_guard` BEFORE network; select!-biased
+  cancel ⇒ 503; error status ⇒ `text()` then `error::json_error` mirroring upstream status;
+  `matches!(204|205|304)` ⇒ 502 `No response body from model` — a 200 with `content-length:0`
+  HAS a body and must NOT 502, pinned comment; success ⇒ `stream_headers` + spawned
+  `run_pump` + `Body::from_stream(AbortOnDrop(ReceiverStream))`); `forward_into` (fail ⇒
+  `ch.fail`; client abort ⇒ silent `ch.close`; success ⇒ finish flush + `ch.close` — the route
+  NEVER self-appends `[DONE]` after raw upstream bytes); PUMP_BUFFER=64 bounded mpsc
+  backpressure; NO upstream response-header copying (the oracle copies none).
+- `src/chat/scrubber.rs` — `ThinkScrubber`: incremental byte-level state machine = ATOMIC
+  scrub semantics at every split (the §10/§21 APPROVED DEVIATION — never the mangled TS
+  per-chunk bytes; UTF-8-safe by construction: tags pure ASCII, continuation bytes ≥ 0x80);
+  unterminated `<think>` swallows to EOF; holdback = longest tail that is a PROPER PREFIX of
+  the open/close tag via `proper_prefix_suffix` (a fixed `len(tag)-1` holdback STALLED the
+  literal tail bytes of a final SSE frame when upstream went quiet before EOF — chat/07
+  pinned the stall; fixed this session). Unit tests: pass-through, split matrices,
+  byte-at-a-time, `a<thi`+`n>`⇒`a<thin>`, unterminated, nested openers, utf8.
+- `src/chat/sse.rs` — `ProgressChannel` (early-open, closed latch, `ruke_stage`/`ruke_error`/
+  `[DONE]` grammar; error path = ONE `ruke_error` frame + exactly ONE `[DONE]`);
+  `src/chat/headers.rs` — success set exactly {cache-control `no-cache, no-transform`,
+  connection `keep-alive`, content-type `text/event-stream`, x-accel-buffering `no`,
+  x-decision-mode `<mode>`} + x-used-skill only for user-skill turns;
+  `src/chat/error.rs` — `upstream_headers` trio (accept/authorization/content-type ONLY on
+  the forwarded request), `unreachable_message` (url::Url host + non-default port else
+  `"the configured port"`), `upstream_error_message` (`errText.slice(0,200)` counts UTF-16
+  UNITS), `json_error` (see 8.4 content-length contract).
+- `src/chat/pipeline.rs` — Part-4 honest subset (decision skill block via Part-3 crates) +
+  DOCUMENTED PART-5 SEAM (attachment retrieval frames) and PART-6 SEAM (web gate;
+  `PipelineOutcome{web_citations, search_gate}` always None in Part 4). NO fake success
+  frames for stages that don't exist.
+- Tests: `crates/ruke-server/tests/common/mod.rs` (fixture loader, `normalize_body_ms`,
+  `parse_logical`, `assert_response` EXACT BTreeMap header-set equality, `assert_upstream_call`
+  trio-subset + byte-identical body, `Script::{stream,http_error,no_body(=204),hold}` +
+  `HoldStream` drop-witness, real-router oneshot driver 20 s timeouts, `STD_UPSTREAM` 181 B,
+  `test_state` root = real repo root so 06a/06b load real `.cskills`);
+  `golden_replay.rs` 19/19 (chat 01,02,03,04a-c,05,06a,06b,08 + errors 01–08 + chat/07 real
+  socket: partial frame strict-read, `logicalFramesBeforeAbort` equal, zero `ruke_error`,
+  drop ⇒ upstream-abort witness ≤5 s ⇒ `assert_slot_idle`); `scrubber_vectors.rs` 2/2
+  (sse/02+03 every split + byte-at-a-time vs `expectedRust*`).
+- Docs: MIGRATION-MAP §10 `| 4 | **DONE 2026-10-26** |` + `| 5–10 | PENDING | |`; fixtures
+  README new "Part-4 Rust replay status" section (deviation RESOLVED, 204 mapping,
+  content-length note, unreachable-pair note).
+- VERIFY (real exits, `${PIPESTATUS[0]}` discipline): `cargo test -p ruke-server` lib 26 +
+  golden 19 + vectors 2 all ok; `cargo test --workspace` **126 passed / 0 failed exit 0**
+  (contracts 8, core 19, decision 11 + replay 9, server 26 + 19 + 2, skills 32);
+  `cargo clippy --workspace --all-targets -- -D warnings` exit 0 (after scrubber.rs `op_ref`
+  fix); `cargo check --workspace --all-targets` exit 0; `npx tsc --noEmit` exit 0;
+  `npx vitest run __tests__/rust-golden` **43/43 exit 0** on rerun (see 8.6 flakes).
+
+### 8.3 Graphify map (Part 4)
+- `lib.rs::build_router(AppState{settings,slot,turns,root,http})` (bare Router, NO layers —
+  harness adds none) wires GET `/api/ruke/health` + POST `/api/chat` → `chat::handler`;
+  ONLY caller of the chat module. `handler`→{attach,error,forward,headers,pipeline,
+  scrubber,sse}; forward+pipeline→scrubber/sse/headers/error; pipeline→`ruke_decision`
+  skill block + `ruke_skills::lazy::inject_system_before` (Part-3 crates); slot RAII
+  `UserTurnGuard::Drop` = exactly-once release (`ruke-core`). Live Next traffic never
+  reaches Rust.
+- Test consumers: `golden_replay`/`scrubber_vectors` → `tests/common` + `ruke_server::chat`
+  public surface (`src/lib.rs` `pub mod chat`).
+- Fixture consumers extended: fixtures/chat/*, errors/*, sse/02+03 `expectedRust*`; producers
+  unchanged (Part-2 TS harness; drift guard intact).
+
+### 8.4 Immutable code contracts added this session
+- **content-length contract:** fixtures pin the APPLICATION-level header set —
+  `NextResponse.json` errors expose `{content-type: application/json}` ONLY. axum 0.8's
+  top-level `RouteFuture::poll` inserts `content-length` from the body's EXACT size hint
+  (no opt-out, runs after all middleware) and hyper 1.12 derives one for known-length bodies;
+  so `json_error` presents its body as a ONE-FRAME STREAM (unknown hint) ⇒ app-level set
+  verbatim; wire chunked vs Node's CL — invisible to fetch (status+bytes identical).
+- Error strings: `"Upstream returned <status>[: <errText≤200 UTF-16 units>]"`; 502 `"No
+  response body from model"` ONLY from 204/205/304; 503 `"Could not reach the model server
+  at <host>."` / `"… at the configured port."`; progress error = same strings via ONE
+  `ruke_error` + exactly one `[DONE]`; client abort = silent close, ZERO error frames.
+- Upstream forwarded request headers = accept `text/event-stream` / authorization `Bearer
+  <key>` / content-type `application/json` (trio; subset-compared); forwarded body
+  byte-identical. Success headers exactly the five above.
+- Mock `Script::no_body()` ⇒ HTTP **204** (undici `body===null` class). `chat/07`
+  `logicalFramesBeforeAbort` = [stage `decision_done`, {kind:"data", obj:null, raw:"partial"}].
+- `STD_UPSTREAM` 181 B (3 SSE frames `c1`/`Hello!`) == recorded utf8Lossy legacy bodies.
+- Scrubber atomicy: output invariant under ANY split; `finish()` flushes retained proper-
+  prefix fragments as literal text. Part-1/2/3 contracts above remain verbatim.
+
+### 8.5 Playwright & E2E verification state
+- NO Playwright this session (Part-4 brief forbids it; Part 10 only). No
+  `.ai-coordination/playwright.lock`. `:3000`/`:8080` NEVER touched — mock upstreams on
+  127.0.0.1:0 ephemeral; chat/07 on a real `axum::serve` socket + reqwest `bytes_stream`.
+- rust-golden vitest corpus 43/43 exit 0 (rerun); cargo matrix green (8.2 VERIFY).
+
+### 8.6 Open bugs, failing traces & blockers
+- Wire-level divergence ONLY: legacy JSON errors chunked (Rust) vs content-length (Node).
+  App-level parity preserved; revisit only if Part-10 cutover measurement objects.
+- `MAX_CHAT_BODY` 128 MiB is a Rust-side cap; Next's body-parser limit is config-dependent —
+  recorded for the Part-10 parity sweep (corpus bodies are tiny).
+- Legacy-path pre-response client disconnect is unobservable in Rust (no early headers on
+  legacy; matches TS semantics).
+- Vitest parallel-load FLAKES (same family as Session-D 8.6): first `__tests__/rust-golden`
+  batch run aborted web.test ×3 on "Fixture drift detected" (drift guard throws BEFORE
+  writing; `git status --porcelain` showed ZERO fixture changes); web.test standalone +
+  full-dir rerun 43/43 exit 0. Not reproducible standalone; no code/fixture change made.
+- Attachment-turn replay fixtures don't exist yet (Part 5 adds them with retrieval); web-gate
+  seam untouched (Part 6). No BLOCKED golden items.
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded; no scenario locks. `.cskills` read as fixture DATA
+  only (Part-3 loader parity), never injected into this session's prompt.
+
+### 8.8 Immediate next 3 atomic actions
+1. Commit the Part-4 tree (modified: MIGRATION-MAP, fixtures README, Cargo.toml/lock,
+   ruke-core/settings.rs, ruke-server/{Cargo.toml,main.rs}; new: `src/lib.rs`,
+   `src/chat/`, `tests/`; trailer `Co-Authored-By: Claude Code <noreply@anthropic.com>`).
+2. PART 5 (MIGRATION-MAP §10): attachment retrieval port against the frozen
+   `.data/attach-index/` store + retrieval/retrieval_done frames wired at the documented
+   PART-5 SEAM in `pipeline.rs` (child tokens; retrieval non-fatal per attachments/02,03) —
+   replay against `fixtures/attachments/01–06` (injection-index off-by-one recorded in §8
+   discovery 2 is RECORDED, not fixed).
+3. §28 matrix rerun after Part 5 lands (workspace test/clippy/check + tsc + vitest replays).
