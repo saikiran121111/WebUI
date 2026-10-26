@@ -1,5 +1,14 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
 Synced: 2026-10-25 — BUGFIX CYCLE: stale task hijack of live sessions + verbatim URLs + sandboxed launch (no --no-sandbox infobar)
+[SUPERSESSION NOTICE 2026-10-26: the interactive/internal browser subsystem was REMOVED
+repo-wide (lib/browser/**, app/api/browser/**, browser_api fence surface, settings
+browser_engine, public/fixtures/browser-fallback, .data/browser-profile, Tier-2
+browser-operator, browser specs + unit tests). Every "browser" LOCKED-DONE line and
+8.4 browser contract in the 2026-10-25 sections below is HISTORY ONLY — never
+resurrect it from these notes; the replacement architecture is the user's pending
+decision (design references: reverse-engineering/internal-browser/). Unaffected:
+lib/web-search/agentBrowser.ts + lib/documents/browser.ts headless pools, ssrf
+isSafeUrl, the 7-tier web pipeline, and the Part-2 golden fixtures.]
 [LOCKED-DONE, ALL VERIFIED]: TASK_TTL_MS=2h enforced in loadTask (raw AND cached
 branches, rm's the expired file → an old/test-run flow can never resurface, and its
 skip-if-done sigs stop poisoning real clicks); isStaleTask + authContext render a
@@ -564,3 +573,56 @@ no proxies, no Rust feature work. Part 3 (decision + skills port) is next.
 3. Only if the user asks: commit the working tree (untracked `__tests__/rust-golden/`
    + `rust-backend/fixtures/` + modified MIGRATION-MAP/STATE; end commit msg with
    "Co-Authored-By: Claude Code <noreply@anthropic.com>").
+
+---
+
+## Session 2026-10-26-C — browser-subsystem debris cleanup (after user's removal)
+
+### 8.1 Objective & milestone
+The user removed the interactive/internal browser implementation entirely (pending
+architecture change). This session: purge every remaining debris point and clear the
+last failing tests. DONE — the full vitest corpus is green end-to-end for the first
+time (61/61 files).
+
+### 8.2 Completed (verified — do not re-open)
+- `__tests__/skills/chatEngine.test.ts`: the two surviving `## Browser agent`
+  expectations flipped to `toHaveLength(0)` (regression PIN so the deleted subsystem
+  cannot silently return), comments de-browsered; 7/7 standalone green.
+- `lib/web-search/ssrf.ts`: deleted the DEAD `isFixtureAllowed` export +
+  `FIXTURE_PREFIX` (zero call sites repo-wide); `isSafeUrl` untouched — web-pipeline
+  SSRF guard intact and golden web fixtures replay byte-identical.
+- Deleted: `public/fixtures/browser-fallback/` (17 tracked fixture HTML — git now
+  carries 17 `D` entries), `.data/browser-profile` (stale automation profile dir),
+  `settings.json` stale `browser_engine` key (file is git-ignored; now carries only
+  compact_thresholds).
+- Verified already gone via the user's own cleanup: `lib/browser/**`,
+  `app/api/browser/**`, BrowserApiBlock + registry/FenceRouter entries, settings
+  browser_engine plumbing, `tests/browser-*.spec.ts`, browser unit tests,
+  `.cskills`/`.cskills-scenarios` browser-operator.
+- KEPT deliberately: `lib/web-search/agentBrowser.ts` + `lib/documents/browser.ts`
+  (web-search/documents headless pools — NOT the agent browser);
+  `reverse-engineering/internal-browser/**` (user's design references for the
+  replacement); docs/CHANGELOG history; graphify-out caches.
+
+### 8.4 Contract deltas
+- The chat route's system-block injections are now ONLY skill/evidence/attachment/
+  reasoning blocks — a standing browser block NEVER exists; the chatEngine
+  zero-length assertions are the pins.
+- `ssrf.ts` exports ONLY `isSafeUrl`; the `RUKE_TEST_FIXTURES` fixture allow-list is
+  gone from the codebase.
+
+### 8.5 Verification (real exits)
+`npx vitest run __tests__/skills/chatEngine.test.ts` 7/7 exit 0;
+`npx vitest run __tests__/rust-golden` 41/41 exit 0 (×4 consecutive);
+`npx vitest run` (full) Test Files 61 passed (61), Tests 659 passed / 1 skipped,
+VITEST_EXIT:0; `npx tsc --noEmit` TSC_EXIT:0. No Playwright; no lock.
+CAVEAT (honest): the FIRST golden run after these edits reported 1 file / 3 tests
+red; the details were lost to ANSI-filtered grep and NEVER reproduced across the
+4 following golden runs + the full corpus. Classified transient flake — if it
+reappears, capture the FULL unfiltered log first time.
+
+### 8.8 Next 3
+1. Unchanged Part-3 handoff (see Session B 8.8) — the golden corpus is the contract.
+2. If the flake reappears: `npx vitest run __tests__/rust-golden 2>&1 | tee .ai-coordination/golden-flake.log` and read the log.
+3. Only if the user asks: commit (now also includes the 17 fixture deletions + ssrf
+   export removal + chatEngine test update; trailer "Co-Authored-By: Claude Code <noreply@anthropic.com>").

@@ -102,9 +102,11 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
   don't reach them; Part 6 re-records against Rust with the same harness if needed).
 - `sourceClass`/`extractEntities` internal outputs pinned only indirectly through fixtures.
 - Tier-3b/browser-tier of the extractor is neutralized by the net mock (no browser in Part 2).
-- Pre-existing repo failure (NOT Part 2): `__tests__/skills/chatEngine.test.ts` 2/7 red in
-  isolation (`## Browser agent` system block expected but absent) — tracked file, unmodified;
-  belongs to the in-progress internal-browser work.
+- RESOLVED 2026-10-26 (was: pre-existing chatEngine 2/7 red): the interactive/internal
+  browser subsystem was removed repo-wide (architecture change pending; see
+  `reverse-engineering/internal-browser/`). The two `chatEngine.test.ts` expectations
+  were updated to pin the removal (`## Browser agent` block asserted ABSENT, length 0).
+  Suite 7/7 green; golden replay unaffected (fixtures byte-identical).
 
 ## Regenerating
 
