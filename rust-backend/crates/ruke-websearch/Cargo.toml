@@ -1,0 +1,54 @@
+[package]
+name = "ruke-websearch"
+description = "PART 6 (web search): parity port of lib/web-search — the anti-bot network layer, SSRF guard, URL detector, SQLite search cache, shared result types, the json-completion helper, and the Tier-3b browser-read seam."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "ruke_websearch"
+path = "src/lib.rs"
+
+# W0 declares the FULL Part-6 dependency set once (root [workspace.dependencies]);
+# W2/W3/W4 consume via `workspace = true` and must NOT edit any manifest.
+# impit is intentionally ABSENT: the crates.io "impit" v0.1.0 is a
+# "Parking space for a better package" placeholder with no client API
+# (verified 2026-10-27 via `cargo search impit`). The MIGRATION-MAP §2.5
+# prescription is stale — see net.rs module docs for the reqwest-based
+# three-pass emulation and its documented divergences.
+[dependencies]
+ruke-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+# cache.rs
+rusqlite = { workspace = true }
+# W3 extractor stack (declared now so nobody re-edits the manifests):
+chardetng = { workspace = true }
+encoding_rs = { workspace = true }
+scraper = { workspace = true }
+html5ever = { workspace = true }
+selectors = { workspace = true }
+percent-encoding = { workspace = true }
+ipnet = { workspace = true }
+chrono = { workspace = true }
+# url_detector.rs public-suffix parity (tldts → psl; MIGRATION-MAP §5's
+# "tldrs" suggestion names an unrelated LLM README generator crate):
+psl = { workspace = true }
+# manual content-encoding handling in net.rs (reqwest carries no
+# decompression features — see the chat-transport note in the root manifest):
+bytes = { workspace = true }
+flate2 = { workspace = true }
+brotli = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

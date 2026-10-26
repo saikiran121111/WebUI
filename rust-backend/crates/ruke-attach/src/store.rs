@@ -87,10 +87,27 @@ fn cache() -> &'static Mutex<Vec<CacheEntry>> {
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// Test-only serialization gate for the process-global LRU (production
+/// builds: zero cost, zero effect). CACHE ⇔ the TS module-level Map, but
+/// the cargo harness runs a crate's tests as THREADS in ONE process while
+/// vitest isolates files into separate worker processes — so concurrent
+/// tests interleave insert/evict here where TS never could. Tests that
+/// assert cache internals (lru_three_entries…) hold this across their
+/// whole sequence; `read_index` takes it per call so no other test can
+/// interleave mid-sequence. Reentrant: the holder re-enters via its own
+/// `read_index` calls.
+#[cfg(test)]
+fn cache_gate() -> &'static parking_lot::ReentrantMutex<()> {
+    static G: OnceLock<parking_lot::ReentrantMutex<()>> = OnceLock::new();
+    G.get_or_init(|| parking_lot::ReentrantMutex::new(()))
+}
+
 /// `readIndex`: every failure mode (bad id, missing meta, unreadable,
 /// bad JSON, BAD JSONL LINE, unreadable chunks) collapses to `None` with
 /// the cache untouched — exactly the TS whole-body `try/catch`.
 pub fn read_index(root: &Path, att_id: &str) -> Option<Arc<LoadedIndex>> {
+    #[cfg(test)]
+    let _gate = cache_gate().lock();
     let dir = index_dir_checked(root, att_id).ok()?;
     {
         let mut c = cache().lock();
@@ -272,6 +289,8 @@ mod tests {
 
     #[test]
     fn lru_three_entries_evict_oldest_hit_refreshes() {
+        // Holds the whole multi-step cache sequence (see cache_gate docs).
+        let _gate = cache_gate().lock();
         let root = uniq_root("lru");
         let meta = |att: &str| {
             format!(

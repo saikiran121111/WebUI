@@ -7,6 +7,7 @@ members = [
     "crates/ruke-skills",
     "crates/ruke-decision",
     "crates/ruke-attach",
+    "crates/ruke-websearch",
 ]
 
 [workspace.package]
@@ -21,6 +22,10 @@ ruke-skills = { path = "crates/ruke-skills" }
 ruke-decision = { path = "crates/ruke-decision" }
 # Part 5 (attachment retrieval): read-side port of lib/server/attachindex.
 ruke-attach = { path = "crates/ruke-attach" }
+# Part 6 (web search): parity port of lib/web-search. W0 owns the shared
+# dependency set for this crate — later Part-6 agents must NOT edit the
+# root manifest; crate-local needs already covered here.
+ruke-websearch = { path = "crates/ruke-websearch" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
 tokio-util = { version = "0.7", features = ["full"] }
 axum = "0.8"
@@ -45,6 +50,22 @@ futures-util = "0.3"
 url = "2"
 http-body-util = "0.1"
 tokio-stream = { version = "0.1", features = ["sync"] }
+
+# ── Part 6 (web search) shared dependency set — declared ONCE by W0 so
+#    W2/W3/W4 never touch this file. Versions are pinned to the lines
+#    verified to build on windows-msvc by W0's `cargo check`.
+rusqlite = { version = "0.32", features = ["bundled"] }
+chardetng = "0.1"
+encoding_rs = "0.8"
+scraper = "0.20"
+html5ever = "0.27"
+selectors = "0.25"
+percent-encoding = "2"
+ipnet = "2"
+chrono = { version = "0.4", features = ["serde"] }
+psl = "2"
+flate2 = "1"
+brotli = "6"
 
 # Rule 13: production lifecycle compiles an optimized backend.
 [profile.release]

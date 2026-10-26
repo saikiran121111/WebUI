@@ -82,6 +82,12 @@ impl InferenceSlot {
         self.state.lock().title_calls.remove(&id);
     }
 
+    /// Registered title-call count — parity of the TS registry size; used
+    /// by tests to prove the `finally`-equivalent release (no zombies).
+    pub fn active_title_calls(&self) -> usize {
+        self.state.lock().title_calls.len()
+    }
+
     /// RAII equivalent of the titles route's `finally { unregister }`.
     pub fn title_call(self: &Arc<InferenceSlot>, token: CancellationToken) -> TitleCallGuard {
         let id = self.register_title_call(token);
