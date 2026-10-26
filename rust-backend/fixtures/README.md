@@ -68,7 +68,10 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
 
 1. `confidence` serializes as integer `1` (JS) — serde_json `f64` writes `1.0`. Part 4's
    serializer MUST emit `1` (or record an explicit deviation). `lfm_input`/`lfm_raw` are
-   **omitted**, never null.
+   **omitted**, never null. **RESOLVED in Part 3 (2026-10-26):** `ruke-decision` ships a
+   narrow JS-compatible number serializer (integral f64 → `1`) and skips `lfm_*`; the
+   decision 01–05 replays in `crates/ruke-decision/tests/fixture_replay.rs` are byte-exact
+   against these fixtures — no fixture or serializer deviation was needed.
 2. Injection-index off-by-one family: web-evidence, attachment-retrieval and (with no skill
    block) the evidence block land at `lastUserIdx + 1` → system block AFTER the user turn
    (fixture `web-search/01` pins roles `["user","system"]`; `attachments/01,04,06` pin their

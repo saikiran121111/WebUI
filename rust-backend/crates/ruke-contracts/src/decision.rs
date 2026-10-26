@@ -107,16 +107,33 @@ pub fn mode_fence(mode: RendererMode) -> Option<&'static str> {
     }
 }
 
+/// JS `JSON.stringify` number rendering: a double with no fractional part
+/// inside the safe-integer range prints as an integer literal (`1`, not
+/// `1.0`). The in-process engine hardcodes `confidence: 1`, so this is what
+/// the byte-exact decision fixtures pin. Non-integral values still print via
+/// serde's shortest-roundtrip float formatting (matches JS for the values
+/// this field can actually hold, 0..=1).
+fn serialize_confidence<S>(value: &f64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992f64 {
+        serializer.serialize_i64(*value as i64)
+    } else {
+        serializer.serialize_f64(*value)
+    }
+}
+
 /// The exact `DecisionEnvelope` shape. `null` fields serialize as JSON null
 /// (JS writes them explicitly); `lfm_input`/`lfm_raw` are OMITTED unless
 /// present (TS `?:` — never emitted on fallback/passthrough envelopes).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecisionEnvelope {
     pub active_mode: RendererMode,
-    /// KNOWN PART-2 PARITY NOTE: TS emits `confidence: 1` as JSON `1`,
-    /// serde_json emits `1.0`. Numerically identical for `JSON.parse`, but
-    /// byte-level golden diffs must normalize this (or add a JS-number
-    /// serializer in Part 4). Pinned by the golden test below.
+    /// PART-3 RESOLUTION of the Part-2 parity note: the serializer below
+    /// emits integral confidences as JSON integers, so the bytes match the
+    /// JS oracle (`fixtures/decision/01` pins `"confidence":1`).
+    #[serde(serialize_with = "serialize_confidence")]
     pub confidence: f64,
     pub decided_by: String,
     pub stripped_prompt: String,
@@ -238,7 +255,7 @@ mod tests {
         let json = serde_json::to_string(&env).unwrap();
         assert_eq!(
             json,
-            r#"{"active_mode":"excel","confidence":1.0,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","3d_asset","cad_blueprint","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
+            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","3d_asset","cad_blueprint","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
         );
 
         // Optional diagnostics: ABSENT (not null) when never set; explicit
@@ -249,5 +266,16 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
         assert_eq!(v["lfm_input"], serde_json::Value::Null);
         assert!(!v.contains_key("lfm_raw"), "omitted field must not serialize");
+    }
+
+    #[test]
+    fn confidence_js_number_rendering_integers_and_floats() {
+        // JSON.stringify(1) == "1"; JSON.stringify(0) == "0"; JSON.stringify(0.85) == "0.85".
+        let mut env = DecisionEnvelope::fallback("hi");
+        for (value, expect) in [(1.0, "\"confidence\":1"), (0.0, "\"confidence\":0"), (0.85, "\"confidence\":0.85")] {
+            env.confidence = value;
+            let json = serde_json::to_string(&env).unwrap();
+            assert!(json.contains(expect), "confidence {value} must serialize as {expect}: {json}");
+        }
     }
 }

@@ -1,0 +1,72 @@
+{
+  "_meta": {
+    "scenario": "MODE_CONTRACTS content hashes — binds the generated Rust contract constants",
+    "semantics": "rust-backend/scripts/gen-mode-contracts.mjs imports this same module and emits escaped Rust literals; the fixture's hashes prove the emitted bytes match the live TS contracts exactly.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/decision-parity.test.ts",
+    "env": {},
+    "normalization": "none"
+  },
+  "entries": [
+    {
+      "mode": "excel",
+      "present": true,
+      "sha256": "7f162016c34aaa9053a28305a954b527518491c2618f7da37a09f50edf4ab33d",
+      "bytes": 3528,
+      "utf16Length": 3520
+    },
+    {
+      "mode": "docs",
+      "present": true,
+      "sha256": "6255cb04aa73f57cc4f90389c1d2b643b0caaab64a1c3b8562831bd6a34feeb6",
+      "bytes": 1502,
+      "utf16Length": 1502
+    },
+    {
+      "mode": "pdf",
+      "present": true,
+      "sha256": "37f30a31ec491e479a8c7d77da7db169bfe9d4b6a97233035a46f33433f0f6b8",
+      "bytes": 1633,
+      "utf16Length": 1631
+    },
+    {
+      "mode": "ppt",
+      "present": true,
+      "sha256": "6152553f909dfb15fbe966cfd0731b794861c65d20eeb1be0b9fe8bdb602374e",
+      "bytes": 1864,
+      "utf16Length": 1856
+    },
+    {
+      "mode": "3d_asset",
+      "present": true,
+      "sha256": "be98f2e8318f4f376c64ae6fc2595375b79f350019a96bbfe4f5871381897760",
+      "bytes": 4105,
+      "utf16Length": 4087
+    },
+    {
+      "mode": "cad_blueprint",
+      "present": true,
+      "sha256": "14a8ee2dc011b06cc2375809de583584614b278b39e2a4ea2bad7b6a5598e606",
+      "bytes": 4074,
+      "utf16Length": 4046
+    },
+    {
+      "mode": "chart",
+      "present": true,
+      "sha256": "34756d1cc2739854a677585fa5a803eff8bf14204ac8d1ccef4789d1aad4b606",
+      "bytes": 1561,
+      "utf16Length": 1561
+    },
+    {
+      "mode": "html_render",
+      "present": true,
+      "sha256": "242788dcf1c899e447555c698e3484dde6753a1e8962567abf107743aea578ad",
+      "bytes": 1461,
+      "utf16Length": 1457
+    },
+    {
+      "mode": "standard_chat",
+      "present": false
+    }
+  ]
+}

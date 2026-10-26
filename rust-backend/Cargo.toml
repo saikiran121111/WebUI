@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/ruke-contracts", "crates/ruke-core", "crates/ruke-server"]
+members = [
+    "crates/ruke-contracts",
+    "crates/ruke-core",
+    "crates/ruke-server",
+    "crates/ruke-skills",
+    "crates/ruke-decision",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +16,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 ruke-contracts = { path = "crates/ruke-contracts" }
 ruke-core = { path = "crates/ruke-core" }
+ruke-skills = { path = "crates/ruke-skills" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
 tokio-util = { version = "0.7", features = ["full"] }
 axum = "0.8"
@@ -19,6 +26,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 parking_lot = "0.12"
+regex = "1"
+sha2 = "0.10"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 

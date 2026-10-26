@@ -1,0 +1,613 @@
+{
+  "_meta": {
+    "scenario": "getDecisionSync intent-matcher vectors + blank-message fallback envelope",
+    "semantics": "Pure in-process regex router: ASCII \\b semantics (café boundaries, é-ending résumé demands a word char next, dotted \\.docx dominated by bare docx), JS '.' never crosses \\n (render\\nscene misses), INTENT_ORDER first-match precedence, JS trim() for stripped_prompt, internal-only fallbackEnvelope for blank input.",
+    "comparison": "semantic",
+    "notes": "Field-for-field (mode/skill/decided_by/trim) — regex existence only, no span capture.",
+    "harness": "__tests__/rust-golden/decision-parity.test.ts",
+    "env": {},
+    "normalization": "none — deterministic zero-network function"
+  },
+  "vectors": [
+    {
+      "prompt": "put these numbers into my spreadsheet",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "put these numbers into my spreadsheet",
+      "confidence": 1
+    },
+    {
+      "prompt": "an Excel file please",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an Excel file please",
+      "confidence": 1
+    },
+    {
+      "prompt": "open the .xlsx",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "open the .xlsx",
+      "confidence": 1
+    },
+    {
+      "prompt": "the workbook tab",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the workbook tab",
+      "confidence": 1
+    },
+    {
+      "prompt": "export as xlsx",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "export as xlsx",
+      "confidence": 1
+    },
+    {
+      "prompt": "write a word document",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "write a word document",
+      "confidence": 1
+    },
+    {
+      "prompt": "a worddocument template",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a worddocument template",
+      "confidence": 1
+    },
+    {
+      "prompt": "attach the .docx",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "attach the .docx",
+      "confidence": 1
+    },
+    {
+      "prompt": "generate docx output",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "generate docx output",
+      "confidence": 1
+    },
+    {
+      "prompt": "update my resume today",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "update my resume today",
+      "confidence": 1
+    },
+    {
+      "prompt": "make me a cv",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "make me a cv",
+      "confidence": 1
+    },
+    {
+      "prompt": "print this pdf",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "print this pdf",
+      "confidence": 1
+    },
+    {
+      "prompt": "build a power point",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "build a power point",
+      "confidence": 1
+    },
+    {
+      "prompt": "a powerpoint deck",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a powerpoint deck",
+      "confidence": 1
+    },
+    {
+      "prompt": "give me a presentation",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "give me a presentation",
+      "confidence": 1
+    },
+    {
+      "prompt": "save the .pptx",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "save the .pptx",
+      "confidence": 1
+    },
+    {
+      "prompt": "export pptx now",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "export pptx now",
+      "confidence": 1
+    },
+    {
+      "prompt": "the deck outline",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the deck outline",
+      "confidence": 1
+    },
+    {
+      "prompt": "chart the revenue",
+      "active_mode": "chart",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "chart the revenue",
+      "confidence": 1
+    },
+    {
+      "prompt": "a 3D model viewer",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a 3D model viewer",
+      "confidence": 1
+    },
+    {
+      "prompt": "three.js demo",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "three.js demo",
+      "confidence": 1
+    },
+    {
+      "prompt": "threejs scene",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "threejs scene",
+      "confidence": 1
+    },
+    {
+      "prompt": "render scene",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "render scene",
+      "confidence": 1
+    },
+    {
+      "prompt": "model the scene",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "model the scene",
+      "confidence": 1
+    },
+    {
+      "prompt": "visualize mesh parts",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "visualize mesh parts",
+      "confidence": 1
+    },
+    {
+      "prompt": "draw a floor plan",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "draw a floor plan",
+      "confidence": 1
+    },
+    {
+      "prompt": "floorplan of the attic",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "floorplan of the attic",
+      "confidence": 1
+    },
+    {
+      "prompt": "an architect's sketch",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an architect's sketch",
+      "confidence": 1
+    },
+    {
+      "prompt": "an architectural drawing",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an architectural drawing",
+      "confidence": 1
+    },
+    {
+      "prompt": "the blueprint sheet",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the blueprint sheet",
+      "confidence": 1
+    },
+    {
+      "prompt": "the building section",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the building section",
+      "confidence": 1
+    },
+    {
+      "prompt": "room layout v2",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "room layout v2",
+      "confidence": 1
+    },
+    {
+      "prompt": "interior elevations",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "interior elevations",
+      "confidence": 1
+    },
+    {
+      "prompt": "a web page mock",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a web page mock",
+      "confidence": 1
+    },
+    {
+      "prompt": "the webpage header",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the webpage header",
+      "confidence": 1
+    },
+    {
+      "prompt": "landing page copy",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "landing page copy",
+      "confidence": 1
+    },
+    {
+      "prompt": "landingpage hero",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "landingpage hero",
+      "confidence": 1
+    },
+    {
+      "prompt": "pure html please",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "pure html please",
+      "confidence": 1
+    },
+    {
+      "prompt": "interactive ui",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "interactive ui",
+      "confidence": 1
+    },
+    {
+      "prompt": "interactive page demo",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "interactive page demo",
+      "confidence": 1
+    },
+    {
+      "prompt": "interactive prototype",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "interactive prototype",
+      "confidence": 1
+    },
+    {
+      "prompt": "an interactive demo",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an interactive demo",
+      "confidence": 1
+    },
+    {
+      "prompt": "caféexcel",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "caféexcel",
+      "confidence": 1
+    },
+    {
+      "prompt": "the pdfx file",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the pdfx file",
+      "confidence": 1
+    },
+    {
+      "prompt": "what is excelent",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "what is excelent",
+      "confidence": 1
+    },
+    {
+      "prompt": "charts",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "charts",
+      "confidence": 1
+    },
+    {
+      "prompt": "cvx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cvx",
+      "confidence": 1
+    },
+    {
+      "prompt": "htmlx dashboard",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "htmlx dashboard",
+      "confidence": 1
+    },
+    {
+      "prompt": "threejss",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "threejss",
+      "confidence": 1
+    },
+    {
+      "prompt": "3 d",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "3 d",
+      "confidence": 1
+    },
+    {
+      "prompt": "render\nscene",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "render\nscene",
+      "confidence": 1
+    },
+    {
+      "prompt": "word  document",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "word  document",
+      "confidence": 1
+    },
+    {
+      "prompt": "word-document",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "word-document",
+      "confidence": 1
+    },
+    {
+      "prompt": "power  point",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "power  point",
+      "confidence": 1
+    },
+    {
+      "prompt": "résumé",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "résumé",
+      "confidence": 1
+    },
+    {
+      "prompt": "my résumé",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "my résumé",
+      "confidence": 1
+    },
+    {
+      "prompt": "résumé2",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "résumé2",
+      "confidence": 1
+    },
+    {
+      "prompt": "résumébuilder",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "résumébuilder",
+      "confidence": 1
+    },
+    {
+      "prompt": "file.docx",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "file.docx",
+      "confidence": 1
+    },
+    {
+      "prompt": "file.xlsx",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "file.xlsx",
+      "confidence": 1
+    },
+    {
+      "prompt": "file.pptx",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "file.pptx",
+      "confidence": 1
+    },
+    {
+      "prompt": "presentation in pdf format",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "presentation in pdf format",
+      "confidence": 1
+    },
+    {
+      "prompt": "the interior of the pdf",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the interior of the pdf",
+      "confidence": 1
+    },
+    {
+      "prompt": "3d chart",
+      "active_mode": "chart",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "3d chart",
+      "confidence": 1
+    },
+    {
+      "prompt": "chart of this building's architecture",
+      "active_mode": "chart",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "chart of this building's architecture",
+      "confidence": 1
+    },
+    {
+      "prompt": "spreadsheet and a chart",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "spreadsheet and a chart",
+      "confidence": 1
+    },
+    {
+      "prompt": "3D building model",
+      "active_mode": "3d_asset",
+      "skill_to_load": "threejs-skills",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "3D building model",
+      "confidence": 1
+    },
+    {
+      "prompt": "interior design with html",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "interior design with html",
+      "confidence": 1
+    },
+    {
+      "prompt": "an architectural sketch",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an architectural sketch",
+      "confidence": 1
+    },
+    {
+      "prompt": "tell me a joke",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "tell me a joke",
+      "confidence": 1
+    },
+    {
+      "prompt": "a model of the city",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a model of the city",
+      "confidence": 1
+    },
+    {
+      "prompt": "   make a deck \t",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "make a deck",
+      "confidence": 1
+    },
+    {
+      "prompt": "PDF REPORT",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "PDF REPORT",
+      "confidence": 1
+    },
+    {
+      "prompt": "Excel",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Excel",
+      "confidence": 1
+    }
+  ],
+  "blankMessage": {
+    "prompt": "     \n",
+    "active_mode": "standard_chat",
+    "decided_by": "in-process-fallback",
+    "stripped_prompt": "",
+    "skill_to_load": null
+  },
+  "trimProbe": "JS trim() set includes NBSP (U+00A0): the blank prompt above is whitespace-only for JS."
+}

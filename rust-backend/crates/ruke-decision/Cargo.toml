@@ -1,0 +1,18 @@
+[package]
+name = "ruke-decision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "In-process decision engine port (lib/decision/client.ts + contracts.ts + skill-loader block builder) with the /api/decision route mirror. No cutover: the TS route still owns live traffic (Part 3)."
+
+[dependencies]
+ruke-contracts.workspace = true
+ruke-core.workspace = true
+ruke-skills.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+tempfile.workspace = true
