@@ -877,6 +877,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruke-attach"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "regex",
+ "reqwest",
+ "ruke-skills",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "ruke-contracts"
 version = "0.1.0"
 dependencies = [
@@ -922,6 +938,7 @@ dependencies = [
  "futures-util",
  "http-body-util",
  "reqwest",
+ "ruke-attach",
  "ruke-contracts",
  "ruke-core",
  "ruke-decision",

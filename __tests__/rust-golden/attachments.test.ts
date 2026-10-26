@@ -19,8 +19,6 @@
  *  - stage frames only on the progress path; legacy path runs the SAME
  *    pipeline with metadata in headers only (fixtures 01 vs 05 prove parity).
  */
-import fs from "node:fs";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import {
@@ -36,8 +34,8 @@ import {
   setGoldenEnv,
   writeJsonFixture,
 } from "./support/golden";
-import { indexDir, removeIndex, writeIndex } from "@/lib/server/attachindex/store";
-import type { IndexChunk, IndexMeta } from "@/lib/server/attachindex/types";
+import { removeIndex } from "@/lib/server/attachindex/store";
+import { ATT_IDS, QUERY_VEC, seedAttachmentStore } from "./support/attach-seeds";
 
 setGoldenEnv();
 
@@ -51,7 +49,6 @@ vi.mock("@/lib/server/settings", async (importOriginal) => {
 });
 
 // Deterministic embedding seam: vector retrieval always sees this query vec.
-const QUERY_VEC = [1, 0, 0.05];
 vi.mock("@/lib/server/attachindex/embed", () => ({
   embedOne: async () => QUERY_VEC,
   embedTexts: async (texts: string[]) => texts.map(() => QUERY_VEC),
@@ -72,51 +69,12 @@ const SSE_STD: UpstreamScript = {
   ],
 };
 
-// 1x1 black JPEG (fixed constant — frame bytes are part of the data-url).
-const TINY_JPEG_B64 =
-  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwcJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPDIzNP/AABEIAAEAAQMBIgACEQEDEQH/xAAfAAABBQEBAQEBAQAAAAAAAAAAAAB" +
-  "AAIDBAUGBwgJCgv/xAC1EAACAQMDAgQDBQUEBAAAAX0BAgMABBEFEiExQQYTUWEHInEUMoGRoQgjQrHBFVLR8CQzYnKCCQoWFxgZGiUmJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjV1dX" +
-  "V1pnaGprbW5vb3Bxc3V3eHl6f4ABf/ZQ==";
-
-function seededIndex(attId: string, name: string, category: string, chunks: IndexChunk[], frames: IndexMeta["frames"] = []): void {
-  const meta: IndexMeta = {
-    attId, name, category: category as IndexMeta["category"], createdAt: 0,
-    chunkCount: chunks.length, spine: "", spineBlocks: [], frames,
-  };
-  writeIndex(attId, meta, chunks, chunks.map((c) => c.text).join("\n"));
-  if (frames.length) {
-    // FrameEntry.file is index-dir-relative (see nearestFrames in turn.ts).
-    for (const f of frames) {
-      const p = path.join(indexDir(attId), f.file);
-      fs.mkdirSync(path.dirname(p), { recursive: true });
-      fs.writeFileSync(p, Buffer.from(TINY_JPEG_B64, "base64"));
-    }
-  }
-}
-
-const ATT_IDS = ["att_golden1a", "att_golden1b", "att_golden1c", "att_golden1d"];
-
+// Seeds live in ./support/attach-seeds (shared with store-fixture.test.ts —
+// the replay fixtures and the committed Rust-side store bytes MUST seed the
+// same way).
 beforeAll(() => {
   for (const id of ATT_IDS) removeIndex(id);
-  seededIndex("att_golden1a", "intro-biology.pdf", "text", [
-    { i: 0, startSec: null, endSec: null, text: "Photosynthesis converts light into chemical energy in the chloroplast.", vec: [1, 0, 0] },
-    { i: 1, startSec: null, endSec: null, text: "The Calvin cycle fixes carbon dioxide using ATP and NADPH.", vec: [0, 1, 0] },
-    { i: 2, startSec: null, endSec: null, text: "Stomata regulate gas exchange on the underside of leaves.", vec: [0, 0, 1] },
-  ]);
-  // att_golden1b: deliberately NEVER seeded -> missing-index honest block.
-  seededIndex("att_golden1c", "empty-notes.txt", "text", []);
-  seededIndex(
-    "att_golden1d",
-    "pivot-table-training.mp4",
-    "video",
-    [
-      { i: 0, startSec: 60, endSec: 180, text: "Intro slide: course objectives.", vec: [0, 0, 1] },
-      { i: 1, startSec: 6300, endSec: 6360, text: "Demo: rendering the pivot table.", vec: [0, 0, 1] },
-      { i: 2, startSec: 7000, endSec: 7060, text: "Outro recap.", vec: [0, 0, 1] },
-    ],
-    // FrameEntry.file is resolved relative to indexDir (turn.ts nearestFrames), not framesDir.
-    [{ at: 6310, file: "frames/f_golden1.jpg" }],
-  );
+  seedAttachmentStore();
 });
 
 afterAll(() => {

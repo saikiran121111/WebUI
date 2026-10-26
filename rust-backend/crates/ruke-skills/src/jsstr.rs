@@ -64,6 +64,40 @@ pub fn js_slice_head(s: &str, units: usize) -> String {
     out
 }
 
+/// JS `String.prototype.trimEnd()`.
+pub fn js_trim_end(s: &str) -> &str {
+    s.trim_end_matches(is_js_ws)
+}
+
+/// JS `String.prototype.trimStart()`.
+pub fn js_trim_start(s: &str) -> &str {
+    s.trim_start_matches(is_js_ws)
+}
+
+/// JS `s.slice(-units)` — the last `units` UTF-16 units (`units == 0` ⇒
+/// empty string, `units >= s.length` ⇒ whole string). Mirrors the
+/// documented surrogate-snap deviation of `js_slice_head`: a cut landing
+/// inside a surrogate pair snaps to the first complete char ABOVE the
+/// cut (Rust `String` cannot hold the lone low surrogate JS would keep).
+pub fn js_slice_tail(s: &str, units: usize) -> &str {
+    if units == 0 {
+        return "";
+    }
+    let total = js_len(s);
+    if units >= total {
+        return s;
+    }
+    let cut_units = total - units;
+    let mut acc = 0usize;
+    for (byte, c) in s.char_indices() {
+        if acc >= cut_units {
+            return &s[byte..];
+        }
+        acc += if (c as u32) > 0xFFFF { 2 } else { 1 };
+    }
+    &s[s.len()..]
+}
+
 /// JS `s.lastIndexOf("\n", cap)` — the last `\n` starting at or before
 /// UTF-16 unit `cap`. Returns both the UTF-16 index (for the JS numeric
 /// comparison `cut > 4500`) and the byte index (for slicing).
@@ -130,6 +164,26 @@ mod tests {
         assert_eq!(js_slice_head("a\u{1D54F}b", 1), "a");
         // Pair fully within the budget is kept.
         assert_eq!(js_slice_head("a\u{1D54F}b", 3), "a\u{1D54F}");
+    }
+
+    #[test]
+    fn js_trim_start_end_use_ecma_set() {
+        assert_eq!(js_trim_end("hi\u{feff} "), "hi");
+        assert_eq!(js_trim_start("\u{a0} hi"), "hi");
+        assert_eq!(js_trim_end("a\u{85}"), "a\u{85}");
+    }
+
+    #[test]
+    fn js_slice_tail_cuts_by_units_and_snaps_surrogates() {
+        assert_eq!(js_slice_tail("abcdef", 3), "def");
+        assert_eq!(js_slice_tail("abc", 99), "abc");
+        assert_eq!(js_slice_tail("abc", 0), "");
+        assert_eq!(js_slice_tail("a\u{1D54F}b", 1), "b");
+        // JS slice(-2) would yield the lone low surrogate + "b"; Rust
+        // snaps up past the pair (documented deviation).
+        assert_eq!(js_slice_tail("a\u{1D54F}b", 2), "b");
+        // Pair fully inside the tail is kept.
+        assert_eq!(js_slice_tail("a\u{1D54F}b", 3), "\u{1D54F}b");
     }
 
     #[test]

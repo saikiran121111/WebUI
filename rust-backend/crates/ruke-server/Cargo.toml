@@ -18,6 +18,7 @@ ruke-contracts.workspace = true
 ruke-core.workspace = true
 ruke-skills.workspace = true
 ruke-decision.workspace = true
+ruke-attach.workspace = true
 axum.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

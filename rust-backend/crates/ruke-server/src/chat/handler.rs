@@ -135,10 +135,16 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         .get("decision_mode")
                         .and_then(Value::as_str)
                         .and_then(RendererMode::parse);
-                    (idx, full_text, pinned)
+                    // Pre-mutation snapshot for the Part-5 retrieval
+                    // frames: `hasAttachmentRef` rides the LAST USER
+                    // TURN's parts, evaluated before the pipeline
+                    // injects anything (route.ts:644 / :758).
+                    let has_refs =
+                        attach::turn_has_attachment_ref(messages[idx].get("content"));
+                    (idx, full_text, pinned, has_refs)
                 })
             };
-            if let Some((idx, full_text, pinned)) = gate {
+            if let Some((idx, full_text, pinned, has_refs)) = gate {
                 // `delete payload.decision_mode` runs UNCONDITIONALLY
                 // inside this gate, on both paths (fixture 06a proves the
                 // forwarded upstream body has the key gone on legacy too).
@@ -179,6 +185,8 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         used_skill.clone(),
                         model.clone(),
                         idx,
+                        has_refs,
+                        full_text,
                         span.clone(),
                         token.clone(),
                         ProgressChannel::new(tx),
@@ -205,7 +213,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     &env,
                     used_skill.as_deref(),
                     idx,
-                    &state.root,
+                    has_refs,
+                    &full_text,
+                    &state,
+                    &token,
                     None,
                     &model,
                     &span,

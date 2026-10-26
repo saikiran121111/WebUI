@@ -6,6 +6,7 @@ members = [
     "crates/ruke-server",
     "crates/ruke-skills",
     "crates/ruke-decision",
+    "crates/ruke-attach",
 ]
 
 [workspace.package]
@@ -18,6 +19,8 @@ ruke-contracts = { path = "crates/ruke-contracts" }
 ruke-core = { path = "crates/ruke-core" }
 ruke-skills = { path = "crates/ruke-skills" }
 ruke-decision = { path = "crates/ruke-decision" }
+# Part 5 (attachment retrieval): read-side port of lib/server/attachindex.
+ruke-attach = { path = "crates/ruke-attach" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
 tokio-util = { version = "0.7", features = ["full"] }
 axum = "0.8"

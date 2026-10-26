@@ -19,9 +19,9 @@ pub fn strip_attachment_refs(messages: &mut [Value]) {
     }
 }
 
-/// `turnHasAttachmentRef(content)`: used by the Part-5 retrieval seam; kept
-/// here (and tested) so Part 5 does not have to re-derive the predicate.
-#[allow(dead_code)] // Part-5 insertion seam (retrieval frames)
+/// `turnHasAttachmentRef(content)`: computed by the HANDLER before the
+/// pipeline mutates the payload (route.ts:644/:758) — it decides whether
+/// the `retrieval` / `retrieval_done` frames open and close the pair.
 pub fn turn_has_attachment_ref(content: Option<&Value>) -> bool {
     content
         .and_then(Value::as_array)

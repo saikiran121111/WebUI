@@ -11,6 +11,10 @@
 //!   over: Next.js `app/api/chat/route.ts` remains authoritative, `npm
 //!   run dev` is untouched, and no TS route is proxied to this server.
 //!   It listens on its own port (default 3101) beside Next :3000.
+//! - `GET/POST /api/ruke/attach/{id}/notes` — the Part-5 notes route as a
+//!   DIRECT Rust test route (§18/§19): mounted ONLY here on :3101; Next's
+//!   `app/api/attach/[id]/notes/route.ts` stays authoritative and does not
+//!   proxy to it (no production route migration before Part 8).
 //!
 //! Rule 17 observability: all logs go through `tracing` with explicit
 //! fields. Never log: API keys / Authorization headers, settings.json
@@ -28,6 +32,7 @@ use serde_json::json;
 
 use ruke_core::{settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
 
+pub mod attach_notes;
 pub mod chat;
 
 #[derive(Clone)]
@@ -41,6 +46,13 @@ pub struct AppState {
     /// Shared upstream client: NO timeouts (a slow local model is normal;
     /// TS `fetch` has none either), no accept-encoding (byte-verbatim SSE).
     pub http: reqwest::Client,
+    /// Query-embedding seam for attachment retrieval
+    /// (`ruke_attach::QueryEmbedder`). Production wires
+    /// `UnavailableEmbedder` — no second embedding model runs on the Rust
+    /// side — so retrieval degrades exactly like the TS `embedOne` catch:
+    /// empty vector, BM25-alone ranking. Golden replay swaps in
+    /// `FixedEmbedder` with the fixtures' recorded vector.
+    pub attach_embedder: Arc<dyn ruke_attach::QueryEmbedder>,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -49,6 +61,13 @@ pub fn build_router(state: AppState) -> Router {
         // Part 4 (§25/26): the Rust chat core, live for isolated testing
         // only — the Next route at :3000 remains the user-facing one.
         .route("/api/chat", post(chat::chat_post))
+        // Part 5 (§18/§19): notes as a DIRECT Rust test route under the
+        // Rust-only /api/ruke namespace. Next does not proxy to it —
+        // cutover is Part 8.
+        .route(
+            "/api/ruke/attach/{id}/notes",
+            get(attach_notes::notes_get).post(attach_notes::notes_post),
+        )
         .with_state(state)
 }
 
@@ -88,6 +107,7 @@ mod tests {
             turns: Arc::new(TurnCounter::new()),
             root: tmp.path().to_path_buf(),
             http: reqwest::Client::new(),
+            attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),
         }
     }
 

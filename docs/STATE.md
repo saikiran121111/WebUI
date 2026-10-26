@@ -883,3 +883,125 @@ isolated ruke-server (direct-router oneshot + one real-socket test); no Playwrig
    replay against `fixtures/attachments/01–06` (injection-index off-by-one recorded in §8
    discovery 2 is RECORDED, not fixed).
 3. §28 matrix rerun after Part 5 lands (workspace test/clippy/check + tsc + vitest replays).
+
+---
+
+## Session 2026-10-27 — Rust migration Part 5 (attachment read/retrieval side + pipeline wiring)
+
+### 8.1 Objective & milestone
+Port the attachment READ/RETRIEVAL side to Rust (`ruke-attach` crate) and wire it into the
+Part-4 chat pipeline seam: store READING of the frozen Node-written disk format, BM25+cosine+RRF
+retrieval, query routing, formatting, notes, `build_attachment_turn`, `stripAttachmentRefs`,
+retrieval/retrieval_done frames. Node keeps extraction/chunking/ONNX embeddings/index BUILD.
+Milestone reached: PART 5 COMPLETE — ruke-attach 43/43 unit tests, attachment_replay 6/6
+(fixtures 01–06 through the full pipeline), store_compat 6/6 (§27 cross-language), notes route
+4/4, full §31 checks green. No cutover; Next.js owns all live traffic.
+
+### 8.2 Locked completed (do not re-read/re-do)
+- `rust-backend/crates/ruke-attach/` — 8 modules, 43/43 tests, clippy clean: `store.rs`
+  (index_dir/has_index/read_index/read_notes/write_notes/valid_att_id
+  `ATT_RE ^att_[a-z0-9]{4,32}$` — direct read of the FROZEN Node format: meta.json pretty,
+  chunks.jsonl lines, full.txt, notes.json, frames/), `bm25.rs`+`pack.rs` (TOP_K=8,
+  BUDGET=24000, neighbor expansion, RRF — NO better-variant substitution), `route.rs`
+  (point_qa/time_range/whole_video; single-HMS timestamp windows ±180 s), `evidence.rs`
+  (`retrieve_evidence`, honest missing-index block, formatted knowledge_index blocks +
+  text/video rules), `notes.rs` (`generate_notes` + `NotesLlm`), `turn.rs`
+  (`build_attachment_turn` incl. the RECORDED unconditional `lastUserIdx+1` quirk,
+  frames-before-splice order, keyframe data-url), `refs.rs` (`collect_attachment_refs`,
+  `anchor_query`), `embed.rs` (`QueryEmbedder` trait, `UnavailableEmbedder`, `FixedEmbedder`).
+- `ruke-server` Part-5 integration: `src/attach_notes.rs` (direct Rust-only route
+  `/api/ruke/attach/{id}/notes` + 4 tests; NOT proxied by Next — Part 8), `src/lib.rs`
+  (`pub attach_embedder: Arc<dyn ruke_attach::QueryEmbedder>` on AppState), `src/main.rs`
+  (production seam = `UnavailableEmbedder` — no second embedding model),
+  `src/chat/pipeline.rs` (step-5 seam after skill injection, before the Part-6 web seam:
+  refs → retrieval frame → `build_attachment_turn(messages, last_user_idx + 1, …)` →
+  retrieval_done done/total; Err → log + `{done:0,total:0}` + continue; NEVER ruke_error),
+  `src/chat/handler.rs` (4-tuple `(idx, full_text, pinned, has_refs)` pre-mutation snapshot;
+  legacy runs the SAME pipeline, headers only), `src/chat/attach.rs` (shared strip — no
+  attachment_ref reaches upstream).
+- Tests: `tests/attachment_replay.rs` 6/6; `tests/store_compat.rs` 6/6; Part-4 suite rerun
+  green (golden_replay 19, scrubber 2) inside workspace 187.
+- Fixture/harness: `rust-backend/fixtures/attachments/store/` (production-writer bytes, 10
+  files, 1b absent = missing-index); `__tests__/rust-golden/store-fixture.test.ts` (drift
+  guard + `RUKE_WRITE_STORE_FIXTURE=1` regen); `__tests__/rust-golden/support/attach-seeds.ts`
+  (SINGLE seed source for attachments.test.ts + store fixture); `attachments.test.ts`
+  refactored onto it (6 fixtures still reproduce — seeds proven identical);
+  `tests/common/mod.rs` gained `store_fixture_dir` + `copy_tree`.
+
+### 8.3 Graphify map (Part 5)
+- `pipeline.rs::run_turn_pipeline` ← callers: `handler.rs` (progress spawn + legacy call) —
+  gate snapshot tuple extended `(idx, full_text, pinned, has_refs)`.
+- `ruke-server` → `ruke-attach` (new dep): `collect_attachment_refs`, `build_attachment_turn`,
+  re-exported notes API; refs non-empty drives the retrieval frame.
+- `AppState.attach_embedder` ← `main.rs` (UnavailableEmbedder) / `tests/common` +
+  `attachment_replay` (FixedEmbedder [1,0,0.05]).
+- `store-fixture.test.ts` → `attach-seeds.ts` ← `attachments.test.ts` (single-source seeds);
+  `store_compat.rs` + `attachment_replay.rs` → `fixtures/attachments/store/` (verbatim copies)
+  + `fixtures/attachments/01–06` (TS oracles).
+- Notes route = standalone (axum router in `lib.rs`); zero Next.js callers by design.
+
+### 8.4 Immutable code contracts added this session
+- `ruke_attach::build_attachment_turn(&mut Vec<Value>, user_idx: usize, question: &str,
+  root: &Path, &dyn QueryEmbedder, &reqwest::Client, &NotesLlm, &CancellationToken)
+  -> Result<usize, Cancelled>` — returns the INJECTED BLOCK COUNT (= retrieval_done done/total);
+  honest missing-index block counts as 1; empty evidence → 0 blocks.
+- Frames emitted between decision_done/skill and the Part-6 web seam: `{stage:"retrieval"}`
+  only when refs present; `{stage:"retrieval_done",done:N,total:N}` on Ok; `{done:0,total:0}`
+  on Err (non-fatal; log-only, never ruke_error).
+- Store format FROZEN (Node writes, Rust reads): dir `.data/attach-index/<attId>/`
+  {`meta.json` (2-space pretty; field order attId,name,category,createdAt,durationSec?,
+  chunkCount,spine,spineBlocks,frames), `chunks.jsonl` (JSON lines + trailing newline; empty
+  file = 0 chunks), `full.txt` (non-atomic), `notes.json`, `frames/*`}; att ids gated by
+  `^att_[a-z0-9]{4,32}$` (invalid id → no index, not an error).
+- `AttachmentRef{attId,name,category}`; parts `{type:"attachment_ref", att_id, name, category}`
+  stripped from the forwarded payload by the SAME `ruke-server::chat::attach` implementation on
+  both response paths; evidence NEVER persisted (request-payload copy only).
+- `NotesLlm{url,key}`; notes route direct-Rust only (no Next proxy until Part 8).
+- Golden seeds (attach-seeds.ts, single source): QUERY_VEC [1,0,0.05]; att ids att_golden1a
+  (text, 3 chunks vecs e0/e1/e2), 1b NEVER seeded, 1c (text, 0 chunks), 1d (video, 3 chunks,
+  6300/6360 overlap chunk, frame at 6310 → `frames/f_golden1.jpg` = fixed 1x1 JPEG); meta
+  createdAt 0, spine "". Replay fixtures 01–06 and store bytes MUST regen together.
+- Injection quirk REPRODUCED: route passes `lastUserIdx + 1` UNCONDITIONALLY; frames append to
+  `messages[user_idx]` BEFORE the block splice at `user_idx`. DO NOT FIX (parity first;
+  cleanup later).
+
+### 8.5 Playwright & E2E verification state
+- NO Playwright (Part-5 brief §29: full manual regression stays scheduled AFTER Part 8); no
+  `.ai-coordination/playwright.lock`. Strata `:8080` never touched — mock upstreams ephemeral
+  + PORT9 unroutable (`golden-key`).
+- §31 record: `cargo test --manifest-path rust-backend/Cargo.toml --workspace` = 187 passed
+  (ruke-attach 43, ruke-server lib 30, golden_replay 19, scrubber_vectors 2, attachment_replay
+  6, store_compat 6, ruke_skills 34, ruke_decision 11 incl. fixture_replay 9, …); clippy
+  `--workspace --all-targets -- -D warnings` exit 0; `cargo check --workspace --all-targets`
+  exit 0; `npx tsc --noEmit` exit 0; `npx vitest run __tests__/rust-golden` 43/46 (3 = web.test
+  parallel-load flakes; standalone rerun 5/5 exit 0); attachments + store-fixture suites 9/9.
+- `attachment_replay` seeds the repo's `.data/attach-index` once per test-binary (OnceLock,
+  gitignored, same ids the TS harness cleans in afterAll); run vitest and cargo test
+  SEQUENTIALLY to avoid store contention.
+
+### 8.6 Open bugs, failing traces & blockers
+- web.test.ts parallel-load flakes (pre-existing family, §31: rerun standalone, do not fix
+  unrelated code): 3 "Fixture drift detected" under load — live-page ARIA snapshot text varies
+  ("Server error. Try again later." banner) — drift guard throws BEFORE writing, zero fixture
+  mutation (git-verified). Standalone 5/5.
+- Part-5 Err branch (retrieval THROW → `{0,0}` + continue) is near-unreachable by design
+  (matches TS; buildAttachmentTurn never throws) — not exercised by a fixture.
+- `attachment_replay` leaves the seeded store in `.data/attach-index` after cargo runs (same
+  ids; harmless; a later vitest attachments run cleans + reseeds).
+- No BLOCKED golden items; §29/§30 honored (no cutover, notes route not proxied).
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded this session; `.cskills` read as fixture DATA only
+  (excel decision_skill block bytes for fixture 05/06b), never injected into this prompt.
+
+### 8.8 Immediate next 3 atomic actions
+1. Commit the Part-5 tree (modified: attachments.test.ts, Cargo.toml/lock, ruke-server
+   attach.rs/handler.rs/pipeline.rs/lib.rs/main.rs, ruke-skills jsstr.rs, tests/common/mod.rs,
+   MIGRATION-MAP, fixtures README; new: ruke-attach/, attach_notes.rs, attachment_replay.rs,
+   store_compat.rs, store-fixture.test.ts, attach-seeds.ts, fixtures/attachments/store/;
+   trailer `Co-Authored-By: Claude Code <noreply@anthropic.com>`).
+2. PART 6 (MIGRATION-MAP §10): web-search port (net/ssrf/cache/engines/metasearch + pipeline
+   stages, Tier-3b Node bridge) into the documented web seam in `pipeline.rs` between
+   retrieval_done and strip — replay `fixtures/web-search/01–05` (keep the seam intact until
+   then; honour the 15 s metasearch cap semantics + both failure shapes).
+3. Re-run the §31 matrix after Part 6 lands; rerun attachment + Part-4 goldens (regression).

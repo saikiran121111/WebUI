@@ -8,7 +8,7 @@
 #![allow(dead_code)] // shared across several test binaries
 
 use std::collections::{BTreeMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -52,6 +52,29 @@ pub fn repo_root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."))
 }
 
+/// The committed cross-language store fixture for one attachment
+/// (`fixtures/attachments/store/<attId>`) — bytes written by the PRODUCTION
+/// Node writer (`writeIndex`), recorded by
+/// `__tests__/rust-golden/store-fixture.test.ts`. Never regenerated or
+/// edited on the Rust side; the §27 tests copy these VERBATIM.
+pub fn store_fixture_dir(att_id: &str) -> PathBuf {
+    fixtures_dir().join("attachments").join("store").join(att_id)
+}
+
+/// Byte-for-byte recursive directory copy (fixture bytes -> live store dir).
+pub fn copy_tree(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let to = dst.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &to);
+        } else {
+            std::fs::copy(entry.path(), &to).unwrap();
+        }
+    }
+}
+
 pub fn load_fixture(rel: &str) -> Value {
     let path = fixtures_dir().join(rel);
     let text = std::fs::read_to_string(&path)
@@ -71,6 +94,7 @@ pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
         turns: Arc::new(TurnCounter::new()),
         root: repo_root(),
         http: reqwest::Client::new(),
+        attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),
     };
     if let Some((url, key)) = upstream {
         state.settings.set_upstream_override(url, key);

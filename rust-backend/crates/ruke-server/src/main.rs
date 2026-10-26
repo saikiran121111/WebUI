@@ -24,6 +24,11 @@ async fn main() {
         // No client timeouts: a slow local model is normal operation, and
         // the TS baseline `fetch` has none either (MIGRATION-MAP §2).
         http: reqwest::Client::new(),
+        // Part 5 production seam: no embedding model runs on the Rust
+        // side (ONNX stays a Node concern; Part 8 decides otherwise).
+        // Retrieval then degrades exactly like the TS `embedOne` catch —
+        // empty vector, BM25-alone ranking.
+        attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),
     };
 
     // Loopback bind: this parallel server has no auth, and the migration's

@@ -143,9 +143,39 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
     fixture's `upstreamCalls` metadata was stubbed by the TS harness (fetch never attempted), so
     the replay asserts the response contract there and not the stubbed call metadata.
 
+## Part-5 Rust replay status (attachments) — 2026-10-27
+
+- **attachments/01–06: GREEN.** `crates/ruke-server/tests/attachment_replay.rs` (6/6) replays
+  every fixture through the FULL Rust chat pipeline (`POST /api/chat` on the library router):
+  `assert_response` (status, full header set, ms-normalized or byte-exact body, logical frames —
+  `retrieval`/`retrieval_done {1,1}` / `{0,0}` semantics pinned) and `assert_upstream_call`
+  (BYTE-IDENTICAL forwarded body ⇒ the strip, the recorded `lastUserIdx+1` injection quirk
+  orders, the time_range header, and the keyframe `data:image/jpeg;base64,…` part all match TS
+  verbatim). Fixture 06 (legacy path) replays byte-exact.
+- **Cross-language store compatibility (§27):** `attachments/store/<attId>/` commits the EXACT
+  bytes the PRODUCTION Node writer (`writeIndex`) puts on disk (`meta.json` pretty 2-space,
+  `chunks.jsonl` + trailing newline, `full.txt`, `frames/`); `att_golden1b` is intentionally
+  absent (fixture 02 = missing index). Seeds are shared with `attachments.test.ts` via
+  `__tests__/rust-golden/support/attach-seeds.ts` — the replay fixtures and the store bytes MUST
+  seed identically. `crates/ruke-server/tests/store_compat.rs` (6/6) copies them VERBATIM into a
+  temp root and compares Rust's parsed index + injected block against the TS oracle; Rust never
+  reconstructs or edits these bytes.
+- **Regen (re-record) command:**
+  `RUKE_WRITE_STORE_FIXTURE=1 npx vitest run __tests__/rust-golden/store-fixture.test.ts`
+  (from the repo root; seeds via the production writer, copies the tree byte-for-byte, then
+  removes the scratch store). The default run is the DRIFT GUARD: regenerates and byte-compares
+  every committed file. If it fails because the writer or seeds intentionally changed: DELETE
+  `attachments/store/` and re-record — NEVER hand-edit these bytes. Re-record replay fixtures in
+  the same pass (seeds changed ⇒ fixtures change with them).
+- Embedding seam on both sides: fixed pseudo-vector `[1,0,0.05]` (TS `vi.mock embedOne` ↔ Rust
+  `FixedEmbedder`) — the embedding model is not a wire contract; no second model is added.
+- Part-4 corpus re-verified alongside (golden_replay 19/19, scrubber 2/2) — attachment wiring did
+  not regress chat/errors/sse fixtures.
+
 ## Regenerating
 
 ```
 npx vitest run __tests__/rust-golden            # replay (fails on drift, first-diff printed)
 rm -rf rust-backend/fixtures/<dir> && npx vitest run __tests__/rust-golden/<suite>   # re-record a suite
+RUKE_WRITE_STORE_FIXTURE=1 npx vitest run __tests__/rust-golden/store-fixture.test.ts  # re-record attachments/store bytes
 ```
