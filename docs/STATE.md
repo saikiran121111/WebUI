@@ -1480,4 +1480,100 @@ commit pending this segment.** Parts 9/10 NOT started; no Playwright; no golden/
    startup/shutdown lifecycle, exact test commands + exit codes (scenarios A–H, gates incl. the
    honest exit-1 vitest run + adjudication chain), explicit no-behavior-change statement,
    rulings R1–R15, Defender false-positive note.
+
+---
+
+# PART-8 MANUAL-REGRESSION PROXY-CLASSIFICATION FIX — session segment 2026-10-28
+
+### Core objective & active phase
+PART-8 FIX at the USER MANUAL REGRESSION CHECKPOINT (NOT Part 9): false diagnostic during title
+generation — Next logged `[rust-proxy] POST /api/ruke/conversations/<id>/title -> …: unreachable
+[ResponseAborted]` while the Rust title queue was successfully generating the title (browser had
+merely navigated away). Fixed failure CLASSIFICATION in `lib/server/rustProxy.ts` ONLY. Status:
+**implementation DONE, gates green, §13 manual repros DONE; commit pending this segment.** The
+Part-8 manual checkpoint is NOT marked passed (user approval required). Parts 9/10 untouched.
+
+### Root cause
+`rustProxy` forwards `signal: req.signal` to the upstream fetch. When the browser abandons the
+request, Next's Node 26 web layer aborts `req.signal` with a `DOMException` whose name is
+`ResponseAborted`; per the fetch spec undici rejects the in-flight upstream fetch with the
+signal's ABORT REASON — so the proxy's single unconditional catch stamped EVERY rejection
+"unreachable" + 502, including pure downstream cancellations.
+
+### Fix & three-class classification (exact)
+Two helpers + classified catch in `lib/server/rustProxy.ts` (hop-by-hop filtering,
+`duplex:"half"`, `signal: req.signal` wiring all UNCHANGED):
+- `isDownstreamCancellation(err, signal)`: checks `signal.aborted` FIRST (name-independent — the
+  forwarded signal is the only possible aborter of the upstream fetch), then names
+  `AbortError`/`ResponseAborted`. Never relies on the error name alone.
+- `connectivityCode(err)`: `err.cause?.code ?? err.cause?.name ?? err.name ?? "unknown"`
+  (undici puts the errno on `cause`).
+- **A. downstream cancellation** ⇒ `console.debug("[rust-proxy] <METHOD> <path> -> <base>:
+  cancelled by downstream client")` (low severity; the word "unreachable" NEVER used) + `204`
+  (never actually delivered). Rust-side semantics keep running.
+- **B. genuine connectivity failure** ⇒ Part-8 stance EXACTLY preserved:
+  `console.error("… unreachable [<code>]")` + honest 502
+  `{"error":"Rust backend unreachable at <base>"}`. UNKNOWN errors FAIL CLOSED into class B —
+  a real Rust crash/socket failure can never be swallowed as a cancellation.
+- **C. genuine Rust response** (4xx/5xx/streamed/normal) passes through untouched — the catch
+  never sees those legs.
+Title semantics unchanged (queue, policy, gen_count, force, persistence, MAX_ATTEMPTS=2,
+timing); chat cancellation chain browser→Next→Rust→Strata keeps propagating.
+
+### Gates (actually run; NO Playwright anywhere, no lock ever created)
+`npx tsc --noEmit` exit 0; `npx vitest run __tests__/rust-proxy.test.ts __tests__/titles
+__tests__/rust-golden` → 13 files / 101 passed; FULL `npx vitest run` → **64 files / 671 passed /
+1 skipped / 0 failed** exit 0 (~13.8 s — web.test.ts + chatEngine.test.ts green under parallel
+load THIS run; no flake adjudication needed; zero test/fixture mutations);
+`cargo test --manifest-path rust-backend/Cargo.toml --workspace` → 548 passed / 0 failed exit 0;
+`cargo clippy --manifest-path rust-backend/Cargo.toml --workspace --all-targets -- -D warnings`
+exit 0 clean. NEW `__tests__/rust-proxy.test.ts` (7 tests) 7/7 green: real loopback HTTP (no
+fetch mocks), mock Rust mirrors the real title route's accept-then-hold; dead-backend arm uses
+loopback **:3**, not the Rust-side `127.0.0.1:9` convention — undici rejects WHATWG blocked
+ports at parse time with a code-less "bad port" TypeError, so that convention cannot cross the
+undici seam.
+
+### §13 manual reproduction results (live supervisor `PORT=3210` `RUKE_BACKEND_PORT=3102`
+`LLM_API_URL=http://127.0.0.1:8799/v1/chat/completions` model stub; Strata down; ports pre-probed
+free; the user's pre-session :3000 server never listened and was never touched)
+1. Title + navigate-away: `POST …/api/conversations/repro-p8/title?force=1` abandoned
+   mid-generation ⇒ witness `[rust-proxy] POST /api/ruke/conversations/repro-p8/title ->
+   http://127.0.0.1:3102: cancelled by downstream client`; ZERO "unreachable" lines, no false
+   502. Queue survival witness: a follow-up POST answered `{"queued":true,"coalesced":true}` —
+   the job was STILL alive after the client abandoned it.
+2. Chat + stop midway: curl killed 2 s into a streaming turn ⇒ stub witness
+   `MODEL STREAM TORN MID-STREAM after 4 tokens` + same-millisecond Rust
+   `WARN … llm stream aborted by client` (chat/forward.rs); ZERO rust-proxy lines — cancellation
+   propagates browser→Next→Rust→model, no false message.
+3. Real backend failure: killed ONLY the supervised ruke-server (by PID) ⇒ the FIRST proxied
+   request returned **502 `{"error":"Rust backend unreachable at http://127.0.0.1:3102"}`** +
+   log `[rust-proxy] GET /api/ruke/conversations -> http://127.0.0.1:3102: unreachable
+   [ECONNREFUSED]`; supervisor first-child-exit cascade ("ruke-server exited (1); stopping next
+   dev") then all ports freed.
+
+### Honest caveats & classified noise
+- The end-to-end persisted-title-after-release cycle was NOT cleanly captured in the live
+  harness: harness stub RESTARTS dropped in-flight title model calls (Rust logged
+  `WARN title generation produced nothing usable` across the queue's MAX_ATTEMPTS=2 ladder) —
+  harness artifact, not a product defect. The survival requirement is witnessed at queue level
+  (coalescing after abandonment) and by the untouched Rust title-queue tests (green).
+- Stub-garbage search-gate answers triggered the pre-existing 35 s MAIN_GATE_TIMEOUT ⇒
+  rules-default plan ⇒ REAL web searches + `ruke_websearch::search_gate` "gate unreachable /
+  timeout" WARN vocabulary — pre-existing websearch wording at a DIFFERENT seam, not the proxy,
+  untouched by this fix; avoided afterwards with a stage-0 trivial prompt ("hi" bypasses the
+  gate: zero LLM/web traffic). The ~118 s web-search turn remains OUT of scope per brief.
+- Repro hygiene: `repro-p8.json` created in the user's conversation store and DELETED after the
+  runs (user's 40 `c_*` conversations intact, store back to pre-session state); repo-root repro
+  logs removed after evidence copy to `%TEMP%\ruke-p8-fix\`; `8-fix2` MIGRATION-MAP row added;
+  OVERNIGHT-REPORT history NOT rewritten.
+
+### Immediate next 3 atomic actions
+1. COMMIT: stage ONLY `lib/server/rustProxy.ts __tests__/rust-proxy.test.ts tsconfig.tsbuildinfo
+   docs/STATE.md rust-backend/MIGRATION-MAP.md`; message exactly
+   `fix: distinguish Rust proxy cancellation from backend failure` + trailer
+   `Co-Authored-By: Claude Code <noreply@anthropic.com>`. No push.
+2. FINAL §16 REPORT: root cause / fix / title behavior / chat cancellation / real backend
+   failure / tests (exact commands + counts) / product-changes statement, ending verbatim:
+   `Part 8 still requires user approval. Part 9 has NOT started.`
+3. Do NOT start Part 9.
 3. Close verbatim: "Part 8 still awaits user manual regression. Part 9 has NOT started."
