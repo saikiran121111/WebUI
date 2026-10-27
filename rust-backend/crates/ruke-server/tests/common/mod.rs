@@ -28,7 +28,11 @@ use tempfile::TempDir;
 use tower::ServiceExt; // oneshot
 
 use ruke_core::{settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
-use ruke_server::AppState;
+use ruke_server::{
+    persistence::ConversationStore,
+    titles::{generate::UnconfiguredTitleModel, queue::TitleQueue},
+    AppState,
+};
 
 /// The fixed unreachable upstream used by the unreachable-contract fixtures
 /// (same URL the TS harness records; port 9 = discard, always refused).
@@ -88,13 +92,19 @@ pub fn load_fixture(rel: &str) -> Value {
 /// keeps it alive.
 pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
     let tmp = tempfile::tempdir().unwrap();
+    let slot = Arc::new(InferenceSlot::new());
+    let store = Arc::new(ConversationStore::new(tmp.path().join("conversations")));
     let state = AppState {
         settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
-        slot: Arc::new(InferenceSlot::new()),
+        slot: slot.clone(),
         turns: Arc::new(TurnCounter::new()),
         root: repo_root(),
         http: reqwest::Client::new(),
         attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),
+        conversations: store.clone(),
+        // Replay fixtures never trigger title generation; the queue is
+        // present so AppState matches the production shape.
+        titles: Arc::new(TitleQueue::new(store, slot, Arc::new(UnconfiguredTitleModel))),
     };
     if let Some((url, key)) = upstream {
         state.settings.set_upstream_override(url, key);

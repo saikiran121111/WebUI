@@ -119,6 +119,83 @@ pub fn last_newline_at_or_below(s: &str, cap: usize) -> Option<(usize, usize)> {
     found
 }
 
+/// JS `String(value)` for JSON values (⇔ TS `String(v)`): null→"null",
+/// bools, strings verbatim, numbers (below), arrays via
+/// `Array.prototype.join(",")` (null holes→"" at EVERY nesting level, per
+/// the join spec), objects→"[object Object]".
+///
+/// RECORDED MICRO-DIVERGENCE: integer-valued floats below 1e21 print as
+/// pure decimal integers (JS fixed notation runs through 1e20; serde_json
+/// would print exponent notation). Non-integer/huge floats fall through to
+/// serde_json's shortest round-trip form, which agrees with ECMAScript
+/// `Number.prototype.toString` for every value these call sites carry
+/// (scenario keyword arrays, title transcript `String(content)`).
+pub fn js_to_string(v: &Value) -> String {
+    match v {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Number(n) => number_to_string(n),
+        Value::Array(a) => a
+            .iter()
+            .map(|e| if e.is_null() { String::new() } else { js_to_string(e) })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_string(),
+    }
+}
+
+fn number_to_string(n: &serde_json::Number) -> String {
+    if let Some(i) = n.as_i64() {
+        return i.to_string();
+    }
+    if let Some(u) = n.as_u64() {
+        return u.to_string();
+    }
+    let f = n.as_f64().unwrap_or(0.0);
+    if f.fract() == 0.0 && f.abs() < 1e21 {
+        return (f as i128).to_string();
+    }
+    n.to_string()
+}
+
+/// JS `s.split(/\s+/)` — every whitespace RUN is one separator, and a
+/// leading run yields a leading `""` element (unlike `split_whitespace`).
+///
+/// RECORDED MICRO-DIVERGENCE: JS `\s` (WhiteSpace ∪ LineTerminator ∪
+/// U+FEFF, no U+0085) vs `is_js_ws` here — matches ECMAScript exactly,
+/// unlike a Rust `regex` `\s` (which covers U+0085 but not U+FEFF).
+pub fn js_split_ws(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut seg_start = 0usize;
+    let mut i = 0usize;
+    while i < s.len() {
+        let c = s[i..].chars().next().unwrap();
+        if is_js_ws(c) {
+            out.push(&s[seg_start..i]); // the segment before the run (may be empty)
+            while i < s.len() {
+                let d = s[i..].chars().next().unwrap();
+                if !is_js_ws(d) {
+                    break;
+                }
+                i += d.len_utf8();
+            }
+            seg_start = i;
+        } else {
+            i += c.len_utf8();
+        }
+    }
+    out.push(&s[seg_start..]);
+    out
+}
+
+/// JS `s.replace(/\s+/g, " ")` — each whitespace run collapses to ONE
+/// space, edges preserved (a leading run leaves a leading space; pair
+/// with `js_trim` when the TS trims afterwards).
+pub fn js_collapse(s: &str) -> String {
+    js_split_ws(s).join(" ")
+}
+
 /// JS truthiness for JSON values. JSON can't carry NaN, but the guard is
 /// kept for parity honesty; `-0`/`0`/`0.0` are falsy, every object/array
 /// is truthy (`!{}` is `false` in JS).
@@ -209,5 +286,22 @@ mod tests {
         assert!(t("\"x\""));
         assert!(t("[]"));
         assert!(t("{}"));
+    }
+
+    #[test]
+    fn js_to_string_table() {
+        let t = |raw: &str| js_to_string(&serde_json::from_str::<Value>(raw).unwrap());
+        assert_eq!(t("null"), "null");
+        assert_eq!(t("true"), "true");
+        assert_eq!(t("false"), "false");
+        assert_eq!(t("\"hi\""), "hi");
+        assert_eq!(t("42"), "42");
+        assert_eq!(t("-7"), "-7");
+        assert_eq!(t("1e20"), "100000000000000000000"); // JS fixed notation < 1e21
+        assert_eq!(t("2.5"), "2.5");
+        assert_eq!(t("[]"), "");
+        assert_eq!(t("[1,null,\"a\",[2,null]]"), "1,,a,2,"); // join: null→"" every level
+        assert_eq!(t("{}"), "[object Object]");
+        assert_eq!(t("[{}]"), "[object Object]");
     }
 }

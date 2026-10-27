@@ -84,5 +84,7 @@ impl QueryEmbedder for FixedEmbedder {
 pub use crate::notes::{generate_notes, Cancelled, NotesLlm};
 pub use crate::retrieve::{retrieve_evidence, Evidence, RetrieveOpts};
 pub use crate::router::{route_query, QueryMode, RoutedQuery};
-pub use crate::store::{has_index, index_dir, read_index, read_notes, valid_att_id, write_notes};
+pub use crate::store::{
+    has_index, index_dir, read_index, read_notes, remove_index, valid_att_id, write_notes,
+};
 pub use crate::turn::{anchor_query, build_attachment_turn, collect_attachment_refs, AttachmentRef};

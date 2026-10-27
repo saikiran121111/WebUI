@@ -70,6 +70,21 @@ pub fn has_index(root: &Path, att_id: &str) -> bool {
     }
 }
 
+/// `removeIndex` (Part 7, called by conversation DELETE): cache-delete +
+/// `rmSync(dir, { recursive: true, force: true })`, tolerant of unknown and
+/// malformed ids and NEVER throwing — the TS whole-body `try/catch` swallows
+/// both the `indexDir` bad-id throw and any rm error (force only suppresses
+/// ENOENT; the surviving try/catch covers the rest, so silently-continuing
+/// is faithful, not a weakening). A bad id deletes nothing: only valid ids
+/// can ever be cache keys, so skipping cacheDelete is equivalent.
+pub fn remove_index(root: &Path, att_id: &str) {
+    let Ok(dir) = index_dir_checked(root, att_id) else {
+        return;
+    };
+    cache().lock().retain(|(d, _)| *d != dir); // cacheDelete (attId ⇔ dir key)
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `atomicWrite`: tmp-suffix write + rename (rename replaces on Windows,
 /// ⇔ Node `renameSync`).
 fn atomic_write(file: &Path, data: &str) -> std::io::Result<()> {
@@ -311,5 +326,27 @@ mod tests {
         assert!(held.iter().any(|d| d.ends_with("att_lruaa")), "hit-refresh must keep a");
         // Eviction is invisible to callers: reads re-load from disk.
         assert!(read_index(&root, "att_lrubb").is_some());
+    }
+
+    #[test]
+    fn remove_index_deletes_dir_and_evicts_cache_entry() {
+        let root = uniq_root("rmidx");
+        let meta =
+            "{\"attId\":\"att_rm001\",\"name\":\"n\",\"category\":\"text\",\"createdAt\":0,\"chunkCount\":0,\"spine\":\"\",\"spineBlocks\":[],\"frames\":[]}";
+        seed_store(&root, "att_rm001", meta, "");
+        assert!(read_index(&root, "att_rm001").is_some()); // warm the global LRU
+
+        remove_index(&root, "att_rm001");
+        assert!(!root.join(".data").join("attach-index").join("att_rm001").exists());
+        assert!(!has_index(&root, "att_rm001"));
+        // The cache entry must have been evicted, not served after delete
+        // (a stale hit would return Some here).
+        assert!(read_index(&root, "att_rm001").is_none());
+
+        // Malformed and unknown ids: never throw, never create anything
+        // (TS whole-body try/catch parity).
+        remove_index(&root, "bad");
+        remove_index(&root, "att_none1");
+        assert!(!root.join(".data").join("attach-index").join("att_none1").exists());
     }
 }

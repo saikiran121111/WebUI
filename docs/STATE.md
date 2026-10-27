@@ -1141,3 +1141,134 @@ Milestone reached: **PART 6 COMPLETE** — `cargo test -p ruke-websearch` **274/
    process supervision + browser-read route + env handoff (`RUKE_BROWSER_BRIDGE_BASE_URL/
    SECRET`) + web_citations/gate-frame wiring; curl-based smokes with fixtures web-search/
    01–05; NO Playwright; then OVERNIGHT-REPORT.md + STOP before Part 9.
+
+---
+
+## Session 2026-10-27-C — Rust migration Part 7 (server state: persistence/conversations/titles/settings/skills/model-stats)
+
+### 8.1 Objective & milestone
+PART 7 of the Rust migration (contract = `rust-backend/MIGRATION-MAP.md`, frozen). Ported
+the remaining TS server-state services into `ruke-server` WITHOUT cutover: disk
+persistence + title-ownership merge, conversation CRUD routes, the full titles subsystem
+(policy/transcript/generate/queue), settings routes, model stats, skills list/install, and
+the Rust-only attach-notes route. Next: PART 8 (thin-proxy cutover + `npm run dev`
+lifecycle + browser-read route + env handoff). Part 9/10 NOT started; old TS
+implementations intact.
+
+### 8.2 Locked completed (do not re-read/re-do)
+- `rust-backend/crates/ruke-server/src/persistence.rs` — port of `lib/persistence/disk.ts`
+  + `lib/persistence/merge.ts`. `file(id)` per-char `[^a-zA-Z0-9_-]`→`_` sanitize; list
+  reads RAW filenames then RE-STATS the sanitized path (the `we!rd.json` lists-as-`we!rd`
+  / updatedAt-0 / get-None quirk pinned); tombstone Map keyed RAW id, `now-deletedAt<5000`
+  drops the racing save else tombstone removed; `js_ms_number` (JSON.stringify never
+  prints `.0`); `merge_protected_title` full catch matrix (falsy stored / unparseable
+  either side / non-object meta strict-mode-throw ⇒ incoming verbatim; stored truthy title
+  + titleSource/titleGenCount/titleGenAt copied when `!== undefined`; parsed path ALWAYS
+  re-serializes). Test-only clock seams `save_at`/`delete_at` (production `save`/`delete`
+  stamp `now_ms()`).
+- `src/conversations_routes.rs` — GET list (+GET enrichment), GET/POST/DELETE
+  `/api/ruke/conversations[/{id}]`; POST gate order: null body ⇒ 500 (`body.id` TypeError
+  parity), truthy-non-string id ⇒ 500, else 400; save path runs `merge_protected_title`;
+  title route delegates to `titles` (skip-reason JSON per TS).
+- `src/titles/mod|policy|transcript|generate|queue.rs` — port of `lib/server/titles/**`:
+  `looks_auto_title` two-arm slice(0,40) table (UTF-16 units, collapse arm
+  `js_slice_head(js_collapse(first.trim()),40)`); `should_generate` (manual⇒false,
+  force⇒true, non-number stored count ⇒ `count>=2`, else `count-gen>=4`);
+  `apply_title_to_doc` guarded write (titleSource:"auto", titleGenCount, titleGenAt);
+  transcript caps 500/400 UTF-16 + `[attached: …]` note + `String([1,null,"x"])`=="1,,x"
+  join quirk; normalize-title guard ladder (prefix/bullet/num/intro strip, prose guard
+  `/\.\s+\S/`, refusal regex, 60-cut `sp>=40`, >12 words ⇒ null); title call body
+  model/stream:false/temperature:0.2/max_tokens/reasoning_effort:"none", 150000 ms
+  timeout; map-reduce plan; `queue.rs` global serial chain + per-conversation coalescing
+  + slot-aware yield + bounded retries.
+- `src/settings_routes.rs`, `src/model_stats.rs`, `src/skills_routes.rs`,
+  `src/skills_install.rs` (npx skills add via tokio::process, stdout/stderr pump
+  `pump_output<R: AsyncReadExt+Unpin+Send>`), `src/attach_notes.rs` route;
+  `src/main.rs`/`src/lib.rs` wiring — ALL Part-7 routes under `/api/ruke/*` ONLY (lib.rs
+  guard test pins `/api/settings`, `/api/search`, `/api/conversations` = 404 on the Rust
+  server); `ruke-skills` gains `frontmatter.rs` + `modality.rs`.
+- WITNESS FIX (production): the title normalize regex statics embed the JS-`\s` class
+  `WSI` — they MUST be bracketed `[{WSI}]`; a bare `{WSI}` in `format!` is a literal
+  escape SEQUENCE (never matches TS `\s` semantics). TITLE_PREFIX/BULLET/NUM/INTRO/
+  REFUSAL bracketed; PROSE/CUT_TRAIL already were.
+- Gate results (final, this session): `cargo test --workspace` **540 passed / 0 failed**
+  (ruke-server 123 = 90 lib + 19+6+2+6 integration); `cargo clippy --workspace
+  --all-targets -- -D warnings` exit 0 (8 lints fixed: unused `put`/`HashMap`,
+  redundant-closure⇒`is_some_and(jsstr::js_truthy)`, `map_or`⇒`is_none_or`, doc
+  overindent, 2 needless_borrow, complex-type⇒`OnCall` alias); `npx tsc --noEmit` exit 0;
+  full `npx vitest run` **63 files / 664 passed / 1 skipped** on rerun.
+- Ten Part-7 test failures adjudicated against freshly-read TS oracles (`policy.ts`,
+  `generate.ts`, `disk.ts` read VERBATIM — in-context, do not re-read): 6 were WRONG TEST
+  expectations (sanitizer "we_rd____x", `\\ufeff` fixture escape, looks_auto_title
+  slice(0,40) math — dynamic pins, "1,,x", first-time title rule queued⇒ok, m2 "user"
+  title IS overwritten by auto-gen), 4 were PRODUCTION bugs fixed (regex WSI bracketing ×
+  statics, null-body 500 arm, array-meta Ok(true) arm). Tombstone test made deterministic
+  via `delete_at` seam (prior pass raced the ms boundary by luck).
+
+### 8.3 Graphify dependency map (Part 7 nodes)
+- `conversations_routes.rs` → `persistence.rs::{ConversationStore, merge_protected_title,
+  js_ms_number}` + `titles::{policy, queue}`; `titles/generate.rs` → main-model HTTP seam
+  (Strata base from SettingsStore) — mock-only in tests, Strata :8080 never contacted.
+- `titles/queue.rs` shares the inference-slot coordination (ruke-core `UserTurnGuard`
+  family); `attach_notes.rs` → ruke-attach `generate_notes`.
+- Callers: none outside ruke-server (zero cut-over; Next owns all live traffic until
+  Part 8). `ruke-skills::jsstr` extended (js_collapse/js_slice_head used by transcript
+  and policy).
+
+### 8.4 Immutable code contracts & schemas (Part 7, verbatim)
+- `pub struct ConversationStore { dir, recently_deleted: Mutex<HashMap<String,i64>> }`;
+  `list()->Result<Vec<ListedConversation{id,updated_at:f64}>,String>`; `get()->Option<String>`
+  (lossy utf-8); `save->Result<(),String>` tombstone-guarded; `delete->()` tombstone-first.
+- `pub fn merge_protected_title(stored_raw: Option<&str>, incoming_json:&str)->String`.
+- Title policy: `looks_auto_title(t,first) = t==first[0..40] ||
+  t==collapse(first)[0..40]` (UTF-16 units); `should_generate`: manual⇒false;
+  force⇒true; `titleGenCount` not-a-number⇒`msgCount>=2`; else `msgCount-gen>=4`.
+  `apply_title_to_doc` sets meta.title/titleSource:"auto"/titleGenCount/titleGenAt.
+- RECORDED divergences (in-module headers): array-`meta` title write ⇒ `Ok(true)` doc
+  byte-unchanged (JS expando dropped by stringify); primitive-`meta` ⇒ Err ⇒ 500
+  (strict-mode TypeError); astral sanitizer 2-vs-1 underscore (unreachable UI ids);
+  DATA_DIR resolve WEBUI_DATA_DIR→HOME→USERPROFILE→repo-root+warn (TS `HOME!` crash
+  replaced by degrade); integer-ms tombstone stamps.
+- Bridge/env unchanged from Part 6; new this part: none (Part 8 adds
+  RUKE_BROWSER_BRIDGE_* + RUKE_PROJECT_ROOT handoff).
+
+### 8.5 Playwright & E2E verification state
+- NO Playwright, NO `.ai-coordination/playwright.lock` (never created this run). Tier-3b
+  bridge still mock-only. Strata :8080 untouched (title calls scripted mock upstream).
+- Rust integration = axum in-process + temp dirs (no ports bound in tests). No orphan
+  processes started this session.
+
+### 8.6 Open bugs, failing traces & blockers
+- Vitest parallel-load flake family extended: `__tests__/skills/chatEngine.test.ts`
+  "spreads deliverable-intent word…" hit the 5000 ms timeout in one FULL run (collect
+  27 s, 63 files); passes standalone 7/7 in 550 ms and full rerun 664/1 skipped green ⇒
+  non-deterministic load flake (same family as web.test.ts Part-4/5/6 records). No test
+  weakened, no production touched. Protocol stands: standalone rerun; only a DETERMINISTIC
+  standalone failure blocks.
+- rust-analyzer diagnostics LAG cargo (stale "unused HashMap" fired after removal) —
+  cargo test/clippy remain authoritative.
+- No open production bugs; no blockers.
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded. TS oracles `lib/server/titles/{policy,generate,
+  transcript,queue}.ts`, `lib/persistence/{disk,merge}.ts` read VERBATIM this session
+  (in-context/summarized) — do not re-read unless hash changes.
+
+### 8.8 Immediate next 3 atomic actions
+1. Commit Part-7 tree (modified: `rust-backend/Cargo.lock`, `ruke-attach/src/{lib,store}.rs`,
+   `ruke-server/Cargo.toml`, `ruke-server/src/{attach_notes,lib,main}.rs`,
+   `ruke-server/tests/common/mod.rs`, `ruke-skills/src/{jsstr,lib,registry}.rs`,
+   `rust-backend/MIGRATION-MAP.md`, `docs/STATE.md`; new: `ruke-server/src/{conversations_routes,
+   model_stats,persistence,settings_routes,skills_install,skills_routes}.rs`,
+   `ruke-server/src/titles/*`, `ruke-skills/src/{frontmatter,modality}.rs`; message
+   `feat: port RUKE server state services to Rust` + trailer
+   `Co-Authored-By: Claude Code <noreply@anthropic.com>`).
+2. PART 8 per MIGRATION-MAP (thin proxies MOVE_TO_RUST→:3101 KEEP_NODE_REQUIRED untouched;
+   raw streaming proxy no SSE re-serialization; `npm run dev` spawns ruke-server.exe +
+   Windows teardown; `app/api/internal/browser-read` route loopback+secret+SSRF re-check;
+   env handoff; web_citations/gate frames; curl smokes fixtures web-search/01–05; NO
+   Playwright) → commit `feat: cut RUKE backend over to Rust`.
+3. FINAL: rerun checks from committed state; `rust-backend/OVERNIGHT-REPORT.md`; STATE.md
+   sync; final report (Parts 6/7/8 statuses, hashes, test totals, "manually regression-test
+   RUKE Part 8. Do NOT start Part 9 yet."); then `shutdown.exe /s /t 60 /c "RUKE overnight
+   Parts 6-8 run finished. See rust-backend/OVERNIGHT-REPORT.md"`. NEVER Part 9/10.

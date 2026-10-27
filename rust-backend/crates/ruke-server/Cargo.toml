@@ -20,12 +20,13 @@ ruke-skills.workspace = true
 ruke-decision.workspace = true
 ruke-attach.workspace = true
 axum.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 tokio-util.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
+regex.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 url.workspace = true
@@ -35,3 +36,4 @@ tokio-stream.workspace = true
 [dev-dependencies]
 tower.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] } # start_paused for the retry-delay test

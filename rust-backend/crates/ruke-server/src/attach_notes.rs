@@ -119,13 +119,21 @@ mod tests {
     fn seeded_state(seed: impl FnOnce(&Path)) -> (AppState, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         seed(tmp.path());
+        let slot = Arc::new(InferenceSlot::new());
+        let store = Arc::new(crate::persistence::ConversationStore::new(tmp.path().join("conversations")));
         let state = AppState {
             settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
-            slot: Arc::new(InferenceSlot::new()),
+            slot: slot.clone(),
             turns: Arc::new(TurnCounter::new()),
             root: tmp.path().to_path_buf(),
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(UnavailableEmbedder),
+            conversations: store.clone(),
+            titles: Arc::new(crate::titles::queue::TitleQueue::new(
+                store,
+                slot,
+                Arc::new(crate::titles::generate::UnconfiguredTitleModel),
+            )),
         };
         (state, tmp)
     }

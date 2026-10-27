@@ -1470,6 +1470,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "http-body-util",
+ "regex",
  "reqwest",
  "ruke-attach",
  "ruke-contracts",
