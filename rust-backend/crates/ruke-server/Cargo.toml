@@ -19,9 +19,11 @@ ruke-core.workspace = true
 ruke-skills.workspace = true
 ruke-decision.workspace = true
 ruke-attach.workspace = true
+ruke-websearch.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["process"] }
 tokio-util.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

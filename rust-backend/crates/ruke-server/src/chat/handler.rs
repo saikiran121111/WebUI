@@ -91,6 +91,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
         .to_string();
     let mut used_skill: Option<String> = None;
     let mut decision_mode: RendererMode = RendererMode::StandardChat;
+    // The web gate's outputs, fed to the legacy tail's header pair
+    // (Rule 2.3). Stays default (None/None) on every path except the
+    // legacy decision fall-through where the pipeline actually ran the gate.
+    let mut web_outcome = pipeline::PipelineOutcome::default();
 
     // (4) compaction passthrough (strict === "compact")
     if let Some(p) = payload.as_mut() {
@@ -106,6 +110,8 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                 body,
                 None,
                 RendererMode::StandardChat.as_str(),
+                None,
+                None,
                 &model,
                 &span,
                 token,
@@ -174,8 +180,12 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // Progress path: EARLY-OPEN response — headers first,
                     // the decision frame follows asynchronously.
                     let (tx, rx) = mpsc::channel::<Bytes>(forward::PUMP_BUFFER);
+                    // The progress path's headers are built BEFORE the web
+                    // gate runs (route.ts), so the citation/gate pair can
+                    // never ride them — the citations travel in the
+                    // `web_meta` frame instead (Rule 2.2/2.3).
                     let resp_headers =
-                        stream_headers(None, used_skill.as_deref(), decision_mode.as_str());
+                        stream_headers(None, used_skill.as_deref(), decision_mode.as_str(), None, None);
                     let payload_owned = std::mem::replace(p, Value::Null);
                     tokio::spawn(pipeline::pump_progress(
                         state.clone(),
@@ -187,6 +197,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         idx,
                         has_refs,
                         full_text,
+                        // Pre-mutation snapshot (the same one the decision
+                        // used): recomputing it inside the pipeline after
+                        // injections would shift the window and drop turns.
+                        history,
                         span.clone(),
                         token.clone(),
                         ProgressChannel::new(tx),
@@ -206,15 +220,17 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                 }
 
                 // Legacy fall-through with the decision already made: the
-                // pipeline still runs (skill block) but emits NO frames —
-                // TS passes `stage: () => {}` here.
-                let _outcome = pipeline::run_turn_pipeline(
+                // pipeline still runs (skill block + web gate) but emits
+                // NO frames — TS passes `stage: () => {}` here. The gate's
+                // outputs feed the tail's header pair (Rule 2.3).
+                web_outcome = pipeline::run_turn_pipeline(
                     p,
                     &env,
                     used_skill.as_deref(),
                     idx,
                     has_refs,
                     &full_text,
+                    &history,
                     &state,
                     &token,
                     None,
@@ -222,9 +238,6 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     &span,
                 )
                 .await;
-                // PART-6 SEAM: `_outcome.web_citations` / `_outcome.search_gate`
-                // feed the X-Web-Citations / X-Search-Gate headers here on
-                // the legacy response (Rule 2.3); Part 4 keeps them None.
             }
         }
     }
@@ -240,11 +253,21 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
         Some(p) => serde_json::to_vec(p).unwrap_or_else(|_| raw_bytes.clone()),
         None => raw_bytes.clone(), // "Not JSON: forward as-is"
     };
+    // TS's call: `forwardStream(..., webCitationMap, webCitationMap ? searchGateMeta : null)`
+    // — the gate header ONLY rides when the citations map is non-null
+    // (even an EMPTY map counts as non-null for this pairing).
+    let search_gate_hdr = if web_outcome.web_citations.is_some() {
+        web_outcome.search_gate.as_ref()
+    } else {
+        None
+    };
     forward::forward_legacy(
         &state,
         body,
         used_skill.as_deref(),
         decision_mode.as_str(),
+        web_outcome.web_citations.as_ref(),
+        search_gate_hdr,
         &model,
         &span,
         token,
@@ -254,7 +277,7 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
 
 /// Chunked read with a hard cap. `frame.into_data()` discards trailers,
 /// which the TS text() read effectively does too.
-async fn read_capped(mut body: Body, limit: usize) -> Option<Vec<u8>> {
+pub(crate) async fn read_capped(mut body: Body, limit: usize) -> Option<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     while let Some(frame) = body.frame().await {
         let frame = frame.ok()?;

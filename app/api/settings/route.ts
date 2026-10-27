@@ -1,11 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSettings, updateSettings, clearSettings } from "../../../lib/server/settings";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 
-export async function GET() {
+// GET/DELETE gained an optional `req` purely for the Part-8 proxy branch;
+// direct in-process callers (vitest goldens) keep working argument-less.
+export async function GET(req?: NextRequest) {
+  if (rustEnabled() && req) return rustProxy(req, "/api/ruke/settings");
   return NextResponse.json({ settings: getSettings() });
 }
 
 export async function PUT(req: Request) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/settings");
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -36,7 +41,8 @@ export async function PUT(req: Request) {
   return NextResponse.json({ settings });
 }
 
-export async function DELETE() {
+export async function DELETE(req?: NextRequest) {
+  if (rustEnabled() && req) return rustProxy(req, "/api/ruke/settings");
   clearSettings();
   return NextResponse.json({ ok: true });
 }

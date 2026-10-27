@@ -77,11 +77,18 @@ impl<S> Drop for AbortOnDrop<S> {
 
 /// Legacy path (`forwardStream`): returns a real HTTP response carrying the
 /// scrubbed upstream body with `streamHeaders(upstream.content-type)`.
+/// `web_citations`/`search_gate` are the Part-8 web-gate pair (Rule 2.3):
+/// TS passes `(webCitationMap, webCitationMap ? searchGateMeta : null)`,
+/// so the CALLER enforces the pairing — the gate parameter is only ever
+/// `Some` together with a `Some` citations map.
+#[allow(clippy::too_many_arguments)] // mirrors the oracle's forwardStream arity
 pub async fn forward_legacy(
     state: &AppState,
     body: Vec<u8>,
     used_skill: Option<&str>,
     decision_mode: &str,
+    web_citations: Option<&ruke_contracts::stages::CitationMap>,
+    search_gate: Option<&ruke_contracts::stages::ResearchMeta>,
     model: &str,
     span: &Span,
     token: CancellationToken,
@@ -160,7 +167,13 @@ pub async fn forward_legacy(
     let body_stream = AbortOnDrop::new(ReceiverStream::new(rx), token);
     let mut resp = Response::new(Body::from_stream(body_stream));
     *resp.status_mut() = StatusCode::OK; // default, made explicit
-    resp.headers_mut().extend(stream_headers(content_type.as_deref(), used_skill, decision_mode));
+    resp.headers_mut().extend(stream_headers(
+        content_type.as_deref(),
+        used_skill,
+        decision_mode,
+        web_citations,
+        search_gate,
+    ));
     resp
 }
 

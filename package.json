@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "predev": "node scripts/auto-update-search.mjs",
-    "dev": "next dev",
+    "dev": "node scripts/dev-supervisor.mjs",
+    "dev:next": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

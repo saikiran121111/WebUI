@@ -1272,3 +1272,115 @@ implementations intact.
    sync; final report (Parts 6/7/8 statuses, hashes, test totals, "manually regression-test
    RUKE Part 8. Do NOT start Part 9 yet."); then `shutdown.exe /s /t 60 /c "RUKE overnight
    Parts 6-8 run finished. See rust-backend/OVERNIGHT-REPORT.md"`. NEVER Part 9/10.
+
+---
+
+## SESSION 2026-10-27 (Part 8 — thin-proxy cutover + unified dev lifecycle) — 8.1–8.8
+
+### 8.1 Core objective & active phase
+Parts 6 (`00597ba`) and 7 (`7e405b5`) committed and locked. PART 8 EXECUTED TO COMPLETION:
+(a) Rust side landed in the PRIOR segment (chat web seam live, `/api/ruke/{search,search-more,
+decision}` + `WebRuntime` + bridge env wiring, cargo 548/0, clippy clean); (b) TS cutover
+machinery this segment — `lib/server/rustProxy.ts` (env-gated thin proxy, honest-502 no-fallback),
+14 route files / 20 handlers gained early-return proxy branches, `app/api/internal/browser-read/
+route.ts` (Tier-3b RPC seam), `scripts/dev-supervisor.mjs` (unified `npm run dev`: ruke-server +
+next dev as DIRECT children, env+secret handoff, `taskkill /T /F` teardown), `package.json`
+`dev`→supervisor + `dev:next` legacy kept. ALL GATES GREEN (tsc 0; vitest 664 passed / 1 skipped
+exit 0 on rerun; cargo build OK; Rust 548/0 carried — Rust tree untouched this segment). ALL CURL
+SMOKES GREEN (direct-binary + supervisor live, incl. byte-identical proxied settings vs live TS
+control). NO Playwright at any point. STATUS: implementation + gates + smokes DONE; docs (this
+file + MIGRATION-MAP Part-8 row — DONE) → commit → final verification → OVERNIGHT-REPORT → final
+report → shutdown. STOP BEFORE PART 9.
+
+### 8.2 Locked completed tasks (do not re-read / re-do)
+- Parts 1–7 (all prior MIGRATION-MAP rows; commits `c53d442`…`7e405b5`) — LOCKED.
+- Part-8 RUST side — LOCKED (unchanged on disk this segment; 548/0 + clippy evidence carried):
+  `chat/{handler,pipeline,sse,forward,headers}.rs` (web seam LIVE), `search_routes.rs`,
+  `decision_routes.rs`, `lib.rs` (WebRuntime + router + 2 new tests), `main.rs` (web boot +
+  boolean-only bridge logging), `tests/common/mod.rs`, `ruke-server/Cargo.toml`, `Cargo.lock`.
+- Part-8 TS side — LOCKED, gate- and smoke-verified this segment: `lib/server/rustProxy.ts` (new),
+  `app/api/internal/browser-read/route.ts` (new), `scripts/dev-supervisor.mjs` (new; wildcard port
+  probe FIXED — a 127.0.0.1-only probe misses Windows wildcard holders), 14 route files (`chat`,
+  `search`, `search-more`, `decision`, `settings`, `model-stats`, `conversations`,
+  `conversations/[id]`, `conversations/[id]/title`, `attach/[id]/notes`, `skills`,
+  `skills/install`, `skills/[skillName]`, `skills/[skillName]/scenario`), `package.json`
+  (dev/dev:next), `rust-backend/MIGRATION-MAP.md` (Part-8 DONE row + §7 records).
+- Smoke evidence goes to OVERNIGHT-REPORT (next step) — do not re-run smokes.
+
+### 8.3 Active graphify dependency map
+- `app/api/**` 20 handlers → `rustEnabled()`/`rustProxy()` (new leaf; zero deps beyond node fetch)
+  → `http://127.0.0.1:<RUKE_BACKEND_PORT>` (default 3101) → ruke-server router → Rust services.
+- `scripts/dev-supervisor.mjs` → spawns `rust-backend/target/{debug,release}/ruke-server[.exe]`
+  (RUKE_SERVER_BIN override) + `node_modules/next/dist/bin/next dev`; exports RUKE_RUST_BACKEND,
+  RUKE_BACKEND_PORT, RUKE_PROJECT_ROOT, RUKE_BROWSER_BRIDGE_{BASE_URL,SECRET}.
+- Rust `HttpBrowserBridge::from_env()` → POST `http://127.0.0.1:<nextPort>/api/internal/browser-read`
+  (+ `x-ruke-internal-secret`) → `extractPageInOnePass` (lib/web-search/agentBrowser — untouched).
+- `/api/chat` proxied to the SAME path `/api/chat` on the Rust server (Rust guard test pins other
+  plain paths at 404).
+- Callers unaffected: vitest goldens invoke handlers in-process (env unset ⇒ TS verbatim); the
+  user's pre-session :3000 TS server (pid 5672, NEVER kill) lacks RUKE_RUST_BACKEND ⇒ live TS oracle.
+
+### 8.4 Immutable code contracts & schemas (in force)
+- Proxy: `rustEnabled()` ⇔ `process.env.RUKE_RUST_BACKEND === "1"`; `rustBaseUrl()` =
+  `http://127.0.0.1:${RUKE_BACKEND_PORT?.trim() || "3101"}`; hop-by-hop strips both legs (incl.
+  content-length; accept-encoding request-leg only, so undici negotiates); non-GET/HEAD body
+  `duplex:"half"`; failure ⇒ console.error + 502 `{"error":"Rust backend unreachable at <base>"}`
+  application/json; NO silent TS fallback (one turn never spans two backends). Streams pass
+  through untouched (SSE re-emitted, never re-serialized).
+- Route→Rust path map (dynamic segments encodeURIComponent'd by the caller; query preserved):
+  chat → `/api/chat` (same path); search/search-more/decision → `/api/ruke/*`; settings GET/DELETE
+  optional `req?` (argument-less vitest callers keep working) + PUT → `/api/ruke/settings`;
+  model-stats → `/api/ruke/model-stats`; conversations family → `/api/ruke/conversations[/:id[/title]]`;
+  attach notes → `/api/ruke/attach/:id/notes`; skills → `/api/ruke/skills[/install|/:name[/scenario]]`.
+- browser-read RPC: header `x-ruke-internal-secret`; secret env unset ⇒ 401 for EVERY caller; 401
+  `{"error":"unauthorized"}`; 400 `{"error":"Malformed JSON body"}` / `{"error":"url required"}`;
+  success = `extractPageInOnePass(url, timeoutMs ? {timeoutMs} : {})` JSON (infallible by design;
+  errors travel in the payload).
+- Rust wire (unchanged): DecisionEnvelope snake_case (confidence integral `1`); search no-q ⇒
+  `{"results":[]}`; search-more empty ⇒ `{"error":"queries array is required (1-3 string entries)"}`;
+  decision bad-json ⇒ `{"error":"invalid JSON body"}`; health ⇒
+  `{"ok":true,"version":"0.1.0","user_turn_active":false}`.
+- Env vars: RUKE_RUST_BACKEND (Next proxy only; supervisor-exported), RUKE_BACKEND_PORT (3101),
+  RUKE_PROJECT_ROOT (rust child), RUKE_BROWSER_BRIDGE_BASE_URL/SECRET (rust→Next hop; secret shared
+  to the next child; random 24-byte hex per run; NEVER logged), RUKE_SERVER_BIN (supervisor
+  override), PORT (Next port).
+- Supervisor: fail-fast pre-spawn on WILDCARD-bind port clash (`net.createServer().listen(port)`
+  with NO host); first-child-exit wins teardown; SIGINT⇒130 / SIGTERM⇒143; Windows `taskkill /T /F`
+  cascade; exit codes propagated.
+
+### 8.5 Playwright & E2E verification state
+- NO PLAYWRIGHT THIS RUN (brief). `.ai-coordination/playwright.lock` NEVER created. Tier-3b bridge
+  verified by curl only (401 no-secret arm). Real Tier-3b browser-pool testing deferred to Part 10.
+- Smoke ports 3001/3101/3200/3998/3999 ALL released (taskkill cascades verified; ports re-probed free).
+- User's pre-session TS server :3000 = pid 5672 (parent 716, started 2026-10-27 11:08:56 — NOT
+  session-started ⇒ NEVER kill; stays up as the live oracle). Nothing session-started remains running.
+
+### 8.6 Open bugs, failing traces & blockers
+- None open. Vitest parallel-load flake family now ×3 (web.test.ts; chatEngine.test.ts ×2 — this
+  session: one full run failed `chatEngine` "spreads deliverable-intent word…" at the 5000 ms
+  timeout; standalone green; full rerun 664 passed / 1 skipped exit 0). Adjudicated
+  non-deterministic load flake; zero test mutation (brief rule honored).
+- Windows gotchas recorded (fixed): MSYS `$!` ≠ Windows PID (locate real pids via
+  Get-CimInstance CommandLine match before taskkill); 127.0.0.1-only port probe FALSE-PASSES beside
+  a wildcard holder ⇒ supervisor probe is now wildcard; `next dev` silent port fallback
+  (3000→3001) breaks bridge/proxy contracts — pre-spawn refusal is the fix.
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded. Part-8 TS oracles (`app/api/**` route files,
+  `lib/web-search/agentBrowser.ts` contract, `lib/server/logger.ts` DELETE_AFTER_PARITY status) all
+  consumed; do not re-read unless hashes change.
+
+### 8.8 Immediate next 3 atomic actions
+1. COMMIT: stage the Part-8 file set (14 routes + `package.json` + `tsconfig.tsbuildinfo` (tracked)
+   + all modified `rust-backend/**` files + new `app/api/internal/`, `lib/server/rustProxy.ts`,
+   `scripts/dev-supervisor.mjs`, `decision_routes.rs`, `search_routes.rs` + MIGRATION-MAP +
+   STATE.md); message `feat: cut RUKE backend over to Rust` + trailer
+   `Co-Authored-By: Claude Code <noreply@anthropic.com>`.
+2. FINAL VERIFICATION from committed state: `cargo test --manifest-path rust-backend/Cargo.toml
+   --workspace` (expect 548/0); `git status` clean; write `rust-backend/OVERNIGHT-REPORT.md` with
+   "USER MANUAL REGRESSION CHECKPOINT — manually regression-test RUKE Part 8; DO NOT START PART 9"
+   + recommended manual journeys + risks.
+3. FINAL REPORT (Part 6 DONE `00597ba`, Part 7 DONE `7e405b5`, Part 8 DONE + new hash; totals
+   cargo 548/0, clippy clean, tsc 0, vitest 664/1 skipped; NO Playwright) then
+   `shutdown.exe /s /t 60 /c "RUKE overnight Parts 6-8 run finished. See rust-backend/OVERNIGHT-REPORT.md"`
+   (fallback `powershell.exe -Stop-Computer -Force`). NOTHING after shutdown. NEVER Part 9/10.

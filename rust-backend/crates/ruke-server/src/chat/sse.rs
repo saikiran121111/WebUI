@@ -61,6 +61,29 @@ impl ProgressChannel {
         self.frame(&stage_frame(e)).await;
     }
 
+    /// Synchronous stage write for the web gate's progress callback: the
+    /// gate's `on_progress` is a plain sync `Fn`, so the async `stage` is
+    /// not callable from it.
+    ///
+    /// RECORDED MICRO-DIVERGENCE: TS's `ReadableStream` queues frames
+    /// without bound under `writer.write()` backpressure; here a FULL pump
+    /// queue (only reachable when the client stalls ≥64 frames behind)
+    /// DROPS the progress frame instead of blocking the gate's sync emit —
+    /// blocking is impossible across a sync callback. Upstream model bytes
+    /// are never affected, so at worst one `web:*` progress line is lost
+    /// for a stalled client; the terminal frames still go through the
+    /// awaited path.
+    pub fn try_stage(&self, e: &StageEvent) {
+        if self.closed {
+            return;
+        }
+        if let Ok(text) = serde_json::to_string(&stage_frame(e)) {
+            // `Full` ⇒ drop (recorded above); `Closed` ⇒ the latch (the
+            // sender is gone: the client walked away).
+            let _ = self.tx.try_send(Bytes::from(format!("data: {text}\n\n")));
+        }
+    }
+
     /// Model bytes pass through UNFRAMED (the scrubbed upstream stream).
     pub async fn raw(&mut self, bytes: Vec<u8>) {
         if self.closed {

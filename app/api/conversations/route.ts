@@ -5,8 +5,12 @@ import {
   saveConversationOnDisk,
 } from "../../../lib/persistence/disk";
 import { mergeProtectedTitle } from "../../../lib/persistence/merge";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 
-export async function GET() {
+// Optional `req` exists only for the Part-8 proxy branch; direct callers
+// (vitest goldens) keep working argument-less.
+export async function GET(req?: NextRequest) {
+  if (rustEnabled() && req) return rustProxy(req, "/api/ruke/conversations");
   const items = listConversationsOnDisk();
   // Enrich with parsed metadata so the sidebar doesn't have to parse JSON.
   const result = items
@@ -27,6 +31,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/conversations");
   const body = await req.json();
   // Body: { id, json: stringified Conversation }
   if (!body.id || typeof body.json !== "string") {

@@ -21,6 +21,7 @@ import {
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { StageEvent } from "../../../lib/types";
 
 const log = childLogger("api/chat");
@@ -564,6 +565,9 @@ async function runTurnPipeline(
 }
 
 export async function POST(req: NextRequest) {
+  // Part-8 cutover (supervisor-armed only; unset ⇒ this TS handler runs
+  // verbatim). The proxy streams the Rust SSE turn through untouched.
+  if (rustEnabled()) return rustProxy(req, "/api/chat");
   const raw = await req.text();
   let payload: any = null;
   try {

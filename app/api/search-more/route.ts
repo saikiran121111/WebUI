@@ -19,10 +19,12 @@ import {
   evidenceBlock,
 } from "../../../lib/web-search/pipeline";
 import { childLogger } from "@/lib/server/logger";
+import { rustEnabled, rustProxy } from "@/lib/server/rustProxy";
 
 const log = childLogger("api/search-more");
 
 export async function POST(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/search-more");
   let body: any;
   try {
     body = await req.json();

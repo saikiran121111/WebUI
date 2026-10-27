@@ -92,6 +92,11 @@ pub fn load_fixture(rel: &str) -> Value {
 /// keeps it alive.
 pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
     let tmp = tempfile::tempdir().unwrap();
+    // The chat goldens were recorded with the web gate DISABLED
+    // (WEB_SEARCH_GATE_DISABLED=1 — recorded per the pipeline module
+    // docs), so replay must take the same short-circuit: no replay test
+    // ever reaches the internet or Strata through the Part-8 web seam.
+    std::env::set_var("WEB_SEARCH_GATE_DISABLED", "1");
     let slot = Arc::new(InferenceSlot::new());
     let store = Arc::new(ConversationStore::new(tmp.path().join("conversations")));
     let state = AppState {
@@ -103,8 +108,16 @@ pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
         attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),
         conversations: store.clone(),
         // Replay fixtures never trigger title generation; the queue is
-        // present so AppState matches the production shape.
+        // present so AppState matches the production shape. The web
+        // runtime likewise exists only for shape parity — the gate
+        // short-circuit above means replay never runs it.
         titles: Arc::new(TitleQueue::new(store, slot, Arc::new(UnconfiguredTitleModel))),
+        web: Arc::new(ruke_server::WebRuntime {
+            net: ruke_websearch::net::RealNet,
+            cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
+            verticals: ruke_websearch::platform_api::RealVerticals,
+            bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
+        }),
     };
     if let Some((url, key)) = upstream {
         state.settings.set_upstream_override(url, key);

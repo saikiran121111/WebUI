@@ -1,8 +1,11 @@
 //! ruke-server binary entrypoint: boots the shared state and serves the
-//! library router (`ruke_server::build_router`). Part 4/7 scope — health,
-//! the isolated `/api/chat` core, and the Part-7 state services
-//! (conversations store + title queue + settings); Next.js :3000 remains
-//! authoritative for every user-facing route (see lib.rs docs).
+//! library router (`ruke_server::build_router`). Part 4/7/8 scope —
+//! health, the `/api/chat` core WITH the live Part-8 web seam, the
+//! Part-7 state services (conversations store + title queue + settings)
+//! and the Part-8 search/decision pair. Next.js :3000 stays
+//! authoritative for user-facing routes; the Part-8 cutover flips only
+//! which backend a Next route delegates to, and only when the supervisor
+//! exports `RUKE_RUST_BACKEND=1` (see lib.rs docs).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,7 +14,7 @@ use ruke_core::{config, settings::SettingsStore, slot::InferenceSlot, turn::Turn
 use ruke_server::{
     build_router, init_tracing, persistence::ConversationStore,
     titles::{generate::HttpTitleModel, queue::TitleQueue},
-    AppState,
+    AppState, WebRuntime,
 };
 
 #[tokio::main]
@@ -48,6 +51,37 @@ async fn main() {
     };
     let conversations = Arc::new(ConversationStore::new(conversations_dir));
 
+    // Part 8: the web-research runtime, mirroring the TS module
+    // singletons — the SQLite search cache lives under the project root
+    // (same DB the TS pipeline uses; the purge sweep is idempotent and
+    // started once here). The Tier-3b browser-read bridge is wired ONLY
+    // when the supervisor exported both env vars; otherwise
+    // NoBrowserBridge, and page reads degrade exactly like the TS path
+    // with no Playwright pool. Rule 17: log the boolean outcome, never
+    // the secret.
+    let web_cache = Arc::new(ruke_websearch::cache::SqliteSearchCache::new(&root));
+    ruke_websearch::cache::start_purge_sweep(web_cache.clone());
+    let bridge: Arc<dyn ruke_websearch::browser_bridge::BrowserBridge> =
+        match ruke_websearch::browser_bridge::HttpBrowserBridge::from_env() {
+            Some(b) => {
+                tracing::info!("Tier-3b browser-read bridge configured (Next-hosted RPC seam)");
+                Arc::new(b)
+            }
+            None => {
+                tracing::info!(
+                    "Tier-3b browser-read bridge not configured: page reads degrade \
+                     like the TS no-Playwright path"
+                );
+                Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge)
+            }
+        };
+    let web = Arc::new(WebRuntime {
+        net: ruke_websearch::net::RealNet,
+        cache: web_cache,
+        verticals: ruke_websearch::platform_api::RealVerticals,
+        bridge,
+    });
+
     let state = AppState {
         settings: settings.clone(),
         slot: slot.clone(),
@@ -69,6 +103,8 @@ async fn main() {
             slot.clone(),
             Arc::new(HttpTitleModel { http: http.clone(), settings }),
         )),
+        // Part 8: shared web runtime (chat seam + search pair).
+        web,
     };
 
     // Loopback bind: this parallel server has no auth, and the migration's

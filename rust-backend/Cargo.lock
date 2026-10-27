@@ -1477,6 +1477,8 @@ dependencies = [
  "ruke-core",
  "ruke-decision",
  "ruke-skills",
+ "ruke-websearch",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
