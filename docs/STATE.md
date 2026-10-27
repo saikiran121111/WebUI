@@ -1005,3 +1005,139 @@ Milestone reached: PART 5 COMPLETE — ruke-attach 43/43 unit tests, attachment_
    retrieval_done and strip — replay `fixtures/web-search/01–05` (keep the seam intact until
    then; honour the 15 s metasearch cap semantics + both failure shapes).
 3. Re-run the §31 matrix after Part 6 lands; rerun attachment + Part-4 goldens (regression).
+
+---
+
+## Session 2026-10-27-B — Rust migration Part 6 (full web-search pipeline port, `ruke-websearch`)
+
+### 8.1 Objective & milestone
+Port the ENTIRE web-search pipeline (`lib/web-search/**`) to Rust in crate
+`rust-backend/crates/ruke-websearch`: gate → query planner → metasearch engines →
+redirect unwrap → platform APIs (YouTube/Maps) → universal extractor cascade (HTTP tiers +
+Tier-3b browser RPC seam) → rerank/pack/evidence-block, per MIGRATION-MAP §10 Part 6.
+Milestone reached: **PART 6 COMPLETE** — `cargo test -p ruke-websearch` **274/274**
+(15 new `pipeline.rs` tests), workspace **461 passed**, clippy `-D warnings` clean,
+`tsc` exit 0, full vitest **664 passed / 1 skipped** exit 0. No cutover: the
+`ruke-server` chat web-seam remains unwired (Part 8); Next.js owns all live traffic.
+
+### 8.2 Locked completed (do not re-read/re-do)
+- Crate commits (oldest→newest): `fc35afc` W0 scaffold, `273a40d` reranker/search-gate/
+  charset/schema/hydration/engines, `8d1f6ac` metasearch, `4be037a` query_planner +
+  universal_extractor, `7d4bf05` platform_api + redirect_unwrap, `a39272d` google_maps +
+  youtube, `b3ec3ba` Tier-3b bridge seam + vision-prepass dead-proof, `08feb45` extractor
+  cascade, then the pipeline commit (`pipeline.rs` + `extractor.rs` Send-completeness).
+- `crates/ruke-websearch/src/` modules ALL green & clippy-clean: `net.rs` (`Net` trait
+  object-safe BoxFuture, `ScriptedNet` w/ `calls: Mutex<Vec<(String,String)>>`),
+  `ssrf.rs`, `cache.rs` (`SearchCache`, hashed `query_cache_key` → "q:" write lines carry
+  NO plaintext (cache.rs:168–175); "p:{url}" page writes unconditional in ScriptedCache),
+  `engines.rs`, `metasearch.rs` (15 s hard-cap timer semantics), `query_planner.rs`,
+  `universal_extractor.rs`, `platform_api.rs`, `redirect_unwrap.rs`, `google_maps.rs`,
+  `youtube.rs` (`parse_youtube_video_id` lowercases HOSTNAME only; companion query
+  `"<title>" "<channel>"` or `"<title>" youtube` sliced 200, youtube.rs:769–781),
+  `url_detector.rs` (pass-1/pass-2 double-detection quirk verified against oracle),
+  `extractor.rs` (cascade; `on_page: Option<&(dyn Fn(usize,usize)+Send+Sync)>`;
+  `done_pages` AtomicUsize Relaxed — RECORDED MICRO-DIVERGENCE in module header),
+  `browser_bridge.rs` + `vision_prepass.rs` (dead-module proof — NEVER call a vision
+  pre-pass), `pipeline.rs` (full port, ~1900 lines).
+- pipeline.rs shipped quirks pinned by tests (`youtube_prompt_hop_merges_despite_dedup_quirk`
+  etc.): scheme-`www.` prompt URL → TWO direct targets (raw + `"https://"+raw.to_lowercase()`);
+  dedup key = `parse_youtube_video_id(url) ?? url` yields an OBJECT in TS ⇒ identity never
+  collides ⇒ prompt packets ALWAYS merge — Rust `MergeKey::Obj(nonce)`/`Url(String)`;
+  `evidence_block` keeps `"</evidence>"` as the LAST HEADER array element with [S#] source
+  blocks appended AFTER it (block never ends with the close tag; pipeline.ts:215–225);
+  charBudget 35_000 / 60_000 deep; `rrf: Number.MAX_SAFE_INTEGER` Stage-0; gap-search
+  `.chain(gap_packets)`; cache writes for that fixture = 1 "q:" + 2 "p:" = 3.
+- `js_to_fixed2` (production fix this session — REAL parity bug): naive
+  `scaled.fract()==0.5` fired on f64 multiply artifacts (2.675·100 rounds to 267.5 while the
+  exact value is below the half) → wrong "2.68" vs JS "2.67". Correct form: exact tie via
+  IEEE-754 bit decomposition (`exact_tie_hundredths`: bits→(num,e), subnormal e=1074,
+  normal e=1075−exp_field, NO std `frexp`; tie ⇔ e in 1..=62 ∧ `100·num mod 2^e == 2^(e-1)`,
+  u128); tie → ceil candidate, non-tie → `format!("{a:.2}")`. Verified vectors: 0.125→"0.13",
+  2.675→"2.67", 1.005→"1.00", 0.375→"0.38", −0.125→"-0.13", −0.001→"-0.00", −0.0→"0.00".
+- Test-design locks: sequential asserts mask later failures (BM25 masked the
+  `ends_with("</evidence>")` wrong expectation); adjudicate EVERY expectation against the
+  TS oracle text (`lib/web-search/*.ts`), not memory — fixed 3 wrong test expectations this
+  session (evidence tail, youtube 2-vs-3 packets, cache-write count) + 1 production bug.
+
+### 8.3 Graphify dependency map (Part 6 nodes)
+- `pipeline.rs::run_web_research` ← (future) `ruke-server/src/chat/pipeline.rs` web seam
+  (Part 8 wiring point between retrieval_done and strip) — currently UNWIRED, no callers.
+- `pipeline.rs` → `extractor.rs::Extractor{net,cache,verticals,bridge}` → `net.rs::Net`,
+  `cache.rs::SearchCache`, `platform_api.rs::Verticals`, `browser_bridge.rs::BrowserBridge`.
+- `browser_bridge.rs::HttpBrowserBridge` → Part 8 NEW Next route
+  `app/api/internal/browser-read` (loopback + secret + SSRF re-validation, §7).
+  Production default TODAY: `NoBrowserBridge` (Tier-3b disabled-tier degradation).
+- `extractor.rs` `on_page` progress callback ← `pipeline.rs` progress emit.
+- `url_detector.rs` → `youtube.rs::parse_youtube_video_id` (hostname-only lowercase).
+- `cache.rs::query_cache_key` ← ScriptedCache write log ("q:") + real store rows.
+
+### 8.4 Immutable code contracts & schemas (Part 6, verbatim)
+- `pub async fn run_web_research(http: &reqwest::Client, gate_options: &SearchGateOptions,
+  net: &dyn Net, cache: &dyn SearchCache, verticals: &dyn Verticals,
+  bridge: &dyn BrowserBridge, ctx: &SearchGateContext,
+  on_progress: Option<&(dyn Fn(&PipelineProgress) + Send + Sync)>,
+  cancel: Option<&AtomicBool>) -> Result<Option<EvidenceBundle>, CacheError>`
+  (gate-not-required → `Ok(None)`; `Ok(Some(bundle))` carries evidence).
+- `pub struct EvidenceBundle { search_gate: SearchGateResult,
+  search_results: Vec<RankedResult>, packets: Vec<EvidencePacket>,
+  top_passages: Vec<EvidencePassage>, from_cache: bool,
+  coverage: f64 (js_number_ser serialize_with), gap_search_fired: bool,
+  auth_required: Vec<AuthRequiredEntry> }` — camelCase wire via serde rename_all.
+- `pub const PIPELINE_CEILING_MS: u64 = 240_000;` (deadline || cancel Relaxed flag).
+- `pub const ANTI_REFUSAL_DIRECTIVE: &str = concat!(…)`.
+- Bridge env/constants: `SECRET_HEADER = "x-ruke-internal-secret"`,
+  `READ_PATH = "/api/internal/browser-read"`, `ENV_BASE_URL =
+  "RUKE_BROWSER_BRIDGE_BASE_URL"`, `ENV_SECRET = "RUKE_BROWSER_BRIDGE_SECRET"`;
+  client deadline = `timeout_ms.unwrap_or(40_000) + 20_000` (RECORDED micro-divergence;
+  url field force-echoed = request url).
+- `js_to_fixed2` contract as pinned in §8.2 (exact-ECMA-262 `toFixed(2)`).
+- Cache keys: `"q:"+sha(query_cache_key)` (lowercase+trim each query, sort, join "|"),
+  `"p:{url}"`. Part-4/5 contracts unchanged (chat pipeline seam points intact; attach notes
+  route `/api/ruke/attach/{id}/notes`).
+
+### 8.5 Playwright & E2E verification state
+- NO Playwright this run (brief: Tier-3b bridge tested ONLY via `ScriptedBridge` mocks; real
+  browser = Part 10). No `.ai-coordination/playwright.lock` present (dir holds only
+  historical artifacts). Strata `:8080` never contacted — all upstreams scripted/mock.
+- §31-matrix record (Part 6): `cargo test -p ruke-websearch` = 274 passed / 0 failed;
+  `cargo test --manifest-path rust-backend/Cargo.toml --workspace` = **461 passed / 0
+  failed**; `cargo clippy -p ruke-websearch --all-targets -- -D warnings` exit 0 (3 lints
+  fixed: manual_range_contains, unnecessary_cast, useless_conversion);
+  `npx tsc --noEmit` exit 0; `npx vitest run` (FULL suite) = **63 files / 664 passed /
+  1 skipped / 0 failed, exit 0**.
+- web.test.ts drift event (this session): one rust-golden sampling flagged
+  "Fixture drift detected" in web-search/01 (line 28), 02 (27), 05 (28) — reruns with
+  UNCHANGED files/fixtures: standalone web.test.ts 5/5 exit 0, then full suite 664/665
+  green. Non-reproducible ⇒ matches the pre-existing parallel-load flake family recorded in
+  Part-4/Part-5 8.6 entries. Zero fixture mutation (git status showed only the two Rust
+  files). Gate PASSED with this flake recorded.
+
+### 8.6 Open bugs, failing traces & blockers
+- web.test.ts shared-state flake family REMAINS (pre-existing, not caused by Part 6):
+  under parallel load the mocked-Strata `bodyText` replay can diverge in fixtures 01/02/05;
+  drift guard throws BEFORE writing so fixtures are never mutated. Protocol: rerun
+  standalone; only a DETERMINISTIC standalone failure would block.
+- `extractor.rs` `on_page` Send bound + AtomicUsize `done_pages`: RECORDED micro-divergence
+  (cell-ordering of the progress counter not observable in TS single-thread semantics).
+- Tier-3b live path degraded until Part 8 (`NoBrowserBridge` = pool-kill-switch tier);
+  InnerTube/oEmbed-only YouTube degradation risk on real traffic — watch in Part 10.
+- No BLOCKED goldens; no orphan RUKE processes started this session.
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded. `lib/web-search/*.ts` oracle sections read as data.
+- TS oracle sections already in-context/summarized (pipeline.ts evidenceBlock 202–247,
+  Stage-0 336–520, dedup 680–700; url-detector.ts full; youtube.ts 42–64) — do not re-read
+  unless hash changes.
+
+### 8.8 Immediate next 3 atomic actions
+1. Commit the Part-6 tree (modified: `rust-backend/crates/ruke-websearch/src/extractor.rs`,
+   `pipeline.rs`, `rust-backend/MIGRATION-MAP.md`, `docs/STATE.md`; message
+   `feat: port RUKE web search pipeline to Rust`; trailer
+   `Co-Authored-By: Claude Code <noreply@anthropic.com>`).
+2. PART 7 (MIGRATION-MAP §10): conversations/titles queue (slot begin_guard/title_call/
+   wait_for_user_idle)/model-stats/remaining server state → temp/fixture storage ONLY, no
+   live user data; commit `feat: port RUKE server state services to Rust`.
+3. PART 8: thin proxies + raw streaming proxy + unified `npm run dev` lifecycle + Windows
+   process supervision + browser-read route + env handoff (`RUKE_BROWSER_BRIDGE_BASE_URL/
+   SECRET`) + web_citations/gate-frame wiring; curl-based smokes with fixtures web-search/
+   01–05; NO Playwright; then OVERNIGHT-REPORT.md + STOP before Part 9.

@@ -83,7 +83,7 @@
 use futures_util::future::join_all;
 use regex::Regex;
 use serde_json::Value;
-use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Semaphore;
 
@@ -1216,11 +1216,16 @@ impl<'a> Extractor<'a> {
 
     /// Extract the top N ranked results in parallel (extractor.ts
     /// 1206–1228), then assign S1..Sn in rank order (packet + passages).
+    /// `on_page` requires `Send + Sync` (not in the TS original, which has no
+    /// Send bound): the pipeline's callback forwards `PipelineProgress` to a
+    /// caller that may live behind a spawned server task, and a bare `&dyn Fn`
+    /// would make this future non-`Send`. No behavior change; pure trait-bound
+    /// widening (RECORDED MICRO-DIVERGENCE in pipeline.rs's header).
     pub async fn extract_all(
         &self,
         ranked: &[RankedResult],
         max_urls: usize,
-        on_page: Option<&dyn Fn(usize, usize)>,
+        on_page: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
     ) -> Result<Vec<EvidencePacket>, CacheError> {
         let top = &ranked[..ranked.len().min(max_urls)];
         // pLimit(EXTRACTION_CONCURRENCY) twin: tokio Semaphore (fair/FIFO).
@@ -1230,18 +1235,20 @@ impl<'a> Extractor<'a> {
             4,
         )));
         let total = top.len();
-        let done_pages = Cell::new(0usize);
+        // RECORDED MICRO-DIVERGENCE (Send-completeness): the TS original has
+        // no Send notion; a `Cell` shared across the join_all futures makes
+        // this future non-`Send`, which would make the whole pipeline future
+        // non-spawnable in the Part-8 axum server. An `AtomicUsize` (Relaxed)
+        // under join_all's single-task polling has identical per-thread
+        // sequencing to the Cell — the counter increments in the same order.
+        let done_pages = AtomicUsize::new(0usize);
         let settled: Vec<Result<EvidencePacket, CacheError>> = join_all(top.iter().map(|r| {
             let sem = Arc::clone(&sem);
-            // Cell shared BY REFERENCE across the futures — join_all polls
-            // them on this task, so &Cell crossing await points is sound
-            // (no cross-thread spawn happens).
             let done_pages = &done_pages;
             async move {
                 let _permit = sem.acquire_owned().await.expect("semaphore is never closed");
                 let p = self.extract_url(r).await?;
-                let done = done_pages.get() + 1;
-                done_pages.set(done);
+                let done = done_pages.fetch_add(1, Ordering::Relaxed) + 1;
                 if let Some(cb) = on_page {
                     cb(done, total);
                 }
