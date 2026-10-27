@@ -324,7 +324,7 @@ fn note_engine_success(engine: &str) {
 /// process; this test-support helper exists because cargo runs #[test]s in
 /// parallel threads (divergence recorded in module docs).
 #[cfg(test)]
-fn reset_engine_state_for_tests() {
+pub(crate) fn reset_engine_state_for_tests() {
     cooldown_map().lock().expect("lock").clear();
     streak_map().lock().expect("lock").clear();
     // try_lock (not blocking_lock): this runs from async tests under
@@ -333,9 +333,10 @@ fn reset_engine_state_for_tests() {
 }
 
 /// Test-only serialization token: engine-level flows share the (process-wide,
-/// TS-parity) breaker/pacer statics, so these tests take turns.
+/// TS-parity) breaker/pacer statics, so these tests take turns. pub(crate):
+/// metasearch's pool-fanning integration tests take the SAME token.
 #[cfg(test)]
-fn engine_test_lock() -> &'static tokio::sync::Mutex<()> {
+pub(crate) fn engine_test_lock() -> &'static tokio::sync::Mutex<()> {
     static M: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     M.get_or_init(|| tokio::sync::Mutex::new(()))
 }
