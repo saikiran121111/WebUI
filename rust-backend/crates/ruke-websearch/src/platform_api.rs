@@ -106,8 +106,9 @@ pub trait Verticals: Send + Sync {
     fn get_youtube_evidence<'a>(&'a self, net: &'a dyn Net, url: &str) -> BoxFuture<'a, Option<String>>;
 }
 
-/// Stand-in until the `google_maps` / `youtube` W4 modules land: maps/youtube
-/// dispatch simply finds nothing (module-doc SEAM note).
+/// Test / verticals-disabled stand-in: maps/youtube dispatch simply finds
+/// nothing (module-doc SEAM note). Production wires [`RealVerticals`] — the
+/// W4 sibling modules have landed.
 pub struct NoVerticals;
 
 impl Verticals for NoVerticals {
@@ -119,6 +120,46 @@ impl Verticals for NoVerticals {
     }
     fn get_youtube_evidence<'a>(&'a self, _net: &'a dyn Net, _url: &str) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { None })
+    }
+}
+
+/// Production `Verticals`: delegates to the live W4 sibling modules
+/// (`google_maps` / `youtube`), projecting their evidence structs down to
+/// the `markdown` field — the ONLY field the TS `platform_adapter` call
+/// sites read (`getGoogleMapsEvidence(url)?.markdown` /
+/// `getYouTubeEvidence(url)?.markdown`).
+pub struct RealVerticals;
+
+impl Verticals for RealVerticals {
+    fn is_google_maps_url(&self, url: &str) -> bool {
+        crate::google_maps::is_google_maps_url(url)
+    }
+    fn get_google_maps_evidence<'a>(
+        &'a self,
+        net: &'a dyn Net,
+        url: &str,
+    ) -> BoxFuture<'a, Option<String>> {
+        // The trait's `url` borrows shorter than `'a` (object-safety shape
+        // of `&dyn Net` methods); capture an owned String for the boxed
+        // future — content-identical to the TS direct call.
+        let url = url.to_string();
+        Box::pin(async move {
+            crate::google_maps::get_google_maps_evidence(net, &url)
+                .await
+                .map(|e| e.markdown)
+        })
+    }
+    fn get_youtube_evidence<'a>(
+        &'a self,
+        net: &'a dyn Net,
+        url: &str,
+    ) -> BoxFuture<'a, Option<String>> {
+        let url = url.to_string();
+        Box::pin(async move {
+            crate::youtube::get_youtube_evidence(net, &url)
+                .await
+                .map(|e| e.markdown)
+        })
     }
 }
 
