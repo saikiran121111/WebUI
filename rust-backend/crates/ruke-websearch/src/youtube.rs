@@ -13,11 +13,17 @@
 //! port. The pure logic (URL parse, payload PARSERS over `serde_json::Value`
 //! exactly as youtubei.js surfaces them, clock formatting, chapter scan,
 //! markdown assembly, TTL evidence cache) is ported verbatim; the three
-//! TRANSPORT calls sit behind [`InnerTubeClient`]. The production build
-//! wires [`NoInnerTube`] (all three → `None`), which is exactly TS source-3
-//! behavior: evidence degrades to the keyless **oEmbed tier only** (title +
-//! channel + "no captions/comments" notice) until a native InnerTube client
-//! lands in a later part. All other tiers are fully live.
+//! TRANSPORT calls sit behind [`InnerTubeClient`]. The seam now LANDS:
+//! [`youtube_bridge::HttpInnerTube`] (crate::youtube_bridge) implements the
+//! trait over the Next-hosted `POST /api/internal/youtube-evidence` RPC,
+//! which drives youtubei.js plus the universal browser caption engine —
+//! YouTube's Proof-of-Origin gating means no plain-HTTP client can fetch
+//! caption tracks, so the transcript tier answers through the Node/
+//! Playwright side. [`set_default_inner_tube`] wires it at server startup;
+//! when the bridge env vars are absent, [`NoInnerTube`] remains the
+//! fallback and evidence degrades exactly like TS source-3: the keyless
+//! **oEmbed tier only** (title + channel + "no captions/comments" notice).
+//! All other tiers are fully live.
 //!
 //! ## QUIRKS (kept verbatim)
 //! - Host normalization strips `^www.` then `^m.` then `^music.` (each once,
@@ -82,7 +88,7 @@ use futures_util::future::BoxFuture;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use url::Url;
 
@@ -368,6 +374,23 @@ impl InnerTubeClient for NoInnerTube {
     }
 }
 
+/// Process-wide InnerTube client: ruke-server wires
+/// [`crate::youtube_bridge::HttpInnerTube`] via [`set_default_inner_tube`]
+/// at startup (same env-gated pattern as the Tier-3b browser bridge);
+/// unset ⇒ [`NoInnerTube`] (oEmbed-only degradation).
+static DEFAULT_INNERTUBE: OnceLock<Arc<dyn InnerTubeClient>> = OnceLock::new();
+
+pub fn set_default_inner_tube(client: Arc<dyn InnerTubeClient>) {
+    let _ = DEFAULT_INNERTUBE.set(client);
+}
+
+fn default_inner_tube() -> Arc<dyn InnerTubeClient> {
+    DEFAULT_INNERTUBE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(NoInnerTube))
+}
+
 /* ── payload parsers (verbatim youtubei.js payload shapes) ────────────── */
 
 /// `tr?.segments ?? tr?.transcript?.body?.initial_segments ?? []`.
@@ -557,7 +580,7 @@ pub(crate) fn reset_evidence_cache_for_tests() {
 }
 
 pub async fn get_youtube_evidence(net: &dyn Net, url: &str) -> Option<YouTubeEvidence> {
-    get_youtube_evidence_with(net, url, &NoInnerTube).await
+    get_youtube_evidence_with(net, url, default_inner_tube().as_ref()).await
 }
 
 pub async fn get_youtube_evidence_with(

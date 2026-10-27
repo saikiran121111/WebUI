@@ -53,6 +53,7 @@ pub mod platform_api;
 pub mod redirect_unwrap;
 pub mod vision_prepass;
 pub mod youtube;
+pub mod youtube_bridge;
 
 // ── Part-6 integration (chat-pipeline glue; owned by the Part-6 integrator)
 pub mod pipeline;

@@ -16,6 +16,7 @@
  *      metasearch to identify the video's topic from the open web.
  */
 import { fetchUrl } from "./net";
+import { getBrowserTranscript } from "./media-captions";
 
 const CONSENT_COOKIE = "CONSENT=YES+cb.20210328-17-p0.en+FX+700";
 
@@ -95,7 +96,8 @@ function innertube(): Promise<any> {
 
 /* ── evidence sources ─────────────────────────────────────────────────── */
 
-async function getInfo(videoId: string): Promise<any | null> {
+/** Exported for the internal youtube-evidence RPC route (Rust bridge). */
+export async function getInfo(videoId: string): Promise<any | null> {
   // Web session (cached).
   try {
     const it = await innertube();
@@ -261,8 +263,15 @@ async function collectYouTubeEvidence(
     ? bi.tags.map((t: any) => String(t)).slice(0, 12)
     : [];
 
-  // 3) transcript (real captions first) + top comments.
-  const transcript = info ? await transcriptFromInfo(info) : "";
+  // 3) transcript (real captions first) + top comments. InnerTube caption
+  // fetches are anti-abuse-token gated now (200-with-empty-body), so the
+  // universal browser caption engine (lib/web-search/media-captions.ts —
+  // the watch URL is assembled HERE, in the YouTube vertical, not in the
+  // universal engine) is the fallback tier. Gate mirrors the Rust side:
+  // transcript is only attempted when info exists.
+  const transcriptInnerTube = info ? await transcriptFromInfo(info) : "";
+  const transcript =
+    transcriptInnerTube || (info ? await getBrowserTranscript(`https://www.youtube.com/watch?v=${videoId}`) : "");
   const comments = info ? await topComments(info) : [];
 
   const chapters = chaptersFromDescription(description);

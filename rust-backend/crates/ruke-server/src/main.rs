@@ -75,6 +75,28 @@ async fn main() {
                 Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge)
             }
         };
+    // The InnerTube seam (youtube.rs header): the Next-hosted evidence RPC
+    // carries info/transcript/comments, where the transcript tier rides
+    // the universal browser caption engine. Same env pair as the browser
+    // bridge; unset ⇒ NoInnerTube (oEmbed-only, TS source-3 behavior).
+    // Rule 17: log the boolean, never the secret.
+    let innertube: Arc<dyn ruke_websearch::youtube::InnerTubeClient> =
+        match ruke_websearch::youtube_bridge::HttpInnerTube::from_env() {
+            Some(c) => {
+                tracing::info!(
+                    "InnerTube evidence bridge configured (Next-hosted RPC + caption capture)"
+                );
+                Arc::new(c)
+            }
+            None => {
+                tracing::info!(
+                    "InnerTube evidence bridge not configured: YouTube evidence stays \
+                     oEmbed-only"
+                );
+                Arc::new(ruke_websearch::youtube::NoInnerTube)
+            }
+        };
+    ruke_websearch::youtube::set_default_inner_tube(innertube);
     let web = Arc::new(WebRuntime {
         net: ruke_websearch::net::RealNet,
         cache: web_cache,

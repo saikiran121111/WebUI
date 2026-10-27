@@ -28,6 +28,12 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { isSafeUrl } from "@/lib/web-search/ssrf";
+import {
+  attachCaptionListener,
+  probeCaptionSegments,
+  type CaptionCaptureStore,
+} from "@/lib/web-search/captionProbe";
+import { formatCaptionSegments } from "@/lib/web-search/captionFormats";
 import { childLogger } from "@/lib/server/logger";
 
 /* fingerprint-suite: each pooled context gets a fresh, consistent
@@ -109,7 +115,7 @@ const log = childLogger("web-search/agent-browser");
  * + SERP-baseline tiers still run — the waterfall guarantee is intact).
  * Zero browser slots are opened when the flag is set.
  */
-function browserPoolDisabled(): boolean {
+export function browserPoolDisabled(): boolean {
   return process.env.WEB_SEARCH_BROWSER_DISABLED === "1" || process.env.AGENT_BROWSER_DISABLED === "1";
 }
 
@@ -351,6 +357,16 @@ export async function closeBrowserPool(): Promise<void> {
 
 /* ── public API ────────────────────────────────────────────────────────── */
 
+/**
+ * Raw pool primitives for the YouTube caption interceptor
+ * (lib/web-search/youtube-captions.ts): the player must load its media
+ * and its own network responses must be observed, so the one-pass text
+ * extractor (which route-aborts media and never watches responses)
+ * cannot be used. Callers MUST `releasePoolContext` in a finally block —
+ * a leaked context permanently shrinks the pool.
+ */
+export { acquireContext as acquirePoolContext, freeContext as releasePoolContext };
+
 export interface PageExtraction {
   ok: boolean;
   url: string;
@@ -490,6 +506,11 @@ export async function extractUrlBrowser(
   }
   const ctx = await acquireContext();
   const page: Page = await ctx.newPage();
+  /* Universal caption probe (no domains — see lib/web-search/captionProbe):
+     collect the player's own caption-track responses from the very first
+     request; the probe itself only runs later when a <video> rendered. */
+  const capStore: CaptionCaptureStore = { bodies: [] };
+  attachCaptionListener(page, capStore);
   const out: PageExtraction = {
     ok: false,
     url,
@@ -702,6 +723,26 @@ export async function extractUrlBrowser(
       out.ariaSnapshot = [rootSnap, ...frameSnaps].filter(Boolean).join("\n\n").slice(0, 40_000);
     } catch {
       /* ariaSnapshot unavailable on this driver — bodyText still covers the main document */
+    }
+
+    /* Universal media-caption tier: if the page rendered a <video>
+       player, surface its caption track (DOM text tracks → the player's
+       own caption XHRs, which carry request-scoped anti-abuse tokens no
+       plain-HTTP fetch can reproduce) and append it to bodyText, so
+       EVERY downstream consumer — the TS extractor AND the Rust
+       Tier-3b browser-read bridge — sees transcripts for any provider.
+       Non-video pages pay exactly one evaluate(); the probe can never
+       break the page read. */
+    if (out.ok && !wafChallengeActive) {
+      try {
+        const capSegs = await probeCaptionSegments(page, capStore, 9_000);
+        const capText = capSegs ? formatCaptionSegments(capSegs) : "";
+        if (capText) {
+          out.bodyText = `${out.bodyText}\n\n## Captions (player caption track)\n${capText}`;
+        }
+      } catch {
+        /* caption probe is strictly additive — never fails the read */
+      }
     }
 
     return out;

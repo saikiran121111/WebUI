@@ -1,4 +1,46 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
+Synced: 2026-10-28 — MEDIA-CAPTION CYCLE (see current-cycle block below; the
+2026-10-25 sections are HISTORY ONLY for browser-subsystem lines that were
+superseded on 10-26).
+
+[CURRENT CYCLE 2026-10-28 — UNIVERSAL MEDIA CAPTION ENGINE (LOCKED-DONE code,
+live-verified tiers noted)]:
+- Root cause of "no available transcript" for a YouTube watch URL: (a) YouTube
+  Proof-of-Origin — get_transcript 400 and signed caption baseUrl answers
+  200-EMPTY for every format, even fetched from inside the watch page; only
+  the player's own requests carry the token; (b) Rust live path was
+  NoInnerTube (oEmbed-only); (c) Whisper (lib/server/extract/audio.ts) only
+  handles UPLOADED attachments, never streamed URLs.
+- TS side (universal, ZERO domain/host/URL-shape matching): new
+  lib/web-search/captionFormats.ts (shape-only wire parsers: json3, WebVTT,
+  SRT (CRLF-tolerant SRT_SHAPE_RE), srv3, TTML; caps 800 segs/16k chars/12k
+  render), lib/web-search/captionProbe.ts (Page-level 3-tier probe: DOM
+  TextTrack cues → pre-nav response listener (xhr+fetch+TEXTTRACK — Chromium's
+  type for <track> loads, proven live) → accessible-name CC toggles + `c`
+  key + mode flips; playNudge starts playback because HTML5 players fetch
+  tracks only once media loads; probe loop RE-NUDGES every 2.5 s because
+  players boot late — proven live: a page with zero tracks/zero requests at
+  toggle time later fired 62 caption fetches), lib/web-search/media-captions.ts
+  (pool orchestrator: kill switch → isSafeUrl → acquirePoolContext → route
+  aborts analytics only, media ALLOWED → nav retry MAX_NAV_ATTEMPTS=3
+  (players intermittently serve blank shells) → probe 20 s). agentBrowser.ts
+  +youtube-evidence/media-transcript internal routes (app/api/internal/*).
+- Rust side (prior sub-cycle, green): ruke-websearch youtube_bridge.rs
+  HttpInnerTube over POST /api/internal/youtube-evidence
+  (x-ruke-internal-secret; RUKE_BROWSER_BRIDGE_BASE_URL/SECRET env),
+  set_default_inner_tube seam, RPC_DEADLINE_MS=90_000 const-guarded.
+- LIVE EVIDENCE: engine components captured 32 caption segments on an
+  HTML5-native source (62 WEBVTT bodies, sniff+parse pipeline ran) headless
+  with pool ctx + route active. YouTube live flow MOUNTED and the player
+  fired its own tokened timedtext XHR pre-throttle; later runs hit Google's
+  "unusual traffic" sorry/CAPTCHA page at the machine IP (collateral of
+  repeated probing during this debug session) — IP-reputation cooldown, not
+  a code defect; no captcha workarounds were attempted (out of scope).
+- Gates: `npx vitest run` 68 files / 709 passed / 1 skipped EXIT:0 (incl.
+  new caption-formats 20 + caption-probe 4 tests); `npx tsc --noEmit` EXIT:0;
+  cargo/clippy green (Rust unchanged since prior sub-cycle). Live ruke-server
+  exe is STALE until the dev supervisor rebuilds. Work UNCOMMITTED on develop.
+
 Synced: 2026-10-25 — BUGFIX CYCLE: stale task hijack of live sessions + verbatim URLs + sandboxed launch (no --no-sandbox infobar)
 [SUPERSESSION NOTICE 2026-10-26: the interactive/internal browser subsystem was REMOVED
 repo-wide (lib/browser/**, app/api/browser/**, browser_api fence surface, settings
