@@ -43,9 +43,14 @@ before the next began.
   generates a random per-run bridge secret, hands off env (`RUKE_RUST_BACKEND=1` arms the Next
   side; `RUKE_PROJECT_ROOT`, `RUKE_BACKEND_PORT`, `RUKE_BROWSER_BRIDGE_BASE_URL/SECRET` for the
   Rust side), and on Ctrl+C / child death tears down with `taskkill /PID <pid> /T /F` cascades.
-  Prereq: the binary must exist — supervisor prints the exact `cargo build --manifest-path
-  rust-backend/Cargo.toml` command if missing. Plain `next dev` (TS-only mode) preserved as
-  **`npm run dev:next`**.
+  **Lifecycle correction (2026-10-27, §10):** the supervisor now runs `cargo build
+  --manifest-path rust-backend/Cargo.toml` ITSELF as a supervised child before anything starts
+  (cargo's incremental fingerprinting keeps up-to-date builds cheap; an interrupted build tears
+  down exactly the supervisor-owned cargo/rustc/linker tree, PID-scoped; a compile failure prints
+  cargo's output, starts nothing, and exits non-zero). **`npm run dev` alone is sufficient — no
+  manual build step is ever required.** `RUKE_SERVER_BIN` is an advanced override: when set, the
+  cargo build is SKIPPED and the exe must exist. SIGBREAK (Ctrl+Break) joins SIGINT/SIGTERM in the
+  teardown signal set. Plain `next dev` (TS-only mode) preserved as **`npm run dev:next`**.
 - **Thin proxy `lib/server/rustProxy.ts`** — every migrated handler in the 14 `app/api/**` route
   files (20 handlers: chat, search, search-more, decision, settings GET/PUT/DELETE, model-stats,
   conversations family, attach notes, skills family) early-forwards to Rust ONLY when
@@ -115,6 +120,16 @@ NoBrowserBridge degrade line.
 FALSE-PASSES on Windows beside a `0.0.0.0`/`[::]` holder — the supervisor now probes the wildcard
 bind the way the listeners actually bind; `next dev` silently falls back to the next port on clash,
 which would break the bridge base-URL/proxy-port contract — the pre-spawn refusal is the fix.
+Signal-delivery facts recorded during the lifecycle correction: the supervisor also answers
+SIGBREAK (Ctrl+Break ⇒ same teardown, exit 130); `process.kill(pid,"SIGBREAK")` is ENOSYS on
+Windows (libuv supports only SIGINT/SIGTERM via kill); and automated `CTRL_C_EVENT` is UNDELIVERABLE
+in this automation environment — `GenerateConsoleCtrlEvent(0,0)` returns true but NO process ever
+receives it (proven with a compiled C# SetConsoleCtrlHandler witness that recorded `[1]` — BREAK
+arrived, C never did, across 8+ probe variants). The automated Ctrl+C-equivalent teardown was
+therefore verified via CTRL_BREAK_EVENT end-to-end (exit 130 captured through `cmd /v:on`
+ERRORLEVEL scrape; ports freed, zero orphans); live interactive Ctrl+C is journey §7.7. PS
+`Start-Process -PassThru` `.ExitCode` can return `$null` (vacuous `-ne 0` asserts) — reliable exit
+codes need `cmd /v:on /c "... & echo EXITCODE=!ERRORLEVEL!"`.
 
 ## 6. Known deviations & risks (recorded in MIGRATION-MAP §7 / part row)
 
@@ -137,8 +152,11 @@ which would break the bridge base-URL/proxy-port contract — the pre-spawn refu
 
 ## 7. Recommended manual regression journeys (browser, user-driven)
 
-Prereq: `cargo build --manifest-path rust-backend/Cargo.toml` (or point `RUKE_SERVER_BIN` at an
-existing exe). Then `npm run dev` and confirm the supervisor banner + both ports.
+Prereq: **none** — `npm run dev` alone builds the Rust backend (cargo, incremental), starts
+ruke-server + Next as supervised children, and prints the banner only when BOTH are actually ready
+(rust via `/api/ruke/health`, Next via its listener). `RUKE_SERVER_BIN` remains an advanced
+override (cargo build SKIPPED; that exe must exist and stay current). Confirm the supervisor
+banner + both ports.
 
 1. **Chat SSE end-to-end:** normal message streams (reasoning + content deltas render), stop/cancel
    mid-stream (client cancel propagates through the proxy; no orphaned upstream turn), `<think>`
@@ -151,7 +169,8 @@ existing exe). Then `npm run dev` and confirm the supervisor banner + both ports
 4. **Conversations:** create, rename (title generation), switch, delete; refresh persistence.
 5. **Skills modal:** list, install (small repo), toggle scenario PATCH, delete.
 6. **Attach notes** on an existing attachment.
-7. **Lifecycle:** Ctrl+C `npm run dev` → both ports freed (no orphan workers); kill ruke-server
+7. **Lifecycle:** Ctrl+C `npm run dev` → both ports freed (no orphan workers; Ctrl+Break is
+   equivalent — SIGBREAK teardown is automated-PROVEN, exit 130, see §5); kill ruke-server
    manually → chat route shows the honest 502, Next UI stays up; `npm run dev:next` → pure-TS mode
    still works.
 
@@ -161,8 +180,15 @@ existing exe). Then `npm run dev` and confirm the supervisor banner + both ports
 - **Part 10** — Playwright E2E (including REAL Tier-3b browser-pool bridge tests — the one seam
   only mocks covered this run), full-journey regression against the Rust backend, perf re-measure
   vs the §8 baseline, then TS implementation retirement decisions (Rule 18 currently pins them).
-- Vitest flake family (web.test/chatEngine 5 s timeouts) remains watch-noted; three adjudications,
-  zero mutations. If Part 10's CI shows it deterministically, fix the test budget there, not here.
+- Vitest flake family (web.test/chatEngine 5 s timeouts) remains watch-noted; four adjudications,
+  zero mutations. ROOT CAUSE of the web.test drift-guard failures FOUND during the lifecycle
+  correction: fixtures 01/02/05 embed `[Context]` passages rendered LIVE by the extractor's
+  in-house browser pool (old.reddit.com login page — the `net` mock does not cover that tier), so
+  live reddit content shifts the corpus and with it the BM25 digits pinned in the fixtures
+  (observed 11.01 vs 11.16 vs 11.35 across runs — even between two tests of ONE process), and
+  reddit intermittently adds a "Server error. Try again later." ARIA banner (fixture drift).
+  web.test standalone 5/5 green in every dedicated rerun after red full-suite runs. If Part 10's
+  CI shows it deterministically, mock the browser tier (or fix the test budget) there, not here.
 
 ## 9. Process hygiene
 

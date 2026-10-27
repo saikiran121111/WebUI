@@ -1384,3 +1384,100 @@ report → shutdown. STOP BEFORE PART 9.
    cargo 548/0, clippy clean, tsc 0, vitest 664/1 skipped; NO Playwright) then
    `shutdown.exe /s /t 60 /c "RUKE overnight Parts 6-8 run finished. See rust-backend/OVERNIGHT-REPORT.md"`
    (fallback `powershell.exe -Stop-Computer -Force`). NOTHING after shutdown. NEVER Part 9/10.
+
+---
+
+# PART-8 LIFECYCLE CORRECTION — session segment 2026-10-27 (post-OVERNIGHT-REPORT)
+
+### 8.1 Core objective & active phase
+PART-8 FIX (not Part 9): `npm run dev` alone must BUILD + START + STOP the Rust backend
+automatically. Corrected `scripts/dev-supervisor.mjs`: ports pre-checked fail-fast BEFORE any
+build; `cargo build --manifest-path rust-backend/Cargo.toml` ALWAYS run as a supervised child
+(always wait for completion); built `ruke-server.exe` located (CARGO_TARGET_DIR resolved against
+repo root, else `rust-backend/target/debug`); bridge secret generated; ruke-server + Next spawned
+as DIRECT supervised children (never `cargo run`); bounded health poll gates the banner; either
+child's death or Ctrl+C/Ctrl+Break/terminal-close tears down BOTH trees, PID/tree-scoped (never
+image-name kills). Status: **implementation DONE, scenario-verified A–H, gates green/adjudicated;
+commit pending this segment.** Parts 9/10 NOT started; no Playwright; no golden/test mutation.
+
+### 8.2 Locked completed tasks (do not re-read / re-do)
+- `scripts/dev-supervisor.mjs` corrected lifecycle — verified by scenario harness (Temp\ruke-p8):
+  A missing-binary auto-rebuild; B up-to-date incremental; C source-change rebuild (reverted, zero
+  residue); D compile-failure (clear message, cargo output preserved, NOTHING started, non-zero
+  exit, repo restored compilable); E teardown (CTRL_BREAK end-to-end 9/9 PASS, exit 130 captured,
+  ports freed, 0 orphans); F ruke-server killed → Next terminated + ports free; G Next killed →
+  Rust terminated; H port occupied → fail-fast before cargo, Next never moves to 3001.
+- MIGRATION-MAP §7 supervision bullet extended + `8-fix` DONE row added (before `9–10` row).
+- OVERNIGHT-REPORT §3/§5/§7 prereqs rewritten (`npm run dev` alone; no manual cargo build), §5
+  signal-delivery facts appended, §8 flake note updated with ROOT CAUSE + "## 10. PART-8 LIFECYCLE
+  CORRECTION" section appended. Checkpoint marker intact.
+- Gates actually run: cargo test **548 passed / 0 failed exit 0**; clippy -D warnings exit 0;
+  cargo check --workspace --all-targets exit 0; `npx tsc --noEmit` exit 0; vitest full suite final
+  run exit 1 — **2 failed | 662 passed | 1 skipped (665)** — both failures web.test.ts, ADJUDICATED
+  environmental (see 8.6), web.test standalone **5 passed (5)** green in four consecutive dedicated
+  runs (incl. immediately after the red full run and on a git-stashed clean HEAD).
+- Rulings R1–R15 ledger delivered in the final report (supervisor semantics, signal facts, flake
+  adjudication). Zero product-behavior change: chat/search/attachments/decisions/skills/
+  conversations/titles/settings/SSE/route contracts/Tier-3b untouched; `npm run dev:next` still
+  pure Next (never launches Rust).
+
+### 8.3 Graphify dependency map
+- `package.json` "dev" → `scripts/dev-supervisor.mjs` (THE deliverable; no other file modified for
+  the fix). Supervisor → cargo child (added to `children` set; interrupt kills exactly the
+  supervisor-owned cargo/rustc/linker tree) → exe at CARGO_TARGET_DIR|repo-root-relative or
+  `rust-backend/target/debug/ruke-server.exe` → env handoff (`RUKE_RUST_BACKEND=1`,
+  `RUKE_PROJECT_ROOT`, `RUKE_BACKEND_PORT`, Tier-3b pair) → ruke-server child + `next dev` child →
+  `lib/server/rustProxy.ts` thin-proxy topology UNCHANGED. `RUKE_SERVER_BIN` set ⇒ cargo build
+  SKIPPED, exe must exist (`die` otherwise). Product modules: zero edges touched.
+
+### 8.4 Immutable code contracts & schemas
+- Supervisor exit codes: SIGINT/SIGBREAK → 130, SIGTERM → 143; first-child-exit propagates
+  (clean-0 child exit ⇒ 1, ruling R3). Readiness gates: Rust `GET http://127.0.0.1:<port>/api/ruke/health`
+  bounded 30 s poll; Next ready = TCP probe of its listener bounded 60 s; banner prints ONLY when
+  both actually ready. Port pre-check: wildcard bind probes BEFORE cargo build (fail-fast; no
+  silent 3001 fallback). `RUKE_SERVER_BIN` contract: advanced override, skips build, existence
+  required. Env names unchanged. No new env vars, no route/schema changes anywhere.
+
+### 8.5 Playwright & E2E verification state
+- **NO Playwright used at any point in this segment** (brief forbids it; no
+  `.ai-coordination/playwright.lock` ever created; `npx playwright test` never invoked).
+- Scenario harness lives OUTSIDE the repo: `%TEMP%\ruke-p8` (sup.ps1 scenarios A/B/C/D/F/G/H/N,
+  e5-driver.ps1 CTRL_BREAK E proof 9/9, consctrl.cs C# witness, gate logs). Disposable.
+- All temp supervisors/ports torn down; ports 3000/3001/3101/3200/3998/3999 probed free; the
+  user's pre-session :3000 TS server remains the only listener (never touched).
+
+### 8.6 Open bugs, failing stack traces & blockers
+- Vitest flake family adjudicated a 4th time, ROOT CAUSE FOUND: `web.test.ts` drift-guard failures
+  (fixture 01 timeout 5002 ms, 02 first-diff) come from `[Context]` passages in fixtures 01/02/05
+  rendered LIVE by the extractor's in-house browser pool (old.reddit.com login page — the scripted
+  `net`/PAGES mocks do NOT cover that tier). Live content shifts BM25 digits (fixture pins 11.01;
+  runs recorded 11.16 and 11.35 — different even within ONE process for identical pipelines) and
+  reddit intermittently appends `- text: Server error. Try again later. - button "close error
+  button"` to the ARIA snapshot. Pre-existing at HEAD (clean-HEAD stash run green; with-change run
+  green minutes apart). Fix belongs in Part 10 (mock the browser tier), not here. No fixture/test
+  mutated.
+- Signal facts: `process.kill(pid,"SIGBREAK")` = ENOSYS; automated `CTRL_C_EVENT` UNDELIVERABLE in
+  this environment (compiled C# SetConsoleCtrlHandler witness recorded `[1]` = BREAK only, across
+  8+ variants); CTRL_BREAK_EVENT broadcast works end-to-end (exit 130 captured via
+  `cmd /v:on /c "... & echo EXITCODE=!ERRORLEVEL!"`; PS `Start-Process .ExitCode` can be `$null`).
+  Live interactive Ctrl+C is manual journey §7.7.
+- Windows Defender flagged a `bash.exe -c` heredoc-embedded harness string as
+  Trojan:Win32/SuspExec.SE — FALSE POSITIVE on a disposable Temp helper (command never executed);
+  rule since: helper files are created via the Write tool, never heredoc-in-command.
+
+### 8.7 Active skills & scenario locks
+- No Tier-1/Tier-2 skill bodies loaded this segment.
+- Supervisor internals (build/target/override/signal lines) and OVERNIGHT-REPORT/STATE anchors in
+  context; do not re-read. `__tests__/rust-golden/web.test.ts` fully analyzed (428 lines) — do not
+  re-read or mutate (brief).
+
+### 8.8 Immediate next 3 atomic actions
+1. COMMIT: `git add scripts/dev-supervisor.mjs rust-backend/MIGRATION-MAP.md
+   rust-backend/OVERNIGHT-REPORT.md docs/STATE.md` (verify `git status --porcelain` shows nothing
+   else first); message exactly `fix: auto-build Rust backend in RUKE dev supervisor` + trailer
+   `Co-Authored-By: Claude Code <noreply@anthropic.com>`. No push.
+2. FINAL §19 REPORT: user-workflow confirmation (`npm run dev` alone; `dev:next` untouched),
+   startup/shutdown lifecycle, exact test commands + exit codes (scenarios A–H, gates incl. the
+   honest exit-1 vitest run + adjudication chain), explicit no-behavior-change statement,
+   rulings R1–R15, Defender false-positive note.
+3. Close verbatim: "Part 8 still awaits user manual regression. Part 9 has NOT started."
