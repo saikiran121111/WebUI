@@ -105,7 +105,7 @@ test("named LeetCode problem the model knows needs no search", async ({ page }) 
   }
 });
 
-test("live-fact question searches and is labelled Model-gated with on-topic sources", async ({ page }) => {
+test("live-fact question searches and is labelled Auto-gated with on-topic sources", async ({ page }) => {
   test.setTimeout(200000);
 
   await sendPrompt(page, "What is the NVIDIA RTX 5090 graphics card price in India right now?");
@@ -119,11 +119,17 @@ test("live-fact question searches and is labelled Model-gated with on-topic sour
   const popup = page.getByTestId("research-trail-card").first();
   await expect(popup).toBeVisible();
 
-  // The badge names the AUTHORITY: the main model is authoritative now, so
-  // a pipeline run decided by it must read "Model-gated".
+  // The badge names the AUTHORITY. Since the approved universal pre-gate
+  // deviation (MIGRATION-MAP §11.1), the live-intent word "price" in this
+  // prompt is force-YESed by the deterministic Stage-0 web-intent rule
+  // BEFORE the model is ever consulted — the authority for THIS prompt is
+  // now the pre-gate, so the badge must read "Auto-gated". The assertion
+  // still names the authority that actually decided (never weakened); the
+  // model-gated path itself is exercised by the gray-middle unit matrix in
+  // __tests__/web-search/search-gate-universal.test.ts.
   const badge = page.getByTestId("research-trail-gate-badge").first();
   await expect(badge).toBeVisible();
-  await expect(badge).toHaveText("Model-gated");
+  await expect(badge).toHaveText("Auto-gated");
 
   // Every cited source in the popup must be plausibly on-topic.
   const hrefs = await popup

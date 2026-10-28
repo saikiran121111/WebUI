@@ -203,6 +203,43 @@ const WWW_TOKEN_RE = /(?:^|[^\w./-])www\.[\w-]+/i;
 const WEB_INTENT_RE =
   /(?:\b(?:watch|video|location|maps|linkedin|reddit|latest|current|today|price|jobs|hiring|20(?:2[4-9]))\b|\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\b(?:web|google|internet)\s+search(?:es|ing)?\b|\blook\s?up\b|\bwho\s+won\b)/i;
 
+/**
+ * Part-10 follow-up fix (APPROVED DEVIATION, MIGRATION-MAP §11.2): the
+ * narrow `video` token in WEB_INTENT_RE force-YESed "Read the text burned
+ * into the attached video …" — but that media is the user's OWN attached
+ * file, not an external web target. These probe regexes strip attachment
+ * self-references BEFORE the web-intent arm is evaluated (probe ONLY —
+ * the freshness arm and the query planner still see the FULL prompt, so
+ * hybrid turns keep force-YES):
+ *   MEDIA_SELF_REF_RE — unconditional: an explicit "attached/uploaded/
+ *     pasted/provided/supplied + media noun" phrase is a self-reference
+ *     wherever it appears ("search the video of the keynote" is NOT one);
+ *   ATTACH_ANAPHORA_RE — pronoun anaphora ("this/the/my video"), stripped
+ *     ONLY when the turn actually carries local attachment evidence, so a
+ *     no-attachment "watch this video on youtube" keeps its web intent.
+ * Rust mirror: re_media_self_ref / re_attach_anaphora / web_intent_probe.
+ */
+const MEDIA_NOUNS =
+  "audio|video|recording|clip|footage|image|photo|picture|screenshot|pdf|doc(?:ument)?|file|transcript|log|code";
+// Global replace ⇔ Rust `replace_all` (strip EVERY self-ref occurrence).
+const MEDIA_SELF_REF_RE_G = new RegExp(
+  `\\b(?:attached|attachment|uploaded|pasted|provided|supplied)\\s+(?:[a-z]+\\s+){0,2}?(?:${MEDIA_NOUNS})\\b`,
+  "gi",
+);
+const ATTACH_ANAPHORA_RE_G = new RegExp(
+  `\\b(?:this|these|my|the)\\s+(?:${MEDIA_NOUNS})\\b`,
+  "gi",
+);
+
+/** Web-intent probe body: the prompt with attachment self-refs
+ *  neutralized (see MEDIA_SELF_REF_RE_G above). Freshness checks and
+ *  query planning NEVER use the probe. */
+function webIntentProbe(prompt: string, hasLocalArtifact: boolean): string {
+  let s = prompt.replace(MEDIA_SELF_REF_RE_G, " ");
+  if (hasLocalArtifact) s = s.replace(ATTACH_ANAPHORA_RE_G, " ");
+  return s;
+}
+
 /** Lookup-intent words that only count when an image is attached. */
 const IMAGE_LOOKUP_INTENT_RE =
   /(?:\b(?:search|linkedin|profile|find|guy|person|company|location|product)\b|\bwho\s*'?s?\s+is\b|\bwhere\s+is\b|\bwhat\s+is\s+this\b)/i;
@@ -232,7 +269,11 @@ const FRESHNESS_RE =
 
 /** Layer E1 — the user EXPLICITLY scoped the turn to local evidence. */
 const LOCAL_ONLY_RE =
-  /(?:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b|\bwithout\s+(?:searching|browsing)\b|\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\banswer\s+(?:only|strictly)\s+from\b|\buse\s+only\s+the\s+attached\b)/i;
+  /(?:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b|\bwithout\s+(?:searching|browsing)\b|\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\banswer\s+(?:only|strictly)\s+from\b|\buse\s+only\s+the\s+attached\b|\bnothing\s+else\b)/i;
+// Part-10 follow-up fix (§11.2): "…, nothing else." is the meta-instruction
+// fingerprint (closed-form local answers: "reply YES", "repeat after me").
+// The residual re-test below stays the guard: "watch the launch tomorrow,
+// nothing else" keeps `watch` in the residual → the web arm re-fires.
 // Global mirror ⇔ Rust `replace_all` (strip EVERY local-only phrase).
 const LOCAL_ONLY_RE_G = new RegExp(LOCAL_ONLY_RE.source, "gi");
 
@@ -240,7 +281,11 @@ const LOCAL_ONLY_RE_G = new RegExp(LOCAL_ONLY_RE.source, "gi");
  *  sentence; the demonstrative must reach an artifact noun (so "Review
  *  this year's finals" never skips). */
 const SUPPLIED_TASK_RE =
-  /(?:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract)\b[^.!?]{0,25}?(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b[^.!?]{0,20}?(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat)|\bwhat(?:'s|\s+is)\s+wrong\s+with\b|\bfind\s+the\s+(?:bug|issue|problem)\s+in\b|\bread\s+(?:this|the|an?)\s+(?:file|code|text|log|pdf|attachment)\b)/i;
+  // §11.2 follow-up: `listen|hear` verbs + media nouns (audio|video|…) —
+  // attached-media meta-instructions ("Listen to the attached audio…")
+  // are supplied-content transforms even through the web-intent probe;
+  // the read arm now also tolerates "read the ATTACHED transcript".
+  /(?:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract|listen|hear)\b[^.!?]{0,25}?(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b[^.!?]{0,20}?(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat|audio|video|recording|clip|footage|transcript|voice|speech)|\bwhat(?:'s|\s+is)\s+wrong\s+with\b|\bfind\s+the\s+(?:bug|issue|problem)\s+in\b|\bread\s+(?:this|the|an?)\s+(?:attached\s+)?(?:file|code|text|log|pdf|attachment|audio|video|recording|clip|transcript)\b)/i;
 
 /** Layer E2 — code-writing tasks fully defined by the prompt itself. */
 const CODEGEN_RE =
@@ -296,10 +341,15 @@ export function deterministicHardBypass(
   // re-tested against the web-intent and freshness lists. A contradictory
   // "don't search — what's the latest version?" turn falls through to the
   // force-SEARCH arms instead.
+  // §11.2 follow-up: the web-intent arm (and the E1 residual re-test)
+  // evaluate the PROBE form of the prompt — attachment self-references
+  // like "the attached video" must not masquerade as external-media web
+  // intent. Freshness always sees the full prompt (freshness never loses).
+  const localArtifact = ctx.hasAttachmentEvidence === true;
   const localOnlyHolds =
     LOCAL_ONLY_RE.test(p) &&
     !(
-      WEB_INTENT_RE.test(p.replace(LOCAL_ONLY_RE_G, " ")) ||
+      WEB_INTENT_RE.test(webIntentProbe(p.replace(LOCAL_ONLY_RE_G, " "), localArtifact)) ||
       FRESHNESS_RE.test(p.replace(LOCAL_ONLY_RE_G, " "))
     );
 
@@ -317,7 +367,7 @@ export function deterministicHardBypass(
       decision: localTaskDecision(),
     };
   }
-  else if (WEB_INTENT_RE.test(p)) hit = { matched: "web_intent", detected: [] };
+  else if (WEB_INTENT_RE.test(webIntentProbe(p, localArtifact))) hit = { matched: "web_intent", detected: [] };
   else if (ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(p)) hit = { matched: "image_intent", detected: [] };
   else if (ctx.hasAttachmentEvidence) {
     // APPROVED PART-10 DEVIATION (attachment-aware gate): the current turn

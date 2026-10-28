@@ -1798,3 +1798,37 @@ This block supersedes the Part-9 8.1-8.8 sections above as the active state.
 3. After full-suite green: perf re-measure (rust-backend/perf/baseline-
    measure.sh vs §8 TS baselines), DELETE_AFTER_PARITY retirement + full
    re-run, lifecycle test, FINAL-MIGRATION-REPORT.md, shutdown protocol.
+
+---
+
+# SEGMENT — PART-10: §11.2 attached-media gate fix + golden-flake classification (2026-10-28 evening)
+
+[8.2 LOCKED] §11.2 implemented BOTH epochs (inline-evidence flag gate-only;
+webIntentProbe/web_intent_probe self-ref strip feeding ONLY web-intent arm +
+E1 residual; SUPPLIED listen/hear+media nouns; E1 "nothing else"; mirror
+tests). Full record verbatim in rust-backend/MIGRATION-MAP.md §11.2 — do not
+rewrite. Batteries green: tsc 0; cargo test 577/0; clippy -D warnings 0;
+gate specs 12/12; golden suite 54/54 (--no-file-parallelism); non-golden
+vitest 675 passed + 1 skipped (61 files) ⇒ 729 = 726 baseline + 3 new.
+
+[8.6 CLOSED] golden-batch "Fixture drift" (web.test.ts 01/02/05, parallel
+mode) reproduced AT HEAD f5d5a89 with all §11.2 edits stashed (identical 3
+failures) and passes solo ⇒ pre-existing cross-file coupling in the harness
+(process-level state under parallel workers), ENVIRONMENTAL/test-infra, NOT
+a §11.2 or migration regression. Accounting law: golden dir runs with
+--no-file-parallelism.
+
+[8.2] search-gate.spec.ts broken-test update (§11.1 label contract): live-
+fact prompt now Stage-0 force-YES (price token) ⇒ badge authority is the
+pre-gate ⇒ "Model-gated" assertion updated to "Auto-gated"
+(ProcessingStatus GATE_BADGE deterministic→"Auto-gated"). Assertion not
+weakened; model-gate gray-middle still unit-tested.
+
+[8.6 root cause of user-reported Playwright stall] orphan `@playwright/test
+cli.js test-server` daemon (PID 23800) survived a killed wrapper while the
+supervisor stack was DOWN for the cargo battery ⇒ navigations hit a dead
+:3000, 60 s timeouts, mid-suite stall; and the pre-restart stack ran the
+PRE-§11.2 Rust binary, so attached-media meta-prompts still web-searched
+(context bloat — user screenshot). Remediation: killed orphan daemon tree,
+§11.2 committed, supervisor restart ALWAYS cargo-builds (dev-supervisor.mjs
+line 12: cargo build before anything starts).

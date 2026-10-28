@@ -232,6 +232,16 @@ pub async fn run_turn_pipeline(
             .and_then(|m| m.get(last_user_idx))
             .map(|m| turn_image_parts(m.get("content")))
             .unwrap_or_default();
+        // §11.2 follow-up: the gate's attachment-evidence flag is the TS
+        // oracle's `hasAttachmentRefs || hasInlineAttachment` — unindexed
+        // attachments inline their content (no ref) but the turn STILL
+        // carries local evidence. Retrieval above stays ref-keyed.
+        let inline_attachment = payload
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|m| m.get(last_user_idx))
+            .map(|m| turn_has_inline_attachment(m.get("content")))
+            .unwrap_or(false);
         let history_turns: Vec<HistoryTurn> = history
             .iter()
             .map(|h| HistoryTurn {
@@ -245,8 +255,10 @@ pub async fn run_turn_pipeline(
             has_image_attachment: Some(!image_parts.is_empty()),
             // Part-10 approved deviation: the SAME current-turn flag the
             // retrieval stage above keyed off feeds the attachment-aware
-            // gate suppression (TS oracle: hasAttachmentEvidence).
-            has_attachment_evidence: Some(has_attachment_refs),
+            // gate suppression (TS oracle: hasAttachmentEvidence). §11.2:
+            // OR-ed with the inline-attachment flag — small unindexed
+            // attachments inline their content instead of carrying a ref.
+            has_attachment_evidence: Some(has_attachment_refs || inline_attachment),
             // Universal search pre-gate (approved deviation): None ⇒ the
             // gate uses the real runtime date (never hardcoded).
             current_date: None,
@@ -452,6 +464,24 @@ pub(crate) fn turn_image_parts(content: Option<&Value>) -> Vec<String> {
         .filter(|u| u.starts_with("data:"))
         .map(str::to_string)
         .collect()
+}
+
+/// §11.2 follow-up (⇔ TS `turnHasInlineAttachment`): unindexed (small)
+/// attachments carry NO `attachment_ref` — the client inlines their
+/// content instead, and EVERY `attachmentParts` variant (indexed or not)
+/// begins with a text part "Attached file: …" (lib/chat/client.ts). This
+/// feeds the GATE's attachment-evidence flag only; retrieval stays keyed
+/// on real refs (there is nothing to retrieve — the content is inline).
+pub(crate) fn turn_has_inline_attachment(content: Option<&Value>) -> bool {
+    match content {
+        Some(Value::Array(parts)) => parts.iter().any(|p| {
+            p.get("type").and_then(Value::as_str) == Some("text")
+                && p.get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| t.starts_with("Attached file: "))
+        }),
+        _ => false,
+    }
 }
 
 /// `webCitationMap[p.sourceId] = { sourceId, url, title, domain,

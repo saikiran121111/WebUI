@@ -75,6 +75,11 @@ describe("universal local-task force-SKIP (approved Part-10 deviation)", () => {
       "Do not search the web; answer from the pasted code only.",
       "What's wrong with this regex?",
       "Find the bug in this attached log.",
+      // §11.2 follow-up: the "…, nothing else." meta-instruction
+      // fingerprint (closed-form local answer), flag-free by design —
+      // the residual re-test guards it (see the escape suite below).
+      "Listen to the attached audio and reply YES. Nothing else.",
+      "Repeat after me: hello world. Nothing else.",
     ]) {
       const r = deterministicHardBypass(ctx(prompt));
       expect(r, prompt).not.toBeNull();

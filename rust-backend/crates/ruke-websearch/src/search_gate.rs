@@ -282,7 +282,7 @@ fn re_local_only() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"(?i)(?:(?-u:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b)|(?-u:\bwithout\s+(?:searching|browsing)\b)|(?-u:\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b)|(?-u:\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b)|(?-u:\banswer\s+(?:only|strictly)\s+from\b)|(?-u:\buse\s+only\s+the\s+attached\b))"
+            r"(?i)(?:(?-u:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b)|(?-u:\bwithout\s+(?:searching|browsing)\b)|(?-u:\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b)|(?-u:\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b)|(?-u:\banswer\s+(?:only|strictly)\s+from\b)|(?-u:\buse\s+only\s+the\s+attached\b)|(?-u:\bnothing\s+else\b))"
         )
         .unwrap()
     })
@@ -296,7 +296,7 @@ fn re_supplied_task() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"(?i)(?:(?:(?-u:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract)\b)[^.!?]{0,25}?(?-u:\b(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b)[^.!?]{0,20}?(?-u:\b(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat)\b))|(?-u:\bwhat(?:'s|\s+is)\s+wrong\s+with\b)|(?-u:\bfind\s+the\s+(?:bug|issue|problem)\s+in\b)|(?-u:\bread\s+(?:this|the|an?)\s+(?:file|code|text|log|pdf|attachment)\b))"
+            r"(?i)(?:(?:(?-u:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract|listen|hear)\b)[^.!?]{0,25}?(?-u:\b(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b)[^.!?]{0,20}?(?-u:\b(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat|audio|video|recording|clip|footage|transcript|voice|speech)\b))|(?-u:\bwhat(?:'s|\s+is)\s+wrong\s+with\b)|(?-u:\bfind\s+the\s+(?:bug|issue|problem)\s+in\b)|(?-u:\bread\s+(?:this|the|an?)\s+(?:attached\s+)?(?:file|code|text|log|pdf|attachment|audio|video|recording|clip|transcript)\b))"
         )
         .unwrap()
     })
@@ -324,6 +324,49 @@ fn re_math() -> &'static Regex {
         )
         .unwrap()
     })
+}
+
+/// §11.2 follow-up (APPROVED DEVIATION extension) — attachment
+/// self-references must not masquerade as external-media web intent: the
+/// narrow `video` token in `re_web_intent` force-YESed "Read the text
+/// burned into the attached video …" even though that media IS the user's
+/// own attached file. These regexes strip self-refs BEFORE the web-intent
+/// arm ONLY (the freshness arm and the query planner still see the FULL
+/// prompt, so hybrid turns keep force-YES — freshness never loses):
+///   re_media_self_ref — unconditional: an explicit "attached/uploaded/
+///     pasted/provided/supplied + media noun" phrase is a self-reference
+///     wherever it appears;
+///   re_attach_anaphora — pronoun anaphora ("this/the/my video"), stripped
+///     ONLY when the turn carries local attachment evidence, so a
+///     no-attachment "watch this video on youtube" keeps its web intent.
+/// ⇔ TS MEDIA_SELF_REF_RE_G / ATTACH_ANAPHORA_RE_G / webIntentProbe.
+fn re_media_self_ref() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?-u:\b(?:attached|attachment|uploaded|pasted|provided|supplied)\s+(?:[a-z]+\s+){0,2}?(?:audio|video|recording|clip|footage|image|photo|picture|screenshot|pdf|doc(?:ument)?|file|transcript|log|code)\b))"
+        )
+        .unwrap()
+    })
+}
+
+fn re_attach_anaphora() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?-u:\b(?:this|these|my|the)\s+(?:audio|video|recording|clip|footage|image|photo|picture|screenshot|pdf|doc(?:ument)?|file|transcript|log|code)\b))"
+        )
+        .unwrap()
+    })
+}
+
+/// Web-intent probe body (see above). replace_all ⇔ TS global replace.
+fn web_intent_probe(prompt: &str, has_local_artifact: bool) -> String {
+    let mut s = re_media_self_ref().replace_all(prompt, " ").into_owned();
+    if has_local_artifact {
+        s = re_attach_anaphora().replace_all(&s, " ").into_owned();
+    }
+    s
 }
 
 /* ── STAGE 0: deterministic hard bypass (0 ms, no LLM call) ─────────── */
@@ -399,9 +442,11 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
     // counts as deterministically local-only when NO live/freshness
     // intent survives OUTSIDE the negation phrases themselves
     // (residual re-test with the local-only matches stripped out).
+    let local_artifact = ctx.has_attachment_evidence.unwrap_or(false);
     let local_only_holds = re_local_only().is_match(p) && {
         let residual = re_local_only().replace_all(p, " ").into_owned();
-        !(re_web_intent().is_match(&residual) || re_freshness().is_match(&residual))
+        !(re_web_intent().is_match(&web_intent_probe(&residual, local_artifact))
+            || re_freshness().is_match(&residual))
     };
     let matched = if !detected.is_empty() {
         BypassMatched::Url
@@ -425,7 +470,7 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
             hit: HardBypassHit { matched: BypassMatched::LocalTask, detected: vec![] },
             decision: local_task_decision(),
         });
-    } else if re_web_intent().is_match(p) {
+    } else if re_web_intent().is_match(&web_intent_probe(p, local_artifact)) {
         BypassMatched::WebIntent
     } else if ctx.has_image_attachment.unwrap_or(false) && re_image_lookup_intent().is_match(p) {
         BypassMatched::ImageIntent
@@ -1338,6 +1383,70 @@ mod tests {
         assert!(!r.decision.search_required);
     }
 
+    #[test]
+    fn bypass_media_self_reference_never_masquerades_as_web_intent() {
+        // §11.2 follow-up (user-reported): with an UNINDEXED (inline)
+        // attachment there is no attachment_ref, so the chat pipeline now
+        // ORs the inline "Attached file:" part into the gate flag — but
+        // the guards themselves are UNIVERSAL (flag-free): the self-ref
+        // probe and the "…, nothing else." E1 clause.
+
+        // (a) The exact user-reported audio meta-prompt: even with NO
+        //     flag at all the nothing-else fingerprint force-SKIPs it —
+        //     it can never reach the model gate or an engine query.
+        let heard = "Listen to the attached audio and reply with exactly YES followed by the codeword that is spoken, or NO if you cannot hear it. Nothing else.";
+        let r = deterministic_hard_bypass(&ctx(heard)).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::LocalTask);
+        assert!(!r.decision.search_required);
+        assert_eq!(r.decision.reason, "deterministic_self_contained");
+        assert!(r.decision.queries.is_empty(), "meta-instruction became a query");
+        // Flag on (inline audio turn): still a deterministic NO — the
+        // web-intent probe strips "attached audio" before `video`-class
+        // narrow tokens can fire.
+        let r = deterministic_hard_bypass(&att_ctx(heard)).unwrap();
+        assert!(!r.decision.search_required);
+        assert!(r.decision.queries.is_empty());
+
+        // (b) Burned-text video: the narrow `video` token no longer
+        //     force-YESes through a self-reference. Flag ⇒ attachment
+        //     force-NO; no flag ⇒ the read-the-(attached-)video supplied
+        //     arm force-NOs.
+        let burned = "Read the text burned into the attached video. Reply with exactly what you see.";
+        let r = deterministic_hard_bypass(&att_ctx(burned)).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::AttachmentEvidence);
+        assert!(!r.decision.search_required);
+        let r = deterministic_hard_bypass(&ctx(burned)).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::LocalTask);
+
+        // (c) GENUINE external media intent survives every strip:
+        //     un-anchored media nouns and hybrid live-intent words.
+        let r = deterministic_hard_bypass(&ctx("watch this video on youtube")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+        assert!(r.decision.search_required);
+        let r = deterministic_hard_bypass(&ctx("search for a video about the keynote")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+        // Flag on: "attached video" is stripped but `watch` and
+        // `latest`/`search the web` are not — hybrid turns keep force-YES.
+        let r = deterministic_hard_bypass(&att_ctx(
+            "Watch the attached video and search the web for the latest news about the actor.",
+        ))
+        .unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+        let r = deterministic_hard_bypass(&att_ctx(
+            "Compare this audio recording with the latest field recordings.",
+        ))
+        .unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+        let r = deterministic_hard_bypass(&att_ctx("What's the latest video from NVIDIA?")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+
+        // (d) The E1 guard law: "…, nothing else." does NOT make a turn
+        //     local when a live-intent token survives OUTSIDE the
+        //     phrase — the residual re-test re-fires the web arm.
+        let r = deterministic_hard_bypass(&ctx("Watch the launch event tomorrow, nothing else.")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+    }
+
     #[tokio::test]
     async fn attachment_gate_never_calls_the_llm_when_enabled() {
         // opts() points at an UNROUTABLE endpoint: if the gate consulted
@@ -1402,6 +1511,11 @@ mod tests {
             "Do not search the web; answer from the pasted code only.",
             "What's wrong with this regex?",
             "Find the bug in this attached log.",
+            // §11.2 follow-up: the "…, nothing else." meta-instruction
+            // fingerprint (closed-form local answer). Universal — the
+            // flag is NOT required; the residual re-test is the guard.
+            "Listen to the attached audio and reply YES. Nothing else.",
+            "Repeat after me: hello world. Nothing else.",
         ] {
             let r = deterministic_hard_bypass(&ctx(p)).unwrap_or_else(|| panic!("{p}"));
             assert_eq!(r.hit.matched, BypassMatched::LocalTask, "{p}");

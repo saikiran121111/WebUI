@@ -14,6 +14,7 @@ import { deterministicHardBypass } from "@/lib/web-search/search-gate";
 import type { SearchGateContext } from "@/lib/web-search/types";
 
 const att = (userPrompt: string): SearchGateContext => ({ userPrompt, hasAttachmentEvidence: true });
+const ctx = (userPrompt: string): SearchGateContext => ({ userPrompt });
 
 describe("attachment-aware search gate (approved Part-10 deviation)", () => {
   it("local attachment tasks force NO search, zero queries (meta-instruction guard)", () => {
@@ -103,5 +104,66 @@ describe("attachment-aware search gate (approved Part-10 deviation)", () => {
     expect(r).not.toBeNull();
     expect(r!.hit.matched).toBe("attachment_evidence");
     expect(r!.decision.search_required).toBe(false);
+  });
+});
+
+describe("media self-references never masquerade as web intent (§11.2 follow-up)", () => {
+  it("attached-audio/video meta-instructions are deterministic NOs, flag-free or not", () => {
+    // (a) The exact user-reported audio meta-prompt. Even with NO flag
+    // the "…, nothing else." fingerprint force-SKIPs it — a meta-
+    // instruction can never reach the model gate or an engine query.
+    const heard =
+      "Listen to the attached audio and reply with exactly YES followed by the codeword that is spoken, or NO if you cannot hear it. Nothing else.";
+    for (const c of [ctx(heard), att(heard)]) {
+      const r = deterministicHardBypass(c);
+      expect(r, c.userPrompt).not.toBeNull();
+      expect(r!.decision.search_required, c.userPrompt).toBe(false);
+      expect(r!.decision.queries, c.userPrompt).toEqual([]);
+    }
+    expect(deterministicHardBypass(ctx(heard))!.hit.matched).toBe("local_task");
+
+    // (b) Burned-text video: the narrow `video` token no longer
+    //     force-YESes through a self-reference. Flag ⇒ attachment
+    //     force-NO; no flag ⇒ read-the-(attached-)video supplied arm.
+    const burned = "Read the text burned into the attached video. Reply with exactly what you see.";
+    const withFlag = deterministicHardBypass(att(burned));
+    expect(withFlag).not.toBeNull();
+    expect(withFlag!.hit.matched).toBe("attachment_evidence");
+    expect(withFlag!.decision.search_required).toBe(false);
+    const noFlag = deterministicHardBypass(ctx(burned));
+    expect(noFlag).not.toBeNull();
+    expect(noFlag!.hit.matched).toBe("local_task");
+  });
+
+  it("genuine external media intent survives every strip", () => {
+    // Un-anchored media nouns (no flag ⇒ pronoun anaphora NOT stripped).
+    for (const prompt of [
+      "watch this video on youtube",
+      "search for a video about the keynote",
+    ]) {
+      const r = deterministicHardBypass(ctx(prompt));
+      expect(r, prompt).not.toBeNull();
+      expect(r!.hit.matched, prompt).toBe("web_intent");
+      expect(r!.decision.search_required, prompt).toBe(true);
+    }
+    // Flag on: the self-ref is stripped but watch/latest/search-the-web
+    // are not — hybrid attachment+web turns keep BOTH evidence sources.
+    for (const prompt of [
+      "Watch the attached video and search the web for the latest news about the actor.",
+      "Compare this audio recording with the latest field recordings.",
+      "What's the latest video from NVIDIA?",
+    ]) {
+      const r = deterministicHardBypass(att(prompt));
+      expect(r, prompt).not.toBeNull();
+      expect(r!.hit.matched, prompt).toBe("web_intent");
+      expect(r!.decision.search_required, prompt).toBe(true);
+    }
+  });
+
+  it("the E1 guard law: live intent surviving OUTSIDE the phrase still searches", () => {
+    const r = deterministicHardBypass(ctx("Watch the launch event tomorrow, nothing else."));
+    expect(r).not.toBeNull();
+    expect(r!.hit.matched).toBe("web_intent");
+    expect(r!.decision.search_required).toBe(true);
   });
 });

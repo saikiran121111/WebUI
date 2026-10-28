@@ -301,3 +301,68 @@ deviating both epochs in lockstep, never one.
   classes must stay OUTSIDE `(?-u:)` byte-scopes (the regex crate rejects
   byte-mode negated classes as able to match invalid UTF-8); TS bodies are
   byte-equivalent modulo that scoping.
+
+### 11.2 Attached-media meta-instructions never masquerade as web intent
+
+**Approved parity deviation (user-approved 2026-10-28 mid-run after a live
+Part-10 report): attached-media self-references never arm the web-intent
+force-YES.** Deviates BOTH epochs identically (TS `lib/web-search/
+search-gate.ts` + `app/api/chat/route.ts`, Rust `ruke-websearch/src/
+search_gate.rs` + `ruke-server/src/chat/pipeline.rs`).
+
+- **Observed (user screenshot, 2026-10-28):** prompt "Listen to the attached
+  audio and reply with exactly YES followed by the codeword that is spoken,
+  or NO if you cannot hear it. Nothing else." with `fixture-audio.ogg` was
+  main-model-gated YES and web-searched master/TOEFL/scribd transcription
+  sites (geeksforgeeks-class noise).
+- **Root cause:** `attachment_ref` parts exist ONLY for INDEXED attachments;
+  small audio/video/image inline as text+content parts, so
+  `turnHasAttachmentRef`/`has_attachment_refs` stayed false and the §11.1
+  Stage-0 attachment rule never armed — the turn reached the model gate.
+  The narrow `video` token in `WEB_INTENT_RE` additionally collides with
+  "attached audio/video" wording, force-YESing media self-refs even before
+  the model gate.
+- **Behavior before:** inline-attached media meta-prompts were probabilistic
+  (model gate YES→search) or force-YESed by the media token; after: they are
+  deterministic Stage-0 NO (`AttachmentEvidence` when the flag arms, else
+  `LocalTask` via E1 "nothing else"/E2 supplied-task) with `queries: []` and
+  `gate_ms=0`.
+- **The fix, three parts, both epochs:**
+  1. **Inline-evidence flag:** any text part starting `"Attached file: "` (the
+     `client.ts` invariant for EVERY attachmentParts variant, indexed or not)
+     sets `hasAttachmentEvidence`/`has_attachment_evidence` (OR with the ref
+     flag) at the gate call site ONLY — hybrid retrieval stays strictly
+     ref-keyed (1cca12d untouched).
+  2. **Self-reference probe (`webIntentProbe`/`web_intent_probe`):** before
+     ONLY the web-intent arm and the E1 residual re-test, strips
+     `attached|attachment|uploaded|pasted|provided|supplied (+≤2 words)+ media
+     noun` and, when the flag is set, anaphora `this|these|my|the + media
+     noun`. Media nouns: audio|video|recording|clip|footage|image|photo|
+     picture|screenshot|pdf|doc(ument)?|file|transcript|log|code. The
+     FRESHNESS arm and the query planner still see the FULL prompt —
+     "freshness never loses" is not weakened; genuine external intent
+     survives the strip ("…search the web for the latest news about the
+     actor", "latest field recordings", "this video on youtube" without the
+     flag).
+  3. **Vocabulary:** SUPPLIED_TASK gains listen/hear + audio/video/… nouns;
+     E1 gains `\bnothing\s+else\b` (residual re-test guards false skips —
+     "Watch the launch event tomorrow, nothing else." still force-YES web).
+- **Escape laws preserved:** explicit-web escape hatch outranks the
+  attachment force-NO unchanged; URL detector unchanged; image-intent arm
+  unchanged.
+- **Evidence:** Rust `bypass_media_self_reference_never_masquerades_as_web_
+  intent` + extended matrices ⇔ TS mirror describe in
+  `search-gate-attachment.test.ts` (12/12 both gate specs); cargo test
+  --workspace 577 passed / 0 failed (576 baseline + 1); clippy `-D warnings`
+  0; `tsc --noEmit` 0; golden suite 54/54.
+- **Harness flake classified this landing (NOT a regression):** the golden
+  batch run in DEFAULT PARALLEL mode fails web.test.ts 01/02/05 with
+  "Fixture drift detected" deterministically **at HEAD f5d5a89 with all
+  §11.2 edits stashed** (identical signature) and passes solo;
+  `npx vitest run __tests__/rust-golden --no-file-parallelism` → **54/54
+  with §11.2 applied**. Root cause class: pre-existing cross-file coupling
+  in the golden harness (per-file scripted global-`fetch` stubs share
+  process-level state under parallel workers), environmental/test-infra.
+  Part-10 accounting runs the golden dir with `--no-file-parallelism`.
+  Full-suite accounting at this landing: non-golden 675 passed + 1 skipped
+  (61 files) + golden 54/54 = **729 = 726 baseline + 3 new §11.2 TS tests**.
