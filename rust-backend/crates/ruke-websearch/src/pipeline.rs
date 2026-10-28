@@ -1221,6 +1221,8 @@ mod tests {
             user_prompt: prompt.into(),
             history: None,
             has_image_attachment: None,
+            has_attachment_evidence: None,
+            current_date: None,
             image_data_urls: None,
         }
     }

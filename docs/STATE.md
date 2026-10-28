@@ -1740,3 +1740,61 @@ playwright-cli/playwright-skill routing (Tier 1) — load then, not now.
    required additions (Tier-3b live, YouTube, ResponseAborted family).
 3. Model-backed Playwright ONLY via the lock protocol + exclusive window
    (Claude fully idle while running).
+
+---
+
+# SEGMENT — PART-10: universal search pre-gate deviation (2026-10-28)
+
+[8.1] Part 10 in progress. Before the Playwright loop, the user-approved
+UNIVERSAL three-layer search-decision policy was landed in BOTH epochs
+identically (approved parity deviation, record in MIGRATION-MAP.md §11.1).
+This block supersedes the Part-9 8.1-8.8 sections above as the active state.
+
+[8.2 LOCKED — do not re-open]
+- Part 9 commit be85ac4; embed fix 1cca12d; universal pre-gate commit (this
+  segment) — files: lib/web-search/{search-gate.ts,types.ts},
+  app/api/chat/route.ts (hasAttachmentEvidence wiring), rust-backend
+  {chat/pipeline.rs, search_routes.rs, ruke-websearch/{pipeline.rs,
+  search_gate.rs, types.rs}}, __tests__/web-search/search-gate-
+  {attachment,universal}.test.ts.
+- Battery AT LANDING (all green): cargo check --all-targets 0; cargo test -q
+  --workspace **576 passed / 0 failed**; clippy --all-targets -D warnings 0;
+  npx tsc --noEmit 0; vitest rust-golden **54/54** (zero fixture mutation);
+  full vitest **726 passed / 1 skipped (71 files)**.
+- Regex portability law (proven by test): `[^.!?]{0,N}?` gap classes must be
+  OUTSIDE `(?-u:)` scopes — byte-mode negated class ⇒ "pattern can match
+  invalid UTF-8" parse panic at unwrap (fixed 2026-10-28 in re_freshness,
+  re_supplied_task, re_codegen, re_math).
+
+[8.4 contracts now in force]
+- SearchGateContext += current_date: Option<String> (Rust, serde default+skip)
+  / currentDate?: string (TS). Gate system msg prefixed "Current date:
+  YYYY-MM-DD (year NNNN)." — fallback real UTC clock both epochs. No date
+  mechanism for the MAIN response model exists (grep-verified; do NOT invent).
+- Chain order (both epochs): url → freshness(force-YES) → local_only(force-NO,
+  NO escape, residual re-test guard) → web_intent(narrowed: bare "search"
+  token REMOVED) → image → attachment(escape hatch) →
+  supplied||codegen||math(force-NO, EXPLICIT_WEB_INTENT escape) → None.
+- BypassMatched/hit.matched union += "freshness","local_task"; reasons:
+  force-YES "deterministic_url_or_intent", local "deterministic_self_
+  contained", attachment "deterministic_attachment_local".
+- MAIN_GATE_SYSTEM_PROMPT REPLACED both epochs (byte-identical): decision-
+  standard router prompt ("You are the search router for your own answering
+  pipeline… parametric knowledge may be STALE…"); old SEARCH-BY-DEFAULT +
+  site:amazon.in follow-up block GONE. Bare "search for X" ⇒ model gate now
+  (accepted +1 gate call; documented).
+
+[8.5/8.6] No Playwright run yet; lock absent; supervisor stack STOPPED (ports
+3000/3101 free — cargo-safe). Open adjudication carried: file-reading.spec
+55-failure block (model-driven; universal fix is the root-cause fix;
+`--last-failed` re-run pending AFTER stack restart).
+
+[8.8 next 3]
+1. Restart supervisor (`nohup npm run dev`), health-gate :3000 + :3101,
+   confirm "attachment query-embedder configured" in /tmp/ruke-supervisor.log.
+2. TEST phase w/ lock: `npx playwright test tests/file-reading.spec.ts
+   --last-failed` (foreground, Claude fully idle, /tmp/wait-pw.ps1 pattern),
+   then ANALYZE; then remaining spec batches per Part-10 ledger.
+3. After full-suite green: perf re-measure (rust-backend/perf/baseline-
+   measure.sh vs §8 TS baselines), DELETE_AFTER_PARITY retirement + full
+   re-run, lifecycle test, FINAL-MIGRATION-REPORT.md, shutdown protocol.

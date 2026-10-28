@@ -71,6 +71,10 @@ pub async fn search_get(State(state): State<AppState>, req: Request) -> Response
         user_prompt: q,
         history: None,
         has_image_attachment: None,
+        // User-initiated search route: never an attachment turn.
+        has_attachment_evidence: None,
+        // Universal search pre-gate: None ⇒ real runtime date at gate time.
+        current_date: None,
         image_data_urls: None,
     };
     let result = run_web_research(
@@ -161,6 +165,10 @@ pub async fn search_more_post(State(state): State<AppState>, req: Request) -> Re
         user_prompt: queries.join(" "),
         history: None,
         has_image_attachment: None,
+        // User-initiated search route: never an attachment turn.
+        has_attachment_evidence: None,
+        // Universal search pre-gate: None ⇒ real runtime date at gate time.
+        current_date: None,
         image_data_urls: None,
     };
     let result = run_web_research(

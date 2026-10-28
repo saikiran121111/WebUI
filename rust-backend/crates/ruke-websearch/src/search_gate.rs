@@ -158,11 +158,21 @@ pub fn extract_prompt_urls(prompt: &str) -> Vec<String> {
 
 /* ── regex tables (ASCII-semantics \b scoped with (?-u:…)) ───────────── */
 
+/// Part-10 UNIVERSAL pre-gate refinement (APPROVED PART-10 DEVIATION):
+/// the BARE `search` token is gone — it force-YESed codegen prompts like
+/// "Write Python code for binary search." and made the engine pool search
+/// the user's own instruction (the bug class this part retires). Only an
+/// explicit web-search frame ("search the web/online/internet", "web/
+/// google search") force-YESes here; a bare "search for X" now reaches
+/// the model gate, whose explicit-search rule still answers YES. TS
+/// `WEB_INTENT_RE` mirrors this body byte-identically (minus (?-u:)
+/// scoping); web.test.ts goldens contain no "search"-shaped prompts, so
+/// recorded bytes are unaffected.
 fn re_web_intent() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"(?i)(?:(?-u:\b(?:search|watch|video|location|maps|linkedin|reddit|latest|current|today|price|jobs|hiring|20(?:2[4-9]))\b)|(?-u:\blook)\s?(?-u:up\b)|(?-u:\bwho)\s+(?-u:won\b))",
+            r"(?i)(?:(?-u:\b(?:watch|video|location|maps|linkedin|reddit|latest|current|today|price|jobs|hiring|20(?:2[4-9]))\b)|(?-u:\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b)|(?-u:\b(?:web|google|internet)\s+search(?:es|ing)?\b)|(?-u:\blook)\s?(?-u:up\b)|(?-u:\bwho)\s+(?-u:won\b))",
         )
         .unwrap()
     })
@@ -229,6 +239,93 @@ fn re_rule_version() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"(?i)(?:(?-u:\bv?\d+\.\d+)|version (?-u:\d))").unwrap())
 }
 
+/// Part-10 APPROVED DEVIATION — the attachment-aware escape hatch. A turn
+/// with attachment evidence is suppressed ONLY when it shows no sign of
+/// wanting live-web/current/external information. This broader phrase list
+/// is consulted ONLY when attachment evidence is present, so non-attachment
+/// turns keep byte-identical parity behavior via the narrow
+/// `re_web_intent` above. Word-boundary phrases only: "research" never
+/// matches through "search", "renew" never through "news".
+fn re_explicit_web_intent() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?-u:\b(?:website|web|browse|online|internet|google|news|recent|recently|newest|currently|fact(?:\s|-)+check)\b|(?-u:\blook\s?online\b)|(?-u:\bup[\s-]?to[\s-]?date\b)|(?-u:\bstill\s+(?:true|accurate|valid|current|available)\b))"
+        )
+        .unwrap()
+    })
+}
+
+/* ── universal search pre-gate regexes (APPROVED PART-10 DEVIATION) ──── */
+
+/// Layer 2 — high-confidence freshness / time-sensitive → FORCE SEARCH.
+/// Deliberately NARROW and phrase-anchored: only staleness-prone shapes
+/// the model must never be allowed to veto; the gray middle stays with
+/// the (date-aware) model gate. Office-holder nouns only match inside
+/// the "who is/are the …" frame; overlap with `re_web_intent`'s narrow
+/// words is harmless (that arm already force-YESes first).
+fn re_freshness() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?-u:\b(?:currently|weather|forecast)\b)|(?:(?-u:\bhow\s+much\b)[^.!?]{0,40}?(?:(?-u:\bcosts?\b)|(?-u:\bprice\b)|(?-u:\bworth\b)))|(?-u:\bthis\s+(?:week|month|year)\b)|(?-u:\bmost\s+recent\b)|(?-u:\bas\s+of\s+now\b)|(?-u:\bup[\s-]?to[\s-]?date\b)|(?-u:\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b)|(?-u:\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b)|(?-u:\b(?:current|latest)\s+(?:version|release)\b))"
+        )
+        .unwrap()
+    })
+}
+
+/// Layer 1a — the user EXPLICITLY scoped the turn to local evidence.
+/// NOTE: this regex intentionally contains "web" ("do not search the
+/// web"), so unlike every other force-NO it gets NO escape-hatch check —
+/// any escape would self-cancel the rule.
+fn re_local_only() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?-u:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b)|(?-u:\bwithout\s+(?:searching|browsing)\b)|(?-u:\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b)|(?-u:\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b)|(?-u:\banswer\s+(?:only|strictly)\s+from\b)|(?-u:\buse\s+only\s+the\s+attached\b))"
+        )
+        .unwrap()
+    })
+}
+
+/// Layer 1b — a verb that transforms content the user SUPPLIED, within
+/// one sentence (no clause punctuation crossed). The demonstrative must
+/// be followed (still inside the sentence) by an artifact noun, so
+/// "Review this year's finals" never skips — freshness intent wins.
+fn re_supplied_task() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?:(?-u:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract)\b)[^.!?]{0,25}?(?-u:\b(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b)[^.!?]{0,20}?(?-u:\b(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat)\b))|(?-u:\bwhat(?:'s|\s+is)\s+wrong\s+with\b)|(?-u:\bfind\s+the\s+(?:bug|issue|problem)\s+in\b)|(?-u:\bread\s+(?:this|the|an?)\s+(?:file|code|text|log|pdf|attachment)\b))"
+        )
+        .unwrap()
+    })
+}
+
+/// Layer 1b — code-writing tasks fully defined by the prompt itself.
+/// Live-intent words (price/latest/…) are already force-YESed upstream,
+/// so a codegen-shaped prompt asking for CURRENT facts cannot skip here.
+fn re_codegen() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?-u:\b(?:write|create|generate|give me|produce|implement)\b)[^.!?]{0,30}?(?-u:\b(?:code|function|component|script|program|class|regex|sql|hook|snippet|unit tests?)\b))"
+        )
+        .unwrap()
+    })
+}
+
+/// Layer 1b — pure arithmetic ("what is 15 * 17?", "solve 25 * 47").
+fn re_math() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:(?-u:\b(?:what(?:'s|\s+is)|solve|calculate|compute)\b)[^.!?]{0,12}?\d+\s*[-+*/xX]\s*\d+)"
+        )
+        .unwrap()
+    })
+}
+
 /* ── STAGE 0: deterministic hard bypass (0 ms, no LLM call) ─────────── */
 
 /// ⇔ `HardBypassHit.matched`. NOTE: `KnownSite` is NEVER produced — the
@@ -242,6 +339,19 @@ pub enum BypassMatched {
     KnownSite,
     WebIntent,
     ImageIntent,
+    /// Part-10 APPROVED DEVIATION (universal search pre-gate, layer 2):
+    /// a high-confidence freshness / time-sensitive request — force-YES,
+    /// the model never gets veto power over it (⇔ TS `"freshness"`).
+    Freshness,
+    /// Part-10 APPROVED DEVIATION (attachment-aware gate): the current
+    /// turn carries attachment evidence and shows no explicit web intent
+    /// (⇔ TS `"attachment_evidence"`).
+    AttachmentEvidence,
+    /// Part-10 APPROVED DEVIATION (universal search pre-gate, layer 1):
+    /// an explicitly local-only turn or an obviously self-contained task
+    /// (supplied-content transform / prompt-defined codegen / pure math)
+    /// — force-NO with zero queries (⇔ TS `"local_task"`).
+    LocalTask,
 }
 
 // NOTE: no `Serialize` — `DetectedUrl` (W0, not editable) does not
@@ -260,6 +370,20 @@ pub struct HardBypassResult {
     pub hit: HardBypassHit,
 }
 
+/// The shared force-NO decision for both deterministic local-task layers
+/// (explicit local-only intent and self-contained tasks). Structurally
+/// guarantees ZERO queries — an operational instruction can never become
+/// an engine query from the skip path.
+fn local_task_decision() -> SearchDecision {
+    SearchDecision {
+        search_required: false,
+        reason: "deterministic_self_contained".into(),
+        freshness: Freshness::Any,
+        depth: Depth::Standard,
+        queries: vec![],
+    }
+}
+
 pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassResult> {
     let p = ctx.user_prompt.trim();
     if p.is_empty() {
@@ -267,12 +391,82 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
     }
 
     let detected = detect_urls_and_domains(p, true);
+    // Universal policy layer 1a is evaluated AHEAD of the narrow
+    // live-intent arm, because the word "search" inside a NEGATION
+    // ("do not search the web") must not force a search. The §2
+    // tiebreak — freshness never loses — is enforced two ways: the
+    // freshness arm below fires on the full prompt, and a turn only
+    // counts as deterministically local-only when NO live/freshness
+    // intent survives OUTSIDE the negation phrases themselves
+    // (residual re-test with the local-only matches stripped out).
+    let local_only_holds = re_local_only().is_match(p) && {
+        let residual = re_local_only().replace_all(p, " ").into_owned();
+        !(re_web_intent().is_match(&residual) || re_freshness().is_match(&residual))
+    };
     let matched = if !detected.is_empty() {
         BypassMatched::Url
+    } else if re_freshness().is_match(p) {
+        // Universal policy layer 2 (APPROVED PART-10 DEVIATION): a high-
+        // confidence freshness / time-sensitive request forces a SEARCH —
+        // the model gate never gets veto power over it. It flows into the
+        // shared keyword/URL planner below and `re_newsy` still sets
+        // week-vs-any exactly as before. Placed AHEAD of every force-NO
+        // layer, so a contradictory prompt ("don't search — what's the
+        // latest version?") still searches: freshness never loses.
+        BypassMatched::Freshness
+    } else if local_only_holds {
+        // Universal policy layer 1a (APPROVED PART-10 DEVIATION): the user
+        // EXPLICITLY scoped the turn to local evidence ("do not search",
+        // "answer only from the attached/pasted …"). Deliberately gets NO
+        // escape-hatch check: the phrase list contains "web" itself
+        // ("do not search the web"), so any escape test would self-cancel
+        // — the residual re-test above is the guarded equivalent.
+        return Some(HardBypassResult {
+            hit: HardBypassHit { matched: BypassMatched::LocalTask, detected: vec![] },
+            decision: local_task_decision(),
+        });
     } else if re_web_intent().is_match(p) {
         BypassMatched::WebIntent
     } else if ctx.has_image_attachment.unwrap_or(false) && re_image_lookup_intent().is_match(p) {
         BypassMatched::ImageIntent
+    } else if ctx.has_attachment_evidence.unwrap_or(false) {
+        // Part-10 APPROVED DEVIATION (attachment-aware gate): the current
+        // turn already carries local attachment evidence, so a file-grounded
+        // instruction must never wait on — or lose to — a probabilistic
+        // model verdict that web-searches the instruction itself. Explicit
+        // web/current/external intent falls through to the normal gate
+        // (hybrid turns keep web research); anything else is a forced NO:
+        // 0 ms, zero tokens, no LLM gate / planner / engines / extractor /
+        // browser touch, and NO queries — a meta-instruction can never
+        // become an engine query from this path.
+        if re_explicit_web_intent().is_match(p) {
+            return None;
+        }
+        return Some(HardBypassResult {
+            hit: HardBypassHit { matched: BypassMatched::AttachmentEvidence, detected: vec![] },
+            decision: SearchDecision {
+                search_required: false,
+                reason: "deterministic_attachment_local".into(),
+                freshness: Freshness::Any,
+                depth: Depth::Standard,
+                queries: vec![],
+            },
+        });
+    } else if re_supplied_task().is_match(p) || re_codegen().is_match(p) || re_math().is_match(p) {
+        // Universal policy layer 1b (APPROVED PART-10 DEVIATION): an
+        // obviously self-contained task — transforming content the user
+        // supplied, code-gen the prompt already defines, or pure math —
+        // is a deterministic NO with NO attachment required (the rule is
+        // universal). The attachment escape-hatch list guards this layer
+        // too: any hint of live-web/external intent falls through to the
+        // model gate instead.
+        if re_explicit_web_intent().is_match(p) {
+            return None;
+        }
+        return Some(HardBypassResult {
+            hit: HardBypassHit { matched: BypassMatched::LocalTask, detected: vec![] },
+            decision: local_task_decision(),
+        });
     } else {
         return None;
     };
@@ -457,23 +651,36 @@ fn build_fallback_queries(prompt: &str) -> Vec<SearchQuery> {
 /* ── LLM call (main model ONLY) ─────────────────────────────────────── */
 
 const MAIN_GATE_SYSTEM_PROMPT: &str = r#"You are the search router for your own answering pipeline.
-SEARCH-BY-DEFAULT POLICY: answer search_required = true for essentially
-every real question. The ONLY prompts that get search_required = false are
-exactly these two:
-  (a) Pure conversational filler / greetings / thanks / assistant chitchat
-      ("hi", "hello", "thank you", "which model are you") — no external
-      facts are being asked about.
-  (b) A completely self-contained offline task (code, math, text
-      transformation) where the user supplied 100% of the input AND the
-      task mentions zero external brands, websites, people, places,
-      products, events, versions, prices, or facts from the world.
-If ANY proper noun, brand name, website, product, movie, restaurant,
-location, company, person, version number, price, or factual question
-appears — including a Blinkit/Myntra/Zepto/BookMyShow/Zomato style
-platform name, a local business, or a niche tool — search_required MUST
-be true. When in doubt between "I might know" and "I don't know exactly",
-ALWAYS search: the user would rather have a verified answer than a
-confident guess.
+Your parametric knowledge may be STALE. Use the current date at the top of
+this message when interpreting words such as latest, current, today,
+recent, this year, newest, supported, available, price, version, office
+holder, release, schedule, law, regulation, or status — and whenever you
+decide whether a fact may have changed since your training.
+
+DECISION STANDARD: ask "Does answering this accurately REQUIRE information
+outside the conversation and local evidence that may be current, changing,
+or unknown?" — NOT "could web search possibly help?".
+
+Search when:
+- the answer depends on facts that may have changed since training
+  (versions, releases, prices, office holders, laws, regulations,
+  schedules, availability, status, news, sports results);
+- external verification materially affects correctness;
+- the user explicitly asks to search, fact-check, or verify.
+
+Do NOT search when:
+- the task transforms content the user provided (summarize, translate,
+  rewrite, proofread, shorten, explain, review, or fix supplied code,
+  logs, or text);
+- it is ordinary writing, generic coding the prompt already defines, or
+  pure math;
+- debugging follows from code, logs, or attachments the user supplied;
+- the question concerns an established concept, definition, or how-to
+  whose answer does not change;
+- the conversation or an attached document already supplies the evidence.
+
+For genuinely ambiguous middle cases: if the answer could plausibly have
+changed since training, search; otherwise answer without searching.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
@@ -481,22 +688,10 @@ Answer with ONLY valid JSON:
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
 
-Decision rules (search-first):
-- search_required = true for: news, prices, stock/crypto rates, weather,
-  sports results, releases, product availability, local places/businesses,
-  current events, restaurant menus, movie showtimes, job listings,
-  anything about a specific named entity you are not 100% sure of,
-  any explicit URL, any follow-up that asks for a LINK/URL or the CURRENT
-  availability/stock/price/open-closed status of something in the
-  conversation, or details/reviews of an entity you recommended.
-- The conversation history is part of the request: resolve "it / this /
-  that" against it before deciding.
-- A NEW, unrelated chit-chat turn about the ASSISTANT itself (not about
-  a world fact) is the only follow-up that may be no-search.
-
 Query rules (only when search_required = true):
 - 2-4 queries. KEYWORD FORM, not full sentences. Never paste the user's
-  question verbatim; never write a query that is only stopwords or generic
+  question or an operational instruction (e.g. "read this file and reply
+  YES") as a query; never write a query that is only stopwords or generic
   phrasing.
 - Anchor every query on the concrete entities of the request (names,
   numbers, products, places) plus at most one topic word.
@@ -504,15 +699,15 @@ Query rules (only when search_required = true):
   Example bad: ["What is the minimum number of cuts needed to partition
   the string so that each part is a palindrome"].
 - Use the user's exact terminology for proper nouns and version numbers.
-- On follow-up turns, anchor every query on the RESOLVED entity name in
-  exact quotes: ["Honor 200 5G" site:amazon.in, "Honor 200 5G" price buy
-  India] — the site: form when the user or the conversation has named the
-  store/platform, the topic form ("price buy", "apply", "reviews open")
-  otherwise.
-- Set preferred_domains when an authoritative source is obvious.
-- freshness = "any" unless the fact is explicitly live (breaking news,
-  today's price/weather/score). depth: "quick" single fact, "standard"
-  comparison, "deep" multi-source research.
+- Prefer official/primary sources: when the authoritative source is
+  obvious for a version, release, doc set, price, or office-holder fact,
+  set preferred_domains to it (e.g. oracle.com, openjdk.org, nodejs.org,
+  python.org, official project docs or repositories).
+- freshness: "day" for same-day facts, "week"/"month"/"year" when the
+  fact is time-scoped, "any" otherwise; "none" only with
+  search_required = false.
+- depth: "quick" single fact, "standard" comparison, "deep" multi-source
+  research.
 Do NOT add anything else to your output."#;
 
 /// ⇔ the inline `{ role, content }` message shape (locally defined —
@@ -523,10 +718,24 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+/// Part-10 (universal search pre-gate): the date the gate reasons about.
+/// NEVER hardcoded — tests inject `current_date` so they never depend on
+/// the wall clock; production always falls back to the real runtime clock
+/// so staleness questions ("is X still supported?") are judged against the
+/// actual present. Mirrors the TS `gateCurrentDate`.
+fn gate_current_date(ctx: &SearchGateContext) -> String {
+    match ctx.current_date.as_deref().map(str::trim) {
+        Some(d) if !d.is_empty() => d.to_string(),
+        _ => chrono::Utc::now().format("%Y-%m-%d").to_string(),
+    }
+}
+
 fn build_main_gate_messages(ctx: &SearchGateContext) -> Vec<ChatMessage> {
+    let date = gate_current_date(ctx);
+    let year: String = date.chars().take(4).collect();
     let mut msgs = vec![ChatMessage {
         role: "system".into(),
-        content: MAIN_GATE_SYSTEM_PROMPT.into(),
+        content: format!("Current date: {date} (year {year}).\n{MAIN_GATE_SYSTEM_PROMPT}"),
     }];
     if let Some(h) = ctx.history.as_ref() {
         if !h.is_empty() {
@@ -839,10 +1048,14 @@ pub fn gate_disabled_by_env() -> bool {
         || std::env::var("WEB_SEARCH_LFM_DISABLED").as_deref() == Ok("1")
 }
 
-/// THE gate. SEARCH-BY-DEFAULT policy:
-/// 0. hard bypass → search, 0 ms, "deterministic".
+/// THE gate. Three-layer decision policy (universal deterministic
+/// pre-gate + model-owned gray middle — APPROVED PART-10 DEVIATION):
+/// 0. hard bypass → force-YES (URL / live intent / obvious freshness) or
+///    force-NO (attachment-local turn, explicit local-only intent,
+///    self-contained task), 0 ms, "deterministic".
 /// 1. trivial greeting / assistant-identity → no-search, zero tokens.
-/// 2. main model verdict, re-verified against `prompt_has_external_entity`.
+/// 2. main model decides the ambiguous middle (date-aware prompt),
+///    re-verified against `prompt_has_external_entity`.
 /// 3. main model unreachable/unparseable → search-by-default rules plan.
 pub async fn run_search_gate(
     http: &reqwest::Client,
@@ -878,8 +1091,9 @@ pub async fn run_search_gate(
     if let Some(bypass) = deterministic_hard_bypass(ctx) {
         tracing::info!(
             matched = ?bypass.hit.matched,
+            search_required = bypass.decision.search_required,
             prompt = %utf16_prefix(&ctx.user_prompt, 60),
-            "search gate STAGE 0 hard bypass → search"
+            "search gate STAGE 0 hard bypass"
         );
         return SearchGateResult {
             decision: bypass.decision,
@@ -956,8 +1170,17 @@ mod tests {
             user_prompt: prompt.into(),
             history: None,
             has_image_attachment: None,
+            has_attachment_evidence: None,
+            current_date: None,
             image_data_urls: None,
         }
+    }
+
+    /// Part-10 approved deviation: same ctx with attachment evidence on.
+    fn att_ctx(prompt: &str) -> SearchGateContext {
+        let mut c = ctx(prompt);
+        c.has_attachment_evidence = Some(true);
+        c
     }
 
     fn opts(gate_disabled: bool) -> SearchGateOptions {
@@ -997,7 +1220,10 @@ mod tests {
     #[test]
     fn bypass_web_intent_and_image_intent() {
         let r = deterministic_hard_bypass(&ctx("look up the weather in Portland Oregon")).unwrap();
-        assert_eq!(r.hit.matched, BypassMatched::WebIntent);
+        // "weather" now force-YESes via the universal freshness layer
+        // (it fires AHEAD of re_web_intent's "look up"); the downstream
+        // decision bytes (reason/freshness/depth/queries) are identical.
+        assert_eq!(r.hit.matched, BypassMatched::Freshness);
         assert!(r.hit.detected.is_empty());
         assert_eq!(r.decision.depth, Depth::Standard);
         // filler strips "look"/"up"/"the"/"in" (filler list, verbatim)
@@ -1010,13 +1236,245 @@ mod tests {
 
         // no attachment ⇒ the same words are NOT an image bypass
         assert!(deterministic_hard_bypass(&ctx("who is this guy")).is_none());
-        assert!(deterministic_hard_bypass(&ctx("what is 2+2")).is_none());
+        // Part-10 universal pre-gate: pure math is now a deterministic
+        // self-contained skip (layer 1b) — it used to fall through.
+        let r = deterministic_hard_bypass(&ctx("what is 2+2")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::LocalTask);
+        assert!(!r.decision.search_required);
+        assert_eq!(r.decision.reason, "deterministic_self_contained");
+        assert!(r.decision.queries.is_empty());
     }
 
     #[test]
     fn bypass_newsy_becomes_week() {
         let r = deterministic_hard_bypass(&ctx("who won the champions final 2026")).unwrap();
         assert_eq!(r.decision.freshness, Freshness::Week);
+    }
+
+    /* ── Part-10 approved deviation: attachment-aware gate ───────────── */
+
+    #[test]
+    fn bypass_attachment_evidence_forces_no_search() {
+        // Local/file-grounded tasks: deterministic NO, zero queries — the
+        // meta-instruction NEVER becomes an engine query.
+        for p in [
+            "Read the attached file and reply YES if you can read it.",
+            "Summarize this PDF.",
+            "What does this file say about quarterly revenue?",
+            "Find the bug in this attached source file.",
+            "Explain this screenshot.",
+        ] {
+            let r = deterministic_hard_bypass(&att_ctx(p)).unwrap_or_else(|| panic!("{p}"));
+            assert_eq!(r.hit.matched, BypassMatched::AttachmentEvidence);
+            assert!(!r.decision.search_required);
+            assert_eq!(r.decision.reason, "deterministic_attachment_local");
+            assert!(r.hit.detected.is_empty());
+            assert!(r.decision.queries.is_empty(), "{p} generated queries");
+        }
+        // Part-10 UNIVERSAL pre-gate: the same words WITHOUT an attachment
+        // are now a deterministic self-contained skip (layer 1b) — the
+        // rule is no longer attachment-only, so it is NOT inert here.
+        let r = deterministic_hard_bypass(&ctx("Summarize this PDF.")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::LocalTask);
+        assert!(!r.decision.search_required);
+        assert_eq!(r.decision.reason, "deterministic_self_contained");
+        let mut off = ctx("Summarize this PDF.");
+        off.has_attachment_evidence = Some(false);
+        let r = deterministic_hard_bypass(&off).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::LocalTask);
+    }
+
+    #[test]
+    fn bypass_attachment_escape_hatch_never_suppresses() {
+        // URL detector outranks the rule.
+        let r = deterministic_hard_bypass(&att_ctx("Compare this file with https://example.com"))
+            .unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::Url);
+        assert!(r.decision.search_required);
+        // Narrow live-intent words force-YES AHEAD of the attachment rule.
+        // ("still current" now lands on the FRESHNESS arm below — same
+        // force-YES verdict, different matched label: the freshness layer
+        // fires ahead of re_web_intent, "freshness never loses".)
+        for p in [
+            "Compare this PDF with the latest regulations.",
+            "Search the web and fact-check this document.",
+            "Read this document and find the latest information about the company.",
+            "Compare this resume against current job listings.",
+        ] {
+            let r = deterministic_hard_bypass(&att_ctx(p)).unwrap_or_else(|| panic!("{p}"));
+            assert_eq!(r.hit.matched, BypassMatched::WebIntent, "{p}");
+            assert!(r.decision.search_required);
+        }
+        // Broader hybrid phrasing is NEVER suppressed (never reaches the
+        // attachment rule). High-confidence freshness wording ("still
+        // accurate/true/current") is now force-YESed by layer 2 AHEAD of
+        // the attachment escape — a staleness question about a document
+        // must search deterministically; the model cannot veto it either
+        // way.
+        for p in [
+            "Is this information still current?",
+            "Check whether the claims in this PDF are still accurate online.",
+            "Is the information in this document still true?",
+        ] {
+            let r = deterministic_hard_bypass(&att_ctx(p)).unwrap_or_else(|| panic!("{p}"));
+            assert_eq!(r.hit.matched, BypassMatched::Freshness, "{p}");
+            assert!(r.decision.search_required, "{p}");
+        }
+        // Remaining hybrid phrasing falls through to the NORMAL gate —
+        // the model planner still owns those turns.
+        for p in [
+            "Browse the web and verify this attached document.",
+            "Find recent sources supporting this file.",
+            "Look online for news about the uploaded article.",
+        ] {
+            assert!(
+                deterministic_hard_bypass(&att_ctx(p)).is_none(),
+                "{p} must reach the normal gate"
+            );
+        }
+        // Boundary law: "research" must NOT count through "search".
+        let r = deterministic_hard_bypass(&att_ctx("Research this file and rewrite it professionally.")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::AttachmentEvidence);
+        assert!(!r.decision.search_required);
+    }
+
+    #[tokio::test]
+    async fn attachment_gate_never_calls_the_llm_when_enabled() {
+        // opts() points at an UNROUTABLE endpoint: if the gate consulted
+        // the model, the call would fail and rules_based_plan (search)
+        // would answer — source=rules / search_required=true. The bypass
+        // must short-circuit BEFORE any LLM touch (call-count == 0).
+        let r = run_search_gate(
+            &reqwest::Client::new(),
+            &att_ctx("Read the attached file and reply YES if readable."),
+            &opts(false),
+        )
+        .await;
+        assert_eq!(r.source, GateSource::Deterministic);
+        assert!(!r.decision.search_required);
+        assert!(r.decision.queries.is_empty());
+        assert_eq!(r.gate_ms, 0.0);
+    }
+
+    /* ── Part-10 approved deviation: UNIVERSAL search pre-gate ────────── */
+
+    #[test]
+    fn bypass_freshness_forces_search() {
+        // Layer 2 FORCE_SEARCH: the staleness bug class — these can never
+        // fall to a model-gate veto. No attachment flag: universal.
+        for p in [
+            "Who is the CEO of Acme Corp?",
+            "How much does the RTX 5090 cost?",
+            "Is React 18 still maintained?",
+            "What's the weather tonight?",
+            "Update me on the most recent funding round.",
+            "Is this package up to date?",
+        ] {
+            let r = deterministic_hard_bypass(&ctx(p)).unwrap_or_else(|| panic!("{p}"));
+            assert_eq!(r.hit.matched, BypassMatched::Freshness, "{p}");
+            assert!(r.decision.search_required, "{p}");
+            assert_eq!(r.decision.reason, "deterministic_url_or_intent");
+            assert!(!r.decision.queries.is_empty(), "{p} must plan queries");
+        }
+        // Freshness outranks the skip layers even in a task-shaped prompt.
+        let r = deterministic_hard_bypass(&ctx("Write a script that reports the most recent release.")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::Freshness);
+        assert!(r.decision.search_required);
+    }
+
+    #[test]
+    fn bypass_local_task_forces_no_search() {
+        // Layer 1 FORCE_SKIP: deterministic NO with ZERO queries — an
+        // operational instruction can never become an engine query. No
+        // attachment required (that is the universal part).
+        for p in [
+            "Write Python code for binary search.",
+            "Explain this supplied stack trace.",
+            "Summarize this supplied text.",
+            "Read this attachment and reply YES.",
+            "Translate this paragraph.",
+            "What is 15 * 17?",
+            "Solve 25 * 47",
+            "Create a regex for this pattern.",
+            "Fix this code.",
+            "Review this uploaded source file.",
+            "Refactor this function.",
+            "Do not search the web; answer from the pasted code only.",
+            "What's wrong with this regex?",
+            "Find the bug in this attached log.",
+        ] {
+            let r = deterministic_hard_bypass(&ctx(p)).unwrap_or_else(|| panic!("{p}"));
+            assert_eq!(r.hit.matched, BypassMatched::LocalTask, "{p}");
+            assert!(!r.decision.search_required, "{p}");
+            assert_eq!(r.decision.reason, "deterministic_self_contained");
+            assert!(r.decision.queries.is_empty(), "{p} generated queries");
+        }
+    }
+
+    #[test]
+    fn bypass_local_task_escapes_on_external_intent() {
+        // The escape-hatch list guards layer 1b: a self-contained shape
+        // that ALSO signals live-web intent falls through to the model.
+        assert!(deterministic_hard_bypass(&ctx("Translate this paragraph; check the web for slang usage.")).is_none());
+        assert!(deterministic_hard_bypass(&ctx("Summarize this text and browse online sources.")).is_none());
+        // Layer 1a (explicit local-only intent) deliberately has NO escape
+        // — the phrase list contains "web" itself, so an escape test would
+        // self-cancel the user's explicit instruction.
+        let r = deterministic_hard_bypass(&ctx("Don't browse; only from the attached document.")).unwrap();
+        assert_eq!(r.hit.matched, BypassMatched::LocalTask);
+        assert!(!r.decision.search_required);
+    }
+
+    #[test]
+    fn ambiguous_prompts_reach_the_model_gate() {
+        // Layer 3 UNDECIDED: the deterministic classifier ABSTAINS — the
+        // (now date-aware) main-model gate keeps owning the gray middle.
+        for p in [
+            "Tell me about Rust async performance.",
+            "Is PostgreSQL better than MongoDB for this architecture?",
+            "Why does this GPU sometimes disappear?",
+            "Explain recursion.",
+            "What are some good books about systems thinking?",
+        ] {
+            assert!(
+                deterministic_hard_bypass(&ctx(p)).is_none(),
+                "{p} must reach the model gate"
+            );
+        }
+    }
+
+    #[test]
+    fn gate_messages_carry_the_current_date() {
+        // §13: an INJECTED date proves the gate prompt is date-dynamic.
+        let mut c = ctx("is python 2 still supported?");
+        c.current_date = Some("2030-06-15".into());
+        let m = &build_main_gate_messages_for_test(&c)[0];
+        assert!(m.content.starts_with("Current date: 2030-06-15 (year 2030)."));
+        assert!(m.content.contains("parametric knowledge may be STALE"));
+        // Unset ⇒ the REAL runtime date, never a frozen constant (the
+        // assertion is shape-only so the suite never couples to the clock).
+        let m2 = &build_main_gate_messages_for_test(&ctx("hello"))[0];
+        assert!(Regex::new(r"Current date: \d{4}-\d{2}-\d{2} \(year \d{4}\)\.").unwrap().is_match(&m2.content));
+        assert!(!m2.content.contains("2030-06-15"));
+    }
+
+    #[tokio::test]
+    async fn universal_pre_gate_never_calls_the_llm() {
+        // opts(false) points at an UNROUTABLE endpoint: any LLM touch
+        // would fall back to rules_based_plan (source=rules, search=YES).
+        // source=deterministic + gate_ms 0 proves ZERO gate-model calls
+        // in BOTH universal directions (force-YES and force-NO).
+        let r = run_search_gate(&reqwest::Client::new(), &ctx("Who is the CEO of Acme Corp?"), &opts(false)).await;
+        assert_eq!(r.source, GateSource::Deterministic);
+        assert!(r.decision.search_required);
+        assert!(!r.decision.queries.is_empty());
+        assert_eq!(r.gate_ms, 0.0);
+
+        let r = run_search_gate(&reqwest::Client::new(), &ctx("Write Python code for binary search."), &opts(false)).await;
+        assert_eq!(r.source, GateSource::Deterministic);
+        assert!(!r.decision.search_required);
+        assert!(r.decision.queries.is_empty());
+        assert_eq!(r.gate_ms, 0.0);
     }
 
     #[test]

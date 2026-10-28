@@ -224,3 +224,80 @@ Caveats (honest): dev-mode Next (HMR/cache) inflates RSS — the Rust comparison
 8. Thin proxies (Rule 11) + `npm run dev`/`build` supervision (Rules 12–13).
 9. Contract drift tests (ts-rs generation for SHARED_CONTRACT set).
 10. Playwright full suite (lock protocol) + perf re-measure + deletion pass (Rule 18).
+
+## 11. APPROVED PARITY DEVIATION LOG (user-approved 2026-10-28, Part-10)
+
+### 11.1 Universal deterministic search pre-gate + runtime date-aware freshness
+
+**Approved parity deviation: universal deterministic search pre-gate + runtime
+freshness awareness.** Intentionally changes BOTH the TS oracle
+(`lib/web-search/search-gate.ts`) and Rust behavior
+(`ruke-websearch/src/search_gate.rs`) **identically** — parity is preserved by
+deviating both epochs in lockstep, never one.
+
+- **Root cause (observed in Part-10 Playwright recon):** the probabilistic
+  gate model VETOED deterministic turns. 36/36 attachment meta-prompt turns
+  ("Read the attached file and reply YES if you can read it.") received
+  main-model `search_required: YES` and the planner searched the user's own
+  operational INSTRUCTION (top results: geeksforgeeks/cfengine/howtosayguide).
+  The attachment-only suppression rule (epoch 1) fixed the attachment case but
+  left the same bug class live for prompts WITHOUT an attachment; and the gate
+  prompt had no notion of the present date, so staleness questions were judged
+  against frozen training knowledge (the model could neither confirm nor
+  reliably deny "still maintained").
+- **Previous behavior:** Stage-0 bypass covered only URLs/known domains/narrow
+  web-intent words/image-intent/attachment-evidence; everything else (codegen,
+  math, supplied-content transforms, explicitly-local-only turns, freshness
+  questions) went to the 35 s main-model gate, whose verdict was
+  probabilistic in BOTH directions.
+- **New three-layer flow (both epochs, same order — FRESHNESS NEVER LOSES):**
+  url → **FRESHNESS force-YES** (phrase-anchored high-confidence staleness
+  shapes: weather/forecast, how-much…cost/price/worth ≤40 chars, this
+  week/month/year, most recent, as-of-now, up-to-date, still
+  supported/available/maintained/…, who is/are the [office holder],
+  current/latest version/release) → **E1 local-only force-NO** (user
+  explicitly scoped the turn: "do not search", "only from the attached…";
+  DELIBERATELY has no escape hatch — its own phrase list contains "web", so an
+  escape check would self-cancel the user's instruction; guarded instead by a
+  RESIDUAL RE-TEST: the matched span is stripped from the prompt and the
+  narrowed web/freshness regexes re-run against the residual, so
+  "Do not search the web; answer from the pasted code only." skips but a
+  residual live-intent would not) → web-intent → image → attachment →
+  **E2 self-contained task force-NO** (supplied-content transforms
+  verb…demonstrative…artifact-noun within one sentence, prompt-defined
+  code-gen, pure arithmetic; guarded by the EXPLICIT_WEB_INTENT escape hatch —
+  "Translate this paragraph; check the web…" falls through to the model) →
+  else UNDECIDED → date-aware model gate.
+- **Query guard (structural):** every force-NO verdict carries `queries: []`
+  — an operational instruction can no longer become an engine query in ANY
+  direction.
+- **Web-intent narrowing (same deviation):** the bare `search` token was
+  REMOVED from `re_web_intent`/`WEB_INTENT_RE` (kept: "search the web|internet|
+  online", "web/google/internet search", look-up, who-won, latest/current/
+  today/price/…) because "Write Python code for binary search." was being
+  force-YESed — the SAME bug class (engine searching the user's instruction),
+  now in the opposite direction. Consequence, accepted: bare "search for X"
+  prompts now reach the model gate (its explicit-search rule still answers
+  YES — one extra gate call, documented latency trade-off).
+- **Runtime date (never hardcoded):** `SearchGateContext.current_date`
+  (Rust, `Option<String>`, serde default+skip) / `currentDate?` (TS); the gate
+  system message is prefixed `Current date: YYYY-MM-DD (year NNNN).`; absent ⇒
+  real UTC clock (`chrono::Utc::now()` / `new Date().toISOString().slice(0,10)`
+  — identical semantics); tests inject, never couple to the wall clock. There
+  is NO equivalent date mechanism for the main response model anywhere in the
+  repo (grep-verified in both epochs) — deliberately NOT invented; absence is
+  a documented limitation for the final report.
+- **Evidence:** Rust 6 new unit tests (bypass_freshness_forces_search,
+  bypass_local_task_forces_no_search, bypass_local_task_escapes_on_external_
+  intent, ambiguous_prompts_reach_the_model_gate, gate_messages_carry_the_
+  current_date, universal_pre_gate_never_calls_the_llm) + TS mirror spec
+  `__tests__/web-search/search-gate-universal.test.ts` (identical prompt
+  matrices/labels/reasons) + updated attachment spec. Battery at landing:
+  cargo test --workspace **576 passed / 0 failed**; clippy `-D warnings` 0;
+  `npx tsc --noEmit` 0; `npx vitest run __tests__/rust-golden` **54/54**
+  (zero fixture mutation — bypass `matched` labels are not serialized, so
+  golden bytes unchanged); full `npx vitest run` **726 passed / 1 skipped,
+  71 files**. Regex portability fix during landing: negated `[^.!?]` gap
+  classes must stay OUTSIDE `(?-u:)` byte-scopes (the regex crate rejects
+  byte-mode negated classes as able to match invalid UTF-8); TS bodies are
+  byte-equivalent modulo that scoping.

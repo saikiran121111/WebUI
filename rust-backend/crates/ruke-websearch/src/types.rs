@@ -519,6 +519,20 @@ pub struct SearchGateContext {
     pub history: Option<Vec<HistoryTurn>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub has_image_attachment: Option<bool>,
+    /// Part-10 APPROVED PARITY DEVIATION (attachment-aware gate): the
+    /// CURRENT turn carries attachment evidence (`attachment_ref` blocks —
+    /// the same flag the retrieval stage keys off). Consulted ONLY by the
+    /// STAGE 0 attachment-local suppression rule; absent/false ⇒ behavior
+    /// byte-identical to the pre-deviation parity baseline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_attachment_evidence: Option<bool>,
+    /// Part-10 APPROVED PARITY DEVIATION (universal search pre-gate): the
+    /// runtime date the gate model should reason against (YYYY-MM-DD).
+    /// NEVER hardcoded — when absent the gate falls back to the real
+    /// runtime date (`chrono::Utc::now()`); tests inject a fixed date so
+    /// they never depend on the wall clock. Mirrors the TS `currentDate`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_data_urls: Option<Vec<String>>,
 }

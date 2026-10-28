@@ -140,9 +140,49 @@ export function extractPromptUrls(prompt: string): string[] {
  *      company lookup words (search, linkedin, profile, who is, find, guy,
  *      person, company, location, where is, product).
  *
- * When any fires the gate answers {search_required: true, reason:
+ *   D. Attachment-local suppression (APPROVED PART-10 DEVIATION) — the
+ *      current turn carries attachment evidence (hasAttachmentEvidence)
+ *      AND shows no explicit web/current/external intent → forced
+ *      {search_required: false, reason: "deterministic_attachment_local"}:
+ *      file tasks are answered from the injected evidence, the model gate
+ *      is never consulted, and NO query is ever built from a meta-
+ *      instruction. Hybrid turns fall through instead: a BROADER phrase
+ *      list (EXPLICIT_WEB_INTENT_RE) keeps "browse the web / still
+ *      accurate / recent sources / online" turns with the normal gate.
+ *
+ *   E. Universal self-contained / local-only skip (APPROVED PART-10
+ *      DEVIATION) — force-NO {reason: "deterministic_self_contained"}
+ *      with ZERO queries, NO attachment required:
+ *        E1 local-only intent — the user EXPLICITLY scoped the turn to
+ *           local evidence ("do not search the web", "answer only from
+ *           the attached/pasted …"). NO escape-hatch check (the phrase
+ *           list contains "web" itself, so an escape test would self-
+ *           cancel); instead the rule only HOLDS when no live/freshness
+ *           intent survives outside the negation phrases (residual
+ *           re-test). Evaluated AHEAD of B so the "search" inside
+ *           "do not search" cannot force a search.
+ *        E2 self-contained task — a transform of SUPPLIED content
+ *           (verb + demonstrative + artifact noun in one sentence),
+ *           prompt-defined code-gen, or pure arithmetic. Guarded by the
+ *           EXPLICIT_WEB_INTENT_RE escape hatch like D.
+ *
+ *   F. Universal freshness force-YES (APPROVED PART-10 DEVIATION) —
+ *      high-confidence time-sensitive shapes (currently, weather,
+ *      how much…cost, still supported/available/true, up to date,
+ *      most recent, this week/month/year, who is the <office holder>,
+ *      current/latest version|release) force A–C's SEARCH verdict. The
+ *      model gate can NEVER veto a staleness question; it flows into the
+ *      same keyword planner, so the decision bytes stay identical to the
+ *      pre-deviation behavior for prompts A–C already caught.
+ *
+ * Ordering law (FRESHNESS NEVER LOSES): A → F → E1 (residual-guarded) →
+ * B → C → D → E2. A contradictory "don't search — what's the latest?"
+ * turn searches; a pure local task never wastes an engine query on its
+ * own operational instruction.
+ *
+ * When A/B/C/F fire the gate answers {search_required: true, reason:
  * "deterministic_url_or_intent"} in 0 ms — the model never gets to veto
- * "open the link the user literally pasted".
+ * "open the link the user literally pasted". D/E1/E2 are the force-NO hits.
  */
 const KNOWN_SITE_TOKEN_RE =
   /(?:^|[^\w./-])(youtu\.be|youtube\.com|maps\.app\.goo\.gl|goo\.gl|bit\.ly|t\.co|lnkd\.in|redd\.it|amzn\.to|linkedin\.com|reddit\.com|x\.com|instagram\.com)(?:$|[^\w./-])/i;
@@ -152,15 +192,86 @@ const DOMAIN_TLD_TOKEN_RE =
 
 const WWW_TOKEN_RE = /(?:^|[^\w./-])www\.[\w-]+/i;
 
+// Part-10 UNIVERSAL pre-gate refinement (APPROVED PART-10 DEVIATION): the
+// BARE `search` token is gone — it force-YESed codegen prompts like "Write
+// Python code for binary search." and made the engine pool search the
+// user's own instruction (the bug class this part retires). Only an
+// explicit web-search frame ("search the web/online/internet", "web/google
+// search") force-YESes here; a bare "search for X" now reaches the model
+// gate, whose explicit-search rule still answers YES. Byte-identical to
+// the Rust re_web_intent body.
 const WEB_INTENT_RE =
-  /(?:\b(?:search|watch|video|location|maps|linkedin|reddit|latest|current|today|price|jobs|hiring|20(?:2[4-9]))\b|\blook\s?up\b|\bwho\s+won\b)/i;
+  /(?:\b(?:watch|video|location|maps|linkedin|reddit|latest|current|today|price|jobs|hiring|20(?:2[4-9]))\b|\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\b(?:web|google|internet)\s+search(?:es|ing)?\b|\blook\s?up\b|\bwho\s+won\b)/i;
 
 /** Lookup-intent words that only count when an image is attached. */
 const IMAGE_LOOKUP_INTENT_RE =
   /(?:\b(?:search|linkedin|profile|find|guy|person|company|location|product)\b|\bwho\s*'?s?\s+is\b|\bwhere\s+is\b|\bwhat\s+is\s+this\b)/i;
 
+/**
+ * APPROVED PART-10 DEVIATION — the attachment-aware escape hatch. A turn
+ * with attachment evidence is only suppressed when it shows NO sign of
+ * wanting live-web/current/external information. This broader phrase list
+ * is consulted ONLY when attachment evidence is present (non-attachment
+ * turns keep byte-identical parity behavior via the narrow WEB_INTENT_RE
+ * above). Word-boundary phrases only: "research" never matches through
+ * "search", "renew" never through "news".
+ */
+const EXPLICIT_WEB_INTENT_RE =
+  /(?:\b(?:website|web|browse|online|internet|google|news|recent|recently|newest|currently|fact(?:\s|-)+check)\b|\blook\s?online\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:true|accurate|valid|current|available)\b)/i;
+
+/* ── universal search pre-gate regexes (APPROVED PART-10 DEVIATION) ──── */
+// Byte-identical bodies to the Rust re_freshness / re_local_only /
+// re_supplied_task / re_codegen / re_math (Rust scopes ASCII \b with
+// (?-u:…); JS \b is already ASCII).
+
+/** Layer F — high-confidence freshness / time-sensitive → FORCE SEARCH.
+ *  Deliberately NARROW and phrase-anchored; office-holder nouns only
+ *  match inside the "who is/are the …" frame. */
+const FRESHNESS_RE =
+  /(?:\b(?:currently|weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b)/i;
+
+/** Layer E1 — the user EXPLICITLY scoped the turn to local evidence. */
+const LOCAL_ONLY_RE =
+  /(?:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b|\bwithout\s+(?:searching|browsing)\b|\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\banswer\s+(?:only|strictly)\s+from\b|\buse\s+only\s+the\s+attached\b)/i;
+// Global mirror ⇔ Rust `replace_all` (strip EVERY local-only phrase).
+const LOCAL_ONLY_RE_G = new RegExp(LOCAL_ONLY_RE.source, "gi");
+
+/** Layer E2 — a verb that TRANSFORMS content the user supplied, in one
+ *  sentence; the demonstrative must reach an artifact noun (so "Review
+ *  this year's finals" never skips). */
+const SUPPLIED_TASK_RE =
+  /(?:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract)\b[^.!?]{0,25}?(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b[^.!?]{0,20}?(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat)|\bwhat(?:'s|\s+is)\s+wrong\s+with\b|\bfind\s+the\s+(?:bug|issue|problem)\s+in\b|\bread\s+(?:this|the|an?)\s+(?:file|code|text|log|pdf|attachment)\b)/i;
+
+/** Layer E2 — code-writing tasks fully defined by the prompt itself. */
+const CODEGEN_RE =
+  /\b(?:write|create|generate|give me|produce|implement)\b[^.!?]{0,30}?\b(?:code|function|component|script|program|class|regex|sql|hook|snippet|unit tests?)\b/i;
+
+/** Layer E2 — pure arithmetic ("what is 15 * 17?", "solve 25 * 47"). */
+const MATH_RE =
+  /(?:\b(?:what(?:'s|\s+is)|solve|calculate|compute)\b[^.!?]{0,12}?\d+\s*[-+*/xX]\s*\d+)/i;
+
+/** Shared force-NO decision for every deterministic local-task layer.
+ *  Structurally guarantees ZERO queries — an operational instruction can
+ *  never become an engine query from the skip path. */
+function localTaskDecision(): SearchDecision {
+  return {
+    search_required: false,
+    reason: "deterministic_self_contained",
+    freshness: "any",
+    depth: "standard",
+    queries: [],
+  };
+}
+
 export interface HardBypassHit {
-  matched: "url" | "known_site" | "web_intent" | "image_intent";
+  matched:
+    | "url"
+    | "known_site"
+    | "web_intent"
+    | "image_intent"
+    | "freshness"
+    | "attachment_evidence"
+    | "local_task";
   /** tldts-detected URLs/bare-domains (normalised https:// form). */
   detected: DetectedUrl[];
 }
@@ -174,11 +285,73 @@ export function deterministicHardBypass(
   if (!p) return null;
 
   const detected = detectUrlsAndDomains(p);
+  // Part-10 universal pre-gate (APPROVED DEVIATION): ordering law is
+  // url → freshness (force-YES) → local-only (force-NO) → web intent →
+  // image intent → attachment → self-contained task. Mirrors the Rust
+  // `deterministic_hard_bypass` chain byte-for-byte in semantics.
+  //
+  // E1 "holds" ONLY when no live intent survives OUTSIDE the negation
+  // phrases: "do not search the web" contains the force-YES token
+  // "search", so the residual (every local-only phrase stripped) is
+  // re-tested against the web-intent and freshness lists. A contradictory
+  // "don't search — what's the latest version?" turn falls through to the
+  // force-SEARCH arms instead.
+  const localOnlyHolds =
+    LOCAL_ONLY_RE.test(p) &&
+    !(
+      WEB_INTENT_RE.test(p.replace(LOCAL_ONLY_RE_G, " ")) ||
+      FRESHNESS_RE.test(p.replace(LOCAL_ONLY_RE_G, " "))
+    );
+
   let hit: HardBypassHit | null = null;
 
   if (detected.length > 0) hit = { matched: "url", detected };
+  else if (FRESHNESS_RE.test(p)) hit = { matched: "freshness", detected: [] };
+  else if (localOnlyHolds) {
+    // Layer E1: the user EXPLICITLY scoped the turn to local evidence.
+    // No escape-hatch check — the phrase list contains "web" itself, so
+    // an escape test would self-cancel; the residual re-test above IS
+    // the guard. Force-NO with zero queries; the model gate never runs.
+    return {
+      hit: { matched: "local_task", detected: [] },
+      decision: localTaskDecision(),
+    };
+  }
   else if (WEB_INTENT_RE.test(p)) hit = { matched: "web_intent", detected: [] };
   else if (ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(p)) hit = { matched: "image_intent", detected: [] };
+  else if (ctx.hasAttachmentEvidence) {
+    // APPROVED PART-10 DEVIATION (attachment-aware gate): the current turn
+    // already carries local attachment evidence, so a file-grounded
+    // instruction must never wait on — or lose to — a probabilistic model
+    // verdict that web-searches the instruction itself. Explicit web/
+    // current/external intent falls through to the normal gate (hybrid
+    // turns keep web research); anything else is a forced NO: 0 ms, zero
+    // tokens, no gate LLM / planner / engines / extractor / browser touch,
+    // and NO queries — a meta-instruction can never become an engine query
+    // from this path.
+    if (EXPLICIT_WEB_INTENT_RE.test(p)) return null;
+    return {
+      hit: { matched: "attachment_evidence", detected: [] },
+      decision: {
+        search_required: false,
+        reason: "deterministic_attachment_local",
+        freshness: "any",
+        depth: "standard",
+        queries: [],
+      },
+    };
+  }
+  else if (SUPPLIED_TASK_RE.test(p) || CODEGEN_RE.test(p) || MATH_RE.test(p)) {
+    // Layer E2 (universal, NO attachment required): transforming supplied
+    // content, prompt-defined code-gen, or pure arithmetic is answered
+    // locally. Same escape-hatch law as D — an explicit web/external
+    // intent on the turn returns it to the normal gate.
+    if (EXPLICIT_WEB_INTENT_RE.test(p)) return null;
+    return {
+      hit: { matched: "local_task", detected: [] },
+      decision: localTaskDecision(),
+    };
+  }
   if (!hit) return null;
 
   const queries: SearchDecision["queries"] = [];
@@ -325,24 +498,42 @@ function noSearchPlan(reason = "trivial prompt — no web content needed"): Sear
  */
 import { THINKING_OFF_BODY } from "./llm-json";
 
+// Part-10 (universal search pre-gate): replaces the old SEARCH-BY-DEFAULT
+// policy. Byte-identical to the Rust MAIN_GATE_SYSTEM_PROMPT. The decision
+// standard is staleness-aware: the model judges whether a fact may have
+// CHANGED, and the "Current date: …" line prepended by
+// buildMainGateMessages grounds that judgment in the real runtime clock.
 const MAIN_GATE_SYSTEM_PROMPT = `You are the search router for your own answering pipeline.
-SEARCH-BY-DEFAULT POLICY: answer search_required = true for essentially
-every real question. The ONLY prompts that get search_required = false are
-exactly these two:
-  (a) Pure conversational filler / greetings / thanks / assistant chitchat
-      ("hi", "hello", "thank you", "which model are you") — no external
-      facts are being asked about.
-  (b) A completely self-contained offline task (code, math, text
-      transformation) where the user supplied 100% of the input AND the
-      task mentions zero external brands, websites, people, places,
-      products, events, versions, prices, or facts from the world.
-If ANY proper noun, brand name, website, product, movie, restaurant,
-location, company, person, version number, price, or factual question
-appears — including a Blinkit/Myntra/Zepto/BookMyShow/Zomato style
-platform name, a local business, or a niche tool — search_required MUST
-be true. When in doubt between "I might know" and "I don't know exactly",
-ALWAYS search: the user would rather have a verified answer than a
-confident guess.
+Your parametric knowledge may be STALE. Use the current date at the top of
+this message when interpreting words such as latest, current, today,
+recent, this year, newest, supported, available, price, version, office
+holder, release, schedule, law, regulation, or status — and whenever you
+decide whether a fact may have changed since your training.
+
+DECISION STANDARD: ask "Does answering this accurately REQUIRE information
+outside the conversation and local evidence that may be current, changing,
+or unknown?" — NOT "could web search possibly help?".
+
+Search when:
+- the answer depends on facts that may have changed since training
+  (versions, releases, prices, office holders, laws, regulations,
+  schedules, availability, status, news, sports results);
+- external verification materially affects correctness;
+- the user explicitly asks to search, fact-check, or verify.
+
+Do NOT search when:
+- the task transforms content the user provided (summarize, translate,
+  rewrite, proofread, shorten, explain, review, or fix supplied code,
+  logs, or text);
+- it is ordinary writing, generic coding the prompt already defines, or
+  pure math;
+- debugging follows from code, logs, or attachments the user supplied;
+- the question concerns an established concept, definition, or how-to
+  whose answer does not change;
+- the conversation or an attached document already supplies the evidence.
+
+For genuinely ambiguous middle cases: if the answer could plausibly have
+changed since training, search; otherwise answer without searching.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
@@ -350,22 +541,10 @@ Answer with ONLY valid JSON:
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
 
-Decision rules (search-first):
-- search_required = true for: news, prices, stock/crypto rates, weather,
-  sports results, releases, product availability, local places/businesses,
-  current events, restaurant menus, movie showtimes, job listings,
-  anything about a specific named entity you are not 100% sure of,
-  any explicit URL, any follow-up that asks for a LINK/URL or the CURRENT
-  availability/stock/price/open-closed status of something in the
-  conversation, or details/reviews of an entity you recommended.
-- The conversation history is part of the request: resolve "it / this /
-  that" against it before deciding.
-- A NEW, unrelated chit-chat turn about the ASSISTANT itself (not about
-  a world fact) is the only follow-up that may be no-search.
-
 Query rules (only when search_required = true):
 - 2-4 queries. KEYWORD FORM, not full sentences. Never paste the user's
-  question verbatim; never write a query that is only stopwords or generic
+  question or an operational instruction (e.g. "read this file and reply
+  YES") as a query; never write a query that is only stopwords or generic
   phrasing.
 - Anchor every query on the concrete entities of the request (names,
   numbers, products, places) plus at most one topic word.
@@ -373,20 +552,37 @@ Query rules (only when search_required = true):
   Example bad: ["What is the minimum number of cuts needed to partition
   the string so that each part is a palindrome"].
 - Use the user's exact terminology for proper nouns and version numbers.
-- On follow-up turns, anchor every query on the RESOLVED entity name in
-  exact quotes: ["Honor 200 5G" site:amazon.in, "Honor 200 5G" price buy
-  India] — the site: form when the user or the conversation has named the
-  store/platform, the topic form ("price buy", "apply", "reviews open")
-  otherwise.
-- Set preferred_domains when an authoritative source is obvious.
-- freshness = "any" unless the fact is explicitly live (breaking news,
-  today's price/weather/score). depth: "quick" single fact, "standard"
-  comparison, "deep" multi-source research.
+- Prefer official/primary sources: when the authoritative source is
+  obvious for a version, release, doc set, price, or office-holder fact,
+  set preferred_domains to it (e.g. oracle.com, openjdk.org, nodejs.org,
+  python.org, official project docs or repositories).
+- freshness: "day" for same-day facts, "week"/"month"/"year" when the
+  fact is time-scoped, "any" otherwise; "none" only with
+  search_required = false.
+- depth: "quick" single fact, "standard" comparison, "deep" multi-source
+  research.
 Do NOT add anything else to your output.`;
 
+/**
+ * Part-10 (universal search pre-gate): the date the gate reasons about.
+ * NEVER hardcoded — tests inject `currentDate` so they never depend on
+ * the wall clock; production always falls back to the real runtime clock
+ * (UTC, matching Rust's chrono::Utc::now) so staleness questions ("is X
+ * still supported?") are judged against the actual present.
+ */
+function gateCurrentDate(ctx: SearchGateContext): string {
+  const d = ctx.currentDate?.trim();
+  if (d) return d;
+  return new Date().toISOString().slice(0, 10);
+}
+
 function buildMainGateMessages(ctx: SearchGateContext): { role: string; content: string }[] {
+  const date = gateCurrentDate(ctx);
   const msgs: { role: string; content: string }[] = [
-    { role: "system", content: MAIN_GATE_SYSTEM_PROMPT },
+    {
+      role: "system",
+      content: `Current date: ${date} (year ${date.slice(0, 4)}).\n${MAIN_GATE_SYSTEM_PROMPT}`,
+    },
   ];
   if (ctx.history?.length) {
     for (const m of ctx.history.slice(-4)) {
@@ -615,8 +811,12 @@ export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateR
   const bypass = deterministicHardBypass(ctx);
   if (bypass) {
     log.info(
-      { matched: bypass.hit.matched, prompt: ctx.userPrompt.slice(0, 60) },
-      "search gate STAGE 0 hard bypass → search",
+      {
+        matched: bypass.hit.matched,
+        search_required: bypass.decision.search_required,
+        prompt: ctx.userPrompt.slice(0, 60),
+      },
+      "search gate STAGE 0 hard bypass",
     );
     return { decision: bypass.decision, source: "deterministic", gateMs: 0 };
   }

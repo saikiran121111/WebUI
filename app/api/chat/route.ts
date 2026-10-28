@@ -481,6 +481,10 @@ async function runTurnPipeline(
         userPrompt: fullText,
         history,
         hasImageAttachment: imageParts.length > 0,
+        // APPROVED PART-10 DEVIATION: the same current-turn flag the
+        // retrieval stage keyed off feeds the attachment-aware gate
+        // (Rust mirror: has_attachment_evidence).
+        hasAttachmentEvidence: hasAttachmentRefs,
         imageDataUrls: imageParts,
       },
       (p) => {

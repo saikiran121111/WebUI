@@ -165,6 +165,24 @@ export interface SearchGateContext {
    */
   hasImageAttachment?: boolean;
   /**
+   * Part-10 APPROVED PARITY DEVIATION (attachment-aware gate): the CURRENT
+   * turn carries attachment evidence (`attachment_ref` blocks — the same
+   * flag the retrieval stage keys off). Consulted ONLY by the Stage-0
+   * attachment-local suppression rule; absent/false ⇒ behavior is
+   * byte-identical to the pre-deviation parity baseline. Mirrors the Rust
+   * SearchGateContext field of the same name.
+   */
+  hasAttachmentEvidence?: boolean;
+  /**
+   * Part-10 APPROVED PARITY DEVIATION (universal search pre-gate): the
+   * runtime date ("YYYY-MM-DD") the gate model should reason against.
+   * NEVER hardcoded — when absent the gate falls back to the real clock
+   * (`new Date()`), so staleness questions are judged against the actual
+   * present; tests inject a fixed date so they never couple to the wall
+   * clock. Mirrors the Rust SearchGateContext `current_date` field.
+   */
+  currentDate?: string;
+  /**
    * Image data URLs attached to the user's turn (when hasImageAttachment).
    * Consumed by the Vision-to-Search entity pre-pass before query planning.
    */

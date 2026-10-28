@@ -243,6 +243,13 @@ pub async fn run_turn_pipeline(
             user_prompt: question.to_string(),
             history: Some(history_turns),
             has_image_attachment: Some(!image_parts.is_empty()),
+            // Part-10 approved deviation: the SAME current-turn flag the
+            // retrieval stage above keyed off feeds the attachment-aware
+            // gate suppression (TS oracle: hasAttachmentEvidence).
+            has_attachment_evidence: Some(has_attachment_refs),
+            // Universal search pre-gate (approved deviation): None ⇒ the
+            // gate uses the real runtime date (never hardcoded).
+            current_date: None,
             image_data_urls: Some(image_parts),
         };
         // Settings are read PER CALL (llmApiUrl/llmApiKey): a settings.json
