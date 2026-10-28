@@ -31,12 +31,15 @@
 //!   `ATTACH_TOP_K` clamps to 0 instead of JS `slice(0, -k)`.
 //! - UTF-16 slicing surrogate snaps (head snaps DOWN, tail snaps UP).
 //! - `cos`/`bm` position-vs-id indexing quirk reproduced, not fixed.
-//! - Query embeddings come from the [`QueryEmbedder`] seam; production
-//!   runs [`UnavailableEmbedder`] (Part 8 owns ONNX) ⇔ TS `embedOne`
-//!   throw ⇒ empty vec ⇒ BM25-alone ranking.
+//! - Query embeddings come from the [`QueryEmbedder`] seam: production
+//!   runs [`HttpQueryEmbedder`] (Node-owned ONNX over the loopback RPC in
+//!   [`embedder`]) when the supervisor pair is configured, else
+//!   [`UnavailableEmbedder`] ⇔ TS `embedOne` throw ⇒ empty vec ⇒
+//!   BM25-alone ranking.
 //! - Frame base64 is hand-rolled standard-alphabet (no base64 crate).
 
 pub mod bm25;
+pub mod embedder;
 pub mod format;
 pub mod notes;
 pub mod retrieve;
@@ -46,8 +49,9 @@ pub mod turn;
 pub mod types;
 
 /// The query-embedding seam (`embedOne` in `lib/server/attachindex/
-/// embed.ts`). TS runs the real ONNX model at chat time; Part 8 decides
-/// how Rust obtains vectors. Until then the production seam returns
+/// embed.ts`). The ONNX model stays Node-owned; production obtains the
+/// chat-time vector through [`HttpQueryEmbedder`]'s authenticated
+/// loopback RPC. Unconfigured (or a failed RPC) returns
 /// [`EmbedUnavailable`] and retrieval degrades exactly like the TS
 /// `try { queryVec = await embedOne(rq) } catch {}` path: the vector
 /// stays empty and BM25 alone ranks (cosine dots become 0.0).
@@ -59,8 +63,9 @@ pub trait QueryEmbedder: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedUnavailable;
 
-/// Production Part-5 embedder: always unavailable (no second embedding
-/// model is downloaded or run on the Rust side).
+/// Fallback embedder when the loopback RPC pair is unconfigured: always
+/// unavailable (no second embedding model is downloaded or run on the
+/// Rust side).
 pub struct UnavailableEmbedder;
 
 impl QueryEmbedder for UnavailableEmbedder {
@@ -81,6 +86,7 @@ impl QueryEmbedder for FixedEmbedder {
 }
 
 // Convenience surface used by the ruke-server pipeline seam.
+pub use crate::embedder::HttpQueryEmbedder;
 pub use crate::notes::{generate_notes, Cancelled, NotesLlm};
 pub use crate::retrieve::{retrieve_evidence, Evidence, RetrieveOpts};
 pub use crate::router::{route_query, QueryMode, RoutedQuery};

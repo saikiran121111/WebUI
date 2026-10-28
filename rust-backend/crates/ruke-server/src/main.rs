@@ -112,11 +112,26 @@ async fn main() {
         // No client timeouts: a slow local model is normal operation, and
         // the TS baseline `fetch` has none either (MIGRATION-MAP §2).
         http: http.clone(),
-        // Part 5 production seam: no embedding model runs on the Rust
-        // side (ONNX stays a Node concern; Part 8 decides otherwise).
-        // Retrieval then degrades exactly like the TS `embedOne` catch —
-        // empty vector, BM25-alone ranking.
-        attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),
+        // Part-10 seam (mirrors the Tier-3b pattern above): the chat-time
+        // query vector rides an authenticated loopback RPC to Node's
+        // ONNX embedder — the SAME supervisor-generated env pair. The
+        // model itself stays Node-owned. Unset ⇒ UnavailableEmbedder:
+        // retrieval degrades exactly like the TS `embedOne` catch —
+        // empty vector, BM25-alone ranking. Rule 17: log the boolean,
+        // never the secret.
+        attach_embedder: match ruke_attach::HttpQueryEmbedder::from_env() {
+            Some(e) => {
+                tracing::info!("attachment query-embedder configured (Node ONNX loopback RPC)");
+                Arc::new(e) as Arc<dyn ruke_attach::QueryEmbedder>
+            }
+            None => {
+                tracing::info!(
+                    "attachment query-embedder not configured: retrieval degrades \
+                     like the TS embedOne catch (BM25-alone)"
+                );
+                Arc::new(ruke_attach::UnavailableEmbedder) as Arc<dyn ruke_attach::QueryEmbedder>
+            }
+        },
         conversations: conversations.clone(),
         // TS title scheduler fires on the same settings store + upstream
         // client the chat route uses; the queue serializes jobs globally.
