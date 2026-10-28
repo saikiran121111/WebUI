@@ -103,10 +103,19 @@ test("Decision Engine injects exactly the matched modality skill (zero cross-con
     expect(payload, `cross-contamination: ${other} loaded on a pdf prompt`).not.toContain(`<core_skill name="${other}"`);
   }
   expect((payload.match(/<core_skill name=/g) ?? []).length, "more than one core skill bundle injected").toBe(1);
-  // Stripping contract: the user turn reaching the main LLM is the engine's
-  // stripped_prompt, not the verbatim "make me a printable…" preamble.
+  // Stripping contract (documented identically pre- and post-migration):
+  // stripped_prompt is the message TRIMMED/whitespace-normalized, NEVER
+  // rewritten or truncated — rule-based filler stripping was removed
+  // 2026-10-18 ("not a word is removed", stripper.py; "the main LLM
+  // receives the user's complete spec set verbatim", decision_server.py;
+  // Rust engine.rs and lib/decision/client.ts agree). On an explicit
+  // deliverable ask the in-process matcher decides the mode without the
+  // LFM router, so the verbatim preamble must survive intact. The stale
+  // "not verbatim" assertion here targeted stripping that no longer
+  // existed even when this test was written (it never ran live: the
+  // proxy precondition silently skipped it).
   const lastUser = (parsed.messages ?? []).filter((m: { role?: string }) => m.role === "user").pop();
-  expect(String(lastUser?.content ?? "")).not.toMatch(/^make me a printable/i);
+  expect(String(lastUser?.content ?? "")).toContain("make me a printable pdf report about quarterly revenue");
 });
 
 // ------------------------------------------------------------- html viewer

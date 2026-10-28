@@ -28,8 +28,13 @@ const server = http.createServer((req, res) => {
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
     const body = Buffer.concat(chunks);
-    captured.push(body.toString("utf8"));
-    if (captured.length > 40) captured.shift();
+    // Only record real chat completions POSTs. Under the Rust backend the
+    // stats/probe paths hit the proxy base URL with GETs (empty bodies), and
+    // that noise used to flood the ring and shift out the real capture.
+    if (req.method === "POST" && body.length > 0) {
+      captured.push(body.toString("utf8"));
+      if (captured.length > 200) captured.shift();
+    }
     const up = http.request(
       UPSTREAM,
       {
