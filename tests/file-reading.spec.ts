@@ -95,10 +95,13 @@ async function sendWithAttachment(page: Page, fx: Fixture, file: string, marker:
   await page.goto("/");
 
   // Reasoning off keeps each turn a few seconds instead of a minute.
-  const effort = page.getByLabel("Reasoning effort");
-  if ((await effort.getAttribute("title")) !== "Reasoning: Off") {
+  // Guard current ChatInput chrome: aria-label trigger + role=menuitemradio
+  // items (3864f1a); the stale title/button selectors hung the click.
+  const effort = page.getByRole("button", { name: /^Reasoning effort:/ });
+  if ((await effort.getAttribute("aria-label")) !== "Reasoning effort: Off") {
     await effort.click();
-    await page.getByRole("button", { name: "Off", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "Off", exact: true }).click();
+    await expect(effort).toHaveAttribute("aria-label", "Reasoning effort: Off");
   }
 
   await page.setInputFiles(FILE_INPUT, file);
