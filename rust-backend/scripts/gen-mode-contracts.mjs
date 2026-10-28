@@ -14,7 +14,7 @@
  */
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..", ".."); // repo root (holds lib/)
@@ -82,6 +82,26 @@ for (const [mode, contract] of Object.entries(MODE_CONTRACTS)) {
 }
 
 const outPath = path.join(rustBackend, "crates", "ruke-decision", "src", "contracts_generated.rs");
+const content = chunks.join("");
+
+if (process.argv.includes("--check")) {
+  // Drift gate half of `npm run contracts:check`: the committed generated
+  // file must match what the live TS oracle produces, byte for byte.
+  if (!existsSync(outPath)) {
+    console.error("DRIFT: contracts_generated.rs is missing — run `npm run contracts:generate`.");
+    process.exit(1);
+  }
+  if (readFileSync(outPath, "utf8") === content) {
+    console.log("contracts:check OK — contracts_generated.rs is up to date");
+    process.exit(0);
+  }
+  console.error(
+    "DRIFT: contracts_generated.rs is stale vs lib/decision/contracts.ts — " +
+      "run `npm run contracts:generate` and commit the result."
+  );
+  process.exit(1);
+}
+
 mkdirSync(path.dirname(outPath), { recursive: true });
-writeFileSync(outPath, chunks.join(""), "utf8");
+writeFileSync(outPath, content, "utf8");
 console.log(`wrote ${path.relative(root, outPath)}`);

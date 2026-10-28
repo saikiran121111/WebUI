@@ -1,0 +1,454 @@
+{
+  "$schema": "ruke-contract-manifest/v1",
+  "note": "GENERATED — do not edit by hand. Regenerate with `npm run contracts:generate`; drift gate: `npm run contracts:check`. Rust binders: crates/ruke-contracts/tests/manifest_drift.rs, crates/ruke-websearch/tests/manifest_drift.rs. TS binder: __tests__/rust-golden/contract-manifest.test.ts.",
+  "decisionModes": {
+    "order": [
+      "excel",
+      "docs",
+      "pdf",
+      "ppt",
+      "3d_asset",
+      "cad_blueprint",
+      "chart",
+      "html_render",
+      "standard_chat"
+    ],
+    "skill": {
+      "excel": "xlsx",
+      "docs": "docx",
+      "pdf": "pdf",
+      "ppt": "pptx",
+      "3d_asset": "threejs-skills",
+      "cad_blueprint": "archify",
+      "chart": null,
+      "html_render": "html-viewer",
+      "standard_chat": null
+    },
+    "fence": {
+      "excel": "xlsx",
+      "docs": "docx",
+      "pdf": "html",
+      "ppt": "pptx",
+      "3d_asset": "scene3d",
+      "cad_blueprint": "cad",
+      "chart": "chart",
+      "html_render": "html",
+      "standard_chat": null
+    },
+    "contractBlocks": "per-mode prompt blocks are TS-owned (lib/decision/contracts.ts MODE_CONTRACTS), generated into crates/ruke-decision/src/contracts_generated.rs by gen-mode-contracts.mjs; byte identity is pinned by fixtures/skills/06-mode-contracts-hashes.json + ruke-decision/tests/fixture_replay.rs — not duplicated here"
+  },
+  "decisionRequest": {
+    "sourceFile": "lib/decision/types.ts",
+    "fields": [
+      {
+        "name": "message",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "conversationHistory",
+        "present": "optional-omit-when-absent",
+        "nullable": false,
+        "fields": [
+          {
+            "name": "role",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "content",
+            "present": "always-present",
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  "decisionEnvelope": {
+    "sourceFile": "lib/decision/types.ts",
+    "rule": "optional fields are OMITTED when absent (JSON.stringify drops undefined; Rust skip_serializing_if=none); always-present nullable fields serialize as explicit JSON null on both sides; array/spelling order preserved; confidence renders via JS-number rules (integral -> integer literal, e.g. 1 not 1.0)",
+    "fields": [
+      {
+        "name": "active_mode",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "confidence",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "decided_by",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "stripped_prompt",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "skill_to_load",
+        "present": "always-present",
+        "nullable": true
+      },
+      {
+        "name": "allowed_code_fence",
+        "present": "always-present",
+        "nullable": true
+      },
+      {
+        "name": "disable_validators",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "enable_validator",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "task_constraints",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "extracted_entities",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "lfm_latency_ms",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "lfm_input",
+        "present": "optional-omit-when-absent",
+        "nullable": true
+      },
+      {
+        "name": "lfm_raw",
+        "present": "optional-omit-when-absent",
+        "nullable": true
+      }
+    ]
+  },
+  "stageEvent": {
+    "sourceFile": "lib/types.ts",
+    "rule": "every optional field omitted-when-absent on both sides; camelCase wire casing",
+    "fields": [
+      {
+        "name": "stage",
+        "present": "always-present",
+        "nullable": false
+      },
+      {
+        "name": "detail",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "mode",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "ms",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "done",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "total",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "coverage",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "url",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "domain",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "webCitations",
+        "present": "optional-omit-when-absent",
+        "nullable": false,
+        "fields": [
+          {
+            "name": "sourceId",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "url",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "title",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "domain",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "publishedAt",
+            "present": "optional-omit-when-absent",
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "name": "searchGate",
+        "present": "optional-omit-when-absent",
+        "nullable": false,
+        "fields": [
+          {
+            "name": "depth",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "freshness",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "decidedBy",
+            "present": "optional-omit-when-absent",
+            "nullable": false
+          },
+          {
+            "name": "queries",
+            "present": "always-present",
+            "nullable": false,
+            "fields": [
+              {
+                "name": "query",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "intent",
+                "present": "always-present",
+                "nullable": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "researchLfm",
+        "present": "optional-omit-when-absent",
+        "nullable": false,
+        "fields": [
+          {
+            "name": "depth",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "freshness",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "decidedBy",
+            "present": "optional-omit-when-absent",
+            "nullable": false
+          },
+          {
+            "name": "queries",
+            "present": "always-present",
+            "nullable": false,
+            "fields": [
+              {
+                "name": "query",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "intent",
+                "present": "always-present",
+                "nullable": false
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "legacyReadOnlyFields": [
+      {
+        "field": "researchLfm",
+        "reason": "deprecated pre-rename (2026-10-23) fallback READ by the TS client only; the server (TS and Rust) never emits it, so it is deliberately absent from the Rust StageEvent"
+      }
+    ]
+  },
+  "settings": {
+    "sourceFile": "lib/server/settings.ts",
+    "fields": [
+      {
+        "name": "llm_api_url",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "llm_api_key",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "compact_thresholds",
+        "present": "optional-omit-when-absent",
+        "nullable": false,
+        "fields": [
+          {
+            "name": "auto",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "tokens",
+            "present": "always-present",
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  "sseFrames": {
+    "stageFrameKey": "ruke_stage",
+    "errorFrameKey": "ruke_error",
+    "doneMarker": "[DONE]",
+    "note": "exactly one [DONE] per error frame; the proxy/route never appends its own [DONE] after raw upstream bytes; frames are byte-pinned by fixtures/sse + ruke-server sse.rs tests"
+  },
+  "headersCaseRule": "HTTP field names are case-insensitive; this ledger pins the lowercase canonical spelling. The Rust http crate forces lowercase (HeaderName::from_static); the TS chat route writes X-Used-Skill/X-Web-Citations/X-Search-Gate in PascalCase — binders therefore compare case-insensitively and catch RENAME drift, not case restyles.",
+  "headers": [
+    {
+      "name": "x-decision-mode",
+      "emitted": "every chat response (TS and Rust), stream and non-stream"
+    },
+    {
+      "name": "x-used-skill",
+      "emitted": "chat response only when a USER-tier skill was injected"
+    },
+    {
+      "name": "x-web-citations",
+      "encoding": "url-encoded JSON",
+      "emitted": "legacy non-stream path only; streamed turns carry web_meta stage frames instead"
+    },
+    {
+      "name": "x-search-gate",
+      "encoding": "url-encoded JSON",
+      "emitted": "legacy non-stream path only; progress path never carries web headers"
+    },
+    {
+      "name": "x-ruke-internal-secret",
+      "emitted": "internal RPC legs only (Rust bridge -> Next /api/internal/*); loopback-only; NEVER browser-visible and NEVER logged (Rule 17)"
+    }
+  ],
+  "rpc": {
+    "secretHeader": "x-ruke-internal-secret",
+    "env": {
+      "rustBridgeBaseUrl": "RUKE_BROWSER_BRIDGE_BASE_URL",
+      "rustBridgeSecret": "RUKE_BROWSER_BRIDGE_SECRET",
+      "nextArmSwitch": "RUKE_RUST_BACKEND",
+      "backendPort": "RUKE_BACKEND_PORT",
+      "rustProjectRoot": "RUKE_PROJECT_ROOT",
+      "serverBinOverride": "RUKE_SERVER_BIN"
+    },
+    "browserRead": {
+      "path": "/api/internal/browser-read",
+      "method": "POST",
+      "requestFields": [
+        "url",
+        "timeoutMs"
+      ],
+      "timeoutDefaultMs": 40000,
+      "clientDeadlineSlackMs": 20000,
+      "deadlineRule": "Rust client request timeout = timeoutMs (default 40000) + 20000 slack (browser_bridge.rs deadline_ms); the Next leg owns nav/response-size budgets",
+      "errors": {
+        "unauthorized": "unauthorized",
+        "malformedBody": "Malformed JSON body",
+        "urlRequired": "url required"
+      },
+      "responseFields": [
+        "url",
+        "finalUrl",
+        "title",
+        "status",
+        "bodyText",
+        "ariaSnapshot",
+        "jsonLd",
+        "meta",
+        "windowState",
+        "ok",
+        "error"
+      ],
+      "responseFieldsSource": "producer: extractPageInOnePass in lib/web-search/extractor.ts; consumer: OnePassExtraction in crates/ruke-websearch/src/browser_bridge.rs (camelCase, deny_unknown_fields, every non-url field #[serde(default)], error omitted-on-success on both sides)"
+    },
+    "youtubeEvidence": {
+      "path": "/api/internal/youtube-evidence",
+      "method": "POST",
+      "requestFields": [
+        "videoId"
+      ],
+      "deadlineMs": 90000,
+      "deadlineRule": "const RPC_DEADLINE_MS in crates/ruke-websearch/src/youtube_bridge.rs, compile-time-guarded to the 70000..120000 band",
+      "errors": {
+        "unauthorized": "unauthorized",
+        "malformedBody": "Malformed JSON body",
+        "videoIdRequired": "videoId required (11-char id)"
+      },
+      "responseFields": [
+        "videoId",
+        "info",
+        "transcript",
+        "comments",
+        "captionSource"
+      ]
+    },
+    "mediaTranscript": {
+      "path": "/api/internal/media-transcript",
+      "method": "POST",
+      "requestFields": [
+        "url"
+      ],
+      "errors": {
+        "unauthorized": "unauthorized",
+        "malformedBody": "Malformed JSON body",
+        "urlRequired": "url required"
+      },
+      "responseFields": [
+        "ok",
+        "url",
+        "transcript"
+      ]
+    }
+  },
+  "proxyFailureContract": {
+    "rule": "lib/server/rustProxy.ts classifies three ways: (A) downstream cancellation -> no response delivered, debug line never says 'unreachable'; (B) genuine connectivity failure -> console.error 'unreachable [<code>]' + honest 502; (C) real Rust responses pass through untouched. NO silent TS fallback.",
+    "unreachableBody": {
+      "error": "Rust backend unreachable at <base>"
+    },
+    "status": 502
+  }
+}

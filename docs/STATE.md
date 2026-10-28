@@ -1619,3 +1619,124 @@ free; the user's pre-session :3000 server never listened and was never touched)
    `Part 8 still requires user approval. Part 9 has NOT started.`
 3. Do NOT start Part 9.
 3. Close verbatim: "Part 8 still awaits user manual regression. Part 9 has NOT started."
+
+# PART 9 CONTRACT-DRIFT PROTECTION — session segment 2026-10-28 — 8.1–8.8
+
+## 8.1 Core objective & active phase
+Part 9 (contract drift protection) LOCKED-DONE this segment. Next phase: PART 10
+full real Playwright validation of the Rust-backed stack (fresh `npm run dev`
+supervisor stack, all 31 specs + focused additions, Tier-3b live path, YouTube
+captions final test, ResponseAborted regressions), then perf re-measure,
+retirement pass, final lifecycle + report + shutdown per the standing brief.
+
+## 8.2 Locked completed tasks (do not re-read/re-do)
+- `rust-backend/scripts/contractParse.mjs` — dependency-free TS-interface
+  extractor (stripTsComments/interfaceBlock/splitMembers/extractInterface),
+  shared by generator + vitest binder. [LOCKED-DONE]
+- `rust-backend/scripts/gen-contract-manifest.mjs` — emits deterministic
+  `rust-backend/fixtures/contracts/manifest.json` (no timestamps, fixed
+  insertion order, 2-space JSON + trailing NL); `--check` byte-compares with
+  first-differing-line report; `headersCaseRule` documents the HTTP
+  case-insensitivity rule. [LOCKED-DONE]
+- `gen-mode-contracts.mjs --check` support; npm scripts `contracts:generate` /
+  `contracts:check` (run BOTH generators). [LOCKED-DONE]
+- Rust binders: `crates/ruke-contracts/tests/manifest_drift.rs` 6/6 (incl.
+  raw-text `top_level_keys` document-order scanner — `{`-depth fix applied:
+  first key captured); `crates/ruke-websearch/tests/manifest_drift.rs` 5/5
+  (incl. Rule-17 log-site scan: fail iff a line carries BOTH a log macro and
+  `secret`). [LOCKED-DONE, verified via cargo]
+- TS binder `__tests__/rust-golden/contract-manifest.test.ts` 8/8: re-extracts
+  the four interfaces from LIVE TS (staleness gate), RPC route error-body/
+  request-field presence, extractor.ts responseFields producer presence,
+  supervisor six env names, headers both sides (case-insensitive),
+  engine.rs `.get("conversationHistory")` camelCase bind, Rule-17 scan
+  (strips string literals, flags bare `secret` identifier in console args),
+  honest-502 prefix. [LOCKED-DONE]
+- `browser_bridge.rs::deadline_ms` widened to `pub` — ONLY product-source
+  change; behavior identical. [LOCKED-DONE]
+- Part 9 gate results (this segment, real): cargo test --workspace 564 passed
+  / 0 failed (548 baseline + 16 new drift tests); clippy -D warnings exit 0;
+  tsc exit 0; contracts:check OK; determinism: generate→hash→generate byte-
+  identical (manifest + contracts_generated.rs); vitest rust-golden 54/54 on
+  rerun; full vitest 68/69 files, web.test.ts = recorded flake family
+  standalone 5/5. [LOCKED-DONE]
+- MIGRATION-MAP: `| 9–10 | PENDING |` split into `| 9 | DONE 2026-10-28 |`
+  (evidence row) + `| 10 | PENDING |`. [LOCKED-DONE]
+
+## 8.3 Graphify dependency map
+- manifest.json ← gen-contract-manifest.mjs ← {lib/decision/types.ts runtime
+  tables + interfaces, lib/types.ts StageEvent, lib/server/settings.ts
+  SettingsShape} via contractParse.mjs.
+- Consumers: ruke-contracts/tests/manifest_drift.rs (decision.rs, stages.rs,
+  settings.rs), ruke-websearch/tests/manifest_drift.rs (browser_bridge.rs,
+  youtube_bridge.rs), contract-manifest.test.ts (RENDERER_MODES/MODE_SKILL/
+  MODE_FENCE live import + TS-source re-extraction + route/supervisor/proxy/
+  extractor/engine.rs text binds).
+- Drift flows: TS type/table change ⇒ vitest binder red + contracts:check red;
+  Rust const/field change ⇒ Rust binders red (+existing byte-pin unit tests);
+  wire byte drift ⇒ existing rust-golden fixture replays red (stronger gate).
+
+## 8.4 Immutable code contracts & schemas (additions this segment)
+- manifest.json `$schema "ruke-contract-manifest/v1"` sections: decisionModes
+  (order/skill/fence), decisionRequest, decisionEnvelope (rule text),
+  stageEvent (+legacyReadOnlyFields objects {field,reason}), settings,
+  sseFrames{stageFrameKey:"ruke_stage",errorFrameKey:"ruke_error",doneMarker:
+  "[DONE]"}, headersCaseRule, headers[5], rpc{secretHeader, env[6 names],
+  browserRead{path,requestFields,url,timeoutMs; timeoutDefaultMs 40000;
+  clientDeadlineSlackMs 20000; errors unauthorized/"Malformed JSON body"/
+  "url required"; responseFields 11 keys}, youtubeEvidence{deadlineMs 90000,
+  req videoId, resp [videoId,info,transcript,comments,captionSource],
+  "videoId required (11-char id)"}, mediaTranscript{req url, resp [ok,url,
+  transcript]}}, proxyFailureContract{unreachableBody {"error":"Rust backend
+  unreachable at <base>"}, status 502}.
+- Envelope classes: optional-omit = [lfm_input, lfm_raw] (+request's
+  conversationHistory); always-present nullable = [skill_to_load,
+  allowed_code_fence]; envelope snake_case; DECISION REQUEST leg camelCase
+  (ruke-decision engine.rs reads `.get("conversationHistory")`).
+- Header casing rule (RECORDED, do not "fix"): ledger canonical lowercase;
+  Rust from_static lowercase; TS route Pascal X-Used-Skill/X-Web-Citations/
+  X-Search-Gate; case-insensitive comparison only; renames caught.
+- Node side: RUKE_BACKEND_PORT default "3101", arm switch
+  RUKE_RUST_BACKEND==="1" (rustProxy.ts:38-42).
+
+## 8.5 Playwright & E2E verification state
+UNCHANGED from PART-8 segments: no Playwright run this segment (lock protocol
+uninvoked, .ai-coordination/playwright.lock absent). Part 10 prerequisites:
+supervisor tree was tree-killed earlier (ports 3000/3101 free, ruke-server.exe
+image lock released); Part 10 must start `npm run dev` fresh (auto-build
+covered — cargo rebuild happened during this segment's gates anyway, exe fresh).
+Suite: 31 specs, workers:1, HEADED only (user mandate), `npx playwright test`
+directly (no npm playwright script), `.data/ms-playwright`, ~6-spec batch cap
+(10-min Bash foreground limit; file-reading spec separate run), lock protocol
+per project CLAUDE.md, exclusive model window vs Strata :8080.
+
+## 8.6 Open bugs, failing stack traces & blockers
+- Known flake family (pre-existing, adjudication rule = rerun standalone,
+  zero mutation): web.test.ts fixtures 01/02/05 (live reddit renderings BM25
+  digit shift) + chatEngine 5 s timeouts under parallel load. Observed again
+  this segment (2-3 of web.test in first full-run; standalone green every
+  time). Root cause already recorded in STATE (Part-8 8-fix2 gates).
+- No new open bugs from Part 9.
+
+## 8.7 Active skills & scenario locks
+No Tier-1/Tier-2 skill bodies loaded this segment. Engines active: ponytail +
+graphify per global CLAUDE.md. Part 10 will need webapp-testing +
+playwright-cli/playwright-skill routing (Tier 1) — load then, not now.
+
+## 8.8 Immediate next 3 atomic actions
+1. COMMIT Part 9: stage package.json, tsconfig.tsbuildinfo,
+   rust-backend/scripts/{contractParse.mjs,gen-contract-manifest.mjs,
+   gen-mode-contracts.mjs}, rust-backend/fixtures/contracts/,
+   rust-backend/crates/ruke-contracts/tests/, rust-backend/crates/
+   ruke-websearch/tests/, rust-backend/crates/ruke-websearch/src/
+   browser_bridge.rs, __tests__/rust-golden/contract-manifest.test.ts,
+   rust-backend/MIGRATION-MAP.md, docs/STATE.md; message exactly
+   `feat: add Rust TypeScript contract drift protection` + trailer
+   `Co-Authored-By: Claude Code <noreply@anthropic.com>`. No push.
+2. PART 10 recon (CODE phase): inventory the 31 Playwright specs
+   (e2e/ or tests/ — locate actual dir + playwright.config), read
+   representatives, then START the supervisor fresh (`npm run dev`, verify
+   banner + /api/ruke/health + bridge env), and plan the batch matrix incl.
+   required additions (Tier-3b live, YouTube, ResponseAborted family).
+3. Model-backed Playwright ONLY via the lock protocol + exclusive window
+   (Claude fully idle while running).

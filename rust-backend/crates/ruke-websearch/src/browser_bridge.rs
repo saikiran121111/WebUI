@@ -130,7 +130,7 @@ fn zeroed(url: &str, error: &str) -> OnePassExtraction {
 }
 
 /// Client-side RPC deadline (see module-doc micro-divergence #1).
-fn deadline_ms(timeout_ms: Option<u64>) -> u64 {
+pub fn deadline_ms(timeout_ms: Option<u64>) -> u64 {
     timeout_ms.unwrap_or(40_000).saturating_add(20_000)
 }
 
