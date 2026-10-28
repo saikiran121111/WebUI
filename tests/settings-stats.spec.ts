@@ -1,4 +1,6 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
 
 /**
  * PART 10 (Rust cutover validation): the migrated Node-thin-proxy legs for
@@ -17,6 +19,9 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  */
 
 const BASE = "http://localhost:3000";
+// lib/server/settings.ts SETTINGS_FILE counterpart — the Playwright test
+// process runs with cwd = repo root, same as the server.
+const SETTINGS_FILE = path.join(process.cwd(), "settings.json");
 
 async function getSettings(request: APIRequestContext): Promise<Record<string, unknown>> {
   const res = await request.get(`${BASE}/api/settings`);
@@ -24,12 +29,6 @@ async function getSettings(request: APIRequestContext): Promise<Record<string, u
   const body = await res.json();
   expect(typeof body.settings, "response carries a `settings` object").toBe("object");
   return body.settings;
-}
-
-async function putSettings(request: APIRequestContext, patch: object) {
-  const res = await request.put(`${BASE}/api/settings`, { data: patch });
-  expect(res.ok(), "PUT /api/settings must be 200 via the Rust proxy").toBeTruthy();
-  return (await res.json()).settings;
 }
 
 test.describe("settings + model stats through the Rust proxy", () => {
@@ -55,6 +54,12 @@ test.describe("settings + model stats through the Rust proxy", () => {
 
   test("endpoint save persists through the proxy, survives reload, restores exactly", async ({ page, request }) => {
     test.setTimeout(90_000); // reload journeys are slowMo-heavy but model-free
+    // Byte-exact fixture guard: the settings API PUT can only MERGE keys, it
+    // cannot remove one — and when the user never set llm_api_url (absence =
+    // env/fallback), an API-only restore silently keeps the TEMP value and
+    // poisons every later model leg. So snapshot the raw store file and put
+    // it back verbatim in finally.
+    const originalRaw = fs.existsSync(SETTINGS_FILE) ? fs.readFileSync(SETTINGS_FILE) : null;
     const original = await getSettings(request);
     const TEMP = "http://127.0.0.1:9099/v1/chat/completions";
     try {
@@ -81,11 +86,13 @@ test.describe("settings + model stats through the Rust proxy", () => {
       await page.getByTestId("settings-tab-endpoint").click();
       await expect(page.getByTestId("settings-endpoint-input")).toHaveValue(TEMP);
     } finally {
-      // Restore unconditionally — user settings must be byte-exact again.
-      if (typeof original.llm_api_url === "string" && original.llm_api_url.trim()) {
-        const back = await putSettings(request, { llm_api_url: original.llm_api_url });
-        expect(back.llm_api_url).toBe(original.llm_api_url);
-      }
+      // Restore unconditionally — the store must be byte-exact again. Both
+      // readers (Next mtime-gated cache, Rust settings cache) re-stat on the
+      // next request, so the following proxy GET proves the restore landed.
+      if (originalRaw !== null) fs.writeFileSync(SETTINGS_FILE, originalRaw);
+      else fs.rmSync(SETTINGS_FILE, { force: true });
+      const after = await getSettings(request);
+      expect(after.llm_api_url, "llm_api_url must be exactly as before the test").toBe(original.llm_api_url);
     }
   });
 
