@@ -1054,7 +1054,22 @@ pub async fn run_web_research(
             .extract_all(&search_results, 10, Some(&on_page), None)
             .await?;
     }
-    tracing::info!(packets = packets.len(), "extract all complete");
+    // Post-extraction classification tally: the one log line that answers
+    // "why couldn't we access X?" without re-running the cascade — every
+    // packet's terminal classification bucket counted once (packets without
+    // a classification count under "ok").
+    let mut tally: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for p in &packets {
+        *tally
+            .entry(p.classification.clone().unwrap_or_else(|| "ok".to_string()))
+            .or_insert(0) += 1;
+    }
+    let tally_s = tally
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!(packets = packets.len(), tally = %tally_s, "extract all complete");
 
     // 10) prompt-packet merge (the shipped YouTube object-identity dedup
     // quirk: parsed-video keys NEVER collide — see MergeKey).

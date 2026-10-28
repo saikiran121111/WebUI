@@ -409,3 +409,31 @@ search_gate.rs` + `ruke-server/src/chat/pipeline.rs`).
   | 1 skipped** (62 files = 675 + 2); golden 54/54. Vitest grand total
   **731 = 729 + 2 new §11.3 TS tests** (the 2 new Rust tests are inside the
   cargo 579 count, not the vitest count).
+- **AMENDMENT 2026-10-29 (user-reported regression: "TS era accessed
+  sites Rust now can't" — BookMyShow/HackerNews turns rendered snippet-
+  starved fallbacks):** the hard cut above proved too blunt for JS-heavy
+  and bot-challenged sites. A page whose slow HTTP tiers burn the 60 s
+  budget was abandoned BEFORE the stealth-Chromium browser tier — the
+  epoch's generic bot-shield bypass (fingerprint rotation, challenge-page
+  rendering, SPA hydration unpacking; zero site-specific rules) — could
+  even start. The TS era had NO per-page budget, so its browser tier was
+  always reachable; the regression was the budget, not the Rust port's
+  fetching. The budget is now **tier-boundary-cooperative** in BOTH
+  epochs (extractor.rs `capped`/`extract_url_capped` ⇔ extractor.ts
+  `withDeadline` + `deadline?` param on `extractUrl`): every HTTP tier
+  await (direct, link-preview, Jina, Wayback, slug-triangulation,
+  exact-URL fallback) is capped by the REMAINING deadline; on expiry the
+  tier takes its failure shape (direct gets the status-0 crash shape) and
+  marks `budget_hit`/`budgetHit`; the BROWSER tier is never capped — it
+  always runs when the direct read thinned/blocked, bounded by its own
+  45 s bridge timeout. Worst-case per page = `PAGE_BUDGET_DEFAULT_MS +
+  BROWSER_ALLOWANCE_MS` (60 s + 46 s), still a hard bound preserving the
+  original anti-stall guarantee. `PAGE_BUDGET_TIMEOUT` now also emits
+  from the in-cascade tail when the allowance fails — still the ONLY
+  classification with that value, still impossible in golden fast-path
+  replays. The uncapped `extractUrl(result)` path (golden, pipeline.ts
+  direct calls) is byte-parity with the original. New Rust proof test
+  `budget_exhausted_page_still_gets_browser_allowance` (SlowNet burns
+  the budget; scripted browser renders → SUCCESS_BROWSER where the old
+  semantics yielded PAGE_BUDGET_TIMEOUT). TS mirror tests stay green:
+  they pin the terminal packet shape, which is unchanged.

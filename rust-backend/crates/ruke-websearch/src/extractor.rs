@@ -124,6 +124,20 @@ const WAYBACK_TIMEOUT_MS: u64 = 45_000;
 // "PAGE_BUDGET_TIMEOUT" never appears elsewhere).
 const PAGE_BUDGET_DEFAULT_MS: u64 = 60_000;
 
+// APPROVED PART-10 AMENDMENT (MIGRATION-MAP §11.3, 2026-10-29): the hard
+// cap above REGRESSED JS-heavy sites against the TS era (which had NO
+// per-page cap at all): tier1 + link-preview stacks eat the budget and
+// the page never reaches the browser tier — the ONLY tier that can render
+// SPA content (Zepto/BookMyShow-class). Post-amendment, the budget is
+// applied at TIER boundaries (each HTTP tier is capped by the remaining
+// deadline; an exhausted page substitutes the tier's failure shape), and
+// a budget-exhausted page is STILL granted the browser-tier read, bounded
+// by the bridge's own request timeout. Total per-page worst case:
+// budget + BROWSER_ALLOWANCE_MS — still a hard bound that keeps one dead
+// host from holding `join_all` hostage, but SPA sites keep their only
+// path to real content.
+const BROWSER_ALLOWANCE_MS: u64 = 46_000; // bridge timeout (45s) + headroom
+
 // Concurrency env knobs (extractor.ts 85–100): Math.max(min, parseInt(…)).
 const ENV_EXTRACTION_CONCURRENCY: &str = "WEB_SEARCH_CONCURRENCY";
 const ENV_JINA_CONCURRENCY: &str = "WEB_SEARCH_JINA_CONCURRENCY";
@@ -1012,7 +1026,38 @@ impl<'a> Extractor<'a> {
     /// so the throw rejects the whole extractAll — Rust returns Err.
     /// Everything else never throws.
     pub async fn extract_url(&self, result: &RankedResult) -> Result<EvidencePacket, CacheError> {
+        // Uncapped parity path (golden replays, direct pipeline calls):
+        // identical to the original cascade — no deadline, no budget.
+        self.extract_url_capped(result, None).await
+    }
+
+    /// §11.3 AMENDMENT: cap one tier-await by the remaining page budget.
+    /// `Err(())` = the budget expired while the tier was in flight; the
+    /// caller substitutes that tier's failure shape and marks `budget_hit`
+    /// so the classification tail can report `PAGE_BUDGET_TIMEOUT`.
+    /// With no deadline the future runs untouched (byte-parity for the
+    /// uncapped path and every golden fixture).
+    async fn capped<T>(
+        deadline: Option<std::time::Instant>,
+        fut: impl std::future::Future<Output = T>,
+    ) -> Result<T, ()> {
+        let Some(dl) = deadline else {
+            return Ok(fut.await);
+        };
+        let remaining = dl
+            .checked_duration_since(std::time::Instant::now())
+            .unwrap_or(Duration::ZERO);
+        tokio::time::timeout(remaining, fut).await.map_err(|_| ())
+    }
+
+    async fn extract_url_capped(
+        &self,
+        result: &RankedResult,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<EvidencePacket, CacheError> {
         let url = result.canonical.as_str();
+        // Set whenever a capped tier expired; drives the tail branch.
+        let mut budget_hit = false;
         let mut packet = EvidencePacket {
             source_id: String::new(), // assigned later by extract_all
             url: url.to_string(),
@@ -1072,8 +1117,18 @@ impl<'a> Extractor<'a> {
             return Ok(packet);
         }
 
-        // Tier 1: direct fetch (fingerprint rotation lives INSIDE fetch_page)
-        let direct_out = self.extract_direct(url, BrowserFingerprint::Chrome).await;
+        // Tier 1: direct fetch (fingerprint rotation lives INSIDE fetch_page).
+        // §11.3 AMENDMENT: capped by the remaining page budget; expiry
+        // substitutes the network-failure shape (status 0, blocked) which
+        // keeps the downstream tier gates intact — the page still gets the
+        // link-preview tier if it fits, and ALWAYS the browser tier.
+        let direct_out = match Self::capped(deadline, self.extract_direct(url, BrowserFingerprint::Chrome)).await {
+            Ok(o) => o,
+            Err(()) => {
+                budget_hit = true;
+                TierOutput::crash(0, "page budget exhausted during direct fetch")
+            }
+        };
 
         if !direct_out.blocked && js_len(&direct_out.markdown) >= 200 {
             packet.extraction = ExtractionKind::Direct;
@@ -1099,7 +1154,16 @@ impl<'a> Extractor<'a> {
             || (js_len(&direct_out.markdown) < 200 && direct_out.tier == Tier::Crash);
         let mut link_preview_out: Option<TierOutput> = None;
         if tier1_blocked_or_empty {
-            let lp = self.extract_link_preview(url).await;
+            // §11.3 AMENDMENT: the 4-bot link-preview stack is the worst
+            // budget burner (4×45s); it is capped by the remaining budget
+            // so the browser tier downstream always stays reachable.
+            let lp = match Self::capped(deadline, self.extract_link_preview(url)).await {
+                Ok(lp) => lp,
+                Err(()) => {
+                    budget_hit = true;
+                    None
+                }
+            };
             if let Some(lp) = lp.as_ref().filter(|l| js_len(&l.markdown) >= 200) {
                 packet.extraction = ExtractionKind::Direct;
                 packet.passages.push(passage(lp.markdown.clone()));
@@ -1132,7 +1196,17 @@ impl<'a> Extractor<'a> {
         }
 
         // Tier 4: Jina fallback — fires on any Tier 1/2 failure.
-        let jina_out = self.extract_jina(url).await;
+        // §11.3 AMENDMENT: capped tiers past this point are the pure
+        // anti-stall tail — an expired budget skips them cheaply (the
+        // browser allowance above already ran; that's what the budget cut
+        // used to cut SHORT instead).
+        let jina_out = match Self::capped(deadline, self.extract_jina(url)).await {
+            Ok(j) => j,
+            Err(()) => {
+                budget_hit = true;
+                None
+            }
+        };
         if let Some(j) = jina_out.as_ref().filter(|j| js_len(&j.markdown) >= 200) {
             packet.extraction = ExtractionKind::JinaFallback;
             packet.passages.push(passage(j.markdown.clone()));
@@ -1146,7 +1220,13 @@ impl<'a> Extractor<'a> {
             || direct_out.status == 0
             || (js_len(&direct_out.markdown) < 100 && direct_out.tier == Tier::Crash);
         if tier1_failed {
-            let wayback_out = self.extract_wayback(url).await;
+            let wayback_out = match Self::capped(deadline, self.extract_wayback(url)).await {
+                Ok(w) => w,
+                Err(()) => {
+                    budget_hit = true;
+                    None
+                }
+            };
             if let Some(w) = wayback_out.as_ref().filter(|w| js_len(&w.markdown) >= 200) {
                 // QUIRK: extraction label REUSE from the jina branch.
                 packet.extraction = ExtractionKind::JinaFallback;
@@ -1173,7 +1253,15 @@ impl<'a> Extractor<'a> {
         {
             // (TS wraps this in try/catch for network failure; the Rust
             // metasearch seam is infallible → no catch needed.)
-            let synthesized = slug_triangulation(self.net, url, Some(&result.title)).await;
+            // §11.3 AMENDMENT: triangulation issues live metasearch engine
+            // requests (~40s each) — capped by the remaining budget.
+            let synthesized = match Self::capped(deadline, slug_triangulation(self.net, url, Some(&result.title))).await {
+                Ok(s) => s,
+                Err(()) => {
+                    budget_hit = true;
+                    String::new()
+                }
+            };
             if js_len(&synthesized) >= 80 {
                 let cleaned = strip_waf_challenge_text(&synthesized);
                 if has_meaningful_content(&cleaned, 40) {
@@ -1194,7 +1282,13 @@ impl<'a> Extractor<'a> {
                     return Ok(packet);
                 }
             }
-            let fallback_results = url_search_fallback(self.net, url, Some(&result.title)).await;
+            let fallback_results = match Self::capped(deadline, url_search_fallback(self.net, url, Some(&result.title))).await {
+                Ok(v) => v,
+                Err(()) => {
+                    budget_hit = true;
+                    Vec::new()
+                }
+            };
             if let Some(best) = fallback_results.first() {
                 let fb_src = if !best.snippet.is_empty() {
                     &best.snippet
@@ -1232,6 +1326,24 @@ impl<'a> Extractor<'a> {
         }
 
         // Classification tail.
+        // §11.3 AMENDMENT: a page whose budget expired mid-cascade and that
+        // the browser allowance could not rescue reports PAGE_BUDGET_TIMEOUT
+        // — the same classification as before the amendment, but the packet
+        // keeps its natural cascade shape: the SERP baseline passage is
+        // already first, and the marker/title is pushed only when no
+        // baseline exists (identical fallback text to timeout_fallback_packet).
+        if budget_hit {
+            packet.extraction = ExtractionKind::SnippetOnly;
+            if packet.passages.is_empty() {
+                packet.passages.push(passage(if result.title.is_empty() {
+                    "(page read timed out — no content extracted)".to_string()
+                } else {
+                    result.title.clone()
+                }));
+            }
+            packet.classification = Some("PAGE_BUDGET_TIMEOUT".to_string());
+            return Ok(packet);
+        }
         if direct_out.blocked {
             let kind = direct_out.blocked_reason.clone();
             packet.passages.push(passage(if js_len(&snippet) >= 20 {
@@ -1313,11 +1425,21 @@ impl<'a> Extractor<'a> {
             let done_pages = &done_pages;
             async move {
                 let _permit = sem.acquire_owned().await.expect("semaphore is never closed");
-                // §11.3 page budget: timeout abandons the cascade (the
-                // dropped future cancels every in-flight tier request);
-                // cache errors still reject the whole batch exactly like
+                // §11.3 page budget (AMENDED 2026-10-29): the deadline is
+                // threaded INTO the cascade — each HTTP tier is capped by
+                // the remaining budget at its own await, and the browser
+                // tier always runs when the direct read thinned/blocked
+                // (bridge-bounded). The outer timeout is now a safety net
+                // with one browser-allowance of slack; it can only fire if
+                // a tier ignores its cap, which none do on the normal path.
+                // Cache errors still reject the whole batch exactly like
                 // the TS Promise.all.
-                let p = match tokio::time::timeout(Duration::from_millis(budget), self.extract_url(r)).await
+                let deadline = std::time::Instant::now() + Duration::from_millis(budget);
+                let p = match tokio::time::timeout(
+                    Duration::from_millis(budget + BROWSER_ALLOWANCE_MS),
+                    self.extract_url_capped(r, Some(deadline)),
+                )
+                .await
                 {
                     Ok(p) => p?,
                     Err(_) => timeout_fallback_packet(r),
@@ -1952,6 +2074,57 @@ mod tests {
         assert!(out[0].passages[0].passage_text.starts_with("[SERP snippet baseline"));
         assert_eq!(*counts.lock().unwrap(), vec![(1, 1)]); // progress counted, no hang
         assert!(elapsed < Duration::from_secs(10), "budget must cap the page: {elapsed:?}");
+    }
+
+    /// §11.3 AMENDMENT (2026-10-29): the page budget now caps ONLY the HTTP
+    /// tiers — a page whose HTTP cascade exhausts the budget is STILL
+    /// granted the bridge-bounded browser allowance. Here every SlowNet tier
+    /// burns the 300 ms budget, but the scripted browser renders the page:
+    /// the amendment must deliver SUCCESS_BROWSER where the original §11.3
+    /// semantics starved the page to PAGE_BUDGET_TIMEOUT. (This is the
+    /// deterministic shape of the JS-heavy-site regression: BookMyShow /
+    /// HackerNews live turns were snippet-starved by the 60 s hard cut.)
+    #[tokio::test]
+    async fn budget_exhausted_page_still_gets_browser_allowance() {
+        let net = SlowNet;
+        let cache = ScriptedCache::default();
+        let bridge = ScriptedBridge::new();
+        bridge.with_page(
+            "https://jsheavy.example/app",
+            crate::browser_bridge::OnePassExtraction {
+                url: "https://jsheavy.example/app".to_string(),
+                final_url: "https://jsheavy.example/app".to_string(),
+                title: "JS Heavy Site".to_string(),
+                status: Some(200),
+                body_text: "rendered universal-site body text ".repeat(20),
+                aria_snapshot: String::new(),
+                json_ld: vec![],
+                meta: vec![],
+                window_state: vec![],
+                ok: true,
+                error: None,
+            },
+        );
+        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
+        let ranked_v = vec![ranked(
+            "https://jsheavy.example/app",
+            "JS Heavy Site",
+            "indexed snippet long enough for the baseline gate",
+        )];
+        let t0 = std::time::Instant::now();
+        let out = ex.extract_all(&ranked_v, 10, None, Some(300)).await.unwrap();
+        let elapsed = t0.elapsed();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].source_id, "S1");
+        assert_eq!(
+            out[0].classification.as_deref(),
+            Some("SUCCESS_BROWSER"),
+            "budget-exhausted page must still get the browser allowance"
+        );
+        assert_eq!(bridge.call_count(), 1); // the allowance actually ran
+        let text: String = out[0].passages.iter().map(|p| p.passage_text.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("## Rendered page body (Playwright stealth Chromium)"));
+        assert!(elapsed < Duration::from_secs(10), "capped tiers expire fast, bridge is instant: {elapsed:?}");
     }
 
     #[test]
