@@ -110,77 +110,90 @@ export default memo(function MarkdownRenderer({
       <ReactMarkdown
         remarkPlugins={plugins.remarkPlugins as never[]}
         rehypePlugins={plugins.rehypePlugins as never[] | undefined}
-        components={{
-          pre({ children }: { children?: ReactNode }) {
-            return <FenceRouter>{children}</FenceRouter>;
-          },
-          code({ node, className, children, ...props }: { node?: unknown; className?: string; children?: ReactNode }) {
-            void node;
-            return <code className={className} {...props}>{children}</code>;
-          },
-          table({ children }: { children?: ReactNode }) {
-            const { onSend: send } = useContext(RenderContext);
-            return <MarkdownTable onSend={send}>{children}</MarkdownTable>;
-          },
-          a({ children, href }: { children?: ReactNode; href?: string }) {
-            const external = !!href && /^https?:\/\//i.test(href);
-            return (
-              <a
-                href={href}
-                target={external ? "_blank" : undefined}
-                rel={external ? "noopener noreferrer" : undefined}
-                className="md-link"
-              >
-                {children}
-              </a>
-            );
-          },
-          img({ node, src, alt, ...props }: { node?: unknown; src?: string; alt?: string }) {
-            void node;
-            return <img src={src} alt={alt ?? ""} loading="lazy" className="md-image" {...props} />;
-          },
-          blockquote({ children }: { children?: ReactNode }) {
-            return <blockquote className="md-quote">{children}</blockquote>;
-          },
-          hr() {
-            return <hr className="md-hr" />;
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ...( { citation(props: any) {
-            const sourceId = props["data-source"] as string;
-            const url = props["data-url"] as string;
-            const title = props["data-title"] as string;
-            return (
-              <span className="inline-flex items-center gap-1 align-super" data-testid="citation-pill">
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={title}
-                  data-citation={sourceId}
-                  className="inline-flex items-center gap-0.5 text-[11px] font-medium
-                    px-1.5 py-0.5 rounded-md
-                    bg-transparent text-[#38E8FF]
-                    outline-none
-                    transition-colors
-                    hover:text-[#6beeff] focus-visible:ring-1 focus-visible:ring-[#38E8FF]/40"
-                >
-                  <span>{sourceId}</span>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-60">
-                    <path d="M7 17 17 7M7 7h10v10" />
-                  </svg>
-                </a>
-              </span>
-            );
-          } } as any),
-        }}
+        components={MD_COMPONENTS}
       >
         {source}
       </ReactMarkdown>
     </RenderContext.Provider>
   );
 });
+
+/**
+ * Stable element types for the markdown pipeline.  These renderers MUST live
+ * at module scope: an inline object in the JSX would recreate every function
+ * identity on each render, and React treats a changed element TYPE as a full
+ * unmount+remount of the subtree.  That silently wiped the internal state of
+ * every interactive fence (chart selection, mermaid playback, scene3d/KPI
+ * sliders) on any unrelated page re-render — violating the "message tree is
+ * stable between commits" contract (project standards §5.3).  None of these
+ * renderers capture component-scope state; `table` reads context as a
+ * component, which is legal regardless of where the function is declared.
+ */
+const MD_COMPONENTS = {
+  pre({ children }: { children?: ReactNode }) {
+    return <FenceRouter>{children}</FenceRouter>;
+  },
+  code({ node, className, children, ...props }: { node?: unknown; className?: string; children?: ReactNode }) {
+    void node;
+    return <code className={className} {...props}>{children}</code>;
+  },
+  table({ children }: { children?: ReactNode }) {
+    const { onSend: send } = useContext(RenderContext);
+    return <MarkdownTable onSend={send}>{children}</MarkdownTable>;
+  },
+  a({ children, href }: { children?: ReactNode; href?: string }) {
+    const external = !!href && /^https?:\/\//i.test(href);
+    return (
+      <a
+        href={href}
+        target={external ? "_blank" : undefined}
+        rel={external ? "noopener noreferrer" : undefined}
+        className="md-link"
+      >
+        {children}
+      </a>
+    );
+  },
+  img({ node, src, alt, ...props }: { node?: unknown; src?: string; alt?: string }) {
+    void node;
+    return <img src={src} alt={alt ?? ""} loading="lazy" className="md-image" {...props} />;
+  },
+  blockquote({ children }: { children?: ReactNode }) {
+    return <blockquote className="md-quote">{children}</blockquote>;
+  },
+  hr() {
+    return <hr className="md-hr" />;
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ...({ citation(props: any) {
+    const sourceId = props["data-source"] as string;
+    const url = props["data-url"] as string;
+    const title = props["data-title"] as string;
+    return (
+      <span className="inline-flex items-center gap-1 align-super" data-testid="citation-pill">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={title}
+          data-citation={sourceId}
+          className="inline-flex items-center gap-0.5 text-[11px] font-medium
+            px-1.5 py-0.5 rounded-md
+            bg-transparent text-[#38E8FF]
+            outline-none
+            transition-colors
+            hover:text-[#6beeff] focus-visible:ring-1 focus-visible:ring-[#38E8FF]/40"
+        >
+          <span>{sourceId}</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-60">
+            <path d="M7 17 17 7M7 7h10v10" />
+          </svg>
+        </a>
+      </span>
+    );
+  } } as any),
+};
 
 /**
  * GFM only recognizes a table once the `| --- | --- |` delimiter row has
