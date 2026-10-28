@@ -28,7 +28,7 @@ async function warmModel(request: APIRequestContext) {
   expect(res.ok()).toBeTruthy();
 }
 
-async function seedConversation(request: APIRequestContext, id: string, opts: { title: string; titleSource?: "auto" | "manual"; firstContent?: string }) {
+async function seedConversation(request: APIRequestContext, id: string, opts: { title: string; titleSource?: "auto" | "manual"; firstContent?: string; assistantReply?: string }) {
   const now = Date.now();
   const doc = {
     id,
@@ -51,6 +51,18 @@ async function seedConversation(request: APIRequestContext, id: string, opts: { 
         reasoning: "", attachments: [], toolCalls: [], citations: [],
         createdAt: now, state: "complete", mode: "chat",
       },
+      // The title queue (BOTH epochs, queue.rs run_job) refuses to title a
+      // conversation that has no assistant reply yet — seed one when asked.
+      ...(opts.assistantReply
+        ? [
+            {
+              id: "a_" + id, conversationId: id, role: "assistant",
+              content: opts.assistantReply,
+              reasoning: "", attachments: [], toolCalls: [], citations: [],
+              createdAt: now, state: "complete", mode: "chat",
+            },
+          ]
+        : []),
     ],
   };
   const res = await request.post(`${BASE}/api/conversations`, { data: { id, json: JSON.stringify(doc) } });
@@ -61,6 +73,10 @@ test.describe("ResponseAborted family (Rust-backed)", () => {
   test("client-aborted chat stream is a cancellation, not an unreachable backend", async ({ page, request }) => {
     test.setTimeout(300_000);
     await warmModel(request);
+
+    // The in-page fetch uses a relative URL, so the page must sit on a real
+    // origin first (about:blank cannot resolve "/api/chat").
+    await page.goto(BASE, { waitUntil: "domcontentloaded" });
 
     // A long turn so the abort lands mid-stream, after bytes have arrived.
     const result = await page.evaluate(async () => {
@@ -110,7 +126,17 @@ test.describe("ResponseAborted family (Rust-backed)", () => {
     const id = "c_ttlabort_" + Date.now();
     const first =
       "My Home Assistant Zigbee mesh keeps dropping coordinator pairings every few days after the 2026.10 update, how do I stabilize it?";
-    await seedConversation(request, id, { title: first.slice(0, 40), firstContent: first });
+    // The seed must satisfy BOTH title-queue gates (identical in both epochs):
+    //  - titleSource "auto" — the force gate skips user-authored titles;
+    //  - a non-empty assistant reply — run_job refuses `no-assistant-reply`.
+    // With user+assistant messages, gen_count = message count = 2.
+    await seedConversation(request, id, {
+      title: first.slice(0, 40),
+      titleSource: "auto",
+      firstContent: first,
+      assistantReply:
+        "Pin your Zigbee channel (e.g. 15/20/25) in the coordinator settings, add a mains-powered router near the far devices, and re-interview devices after each Home Assistant core update.",
+    });
 
     // Abandon the request 2.5 s in: the title model call is slower than that,
     // so the client disconnects AFTER the server accepted and began the job.
@@ -134,6 +160,8 @@ test.describe("ResponseAborted family (Rust-backed)", () => {
     expect(meta.title.length).toBeGreaterThan(1);
     expect(meta.title.length).toBeLessThanOrEqual(60);
     expect(meta.titleSource).toBe("auto");
+    // Parity contract (queue.rs:271 ⇔ TS title queue): gen_count = message count.
+    // This conversation holds exactly two seeded messages (user + assistant).
     expect(meta.titleGenCount).toBe(2);
     await request.delete(`${BASE}/api/conversations/${id}`);
   });
