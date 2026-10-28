@@ -1050,7 +1050,9 @@ pub async fn run_web_research(
                 ..Default::default()
             });
         };
-        packets = extractor.extract_all(&search_results, 10, Some(&on_page)).await?;
+        packets = extractor
+            .extract_all(&search_results, 10, Some(&on_page), None)
+            .await?;
     }
     tracing::info!(packets = packets.len(), "extract all complete");
 
@@ -1139,7 +1141,7 @@ pub async fn run_web_research(
         let gap_results = run_gap_metasearch(net, &gap_query).await;
         if !gap_results.is_empty() {
             gap_search_fired = true;
-            let mut gap_packets = extractor.extract_all(&gap_results, 5, None).await?;
+            let mut gap_packets = extractor.extract_all(&gap_results, 5, None, None).await?;
             renumber_packets(&mut gap_packets, next_source_index(&packets));
             let all_packets: Vec<EvidencePacket> =
                 packets.iter().cloned().chain(gap_packets).collect();

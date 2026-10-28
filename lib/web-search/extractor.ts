@@ -74,6 +74,19 @@ const JINA_TIMEOUT_MS = 45_000;
 const WAYBACK_TIMEOUT_MS = 45_000;
 const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
 
+// APPROVED PART-10 PARITY DEVIATION (MIGRATION-MAP §11.3) — TOTAL per-page
+// wall-clock budget in extractAll(). The tier timeouts above are PER
+// REQUEST, not per PAGE: one dead host stacks tier1 + link-preview bots +
+// Jina + Wayback (avail + CDX + snapshot) sequentially into minutes. Live
+// evidence (2026-10-28): ONE of ten pages held Promise.all — and with it
+// the whole evidence stream and the client's search-toggle UI — for 3m51s.
+// The budget abandons the cascade at the cap and folds the page into the
+// same snippet-baseline terminal packet extractUrl() produces when the
+// cascade legitimately fails. Mirrored byte-for-behavior in
+// ruke-websearch/src/extractor.rs (same default, same fallback shape,
+// classification "PAGE_BUDGET_TIMEOUT" never emitted elsewhere).
+const PAGE_BUDGET_DEFAULT_MS = 60_000;
+
 // Concurrency for the DOM-extraction tier.
 //
 // Default is 4 (production pipeline only ever reads ≤10 URLs, so the extra
@@ -598,6 +611,44 @@ export function baselinePacketsFor(
     });
   }
   return out;
+}
+
+/**
+ * §11.3: the packet extractAll() yields when a page's tier cascade is
+ * abandoned at the total page budget. Shape mirrors the terminal-failure
+ * fallback extractUrl() already returns (baseline first; title/marker only
+ * when no baseline exists) — the only new artifact is the
+ * "PAGE_BUDGET_TIMEOUT" classification. Mirrors `timeout_fallback_packet`
+ * in ruke-websearch/src/extractor.rs.
+ */
+export function timeoutFallbackPacket(
+  result: RankedResult,
+): EvidencePacket & { classification: string } {
+  const packet: EvidencePacket = {
+    sourceId: "",
+    url: result.canonical,
+    title: result.title,
+    domain: result.domain,
+    publishedAt: result.publishedDate,
+    extraction: "snippet-only",
+    passages: [],
+  };
+  const baseline = serpBaselinePassage(result);
+  if (baseline) {
+    packet.passages.push(baseline);
+  } else {
+    packet.passages.push({
+      sourceId: "",
+      url: result.canonical,
+      title: result.title,
+      domain: result.domain,
+      publishedAt: result.publishedDate,
+      passageText:
+        result.title || "(page read timed out — no content extracted)",
+      bm25Score: 0,
+    });
+  }
+  return { ...packet, classification: "PAGE_BUDGET_TIMEOUT" };
 }
 
 /**
@@ -1198,6 +1249,39 @@ export async function extractUrl(
   return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };
 }
 
+const BUDGET_HIT = Symbol("page-budget-hit");
+
+/**
+ * §11.3: race one page's FULL tier cascade against the per-page wall clock.
+ * The losing cascade keeps running harmlessly in the background (its own
+ * per-request timeouts bound it) and its late rejection is absorbed — the
+ * batch decision is already made. A cache throw while the race is still
+ * live rejects exactly like the original Promise.all. Mirrors the
+ * tokio::time::timeout wrapper in ruke-websearch's extract_all: the page
+ * settles to timeoutFallbackPacket(), still counts toward onPage progress,
+ * and still receives its S-id.
+ */
+async function extractUrlWithBudget(
+  result: RankedResult,
+  budgetMs: number,
+): Promise<EvidencePacket & { classification: string }> {
+  const work = extractUrl(result);
+  const guard = work.catch(() => undefined); // absorb a post-budget rejection
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const won = await Promise.race([
+      work,
+      new Promise<typeof BUDGET_HIT>((resolve) => {
+        timer = setTimeout(() => resolve(BUDGET_HIT), budgetMs);
+      }),
+    ]);
+    return won === BUDGET_HIT ? timeoutFallbackPacket(result) : won;
+  } finally {
+    if (timer) clearTimeout(timer);
+    void guard;
+  }
+}
+
 /**
  * Extract the top N ranked results in parallel (capped at 10 URLs, 6 at a
  * time). Returns packets ready for BM25 scoring, each with its
@@ -1209,11 +1293,14 @@ export async function extractAll(
   /** Real per-page completion counter (this batch only) — used by the
       chat route's live progress bridge; optional, existing callers unaffected. */
   onPage?: (done: number, total: number) => void,
+  /** §11.3 per-page wall-clock budget (MIGRATION-MAP); production always
+      uses the default, tests may inject a smaller one. */
+  pageBudgetMs = PAGE_BUDGET_DEFAULT_MS,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
   let donePages = 0;
   const settled = await Promise.all(
-    top.map((r) => limit(() => extractUrl(r)).then((p) => {
+    top.map((r) => limit(() => extractUrlWithBudget(r, pageBudgetMs)).then((p) => {
       donePages++;
       onPage?.(donePages, top.length);
       return p;

@@ -85,6 +85,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use tokio::sync::Semaphore;
 
 use crate::browser_bridge::BrowserBridge;
@@ -107,6 +108,21 @@ const TIER1_TIMEOUT_MS: u64 = 45_000;
 const LINK_PREVIEW_TIMEOUT_MS: u64 = 45_000;
 const JINA_TIMEOUT_MS: u64 = 45_000;
 const WAYBACK_TIMEOUT_MS: u64 = 45_000;
+
+// APPROVED PART-10 PARITY DEVIATION (MIGRATION-MAP §11.3) — TOTAL per-page
+// wall-clock budget. Every timeout above is PER REQUEST, not per PAGE: one
+// dead/unreachable host stacks tier1 + link-preview bots + Jina + Wayback
+// (avail + CDX + snapshot) sequentially into minutes. Live evidence
+// (2026-10-28): ONE of ten pages held `join_all` — and with it the whole
+// evidence stream and the client's search-toggle UI — for 3m51s. The budget
+// abandons the cascade at the cap and folds the page into the SAME snippet
+// baseline terminal packet `extract_url` already produces when the cascade
+// legitimately fails, so one slow site can never hold the other nine (or
+// the user) hostage. Golden fixture replays are in-process and instant, so
+// the timer never fires there — fixtures stay byte-identical. Mirrored in
+// extractor.ts (same default, same fallback shape, classification
+// "PAGE_BUDGET_TIMEOUT" never appears elsewhere).
+const PAGE_BUDGET_DEFAULT_MS: u64 = 60_000;
 
 // Concurrency env knobs (extractor.ts 85–100): Math.max(min, parseInt(…)).
 const ENV_EXTRACTION_CONCURRENCY: &str = "WEB_SEARCH_CONCURRENCY";
@@ -943,6 +959,45 @@ fn serp_baseline_passage(result: &RankedResult) -> Option<EvidencePassage> {
     })
 }
 
+/// §11.3: the packet `extract_all` yields when a page's tier cascade is
+/// abandoned at the total page budget. Shape mirrors the terminal-failure
+/// fallback `extract_url` already returns (baseline first; title/marker
+/// only when no baseline exists) — the ONLY new artifact is the
+/// `PAGE_BUDGET_TIMEOUT` classification (never emitted by any other path,
+/// never present in golden fixtures where the timer cannot fire).
+/// Mirrors `timeoutFallbackPacket` in extractor.ts.
+pub(crate) fn timeout_fallback_packet(result: &RankedResult) -> EvidencePacket {
+    let mut packet = EvidencePacket {
+        source_id: String::new(),
+        url: result.canonical.clone(),
+        title: result.title.clone(),
+        domain: result.domain.clone(),
+        published_at: result.published_date.clone(),
+        extraction: ExtractionKind::SnippetOnly,
+        passages: Vec::new(),
+        classification: None,
+    };
+    if let Some(baseline) = serp_baseline_passage(result) {
+        packet.passages.push(baseline);
+    } else {
+        packet.passages.push(EvidencePassage {
+            source_id: String::new(),
+            url: result.canonical.clone(),
+            title: result.title.clone(),
+            domain: result.domain.clone(),
+            published_at: result.published_date.clone(),
+            passage_text: if result.title.is_empty() {
+                "(page read timed out — no content extracted)".to_string()
+            } else {
+                result.title.clone()
+            },
+            bm25_score: 0.0,
+        });
+    }
+    packet.classification = Some("PAGE_BUDGET_TIMEOUT".to_string());
+    packet
+}
+
 // ── Public entry points ────────────────────────────────────────────────
 
 impl<'a> Extractor<'a> {
@@ -1221,13 +1276,24 @@ impl<'a> Extractor<'a> {
     /// caller that may live behind a spawned server task, and a bare `&dyn Fn`
     /// would make this future non-`Send`. No behavior change; pure trait-bound
     /// widening (RECORDED MICRO-DIVERGENCE in pipeline.rs's header).
+    /// `page_budget_ms` (Part-10 deviation §11.3, not in the TS original's
+    /// signature — TS hardcodes the same default; tests inject): TOTAL
+    /// wall-clock cap per page, applied AFTER the concurrency permit (a
+    /// queued page never burns its budget). On expiry the page's cascade is
+    /// ABANDONED and the page settles to `timeout_fallback_packet` — the
+    /// same snippet-baseline terminal shape a fully-failed cascade gets —
+    /// instead of stalling `join_all`. The page still counts toward
+    /// `on_page` progress and still gets its S-id, so the bundle shape is
+    /// unchanged.
     pub async fn extract_all(
         &self,
         ranked: &[RankedResult],
         max_urls: usize,
         on_page: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+        page_budget_ms: Option<u64>,
     ) -> Result<Vec<EvidencePacket>, CacheError> {
         let top = &ranked[..ranked.len().min(max_urls)];
+        let budget = page_budget_ms.unwrap_or(PAGE_BUDGET_DEFAULT_MS);
         // pLimit(EXTRACTION_CONCURRENCY) twin: tokio Semaphore (fair/FIFO).
         let sem = Arc::new(Semaphore::new(env_concurrency(
             ENV_EXTRACTION_CONCURRENCY,
@@ -1247,7 +1313,15 @@ impl<'a> Extractor<'a> {
             let done_pages = &done_pages;
             async move {
                 let _permit = sem.acquire_owned().await.expect("semaphore is never closed");
-                let p = self.extract_url(r).await?;
+                // §11.3 page budget: timeout abandons the cascade (the
+                // dropped future cancels every in-flight tier request);
+                // cache errors still reject the whole batch exactly like
+                // the TS Promise.all.
+                let p = match tokio::time::timeout(Duration::from_millis(budget), self.extract_url(r)).await
+                {
+                    Ok(p) => p?,
+                    Err(_) => timeout_fallback_packet(r),
+                };
                 let done = done_pages.fetch_add(1, Ordering::Relaxed) + 1;
                 if let Some(cb) = on_page {
                     cb(done, total);
@@ -1796,7 +1870,7 @@ mod tests {
             ranked("https://example.com/c", "C", "snippet c long enough for baseline"),
         ];
         let out = ex
-            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))))
+            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))), None)
             .await
             .unwrap();
         assert_eq!(out.len(), 2); // maxUrls=2 → C never extracted
@@ -1807,7 +1881,96 @@ mod tests {
 
         // Any cache rejection rejects the whole batch (Promise.all).
         cache.set_throw(true);
-        assert!(ex.extract_all(&ranked_v, 2, None).await.is_err());
+        assert!(ex.extract_all(&ranked_v, 2, None, None).await.is_err());
+    }
+
+    /// §11.3: a net whose every tier call hangs (never returns) reproduces
+    /// the live 3m51s stall shape deterministically — the per-page budget
+    /// must abandon the cascade at the cap.
+    struct SlowNet;
+    impl crate::net::Net for SlowNet {
+        fn fetch_page(
+            &self,
+            _: &str,
+            _: &FetchPageOpts,
+        ) -> futures_util::future::BoxFuture<'_, Option<PageResponse>> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                None
+            })
+        }
+        fn fetch_url(
+            &self,
+            _: &str,
+            _: &UrlFetchOpts,
+        ) -> futures_util::future::BoxFuture<'_, Option<UrlFetchResult>> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                None
+            })
+        }
+        fn fetch_with_link_preview_bots(
+            &self,
+            _: &str,
+            _: u64,
+            _: usize,
+        ) -> futures_util::future::BoxFuture<'_, Option<PageResponse>> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                None
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn page_budget_abandons_slow_page_into_snippet_fallback() {
+        let net = SlowNet;
+        let cache = ScriptedCache::default();
+        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ranked_v = vec![ranked(
+            "https://dead.example/slow",
+            "Slow Site",
+            "indexed snippet long enough for the baseline gate",
+        )];
+        let counts = std::sync::Mutex::new(Vec::new());
+        let t0 = std::time::Instant::now();
+        let out = ex
+            .extract_all(
+                &ranked_v,
+                10,
+                Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))),
+                Some(300),
+            )
+            .await
+            .unwrap();
+        let elapsed = t0.elapsed();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].source_id, "S1"); // still numbered — bundle shape unchanged
+        assert_eq!(out[0].classification.as_deref(), Some("PAGE_BUDGET_TIMEOUT"));
+        assert_eq!(out[0].extraction, ExtractionKind::SnippetOnly);
+        assert_eq!(out[0].passages.len(), 1);
+        assert!(out[0].passages[0].passage_text.starts_with("[SERP snippet baseline"));
+        assert_eq!(*counts.lock().unwrap(), vec![(1, 1)]); // progress counted, no hang
+        assert!(elapsed < Duration::from_secs(10), "budget must cap the page: {elapsed:?}");
+    }
+
+    #[test]
+    fn timeout_fallback_packet_shape_mirrors_terminal_fallback() {
+        let with_base =
+            timeout_fallback_packet(&ranked("https://e/x", "Title Here", "a snippet long enough for baseline"));
+        assert_eq!(with_base.classification.as_deref(), Some("PAGE_BUDGET_TIMEOUT"));
+        assert_eq!(with_base.extraction, ExtractionKind::SnippetOnly);
+        assert_eq!(with_base.passages.len(), 1);
+        assert!(with_base.passages[0].passage_text.starts_with("[SERP snippet baseline"));
+        // No baseline (snippet AND title under 12 chars): the title carries
+        // the passage; an empty title yields the marker text.
+        let tiny = timeout_fallback_packet(&ranked("https://e/y", "Ti", "ab"));
+        assert_eq!(tiny.passages[0].passage_text, "Ti");
+        let none = timeout_fallback_packet(&ranked("https://e/z", "", "ab"));
+        assert_eq!(
+            none.passages[0].passage_text,
+            "(page read timed out — no content extracted)"
+        );
     }
 
     #[tokio::test]

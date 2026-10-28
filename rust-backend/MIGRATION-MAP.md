@@ -366,3 +366,46 @@ search_gate.rs` + `ruke-server/src/chat/pipeline.rs`).
   Part-10 accounting runs the golden dir with `--no-file-parallelism`.
   Full-suite accounting at this landing: non-golden 675 passed + 1 skipped
   (61 files) + golden 54/54 = **729 = 726 baseline + 3 new §11.2 TS tests**.
+
+### 11.3 Per-page extraction wall-clock budget (user-reported "stuck / taking forever")
+
+- **Class: PRE-EXISTING bug, fixed in BOTH epochs together (parity law).**
+  Reported symptom: a Playwright turn hung minutes mid-suite. Supervisor
+  evidence (turn_id=2, RTX-price prompt): `Read 9 of 10 pages` at
+  14:37:40, then a **3m51s silence** to `stage=reranking` at 14:41:26 —
+  `web_meta` (and the client's search-toggle UI) arrived only after that,
+  past the test's 170s window; the LLM stream was then "aborted by client".
+- **Root cause (inherited from the TS oracle, ported faithfully):** every
+  extractor timeout is PER REQUEST (`TIER1/LINK_PREVIEW/JINA/WAYBACK =
+  45_000 ms`, extractor.ts 71–75 ⇔ extractor.rs), while a page runs the
+  tier chain SEQUENTIALLY: tier1 + 4 link-preview bots + Jina + Wayback
+  (avail + CDX + snapshot) stack to minutes for one dead/unreachable host.
+  `extractAll`/`extract_all` uses Promise.all/join_all, so the slowest page
+  holds the whole evidence bundle hostage. A warm page-cache replay of the
+  same turn passed in 2.9s — proof the shape is timing, not logic.
+- **Deviation (both epochs, same semantics):** `PAGE_BUDGET_DEFAULT_MS =
+  60_000` — TOTAL per-page wall clock applied in `extractAll` after the
+  concurrency permit (a queued page never burns budget; TS:
+  `extractUrlWithBudget` Promise.race + symbol sentinel + rejection
+  guard; Rust: `tokio::time::timeout` wrapper in `extract_all`, the dropped
+  future cancels every in-flight tier). On expiry the page is ABANDONED and
+  settles to `timeoutFallbackPacket` / `timeout_fallback_packet` — the SAME
+  snippet-baseline terminal shape extractUrl already returns on full
+  cascade failure (baseline first; title or "(page read timed out — no
+  content extracted)" only when no baseline). New classification string
+  `PAGE_BUDGET_TIMEOUT` emitted ONLY by this path. The page still counts
+  toward `onPage` progress and still gets its S-id — bundle shape unchanged.
+  Optional `pageBudgetMs` param (TS 4th arg, Rust 4th arg `Option<u64>`,
+  production always default; tests inject 300ms).
+- **Fixture safety:** golden replays are in-process scripted fetches — the
+  timer can never fire there — verified **54/54 byte-identical**
+  (`--no-file-parallelism`) at this landing.
+- **Evidence:** Rust `page_budget_abandons_slow_page_into_snippet_fallback`
+  (SlowNet: every tier hangs 30s; budget 300ms caps the page in <10s real
+  time) + `timeout_fallback_packet_shape_mirrors_terminal_fallback` ⇔ TS
+  `__tests__/web-search/extractor-page-budget.test.ts` (2 mirror tests).
+  Batteries: cargo test --workspace **579 passed / 0 failed** (577 + 2);
+  clippy `-D warnings` 0; `tsc --noEmit` 0; non-golden vitest **677 passed
+  | 1 skipped** (62 files = 675 + 2); golden 54/54. Vitest grand total
+  **731 = 729 + 2 new §11.3 TS tests** (the 2 new Rust tests are inside the
+  cargo 579 count, not the vitest count).
