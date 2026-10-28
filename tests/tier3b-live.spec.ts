@@ -49,18 +49,21 @@ test("Tier-3b browser-read renders a JS-only page and the answer quotes it", asy
     .first()
     .waitFor({ state: "visible", timeout: 15000 });
 
-  // Dynamic settle (same patience idiom as universal-websites).
-  const t0 = Date.now();
-  let lastLen = 0;
-  let stable = 0;
-  while (Date.now() - t0 < 180_000) {
-    const text = await page.locator("main").first().innerText().catch(() => "");
-    if (text.length > 40 && text.length === lastLen) {
-      if (++stable >= 3) break;
-    } else stable = 0;
-    lastLen = text.length;
-    await page.waitForTimeout(2_000);
-  }
+  // Web-first completion wait: poll the conversation for the required
+  // answer text itself. (Length-stability settles read the pre-answer UI as
+  // "done" because innerText is constant through the search/reasoning
+  // phase; the "speed: N" stats ticker also runs DURING streaming, so it is
+  // not a completion signal either.) The strict assertions below — non-empty
+  // answer, no access refusal, Einstein quoted — stay exactly as written.
+  await expect
+    .poll(
+      async () => {
+        const t = await page.locator("main").first().innerText().catch(() => "");
+        return /einstein/i.test(t);
+      },
+      { timeout: 180_000, intervals: [2_000], message: "tier-3b answer never rendered in the conversation" },
+    )
+    .toBe(true);
 
   const text = await page.locator("main").first().innerText();
   expect(text.length, "answer must be non-empty").toBeGreaterThan(40);
