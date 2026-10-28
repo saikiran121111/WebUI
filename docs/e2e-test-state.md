@@ -305,3 +305,11 @@
 - vitest: 595 passed | 1 skipped (52 files). `tsc --noEmit`: EXIT=0. Gotcha:
   the popup lives inside ProcessingStatus, which unmounts at the first answer
   token — popup assertions must run during the search phase, not after settle.
+
+## Final wave 2026-10-29 (post §11.3-amendment)
+- cargo workspace 580/0; clippy -D clean; tsc 0; vitest 731p/1skip (re-run after 3 transient load-flakes); golden serial 54/54 (one 51/54 cluster right after cargo rebuild).
+- Universal post-amendment green: u1 BookMyShow+SO, u2 Zepto+Greenhouse, u3 HN+Gov, u6 cold Blinkit+Myntra+Zomato (all exit 0). tally lines logged per turn; 0 PAGE_BUDGET_TIMEOUT.
+- search-gate 3/3 after citation-scope fixture fix; tier3b-live 1/1.
+- 10k: 35-69 P, 70-99 P, 0-34 F (3/35 WAF: stackoverflow/swiggy/zepto homepages — environmental).
+- CodeBlock mid-stream colors verified live (colored at 2545ms during streaming).
+- Lifecycle: stack start 200/200, clean stop, ports free, orphans none (one stale playwright test-server killed).
