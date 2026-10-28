@@ -59,7 +59,9 @@ test.describe("settings + model stats through the Rust proxy", () => {
     const TEMP = "http://127.0.0.1:9099/v1/chat/completions";
     try {
       await page.goto(BASE + "/");
-      await page.getByLabel("Settings").click();
+      // exact:true — loose getByLabel("Settings") also matches the inert
+      // "Voice settings" placeholder (strict-mode violation).
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
       await page.getByTestId("settings-tab-endpoint").click();
       const input = page.getByTestId("settings-endpoint-input");
       await expect(input).toBeVisible();
@@ -75,7 +77,7 @@ test.describe("settings + model stats through the Rust proxy", () => {
 
       // …and after a full reload the UI re-primes from the server.
       await page.reload();
-      await page.getByLabel("Settings").click();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
       await page.getByTestId("settings-tab-endpoint").click();
       await expect(page.getByTestId("settings-endpoint-input")).toHaveValue(TEMP);
     } finally {
@@ -101,8 +103,11 @@ test.describe("settings + model stats through the Rust proxy", () => {
     expect(live.ok()).toBeTruthy();
     const liveBody = await live.json();
     expect(liveBody.ok).toBeTruthy();
-    expect(typeof liveBody.processing).toBe("number");
-    expect(typeof liveBody.prompt_tokens).toBe("number");
+    // TS oracle (app/api/model-stats/route.ts): live=1 answers
+    // { processing: boolean (slot.is_processing === true),
+    //   prompt_tokens: number|null, n_ctx: number|null }.
+    expect(typeof liveBody.processing).toBe("boolean");
+    expect(liveBody.prompt_tokens === null || typeof liveBody.prompt_tokens === "number").toBe(true);
     expect(liveBody.n_ctx).toBeGreaterThan(0);
   });
 });
