@@ -1044,6 +1044,12 @@ export async function metasearch(
  * (freshness !== "any") and the first pass returned fewer than 5 results,
  * automatically re-run the same plans with freshness "any" — a 30-day
  * filter on an evergreen/local/product query drops 99% of relevant pages.
+ *
+ * shortcut: no query-level single-flight coalescing — local single-user
+ * app (concurrent identical queries ≈ zero), fanout-level sharing would
+ * break TS-oracle/Rust-mirror parity via process statics, and repeat URL
+ * work is already covered by canonical dedupe before fetch. Upgrade when
+ * a multi-user server ships.
  */
 export async function metasearchWithFreshnessRecovery(
   plans: SearchPlan[],

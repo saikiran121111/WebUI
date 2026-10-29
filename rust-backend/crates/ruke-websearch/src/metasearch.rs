@@ -1629,6 +1629,12 @@ pub struct FreshnessRecovery {
 }
 
 /// TS `metasearchWithFreshnessRecovery(plans, maxResults = 20)`.
+///
+/// shortcut: no query-level single-flight coalescing — local single-user
+/// app (concurrent identical queries ≈ zero), fanout-level sharing would
+/// break TS-oracle/Rust-mirror parity via process statics, and repeat URL
+/// work is already covered by canonical dedupe before fetch. Upgrade when
+/// a multi-user server ships.
 pub async fn metasearch_with_freshness_recovery(
     net: &dyn Net,
     plans: &[SearchPlan],

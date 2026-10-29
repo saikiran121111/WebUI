@@ -47,6 +47,13 @@ use crate::types::RankedResult;
 pub const DEFAULT_TTL_MS: i64 = 5 * 60 * 60 * 1000;
 /// Throttle window for the read/write-adjacent purge (TS `60_000`).
 pub const PURGE_THROTTLE_MS: i64 = 60_000;
+/// §24 TTL audit (2026-10-30, cache.ts mirror): a time-scoped run
+/// (freshness "day"/"week") must not replay a 5-hour-old SERP on the next
+/// breaking-news question. Fresh query rows cap at 15 min; other
+/// freshness values keep the full TTL, and page_cache keeps full
+/// retention (shortcut: page bodies churn slowly; fresh SERPs surface
+/// new URLs whose extraction was never cached anyway).
+pub const FRESH_QUERY_TTL_MS: i64 = 15 * 60_000;
 /// Background sweep period (TS `PURGE_SWEEP_INTERVAL_MS`).
 pub const PURGE_SWEEP_INTERVAL_MS: u64 = 15 * 60 * 1000;
 
@@ -347,6 +354,12 @@ impl SearchCache for SqliteSearchCache {
         }
         let key = query_cache_key(queries);
         let now = now_ms();
+        // §24: shorter retention for time-scoped runs (see FRESH_QUERY_TTL_MS).
+        let ttl = if freshness == "day" || freshness == "week" {
+            self.ttl_ms.min(FRESH_QUERY_TTL_MS)
+        } else {
+            self.ttl_ms
+        };
         let plan_json = serde_json::to_string(plan_json).map_err(CacheError::from_to_string)?;
         let results_json = serde_json::to_string(results).map_err(CacheError::from_to_string)?;
         self.with_db(|db| {
@@ -359,7 +372,7 @@ impl SearchCache for SqliteSearchCache {
                      created_at = excluded.created_at,
                      expires_at = excluded.expires_at,
                      hits = query_cache.hits + 1"#,
-                params![key, freshness, plan_json, results_json, now, now + self.ttl_ms],
+                params![key, freshness, plan_json, results_json, now, now + ttl],
             )?;
             Ok(())
         })
@@ -583,6 +596,37 @@ mod tests {
         let n = c.purge_expired().unwrap();
         assert!(n >= 1, "expired row purged: {n}");
         assert_eq!(c.purge_expired().unwrap(), 0);
+        c.close().unwrap();
+    }
+
+    /// §24: time-scoped freshness shortens the query-row TTL; other
+    /// freshness values keep the configured full retention.
+    #[test]
+    fn fresh_freshness_shortens_query_ttl() {
+        let (_d, c) = tmp_cache(60 * 60 * 1000); // 1 h full TTL
+        c.put_cached_query(&q(&["breaking news"]), &json!([]), &[rr("https://n.dev")], "day")
+            .unwrap();
+        c.put_cached_query(&q(&["timeless fact"]), &json!([]), &[rr("https://f.dev")], "any")
+            .unwrap();
+        let conn = Connection::open(c.path()).unwrap();
+        let expiry = |query: &str| -> i64 {
+            conn.query_row(
+                "SELECT expires_at FROM query_cache WHERE query_hash = ?1",
+                params![query_cache_key(&q(&[query]))],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let now = now_ms();
+        assert!(
+            expiry("breaking news") - now <= FRESH_QUERY_TTL_MS + 5_000,
+            "day-fresh row caps near 15 min"
+        );
+        assert!(
+            expiry("timeless fact") - now > FRESH_QUERY_TTL_MS,
+            "non-fresh retention keeps the full TTL"
+        );
+        drop(conn);
         c.close().unwrap();
     }
 
