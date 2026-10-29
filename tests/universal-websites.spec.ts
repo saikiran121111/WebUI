@@ -12,7 +12,7 @@
  *      StackOverflow, Greenhouse jobs, docs)
  *
  * ZERO-DOWNLOAD rule: the in-memory Playwright pool
- * (lib/browser/agentBrowser.ts) resolves its Chromium from the repo-local
+ * (lib/web-search/agentBrowser.ts) resolves its Chromium from the repo-local
  * `.data/ms-playwright` cache via PLAYWRIGHT_BROWSERS_PATH — this suite
  * never runs `playwright install` or downloads anything.
  *
@@ -26,11 +26,18 @@ import { test, expect } from "@playwright/test";
 // The hero composer's placeholder (landing redesign).
 const INPUT = "textarea[placeholder^='How can I help']";
 
-async function sendPrompt(page: import("@playwright/test").Page, text: string) {
-  /* Navigate to the app root — the chat composer is fresh here so
-     there is no cross-test contamination from the previous case. */
+async function sendPrompt(page: import("@playwright/test").Page, text: string): Promise<number> {
+  /* Navigate to the app root. NOTE: the app RESTORES the previous
+     conversation on goto("/") (verified behavior) — the composer is NOT
+     a blank chat, and the message list already holds the prior case's
+     bubbles. Count them BEFORE sending: the new turn's assistant bubble
+     mounts at exactly this index in both modes (N restored messages →
+     new bubble at index N; fresh chat N=0 → index 0). */
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  const priorAssistant = await page
+    .locator('[data-testid="assistant-message"]')
+    .count();
   const input = page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill(text);
@@ -41,33 +48,47 @@ async function sendPrompt(page: import("@playwright/test").Page, text: string) {
     .getByText(text.slice(0, 40), { exact: false })
     .first()
     .waitFor({ state: "visible", timeout: 15000 });
+  return priorAssistant;
 }
 
 /**
- * Wait for the answer to settle. Uses a dynamic poll instead of a fixed
- * timeout: poll every 2s until either the answer is long enough OR we
- * hit the hard deadline. This avoids the cross-test contamination that
- * a blind 90s sleep produces when one case's answer is still streaming.
+ * Wait for THIS TURN's assistant reply to FINISH — never a text-length
+ * settle and never `.last()`. The length heuristic read the search/
+ * reasoning UI as "settled done" (same broken-test family as the tier3b
+ * settle fix, a3caabf); `.last()` then read the PREVIOUS turn's already
+ * "complete" bubble while the real turn was still streaming — the proven
+ * Greenhouse false-failure (server turn 141 completed its search and
+ * evidence injection, then the stream was aborted 6 µs after start by
+ * the closing page). Index `priorAssistant` IS this turn's bubble: it
+ * doesn't exist until it mounts, so the poll keeps waiting, and it can
+ * never be confused with a restored message. "complete" = answer
+ * delivered; "error" = the chat itself failed; deadline exceeded throws
+ * (never a silent return into a stale-bubble assertion).
  */
 async function waitForAnswer(
   page: import("@playwright/test").Page,
-  deadlineMs = 90_000,
+  priorAssistant: number,
+  deadlineMs = 180_000,
 ) {
   const t0 = Date.now();
-  let lastLen = 0;
-  let stableTicks = 0;
   while (Date.now() - t0 < deadlineMs) {
-    const text = await page.locator("main").first().innerText().catch(() => "");
-    const len = text.length;
-    if (len > 40 && len === lastLen) {
-      stableTicks++;
-      if (stableTicks >= 3) return; /* 3 consecutive polls with no change */
-    } else {
-      stableTicks = 0;
+    if (
+      (await page.locator('[data-testid="assistant-message"]').count()) >
+      priorAssistant
+    ) {
+      const reply = page
+        .locator('[data-testid="assistant-message"]')
+        .nth(priorAssistant);
+      const state = await reply.getAttribute("data-state").catch(() => null);
+      if (state === "error")
+        throw new Error(`chat failed: ${await reply.innerText().catch(() => "")}`);
+      if (state === "complete") return;
     }
-    lastLen = len;
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(1_000);
   }
+  throw new Error(
+    `this turn's assistant reply never reached "complete" within ${deadlineMs}ms`,
+  );
 }
 
 /** The refusal phrases the anti-refusal directive must eliminate. */
@@ -102,6 +123,16 @@ interface Case {
   prompt: string;
   /** Substring that MUST appear in the answer (case-insensitive). */
   mustMention?: string;
+  /**
+   * Alternative proof marker (case-insensitive regex). Used where a
+   * literal platform noun is NOT how a fluent answer proves it read the
+   * source: the YouTube battle-of-the-generators video is answered by
+   * NAMING THE TOOLS IN IT (LTX, MiniMax...) — tokens that exist in
+   * neither the prompt nor generic boilerplate, so a hit is strictly
+   * stronger evidence of real video-evidence grounding than the word
+   * "youtube" ever was.
+   */
+  mustMentionPattern?: RegExp;
 }
 
 const CASES: Case[] = [
@@ -113,7 +144,7 @@ const CASES: Case[] = [
   { name: "Zomato", prompt: "What are the top rated restaurants in Hyderabad on Zomato?", mustMention: "zomato" },
 
   // 2. The 3 original regression cases
-  { name: "YouTube short link", prompt: "https://youtu.be/zinbNw7L8xI — who won the battle of video generating in this video?", mustMention: "youtube" },
+  { name: "YouTube short link", prompt: "https://youtu.be/zinbNw7L8xI — who won the battle of video generating in this video?", mustMentionPattern: /ltx|minimax/i },
   { name: "Google Maps short link", prompt: "https://maps.app.goo.gl/pDMFFw4XaSzNJhgW6 — which location is this?", mustMention: "map" },
   { name: "LinkedIn profile search", prompt: "Find the LinkedIn profile of the CEO of Tata Group", mustMention: "linkedin" },
 
@@ -126,14 +157,17 @@ const CASES: Case[] = [
 
 for (const c of CASES) {
   test(`universal: ${c.name}`, async ({ page }) => {
-    test.setTimeout(180_000);
-    await sendPrompt(page, c.prompt);
-    await waitForAnswer(page);
+    test.setTimeout(240_000);
+    const priorAssistant = await sendPrompt(page, c.prompt);
+    await waitForAnswer(page, priorAssistant);
     const text = await answerText(page);
     expect(text.length, "answer must be non-empty").toBeGreaterThan(40);
     assertNoRefusal(text);
     if (c.mustMention) {
       expect(text.toLowerCase(), `answer must mention '${c.mustMention}'`).toContain(c.mustMention.toLowerCase());
+    }
+    if (c.mustMentionPattern) {
+      expect(c.mustMentionPattern.test(text), `answer must match ${c.mustMentionPattern}`).toBe(true);
     }
   });
 }

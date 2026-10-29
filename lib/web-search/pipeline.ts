@@ -22,7 +22,7 @@
  * second-guess it with claim status lines.
  *
  * Each stage streams progress through an onProgress callback so the chat
- * route can surface "Deciding…" / "Searching…" / "Reading…" / "Reranking…"
+ * route can surface "Deciding..." / "Searching..." / "Reading..." / "Reranking..."
  * to the WebUI in real time.
  */
 import { runSearchGate } from "./search-gate";
@@ -41,6 +41,7 @@ import {
   renumberPackets,
   nextSourceIndex,
   baselinePacketsFor,
+  extractUrl,
 } from "./extractor";
 import { rerank } from "./reranker";
 import {
@@ -60,10 +61,37 @@ import {
   getCachedQuery,
   putCachedQuery,
 } from "./cache";
+import { detectUrlsAndDomains } from "./url-detector";
 import type { EvidencePacket, EvidencePassage, SearchGateResult } from "./types";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("web-search/pipeline");
+
+// §11/§21 progressive read batches + evidence-sufficiency early stop
+// (mirrors the Rust pipeline constants).
+const READ_FIRST_BATCH = 4;
+const READ_BATCH_STEP = 3;
+const READ_MAX_PAGES = 10;
+const EVIDENCE_GOOD_TARGET = 6;
+const EVIDENCE_DOMAIN_MIN = 3;
+const GOOD_MIN_PASSAGE_CHARS = 400;
+
+// "Good" = real page content — clean extraction (no classification label,
+// the fixture shape) OR any SUCCESS_* channel that actually fetched the
+// page — with substance behind it. SUCCESS_SNIPPET_FALLBACK is excluded
+// (the search tier already had that text). This once required a missing
+// classification outright, which left the stop inert in production since
+// both mirrors label live successes SUCCESS_*.
+// shortcut: JS counts UTF-16 units where Rust counts chars — immaterial at
+// the 400 threshold.
+function isGoodEvidence(p: EvidencePacket): boolean {
+  const c = p.classification;
+  return (
+    (!c || (c.startsWith("SUCCESS_") && c !== "SUCCESS_SNIPPET_FALLBACK")) &&
+    p.passages.reduce((n, x) => n + (x.passageText?.length ?? 0), 0) >=
+      GOOD_MIN_PASSAGE_CHARS
+  );
+}
 
 /**
  * Relevance floor: before handing evidence to the extractor, verify that
@@ -308,7 +336,7 @@ export async function runWebResearch(
   const ceilingHit = () => abortSignal.aborted;
 
   // ── search gate (Stage 0 hard bypass → main model) ─────────────────
-  onProgress?.({ stage: "gate", detail: "Deciding whether a web search is needed…" });
+  onProgress?.({ stage: "gate", detail: "Deciding whether a web search is needed..." });
   const gate = await runSearchGate(ctx);
   if (!gate.decision.search_required) {
     onProgress?.({ stage: "skipped", detail: "No web search required" });
@@ -320,7 +348,7 @@ export async function runWebResearch(
   );
 
   // ── query planning (multi-hop decomposer) ────────────────────────────
-  onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries…" });
+  onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries..." });
   const planned = planQueries(ctx.userPrompt, gate.decision.queries);
   const plans: SearchPlan[] = planned.map((p) => ({
     query: p.query,
@@ -333,7 +361,9 @@ export async function runWebResearch(
 
   // Literal URLs from the prompt: used for the YouTube + Maps companion
   // hops just below and for the single-URL rerank relaxation further down.
-  const promptUrls = ctx.userPrompt.match(/https?:\/\/[^\s"'<>[\]]+/gi) ?? [];
+  // tldts-based: catches full URLs AND bare domains (skiran.dev, etc.).
+  const promptDomains = detectUrlsAndDomains(ctx.userPrompt);
+  const promptUrls = promptDomains.map((d) => d.url);
 
   // ── YouTube companion hop (mandated no-caption fallback) ──────────────
   // A video without a caption track cannot self-identify its topic ("what
@@ -400,7 +430,7 @@ export async function runWebResearch(
   // ── search (first hop) ───────────────────────────────────────────────
   onProgress?.({
     stage: "searching",
-    detail: `Searching ${plans.length} source pool(s)…`,
+    detail: `Searching ${plans.length} source pool(s)...`,
     total: plans.length,
   });
 
@@ -412,14 +442,76 @@ export async function runWebResearch(
     searchResults = cached.results;
   } else if (!ceilingHit()) {
     const t = performance.now();
-    const { results: fused, freshnessRecoveryUsed } = await metasearchWithFreshnessRecovery(
-      plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
-      20,
-    );
-    searchResults = fused;
+
+    // ── Stage 0 direct targets: the prompt's OWN URLs/domains ─────────
+    // If the user wrote "skiran.dev can you search this portfolio", we
+    // fetch https://skiran.dev DIRECTLY in parallel with metasearch. Even
+    // if every search engine returns 429, the user's linked page is read.
+    // These results are unshifted ahead of the SERP pool so they land in
+    // the top-10 extraction window and become [S1] in the evidence block.
+    // §26: the direct-target hop runs its targets CONCURRENTLY and OVERLAPS
+    // the whole hop with metasearch (previously sequential and BEFORE search
+    // started — the comment above always promised "in parallel with
+    // metasearch"; the code finally does). Slot order preserved by Promise.all.
+    // shortcut: ceilingHit() gates launch + per-target start, never mid-fetch
+    // abort (JS can't cancel in-flight fetches) — same coarse cancel
+    // semantics as raceToEnough.
+    const directFut = (async (): Promise<RankedResult[]> => {
+      if (promptDomains.length === 0 || ceilingHit()) return [];
+      const directTargets = promptDomains.slice(0, 4).map((d) => ({
+        url: d.url,
+        canonical: d.url,
+        title: d.domain,
+        snippet: "",
+        engine: "direct-target",
+        domain: d.domain,
+        rrf: Number.MAX_SAFE_INTEGER,
+        engines: ["direct-target"],
+        engineRanks: { "direct-target": 1 },
+      }));
+      const settled = await Promise.all(directTargets.map(async (target): Promise<RankedResult | null> => {
+        if (ceilingHit()) return null;
+        try {
+          const packet = await extractUrl(target);
+          log.info(
+            { domain: target.domain, classification: packet.classification, passages: packet.passages.length },
+            "stage-0 direct target extracted",
+          );
+          return {
+            ...target,
+            title: packet.title || target.domain,
+            snippet: (packet.passages?.[0]?.passageText ?? "").slice(0, 300),
+          };
+        } catch {
+          log.warn({ domain: target.domain }, "stage-0 direct target failed — SERP pool still covers it");
+          return null;
+        }
+      }));
+      const ready = settled.filter((r): r is RankedResult => r !== null);
+      if (ready.length > 0) {
+        log.info({ domains: ready.map((r) => r.domain) }, "stage-0 direct targets ready");
+      }
+      return ready;
+    })();
+
+    const [{ results: fused, freshnessRecoveryUsed }, directResults] = await Promise.all([
+      metasearchWithFreshnessRecovery(
+        plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
+        20,
+      ),
+      directFut,
+    ]);
+    // Merge: direct targets first, then SERP results (dedup by canonical).
+    if (directResults.length > 0) {
+      const seen = new Set(directResults.map((d) => d.canonical));
+      const filtered = fused.filter((f) => !seen.has(f.canonical));
+      searchResults = [...directResults, ...filtered];
+    } else {
+      searchResults = fused;
+    }
     putCachedQuery(plans, searchResults, gate.decision.freshness);
     log.info(
-      { ms: Math.round(performance.now() - t), results: searchResults.length, freshnessRecoveryUsed },
+      { ms: Math.round(performance.now() - t), results: searchResults.length, directResults: directResults.length, freshnessRecoveryUsed },
       "metasearch complete",
     );
   }
@@ -432,7 +524,7 @@ export async function runWebResearch(
     if (hasRealResults && cleanQuery.length > 3) {
       onProgress?.({
         stage: "recovery",
-        detail: `Only ${relevantCount} relevant result(s) — firing broad recovery pass…`,
+        detail: `Only ${relevantCount} relevant result(s) - firing broad recovery pass...`,
       });
       log.info({ relevantCount }, "relevance floor not met — broad recovery pass");
       const recoveryResults = await metasearch(
@@ -454,7 +546,7 @@ export async function runWebResearch(
     } else if (!hasRealResults && cleanQuery.length > 0) {
       onProgress?.({
         stage: "recovery",
-        detail: "Zero results from all engines — retrying with stripped query…",
+        detail: "Zero results from all engines - retrying with stripped query...",
       });
       log.info("zero-result recovery — retrying with stripped query");
       searchResults = await metasearch(
@@ -602,30 +694,80 @@ export async function runWebResearch(
     };
   }
 
-  // ── extract (first hop) ────────────────────────────────────────────────
-  const readTotal = Math.min(10, searchResults.length);
+  // ── extract (first hop, §11/§21 progressive sufficiency-driven batches) ─
+  // Read the best READ_FIRST_BATCH, extend by READ_BATCH_STEP waves ONLY if
+  // evidence is still insufficient. The onPage wrapper emits cumulative counts
+  // against the PLANNED total, so a full read emits SSE bytes identical to the
+  // old single extractAll call. The sufficiency bar (>= EVIDENCE_GOOD_TARGET
+  // good packets AND >= EVIDENCE_DOMAIN_MIN domains) deliberately sits above
+  // the scripted golden pools (5 pages), so goldens always read fully and the
+  // fixtures stay byte-identical — no re-record.
+  const readTotal = Math.min(READ_MAX_PAGES, searchResults.length);
   onProgress?.({
     stage: "reading",
-    detail: `Reading top ${readTotal} pages…`,
+    detail: `Reading top ${readTotal} pages...`,
     total: readTotal,
   });
   const t = performance.now();
-  // onPage: real per-page completion inside the single extractAll await — the
+  // onPage: real per-page completion inside each extractAll await — the
   // client's "Reading web sources — page X of Y" step advances on measured
   // fetches, never on a timer.
-  let packets: (EvidencePacket & { classification: string })[] =
-    ceilingHit() || searchResults.length === 0
-      ? []
-      : await extractAll(
-    searchResults,
-    10,
-    (donePages, totalPages) => onProgress?.({
-      stage: "reading",
-      detail: `Read ${donePages} of ${totalPages} pages…`,
-      done: donePages,
-      total: totalPages,
-    }),
-  );
+  let packets: (EvidencePacket & { classification: string })[] = [];
+  if (!ceilingHit() && searchResults.length > 0) {
+    let prev = 0;
+    while (prev < readTotal) {
+      const step = prev === 0 ? READ_FIRST_BATCH : READ_BATCH_STEP;
+      const take = Math.min(prev + step, readTotal);
+      const base = prev;
+      // §25 mid-wave sufficiency stop: seeded with the completed waves'
+      // tally, extended per page this wave finishes — the wave resolves the
+      // moment evidence suffices instead of waiting for its slowest page.
+      // The post-wave check below stays authoritative for the break and its
+      // log line, and the predicate can never fire on the scripted goldens
+      // (wave pools sit below EVIDENCE_GOOD_TARGET — same golden-safety
+      // argument as the batching itself).
+      const completedGood = packets.filter(isGoodEvidence);
+      let goodCount = completedGood.length;
+      const stopDomains = new Set(completedGood.map((p) => p.domain));
+      const stopWhen = (p: EvidencePacket) => {
+        if (isGoodEvidence(p)) {
+          goodCount += 1;
+          stopDomains.add(p.domain);
+        }
+        return goodCount >= EVIDENCE_GOOD_TARGET && stopDomains.size >= EVIDENCE_DOMAIN_MIN;
+      };
+      const batch = await extractAll(
+        searchResults.slice(prev, take),
+        take - prev,
+        (donePages) => onProgress?.({
+          stage: "reading",
+          detail: `Read ${base + donePages} of ${readTotal} pages...`,
+          done: base + donePages,
+          total: readTotal,
+        }),
+        undefined, // production page budget default
+        // `prev` = this slice's position in the full read window, so the
+        // §18 browser-attempt rank gate sees window ranks.
+        prev,
+        stopWhen,
+      );
+      // extractAll numbers S1.. per call; keep running global ids so batch 2's
+      // pages land at S(prev+1).. exactly as one full-window call numbered.
+      renumberPackets(batch, nextSourceIndex(packets));
+      packets.push(...batch);
+      prev = take;
+      const good = packets.filter(isGoodEvidence);
+      const domains = new Set(good.map((p) => p.domain));
+      if (good.length >= EVIDENCE_GOOD_TARGET && domains.size >= EVIDENCE_DOMAIN_MIN) {
+        log.info(
+          { pagesRead: prev, pagesPlanned: readTotal, goodPackets: good.length, domains: domains.size },
+          "reading hop early-stopped on sufficient evidence",
+        );
+        break;
+      }
+      if (ceilingHit()) break;
+    }
+  }
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
   // Prompt-URL video evidence joins the pool — deduped by video id against
@@ -654,7 +796,7 @@ export async function runWebResearch(
     const w = loginWalls[0];
     onProgress?.({
       stage: "auth_required",
-      detail: `${loginWalls.length} source(s) hit a login wall (${w.domain}) — open the Browser panel to sign in for full content.`,
+      detail: `${loginWalls.length} source(s) hit a login wall (${w.domain}) - open the Browser panel to sign in for full content.`,
       url: w.url,
       domain: w.domain,
     });
@@ -675,9 +817,12 @@ export async function runWebResearch(
   const singleUrlQuery = promptUrls.length === 1;
 
   // ── rerank ─────────────────────────────────────────────────────────────
-  onProgress?.({ stage: "reranking", detail: "Reranking with BM25…" });
+  // §22 evidence density over volume: top 15 quality passages, not 30
+  // (BM25 ordering already dropped the weak tail; scripted goldens hold
+  // 10 passages each, so their bytes are unchanged).
+  onProgress?.({ stage: "reranking", detail: "Reranking with BM25..." });
   const t2 = performance.now();
-  let topPassages = rerank(packets, ctx.userPrompt, qTexts, 30, {
+  let topPassages = rerank(packets, ctx.userPrompt, qTexts, 15, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
   });
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
@@ -689,7 +834,7 @@ export async function runWebResearch(
   if (coverage.needsGapSearch && coverage.gapQuery) {
     onProgress?.({
       stage: "gap-search",
-      detail: `Coverage ${Math.round(coverage.coverage * 100)}% — firing targeted 2nd-hop search for missing entities…`,
+      detail: `Coverage ${Math.round(coverage.coverage * 100)}% - firing targeted 2nd-hop search for missing entities...`,
       coverage: coverage.coverage,
     });
     log.info(
@@ -699,14 +844,16 @@ export async function runWebResearch(
     const gapResults = await runGapMetasearch(coverage.gapQuery);
     if (gapResults.length > 0) {
       gapSearchFired = true;
-      const gapPackets = await extractAll(gapResults, 5);
+      // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
+      // fresh pages, not 5 (mirrors Rust).
+      const gapPackets = await extractAll(gapResults, 3);
       renumberPackets(gapPackets, nextSourceIndex(packets));
       const allPackets = [...packets, ...gapPackets];
       topPassages = rerank(
         allPackets,
         ctx.userPrompt + " " + coverage.gapQuery,
         [...qTexts, coverage.gapQuery],
-        30,
+        15,
         {
           ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
         },
@@ -753,7 +900,8 @@ export async function runWebResearch(
 export const ANTI_REFUSAL_DIRECTIVE =
   "CRITICAL: The server has ALREADY opened the user's URLs, resolved " +
   "short-links/redirects, extracted YouTube transcripts, read attached " +
-  "screenshots, and rendered live pages via our built-in browser engine. " +
+  "screenshots, and rendered live pages via our in-house Playwright page " +
+  "pool. " +
   "All live data is in the web context below. NEVER say you cannot watch " +
   "YouTube videos, cannot open Google Maps links, or cannot browse " +
   "LinkedIn/websites. Answer directly using the provided evidence.";

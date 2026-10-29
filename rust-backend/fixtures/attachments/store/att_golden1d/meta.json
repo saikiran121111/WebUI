@@ -1,0 +1,15 @@
+{
+  "attId": "att_golden1d",
+  "name": "pivot-table-training.mp4",
+  "category": "video",
+  "createdAt": 0,
+  "chunkCount": 3,
+  "spine": "",
+  "spineBlocks": [],
+  "frames": [
+    {
+      "at": 6310,
+      "file": "frames/f_golden1.jpg"
+    }
+  ]
+}

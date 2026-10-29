@@ -14,8 +14,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runWebResearch, evidenceBlock } from "../../../lib/web-search/pipeline";
 import { runGeneralWebSearch } from "../../../lib/web-search/engines";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 
 export async function GET(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/search");
   const query = req.nextUrl.searchParams.get("q");
   if (!query) return NextResponse.json({ results: [] });
 

@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ruke-contracts",
+    "crates/ruke-core",
+    "crates/ruke-server",
+    "crates/ruke-skills",
+    "crates/ruke-decision",
+    "crates/ruke-attach",
+    "crates/ruke-websearch",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+
+[workspace.dependencies]
+ruke-contracts = { path = "crates/ruke-contracts" }
+ruke-core = { path = "crates/ruke-core" }
+ruke-skills = { path = "crates/ruke-skills" }
+ruke-decision = { path = "crates/ruke-decision" }
+# Part 5 (attachment retrieval): read-side port of lib/server/attachindex.
+ruke-attach = { path = "crates/ruke-attach" }
+# Part 6 (web search): parity port of lib/web-search. W0 owns the shared
+# dependency set for this crate — later Part-6 agents must NOT edit the
+# root manifest; crate-local needs already covered here.
+ruke-websearch = { path = "crates/ruke-websearch" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
+tokio-util = { version = "0.7", features = ["full"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+parking_lot = "0.12"
+regex = "1"
+sha2 = "0.10"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+# Part 4 (chat transport): upstream HTTP client + byte plumbing.
+# reqwest WITHOUT gzip/brotli features: upstream SSE bytes must travel
+# VERBATIM (the TS fetch baseline sends no Accept-Encoding, and the golden
+# corpus pins byte-exact bodies). default-tls ⇒ schannel on Windows,
+# matching the system trust store without a new crypto dependency tree.
+reqwest = { version = "0.12", default-features = false, features = ["stream", "default-tls"] }
+bytes = "1"
+futures-util = "0.3"
+url = "2"
+http-body-util = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+# ── Part 6 (web search) shared dependency set — declared ONCE by W0 so
+#    W2/W3/W4 never touch this file. Versions are pinned to the lines
+#    verified to build on windows-msvc by W0's `cargo check`.
+rusqlite = { version = "0.32", features = ["bundled"] }
+chardetng = "0.1"
+encoding_rs = "0.8"
+scraper = "0.20"
+html5ever = "0.27"
+selectors = "0.25"
+percent-encoding = "2"
+ipnet = "2"
+chrono = { version = "0.4", features = ["serde"] }
+psl = "2"
+flate2 = "1"
+brotli = "6"
+
+# Rule 13: production lifecycle compiles an optimized backend.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

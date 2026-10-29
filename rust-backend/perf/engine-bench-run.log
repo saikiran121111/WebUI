@@ -1,0 +1,756 @@
+=== phase 1: per-engine x 59 queries (engines parallel, queries sequential) ===
+[2m2026-10-29T15:44:34.412118Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m359 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:34.413259Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m361 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:34.503867Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"devto" [3mreason[0m[2m=[0m"dev.to returned 0 results" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:44:34.503920Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m451 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:34.598932Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m546 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:34.620560Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m208 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:34.684548Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m271 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:34.936731Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m316 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.046136Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m447 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:35.106613Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m421 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:35.248391Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1196 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:44:35.249757Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m1197 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:35.303926Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"devto" [3mreason[0m[2m=[0m"dev.to returned 0 results" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:44:35.303963Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m799 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304000Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304015Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304029Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304044Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304056Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304069Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304082Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304096Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304107Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304118Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304132Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304145Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304198Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304214Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304227Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304243Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304256Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304268Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304281Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304295Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304308Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304321Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304334Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304347Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304360Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304373Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304385Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304397Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304409Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304422Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304435Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304448Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304461Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304474Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304487Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304500Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304512Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304524Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304537Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304563Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304576Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304589Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304603Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304616Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304630Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304642Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304656Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304667Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304680Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304693Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304706Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304722Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304734Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304747Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304760Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304776Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.304789Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.305296Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1253 [3mresults[0m[2m=[0m5
+[2m2026-10-29T15:44:35.323535Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m386 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.365805Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m117 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.522372Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m475 [3mresults[0m[2m=[0m5
+[2m2026-10-29T15:44:35.553501Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m446 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:35.668314Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m344 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.707076Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m341 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:35.989875Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m436 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:36.003668Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"duckduckgo" [3mreason[0m[2m=[0m"both endpoints returned 0 results for this query" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:44:36.003716Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m753 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.007502Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m339 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.026698Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1974 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:44:36.076776Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m369 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178181Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"duckduckgo" [3mreason[0m[2m=[0m"both endpoints returned 0 results for this query" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:44:36.178205Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m174 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178268Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178279Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178290Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178300Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178309Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178318Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178328Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178336Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178345Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178354Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178363Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178372Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178382Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178391Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178402Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178411Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178420Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178429Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178439Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178480Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178491Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178500Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178509Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178518Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178527Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178536Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178544Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178553Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178562Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178571Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178581Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178590Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178599Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178608Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178618Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178626Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178635Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178644Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178653Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178662Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178672Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178681Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178691Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178700Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178709Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178719Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178728Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178737Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178748Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178757Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178768Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178777Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178786Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178795Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178806Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.178816Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"duckduckgo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.218835Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m228 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:36.399121Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m322 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.528493Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m520 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.534340Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m2482 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:36.535650Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m316 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:36.627649Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m1105 [3mresults[0m[2m=[0m4
+[2m2026-10-29T15:44:36.636502Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m2584 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:36.841001Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m441 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:36.861125Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1555 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:36.903063Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m374 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:37.022803Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m487 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:37.097615Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m469 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:37.163190Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m322 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:37.233014Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m329 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:37.320235Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m297 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:37.416556Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m253 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:37.684893Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m451 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:37.744066Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m327 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:37.791896Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m471 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:38.017824Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m920 [3mresults[0m[2m=[0m23
+[2m2026-10-29T15:44:38.063005Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m378 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:38.172351Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m428 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:38.322055Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m530 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:38.357696Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1721 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:38.389285Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1528 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:38.445010Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m427 [3mresults[0m[2m=[0m2
+[2m2026-10-29T15:44:38.515547Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m452 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:38.601514Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m429 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:38.749047Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m426 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:38.768983Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m2234 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:38.781001Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2754 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:38.783114Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m267 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:38.885233Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m440 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:44:38.970975Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m369 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:39.168841Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m385 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:39.191727Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m442 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:39.338592Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m453 [3mresults[0m[2m=[0m2
+[2m2026-10-29T15:44:39.371336Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m400 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:39.536592Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m367 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:39.641963Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m450 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:44:39.697716Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m326 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:39.730641Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m391 [3mresults[0m[2m=[0m5
+[2m2026-10-29T15:44:39.819769Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m283 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:39.884584Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m242 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:39.906420Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1517 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:39.999931Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1642 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:40.018849Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m321 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:40.111240Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m291 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:40.207963Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m323 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:40.311909Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m293 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:40.475136Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m363 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:40.585264Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m377 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:40.598025Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m286 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:40.683070Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m952 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:44:40.862274Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m2093 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:40.894925Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m419 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:40.921304Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m323 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:41.006970Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m421 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:41.158060Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m474 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:41.231127Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m309 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:41.247432Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m352 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:41.393348Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1486 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:41.408009Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2626 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:41.417747Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m410 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:41.628514Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m397 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:41.678677Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m520 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:41.701280Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m453 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:41.744170Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1744 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:41.792774Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m374 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:41.996494Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m367 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.061621Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m360 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.194756Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m401 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:42.243772Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m564 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:42.308154Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m311 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.366162Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m304 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.540258Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m345 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:42.691097Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m1828 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:42.717705Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m409 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.809185Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m442 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.965258Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m721 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:42.973920Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m433 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:43.021976Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1628 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:43.180070Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m462 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:43.261240Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m452 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:43.331521Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m357 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:43.461534Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1717 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:43.643858Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m382 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:43.717370Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m752 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:43.741048Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m409 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:44.080252Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m436 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.144924Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m403 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:44.149473Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1127 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:44.278660Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"yahoo" [3mreason[0m[2m=[0m"both regions returned 0 results" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:44:44.278688Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m1587 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.445109Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m364 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.551084Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m406 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:44.582884Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m865 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.605009Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1424 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.784352Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m339 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.912279Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"brave" [3mreason[0m[2m=[0m"brave returned 429 with no results" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:44:44.912487Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1450 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:44.913775Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m362 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:44.977111Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3568 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:45.061506Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m277 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.235299Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m321 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:45.242652Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m659 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254846Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"yahoo" [3mreason[0m[2m=[0m"both regions returned 0 results" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:44:45.254866Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m976 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254888Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254898Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254907Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254916Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254923Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254931Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254940Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254949Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254957Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254966Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254975Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254985Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.254996Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255006Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255015Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255024Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255033Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255041Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255050Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255059Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255067Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255076Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255084Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255091Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255100Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255108Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255117Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255126Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255134Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255143Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255151Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255160Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255168Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255176Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255185Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255193Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255206Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255215Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255224Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255234Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255243Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255252Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255260Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255268Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255276Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255286Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255296Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255306Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255314Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255323Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255331Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255342Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.255357Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.390016Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m328 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.584924Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m342 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:45.659928Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m424 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:45.759236Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1154 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:45.783029Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m392 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.017960Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"brave" [3mreason[0m[2m=[0m"brave returned 429 with no results" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:44:46.018330Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1105 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018360Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018369Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018379Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018387Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018394Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018403Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018414Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018425Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018438Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018448Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018458Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018466Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018475Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018483Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018492Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018501Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018510Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018518Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018527Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018535Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018544Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018552Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018560Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018568Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018576Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018585Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018599Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018608Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018616Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018625Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018633Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018641Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018649Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018659Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018673Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018681Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018690Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018703Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018713Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018722Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018730Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018738Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018746Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018754Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018763Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018772Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018783Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018791Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018799Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018808Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018818Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.018827Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.051909Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m391 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:46.165616Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m2016 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:44:46.206570Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m423 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.399292Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m347 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:46.428547Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m843 [3mresults[0m[2m=[0m4
+[2m2026-10-29T15:44:46.550481Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m343 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.754961Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m355 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:46.860245Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m309 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:46.873215Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1113 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:47.080143Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m651 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:47.122812Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m367 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:47.321371Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m461 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:47.425086Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m302 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:47.731464Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1565 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:47.745933Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m424 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:47.878743Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m453 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:47.946843Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m866 [3mresults[0m[2m=[0m12
+[2m2026-10-29T15:44:48.136066Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m390 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:48.270605Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m391 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:48.308345Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1435 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:48.404338Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m268 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:48.591332Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m320 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:48.602713Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m655 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:48.669988Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m265 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:48.826893Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1095 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:44:48.909611Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m318 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:49.007272Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m337 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:49.192298Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m282 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:49.206558Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m603 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:49.410733Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m403 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:49.432057Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1123 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:49.601956Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m409 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:49.705427Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m878 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:49.838133Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m427 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:50.064460Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m462 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:50.152132Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m945 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:44:50.273951Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m435 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:50.377914Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m313 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:50.547878Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m842 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:50.582985Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m308 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:50.586771Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m434 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:50.816001Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m438 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:50.841713Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1409 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:50.871032Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m287 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:51.141413Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m554 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:51.286217Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m415 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:51.320147Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m504 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:51.365776Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m817 [3mresults[0m[2m=[0m8
+[2m2026-10-29T15:44:51.564176Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m422 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:51.590707Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m304 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:51.630040Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m264 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:51.662430Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m6685 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:51.682398Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m362 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:51.944135Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m379 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:51.950898Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m360 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:51.967045Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1125 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:52.024844Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m394 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:52.106182Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m423 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:52.250353Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m299 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:52.304299Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m360 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:52.322396Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m297 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:52.440297Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m334 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:52.668454Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m418 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:52.710226Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m387 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:52.781150Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m340 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:52.905791Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m601 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:52.993120Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m324 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:53.038596Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m328 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:53.209810Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m428 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:53.232034Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1264 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:53.321827Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m415 [3mresults[0m[2m=[0m3
+[2m2026-10-29T15:44:53.393562Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m400 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:53.445871Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m407 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:53.626929Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m417 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:53.668465Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m346 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:44:53.813330Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m419 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:53.854056Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m408 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:54.014851Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m387 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:54.125943Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m457 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:54.193968Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m380 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:54.295800Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m441 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:54.390933Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1158 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:54.418267Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m403 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:54.422818Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m296 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:54.656521Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m462 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:54.687216Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m391 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:54.859082Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m440 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:54.980150Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m323 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.179357Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m492 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.275795Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m416 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:55.407955Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m427 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.448481Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m269 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.489773Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m1066 [3mresults[0m[2m=[0m21
+[2m2026-10-29T15:44:55.512564Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m236 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:55.638156Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1247 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.828018Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m420 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.869878Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m421 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:55.974628Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m461 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:56.106017Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m616 [3mresults[0m[2m=[0m5
+[2m2026-10-29T15:44:56.321042Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m451 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:56.418759Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m444 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:44:56.433962Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m4771 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:44:56.488296Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m382 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:44:56.730714Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m409 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:56.812593Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m393 [3mresults[0m[2m=[0m4
+[2m2026-10-29T15:44:56.828056Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1189 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:57.086773Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m355 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:57.430261Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m343 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:57.660294Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m1171 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:44:57.880789Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m450 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:58.034964Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1206 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:58.100397Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m439 [3mresults[0m[2m=[0m3
+[2m2026-10-29T15:44:58.266624Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m385 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:58.680016Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m413 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:58.891433Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m790 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:44:59.045166Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m365 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:59.231740Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1196 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:59.281846Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m390 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:44:59.668720Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m623 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:44:59.960407Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m678 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:00.011859Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m343 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:00.319284Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m358 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:45:00.391348Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m379 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:00.468897Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1237 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:00.770011Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m378 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:01.052324Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m732 [3mresults[0m[2m=[0m6
+[2m2026-10-29T15:45:01.121779Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m351 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:01.386603Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m264 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:01.633869Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1164 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:01.653214Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m266 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:01.674904Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m622 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:01.975569Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m322 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:02.154729Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m479 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:45:02.229836Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m254 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:02.498578Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m343 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:45:02.681251Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m451 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:02.745273Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1111 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:02.762729Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m6328 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:45:02.873822Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m375 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:45:02.965793Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m284 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:03.227791Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m261 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:03.474738Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m600 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:03.491963Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m264 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:03.848158Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m355 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:03.907382Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1161 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:04.172487Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m324 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:04.435896Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m263 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:04.656473Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m1181 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:45:04.778758Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2015 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:45:04.810690Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m374 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:05.131131Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1223 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:05.142808Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m332 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:05.391924Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m249 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:05.428164Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m771 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:45:05.792379Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m400 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:06.164166Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m371 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:06.239198Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1108 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:06.356968Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m928 [3mresults[0m[2m=[0m2
+[2m2026-10-29T15:45:06.551106Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m386 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:06.878877Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m327 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:06.990055Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m633 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:45:07.327119Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m448 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:07.495852Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1256 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:07.686566Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m359 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:07.903456Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m913 [3mresults[0m[2m=[0m25
+[2m2026-10-29T15:45:08.006340Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m319 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:08.229765Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m326 [3mresults[0m[2m=[0m3
+[2m2026-10-29T15:45:08.643012Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1147 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:08.688837Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m458 [3mresults[0m[2m=[0m12
+[2m2026-10-29T15:45:09.047974Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m359 [3mresults[0m[2m=[0m7
+[2m2026-10-29T15:45:09.554673Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing-news" [3mengine_ms[0m[2m=[0m506 [3mresults[0m[2m=[0m7
+[2m2026-10-29T15:45:09.755243Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1112 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:10.866093Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1110 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:11.973487Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m1107 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:12.123866Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m150 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:20.644459Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m15865 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:45:23.838584Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3193 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:45:25.814392Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1975 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:45:27.504514Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1689 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:45:30.002857Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2498 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:45:37.462034Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7459 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:45:39.680248Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"srtm vs gpx for hiking tracks"
+[2m2026-10-29T15:45:39.680278Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2218 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:42.104442Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"tokio select cancel child task on drop"
+[2m2026-10-29T15:45:42.104469Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2424 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:45.460255Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3355 [3mresults[0m[2m=[0m2
+[2m2026-10-29T15:45:48.264509Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36140 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:45:51.158734Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m5698 [3mresults[0m[2m=[0m13
+[2m2026-10-29T15:45:58.477178Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"typescript satisfies operator example"
+[2m2026-10-29T15:45:58.477205Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7318 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:46:01.669557Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3192 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:46:04.133572Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2463 [3mresults[0m[2m=[0m17
+[2m2026-10-29T15:46:10.909202Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m6775 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:15.839727Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m4930 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:18.676198Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2836 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:46:24.330325Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36065 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:46:26.121835Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7445 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:33.198517Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7076 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:37.707164Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m4508 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:43.638667Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m5931 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:47.356092Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3717 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:49.023240Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1666 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:46:53.168348Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m4144 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:47:00.363147Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36032 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:47:00.438642Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7270 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:47:01.955037Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1516 [3mresults[0m[2m=[0m19
+[2m2026-10-29T15:47:10.918661Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m8963 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:47:12.418174Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1499 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:47:21.048824Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m8630 [3mresults[0m[2m=[0m12
+[2m2026-10-29T15:47:28.750773Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7701 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:47:30.526555Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1775 [3mresults[0m[2m=[0m6
+[2m2026-10-29T15:47:36.394707Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36031 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:47:38.551018Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m8024 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:47:47.818862Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m9267 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:47:57.513192Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m9694 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:48:06.238095Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m8724 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:48:09.068991Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2830 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:48:12.435917Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36041 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:48:21.759079Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m12689 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:48:24.944348Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3185 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:48:27.155329Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"hacker news show ask sqlite serialization"
+[2m2026-10-29T15:48:27.155359Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2210 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:48:33.790925Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m6635 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:48:48.478418Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36042 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:48:49.382907Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m15591 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:48:56.188795Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m6805 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:48:58.355696Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"karpinsky founder elasticsearch profile"
+[2m2026-10-29T15:48:58.355725Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2166 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:49:00.297758Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1941 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:49:02.232231Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1934 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:49:05.445330Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m3212 [3mresults[0m[2m=[0m3
+[2m2026-10-29T15:49:07.626041Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"yelp mcp server auth"
+[2m2026-10-29T15:49:07.626071Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2180 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:49:09.630302Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2004 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:49:11.372329Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1741 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:49:16.569141Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m5196 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:49:21.094396Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m4525 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:49:23.338475Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2243 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:49:24.520602Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36042 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:50:00.565878Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36045 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:50:36.617510Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36051 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:12.687308Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"ddg-lite" [3mengine_ms[0m[2m=[0m36069 [3mresults[0m[2m=[0m0
+phase-1 wall=398s
+duckduckgo         calls=59 skipped=56 attempted=3 zero=2 success=1 p50=753ms p95=1198ms avg_results=3.3 rel%=100 fresh%=0 attempts=10 403=0 429=0 dead=3
+ddg-lite           calls=59 skipped=0 attempted=59 zero=58 success=1 p50=1113ms p95=36051ms avg_results=0.2 rel%=78 fresh%=0 attempts=118 403=24 429=0 dead=15
+google             calls=59 skipped=0 attempted=59 zero=59 success=0 p50=367ms p95=453ms avg_results=0.0 rel%=0 fresh%=0 attempts=59 403=0 429=0 dead=59
+bing               calls=59 skipped=0 attempted=59 zero=0 success=59 p50=401ms p95=471ms avg_results=9.7 rel%=16 fresh%=0 attempts=59 403=0 429=0 dead=59
+yahoo              calls=59 skipped=53 attempted=6 zero=2 success=4 p50=2093ms p95=2482ms avg_results=9.8 rel%=54 fresh%=0 attempts=8 403=0 429=0 dead=6
+brave              calls=59 skipped=52 attempted=7 zero=2 success=5 p50=1717ms p95=2584ms avg_results=10.7 rel%=83 fresh%=0 attempts=7 403=0 429=2 dead=5
+reddit             calls=59 skipped=0 attempted=59 zero=6 success=53 p50=3568ms p95=9694ms avg_results=12.1 rel%=35 fresh%=98 attempts=177 403=6 429=53 dead=59
+bing-news          calls=59 skipped=0 attempted=59 zero=9 success=50 p50=547ms p95=1066ms avg_results=8.7 rel%=72 fresh%=100 attempts=83 403=0 429=0 dead=59
+github             calls=59 skipped=0 attempted=59 zero=46 success=13 p50=386ms p95=1555ms avg_results=1.7 rel%=32 fresh%=78 attempts=174 403=13 429=37 dead=13
+devto              calls=59 skipped=57 attempted=2 zero=2 success=0 p50=799ms p95=799ms avg_results=0.0 rel%=0 fresh%=0 attempts=2 403=0 429=0 dead=2
+wikipedia          calls=59 skipped=0 attempted=59 zero=47 success=12 p50=2664ms p95=3081ms avg_results=0.7 rel%=100 fresh%=0 attempts=105 403=0 429=46 dead=15
+hackernews         calls=59 skipped=0 attempted=59 zero=43 success=16 p50=679ms p95=2366ms avg_results=0.6 rel%=94 fresh%=100 attempts=59 403=0 429=0 dead=59
+arxiv              calls=59 skipped=0 attempted=59 zero=43 success=16 p50=3034ms p95=5988ms avg_results=0.5 rel%=66 fresh%=100 attempts=98 403=0 429=39 dead=20
+stackexchange      calls=59 skipped=0 attempted=59 zero=48 success=11 p50=310ms p95=415ms avg_results=0.9 rel%=80 fresh%=100 attempts=59 403=0 429=0 dead=59
+wikidata           calls=59 skipped=0 attempted=59 zero=59 success=0 p50=2661ms p95=3077ms avg_results=0.0 rel%=0 fresh%=0 attempts=105 403=0 429=46 dead=15
+semantic-scholar   calls=59 skipped=0 attempted=59 zero=57 success=2 p50=4283ms p95=4730ms avg_results=0.1 rel%=43 fresh%=100 attempts=116 403=0 429=57 dead=3
+imdb               calls=59 skipped=0 attempted=59 zero=57 success=2 p50=498ms p95=861ms avg_results=0.1 rel%=0 fresh%=0 attempts=59 403=0 429=0 dead=59
+=== phase 2: metasearch() cycle x 12 mixed queries ===
+[2m2026-10-29T15:51:12.944965Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m254 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:51:13.510223Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m820 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:14.047032Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1356 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:14.137329Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1446 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:51:14.308785Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"yahoo" [3mreason[0m[2m=[0m"both regions returned 0 results" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:51:14.308814Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m1618 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:22.704181Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10014 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:51:23.724054Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m1019 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m5
+[2m2026-10-29T15:51:23.726918Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m11037 [3mraw[0m[2m=[0m5 [3mfused[0m[2m=[0m5 [3mkept[0m[2m=[0m5 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:51:23.888401Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m161 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:23.953354Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m226 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:51:25.174507Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1447 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:25.297928Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"yahoo" [3mreason[0m[2m=[0m"both regions returned 0 results" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:51:25.297958Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m1570 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:30.942258Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m7214 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:33.730216Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10003 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:51:34.401832Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m671 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m1
+[2m2026-10-29T15:51:34.432650Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"devto" [3mengine_ms[0m[2m=[0m30 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:35.970594Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"github" [3mengine_ms[0m[2m=[0m1568 [3mresults[0m[2m=[0m9
+[2m2026-10-29T15:51:35.970635Z[0m [32m INFO[0m search_one: dev verticals settled [3mdev_ms[0m[2m=[0m1568 [3mdev_engines[0m[2m=[0m3 [3mdev_results[0m[2m=[0m24
+[2m2026-10-29T15:51:35.970935Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m12243 [3mraw[0m[2m=[0m9 [3mfused[0m[2m=[0m9 [3mkept[0m[2m=[0m9 [3mrelevance_floor_kept[0m[2m=[0mfalse
+[2m2026-10-29T15:51:35.971341Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:36.119031Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m147 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:36.184123Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m212 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:51:37.440274Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1468 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:38.671321Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"tokio select cancel child task on drop"
+[2m2026-10-29T15:51:38.671351Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2699 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:45.984736Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10013 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:51:46.579126Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m594 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m0
+[2m2026-10-29T15:51:46.579213Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10608 [3mraw[0m[2m=[0m0 [3mfused[0m[2m=[0m0 [3mkept[0m[2m=[0m0 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:51:46.580795Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:46.712611Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m131 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:46.841701Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m260 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:51:48.061307Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1480 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:48.791014Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2210 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:51:56.583678Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10004 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:51:57.189425Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m605 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m5
+[2m2026-10-29T15:51:57.189691Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10610 [3mraw[0m[2m=[0m5 [3mfused[0m[2m=[0m5 [3mkept[0m[2m=[0m5 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:51:57.190069Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:57.322544Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m132 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:51:57.461568Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m271 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:51:58.688931Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1498 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:52:05.751824Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m8561 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:52:07.197366Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10007 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:52:07.945639Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m748 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m5
+[2m2026-10-29T15:52:07.945859Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10756 [3mraw[0m[2m=[0m5 [3mfused[0m[2m=[0m5 [3mkept[0m[2m=[0m5 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:52:07.946285Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:08.060609Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m114 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:08.189199Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m242 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:52:09.606656Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1660 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:52:09.873798Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1927 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:52:17.949144Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10003 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:52:18.690975Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m741 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m7
+[2m2026-10-29T15:52:18.691219Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10745 [3mraw[0m[2m=[0m7 [3mfused[0m[2m=[0m7 [3mkept[0m[2m=[0m5 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:52:18.691631Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:18.834753Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m143 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:18.917264Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m225 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:52:20.108569Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1416 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:52:20.417293Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m1725 [3mresults[0m[2m=[0m1
+[2m2026-10-29T15:52:28.704457Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10013 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:52:29.171517Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m467 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m0
+[2m2026-10-29T15:52:29.171622Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10480 [3mraw[0m[2m=[0m0 [3mfused[0m[2m=[0m0 [3mkept[0m[2m=[0m0 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:52:29.325380Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m153 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:29.381113Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m209 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:52:30.472012Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"brave" [3mreason[0m[2m=[0m"brave returned 429 with no results" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:52:30.472054Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1299 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:32.733774Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m3561 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:52:34.021647Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m4849 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:52:39.172764Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10001 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:52:39.828289Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m655 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m5
+[2m2026-10-29T15:52:39.828501Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10656 [3mraw[0m[2m=[0m5 [3mfused[0m[2m=[0m5 [3mkept[0m[2m=[0m5 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:52:40.041975Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m212 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:52:40.081043Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m252 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:40.841954Z[0m [32m INFO[0m engine 0-result outcome — breaker not tripped yet (single zero may be query-specific) [3mengine[0m[2m=[0m"yahoo" [3mreason[0m[2m=[0m"both regions returned 0 results" [3mstreak[0m[2m=[0m1
+[2m2026-10-29T15:52:40.841988Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m1012 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:41.268012Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"brave" [3mreason[0m[2m=[0m"brave returned 429 with no results" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:52:41.268053Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m1438 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:42.442218Z[0m [33m WARN[0m reddit: all 3 stages returned 0 results [3mquery[0m[2m=[0m"site:reddit.com homelab nas recommendation"
+[2m2026-10-29T15:52:42.442247Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2612 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:49.844297Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10015 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:52:50.370222Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m525 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m0
+[2m2026-10-29T15:52:50.370314Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10541 [3mraw[0m[2m=[0m0 [3mfused[0m[2m=[0m0 [3mkept[0m[2m=[0m0 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:52:50.370752Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:50.514138Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m143 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:50.600444Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m229 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:52:51.873459Z[0m [32m INFO[0m engine circuit breaker tripped [3mengine[0m[2m=[0m"yahoo" [3mreason[0m[2m=[0m"both regions returned 0 results" [3mcooldown_ms[0m[2m=[0m60000
+[2m2026-10-29T15:52:51.873487Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m1502 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:52:56.064973Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m5694 [3mresults[0m[2m=[0m14
+[2m2026-10-29T15:53:00.384239Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10013 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:53:01.233827Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m849 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m5
+[2m2026-10-29T15:53:01.234051Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10863 [3mraw[0m[2m=[0m5 [3mfused[0m[2m=[0m5 [3mkept[0m[2m=[0m5 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:53:01.234387Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:53:01.234402Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:53:01.341353Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m107 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:53:01.453085Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m218 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:53:03.250292Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m2015 [3mresults[0m[2m=[0m20
+[2m2026-10-29T15:53:11.237777Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10003 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:53:11.883141Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m645 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m1
+[2m2026-10-29T15:53:11.883257Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10649 [3mraw[0m[2m=[0m1 [3mfused[0m[2m=[0m1 [3mkept[0m[2m=[0m1 [3mrelevance_floor_kept[0m[2m=[0mtrue
+[2m2026-10-29T15:53:11.883640Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"yahoo" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:53:11.883657Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"brave" [3mengine_ms[0m[2m=[0m0 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:53:12.027705Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"google" [3mengine_ms[0m[2m=[0m144 [3mresults[0m[2m=[0m0
+[2m2026-10-29T15:53:12.124097Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"bing" [3mengine_ms[0m[2m=[0m240 [3mresults[0m[2m=[0m10
+[2m2026-10-29T15:53:20.863463Z[0m [32m INFO[0m engine outcome [3mengine[0m[2m=[0m"reddit" [3mengine_ms[0m[2m=[0m8979 [3mresults[0m[2m=[0m15
+[2m2026-10-29T15:53:21.894159Z[0m [33m WARN[0m search_one: general pool hit SEARCH_ONE_CAP [3mpool_ms[0m[2m=[0m10010 [3mpool_timed_out[0m[2m=[0mtrue [3msharded[0m[2m=[0mfalse
+[2m2026-10-29T15:53:22.709885Z[0m [32m INFO[0m search_one: intent verticals settled [3mverticals_ms[0m[2m=[0m815 [3mvertical_engines[0m[2m=[0m3 [3mvertical_results[0m[2m=[0m4
+[2m2026-10-29T15:53:22.710089Z[0m [32m INFO[0m metasearch cycle complete [3mplans[0m[2m=[0m1 [3mexit[0m[2m=[0m"all-settled" [3mmetasearch_cycle_ms[0m[2m=[0m10826 [3mraw[0m[2m=[0m4 [3mfused[0m[2m=[0m4 [3mkept[0m[2m=[0m4 [3mrelevance_floor_kept[0m[2m=[0mtrue
+cycle q="what is the capital of australia" ms=11038 results=5
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="rust vs go backend performance" ms=12243 results=9
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="tokio select cancel child task on drop" ms=10608 results=0
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="spacex starship launch news" ms=10610 results=5
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="steam deck vs asus ally x review" ms=10756 results=5
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="attention is all you need paper" ms=10745 results=5
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="reddit best hobby cnc router beginner" ms=10480 results=0
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="satya nadella linkedin" ms=10656 results=5
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="site:reddit.com homelab nas recommendation" ms=10541 results=0
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="when does daylight saving time end in europe 2026" ms=10863 results=5
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="best standing desk under 500" ms=10649 results=1
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+cycle q="latest stable linux kernel release notes" ms=10826 results=4
+metasearch-cycle   calls=1 skipped=1 attempted=0 zero=0 success=0 p50=0ms p95=0ms avg_results=0.0 rel%=0 fresh%=0 attempts=0 403=0 429=0 dead=0
+wrote perf/engine-bench-20261029.csv

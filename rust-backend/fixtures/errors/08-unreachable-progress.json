@@ -1,0 +1,61 @@
+{
+  "_meta": {
+    "scenario": "upstream fetch throws (progress path)",
+    "semantics": "SSE opened first: decision_done (and any pipeline frames) already emitted, then ONE ruke_error with the same 503 message text, then [DONE]. The HTTP STATUS stays 200 — the 503 number does NOT survive on this path; only the message text is the cross-path contract.",
+    "comparison": "structural",
+    "harness": "__tests__/rust-golden/errors.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+  },
+  "request": {
+    "rawBody": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}"
+    }
+  ],
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "standard_chat"
+    },
+    "body": {
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_error\":{\"message\":\"Could not reach the model server at 127.0.0.1:9.\"}}\n\ndata: [DONE]\n\n",
+      "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
+    }
+  },
+  "logicalFrames": [
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "decision_done",
+        "mode": "standard_chat",
+        "ms": "<ms>"
+      }
+    },
+    {
+      "kind": "error",
+      "message": "Could not reach the model server at 127.0.0.1:9."
+    },
+    {
+      "kind": "done"
+    }
+  ],
+  "streamDone": true,
+  "unterminatedTail": ""
+}

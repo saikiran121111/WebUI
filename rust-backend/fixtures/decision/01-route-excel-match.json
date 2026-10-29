@@ -1,0 +1,57 @@
+{
+  "_meta": {
+    "scenario": "POST /api/decision — excel intent match",
+    "semantics": "In-process regex router (zero network): response bytes are JSON.stringify(envelope) — compact, insertion-order key sequence pinned by envelopeKeyOrder.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/decision-serialization.test.ts",
+    "env": {
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none — the whole point is that these bytes contain NO timing/volatile fields."
+  },
+  "request": {
+    "rawBody": "{\"message\":\"put these numbers into my spreadsheet\"}"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":1,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"put these numbers into my spreadsheet\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"3d_asset\",\"cad_blueprint\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
+  },
+  "envelope": {
+    "active_mode": "excel",
+    "confidence": 1,
+    "decided_by": "in-process-deliverable-match",
+    "stripped_prompt": "put these numbers into my spreadsheet",
+    "skill_to_load": "xlsx",
+    "allowed_code_fence": null,
+    "disable_validators": [
+      "docs",
+      "pdf",
+      "ppt",
+      "3d_asset",
+      "cad_blueprint",
+      "chart",
+      "html_render",
+      "standard_chat"
+    ],
+    "enable_validator": "excel",
+    "task_constraints": [],
+    "extracted_entities": [],
+    "lfm_latency_ms": 0
+  },
+  "envelopeKeyOrder": [
+    "active_mode",
+    "confidence",
+    "decided_by",
+    "stripped_prompt",
+    "skill_to_load",
+    "allowed_code_fence",
+    "disable_validators",
+    "enable_validator",
+    "task_constraints",
+    "extracted_entities",
+    "lfm_latency_ms"
+  ]
+}

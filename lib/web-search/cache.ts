@@ -40,6 +40,15 @@ export const CACHE_TTL_MS: number = (() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 60 * 60 * 1000;
 })();
 
+/**
+ * §24 TTL audit (2026-10-30): a time-scoped run (freshness day/week) must
+ * not replay a 5-hour-old SERP on the next "breaking news" question. Fresh
+ * rows cap at 15 min; page_cache keeps full retention (shortcut: page
+ * bodies churn slowly; fresh SERPs surface new URLs whose extraction was
+ * never cached anyway).
+ */
+export const FRESH_QUERY_TTL_MS = 15 * 60_000;
+
 let _db: Database.Database | null = null;
 let _purgeSweepStarted = false;
 let _lastPurgeCheck = 0; // ms timestamp of last non-blocking purge check
@@ -213,7 +222,9 @@ export function putCachedQuery(
       JSON.stringify(plans),
       JSON.stringify(results),
       now,
-      now + CACHE_TTL_MS,
+      now + (freshness === "day" || freshness === "week"
+        ? Math.min(CACHE_TTL_MS, FRESH_QUERY_TTL_MS)
+        : CACHE_TTL_MS),
     );
 }
 

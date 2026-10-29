@@ -1,6 +1,42 @@
 # ISSUES
 
+## Open limitations (2026-10-28 media-caption cycle)
+- Google "unusual traffic" sorry/CAPTCHA page at this machine's public IP
+  (google.com/sorry/index, `captcha:true`) blocked further live YouTube
+  verification at session end — collateral of repeated automated probing
+  during debugging, not a code defect. It expires with IP reputation; do NOT
+  hammer or attempt captcha workarounds. Engine code is unchanged and the
+  pre-throttle runs proved mount + tokened timedtext XHR.
+- Wikimedia-Commons-class page: caption fetches are flaky-late-booting; the
+  probe re-nudges every 2.5 s and one run captured 62 bodies/32 segments,
+  but a single cold engine run still occasionally returns empty. Re-verify
+  opportunistically; do not domain-patch.
+- Live ruke-server.exe is STALE (dev supervisor holds the exe); the Rust
+  InnerTube bridge activates on the supervisor's next rebuild.
+
 ## Confirmed and fixed
+- "Whisper is not working and unable to see the transcript" for a YouTube
+  watch URL in chat answers (2026-10-28, user report). THREE ROOT CAUSES,
+  all addressed:
+  1. Whisper was never in this path: lib/server/extract/audio.ts handles
+     UPLOADED attachments only, never streamed media URLs.
+  2. Provider anti-abuse (YouTube Proof-of-Origin, probed live): caption
+     endpoints answer 200 with an EMPTY body for every format — even from
+     inside the watch page — and `get_transcript` 400s. Only the player's
+     OWN requests carry the request-scoped token.
+  3. The Rust live path was NoInnerTube (oEmbed-only) — no transcript tier
+     at all.
+  FIX (universal — zero domain/host/URL-shape matching anywhere):
+  captionFormats.ts (shape-only parsers json3/VTT/SRT/srv3/TTML) ←
+  captionProbe.ts (DOM TextTrack cues / response listener incl. rt=texttrack
+  / accessible-name CC toggles; playNudge + late-boot re-nudge) ←
+  media-captions.ts (pool, analytics-only route, 3× nav retry) on the TS
+  side; youtube_bridge.rs HttpInnerTube over the internal-secret
+  /api/internal/youtube-evidence route on the Rust side.
+  LIVE-VERIFIED: 32 segments parsed through the engine components on an
+  HTML5-native source; YouTube player mounted + fired its own tokened
+  timedtext XHR before the IP hit a Google sorry/CAPTCHA throttle (see
+  Open limitations above). Unit gates: 709 passed / exit 0; tsc exit 0.
 - "Compact is not working at all — context crossed ~100k, auto-compact set at
   32k; manual compact does nothing either" (2026-10-23, user report). FOUR
   LAYERS, all fixed:

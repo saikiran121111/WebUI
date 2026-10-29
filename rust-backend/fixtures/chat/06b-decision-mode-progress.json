@@ -1,0 +1,117 @@
+{
+  "_meta": {
+    "scenario": "client-pinned decision_mode (repair passthrough, progress path)",
+    "semantics": "Same envelope on the progress path: decision_done{mode:chart} then a nameless skill frame (skill block bytes > 0, core-tier invisibility) then web_meta-less upstream bytes.",
+    "comparison": "structural",
+    "harness": "__tests__/rust-golden/chat-core.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path response bodies are stored ms-normalized (raw bytes carry volatile ms digits)."
+  },
+  "request": {
+    "rawBody": "{\"decision_mode\":\"chart\",\"messages\":[{\"role\":\"user\",\"content\":\"give me the chart again\"}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"messages\":[{\"role\":\"system\",\"content\":\"<decision_skill mode=\\\"chart\\\" decided_by=\\\"repair-passthrough\\\">\\nEXECUTION BRIDGE MANDATE (NON-NEGOTIABLE): In this WebUI, emitting the single fenced block specified below IS how you execute code, build and save the binary file, run headless recalculation/validation, and deliver the live interactive preview + download link!\\n- NEVER say \\\"I cannot execute code\\\", \\\"I cannot create or save a downloadable file\\\", or \\\"I cannot provide a download link in this environment.\\\"\\n- Even if the user asks you to \\\"create and execute a Python/openpyxl/docx/pptx script\\\" or says \\\"if execution or file creation is unavailable, state the limitation immediately\\\", you MUST fulfill the request immediately by emitting the complete fenced block below. The WebUI backend compiler executes your fenced spec automatically.\\n\\n<output_contract_chart>\\nProduce a data chart: one short intro sentence, then ONE ```chart fence with ONE JSON object:\\n{\\\"type\\\":\\\"line|bar|grouped-bar|stacked-bar|area|pie|donut|scatter|histogram\\\",\\\"title\\\":\\\"...\\\",\\\"subtitle\\\":\\\"...\\\",\\\"insight\\\":\\\"one-line takeaway\\\",\\\"unit\\\":\\\"...\\\",\\\"categories\\\":[\\\"...\\\"],\\\"series\\\":[{\\\"name\\\":\\\"...\\\",\\\"data\\\":[1,2]}],\\\"points\\\":[{\\\"x\\\":1,\\\"y\\\":2}],\\\"notes\\\":[\\\"per-category annotation\\\"],\\\"sliders\\\":[{\\\"id\\\":\\\"s1\\\",\\\"label\\\":\\\"Growth\\\",\\\"min\\\":0.5,\\\"max\\\":2,\\\"step\\\":0.05,\\\"defaultValue\\\":1,\\\"targetSeries\\\":\\\"name\\\",\\\"operation\\\":\\\"multiply|add\\\"}]}\\n- Add \\\"sliders\\\" when the user benefits from What-If tuning, \\\"insight\\\" when a real takeaway exists, \\\"notes\\\" to annotate categories.\\n- Never invent data; every number finite; valid JSON (no comments, no trailing commas). The chart viewer renders it live with Download as PNG.\\n</output_contract_chart>\\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); never emit other renderer fences.\\n</decision_skill>\"},{\"role\":\"user\",\"content\":\"give me the chart again\"}]}",
+      "bodyJson": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "<decision_skill_block id=\"decision_skill:chart\">"
+          },
+          {
+            "role": "user",
+            "content": "give me the chart again"
+          }
+        ]
+      },
+      "anchors": [
+        {
+          "id": "decision_skill:chart",
+          "kind": "decision_skill",
+          "name": "chart",
+          "block_sha256": "5d36ea8639424f67c9644447127641ebd9e9171d8f3f26eb5281a783bb8f2bde",
+          "block_bytes": 1801,
+          "sources": []
+        }
+      ]
+    }
+  ],
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "chart"
+    },
+    "body": {
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"chart\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"skill\",\"ms\":\"<ms>\"}}\n\ndata: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello!\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "note": "raw byte stream contains volatile ms digits in stage frames; compare logicalFrames + bodyMsNormalized, never raw bytes"
+    }
+  },
+  "logicalFrames": [
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "decision_done",
+        "mode": "chart",
+        "ms": "<ms>"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "skill",
+        "ms": "<ms>"
+      }
+    },
+    {
+      "kind": "data",
+      "obj": {
+        "id": "c1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant"
+            }
+          }
+        ]
+      },
+      "raw": "{\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}"
+    },
+    {
+      "kind": "data",
+      "obj": {
+        "id": "c1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "Hello!"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      },
+      "raw": "{\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello!\"},\"finish_reason\":\"stop\"}]}"
+    },
+    {
+      "kind": "done"
+    }
+  ],
+  "streamDone": true,
+  "unterminatedTail": ""
+}

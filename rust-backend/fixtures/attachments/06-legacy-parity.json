@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "scenario": "same retrieval on the legacy stream:false path",
+    "semantics": "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including the standard_chat off-by-one: block after the user turn); only the stage FRAMES are absent on the legacy path (stage() is a no-op), so retrieval_done never appears.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/attachments.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions",
+      "embed_seam": "embedOne fixed pseudo-vector [1,0,0.05]; index seeded via production writeIndex (BM25/RRF/pack unmocked)"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+  },
+  "request": {
+    "rawBody": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"},{\"type\":\"attachment_ref\",\"att_id\":\"att_golden1a\",\"name\":\"intro-biology.pdf\",\"category\":\"text\"}]}]}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"}]},{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"intro-biology.pdf\\\">\\nPassages retrieved from the complete content of \\\"intro-biology.pdf\\\" (the full text is preserved locally — nothing was truncated):\\nPhotosynthesis converts light into chemical energy in the chloroplast.\\n\\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\\n\\nStomata regulate gas exchange on the underside of leaves.\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\\n</knowledge_index>\"}]}",
+      "bodyJson": {
+        "model": "strata-mock",
+        "stream": false,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "According to the indexed lecture notes, what happens in the Calvin cycle?"
+              }
+            ]
+          },
+          {
+            "role": "system",
+            "content": "<knowledge_index name=\"intro-biology.pdf\">\nPassages retrieved from the complete content of \"intro-biology.pdf\" (the full text is preserved locally — nothing was truncated):\nPhotosynthesis converts light into chemical energy in the chloroplast.\n\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\n\nStomata regulate gas exchange on the underside of leaves.\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\n</knowledge_index>"
+          }
+        ]
+      },
+      "anchors": []
+    }
+  ],
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "standard_chat"
+    },
+    "body": {
+      "bytes": 85,
+      "utf8Lossy": "data: {\"id\":\"a1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"noted\"}}]}\n\ndata: [DONE]\n\n"
+    }
+  },
+  "logicalFrames": [
+    {
+      "kind": "data",
+      "obj": {
+        "id": "a1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "noted"
+            }
+          }
+        ]
+      },
+      "raw": "{\"id\":\"a1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"noted\"}}]}"
+    },
+    {
+      "kind": "done"
+    }
+  ],
+  "streamDone": true,
+  "unterminatedTail": ""
+}

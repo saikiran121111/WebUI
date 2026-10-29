@@ -33,11 +33,25 @@ import {
   bingNewsRssSearch,
   githubSearch,
   devToSearch,
+  redditSearch,
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,
 } from "./engines";
 import { childLogger } from "@/lib/server/logger";
+
+/**
+ * Strip URL-shaped plans from the engine pool. Search engines index pages,
+ * not URL strings: a URL query returns the domain's homepage (or nothing).
+ * The pipeline's Stage-0 direct-target fetch reads the prompt's own URLs
+ * in parallel, so URL plans only add engine load and junk homepages.
+ * Call once on the full plan list before passing to the engine pool.
+ */
+const METASEARCH_URL_PLANS = /^https?:\/\//i;
+export function stripUrlPlans(plans: SearchPlan[]): SearchPlan[] {
+  const kept = plans.filter((p) => !METASEARCH_URL_PLANS.test(p.query));
+  return kept.length > 0 ? kept : plans; // all-URL → keep raw plans
+}
 
 const log = childLogger("web-search/metasearch");
 
@@ -494,14 +508,23 @@ const VERTICAL_ENGINES = new Set([
  * Engines that are vertical (intended) for specific intents.
  * The general web pool is ALWAYS run regardless of intent (Fix 3a).
  * Verticals are layered ON TOP, not instead of, the general pool.
+ *
+ * Value-first routing (bench 2026-10-29, rust-backend/perf/PROVIDER-VALUE-REPORT.md):
+ * semanticScholarSearch (429×113, self-throttled), wikidataSearch (0
+ * results/59) and imdbSuggestionSearch (2/59, rel 0) left the default
+ * intents — still implemented, reachable via explicit intent only.
+ * redditSearch is a forum specialist (p50 3.6 s, 429×54), so it rides
+ * the forum intent instead of the general pool. `docs` loses
+ * wikidataSearch: the Rust arm never had it (pre-existing divergence,
+ * aligned toward the DISABLED_BY_DEFAULT classification).
  */
 const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
   code:     [stackExchangeSearch, devToSearch],
-  academic: [arxivSearch, wikipediaSearch, semanticScholarSearch],
-  forum:    [hackerNewsSearch],
+  academic: [arxivSearch, wikipediaSearch],
+  forum:    [hackerNewsSearch, redditSearch],
   news:     [hackerNewsSearch],
-  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch, wikidataSearch],
-  general:  [wikipediaSearch, imdbSuggestionSearch, wikidataSearch],
+  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch],
+  general:  [wikipediaSearch],
 };
 
 /**
@@ -845,11 +868,15 @@ export async function metasearch(
   plans: SearchPlan[],
   maxResults = 20,
 ): Promise<RankedResult[]> {
+  // URL-shaped plans are dropped from the engine pool (stripUrlPlans):
+  // search engines index pages, not URL strings, and the pipeline's
+  // Stage-0 direct-target fetch reads the prompt's own URLs in parallel.
+  const effectivePlans = stripUrlPlans(plans);
   // Pass all query texts so the sharded pool (for general intent with
   // multiple plans) can distribute sub-queries across different instances.
-  const allQueries = plans.map((p) => p.query);
+  const allQueries = effectivePlans.map((p) => p.query);
   // Use the first plan's freshness so news/dev verticals route correctly.
-  const freshness = plans[0]?.freshness ?? "any";
+  const freshness = effectivePlans[0]?.freshness ?? "any";
 
   // Quorum early-exit (Fix 1B): track how many raw results and how many
   // distinct engines have landed so far. As soon as the quorum
@@ -865,7 +892,7 @@ export async function metasearch(
   let graceResolve: (() => void) | null = null;
 
   // Array of settled results; index i = results for plan i.
-  const settled: (RawSearchResult[] | null)[] = new Array(plans.length).fill(null);
+  const settled: (RawSearchResult[] | null)[] = new Array(effectivePlans.length).fill(null);
 
   // Arm the 6s grace timer once quorum is satisfied.
   let graceTimerHandle: ReturnType<typeof setTimeout> | null = null;
@@ -887,7 +914,7 @@ export async function metasearch(
   // Kick off all plan searches in parallel, tracking settled results.
   // Each plan promise, when it resolves, updates the quorum counters
   // and may arm the grace timer.
-  const planPromises = plans.map((p, i) =>
+  const planPromises = effectivePlans.map((p, i) =>
     searchOne(p.query, p.intent, allQueries, freshness)
       .catch(() => [] as RawSearchResult[])
       .then((results: RawSearchResult[]) => {
@@ -943,8 +970,8 @@ export async function metasearch(
   await graceSignal;
 
   const flat = settled.filter((r): r is RawSearchResult[] => r !== null).flat();
-  const preferred = plans.flatMap((p) => p.preferredDomains ?? []);
-  const intent = plans[0]?.intent ?? "general";
+  const preferred = effectivePlans.flatMap((p) => p.preferredDomains ?? []);
+  const intent = effectivePlans[0]?.intent ?? "general";
   const ranked = reciprocalRankFuse(flat, preferred, intent);
 
   // ── Per-result relevance floor (the junk-source filter) ─────────────────
@@ -970,7 +997,7 @@ export async function metasearch(
   // a genuinely useful page can share no tokens with any single rewrite.
   const perQueryTokens = [
     ...deduplicateQueries(allQueries),
-    ...plans.map((p) => p.relevanceAnchor ?? "").filter((a) => a.length > 0),
+    ...effectivePlans.map((p) => p.relevanceAnchor ?? "").filter((a) => a.length > 0),
   ]
     .map((q) => queryCoreTokens(q))
     .filter((toks) => toks.length > 0);
@@ -988,7 +1015,7 @@ export async function metasearch(
       // top-N would have. If the floor ever reduces that number instead of
       // raising it, this line is the evidence.
       const anchorText =
-        plans.map((p) => p.relevanceAnchor ?? "").filter((a) => a.length > 0).join(" ") ||
+        effectivePlans.map((p) => p.relevanceAnchor ?? "").filter((a) => a.length > 0).join(" ") ||
         allQueries.join(" ");
       log.info(
         {
@@ -1017,6 +1044,12 @@ export async function metasearch(
  * (freshness !== "any") and the first pass returned fewer than 5 results,
  * automatically re-run the same plans with freshness "any" — a 30-day
  * filter on an evergreen/local/product query drops 99% of relevant pages.
+ *
+ * shortcut: no query-level single-flight coalescing — local single-user
+ * app (concurrent identical queries ≈ zero), fanout-level sharing would
+ * break TS-oracle/Rust-mirror parity via process statics, and repeat URL
+ * work is already covered by canonical dedupe before fetch. Upgrade when
+ * a multi-user server ships.
  */
 export async function metasearchWithFreshnessRecovery(
   plans: SearchPlan[],

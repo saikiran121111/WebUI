@@ -1,0 +1,10 @@
+[package]
+name = "ruke-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "SHARED_CONTRACT wire types frozen in rust-backend/MIGRATION-MAP.md §2 (Rule 5/14)."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

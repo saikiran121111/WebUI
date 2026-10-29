@@ -1020,8 +1020,15 @@ test("highlighting and indentation apply mid-stream, not only when the fence clo
   ).join("\n");
   // Paced SSE, not route.fulfill: fulfill delivers the whole body in one
   // chunk, so the message flips to "complete" before the async highlight can
-  // ever paint mid-stream. This server writes one frame every 20ms, keeping
-  // data-state="streaming" alive long enough to observe colors landing.
+  // ever paint mid-stream. This server writes frames every 20ms BUT inserts
+  // realistic 240ms quiet pauses every 55 frames: a real model stream is
+  // bursty, and the documented fence contract is "highlight once the fence
+  // has been quiet for at least 150 ms" (§5.3). A pure 20ms metronome never
+  // lets the fence go quiet, so the debounce can only fire after the stream
+  // ends and the colors race the streaming→complete flip (loses by ~50ms on
+  // the responsive Rust-backed stack). The pauses simulate token-burst
+  // boundaries; the assertions are unchanged and still require colors to
+  // land while data-state="streaming".
   const fullSource = "```python\n" + blockSource + "\n```";
   const frames: string[] = [];
   for (let i = 0; i < fullSource.length; i += 40) {
@@ -1032,15 +1039,17 @@ test("highlighting and indentation apply mid-stream, not only when the fence clo
   const server = http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
     let frameIndex = 0;
-    const pump = setInterval(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const pump = () => {
       if (frameIndex >= frames.length) {
-        clearInterval(pump);
         res.end();
         return;
       }
       res.write(frames[frameIndex++]);
-    }, 20);
-    req.on("close", () => clearInterval(pump));
+      timer = setTimeout(pump, frameIndex % 55 === 0 ? 240 : 20);
+    };
+    timer = setTimeout(pump, 0);
+    req.on("close", () => clearTimeout(timer));
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
   const port = (server.address() as AddressInfo).port;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { installSkill } from "../../../../lib/skills/registry";
+import { rustEnabled, rustProxy } from "../../../../lib/server/rustProxy";
 import type { InstallRequestBody } from "../../../../lib/skills/types";
 
 /**
@@ -8,6 +9,7 @@ import type { InstallRequestBody } from "../../../../lib/skills/types";
  * scenario file. Body: { repoOrCommand, skillName?, autoUse?, whenToUse?, triggerKeywords? }.
  */
 export async function POST(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/skills/install");
   let body: InstallRequestBody;
   try {
     body = await req.json();

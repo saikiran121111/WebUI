@@ -13,8 +13,8 @@
  * Exit code: 0 when every case produced ≥1 non-empty passage, 1 otherwise.
  */
 import { runWebResearch } from "../lib/web-search/pipeline";
-import { extractPageInOnePass } from "../lib/browser/agentBrowser";
-import { closeBrowserPool } from "../lib/browser/agentBrowser";
+import { extractPageInOnePass } from "../lib/web-search/agentBrowser";
+import { closeBrowserPool } from "../lib/web-search/agentBrowser";
 
 interface Case {
   name: string;

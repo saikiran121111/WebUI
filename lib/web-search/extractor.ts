@@ -54,11 +54,7 @@ import {
 } from "./universal-extractor";
 import { normalizeBody, detectCharset } from "./charset-normalizer";
 import { urlSearchFallback, slugTriangulation } from "./metasearch";
-import {
-  extractPageInOnePass,
-  closeBrowserPool,
-  type PageExtraction,
-} from "@/lib/browser/agentBrowser";
+import { extractPageInOnePass } from "./agentBrowser";
 import {
   walkGenericJsonForEntities,
 } from "./hydration-unpacker";
@@ -72,11 +68,45 @@ import type { EvidencePacket } from "./types";
 //   Tier 5   (Wayback):                     45s
 //   Tier 6   (slug triangulation):           uses metasearch (40s/engine)
 //   PDF downloads:                          120s
-const TIER1_TIMEOUT_MS = 45_000;
+// §25 RETUNE (2026-10-30, mirrored in ruke-websearch/src/extractor.rs):
+// live tier-latency profile p50 ~1.4 s, off-straggler max 6.1 s — caps move
+// to ~3–4x the observed max so a dead tier fails FAST into the next tier
+// instead of parking a wave (one wayback straggler burned 18.5 s at the
+// old cap). Link-preview keeps 45 s: per-bot short fan-outs, dominated by
+// the per-page budget below anyway.
+const TIER1_TIMEOUT_MS = 20_000;
 const LINK_PREVIEW_TIMEOUT_MS = 45_000;
-const JINA_TIMEOUT_MS = 45_000;
-const WAYBACK_TIMEOUT_MS = 45_000;
+const JINA_TIMEOUT_MS = 15_000;
+const WAYBACK_TIMEOUT_MS = 12_000;
 const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+// APPROVED PART-10 PARITY DEVIATION (MIGRATION-MAP §11.3) — TOTAL per-page
+// wall-clock budget in extractAll(). The tier timeouts above are PER
+// REQUEST, not per PAGE: one dead host stacks tier1 + link-preview bots +
+// Jina + Wayback (avail + CDX + snapshot) sequentially into minutes. Live
+// evidence (2026-10-28): ONE of ten pages held Promise.all — and with it
+// the whole evidence stream and the client's search-toggle UI — for 3m51s.
+// The budget abandons the cascade at the cap and folds the page into the
+// same snippet-baseline terminal packet extractUrl() produces when the
+// cascade legitimately fails. Mirrored byte-for-behavior in
+// ruke-websearch/src/extractor.rs (same default, same fallback shape,
+// classification "PAGE_BUDGET_TIMEOUT" never emitted elsewhere).
+// §25 RETUNE (2026-10-30): 60 s → 30 s. No page in the live profile needed
+// more than ~7 s of cascade — the old default only ever sheltered stragglers.
+const PAGE_BUDGET_DEFAULT_MS = 30_000;
+
+// APPROVED PART-10 AMENDMENT (MIGRATION-MAP §11.3, 2026-10-29): the budget
+// is now tier-boundary-COOPERATIVE instead of a hard cut. Every HTTP tier
+// await inside extractUrl() is capped by the REMAINING budget, and the
+// browser tier (stealth-Chromium pool — the epoch's generic bot-shield
+// bypass: fingerprint rotation, challenge-page rendering, SPA hydration
+// unpacking) is ALWAYS granted its bridge-bounded allowance even when the
+// HTTP budget is gone. The original hard cut starved JS-heavy / bot-
+// challenged sites (user-reported 2026-10-29 "can't access BookMyShow /
+// HackerNews" regression): one dead site could still burn at most
+// PAGE_BUDGET_DEFAULT_MS + this allowance — still a hard bound.
+// Mirrored in ruke-websearch/src/extractor.rs (BROWSER_ALLOWANCE_MS).
+const BROWSER_ALLOWANCE_MS = 46_000; // bridge timeout (45s) + headroom
 
 // Concurrency for the DOM-extraction tier.
 //
@@ -605,7 +635,45 @@ export function baselinePacketsFor(
 }
 
 /**
- * Browser-tier extraction — real Playwright Chromium (lib/browser/agentBrowser.ts).
+ * §11.3: the packet extractAll() yields when a page's tier cascade is
+ * abandoned at the total page budget. Shape mirrors the terminal-failure
+ * fallback extractUrl() already returns (baseline first; title/marker only
+ * when no baseline exists) — the only new artifact is the
+ * "PAGE_BUDGET_TIMEOUT" classification. Mirrors `timeout_fallback_packet`
+ * in ruke-websearch/src/extractor.rs.
+ */
+export function timeoutFallbackPacket(
+  result: RankedResult,
+): EvidencePacket & { classification: string } {
+  const packet: EvidencePacket = {
+    sourceId: "",
+    url: result.canonical,
+    title: result.title,
+    domain: result.domain,
+    publishedAt: result.publishedDate,
+    extraction: "snippet-only",
+    passages: [],
+  };
+  const baseline = serpBaselinePassage(result);
+  if (baseline) {
+    packet.passages.push(baseline);
+  } else {
+    packet.passages.push({
+      sourceId: "",
+      url: result.canonical,
+      title: result.title,
+      domain: result.domain,
+      publishedAt: result.publishedDate,
+      passageText:
+        result.title || "(page read timed out — no content extracted)",
+      bm25Score: 0,
+    });
+  }
+  return { ...packet, classification: "PAGE_BUDGET_TIMEOUT" };
+}
+
+/**
+ * Browser-tier extraction — real Playwright Chromium (lib/web-search/agentBrowser.ts).
  * Runs when Stage A (fast HTTP) was blocked/empty and the page is a known
  * WAF-heavy SPA or JS shell. The browser executes the full SPA bundle, so
  * Myntra / Zomato / BookMyShow / Blinkit hydration payloads that never
@@ -856,10 +924,86 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
  * Never throws: returns a snippet-only packet on total failure so the
  * pipeline still has SOMETHING for the BM25 reranker.
  */
+/**
+ * §11.3 AMENDMENT (2026-10-29): cap one tier-await by the remaining page
+ * budget. The DEADLINE_EXPIRED sentinel mirrors Rust's Err(()) from
+ * `capped` in ruke-websearch: the caller substitutes that tier's failure
+ * shape and marks budgetHit so the classification tail can report
+ * PAGE_BUDGET_TIMEOUT. With no deadline the promise runs untouched
+ * (byte-parity for golden replays and uncapped direct calls). The tier's
+ * own per-request timeout keeps bounding the orphaned promise.
+ */
+const DEADLINE_EXPIRED = Symbol("deadline-expired");
+async function withDeadline<T>(
+  deadline: number | undefined,
+  fut: Promise<T>,
+): Promise<T | typeof DEADLINE_EXPIRED> {
+  if (deadline === undefined) return fut;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fut,
+      new Promise<typeof DEADLINE_EXPIRED>((resolve) => {
+        timer = setTimeout(
+          () => resolve(DEADLINE_EXPIRED),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// ── Short-lived per-domain extraction health (§17/§29) + browser-tier
+// selectivity (§18) — mirrors the Rust store in ruke-websearch extractor.
+// Pure bookkeeping over the EXISTING cascade; adds no new browser
+// capability and no new tier. A read that ends fully bot-blocked cools
+// its domain down; the next read then skips only the ATTEMPT at the
+// already-implemented browser seam and runs the identical HTTP cascade +
+// snippet tail. Nothing permanent: every entry has a TTL, the store is
+// bounded, and the rank cap just confines that attempt to the top of the
+// read window (it is the most expensive existing tier).
+export const BROWSER_RANK_MAX = 6;
+const DOMAIN_BOT_COOLDOWN_MS = 10 * 60_000;
+const DOMAIN_HEALTH_MAX = 256;
+const domainHealth = new Map<string, number>();
+
+function domainOnCooldown(domain: string): boolean {
+  const exp = domainHealth.get(domain);
+  return exp !== undefined && exp > Date.now();
+}
+
+function recordDomainBotBlock(domain: string): void {
+  const now = Date.now();
+  if (domainHealth.size >= DOMAIN_HEALTH_MAX) {
+    // shortcut: LRU bookkeeping not worth it — drop expired, wipe if still
+    // full; every entry has a TTL so the store self-heals.
+    for (const [d, exp] of domainHealth) if (exp <= now) domainHealth.delete(d);
+    if (domainHealth.size >= DOMAIN_HEALTH_MAX) domainHealth.clear();
+  }
+  domainHealth.set(domain, now + DOMAIN_BOT_COOLDOWN_MS);
+}
+
+/** Test-only: wipe cross-request health state (the Rust twin pairs this
+    with a test lock; vitest isolates files and runs tests in-file
+    sequentially, so the Map needs no lock here). */
+export function resetExtractionHealth(): void {
+  domainHealth.clear();
+}
+
 export async function extractUrl(
   result: RankedResult,
+  /** §11.3 AMENDMENT: absolute deadline (epoch ms) for the HTTP tiers.
+      Omitted = uncapped cascade — the original golden/parity path. */
+  deadline?: number,
+  /** §18: position of `result` in the pipeline's full read window —
+      drives browser-tier selectivity only; callers with no window pass 0. */
+  rankInWindow = 0,
 ): Promise<EvidencePacket & { classification: string }> {
   const url = result.canonical;
+  // Set whenever a capped tier expired; drives the tail branch.
+  let budgetHit = false;
   const packet: EvidencePacket = {
     sourceId: "", // assigned later
     url,
@@ -935,7 +1079,22 @@ export async function extractUrl(
   // second caller-level fingerprint retry would re-fetch the clean HTML
   // that the first already recovered under, and waste the Jina budget
   // on a follow-up that never ran).
-  const directOut = await extractDirect(url, "chrome");
+  // §11.3 AMENDMENT: capped by the remaining page budget; expiry
+  // substitutes the network-failure shape (status 0, blocked) which keeps
+  // the downstream tier gates intact — the page still gets the
+  // link-preview tier if it fits, and ALWAYS the browser tier.
+  const directRaw = await withDeadline(deadline, extractDirect(url, "chrome"));
+  const directOut: TierOutput | null =
+    directRaw === DEADLINE_EXPIRED
+      ? ((budgetHit = true),
+        {
+          tier: "crash" as const,
+          markdown: "",
+          status: 0,
+          blocked: true,
+          blockedReason: "page budget exhausted during direct fetch",
+        })
+      : directRaw;
 
   if (directOut && !directOut.blocked && directOut.markdown.length >= 200) {
     packet.extraction = "direct";
@@ -985,7 +1144,12 @@ export async function extractUrl(
 
   let linkPreviewOut: TierOutput | null = null;
   if (tier1BlockedOrEmpty) {
-    linkPreviewOut = await extractLinkPreview(url);
+    // §11.3 AMENDMENT: the 4-bot link-preview stack is the worst budget
+    // burner (4×45s); it is capped by the remaining budget so the browser
+    // tier downstream always stays reachable.
+    const lpRaw = await withDeadline(deadline, extractLinkPreview(url));
+    if (lpRaw === DEADLINE_EXPIRED) budgetHit = true;
+    linkPreviewOut = lpRaw === DEADLINE_EXPIRED ? null : lpRaw;
     if (linkPreviewOut && linkPreviewOut.markdown.length >= 200) {
       packet.extraction = "direct";
       packet.passages.push({
@@ -1015,7 +1179,17 @@ export async function extractUrl(
     (directOut?.status === 429) ||
     (directOut?.markdown.length < 200 && directOut?.tier === "crash") ||
     (directOut?.markdown.length < 100 && !(directOut?.tier === "crash"));
-  if (directThinnedOrBlocked) {
+  // §18: an attempt at the EXISTING browser seam is the most expensive
+  // move in the cascade, so it is confined to the top of the read window,
+  // and skipped for a domain still cooling down from a recent full
+  // bot-block (short TTL, never permanent — §17). Missing this attempt is
+  // just another tier miss: the jina/wayback/snippet tail below runs
+  // unchanged either way.
+  if (
+    directThinnedOrBlocked &&
+    rankInWindow < BROWSER_RANK_MAX &&
+    !domainOnCooldown(result.domain)
+  ) {
     const browserOut = await extractBrowser(result);
     if (browserOut && browserOut.markdown.length >= 200 && !browserOut.blocked) {
       packet.extraction = "direct";
@@ -1035,7 +1209,12 @@ export async function extractUrl(
 
   // Tier 4: Jina fallback — fires on any Tier 1/2 failure including
   // silent blocks (which is its whole point for Cloudflare-protected pages).
-  const jinaOut = await extractJina(url);
+  // §11.3 AMENDMENT: capped tiers past the browser allowance are the pure
+  // anti-stall tail — an expired budget skips them cheaply (the original
+  // hard cut used to cut the BROWSER allowance short instead).
+  const jinaRaw = await withDeadline(deadline, extractJina(url));
+  if (jinaRaw === DEADLINE_EXPIRED) budgetHit = true;
+  const jinaOut = jinaRaw === DEADLINE_EXPIRED ? null : jinaRaw;
   if (jinaOut && jinaOut.markdown.length >= 200) {
     packet.extraction = "jina-fallback";
     packet.passages.push({
@@ -1063,7 +1242,9 @@ export async function extractUrl(
       directOut.status === 0 ||
       (directOut.markdown.length < 100 && directOut.tier === "crash"));
   if (tier1Failed) {
-    const waybackOut = await extractWayback(url);
+    const waybackRaw = await withDeadline(deadline, extractWayback(url));
+    if (waybackRaw === DEADLINE_EXPIRED) budgetHit = true;
+    const waybackOut = waybackRaw === DEADLINE_EXPIRED ? null : waybackRaw;
     if (waybackOut && waybackOut.markdown.length >= 200) {
       packet.extraction = "jina-fallback";
       packet.passages.push({
@@ -1103,7 +1284,11 @@ export async function extractUrl(
   if ((directBlocked || directEmptyShell || linkPreviewOut === null) && (result.snippet ?? "").length < 20) {
     try {
       // Tier 6a: slug triangulation (site: + broad keyword queries)
-      const synthesized = await slugTriangulation(url, result.title);
+      // §11.3 AMENDMENT: issues live metasearch engine requests (~40s
+      // each) — capped by the remaining budget.
+      const synthRaw = await withDeadline(deadline, slugTriangulation(url, result.title));
+      if (synthRaw === DEADLINE_EXPIRED) budgetHit = true;
+      const synthesized = synthRaw === DEADLINE_EXPIRED ? "" : synthRaw;
       if (synthesized.length >= 80) {
         const cleaned = stripWafChallengeText(synthesized);
         if (hasMeaningfulContent(cleaned, 40)) {
@@ -1121,7 +1306,9 @@ export async function extractUrl(
       }
       // Tier 6b: exact-URL search fallback (search engines that index
       // the literal URL string — a broader net than slug keywords alone)
-      const fallbackResults = await urlSearchFallback(url, result.title);
+      const fbRaw = await withDeadline(deadline, urlSearchFallback(url, result.title));
+      if (fbRaw === DEADLINE_EXPIRED) budgetHit = true;
+      const fallbackResults = fbRaw === DEADLINE_EXPIRED ? [] : fbRaw;
       if (fallbackResults.length > 0) {
         const best = fallbackResults[0];
         const fbSnippet = (best.snippet || best.title || "").slice(0, 12000);
@@ -1149,6 +1336,29 @@ export async function extractUrl(
   // Classify the Tier 4 result: if Tier 1 hit a real block, this is a
   // FAIL_* that the stress report will surface; otherwise it's a clean
   // snippet fallback (SUCCESS_SNIPPET_FALLBACK).
+  // §11.3 AMENDMENT: a page whose budget expired mid-cascade and that the
+  // browser allowance could not rescue reports PAGE_BUDGET_TIMEOUT — the
+  // same classification as before the amendment, but the packet keeps its
+  // natural cascade shape: the SERP baseline passage is already first, and
+  // the marker/title is pushed only when no baseline exists (identical
+  // fallback text to timeoutFallbackPacket). Mirrors the budget_hit tail
+  // in ruke-websearch's extract_url_capped.
+  if (budgetHit) {
+    packet.extraction = "snippet-only";
+    if (packet.passages.length === 0) {
+      packet.passages.push({
+        sourceId: "",
+        url,
+        title: result.title,
+        domain: result.domain,
+        publishedAt: result.publishedDate,
+        passageText:
+          result.title || "(page read timed out — no content extracted)",
+        bm25Score: 0,
+      });
+    }
+    return { ...packet, classification: "PAGE_BUDGET_TIMEOUT" };
+  }
   if (directOut && directOut.blocked) {
     const kind = directOut.blockedReason;
     packet.passages.push({
@@ -1165,6 +1375,7 @@ export async function extractUrl(
       return { ...packet, classification: "FAIL_SILENT_LOGIN_WALL" };
     }
     if (/cloudflare|akamai|perimeterx|datadome|captcha|bot|js/i.test(kind)) {
+      recordDomainBotBlock(result.domain);
       return { ...packet, classification: "FAIL_SILENT_BOT_BLOCK" };
     }
     return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
@@ -1202,6 +1413,48 @@ export async function extractUrl(
   return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };
 }
 
+const BUDGET_HIT = Symbol("page-budget-hit");
+
+/**
+ * §11.3 (AMENDED 2026-10-29): the deadline is threaded INTO the cascade —
+ * each HTTP tier is capped at its own await by the remaining budget, and
+ * the browser tier always runs when the direct read thinned/blocked
+ * (bridge-bounded). This race is now a SAFETY NET with one browser
+ * allowance of slack (budget + BROWSER_ALLOWANCE_MS): it can only fire if
+ * a tier ignores its cap, which none do on the normal path. The losing
+ * cascade keeps running harmlessly in the background (its own per-request
+ * timeouts bound it) and its late rejection is absorbed. A cache throw
+ * while the race is still live rejects exactly like the original
+ * Promise.all. Mirrors the tokio::time::timeout wrapper in ruke-
+ * websearch's extract_all: the page still counts toward onPage progress
+ * and still receives its S-id.
+ */
+async function extractUrlWithBudget(
+  result: RankedResult,
+  budgetMs: number,
+  rankInWindow = 0,
+): Promise<EvidencePacket & { classification: string }> {
+  const deadline = Date.now() + budgetMs;
+  const work = extractUrl(result, deadline, rankInWindow);
+  const guard = work.catch(() => undefined); // absorb a post-budget rejection
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const won = await Promise.race([
+      work,
+      new Promise<typeof BUDGET_HIT>((resolve) => {
+        timer = setTimeout(
+          () => resolve(BUDGET_HIT),
+          budgetMs + BROWSER_ALLOWANCE_MS,
+        );
+      }),
+    ]);
+    return won === BUDGET_HIT ? timeoutFallbackPacket(result) : won;
+  } finally {
+    if (timer) clearTimeout(timer);
+    void guard;
+  }
+}
+
 /**
  * Extract the top N ranked results in parallel (capped at 10 URLs, 6 at a
  * time). Returns packets ready for BM25 scoring, each with its
@@ -1213,22 +1466,55 @@ export async function extractAll(
   /** Real per-page completion counter (this batch only) — used by the
       chat route's live progress bridge; optional, existing callers unaffected. */
   onPage?: (done: number, total: number) => void,
+  /** §11.3 per-page wall-clock budget (MIGRATION-MAP); production always
+      uses the default, tests may inject a smaller one. */
+  pageBudgetMs = PAGE_BUDGET_DEFAULT_MS,
+  /** §18: start position of `ranked` inside the pipeline's full read
+      window; batched hops pass their offset, one-shot callers pass 0. */
+  rankBase = 0,
+  /** §25 mid-wave sufficiency stop: consulted once per page COMPLETION; on
+      the first true the wave resolves with the packets completed so far,
+      in rank order, and no further progress frames are emitted. Mirrors
+      extract_all's `stop_when` in extractor.rs — JS promises cannot be
+      aborted, so unfinished pages are ABANDONED (their results discarded
+      by the guard below) where Rust cancels the futures outright; the
+      visible contract (packet set, progress frames, S-ids) is identical.
+      Upgrade path if abandoned fetches ever start costing bandwidth:
+      thread an AbortController through limit()/extractUrlWithBudget. */
+  stopWhen?: (packet: EvidencePacket & { classification: string }) => boolean,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
+  const settled: Array<(EvidencePacket & { classification: string }) | undefined> =
+    new Array(top.length).fill(undefined);
   let donePages = 0;
-  const settled = await Promise.all(
-    top.map((r) => limit(() => extractUrl(r)).then((p) => {
-      donePages++;
-      onPage?.(donePages, top.length);
-      return p;
-    })),
+  let stopped = false;
+  let signalStop: () => void = () => {};
+  const stopGate = new Promise<void>((resolve) => { signalStop = resolve; });
+  const tasks = top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i)).then((p) => {
+    if (stopped) return undefined; // abandoned page — Rust cancels these instead
+    settled[i] = p;
+    donePages++;
+    onPage?.(donePages, top.length);
+    if (stopWhen?.(p)) {
+      stopped = true;
+      signalStop();
+    }
+    return p;
+  }));
+  // Full-wave path is the original Promise.all (rejects like before); the
+  // race only ever settles early when the predicate fired.
+  await Promise.race([Promise.all(tasks), stopGate]);
+  if (stopped) for (const t of tasks) t.catch(() => {}); // abandon, don't unhandled-reject
+  const packets = settled.filter(
+    (p): p is EvidencePacket & { classification: string } => p !== undefined,
   );
-  // Assign S1..Sn in rank order
-  settled.forEach((packet, i) => {
+  // Assign S1..Sn in rank order (positional slots keep the order; a
+  // stopped wave simply has holes, and ids renumber over the survivors).
+  packets.forEach((packet, i) => {
     packet.sourceId = "S" + (i + 1);
     for (const p of packet.passages) p.sourceId = packet.sourceId;
   });
-  return settled;
+  return packets;
 }
 
 /**

@@ -276,7 +276,7 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-2 w-64 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
+        <div className="absolute top-full right-0 mt-2 w-72 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
           {/* Tabs */}
           <div className="flex border-b border-[rgba(255,255,255,0.09)]">
             {(["reasoning", "context", "endpoint"] as const).map((t) => (

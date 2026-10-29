@@ -11,7 +11,7 @@
  * Native Node fetch is not allowed for scraper traffic because it
  * fingerprints as a Node client and gets 403'd by search-engine CDNs.
  *
- * SSRF guarding lives in ssrf.ts (shared with lib/browser); this module
+ * SSRF guarding lives in ssrf.ts (shared with lib/web-search/agentBrowser.ts); this module
  * re-exports isSafeUrl so existing importers keep working.
  */
 import { Impit } from "impit";

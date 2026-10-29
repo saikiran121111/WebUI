@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "predev": "node scripts/auto-update-search.mjs",
-    "dev": "next dev",
+    "dev": "node scripts/dev-supervisor.mjs",
+    "dev:next": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -12,6 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cskill:add": "node scripts/install-core-skill.mjs",
+    "contracts:generate": "node rust-backend/scripts/gen-mode-contracts.mjs && node rust-backend/scripts/gen-contract-manifest.mjs",
+    "contracts:check": "node rust-backend/scripts/gen-mode-contracts.mjs --check && node rust-backend/scripts/gen-contract-manifest.mjs --check",
     "titles:backfill": "node scripts/backfill-titles.mjs"
   },
   "dependencies": {
@@ -54,6 +57,7 @@
     "shiki": "^4.5.0",
     "tailwind-merge": "^2.6.0",
     "three": "^0.186.1",
+    "tldts": "^7.4.19",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "unpdf": "^1.8.1",

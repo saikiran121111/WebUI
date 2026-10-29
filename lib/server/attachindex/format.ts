@@ -11,11 +11,11 @@ export function fmtStamp(sec: number): string {
 export function firstSentence(text: string, max = 90): string {
   const m = /^[^.!?]+[.!?]?/.exec(text.trim());
   const s = (m?.[0] ?? text).trim();
-  return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
+  return s.length > max ? s.slice(0, max).trimEnd() + "..." : s;
 }
 
 export function lastSentence(text: string, max = 90): string {
   const parts = text.trim().match(/[^.!?]+[.!?]?/g) ?? [];
   const s = (parts[parts.length - 1] ?? text).trim();
-  return s.length > max ? "…" + s.slice(-max).trimStart() : s;
+  return s.length > max ? "..." + s.slice(-max).trimStart() : s;
 }

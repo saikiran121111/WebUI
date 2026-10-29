@@ -1,13 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDown, AlertCircle, RefreshCw, ChevronDown, Globe } from "lucide-react";
+import { ArrowDown, AlertCircle, RefreshCw, ChevronDown } from "lucide-react";
 import ChatMessage from "../components/ChatMessage";
 import ChatInput, { EffortControl } from "../components/ChatInput";
 import SettingsMenu from "../components/SettingsMenu";
 import TopBar from "../components/TopBar";
 import ProgressChip from "../components/ProgressChip";
-import RightBrowserPanel from "../components/RightBrowserPanel";
 import { USER_NAME } from "../lib/user";
 import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
@@ -33,10 +32,6 @@ export default function HomePage() {
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
   // Full-screen Recents browser (sidebar "View all" / browse icon).
   const [viewAllOpen, setViewAllOpen] = useState(false);
-  // In-app login browser panel (Part 3): a right split beside <main>.
-  // Null = closed; url = the login-walled page to aim the panel at
-  // (set automatically when the pipeline reports web:auth_required).
-  const [browserPanel, setBrowserPanel] = useState<{ url?: string } | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -46,8 +41,6 @@ export default function HomePage() {
     compact, compactState, activeTokenCount,
   } = useChat({
     model: process.env.NEXT_PUBLIC_MODEL_ID ?? "",
-    onAuthRequired: (info) =>
-      setBrowserPanel((prev) => ({ url: info.url ?? prev?.url })),
   });
 
   // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.
@@ -83,22 +76,6 @@ export default function HomePage() {
     send(text, { attachments });
   }, [send, loadDemo, loadAnatomyDemo]);
 
-  // "Logged In — Continue AI Search" (Part 3): the panel did the cookie
-  // hand-off; re-run the request through a normal chat turn so the extractor
-  // reads the authenticated tab (its pool now rides the signed-in cookies).
-  const handleLoggedIn = useCallback((url: string) => {
-    setBrowserPanel(null);
-    if (url) {
-      runSend(
-        `I signed in through the built-in Browser panel. Read ${url} with the ` +
-        `signed-in browser profile and continue answering my previous request.`,
-      );
-    }
-  }, [runSend]);
-  const toggleBrowser = useCallback(
-    () => setBrowserPanel((prev) => (prev ? null : {})),
-    [],
-  );
 
   // Ids deleted this session — a stale in-flight list refresh must never
   // resurrect them in the sidebar.
@@ -400,21 +377,6 @@ export default function HomePage() {
         onToggleSidebar={() => setSidebarOpen(v => !v)}
         settings={<SettingsMenu effort={effort} onEffortChange={setEffort} onCompactNow={runCompact} />}
         progress={<ProgressChip progress={turnProgress} onDismiss={dismissProgress} />}
-        browser={
-          <button
-            onClick={toggleBrowser}
-            aria-label="Browser"
-            title={browserPanel ? "Close browser panel" : "Browser — sign in to locked sites"}
-            className={
-              "w-7 h-7 rounded-md flex items-center justify-center transition-colors duration-[120ms] " +
-              (browserPanel
-                ? "text-white/90 bg-white/[0.08]"
-                : "text-white/55 hover:text-white/90 hover:bg-white/[0.05]")
-            }
-          >
-            <Globe className="w-4 h-4" />
-          </button>
-        }
       />
       <div className="flex flex-1 min-h-0">
       <Sidebar
@@ -544,14 +506,6 @@ export default function HomePage() {
           )}
         </AnimatePresence>
       </main>
-
-      {browserPanel && (
-        <RightBrowserPanel
-          initialUrl={browserPanel.url}
-          onClose={() => setBrowserPanel(null)}
-          onLoggedIn={handleLoggedIn}
-        />
-      )}
       </div>
       <ConfirmDialog
         open={!!confirmDelete}
@@ -674,7 +628,7 @@ function EmptyState({
             <button className="text-[12px] font-medium text-white/85
               hover:text-white transition-colors duration-[120ms]"
               title="Model selection — coming soon">
-              Sonnet 5.5
+              Local Model
             </button>
             <EffortControl effort={effort} onEffortChange={onEffortChange} variant="text" />
             <button className="text-[12px] font-medium text-white/85

@@ -21,6 +21,7 @@ import {
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { StageEvent } from "../../../lib/types";
 
 const log = childLogger("api/chat");
@@ -313,6 +314,28 @@ function turnHasAttachmentRef(content: unknown): boolean {
 }
 
 /**
+ * §11.2 follow-up (APPROVED DEVIATION extension): attachments that are too
+ * small to index carry NO attachment_ref — the client inlines their
+ * content instead (lib/chat/client.ts attachmentParts: every variant,
+ * indexed or not, begins with a text part "Attached file: …"). Without
+ * this detection an inline audio/video meta-instruction reached the model
+ * gate and web-searched itself. GATE ONLY: retrieval stays keyed on real
+ * refs (nothing to retrieve for an inline turn — the content is already
+ * in the prompt). Rust mirror: turn_has_inline_attachment (chat/pipeline).
+ */
+function turnHasInlineAttachment(content: unknown): boolean {
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (part: any) =>
+        part?.type === "text" &&
+        typeof part?.text === "string" &&
+        part.text.startsWith("Attached file: "),
+    )
+  );
+}
+
+/**
  * Fence-repair follow-ups already know their mode (it is pinned to the failed
  * deliverable): re-running the Decision Engine on an error message could
  * misroute it and stripping would destroy the exact error text. So the client
@@ -414,10 +437,14 @@ async function runTurnPipeline(
     signal: AbortSignal;
     stage: (e: StageEvent) => void;
     hasAttachmentRefs: boolean;
+    /** §11.2: inline (NOT indexed) attachment parts on the current turn —
+     *  feed the GATE's attachment-evidence flag only; retrieval never
+     *  consults this (nothing to retrieve: the content is already inline). */
+    hasInlineAttachment: boolean;
     model: string;
   },
 ): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null }> {
-  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, model } = opts;
+  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
   let skillBlockBytes = 0;
@@ -480,6 +507,13 @@ async function runTurnPipeline(
         userPrompt: fullText,
         history,
         hasImageAttachment: imageParts.length > 0,
+        // APPROVED PART-10 DEVIATION: the same current-turn flag the
+        // retrieval stage keyed off feeds the attachment-aware gate
+        // (Rust mirror: has_attachment_evidence). §11.2: OR-ed with the
+        // inline-attachment flag — unindexed (small) attachments inline
+        // their content instead of carrying a ref, and that content IS
+        // local evidence for the gate even though retrieval skips it.
+        hasAttachmentEvidence: hasAttachmentRefs || hasInlineAttachment,
         imageDataUrls: imageParts,
       },
       (p) => {
@@ -564,6 +598,9 @@ async function runTurnPipeline(
 }
 
 export async function POST(req: NextRequest) {
+  // Part-8 cutover (supervisor-armed only; unset ⇒ this TS handler runs
+  // verbatim). The proxy streams the Rust SSE turn through untouched.
+  if (rustEnabled()) return rustProxy(req, "/api/chat");
   const raw = await req.text();
   let payload: any = null;
   try {
@@ -641,7 +678,10 @@ export async function POST(req: NextRequest) {
       // EARLY-OPEN response so the WebUI can show, live, what the server is
       // actually doing before the model's first byte ever arrives.
       if (payload.stream !== false) {
-        const hasAttachmentRefs = turnHasAttachmentRef(payload.messages[lastUserIdx]?.content);
+        const turnContent = payload.messages[lastUserIdx]?.content;
+        const hasAttachmentRefs = turnHasAttachmentRef(turnContent);
+        // §11.2 gate-only flag: inline (unindexed) attachment parts.
+        const hasInlineAttachment = turnHasInlineAttachment(turnContent);
 
         // One combined signal for the whole turn: the browser walking away
         // (stream cancel) or the request aborting kills the gate fetch AND
@@ -704,6 +744,7 @@ export async function POST(req: NextRequest) {
                 signal: inner.signal,
                 stage: ch.stage,
                 hasAttachmentRefs,
+                hasInlineAttachment,
                 model,
               });
               if (meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) {
@@ -756,6 +797,7 @@ export async function POST(req: NextRequest) {
         signal: req.signal,
         stage: () => {},
         hasAttachmentRefs: turnHasAttachmentRef(payload.messages[lastUserIdx]?.content),
+        hasInlineAttachment: turnHasInlineAttachment(payload.messages[lastUserIdx]?.content),
         model,
       });
       webCitationMap = meta.webCitationMap;

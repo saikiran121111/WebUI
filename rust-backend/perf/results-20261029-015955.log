@@ -1,0 +1,22 @@
+=== 0. idle RSS ===
+idle-WS-bytes=2184478720 (2083 MB)
+=== 1. API routing latency (3x each) ===
+GET /api/conversations http=200 total=0.094064s
+GET /api/conversations http=200 total=0.091142s
+GET /api/conversations http=200 total=0.090743s
+GET /api/settings http=200 total=0.004177s
+GET /api/settings http=200 total=0.004421s
+GET /api/settings http=200 total=0.004014s
+GET /api/model-stats http=200 total=0.005102s
+GET /api/model-stats http=200 total=0.005233s
+GET /api/model-stats http=200 total=0.004519s
+=== 2. tiny chat turn (streaming, TTFP + TTFT) ===
+[tiny] first-bytes-ms=46
+[tiny] first-stage-ms=46
+[tiny] first-content-delta-ms=309
+[tiny] stream-lines=0
+ruke_stage":{"stage":"decision_done","mode":"standard_chat","ms":0}
+ruke_stage":{"stage":"web:gate","detail":"Deciding whether a web search is needed..."}
+ruke_stage":{"stage":"web:planning","detail":"Decomposing into sub-queries..."}
+ruke_stage":{"stage":"web:searching","detail":"Searching 3 source pool(s)...","total":3}
+ruke_stage":{"stage":"web:reading","detail":"Reading top 5 pages...","total":5}

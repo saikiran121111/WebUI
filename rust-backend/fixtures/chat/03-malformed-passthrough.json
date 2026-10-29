@@ -1,0 +1,82 @@
+{
+  "_meta": {
+    "scenario": "malformed/non-JSON request body",
+    "semantics": "JSON.parse fails -> payload=null: NO decision, NO pipeline; the RAW request bytes are forwarded verbatim as the upstream body; x-decision-mode stays standard_chat; model 'default'.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/chat-core.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path response bodies are stored ms-normalized (raw bytes carry volatile ms digits)."
+  },
+  "request": {
+    "rawBody": "this is {{{not json"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "this is {{{not json",
+      "bodyJson": null,
+      "anchors": []
+    }
+  ],
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "standard_chat"
+    },
+    "body": {
+      "bytes": 181,
+      "utf8Lossy": "data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello!\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+    }
+  },
+  "logicalFrames": [
+    {
+      "kind": "data",
+      "obj": {
+        "id": "c1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant"
+            }
+          }
+        ]
+      },
+      "raw": "{\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}"
+    },
+    {
+      "kind": "data",
+      "obj": {
+        "id": "c1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "Hello!"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      },
+      "raw": "{\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello!\"},\"finish_reason\":\"stop\"}]}"
+    },
+    {
+      "kind": "done"
+    }
+  ],
+  "streamDone": true,
+  "unterminatedTail": ""
+}

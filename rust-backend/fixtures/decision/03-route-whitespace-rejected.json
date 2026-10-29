@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "scenario": "POST /api/decision — whitespace-only message",
+    "semantics": "The route guard tests message.trim() -> whitespace-only hits 400 {\"error\":\"message required\"}. CONTRACT DISCOVERY: fallbackEnvelope (decided_by 'in-process-fallback') is therefore UNREACHABLE through the public /api/decision route — it is an INTERNAL-only envelope (e.g. the chat route's empty-turn path). Rust must keep it internal too.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/decision-serialization.test.ts",
+    "env": {
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none — the whole point is that these bytes contain NO timing/volatile fields."
+  },
+  "request": {
+    "rawBody": "{\"message\":\"   \"}"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodyBytes": "{\"error\":\"message required\"}"
+  },
+  "envelope": {
+    "error": "message required"
+  },
+  "envelopeKeyOrder": [
+    "error"
+  ]
+}
