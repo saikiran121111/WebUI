@@ -104,6 +104,12 @@ async fn main() {
         bridge,
     });
 
+    // Browser Use (Phase 2): the long-lived browser runtime. Lazy — this
+    // boots NOTHING; the first browser command launches the bundled
+    // Chromium under `<root>/.data` (profile + bundle discovery live in
+    // ruke_browser::host).
+    let browser = Arc::new(ruke_browser::engine::BrowserRuntime::new(root.clone()));
+
     let state = AppState {
         settings: settings.clone(),
         slot: slot.clone(),
@@ -142,6 +148,7 @@ async fn main() {
         )),
         // Part 8: shared web runtime (chat seam + search pair).
         web,
+        browser: browser.clone(),
     };
 
     // Loopback bind: this parallel server has no auth, and the migration's
@@ -162,6 +169,10 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("server error");
+
+    // Drained: close the agent browser gracefully (Browser.close →
+    // bounded wait → kill belt; no zombie Chromium survives here).
+    browser.shutdown().await;
 }
 
 async fn shutdown_signal() {

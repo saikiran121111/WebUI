@@ -22,6 +22,11 @@
 //! or explicitly marked `[adapted]` (a documented behavioral equivalent
 //! at the native boundary). No placeholders, no fixture knowledge.
 
+pub mod cdp;
 pub mod contract;
+pub mod engine;
 pub mod errors;
+pub mod executor;
+pub mod host;
 pub mod schemas;
+pub mod session;

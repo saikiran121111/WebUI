@@ -1,5 +1,40 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-28 — MEDIA-CAPTION CYCLE (see current-cycle block below; the
+Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–2
+locked; the 2026-10-28 media-caption cycle below is prior history; the
+2026-10-25 browser lines stay HISTORY ONLY — superseded on 10-26).
+
+[CURRENT CYCLE 2026-10-30 — BROWSER USE IN RUST (unattended phase run)]:
+- [8.1] Mission: complete interactive Browser Use (model + human share one
+  tab/session state) with Rust owning a subordinate Chromium over CDP and
+  Next.js as the interactive panel. LIVE MATRIX + full contracts:
+  `reverse-engineering/internal-browser/RUKE-IMPLEMENTATION-PLAN.md` — read
+  it FIRST on resume; never restart from Phase 0.
+- [8.2 LOCKED] Phase 1 (commit 19707ae): `crates/ruke-browser/src/{contract,
+  schemas,errors}.rs` (82-row command registry, typed errors) — unit tested.
+  Phase 2 (committed this cycle): `crates/ruke-browser/src/{host,cdp,
+  session,engine,executor}.rs` + `tests/smoke_lifecycle.rs` (#[ignore] real-
+  Chromium lifecycle smoke — GREEN 2026-10-30: grounded url/title, history
+  walk, turn cleanup, stale-handle fail-closed) + ruke-server
+  `browser_routes.rs` (`POST /api/browser`) + `AppState.browser` wiring +
+  graceful shutdown. Gates: ruke-browser 37/37 unit, smoke 1/1 (--ignored),
+  ruke-server 133/133, clippy clean for own crates (7 known warnings remain
+  only in LOCKED ruke-websearch).
+- [8.4 contracts in force] Envelope `{commandType,session_id,turn_id,
+  payload}`; RPC errors ride HTTP 200 `to_wire()`, 401 is auth-only, non-JSON
+  body ⇒ `browser_command_envelope_invalid`; bridge secret semantics reuse
+  ruke-websearch browser-bridge constants; tab_ids are numeric strings, never
+  reused; CDP awaited value = wire frame `result` unwrapped ONCE (evaluate
+  value at `result.value`, pinned by cdp::tests); 13 lifecycle commands real,
+  other 69 kinds typed `browser_operation_unsupported` until their phase.
+- [8.8 next 3 atoms] (1) Phase 3: interactive Browser Panel UI in Next.js
+  (tab strip, omnibox, nav buttons, activity state, auto-open) wired to
+  `/api/browser` + Phase-4 screencast frames — contract in the RE docs §UI.
+  (2) Phase 4: CDP bridge + bounded event buffer (sequence/cursor/hasMore/
+  truncated). (3) Then Phase 5 DOM CUA. Cargo smoke needs NO
+  `.ai-coordination` lock (not model-driven); real-model Playwright E2E
+  (Phases 19–24) does.
+
+Synced: 2026-10-28 — MEDIA-CAPTION CYCLE (see block below; the
 2026-10-25 sections are HISTORY ONLY for browser-subsystem lines that were
 superseded on 10-26).
 

@@ -9,3 +9,14 @@ description = "Browser Use engine: command contract (vocabulary registry + turn 
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# Phase 2 (host + CDP bridge): async runtime, loopback WebSocket client,
+# event pump, loopback URL validation, engine state locks, logging.
+tokio = { workspace = true, features = ["process"] } # tokio::process = kill_on_drop (no zombie Chromium, even on aborts)
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+url.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

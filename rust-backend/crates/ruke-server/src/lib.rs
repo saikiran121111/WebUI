@@ -48,6 +48,7 @@ use serde_json::json;
 use ruke_core::{settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
 
 pub mod attach_notes;
+pub mod browser_routes;
 pub mod chat;
 pub mod conversations_routes;
 pub mod decision_routes;
@@ -100,6 +101,11 @@ pub struct AppState {
     pub titles: Arc<titles::queue::TitleQueue>,
     /// Part 8: the web-research runtime (chat seam + search pair).
     pub web: Arc<WebRuntime>,
+    /// Browser Use (Phase 2): the long-lived browser runtime — one shared
+    /// Chromium launched lazily on the first browser command. Tests only
+    /// construct it (lazy = nothing launches; short-circuit routes never
+    /// touch it).
+    pub browser: Arc<ruke_browser::engine::BrowserRuntime>,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -152,6 +158,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/ruke/search", get(search_routes::search_get))
         .route("/api/ruke/search-more", post(search_routes::search_more_post))
         .route("/api/ruke/decision", post(decision_routes::decision_post))
+        // Browser Use (Phase 2): the command RPC for the browser panel /
+        // tool loop. Errors ride the wire contract with HTTP 200; only
+        // auth failures use a status code (browser_routes.rs).
+        .route("/api/ruke/browser/command", post(browser_routes::command_post))
         .with_state(state)
 }
 
@@ -213,8 +223,64 @@ mod tests {
                 verticals: ruke_websearch::platform_api::RealVerticals,
                 bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
             }),
+            // Lazy by construction: no Chromium launches unless a real
+            // browser command reaches the engine (rooted in the temp dir,
+            // never the repo).
+            browser: Arc::new(ruke_browser::engine::BrowserRuntime::new(
+                tmp.path().to_path_buf(),
+            )),
         };
         (state, tmp)
+    }
+
+    // Browser Use (Phase 2): the two contract short-circuits answer on the
+    // wire BEFORE the engine is touched — no browser is ever launched for
+    // a malformed or unknown command. (Auth is off here: the secret env
+    // is forced empty so the loopback-only stance matches the tests'
+    // other routes.)
+    #[tokio::test]
+    async fn browser_command_bad_envelope_answers_on_the_wire() {
+        std::env::set_var(ruke_websearch::browser_bridge::ENV_SECRET, "");
+        let (s, _t) = state();
+        let resp = build_router(s)
+            .oneshot(
+                http::Request::builder()
+                    .method("POST")
+                    .uri("/api/ruke/browser/command")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"commandType": ""}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error_code"], "browser_command_envelope_invalid");
+    }
+
+    #[tokio::test]
+    async fn browser_command_unknown_kind_short_circuits_before_the_engine() {
+        std::env::set_var(ruke_websearch::browser_bridge::ENV_SECRET, "");
+        let (s, _t) = state();
+        let resp = build_router(s)
+            .oneshot(
+                http::Request::builder()
+                    .method("POST")
+                    .uri("/api/ruke/browser/command")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"commandType":"totally_not_a_command","session_id":"s","turn_id":"t"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["error_code"], "browser_command_unknown");
     }
 
     #[tokio::test]

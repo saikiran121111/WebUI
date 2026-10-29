@@ -279,12 +279,23 @@ pub const ADAPTED_COMMAND_POOL: [&str; 9] = [
 /// The metadata keys, in the fixed order the recovered check uses.
 const METADATA_KEYS: [&str; 2] = ["session_id", "turn_id"];
 
-/// Parse the full command envelope.
+/// A fully-validated envelope: the turn metadata (already proven
+/// string-typed by the §2.2 gate) plus the decoded command. The engine
+/// needs the metadata as *values* — claims, deliverables and turn
+/// cleanup key off (session_id, turn_id).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandEnvelope {
+    pub session_id: String,
+    pub turn_id: String,
+    pub command: Command,
+}
+
+/// Parse the full command envelope and return metadata + command.
 ///
 /// Wire form (plan §"Key locked facts", nested payload `[adapted]`):
 /// `{ "commandType": "…", "session_id": "…", "turn_id": "…",
 ///   "payload": { … command-specific … } }`
-pub fn parse_command(value: &Value) -> Result<Command, BrowserError> {
+pub fn parse_envelope(value: &Value) -> Result<CommandEnvelope, BrowserError> {
     let obj = value.as_object().ok_or(BrowserError::BadEnvelope)?;
 
     let command_type = obj
@@ -307,6 +318,9 @@ pub fn parse_command(value: &Value) -> Result<Command, BrowserError> {
     if !missing.is_empty() {
         return Err(BrowserError::MissingTurnMetadata { missing });
     }
+    // Past the gate, both keys are proven strings (possibly empty).
+    let session_id = obj["session_id"].as_str().unwrap_or_default().to_string();
+    let turn_id = obj["turn_id"].as_str().unwrap_or_default().to_string();
 
     // Absent payload decodes as `{}` so option-only commands work and
     // required-field commands fail with a precise PayloadInvalid.
@@ -317,7 +331,17 @@ pub fn parse_command(value: &Value) -> Result<Command, BrowserError> {
 
     let cmd = decode_payload(kind, &payload)?;
     validate_command(&cmd)?;
-    Ok(cmd)
+    Ok(CommandEnvelope {
+        session_id,
+        turn_id,
+        command: cmd,
+    })
+}
+
+/// Command-only convenience over [`parse_envelope`] (the metadata rule is
+/// identical; callers that need the turn ids use `parse_envelope`).
+pub fn parse_command(value: &Value) -> Result<Command, BrowserError> {
+    parse_envelope(value).map(|env| env.command)
 }
 
 /// Numeric/semantic bounds layered on top of the structural decode —
@@ -986,5 +1010,24 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(cmd, Command::Tabs(TabListQuery { browser_id: None }));
+    }
+
+    #[test]
+    fn envelope_surfaces_metadata_values_after_the_gate() {
+        // §2.2: an empty string is a PRESENT string — it passes the gate
+        // and surfaces verbatim as a value (the engine keys claims and
+        // cleanup off these ids).
+        let env = parse_envelope(&json!({
+            "commandType": "tabs",
+            "session_id": "",
+            "turn_id": "t42",
+        }))
+        .unwrap();
+        assert_eq!(env.session_id, "");
+        assert_eq!(env.turn_id, "t42");
+        assert_eq!(
+            env.command,
+            Command::Tabs(TabListQuery { browser_id: None })
+        );
     }
 }

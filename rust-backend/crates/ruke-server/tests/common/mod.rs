@@ -118,6 +118,12 @@ pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
             verticals: ruke_websearch::platform_api::RealVerticals,
             bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
         }),
+        // Shape parity again: BrowserRuntime is lazy (boots nothing), and
+        // replay never issues a browser command — its root is the temp dir
+        // so no profile dir is ever created beside the real repo.
+        browser: Arc::new(ruke_browser::engine::BrowserRuntime::new(
+            tmp.path().to_path_buf(),
+        )),
     };
     if let Some((url, key)) = upstream {
         state.settings.set_upstream_override(url, key);

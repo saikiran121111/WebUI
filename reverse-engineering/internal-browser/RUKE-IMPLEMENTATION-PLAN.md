@@ -71,7 +71,7 @@ no Node browser backend, no resurrected `lib/browser/**`/WebContentsView/nativeP
 |---|---|---|---|
 | 0 | Current-repo audit + RE docs | DONE | no (docs sufficient) |
 | 1 | Contract manifest + typed schemas + errors (`crates/ruke-browser/src/{contract,schemas,errors}.rs`) | UNIT TESTED (21/21; clippy -D warnings clean) | no |
-| 2 | Browser host + session/tab manager (claims, deliverable/handoff, turn cleanup, stale handles fail closed) | NOT STARTED | |
+| 2 | Browser host + session/tab manager (claims, deliverable/handoff, turn cleanup, stale handles fail closed) | INTEGRATION TESTED (37/37 ruke-browser unit; real-Chromium smoke green incl. grounded url/title, history walk, turn cleanup, fail-closed handles; ruke-server 133/133; clippy: own crates clean) | no |
 | 3 | Interactive Browser Panel UI (tab strip, omnibox, nav, activity state, auto-open) | NOT STARTED | |
 | 4 | CDP bridge + bounded event buffer (sequence/cursor/hasMore/truncated) | NOT STARTED | |
 | 5 | DOM CUA engine (walker constants, ref registries, frames, scroll→click, budget+credential math) | NOT STARTED | |
@@ -98,6 +98,48 @@ no Node browser backend, no resurrected `lib/browser/**`/WebContentsView/nativeP
 - `ClickNotSettled`/`ClickCovered` messages are `[adapted]` compositions of recovered fragments; every other engine string is verbatim and unit-pinned (stale DOM/AX, previous-page, settable-value, dialog-blocking, JS-dialog interrupt, 3000 ms input-prepare, select-text, select-changed).
 - Validation-order contract (pinned by test): envelope → commandType → metadata → payload decode → numeric bounds (positive timeouts, CDP event page cap 1..=1000, cua button 1..=5, press_key duration 0..=30 s).
 - Workspace: `crates/ruke-browser` member added; `tokio-tungstenite` (loopback ws only, TLS off) declared in workspace deps for Phase 2.
+
+### Phase 2 locked notes (2026-10-30)
+- Host (`src/host.rs`): subordinate Chromium over `--remote-debugging-port=0` +
+  `DevToolsActivePort` handshake (stale file deleted before launch; fail-fast if the
+  child dies first). Persistent profile `.data/ruke-browser-profile`; bundle discovery
+  = highest `chromium-<n>` under `.data/ms-playwright` (Windows bundle nests under
+  `chrome-win64/` — plan text corrected), `--headless=new` default;
+  `RUKE_BROWSER_EXECUTABLE` / `RUKE_BROWSER_HEADED` are product-supported knobs.
+  `kill_on_drop(true)` + `Browser.close` with 3 s bounded wait — no zombies.
+- Launch semantics: the persistent profile can session-restore tabs from previous
+  runs; those register as USER tabs (owner `None`). Tab counts/ids are NEVER fixed —
+  tests assert membership only (registry ids are numeric strings from "1", never
+  reused; `tab_new` after restores yields e.g. `"5"`).
+- CDP client (`src/cdp.rs`): one loopback ws, flat `sessionId` framing, monotonic ids +
+  oneshot waiters, 30 s per-call transport deadline. The awaited value is the wire
+  frame with `result` unwrapped ONCE: a `Runtime.evaluate` value sits at
+  `result.value` of the awaited value — pinned by `cdp::tests` (an extra nesting level
+  in a reader silently reads None; real smoke caught exactly that).
+- Registry (`src/session.rs`, 9 pure unit tests): handles (`tab_id`) → target/session;
+  ownership = created_by_turn or explicit claim (`browser_user_claim_tab`);
+  `end_turn` releases claims and closes unmarked agent tabs (deliverable/handoff
+  survive); host death ⇒ `clear_all`, every handle fails closed with
+  `browser_context_unavailable`. Lifecycle pump (`engine.rs`) tracks
+  targetInfoChanged/targetDestroyed/main-frame frameNavigated and FILTERS
+  Chromium's address-as-title provisional titles (empty / URL / schemeless-URL).
+- Navigation settle (`executor.rs`): landed gate (`location.href` differs from
+  pre-nav URL, or a `loading` sighting after the first poll) + `readyState=="complete"`
+  in a 3 s budget, then authoritative `location.href`/`document.title` reads; the pump
+  covers navigations that land after the budget. Reload/same-URL walks burn the full
+  budget but stay correct — never a stale first-poll read.
+- Server route: `POST /api/browser` (`ruke-server/src/browser_routes.rs`) — bridge
+  secret semantics (`x-ruke-internal-secret` when `RUKE_BROWSER_BRIDGE_*` set, else
+  loopback guard), 401 is auth-only; RPC errors ride HTTP 200 `to_wire()`; non-JSON
+  body ⇒ `browser_command_envelope_invalid`. `AppState.browser` is lazy (launching
+  never happens at boot); `main.rs` graceful shutdown calls `BrowserRuntime::shutdown`.
+  13 lifecycle commands execute for real; the other 69 registry kinds answer typed
+  `browser_operation_unsupported` (Phase-26 audit list — never fake success).
+- Smoke (the Phase-2 integration gate):
+  `cargo test -p ruke-browser --test smoke_lifecycle -- --ignored` — real Chromium +
+  loopback fixture, asserts REAL page state (titles, hrefs, history walk, cleanup,
+  fail-closed). Takes the profile lock: never run while a Ruke server holds the same
+  profile. Not a Playwright/model run — no `.ai-coordination` lock involved.
 
 ## Key locked facts (do not re-derive)
 

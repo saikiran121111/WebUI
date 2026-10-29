@@ -314,6 +314,9 @@ mod tests {
                 verticals: ruke_websearch::platform_api::RealVerticals,
                 bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
             }),
+            browser: Arc::new(ruke_browser::engine::BrowserRuntime::new(
+                tmp.path().to_path_buf(),
+            )),
         };
         (state, tmp)
     }
