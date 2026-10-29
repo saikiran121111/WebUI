@@ -1433,7 +1433,10 @@ async fn brave_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult> 
         .await;
     let res = match res {
         Some(r) => r,
-        None => return Vec::new(),
+        None => {
+            trip_immediate("brave", "brave SERP fetch failed (transport/timeout)");
+            return Vec::new();
+        }
     };
     // Fail fast on a genuinely empty/throttled 429: if there is no body
     // content to parse, don't waste time on a parser pass.
@@ -1525,7 +1528,15 @@ async fn brave_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult> 
         );
         return Vec::new();
     }
-    if !out.is_empty() {
+    if out.is_empty() {
+        // Same 200-wall blind spot as google (bench 2026-10-29 finding #1):
+        // a healthy-looking SERP that parses to ZERO results must record
+        // the zero, or the breaker never engages.
+        trip_circuit_breaker(
+            "brave",
+            "brave returned 200 with 0 parsed results",
+        );
+    } else {
         note_engine_success("brave");
     }
     take_n(out, 15)
@@ -2862,25 +2873,29 @@ pub fn dev_to_search<'a>(
 
 /// TS `GENERAL_WEB_ENGINES` — the "General Web Index Pool".
 ///
-/// Strictly general-web + community engines. News/dev verticals
-/// (bing_news_rss_search, github_search, dev_to_search) are routed by
-/// intent in metasearch.ts, NOT run on every sub-query.
+/// Strictly general-web engines. News/dev verticals
+/// (bing_news_rss_search, github_search, dev_to_search) and the reddit
+/// community engine are routed by intent in metasearch (metasearch.ts),
+/// NOT run on every sub-query.
 ///
 /// Every sub-query in a plan is distributed across this pool with
 /// per-engine pacing (one in-flight per host, 250–450 ms jitter) so that
-/// 4 sub-queries × 6 engines never fire 24 simultaneous requests at any
-/// single host.
+/// multiple sub-queries × pool engines never fire simultaneous requests
+/// at any single host.
 ///
-/// ORDER IS LOAD-BEARING (merge order in the runners): ddg, ddg-lite,
-/// google, bing, yahoo, brave, reddit — the TS `as const` list verbatim.
-pub static GENERAL_WEB_ENGINES: [EngineFn; 7] = [
-    ddg_search,      // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage)
-    ddg_lite_post,   // DDG Lite form-POST — resilient when html.duckduckgo.com 429s
-    google_search,   // Google live web index (got-scraping fingerprints, parse-first)
-    bing_search,     // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first)
-    yahoo_search,    // Bing global web index (RU= unwrap, parse-first)
-    brave_search,    // Brave's own index
-    reddit_search,   // community ground-truth (3-stage: RSS → PullPush → JSON)
+/// VALUE-FIRST ORDER (bench 2026-10-29, perf/PROVIDER-VALUE-REPORT.md):
+/// bing, brave, yahoo, ddg(html). ORDER IS LOAD-BEARING (merge order in
+/// the runners) and MUST stay verbatim in the TS `as const` list.
+/// Dropped from the pool: ddg-lite + google (still implemented and wired
+/// via the sharded/recovery paths — the fixed breaker trips them fast on
+/// this egress IP, other egress IPs may recover); reddit (forum-intent
+/// specialist — it burned 177 attempts into every general search for
+/// zero general benefit, 429×54).
+pub static GENERAL_WEB_ENGINES: [EngineFn; 4] = [
+    bing_search,     // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first) — PRIMARY: 200×59, p50 401 ms
+    brave_search,    // Brave's own index — SECONDARY: p50 1.7 s
+    yahoo_search,    // Bing global web index (RU= unwrap, parse-first) — SECONDARY: p50 2.1 s
+    ddg_search,      // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage) — RECOVERY_ONLY
 ];
 
 /// TS `runGeneralWebSearch` — one query against ALL pool engines.
@@ -3138,12 +3153,11 @@ mod tests {
 
     #[test]
     fn general_web_engines_order_is_load_bearing() {
-        let want: [EngineFn; 7] = [
-            ddg_search, ddg_lite_post, google_search, bing_search,
-            yahoo_search, brave_search, reddit_search,
+        let want: [EngineFn; 4] = [
+            bing_search, brave_search, yahoo_search, ddg_search,
         ];
-        assert_eq!(GENERAL_WEB_ENGINES.len(), 7);
-        for i in 0..7usize {
+        assert_eq!(GENERAL_WEB_ENGINES.len(), 4);
+        for i in 0..4usize {
             assert_eq!(
                 GENERAL_WEB_ENGINES[i] as usize,
                 want[i] as usize,
@@ -3589,24 +3603,30 @@ mod serp_tests {
     async fn run_general_web_search_merges_in_engine_array_order() {
         let _g = engine_test_lock().lock().await;
         reset_engine_state_for_tests();
-        // Only Bing (position 4) and Reddit (position 7) answer; join_all
+        // Only Bing (position 1) and Brave (position 2) answer; join_all
         // keeps GENERAL_WEB_ENGINES order regardless of completion order.
+        // Yahoo and DDG are unscripted ⇒ transport arm ⇒ [].
         let bing_rss = "https://www.bing.com/search?q=test&format=rss&count=15";
-        let reddit_rss = "https://www.reddit.com/search.rss?q=test&sort=relevance&limit=20";
+        let brave_serp = "https://search.brave.com/search?q=test&source=web";
+        let brave_body = format!(
+            "<div id=\"web-results\"><div class=\"result\"><a class=\"result-header\" \
+             href=\"https://gamma-three.net/g1\">G1</a><p class=\"snippet-description\">First \
+             brave snippet.</p></div><div class=\"result\"><a class=\"result-header\" \
+             href=\"https://delta-four.io/g2\">G2</a><p class=\"snippet-description\">Second \
+             brave snippet.</p></div></div>{}",
+            "x".repeat(600)
+        );
         let net = ScriptedNet::default()
             .with_url(
                 bing_rss,
                 txt("<rss><channel><item><title>B1</title><link>https://alpha-one.com/b1</link></item><item><title>B2</title><link>https://beta-two.org/b2</link></item></channel></rss>"),
             )
-            .with_url(
-                reddit_rss,
-                txt("<feed><entry><title>R1</title><link href=\"https://www.reddit.com/r/rust/comments/1c/one/\"/></entry><entry><title>R2</title><link href=\"https://www.reddit.com/r/rust/comments/1d/two/\"/></entry></feed>"),
-            );
+            .with_page(brave_serp, page(&brave_body));
         let out = run_general_web_search(&net, "test").await;
         let engines: Vec<&str> = out.iter().map(|r| r.engine.as_str()).collect();
-        assert_eq!(engines, vec!["bing", "bing", "reddit", "reddit"]);
+        assert_eq!(engines, vec!["bing", "bing", "brave", "brave"]);
         assert_eq!(out[0].url, "https://alpha-one.com/b1");
-        assert_eq!(out[3].url, "https://www.reddit.com/r/rust/comments/1d/two/");
+        assert_eq!(out[2].url, "https://gamma-three.net/g1");
     }
 
     #[tokio::test]

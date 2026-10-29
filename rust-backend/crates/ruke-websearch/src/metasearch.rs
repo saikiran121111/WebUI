@@ -95,7 +95,7 @@ use url::Url;
 
 use crate::engines::{
     bing_news_rss_search, deduplicate_queries, dev_to_search, github_search, google_search,
-    run_general_web_search, run_general_web_search_sharded, EngineFn,
+    reddit_search, run_general_web_search, run_general_web_search_sharded, EngineFn,
 };
 use crate::net::{Net, UrlFetchOpts};
 use crate::ssrf::is_safe_url;
@@ -1191,15 +1191,23 @@ fn query_looks_like_dev(q: &str) -> bool {
 /// Mirrors `VERTICAL_BY_INTENT`; unknown/`Other(_)` intents fall to general
 /// (the TS lookup miss + `?? GENERAL` arm — Rust's `Intent::Other(s)` maps
 /// onto the same general fallback because the TS table is keyed by string).
+///
+/// Value-first routing (bench 2026-10-29): semantic-scholar (429×113,
+/// self-throttled), wikidata (0 results/59) and imdb (2/59, rel 0) left
+/// the default intents — still implemented, reachable via explicit intent
+/// only. Reddit is a forum specialist (p50 3.6 s, 429×54), so it rides
+/// the forum intent instead of the general pool. Docs drops wikidata to
+/// match the Rust arm (the TS table had a pre-existing extra wikidata
+/// entry; aligned here, wikidata is DISABLED_BY_DEFAULT).
 fn vertical_by_intent(intent: &Intent) -> Vec<EngineFn> {
     match intent {
         Intent::Code => vec![stack_exchange_search, dev_to_search],
-        Intent::Academic => vec![arxiv_search, wikipedia_search, semantic_scholar_search],
-        Intent::Forum => vec![hackernews_search],
+        Intent::Academic => vec![arxiv_search, wikipedia_search],
+        Intent::Forum => vec![hackernews_search, reddit_search],
         Intent::News => vec![hackernews_search],
         Intent::Docs => vec![stack_exchange_search, wikipedia_search, dev_to_search],
         // general + unknown:
-        _ => vec![wikipedia_search, imdb_suggestion_search, wikidata_search],
+        _ => vec![wikipedia_search],
     }
 }
 

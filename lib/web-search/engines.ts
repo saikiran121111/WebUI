@@ -1459,23 +1459,30 @@ export function deduplicateQueries(queries: string[]): string[] {
 /**
  * All general-web engines (the "General Web Index Pool").
  *
- * Strictly general-web + community engines. News/dev verticals
- * (bingNewsRssSearch, githubSearch, devToSearch) are routed by intent
- * in metasearch.ts, NOT run on every sub-query.
+ * Strictly general-web engines. News/dev verticals
+ * (bingNewsRssSearch, githubSearch, devToSearch) and the reddit
+ * community engine are routed by intent in metasearch.ts, NOT run on
+ * every sub-query.
  *
  * Every sub-query in a plan is distributed across this pool with
  * per-engine pacing (one in-flight per host, 250–450 ms jitter) so that
- * 4 sub-queries × 6 engines never fire 24 simultaneous requests at any
- * single host.
+ * multiple sub-queries × pool engines never fire simultaneous requests
+ * at any single host.
+ *
+ * VALUE-FIRST ORDER (bench 2026-10-29, rust-backend/perf/PROVIDER-VALUE-REPORT.md):
+ * bing, brave, yahoo, ddg(html). ORDER IS LOAD-BEARING and must stay
+ * verbatim with the Rust GENERAL_WEB_ENGINES static. Dropped from the
+ * pool: ddgLitePost + googleSearch (still implemented and wired via the
+ * sharded/recovery paths — the hardened breaker trips them fast on this
+ * egress IP, other egress IPs may recover); redditSearch (forum-intent
+ * specialist — it burned 177 attempts into every general search for
+ * zero general benefit, 429×54).
  */
 export const GENERAL_WEB_ENGINES = [
-  ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage)
-  ddgLitePost,          // DDG Lite form-POST — resilient when html.duckduckgo.com 429s
-  googleSearch,          // Google live web index (got-scraping fingerprints, parse-first)
-  bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first)
-  yahooSearch,           // Bing global web index (RU= unwrap, parse-first)
-  braveSearch,           // Brave's own index
-  redditSearch,          // community ground-truth (3-stage: RSS → PullPush → JSON)
+  bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first) — PRIMARY: 200×59, p50 401 ms
+  braveSearch,           // Brave's own index — SECONDARY: p50 1.7 s
+  yahooSearch,           // Bing global web index (RU= unwrap, parse-first) — SECONDARY: p50 2.1 s
+  ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage) — RECOVERY_ONLY
 ] as const;
 
 /**

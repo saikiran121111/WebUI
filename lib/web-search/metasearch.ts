@@ -33,6 +33,7 @@ import {
   bingNewsRssSearch,
   githubSearch,
   devToSearch,
+  redditSearch,
   deduplicateQueries,
   runGeneralWebSearch,
   runGeneralWebSearchSharded,
@@ -507,14 +508,23 @@ const VERTICAL_ENGINES = new Set([
  * Engines that are vertical (intended) for specific intents.
  * The general web pool is ALWAYS run regardless of intent (Fix 3a).
  * Verticals are layered ON TOP, not instead of, the general pool.
+ *
+ * Value-first routing (bench 2026-10-29, rust-backend/perf/PROVIDER-VALUE-REPORT.md):
+ * semanticScholarSearch (429×113, self-throttled), wikidataSearch (0
+ * results/59) and imdbSuggestionSearch (2/59, rel 0) left the default
+ * intents — still implemented, reachable via explicit intent only.
+ * redditSearch is a forum specialist (p50 3.6 s, 429×54), so it rides
+ * the forum intent instead of the general pool. `docs` loses
+ * wikidataSearch: the Rust arm never had it (pre-existing divergence,
+ * aligned toward the DISABLED_BY_DEFAULT classification).
  */
 const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
   code:     [stackExchangeSearch, devToSearch],
-  academic: [arxivSearch, wikipediaSearch, semanticScholarSearch],
-  forum:    [hackerNewsSearch],
+  academic: [arxivSearch, wikipediaSearch],
+  forum:    [hackerNewsSearch, redditSearch],
   news:     [hackerNewsSearch],
-  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch, wikidataSearch],
-  general:  [wikipediaSearch, imdbSuggestionSearch, wikidataSearch],
+  docs:     [stackExchangeSearch, wikipediaSearch, devToSearch],
+  general:  [wikipediaSearch],
 };
 
 /**
