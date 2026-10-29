@@ -713,6 +713,23 @@ export async function runWebResearch(
       const step = prev === 0 ? READ_FIRST_BATCH : READ_BATCH_STEP;
       const take = Math.min(prev + step, readTotal);
       const base = prev;
+      // §25 mid-wave sufficiency stop: seeded with the completed waves'
+      // tally, extended per page this wave finishes — the wave resolves the
+      // moment evidence suffices instead of waiting for its slowest page.
+      // The post-wave check below stays authoritative for the break and its
+      // log line, and the predicate can never fire on the scripted goldens
+      // (wave pools sit below EVIDENCE_GOOD_TARGET — same golden-safety
+      // argument as the batching itself).
+      const completedGood = packets.filter(isGoodEvidence);
+      let goodCount = completedGood.length;
+      const stopDomains = new Set(completedGood.map((p) => p.domain));
+      const stopWhen = (p: EvidencePacket) => {
+        if (isGoodEvidence(p)) {
+          goodCount += 1;
+          stopDomains.add(p.domain);
+        }
+        return goodCount >= EVIDENCE_GOOD_TARGET && stopDomains.size >= EVIDENCE_DOMAIN_MIN;
+      };
       const batch = await extractAll(
         searchResults.slice(prev, take),
         take - prev,
@@ -726,6 +743,7 @@ export async function runWebResearch(
         // `prev` = this slice's position in the full read window, so the
         // §18 browser-attempt rank gate sees window ranks.
         prev,
+        stopWhen,
       );
       // extractAll numbers S1.. per call; keep running global ids so batch 2's
       // pages land at S(prev+1).. exactly as one full-window call numbered.

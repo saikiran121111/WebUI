@@ -68,10 +68,16 @@ import type { EvidencePacket } from "./types";
 //   Tier 5   (Wayback):                     45s
 //   Tier 6   (slug triangulation):           uses metasearch (40s/engine)
 //   PDF downloads:                          120s
-const TIER1_TIMEOUT_MS = 45_000;
+// §25 RETUNE (2026-10-30, mirrored in ruke-websearch/src/extractor.rs):
+// live tier-latency profile p50 ~1.4 s, off-straggler max 6.1 s — caps move
+// to ~3–4x the observed max so a dead tier fails FAST into the next tier
+// instead of parking a wave (one wayback straggler burned 18.5 s at the
+// old cap). Link-preview keeps 45 s: per-bot short fan-outs, dominated by
+// the per-page budget below anyway.
+const TIER1_TIMEOUT_MS = 20_000;
 const LINK_PREVIEW_TIMEOUT_MS = 45_000;
-const JINA_TIMEOUT_MS = 45_000;
-const WAYBACK_TIMEOUT_MS = 45_000;
+const JINA_TIMEOUT_MS = 15_000;
+const WAYBACK_TIMEOUT_MS = 12_000;
 const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
 
 // APPROVED PART-10 PARITY DEVIATION (MIGRATION-MAP §11.3) — TOTAL per-page
@@ -85,7 +91,9 @@ const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
 // cascade legitimately fails. Mirrored byte-for-behavior in
 // ruke-websearch/src/extractor.rs (same default, same fallback shape,
 // classification "PAGE_BUDGET_TIMEOUT" never emitted elsewhere).
-const PAGE_BUDGET_DEFAULT_MS = 60_000;
+// §25 RETUNE (2026-10-30): 60 s → 30 s. No page in the live profile needed
+// more than ~7 s of cascade — the old default only ever sheltered stragglers.
+const PAGE_BUDGET_DEFAULT_MS = 30_000;
 
 // APPROVED PART-10 AMENDMENT (MIGRATION-MAP §11.3, 2026-10-29): the budget
 // is now tier-boundary-COOPERATIVE instead of a hard cut. Every HTTP tier
@@ -1464,22 +1472,49 @@ export async function extractAll(
   /** §18: start position of `ranked` inside the pipeline's full read
       window; batched hops pass their offset, one-shot callers pass 0. */
   rankBase = 0,
+  /** §25 mid-wave sufficiency stop: consulted once per page COMPLETION; on
+      the first true the wave resolves with the packets completed so far,
+      in rank order, and no further progress frames are emitted. Mirrors
+      extract_all's `stop_when` in extractor.rs — JS promises cannot be
+      aborted, so unfinished pages are ABANDONED (their results discarded
+      by the guard below) where Rust cancels the futures outright; the
+      visible contract (packet set, progress frames, S-ids) is identical.
+      Upgrade path if abandoned fetches ever start costing bandwidth:
+      thread an AbortController through limit()/extractUrlWithBudget. */
+  stopWhen?: (packet: EvidencePacket & { classification: string }) => boolean,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
+  const settled: Array<(EvidencePacket & { classification: string }) | undefined> =
+    new Array(top.length).fill(undefined);
   let donePages = 0;
-  const settled = await Promise.all(
-    top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i)).then((p) => {
-      donePages++;
-      onPage?.(donePages, top.length);
-      return p;
-    })),
+  let stopped = false;
+  let signalStop: () => void = () => {};
+  const stopGate = new Promise<void>((resolve) => { signalStop = resolve; });
+  const tasks = top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i)).then((p) => {
+    if (stopped) return undefined; // abandoned page — Rust cancels these instead
+    settled[i] = p;
+    donePages++;
+    onPage?.(donePages, top.length);
+    if (stopWhen?.(p)) {
+      stopped = true;
+      signalStop();
+    }
+    return p;
+  }));
+  // Full-wave path is the original Promise.all (rejects like before); the
+  // race only ever settles early when the predicate fired.
+  await Promise.race([Promise.all(tasks), stopGate]);
+  if (stopped) for (const t of tasks) t.catch(() => {}); // abandon, don't unhandled-reject
+  const packets = settled.filter(
+    (p): p is EvidencePacket & { classification: string } => p !== undefined,
   );
-  // Assign S1..Sn in rank order
-  settled.forEach((packet, i) => {
+  // Assign S1..Sn in rank order (positional slots keep the order; a
+  // stopped wave simply has holes, and ids renumber over the survivors).
+  packets.forEach((packet, i) => {
     packet.sourceId = "S" + (i + 1);
     for (const p of packet.passages) p.sourceId = packet.sourceId;
   });
-  return settled;
+  return packets;
 }
 
 /**

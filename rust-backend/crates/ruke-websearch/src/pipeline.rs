@@ -1139,10 +1139,32 @@ pub async fn run_web_research(
                 });
             };
             let batch = &search_results[prev..take];
+            // §25: mid-wave sufficiency stop — seeded with the completed
+            // waves' good-evidence tally and extended with every page this
+            // wave finishes, so a wave ends the moment evidence suffices
+            // instead of waiting for its slowest page (live 2026-10-30: one
+            // 20 s wayback straggler held an already-satisfied read hop 18 s
+            // past sufficiency). The post-wave check below stays
+            // authoritative for the break + its log line, and the predicate
+            // can never fire on the scripted goldens (wave pools sit below
+            // EVIDENCE_GOOD_TARGET, same argument as the batching itself).
+            let mut good_count = packets.iter().filter(|p| is_good_evidence(p)).count();
+            let mut stop_domains: HashSet<String> = packets
+                .iter()
+                .filter(|p| is_good_evidence(p))
+                .map(|p| p.domain.clone())
+                .collect();
+            let mut stopper = |p: &EvidencePacket| -> bool {
+                if is_good_evidence(p) {
+                    good_count += 1;
+                    stop_domains.insert(p.domain.clone());
+                }
+                good_count >= EVIDENCE_GOOD_TARGET && stop_domains.len() >= EVIDENCE_DOMAIN_MIN
+            };
             let mut b = extractor
                 // `prev` = this slice's position in the full read window,
                 // so the §18 browser-attempt rank gate sees window ranks.
-                .extract_all(batch, take - prev, Some(&on_page), None, prev)
+                .extract_all(batch, take - prev, Some(&on_page), None, prev, Some(&mut stopper))
                 .await?;
             // extract_all numbers S1.. per call; keep running global ids so
             // batch 2's pages land at S(prev+1).. exactly as one full-window
@@ -1282,7 +1304,7 @@ pub async fn run_web_research(
             // the 2nd hop is a targeted top-up, not a re-read.
             // Gap hop is its own fresh window (rank_base 0): its top 3 are
             // high-priority targeted reads, all inside the §18 rank gate.
-            let mut gap_packets = extractor.extract_all(&gap_results, 3, None, None, 0).await?;
+            let mut gap_packets = extractor.extract_all(&gap_results, 3, None, None, 0, None).await?;
             renumber_packets(&mut gap_packets, next_source_index(&packets));
             let all_packets: Vec<EvidencePacket> =
                 packets.iter().cloned().chain(gap_packets).collect();

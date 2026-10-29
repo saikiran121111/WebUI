@@ -80,10 +80,9 @@
 //! Next route lands with the Part-6 pipeline step, reproducing the TS
 //! pool-kill-switch tier exactly. No Playwright in this crate, ever.
 
-use futures_util::future::join_all;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use regex::Regex;
 use serde_json::Value;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -104,10 +103,16 @@ use crate::universal_extractor::{
 // Per-tier timeouts (extractor.ts lines 71–75). PDF_DOWNLOAD_TIMEOUT_MS is
 // declared in TS but NEVER referenced in-file (dead) — not ported as a
 // Rust const (dead_code lint); noted here for parity instead.
-const TIER1_TIMEOUT_MS: u64 = 45_000;
+// §25 RETUNE (2026-10-30, mirrored in extractor.ts): live tier-latency
+// profile p50 ~1.4 s, off-straggler max 6.1 s — caps move to ~3–4x the
+// observed max so a dead tier fails FAST into the next tier instead of
+// parking a wave (one wayback straggler burned 18.5 s at the old cap).
+// Link-preview keeps 45 s: per-bot short fan-outs, dominated by the
+// per-page budget below anyway.
+const TIER1_TIMEOUT_MS: u64 = 20_000;
 const LINK_PREVIEW_TIMEOUT_MS: u64 = 45_000;
-const JINA_TIMEOUT_MS: u64 = 45_000;
-const WAYBACK_TIMEOUT_MS: u64 = 45_000;
+const JINA_TIMEOUT_MS: u64 = 15_000;
+const WAYBACK_TIMEOUT_MS: u64 = 12_000;
 
 // APPROVED PART-10 PARITY DEVIATION (MIGRATION-MAP §11.3) — TOTAL per-page
 // wall-clock budget. Every timeout above is PER REQUEST, not per PAGE: one
@@ -122,7 +127,9 @@ const WAYBACK_TIMEOUT_MS: u64 = 45_000;
 // the timer never fires there — fixtures stay byte-identical. Mirrored in
 // extractor.ts (same default, same fallback shape, classification
 // "PAGE_BUDGET_TIMEOUT" never appears elsewhere).
-const PAGE_BUDGET_DEFAULT_MS: u64 = 60_000;
+// §25 RETUNE (2026-10-30): 60 s → 30 s. No page in the live profile needed
+// more than ~7 s of cascade; the old default only ever sheltered stragglers.
+const PAGE_BUDGET_DEFAULT_MS: u64 = 30_000;
 
 // APPROVED PART-10 AMENDMENT (MIGRATION-MAP §11.3, 2026-10-29): the hard
 // cap above REGRESSED JS-heavy sites against the TS era (which had NO
@@ -1434,6 +1441,17 @@ impl<'a> Extractor<'a> {
         // §18: start position of `ranked` inside the pipeline's full read
         // window; batched hops pass their offset, one-shot callers pass 0.
         rank_base: usize,
+        // §25 mid-wave sufficiency stop: consulted once per page COMPLETION;
+        // on the first true the futures for every page of this wave that has
+        // NOT completed are dropped — fetches never started are never
+        // started, in-flight ones abort — and the wave returns the packets
+        // completed so far, in rank order. `None` keeps full-wave semantics
+        // (one-shot hops; the scripted goldens can never satisfy the
+        // predicate, their wave pools sit below EVIDENCE_GOOD_TARGET).
+        // Mirrors extractAll's `stopWhen` in extractor.ts — JS abandons the
+        // unfinished pages, Rust cancels them; the visible contract
+        // (packet set, progress frames, S-ids) is identical.
+        mut stop_when: Option<&mut (dyn FnMut(&EvidencePacket) -> bool + Send)>,
     ) -> Result<Vec<EvidencePacket>, CacheError> {
         let top = &ranked[..ranked.len().min(max_urls)];
         let budget = page_budget_ms.unwrap_or(PAGE_BUDGET_DEFAULT_MS);
@@ -1444,17 +1462,17 @@ impl<'a> Extractor<'a> {
             4,
         )));
         let total = top.len();
-        // RECORDED MICRO-DIVERGENCE (Send-completeness): the TS original has
-        // no Send notion; a `Cell` shared across the join_all futures makes
-        // this future non-`Send`, which would make the whole pipeline future
-        // non-spawnable in the Part-8 axum server. An `AtomicUsize` (Relaxed)
-        // under join_all's single-task polling has identical per-thread
-        // sequencing to the Cell — the counter increments in the same order.
-        let done_pages = AtomicUsize::new(0usize);
-        let settled: Vec<Result<EvidencePacket, CacheError>> = join_all(top.iter().enumerate().map(|(i, r)| {
+        // §25: the mid-wave stop needs every completion handed to THIS task
+        // as it lands — `join_all` never gives that point — so the wave is a
+        // FuturesUnordered stream polled by this same task: no spawn, no
+        // shared mutable state, cancellation = dropping a future. (The old
+        // AtomicUsize progress-counter micro-divergence note is obsolete:
+        // nothing but the loop below touches the counter, so it is a plain
+        // local — identical visible frame ordering to the TS onProgress.)
+        let mut futs = FuturesUnordered::new();
+        for (i, r) in top.iter().enumerate() {
             let sem = Arc::clone(&sem);
-            let done_pages = &done_pages;
-            async move {
+            futs.push(async move {
                 let _permit = sem.acquire_owned().await.expect("semaphore is never closed");
                 // §11.3 page budget (AMENDED 2026-10-29): the deadline is
                 // threaded INTO the cascade — each HTTP tier is capped by
@@ -1473,28 +1491,56 @@ impl<'a> Extractor<'a> {
                 )
                 .await
                 {
-                    Ok(p) => p?,
-                    Err(_) => timeout_fallback_packet(r),
+                    Ok(p) => p,
+                    Err(_) => Ok(timeout_fallback_packet(r)),
                 };
-                let done = done_pages.fetch_add(1, Ordering::Relaxed) + 1;
-                if let Some(cb) = on_page {
-                    cb(done, total);
+                if let Ok(p) = &p {
+                    tracing::info!(
+                        url = %r.canonical,
+                        page_ms = t_page.elapsed().as_millis() as u64,
+                        class = p.classification.as_deref().unwrap_or("ok"),
+                        "page extract complete"
+                    );
                 }
-                tracing::info!(
-                    url = %r.canonical,
-                    page_ms = t_page.elapsed().as_millis() as u64,
-                    class = p.classification.as_deref().unwrap_or("ok"),
-                    "page extract complete"
-                );
-                Ok(p)
-            }
-        }))
-        .await;
-        // Promise.all semantics: any rejection rejects the whole call.
-        let mut packets = Vec::with_capacity(settled.len());
-        for p in settled {
-            packets.push(p?);
+                (i, p)
+            });
         }
+        // Positional slots keep rank order; a stopped wave simply has holes.
+        let mut settled: Vec<Option<EvidencePacket>> = vec![None; total];
+        let mut first_err: Option<CacheError> = None;
+        let mut done = 0usize;
+        while let Some((i, res)) = futs.next().await {
+            match res {
+                Ok(p) => {
+                    done += 1;
+                    if let Some(cb) = on_page {
+                        cb(done, total);
+                    }
+                    let stop_now = stop_when.as_mut().map_or(false, |f| f(&p));
+                    settled[i] = Some(p);
+                    if stop_now {
+                        tracing::info!(
+                            wave_done = done,
+                            wave_planned = total,
+                            "extract wave stopped on sufficiency (remaining pages cancelled)"
+                        );
+                        drop(futs); // cancels every uncompleted fetch in the wave
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // Promise.all parity: any rejection rejects the whole
+                    // call — keep draining the wave, surface the FIRST error.
+                    if first_err.is_none() {
+                        first_err = Some(e);
+                    }
+                }
+            }
+        }
+        if let Some(e) = first_err {
+            return Err(e);
+        }
+        let mut packets: Vec<EvidencePacket> = settled.into_iter().flatten().collect();
         for (i, packet) in packets.iter_mut().enumerate() {
             let id = format!("S{}", i + 1);
             packet.source_id = id.clone();
@@ -1980,7 +2026,7 @@ mod tests {
             .iter()
             .map(|u| ranked(u, "Waf Page", "a long enough indexed snippet for the baseline."))
             .collect();
-        let out = ex.extract_all(&ranked_v, 7, None, None, 0).await.unwrap();
+        let out = ex.extract_all(&ranked_v, 7, None, None, 0, None).await.unwrap();
         for (i, p) in out.iter().enumerate() {
             // Ranks 0..5 attempt the browser and recover; rank 6's attempt
             // is skipped (jina/wayback unscripted → None) and it settles
@@ -2197,7 +2243,7 @@ mod tests {
             ranked("https://example.com/c", "C", "snippet c long enough for baseline"),
         ];
         let out = ex
-            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))), None, 0)
+            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))), None, 0, None)
             .await
             .unwrap();
         assert_eq!(out.len(), 2); // maxUrls=2 → C never extracted
@@ -2208,7 +2254,42 @@ mod tests {
 
         // Any cache rejection rejects the whole batch (Promise.all).
         cache.set_throw(true);
-        assert!(ex.extract_all(&ranked_v, 2, None, None, 0).await.is_err());
+        assert!(ex.extract_all(&ranked_v, 2, None, None, 0, None).await.is_err());
+    }
+
+    /// §25 mid-wave sufficiency stop: the predicate fires on the FIRST page
+    /// completion, and the wave must return exactly that page — the other
+    /// six pages must never even be fetched. ScriptedNet records every
+    /// call, so an un-cancelled straggler shows up as extra fetch_page
+    /// entries (and, since unscripted pages settle to snippet packets
+    /// rather than errors, a cancelled-but-unharvested page would still
+    /// fail the calls assertion).
+    #[tokio::test]
+    async fn extract_all_midwave_stop_cancels_remaining_pages() {
+        let body = healthy_html();
+        let net = ScriptedNet::default()
+            .with_page("https://example.com/a", page(200, true, &body, "text/html"));
+        let cache = ScriptedCache::default();
+        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ranked_v = (0..7u8)
+            .map(|i| {
+                ranked(
+                    &format!("https://example.com/{}", (b'a' + i) as char),
+                    "Page",
+                    "snippet long enough for the baseline gate",
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut always_stop = |_p: &EvidencePacket| -> bool { true };
+        let out = ex
+            .extract_all(&ranked_v, 7, None, None, 0, Some(&mut always_stop))
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].source_id, "S1");
+        assert_eq!(out[0].url, "https://example.com/a");
+        let calls = net.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "cancelled pages must never be fetched: {calls:?}");
     }
 
     /// §11.3: a net whose every tier call hangs (never returns) reproduces
@@ -2270,6 +2351,7 @@ mod tests {
                 Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))),
                 Some(300),
                 0,
+                None,
             )
             .await
             .unwrap();
@@ -2322,7 +2404,7 @@ mod tests {
             "indexed snippet long enough for the baseline gate",
         )];
         let t0 = std::time::Instant::now();
-        let out = ex.extract_all(&ranked_v, 10, None, Some(300), 0).await.unwrap();
+        let out = ex.extract_all(&ranked_v, 10, None, Some(300), 0, None).await.unwrap();
         let elapsed = t0.elapsed();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_id, "S1");
