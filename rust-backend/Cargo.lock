@@ -1426,6 +1426,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruke-browser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "ruke-contracts"
 version = "0.1.0"
 dependencies = [

@@ -8,6 +8,7 @@ members = [
     "crates/ruke-decision",
     "crates/ruke-attach",
     "crates/ruke-websearch",
+    "crates/ruke-browser",
 ]
 
 [workspace.package]
@@ -26,6 +27,11 @@ ruke-attach = { path = "crates/ruke-attach" }
 # dependency set for this crate — later Part-6 agents must NOT edit the
 # root manifest; crate-local needs already covered here.
 ruke-websearch = { path = "crates/ruke-websearch" }
+# Browser Use engine (RUKE-IMPLEMENTATION-PLAN): Rust-controlled Chromium
+# over CDP-over-WebSocket. tokio-tungstenite: loopback ws:// only (CDP
+# endpoint is 127.0.0.1), so TLS features stay off.
+ruke-browser = { path = "crates/ruke-browser" }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
 tokio-util = { version = "0.7", features = ["full"] }
 axum = "0.8"

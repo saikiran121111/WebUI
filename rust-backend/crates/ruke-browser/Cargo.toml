@@ -1,0 +1,11 @@
+[package]
+name = "ruke-browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Browser Use engine: command contract (vocabulary registry + turn metadata), typed payload schemas, and typed errors for the interactive browser runtime."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
