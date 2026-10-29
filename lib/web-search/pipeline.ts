@@ -76,12 +76,18 @@ const EVIDENCE_GOOD_TARGET = 6;
 const EVIDENCE_DOMAIN_MIN = 3;
 const GOOD_MIN_PASSAGE_CHARS = 400;
 
-// "Good" = clean extraction (no FAIL_*/classification label) with substance
-// behind it. shortcut: JS counts UTF-16 units where Rust counts chars —
-// immaterial at the 400 threshold.
+// "Good" = real page content — clean extraction (no classification label,
+// the fixture shape) OR any SUCCESS_* channel that actually fetched the
+// page — with substance behind it. SUCCESS_SNIPPET_FALLBACK is excluded
+// (the search tier already had that text). This once required a missing
+// classification outright, which left the stop inert in production since
+// both mirrors label live successes SUCCESS_*.
+// shortcut: JS counts UTF-16 units where Rust counts chars — immaterial at
+// the 400 threshold.
 function isGoodEvidence(p: EvidencePacket): boolean {
+  const c = p.classification;
   return (
-    !p.classification &&
+    (!c || (c.startsWith("SUCCESS_") && c !== "SUCCESS_SNIPPET_FALLBACK")) &&
     p.passages.reduce((n, x) => n + (x.passageText?.length ?? 0), 0) >=
       GOOD_MIN_PASSAGE_CHARS
   );

@@ -127,11 +127,20 @@ const EVIDENCE_GOOD_TARGET: usize = 6;
 const EVIDENCE_DOMAIN_MIN: usize = 3;
 const GOOD_MIN_PASSAGE_CHARS: usize = 400;
 
-/// "Good" evidence: the cascade terminated clean (classification None ==
-/// the tally's "ok" — the fixtures carry NO classification keys) AND its
-/// passage body carries real text (snippet-baseline shapes don't count).
+/// "Good" evidence: real page content — clean extraction (classification
+/// None == the tally's "ok", the fixture shape) OR any SUCCESS_* channel
+/// that actually fetched the page — plus its passage body carries real
+/// text (snippet-baseline shapes don't count; SUCCESS_SNIPPET_FALLBACK is
+/// excluded because the search tier already had that text).
+/// Historical note: this once required classification None outright, but
+/// both mirrors label every live-path success SUCCESS_*, so that reading
+/// left the whole sufficiency stop inert in production.
 fn is_good_evidence(p: &EvidencePacket) -> bool {
-    p.classification.is_none()
+    let channel = match p.classification.as_deref() {
+        None => true,
+        Some(c) => c.starts_with("SUCCESS_") && c != "SUCCESS_SNIPPET_FALLBACK",
+    };
+    channel
         && p.passages
             .iter()
             .map(|x| x.passage_text.chars().count())
