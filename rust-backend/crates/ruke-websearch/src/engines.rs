@@ -108,7 +108,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use futures_util::future::{join_all, BoxFuture};
+use futures_util::future::BoxFuture;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -2898,92 +2899,156 @@ pub static GENERAL_WEB_ENGINES: [EngineFn; 4] = [
     ddg_search,      // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage) — RECOVERY_ONLY
 ];
 
-/// TS `runGeneralWebSearch` — one query against ALL pool engines.
-///
-/// DIVERGENCE (async model): every TS engine already swallows its own
-/// errors (`.catch(() => [])` is belt-and-braces; `Promise.allSettled`
-/// likewise). The ported engines likewise always return a Vec, so
-/// `join_all` reproduces the settled-merge. A Rust PANIC (impossible in
-/// the JS control flow) is NOT caught, unlike the TS catch-alls.
-pub async fn run_general_web_search(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
-    let settled = join_all(GENERAL_WEB_ENGINES.iter().map(|f| f(net, query))).await;
+// ── race-to-enough core (mandate §6/§20/§21; bench 2026-10-29) ──────────
+//
+// The old runners waited for the SLOWEST engine every time: the bench
+// recorded all 12 multi-query metasearch cycles burning 10.5-12.2 s at the
+// pool stage with the SEARCH_ONE_CAP firing every single cycle. Race
+// instead: merge completions as they land and finish when the evidence is
+// sufficient, cancelling the stragglers.
+//
+// Stop conditions (NO internal deadline — `search_one`'s SEARCH_ONE_CAP_MS
+// stays the hard overall backstop; the race only ever SHORTENS the wait
+// and never truncates thin evidence: below MIN_UNIQUE_IN_GRACE we keep
+// waiting for every engine):
+//   * unique URLs >= ENOUGH_UNIQUE_URLS — Bing alone is p50 9.7 results
+//     at 401 ms (perf/PROVIDER-VALUE-REPORT.md), so the common case is
+//     "wait for Bing only";
+//   * unique >= MIN_UNIQUE_IN_GRACE AND GRACE_MS elapsed since the first
+//     completion — stragglers (brave p50 1.7 s, yahoo p50 2.1 s, ddg's
+//     12 s stages) are cut once the corpus already carries real coverage.
+//
+// Output order is TASK order (slots re-assembled after the race), keeping
+// the deterministic merge the TS `Promise.allSettled` mirror produces;
+// completion order only affects WHEN we stop, never the bytes. Early stop
+// drops (cancels) the pending futures: the pacer is timestamp-based (no
+// permit to leak) and the SEARCH_ONE_CAP already cancelled these exact
+// futures on every bench cycle, so drop-cancellation is pre-proven.
+
+const ENOUGH_UNIQUE_URLS: usize = 10;
+const MIN_UNIQUE_IN_GRACE: usize = 6;
+const GRACE_MS: u64 = 1_200;
+
+/// Cheap URL-identity key for the unique-count stop rule (aggressive
+/// dedupe BEFORE extraction continues in the extractor tiers; this is
+/// only the race's sufficiency tally). Mirrors the TS `raceKey`.
+fn race_key(url: &str) -> String {
+    url.trim().to_lowercase().trim_end_matches('/').to_string()
+}
+
+/// TS `raceToEnough` — see the block comment above the constants.
+async fn race_to_enough(tasks: Vec<BoxFuture<'_, Vec<RawSearchResult>>>) -> Vec<RawSearchResult> {
+    let n = tasks.len();
+    let mut futs: FuturesUnordered<BoxFuture<'_, (usize, Vec<RawSearchResult>)>> =
+        FuturesUnordered::new();
+    for (i, f) in tasks.into_iter().enumerate() {
+        futs.push(Box::pin(async move { (i, f.await) }));
+    }
+    let mut slots: Vec<Vec<RawSearchResult>> = vec![Vec::new(); n];
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unique = 0usize;
+    let mut completed = 0usize;
+    let mut first_done: Option<std::time::Instant> = None;
+
+    while completed < n {
+        if unique >= ENOUGH_UNIQUE_URLS
+            || (unique >= MIN_UNIQUE_IN_GRACE
+                && first_done.is_some_and(|t| t.elapsed() >= Duration::from_millis(GRACE_MS)))
+        {
+            break;
+        }
+        // With enough unique coverage in hand, wake exactly at
+        // first-completion + GRACE_MS so late engines get cut without a
+        // completion ever arriving. Thin evidence ⇒ no timer at all; the
+        // outer SEARCH_ONE_CAP bounds the wait.
+        let wait = match first_done {
+            Some(t) if unique >= MIN_UNIQUE_IN_GRACE => {
+                Duration::from_millis(GRACE_MS).saturating_sub(t.elapsed())
+            }
+            _ => Duration::from_secs(86_400),
+        };
+        match tokio::time::timeout(wait, futs.next()).await {
+            Ok(Some((i, v))) => {
+                completed += 1;
+                for r in &v {
+                    if seen.insert(race_key(&r.url)) {
+                        unique += 1;
+                    }
+                }
+                if first_done.is_none() {
+                    first_done = Some(std::time::Instant::now());
+                }
+                slots[i] = v;
+            }
+            // Empty stream (cannot happen while completed < n) — stay safe.
+            Ok(None) => break,
+            // Grace deadline reached: loop-top check breaks if sufficient,
+            // otherwise re-waits (forever, thin evidence, cap-bounded).
+            Err(_) => continue,
+        }
+    }
+    tracing::info!(
+        pool_engines = n,
+        pool_completed = completed,
+        unique_urls = unique,
+        pool_early_stop = completed < n,
+        "race_to_enough: general pool settled"
+    );
     let mut out: Vec<RawSearchResult> = Vec::new();
-    for v in settled {
-        out.extend(v);
+    for s in slots {
+        out.extend(s);
     }
     out
 }
 
-/// TS `runGeneralWebSearchSharded` — distribute sub-queries across
-/// DIFFERENT engines with 150–300 ms stagger (anti-429-cascade design;
-/// see the TS doc comment preserved on the TS export).
+/// TS `runGeneralWebSearch` — one query against the pool, raced to enough.
 ///
-/// DIVERGENCE (async model, recorded): in TS the staged `Promise`
-/// factories START dispatching as they are created, so the stagger
-/// literally paces the outbound requests. Rust `BoxFuture`s are lazy —
-/// nothing is polled until `join_all` at the bottom — so the stagger
-/// still burns the same wall-clock before polling starts, but the
-/// cross-engine request interleaving afterwards is governed by
-/// `join_all` poll order plus the per-engine pacer (which enforces the
-/// one-in-flight-per-host rule the stagger was protecting).
+/// DIVERGENCE (async model): TS engines swallow their own errors and TS
+/// CANNOT cancel in-flight fetches once the race stops — late results are
+/// simply dropped (same divergence class as the `searchOne` cap). The
+/// ported engines always return a Vec; the race cancels losers on Rust.
+/// Output order stays pool-array order (task-order slot assembly).
+pub async fn run_general_web_search(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
+    race_to_enough(GENERAL_WEB_ENGINES.iter().map(|f| f(net, query)).collect()).await
+}
+
+/// TS `runGeneralWebSearchSharded` — value-first fan-out raced to enough
+/// (rebuilt 2026-10-29 on the bench; perf/PROVIDER-VALUE-REPORT.md).
+///
+/// Fan-out shape: Bing on EVERY deduped sub-query (PRIMARY — 200×59,
+/// p50 401 ms, answered every bench query), then brave + yahoo + ddg on
+/// the PRIMARY query only (SECONDARY/RECOVERY — widening secondaries to
+/// sub-queries multiplied request count ~3× with no measurable evidence
+/// gain). Dropped from this runner entirely:
+///   * ddg-lite + google — DISABLED_BY_DEFAULT, reachable only through
+///     recovery (metasearch recovery calls `google_search` directly,
+///     ddg-lite lives inside `ddg_search`'s stage B);
+///   * reddit — Forum-intent specialist (`vertical_by_intent`), it was
+///     fired 177× into general searches for 429×54;
+///   * bing-news — news-sensitive vertical in `search_one`;
+///   * github — dev vertical in `search_one`.
+/// The old 150-300 ms stagger is GONE: it existed to keep an 8-engine
+/// per-query barrage from 429-cascading the hosts; every engine now sees
+/// at most one in-flight request (the pacer's 250-450 ms per-host jitter)
+/// and on the Rust side the pre-await stagger was pure wall-clock burn
+/// before any request was even polled (bench: it ate 2+ s of every 10.5-
+/// 12.2 s cycle).
 pub async fn run_general_web_search_sharded(
     net: &dyn Net,
     primary_query: &str,
     all_queries: &[String],
 ) -> Vec<RawSearchResult> {
-    // TS: 150 + Math.floor(Math.random() * 150) ms.
-    let stagger = || async {
-        let ms = 150 + (js_random() * 150.0).floor() as u64;
-        tokio::time::sleep(Duration::from_millis(ms)).await;
-    };
-
-    // Tier 1: fast zero-CAPTCHA feeds — every query, staggered by 200 ms.
-    let mut tier1: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = Vec::new();
-    for (i, q) in all_queries.iter().enumerate() {
-        if i > 0 {
-            stagger().await;
-        }
-        tier1.push(ddg_lite_post(net, q));
+    let mut tasks: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = Vec::new();
+    for q in all_queries {
+        tasks.push(bing_search(net, q));
     }
-
-    // Tier 2: rate-sensitive direct scrapers — primary query only, staggered.
-    stagger().await;
-    let mut tier2: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = Vec::new();
-    tier2.push(ddg_search(net, primary_query));
-    stagger().await;
-    tier2.push(google_search(net, primary_query));
-    stagger().await;
-    tier2.push(brave_search(net, primary_query));
-    stagger().await;
-    tier2.push(yahoo_search(net, primary_query));
-
-    // Tier 3: community / news — every query, staggered.
-    let mut tier3: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = Vec::new();
-    for (i, q) in all_queries.iter().enumerate() {
-        if i > 0 {
-            stagger().await;
-        }
-        tier3.push(reddit_search(net, q));
-    }
-    stagger().await;
-    tier3.push(bing_search(net, primary_query));
-    stagger().await;
-    tier3.push(bing_news_rss_search(net, primary_query));
-
-    // GitHub: instant JSON, zero CAPTCHA — fires in parallel with tier 1.
-    let github = github_search(net, primary_query);
-
-    let mut all: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = Vec::new();
-    all.extend(tier1);
-    all.extend(tier2);
-    all.extend(tier3);
-    all.push(github);
-    let settled = join_all(all).await;
-    let mut out: Vec<RawSearchResult> = Vec::new();
-    for v in settled {
-        out.extend(v);
-    }
-    out
+    tasks.push(brave_search(net, primary_query));
+    tasks.push(yahoo_search(net, primary_query));
+    // DDG rides along as the RECOVERY_ONLY leg: the tripped breaker
+    // short-circuits it to zero requests on this egress, and a healthy
+    // DDG adds a genuinely independent index to the fusion corpus.
+    tasks.push(ddg_search(net, primary_query));
+    race_to_enough(tasks).await
 }
 
 #[cfg(test)]
@@ -3603,8 +3668,10 @@ mod serp_tests {
     async fn run_general_web_search_merges_in_engine_array_order() {
         let _g = engine_test_lock().lock().await;
         reset_engine_state_for_tests();
-        // Only Bing (position 1) and Brave (position 2) answer; join_all
-        // keeps GENERAL_WEB_ENGINES order regardless of completion order.
+        // Only Bing (position 1) and Brave (position 2) answer; the race's
+        // task-order slot assembly keeps GENERAL_WEB_ENGINES order
+        // regardless of completion order (unique stays under
+        // MIN_UNIQUE_IN_GRACE ⇒ every task is awaited).
         // Yahoo and DDG are unscripted ⇒ transport arm ⇒ [].
         let bing_rss = "https://www.bing.com/search?q=test&format=rss&count=15";
         let brave_serp = "https://search.brave.com/search?q=test&source=web";
@@ -3630,39 +3697,132 @@ mod serp_tests {
     }
 
     #[tokio::test]
-    async fn sharded_runner_fans_out_per_query_tiers() {
+    async fn sharded_runner_is_value_first_and_excludes_dropped_engines() {
         let _g = engine_test_lock().lock().await;
         reset_engine_state_for_tests();
-        // Tier-1 lite endpoint answers for BOTH queries; tier-2 ddg stage B
-        // answers for the primary (same scripted lite URL). Everything else
-        // is unscripted ⇒ None ⇒ [] (TS try/catch).
-        let lite_body = "<table><tr><td><a class=\"result-link\" href=\"/l/?uddg=https%253A%252f%252falpha-one.com%252f\">A</a><div class=\"result-snippet\">SnA</div></td></tr><tr><td><a class=\"result-link\" href=\"/l/?uddg=https%253A%252f%252fbeta-two.org%252fy\">B</a><div class=\"result-snippet\">SnB</div></td></tr></table>";
+        // Value-first fan-out: Bing RSS answers BOTH sub-queries, Brave
+        // answers the primary; Yahoo + DDG are unscripted ⇒ transport arm
+        // ⇒ []. Unique stays under MIN_UNIQUE_IN_GRACE ⇒ every task is
+        // awaited ⇒ deterministic composition/order assertions.
+        let rss_rust = "https://www.bing.com/search?q=rust&format=rss&count=15";
+        let rss_rustlang = "https://www.bing.com/search?q=rustlang&format=rss&count=15";
+        let brave_serp = "https://search.brave.com/search?q=rust&source=web";
+        let brave_body = format!(
+            "<div id=\"web-results\"><div class=\"result\"><a class=\"result-header\" \
+             href=\"https://gamma-three.net/g1\">G1</a><p class=\"snippet-description\">First \
+             brave snippet.</p></div></div>{}",
+            "x".repeat(600)
+        );
         let net = ScriptedNet::default()
-            .with_page("https://lite.duckduckgo.com/lite/", page("<html>prime</html>"))
-            .with_page("https://lite.duckduckgo.com/lite/?q=test", page("<html>prime</html>"))
-            .with_url("https://lite.duckduckgo.com/lite/", txt(lite_body));
-        let queries = vec!["rust".to_string(), "rust async".to_string()];
+            .with_url(
+                rss_rust,
+                txt("<rss><channel><item><title>R1</title><link>https://alpha-one.com/r1</link></item></channel></rss>"),
+            )
+            .with_url(
+                rss_rustlang,
+                txt("<rss><channel><item><title>R2</title><link>https://beta-two.org/r2</link></item></channel></rss>"),
+            )
+            .with_page(brave_serp, page(&brave_body));
+        let queries = vec!["rust".to_string(), "rustlang".to_string()];
         let out = run_general_web_search_sharded(&net, "rust", &queries).await;
-        let mut lite = 0usize;
-        let mut ddg = 0usize;
-        for r in &out {
-            match r.engine.as_str() {
-                "ddg-lite" => lite += 1,
-                "duckduckgo" => ddg += 1,
-                e => panic!("unexpected engine in sharded pool: {e}"),
+        let engines: Vec<&str> = out.iter().map(|r| r.engine.as_str()).collect();
+        assert_eq!(
+            engines,
+            vec!["bing", "bing", "brave"],
+            "Bing per sub-query + Brave/Yahoo/DDG primary-only, task-order slots"
+        );
+        assert_eq!(out[0].url, "https://alpha-one.com/r1");
+        assert_eq!(out[1].url, "https://beta-two.org/r2");
+        assert_eq!(out[2].url, "https://gamma-three.net/g1");
+        // Dropped engines must never be reached from this runner. (The
+        // DDG recovery LEG may still touch lite.duckduckgo.com — its own
+        // vtoken priming GET and stage-B lite POST are part of the ddg
+        // engine, not the dropped ddg-lite engine; the exact composition
+        // assert above already proves no "ddg-lite"-bucketed fan-out.)
+        for (u, _k) in calls_of(&net) {
+            for banned in [
+                "google.com",
+                "reddit.com",
+                "api.github.com",
+                "publicapi",
+                "bing.com/news",
+            ] {
+                assert!(!u.contains(banned), "sharded must not call {banned}: {u}");
             }
         }
-        assert_eq!(lite, 4, "tier-1 ddg_lite_post runs once per query");
-        assert_eq!(ddg, 2, "tier-2 ddg (primary only) via its lite stage");
-        let lite_posts = calls_of(&net)
-            .iter()
-            .filter(|(u, k)| {
-                u == "https://lite.duckduckgo.com/lite/" && *k == "fetch_url"
-            })
-            .count();
-        assert_eq!(lite_posts, 3, "two tier-1 POSTs + one tier-2 stage-B POST");
-        // Nobody tripped (every answered engine noted success):
-        assert_eq!(engine_cooldown_remaining_ms("ddg-lite"), 0);
-        assert_eq!(engine_cooldown_remaining_ms("duckduckgo"), 0);
+    }
+
+    // ── race_to_enough ───────────────────────────────────────────────────
+
+    fn uniq_task(urls: &'static [&'static str], delay_ms: u64) -> BoxFuture<'static, Vec<RawSearchResult>> {
+        Box::pin(async move {
+            if delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
+            urls.iter()
+                .map(|u| RawSearchResult {
+                    title: String::new(),
+                    url: (*u).to_string(),
+                    snippet: String::new(),
+                    engine: "t".to_string(),
+                    published_date: None,
+                    rank: 1,
+                })
+                .collect()
+        })
+    }
+
+    #[tokio::test]
+    async fn race_to_enough_stops_at_sufficiency_and_cancels_the_straggler() {
+        let tasks: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = vec![
+            uniq_task(&["https://a1.com/", "https://a2.com", "https://a3.com", "https://a4.com", "https://a5.com"], 0),
+            uniq_task(&["https://b1.com", "https://b2.com", "https://b3.com", "https://b4.com", "https://b5.com"], 0),
+            // Would land at 5 s — never worth waiting for once 10 unique are in.
+            uniq_task(&["https://slow.example/z"], 5_000),
+        ];
+        let t = std::time::Instant::now();
+        let out = race_to_enough(tasks).await;
+        assert!(
+            t.elapsed() < Duration::from_millis(1_500),
+            "race did not stop early: {:?}",
+            t.elapsed()
+        );
+        assert_eq!(out.len(), 10, "sufficiency stop, straggler cancelled");
+        assert!(out.iter().all(|r| !r.url.contains("slow")));
+        // Task-order slots: cancelled slot is EMPTY, order = dispatch order.
+        assert_eq!(out[0].url, "https://a1.com/");
+        assert_eq!(out[5].url, "https://b1.com");
+    }
+
+    #[tokio::test]
+    async fn race_to_enough_grace_cuts_straggler_once_covered() {
+        // Exactly MIN_UNIQUE_IN_GRACE unique land now; a 7th arriving past
+        // the 1.2 s grace window must be cut (loop-top check fires at the
+        // armed grace wake-up).
+        let tasks: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = vec![
+            uniq_task(&["https://g1.com", "https://g2.com", "https://g3.com", "https://g4.com", "https://g5.com", "https://g6.com"], 0),
+            uniq_task(&["https://g7.com"], 2_500),
+        ];
+        let t = std::time::Instant::now();
+        let out = race_to_enough(tasks).await;
+        assert!(
+            t.elapsed() < Duration::from_millis(2_300),
+            "grace did not cut the straggler: {:?}",
+            t.elapsed()
+        );
+        assert_eq!(out.len(), 6);
+    }
+
+    #[tokio::test]
+    async fn race_to_enough_waits_for_everything_on_thin_evidence() {
+        // 3 unique < MIN ⇒ no early stop at all; the outer SEARCH_ONE_CAP
+        // in search_one is the only backstop (never truncate thin here).
+        let tasks: Vec<BoxFuture<'_, Vec<RawSearchResult>>> = vec![
+            uniq_task(&["https://t1.com", "https://t2.com"], 0),
+            uniq_task(&["https://t3.com"], 400),
+        ];
+        let out = race_to_enough(tasks).await;
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[2].url, "https://t3.com");
     }
 }

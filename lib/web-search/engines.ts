@@ -1472,11 +1472,12 @@ export function deduplicateQueries(queries: string[]): string[] {
  * VALUE-FIRST ORDER (bench 2026-10-29, rust-backend/perf/PROVIDER-VALUE-REPORT.md):
  * bing, brave, yahoo, ddg(html). ORDER IS LOAD-BEARING and must stay
  * verbatim with the Rust GENERAL_WEB_ENGINES static. Dropped from the
- * pool: ddgLitePost + googleSearch (still implemented and wired via the
- * sharded/recovery paths — the hardened breaker trips them fast on this
- * egress IP, other egress IPs may recover); redditSearch (forum-intent
- * specialist — it burned 177 attempts into every general search for
- * zero general benefit, 429×54).
+ * pool AND the sharded fan-out: ddgLitePost + googleSearch (both remain
+ * implemented for parity — googleSearch is still reachable from the
+ * metasearch recovery block; the hardened breaker trips them fast on
+ * this egress IP, other egress IPs may recover); redditSearch
+ * (forum-intent specialist — it burned 177 attempts into every general
+ * search for zero general benefit, 429×54).
  */
 export const GENERAL_WEB_ENGINES = [
   bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first) — PRIMARY: 200×59, p50 401 ms
@@ -1485,87 +1486,121 @@ export const GENERAL_WEB_ENGINES = [
   ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage) — RECOVERY_ONLY
 ] as const;
 
-/**
- * Run a single query against ALL general-web engines in parallel with
- * per-engine pacing. Returns the merged raw result list (ranked per-engine;
- * RRF fusion happens in metasearch.ts).
- */
-export async function runGeneralWebSearch(query: string): Promise<RawSearchResult[]> {
-  const settled = await Promise.allSettled(
-    GENERAL_WEB_ENGINES.map((fn) => fn(query).catch(() => [] as RawSearchResult[])),
-  );
-  const out: RawSearchResult[] = [];
-  for (const s of settled) {
-    if (s.status === "fulfilled") out.push(...s.value);
-  }
-  return out;
+// Race-to-enough thresholds — MUST stay verbatim with the Rust
+// ENOUGH_UNIQUE_URLS / MIN_UNIQUE_IN_GRACE / GRACE_MS in engines.rs.
+// Bench rationale (rust-backend/perf/PROVIDER-VALUE-REPORT.md): bing
+// alone carries the general pool (p50 401 ms); every extra engine past
+// it adds coverage at a p50 of 1.7–2.1 s, so racing past sufficiency
+// buys nothing but latency. There is deliberately NO internal deadline:
+// below MIN unique the race waits for everyone (never truncate thin
+// evidence) — searchOne's SEARCH_ONE_CAP_MS is the outer backstop.
+const ENOUGH_UNIQUE_URLS = 10;
+const MIN_UNIQUE_IN_GRACE = 6;
+const GRACE_MS = 1_200;
+
+function raceKey(url: string): string {
+  return url.trim().toLowerCase().replace(/\/+$/, "");
 }
 
 /**
- * Sharded metasearch: distribute multiple sub-queries across DIFFERENT
- * engines with 150-300ms stagger to minimise per-host burst load and
- * prevent simultaneous rate-limit 429 cascades.
+ * Race the engine tasks; stop once the merged pool has ENOUGH unique
+ * URLs, or once MIN unique are in and GRACE_MS has elapsed since the
+ * first completion. Output preserves TASK order (slot array), so the
+ * merged bytes are identical regardless of completion order — matching
+ * the old Promise.allSettled concat semantics for the results kept.
  *
- * Tier 1 (fast, zero-CAPTCHA feeds — hit on every query, staggered):
- *   DDG Lite POST, Bing RSS, GitHub (repos + users + issues)
+ * DIVERGENCE from Rust (same class as the searchOne cap note in
+ * metasearch.ts): JS cannot cancel an in-flight fetch. After an early
+ * stop the losing tasks keep running in the background and their
+ * results are simply dropped. Wall-clock stop behaviour matches.
+ */
+async function raceToEnough(tasks: Promise<RawSearchResult[]>[]): Promise<RawSearchResult[]> {
+  const slots: RawSearchResult[][] = tasks.map(() => []);
+  const seen = new Set<string>();
+  let unique = 0;
+  let firstDoneAt = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let wake: (() => void) | undefined;
+  const early = new Promise<void>((res) => {
+    wake = res;
+  });
+
+  tasks.forEach((t, i) => {
+    void t.then((v) => {
+      slots[i] = v;
+      if (!firstDoneAt) firstDoneAt = Date.now();
+      for (const r of v) {
+        const k = raceKey(r.url);
+        if (!seen.has(k)) {
+          seen.add(k);
+          unique++;
+        }
+      }
+      if (
+        unique >= ENOUGH_UNIQUE_URLS ||
+        (unique >= MIN_UNIQUE_IN_GRACE && Date.now() - firstDoneAt >= GRACE_MS)
+      ) {
+        wake?.();
+      } else if (!timer && unique >= MIN_UNIQUE_IN_GRACE) {
+        timer = setTimeout(
+          () => wake?.(),
+          Math.max(0, firstDoneAt + GRACE_MS - Date.now()),
+        );
+      }
+    });
+  });
+
+  // Rejects are pre-caught by callers ([] mirrors Rust's never-Err
+  // engine futures); allSettled keeps "everyone done" equivalent to the
+  // Rust loop-exhaustion stop when the pool is thin.
+  await Promise.race([Promise.allSettled(tasks), early]);
+  if (timer) clearTimeout(timer);
+  return slots.flat();
+}
+
+/**
+ * Run the general-web pool for one query, RACING to enough evidence
+ * (see raceToEnough). Returns the merged raw result list in pool order
+ * (ranked per-engine; RRF fusion happens in metasearch.ts).
+ */
+export async function runGeneralWebSearch(query: string): Promise<RawSearchResult[]> {
+  return raceToEnough(
+    GENERAL_WEB_ENGINES.map((fn) => fn(query).catch(() => [] as RawSearchResult[])),
+  );
+}
+
+/**
+ * Sharded metasearch: fan sub-queries out VALUE-FIRST (bench
+ * 2026-10-29) through the race-to-enough pool:
  *
- * Tier 2 (rate-sensitive direct scrapers — hit on primary query only):
- *   DDG HTML, Google, Brave, Yahoo
+ *   - Bing RSS on EVERY deduped sub-query (cheap p50 ~400 ms; it carried
+ *     200 clean successes × 59 cycles in the bench — the only engine
+ *     worth replicating per-query),
+ *   - Brave, Yahoo, and the DDG recovery leg on the PRIMARY query only.
  *
- * Tier 3 (community / news — hit on every query):
- *   Reddit (RSS → PullPush → JSON), Bing News RSS
+ * Dropped from this fan-out: ddgLitePost, googleSearch (DISABLED on this
+ * egress IP — consent wall), redditSearch (429×54, SPECIALIST-forum, now
+ * intent-routed in metasearch), bingNewsRssSearch (news-vertical),
+ * githubSearch (dev-vertical). Each belongs to its vertical now.
  *
- * The stagger between tiers (150-300 ms) ensures our IP never fires all
- * engines at the same millisecond, which is what triggered the 429
- * cascade observed in production.
+ * The old 150–300 ms cross-tier stagger is GONE: it was pure wall-clock
+ * burn (~2 s of sleeps) before anything hit the network. Per-host burst
+ * protection is the engine pacer's job (one in-flight per host + jitter),
+ * not the fan-out's.
  *
- * Returns the merged raw result list for RRF fusion.
+ * Returns the merged raw result list (task order) for RRF fusion.
  */
 export async function runGeneralWebSearchSharded(
   primaryQuery: string,
   allQueries: string[],
 ): Promise<RawSearchResult[]> {
-  const stagger = () => new Promise((r) => setTimeout(r, 150 + Math.floor(Math.random() * 150)));
-
-  // Tier 1: fast zero-CAPTCHA feeds — every query, staggered by 200 ms.
-  const tier1: Promise<RawSearchResult[]>[] = [];
-  for (let i = 0; i < allQueries.length; i++) {
-    if (i > 0) await stagger();
-    tier1.push(ddgLitePost(allQueries[i]).catch(() => [] as RawSearchResult[]));
+  const tasks: Promise<RawSearchResult[]>[] = [];
+  for (const q of allQueries) {
+    tasks.push(bingSearch(q).catch(() => [] as RawSearchResult[]));
   }
-
-  // Tier 2: rate-sensitive direct scrapers — primary query only, staggered.
-  await stagger();
-  const tier2: Promise<RawSearchResult[]>[] = [
-    ddgSearch(primaryQuery).catch(() => [] as RawSearchResult[]),
-  ];
-  await stagger();
-  tier2.push(googleSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
-  await stagger();
-  tier2.push(braveSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
-  await stagger();
-  tier2.push(yahooSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
-
-  // Tier 3: community / news — every query, staggered.
-  const tier3: Promise<RawSearchResult[]>[] = [];
-  for (let i = 0; i < allQueries.length; i++) {
-    if (i > 0) await stagger();
-    tier3.push(redditSearch(allQueries[i]).catch(() => [] as RawSearchResult[]));
-  }
-  await stagger();
-  tier3.push(bingSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
-  await stagger();
-  tier3.push(bingNewsRssSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
-
-  // GitHub: instant JSON, zero CAPTCHA — fires in parallel with tier 1.
-  const github = githubSearch(primaryQuery).catch(() => [] as RawSearchResult[]);
-
-  const settled = await Promise.allSettled(
-    [...tier1, ...tier2, ...tier3, github],
-  );
-  const out: RawSearchResult[] = [];
-  for (const s of settled) {
-    if (s.status === "fulfilled") out.push(...s.value);
-  }
-  return out;
+  tasks.push(braveSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  tasks.push(yahooSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  // DDG = RECOVERY_ONLY leg; its breaker short-circuits it when tripped.
+  tasks.push(ddgSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  return raceToEnough(tasks);
 }
