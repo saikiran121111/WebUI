@@ -1832,3 +1832,24 @@ PRE-§11.2 Rust binary, so attached-media meta-prompts still web-searched
 (context bloat — user screenshot). Remediation: killed orphan daemon tree,
 §11.2 committed, supervisor restart ALWAYS cargo-builds (dev-supervisor.mjs
 line 12: cargo build before anything starts).
+
+[CURRENT CYCLE 2026-10-30 — WEB-SEARCH PIPELINE PERFORMANCE (LOCKED-DONE, probe-verified)]:
+- [8.2 LOCKED] Commits on develop: 44cda51 (progressive sufficiency waves + gap-hop overlap),
+  5a0d56e (domain WAF cooldown + window-rank cap), 63598d0 (freshness TTL 15m + coalescing
+  verdict), 58d5423 (cfg(test) chore), 862c954 (tier retune 20/15/12s, page budget 30s,
+  mid-wave stopWhen cancelling stragglers — FuturesUnordered Rust / stopGate race TS),
+  beb4a16 (is_good_evidence counted ZERO live pages — SUCCESS_* labels made the whole
+  sufficiency stop inert; channel now = None OR SUCCESS_* != SNIPPET_FALLBACK, both mirrors).
+- [8.4 CONTRACTS] extract_all gains 6th param stop_when (Rust) / stopWhen (TS); page budgets
+  TIER1 20s JINA 15s WAYBACK 12s PAGE_BUDGET 30s BROWSER_ALLOWANCE 46s; EVIDENCE_GOOD_TARGET=6
+  EVIDENCE_DOMAIN_MIN=3; fixtures 01-05 carry no classification keys (None arm) → goldens stable.
+- [8.5 VERIFY] Gates green at beb4a16: cargo -p ruke-websearch 303/0 + manifest_drift 5/5
+  (exit 0); tsc clean; vitest __tests__/web-search 60/60; golden web.test.ts 5/5 no drift
+  (one 2/5 flake on live tier re-run → 5/5, exit 0). Probe AFTER-3 (dev18.log, cold cache):
+  evidence_ready_ms=7939 reading_ms=5131 mid-wave stop FIRED (wave_done=2/3, cambridge
+  cancelled) reading-hop break pages_read=7/10 packets=6 passages=20 coverage=100% citations=16.
+- [8.8 RESULT] research first-content client: 30,395 BEFORE → 36,431 AFTER-1 → 29,251 AFTER-2
+  → 8,223 AFTER-3. No WS leak (flat 2121 MB, peak 2292). Stack running on dev18 (ruke-server
+  13228). Model side (stream 48s, gate→skip ~2.7s decision-engine) is OUT of scope, reported only.
+- [8.6 LEFT] No TS extractor stopWhen unit tests; TS lacks the wave-stop log line Rust emits;
+  30s-vs-60s bench never run; coalescing intentionally omitted (documented in 63598d0 msg).
