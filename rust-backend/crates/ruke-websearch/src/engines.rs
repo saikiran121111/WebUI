@@ -2675,6 +2675,24 @@ pub fn deduplicate_queries(queries: &[String]) -> Vec<String> {
 /// seam is the FIRST parameter — the TS engines close over the module's
 /// real fetchPage/fetchUrl; Rust injects `net` so tests can drive every
 /// parser through [`crate::net::ScriptedNet`] with zero network.
+// Instrumentation only: per-engine wall-clock + result count. Tracing fields
+// are NOT part of the observable parity surface, so this wraps the pub engine
+// wrappers without touching wire/cache behavior.
+async fn timed_engine(
+    engine: &'static str,
+    fut: impl std::future::Future<Output = Vec<RawSearchResult>>,
+) -> Vec<RawSearchResult> {
+    let t0 = std::time::Instant::now();
+    let out = fut.await;
+    tracing::info!(
+        engine,
+        engine_ms = t0.elapsed().as_millis() as u64,
+        results = out.len(),
+        "engine outcome"
+    );
+    out
+}
+
 pub type EngineFn =
     for<'a, 'b> fn(&'a dyn Net, &'b str) -> BoxFuture<'a, Vec<RawSearchResult>>;
 
@@ -2684,7 +2702,7 @@ pub type EngineFn =
 
 pub fn ddg_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { ddg_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("duckduckgo", ddg_search_inner(net, &q)).await })
 }
 
 pub fn ddg_lite_post<'a>(
@@ -2692,7 +2710,7 @@ pub fn ddg_lite_post<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { ddg_lite_post_inner(net, &q).await })
+    Box::pin(async move { timed_engine("ddg-lite", ddg_lite_post_inner(net, &q)).await })
 }
 
 pub fn yahoo_search<'a>(
@@ -2700,7 +2718,7 @@ pub fn yahoo_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { yahoo_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("yahoo", yahoo_search_inner(net, &q)).await })
 }
 
 pub fn google_search<'a>(
@@ -2708,7 +2726,7 @@ pub fn google_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { google_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("google", google_search_inner(net, &q)).await })
 }
 
 pub fn brave_search<'a>(
@@ -2716,7 +2734,7 @@ pub fn brave_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { brave_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("brave", brave_search_inner(net, &q)).await })
 }
 
 pub fn reddit_search<'a>(
@@ -2724,7 +2742,7 @@ pub fn reddit_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { reddit_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("reddit", reddit_search_inner(net, &q)).await })
 }
 
 pub fn bing_search<'a>(
@@ -2732,7 +2750,7 @@ pub fn bing_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { bing_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("bing", bing_search_inner(net, &q)).await })
 }
 
 pub fn bing_news_rss_search<'a>(
@@ -2740,7 +2758,7 @@ pub fn bing_news_rss_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { bing_news_rss_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("bing-news", bing_news_rss_search_inner(net, &q)).await })
 }
 
 pub fn github_search<'a>(
@@ -2748,7 +2766,7 @@ pub fn github_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { github_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("github", github_search_inner(net, &q)).await })
 }
 
 pub fn dev_to_search<'a>(
@@ -2756,7 +2774,7 @@ pub fn dev_to_search<'a>(
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
-    Box::pin(async move { dev_to_search_inner(net, &q).await })
+    Box::pin(async move { timed_engine("devto", dev_to_search_inner(net, &q)).await })
 }
 
 /// TS `GENERAL_WEB_ENGINES` — the "General Web Index Pool".

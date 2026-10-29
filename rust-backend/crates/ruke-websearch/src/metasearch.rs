@@ -499,7 +499,7 @@ fn json_headers(ct: &str) -> Vec<(String, String)> {
 use chrono::{DateTime, SecondsFormat};
 use scraper::{Html, Selector};
 
-fn wikipedia_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn wikipedia_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -572,7 +572,7 @@ fn concat_field(obj: &Value, key: &str) -> String {
     }
 }
 
-fn hackernews_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn hackernews_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -643,7 +643,7 @@ fn node_text(el: Option<scraper::ElementRef>) -> Option<String> {
     }))
 }
 
-fn arxiv_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn arxiv_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -705,7 +705,7 @@ fn arxiv_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearc
     })
 }
 
-fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -784,7 +784,7 @@ fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec
     })
 }
 
-fn wikidata_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn wikidata_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -851,7 +851,10 @@ fn wikidata_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSe
     })
 }
 
-fn semantic_scholar_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn semantic_scholar_search<'a>(
+    net: &'a dyn Net,
+    query: &str,
+) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -920,7 +923,7 @@ fn semantic_scholar_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, V
     })
 }
 
-fn imdb_suggestion_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn imdb_suggestion_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -1119,19 +1122,50 @@ async fn search_one(
     // Promise.race([poolPromise.catch(()=>[]), sleep(CAP) → []]).
     // Divergence: the losing pool future is CANCELLED here (JS keeps it
     // running in the background).
-    let pool: Vec<RawSearchResult> = tokio::time::timeout(
+    let t_pool = std::time::Instant::now();
+    let pool: Vec<RawSearchResult> = match tokio::time::timeout(
         Duration::from_millis(SEARCH_ONE_CAP_MS),
         pool_task,
     )
     .await
-    .unwrap_or_default();
+    {
+        Ok(v) => {
+            tracing::info!(
+                pool_ms = t_pool.elapsed().as_millis() as u64,
+                pool_results = v.len(),
+                pool_timed_out = false,
+                sharded = use_sharded,
+                "search_one: general pool settled"
+            );
+            v
+        }
+        Err(_) => {
+            tracing::warn!(
+                pool_ms = t_pool.elapsed().as_millis() as u64,
+                pool_timed_out = true,
+                sharded = use_sharded,
+                "search_one: general pool hit SEARCH_ONE_CAP"
+            );
+            Vec::new()
+        }
+    };
     let mut results: Vec<RawSearchResult> = pool;
 
     // Intent verticals (allSettled — ported engine fns cannot reject).
     let verticals = vertical_by_intent(intent);
-    let settled = join_all(verticals.iter().map(|f| f(net, query))).await;
-    for v in settled {
-        results.extend(apply_engine_cap(v));
+    if !verticals.is_empty() {
+        let t_v = std::time::Instant::now();
+        let settled = join_all(verticals.iter().map(|f| f(net, query))).await;
+        let v_total: usize = settled.iter().map(|v| v.len()).sum();
+        tracing::info!(
+            verticals_ms = t_v.elapsed().as_millis() as u64,
+            vertical_engines = verticals.len(),
+            vertical_results = v_total,
+            "search_one: intent verticals settled"
+        );
+        for v in settled {
+            results.extend(apply_engine_cap(v));
+        }
     }
 
     // News-sensitive: explicit "news" intent OR any freshness that is not
@@ -1140,7 +1174,13 @@ async fn search_one(
     let is_news_sensitive = matches!(intent, Intent::News)
         || freshness.is_some_and(|f| f.as_str() != "any");
     if is_news_sensitive {
+        let t_news = std::time::Instant::now();
         let news = bing_news_rss_search(net, query).await;
+        tracing::info!(
+            news_ms = t_news.elapsed().as_millis() as u64,
+            news_results = news.len(),
+            "search_one: bing-news vertical settled"
+        );
         // TS double-cap quirk: slice(0, capForEngine("bing-news")) THEN
         // applyEngineCap again.
         let capped: Vec<RawSearchResult> =
@@ -1151,8 +1191,16 @@ async fn search_one(
     let is_dev_query =
         query_looks_like_dev(query) || matches!(intent, Intent::Code | Intent::Docs);
     if is_dev_query {
+        let t_dev = std::time::Instant::now();
         let devs = dev_vertical();
         let settled = join_all(devs.iter().map(|f| f(net, query))).await;
+        let d_total: usize = settled.iter().map(|v| v.len()).sum();
+        tracing::info!(
+            dev_ms = t_dev.elapsed().as_millis() as u64,
+            dev_engines = devs.len(),
+            dev_results = d_total,
+            "search_one: dev verticals settled"
+        );
         for v in settled {
             results.extend(apply_engine_cap(v));
         }
@@ -1327,6 +1375,7 @@ pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize)
         }));
     }
 
+    let t_meta_cycle = std::time::Instant::now();
     let mut settled: Vec<Option<Vec<RawSearchResult>>> = vec![None; effective.len()];
     let mut landed_results: usize = 0;
     let mut landed_engines: HashSet<String> = HashSet::new();
@@ -1338,6 +1387,7 @@ pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize)
 
     let hard_deadline = tokio::time::Instant::now() + Duration::from_millis(15_000);
     let mut hard_cap = std::pin::pin!(tokio::time::sleep_until(hard_deadline));
+    let mut loop_exit = "all-settled";
 
     loop {
         if futs.is_empty() {
@@ -1349,6 +1399,7 @@ pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize)
             _ = OptionFuture::from(grace_deadline.map(tokio::time::sleep_until)),
                 if grace_deadline.is_some() => {
                 // 6s grace expired with plans still pending — abandon them.
+                loop_exit = "grace";
                 break;
             }
             item = futs.next() => {
@@ -1375,6 +1426,7 @@ pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize)
             }
             _ = &mut hard_cap => {
                 // 15s absolute hard cap (deadlock safety net).
+                loop_exit = "hard_cap";
                 break;
             }
         }
@@ -1420,12 +1472,26 @@ pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize)
             .cloned()
             .collect()
     };
-    if relevant.len() >= ranked.len().min(5) {
+    let fused_n = ranked.len();
+    let floor_kept = relevant.len() >= ranked.len().min(5);
+    let out: Vec<RankedResult> = if floor_kept {
         // (telemetry `log.info` dropped — divergence recorded.)
-        return relevant.into_iter().take(max_results).collect();
-    }
-    // (starvation `log.info` dropped.)
-    ranked.into_iter().take(max_results).collect()
+        relevant.into_iter().take(max_results).collect()
+    } else {
+        // (starvation `log.info` dropped.)
+        ranked.into_iter().take(max_results).collect()
+    };
+    tracing::info!(
+        plans = effective.len(),
+        exit = loop_exit,
+        metasearch_cycle_ms = t_meta_cycle.elapsed().as_millis() as u64,
+        raw = flat.len(),
+        fused = fused_n,
+        kept = out.len(),
+        relevance_floor_kept = floor_kept,
+        "metasearch cycle complete"
+    );
+    out
 }
 
 /// ⇔ TS `{ results, freshnessRecoveryUsed }`.

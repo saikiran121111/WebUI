@@ -1037,6 +1037,19 @@ impl<'a> Extractor<'a> {
     /// so the classification tail can report `PAGE_BUDGET_TIMEOUT`.
     /// With no deadline the future runs untouched (byte-parity for the
     /// uncapped path and every golden fixture).
+    // Instrumentation only: per-tier wall-clock for the extraction timeline.
+    // Tracing fields are not part of the observable parity surface.
+    async fn timed_tier<T>(
+        tier: &'static str,
+        url: &str,
+        fut: impl std::future::Future<Output = T>,
+    ) -> T {
+        let t0 = std::time::Instant::now();
+        let out = fut.await;
+        tracing::info!(url = %url, tier, tier_ms = t0.elapsed().as_millis() as u64, "extract tier");
+        out
+    }
+
     async fn capped<T>(
         deadline: Option<std::time::Instant>,
         fut: impl std::future::Future<Output = T>,
@@ -1108,7 +1121,7 @@ impl<'a> Extractor<'a> {
         }
 
         // Tier 1.5: platform API adapter first (cheapest for known hosts)
-        let adapter_out = self.extract_adapter(url).await;
+        let adapter_out = Self::timed_tier("adapter", url, self.extract_adapter(url)).await;
         if let Some(a) = adapter_out.as_ref().filter(|a| js_len(&a.markdown) >= 200) {
             packet.extraction = ExtractionKind::Direct;
             packet.passages.push(passage(a.markdown.clone()));
@@ -1122,7 +1135,7 @@ impl<'a> Extractor<'a> {
         // substitutes the network-failure shape (status 0, blocked) which
         // keeps the downstream tier gates intact — the page still gets the
         // link-preview tier if it fits, and ALWAYS the browser tier.
-        let direct_out = match Self::capped(deadline, self.extract_direct(url, BrowserFingerprint::Chrome)).await {
+        let direct_out = match Self::timed_tier("direct", url, Self::capped(deadline, self.extract_direct(url, BrowserFingerprint::Chrome))).await {
             Ok(o) => o,
             Err(()) => {
                 budget_hit = true;
@@ -1157,7 +1170,7 @@ impl<'a> Extractor<'a> {
             // §11.3 AMENDMENT: the 4-bot link-preview stack is the worst
             // budget burner (4×45s); it is capped by the remaining budget
             // so the browser tier downstream always stays reachable.
-            let lp = match Self::capped(deadline, self.extract_link_preview(url)).await {
+            let lp = match Self::timed_tier("link-preview", url, Self::capped(deadline, self.extract_link_preview(url))).await {
                 Ok(lp) => lp,
                 Err(()) => {
                     budget_hit = true;
@@ -1183,7 +1196,7 @@ impl<'a> Extractor<'a> {
             || (js_len(&direct_out.markdown) < 200 && direct_out.tier == Tier::Crash)
             || (js_len(&direct_out.markdown) < 100 && direct_out.tier != Tier::Crash);
         if direct_thinned_or_blocked {
-            let browser_out = self.extract_browser(result).await;
+            let browser_out = Self::timed_tier("browser", url, self.extract_browser(result)).await;
             if js_len(&browser_out.markdown) >= 200 && !browser_out.blocked {
                 packet.extraction = ExtractionKind::Direct;
                 packet.passages.push(passage(browser_out.markdown.clone()));
@@ -1200,7 +1213,7 @@ impl<'a> Extractor<'a> {
         // anti-stall tail — an expired budget skips them cheaply (the
         // browser allowance above already ran; that's what the budget cut
         // used to cut SHORT instead).
-        let jina_out = match Self::capped(deadline, self.extract_jina(url)).await {
+        let jina_out = match Self::timed_tier("jina", url, Self::capped(deadline, self.extract_jina(url))).await {
             Ok(j) => j,
             Err(()) => {
                 budget_hit = true;
@@ -1220,7 +1233,7 @@ impl<'a> Extractor<'a> {
             || direct_out.status == 0
             || (js_len(&direct_out.markdown) < 100 && direct_out.tier == Tier::Crash);
         if tier1_failed {
-            let wayback_out = match Self::capped(deadline, self.extract_wayback(url)).await {
+            let wayback_out = match Self::timed_tier("wayback", url, Self::capped(deadline, self.extract_wayback(url))).await {
                 Ok(w) => w,
                 Err(()) => {
                     budget_hit = true;
@@ -1255,7 +1268,7 @@ impl<'a> Extractor<'a> {
             // metasearch seam is infallible → no catch needed.)
             // §11.3 AMENDMENT: triangulation issues live metasearch engine
             // requests (~40s each) — capped by the remaining budget.
-            let synthesized = match Self::capped(deadline, slug_triangulation(self.net, url, Some(&result.title))).await {
+            let synthesized = match Self::timed_tier("slug-triangulation", url, Self::capped(deadline, slug_triangulation(self.net, url, Some(&result.title)))).await {
                 Ok(s) => s,
                 Err(()) => {
                     budget_hit = true;
@@ -1282,7 +1295,7 @@ impl<'a> Extractor<'a> {
                     return Ok(packet);
                 }
             }
-            let fallback_results = match Self::capped(deadline, url_search_fallback(self.net, url, Some(&result.title))).await {
+            let fallback_results = match Self::timed_tier("url-search-fallback", url, Self::capped(deadline, url_search_fallback(self.net, url, Some(&result.title)))).await {
                 Ok(v) => v,
                 Err(()) => {
                     budget_hit = true;
@@ -1435,6 +1448,7 @@ impl<'a> Extractor<'a> {
                 // Cache errors still reject the whole batch exactly like
                 // the TS Promise.all.
                 let deadline = std::time::Instant::now() + Duration::from_millis(budget);
+                let t_page = std::time::Instant::now();
                 let p = match tokio::time::timeout(
                     Duration::from_millis(budget + BROWSER_ALLOWANCE_MS),
                     self.extract_url_capped(r, Some(deadline)),
@@ -1448,6 +1462,12 @@ impl<'a> Extractor<'a> {
                 if let Some(cb) = on_page {
                     cb(done, total);
                 }
+                tracing::info!(
+                    url = %r.canonical,
+                    page_ms = t_page.elapsed().as_millis() as u64,
+                    class = p.classification.as_deref().unwrap_or("ok"),
+                    "page extract complete"
+                );
                 Ok(p)
             }
         }))

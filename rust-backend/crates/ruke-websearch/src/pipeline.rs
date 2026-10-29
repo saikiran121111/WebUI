@@ -643,6 +643,9 @@ pub async fn run_web_research(
 ) -> Result<Option<EvidenceBundle>, CacheError> {
     let extractor = Extractor { net, cache, verticals, bridge };
     let deadline = Instant::now() + Duration::from_millis(PIPELINE_CEILING_MS);
+    // Instrumentation timeline: every stage delta is a tracing FIELD (log
+    // fields are not part of the observable parity surface).
+    let t_total = Instant::now();
     let hit = move || {
         deadline.elapsed() >= Duration::from_millis(PIPELINE_CEILING_MS)
             || cancel.map(|f| f.load(Ordering::Relaxed)).unwrap_or(false)
@@ -669,6 +672,7 @@ pub async fn run_web_research(
 
     // 2) PLANNING
     emit(&PipelineProgress::of(PipelineStage::Planning, "Decomposing into sub-queries..."));
+    let t_plan = Instant::now();
     let planned = plan_queries(&ctx.user_prompt, &gate.decision.queries, None);
     let mut plans: Vec<SearchPlan> = planned
         .into_iter()
@@ -680,7 +684,7 @@ pub async fn run_web_research(
             relevance_anchor: Some(ctx.user_prompt.clone()),
         })
         .collect();
-    tracing::info!(planned = plans.len(), "query plan built");
+    tracing::info!(planned = plans.len(), plan_ms = t_plan.elapsed().as_millis() as u64, "query plan built");
     // detectUrlsAndDomains(userPrompt) — TS default excludeFileTokens=true:
     let prompt_domains = detect_urls_and_domains(&ctx.user_prompt, true);
     let prompt_urls: Vec<String> = prompt_domains.iter().map(|d| d.url.clone()).collect();
@@ -690,6 +694,7 @@ pub async fn run_web_research(
     // the port: get_youtube_evidence already swallows network failures to
     // None via the Net seam.
     let mut prompt_packets: Vec<EvidencePacket> = Vec::new();
+    let t_hops = Instant::now();
     for u in &prompt_urls {
         if hit() {
             break;
@@ -745,6 +750,13 @@ pub async fn run_web_research(
         }
     }
 
+    if !prompt_urls.is_empty() {
+        tracing::info!(
+            prompt_hops_ms = t_hops.elapsed().as_millis() as u64,
+            "prompt-URL (YouTube/Maps) hops complete"
+        );
+    }
+
     // 5) SEARCHING
     emit(&PipelineProgress {
         stage: PipelineStage::Searching,
@@ -782,10 +794,12 @@ pub async fn run_web_research(
             .collect();
         let mut direct_results: Vec<RankedResult> = Vec::new();
         if !direct_targets.is_empty() && !hit() {
+            let t_direct = Instant::now();
             for target in &direct_targets {
                 if hit() {
                     break;
                 }
+                let t_tgt = Instant::now();
                 match extractor.extract_url(target).await {
                     Ok(packet) => {
                         let first =
@@ -800,7 +814,7 @@ pub async fn run_web_research(
                             snippet: js_slice_head(&first, 300),
                             ..target.clone()
                         });
-                        tracing::info!(url = %target.url, "stage-0 direct target extracted");
+                        tracing::info!(url = %target.url, direct_ms = t_tgt.elapsed().as_millis() as u64, "stage-0 direct target extracted");
                     }
                     Err(_) => {
                         tracing::warn!(url = %target.url, "stage-0 direct target failed — SERP pool still covers it");
@@ -808,13 +822,19 @@ pub async fn run_web_research(
                 }
             }
             if !direct_results.is_empty() {
-                tracing::info!("stage-0 direct targets ready");
+                tracing::info!(
+                    direct_stage0_ms = t_direct.elapsed().as_millis() as u64,
+                    extracted = direct_results.len(),
+                    "stage-0 direct targets ready"
+                );
             }
         }
         // TS maps plans with `freshness: gate.decision.freshness` as a
         // no-op spread here (every plan already carries it) — passed
         // directly (kept verbatim).
+        let t_meta = Instant::now();
         let fr = metasearch_with_freshness_recovery(net, &plans, 20).await;
+        let meta_ms = t_meta.elapsed().as_millis() as u64;
         if !direct_results.is_empty() {
             let seen: HashSet<String> =
                 direct_results.iter().map(|r| r.canonical.clone()).collect();
@@ -833,6 +853,7 @@ pub async fn run_web_research(
         )?;
         tracing::info!(
             results = search_results.len(),
+            metasearch_ms = meta_ms,
             // TS logs the metasearch ms delta (`Date.now() - t0`); log
             // fields are not part of the observable parity surface.
             freshness_recovery_used = fr.freshness_recovery_used,
@@ -860,7 +881,9 @@ pub async fn run_web_research(
                 freshness: Some(Freshness::Any),
                 relevance_anchor: None,
             }];
+            let t_rec = Instant::now();
             let recovery_results = metasearch(net, &rec_plan, 20).await;
+            let rec_ms = t_rec.elapsed().as_millis() as u64;
             if !recovery_results.is_empty() {
                 let seen: HashSet<String> =
                     search_results.iter().map(|r| r.canonical.clone()).collect();
@@ -872,7 +895,7 @@ pub async fn run_web_research(
                 }
                 merged.truncate(20); // TS slice(0, 20) cap on THIS merge only
                 search_results = merged;
-                tracing::info!("broad recovery merged");
+                tracing::info!(recovery_ms = rec_ms, "broad recovery merged");
             }
         } else if !has_real_results && !clean_query.is_empty() {
             emit(&PipelineProgress::of(
@@ -887,8 +910,9 @@ pub async fn run_web_research(
                 freshness: Some(Freshness::Any),
                 relevance_anchor: None,
             }];
+            let t_rec = Instant::now();
             search_results = metasearch(net, &rec_plan, 20).await;
-            tracing::info!("zero-result recovery done");
+            tracing::info!(recovery_ms = t_rec.elapsed().as_millis() as u64, "zero-result recovery done");
         }
     }
 
@@ -897,6 +921,7 @@ pub async fn run_web_research(
         && re_linkedin().is_match(&ctx.user_prompt)
         && !search_results.iter().any(|r| re_linkedin_com().is_match(&r.url))
     {
+        let t_li = Instant::now();
         let li_plans: Vec<&SearchPlan> = plans
             .iter()
             .filter(|p| re_linkedin().is_match(&p.query) && re_site().is_match(&p.query))
@@ -1014,10 +1039,15 @@ pub async fn run_web_research(
                 );
             }
         }
+        tracing::info!(linkedin_hop_ms = t_li.elapsed().as_millis() as u64, "linkedin hop complete");
     }
 
     // 8) starved done
     if search_results.is_empty() && prompt_packets.is_empty() {
+        tracing::info!(
+            evidence_ready_ms = t_total.elapsed().as_millis() as u64,
+            "evidence ready (starved)"
+        );
         emit(&PipelineProgress::of(PipelineStage::Done, "No search results returned"));
         return Ok(Some(EvidenceBundle {
             search_gate: gate,
@@ -1040,6 +1070,7 @@ pub async fn run_web_research(
         ..Default::default()
     });
     let mut packets: Vec<EvidencePacket> = Vec::new();
+    let t_read = Instant::now();
     if !(hit() || search_results.is_empty()) {
         let on_page = |done: usize, total: usize| {
             emit(&PipelineProgress {
@@ -1069,7 +1100,7 @@ pub async fn run_web_research(
         .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<_>>()
         .join(" ");
-    tracing::info!(packets = packets.len(), tally = %tally_s, "extract all complete");
+    tracing::info!(packets = packets.len(), reading_ms = t_read.elapsed().as_millis() as u64, tally = %tally_s, "extract all complete");
 
     // 10) prompt-packet merge (the shipped YouTube object-identity dedup
     // quirk: parsed-video keys NEVER collide — see MergeKey).
@@ -1127,8 +1158,9 @@ pub async fn run_web_research(
     let q_texts: Vec<String> = gate.decision.queries.iter().map(|q| q.query.clone()).collect();
     let single_url_query = prompt_urls.len() == 1;
     emit(&PipelineProgress::of(PipelineStage::Reranking, "Reranking with BM25..."));
+    let t_rerank = Instant::now();
     let mut top_passages = rerank(&packets, &ctx.user_prompt, &q_texts, 30, single_url_query);
-    tracing::info!(passages = top_passages.len(), "rerank complete");
+    tracing::info!(passages = top_passages.len(), rerank_ms = t_rerank.elapsed().as_millis() as u64, "rerank complete");
 
     // 14) gap-search second hop (packets list itself is NEVER reassigned —
     // header quirk):
@@ -1153,7 +1185,10 @@ pub async fn run_web_research(
             gap_query = %gap_query,
             "gap search triggered"
         );
+        let t_gap = Instant::now();
         let gap_results = run_gap_metasearch(net, &gap_query).await;
+        let gap_search_ms = t_gap.elapsed().as_millis() as u64;
+        let t_gap_read = Instant::now();
         if !gap_results.is_empty() {
             gap_search_fired = true;
             let mut gap_packets = extractor.extract_all(&gap_results, 5, None, None).await?;
@@ -1169,11 +1204,23 @@ pub async fn run_web_research(
                 30,
                 single_url_query,
             );
-            tracing::info!("gap search merged");
+            tracing::info!(
+                gap_search_ms,
+                gap_read_ms = t_gap_read.elapsed().as_millis() as u64,
+                gap_total_ms = t_gap.elapsed().as_millis() as u64,
+                "gap search merged"
+            );
         }
     }
 
     // 15) done
+    tracing::info!(
+        evidence_ready_ms = t_total.elapsed().as_millis() as u64,
+        passages = top_passages.len(),
+        gap_search_fired,
+        from_cache,
+        "evidence ready"
+    );
     let pct = (coverage.coverage * 100.0).round() as i64;
     emit(&PipelineProgress {
         stage: PipelineStage::Done,
