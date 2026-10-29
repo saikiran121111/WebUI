@@ -1140,7 +1140,9 @@ pub async fn run_web_research(
             };
             let batch = &search_results[prev..take];
             let mut b = extractor
-                .extract_all(batch, take - prev, Some(&on_page), None)
+                // `prev` = this slice's position in the full read window,
+                // so the §18 browser-attempt rank gate sees window ranks.
+                .extract_all(batch, take - prev, Some(&on_page), None, prev)
                 .await?;
             // extract_all numbers S1.. per call; keep running global ids so
             // batch 2's pages land at S(prev+1).. exactly as one full-window
@@ -1278,7 +1280,9 @@ pub async fn run_web_research(
             // Gap hop reads only the best 3 pages (brief's ~3-page gap
             // budget): the first hop already had the full page budget;
             // the 2nd hop is a targeted top-up, not a re-read.
-            let mut gap_packets = extractor.extract_all(&gap_results, 3, None, None).await?;
+            // Gap hop is its own fresh window (rank_base 0): its top 3 are
+            // high-priority targeted reads, all inside the §18 rank gate.
+            let mut gap_packets = extractor.extract_all(&gap_results, 3, None, None, 0).await?;
             renumber_packets(&mut gap_packets, next_source_index(&packets));
             let all_packets: Vec<EvidencePacket> =
                 packets.iter().cloned().chain(gap_packets).collect();

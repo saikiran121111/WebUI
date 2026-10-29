@@ -1028,7 +1028,8 @@ impl<'a> Extractor<'a> {
     pub async fn extract_url(&self, result: &RankedResult) -> Result<EvidencePacket, CacheError> {
         // Uncapped parity path (golden replays, direct pipeline calls):
         // identical to the original cascade — no deadline, no budget.
-        self.extract_url_capped(result, None).await
+        // No read window exists here, so the §18 rank gate sees rank 0.
+        self.extract_url_capped(result, None, 0).await
     }
 
     /// §11.3 AMENDMENT: cap one tier-await by the remaining page budget.
@@ -1063,10 +1064,14 @@ impl<'a> Extractor<'a> {
         tokio::time::timeout(remaining, fut).await.map_err(|_| ())
     }
 
+    /// `rank_in_window` (§18): position of `result` in the pipeline's full
+    /// read window — drives browser-tier selectivity only; callers with no
+    /// window (direct-target hop, golden replays) pass 0.
     async fn extract_url_capped(
         &self,
         result: &RankedResult,
         deadline: Option<std::time::Instant>,
+        rank_in_window: usize,
     ) -> Result<EvidencePacket, CacheError> {
         let url = result.canonical.as_str();
         // Set whenever a capped tier expired; drives the tail branch.
@@ -1195,7 +1200,16 @@ impl<'a> Extractor<'a> {
             || direct_out.status == 429
             || (js_len(&direct_out.markdown) < 200 && direct_out.tier == Tier::Crash)
             || (js_len(&direct_out.markdown) < 100 && direct_out.tier != Tier::Crash);
-        if direct_thinned_or_blocked {
+        // §18: an attempt at the EXISTING browser seam is the most
+        // expensive move in the cascade, so it is confined to the top of
+        // the read window, and skipped for a domain still cooling down
+        // from a recent full bot-block (short TTL, never permanent —
+        // §17). Missing this attempt is just another tier miss: the
+        // jina/wayback/snippet tail below runs unchanged either way.
+        if direct_thinned_or_blocked
+            && rank_in_window < BROWSER_RANK_MAX
+            && !domain_on_cooldown(&result.domain)
+        {
             let browser_out = Self::timed_tier("browser", url, self.extract_browser(result)).await;
             if js_len(&browser_out.markdown) >= 200 && !browser_out.blocked {
                 packet.extraction = ExtractionKind::Direct;
@@ -1366,16 +1380,17 @@ impl<'a> Extractor<'a> {
             } else {
                 result.title.clone()
             }));
-            packet.classification = Some(
-                if re_class_login().is_match(&kind) {
-                    "FAIL_SILENT_LOGIN_WALL"
-                } else if re_class_bot().is_match(&kind) {
-                    "FAIL_SILENT_BOT_BLOCK"
-                } else {
-                    "FAIL_NETWORK_OR_CRASH"
-                }
-                .to_string(),
-            );
+            let label = if re_class_login().is_match(&kind) {
+                "FAIL_SILENT_LOGIN_WALL"
+            } else if re_class_bot().is_match(&kind) {
+                "FAIL_SILENT_BOT_BLOCK"
+            } else {
+                "FAIL_NETWORK_OR_CRASH"
+            };
+            if label == "FAIL_SILENT_BOT_BLOCK" {
+                record_domain_bot_block(&result.domain);
+            }
+            packet.classification = Some(label.to_string());
             return Ok(packet);
         }
 
@@ -1416,6 +1431,9 @@ impl<'a> Extractor<'a> {
         max_urls: usize,
         on_page: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
         page_budget_ms: Option<u64>,
+        // §18: start position of `ranked` inside the pipeline's full read
+        // window; batched hops pass their offset, one-shot callers pass 0.
+        rank_base: usize,
     ) -> Result<Vec<EvidencePacket>, CacheError> {
         let top = &ranked[..ranked.len().min(max_urls)];
         let budget = page_budget_ms.unwrap_or(PAGE_BUDGET_DEFAULT_MS);
@@ -1433,7 +1451,7 @@ impl<'a> Extractor<'a> {
         // under join_all's single-task polling has identical per-thread
         // sequencing to the Cell — the counter increments in the same order.
         let done_pages = AtomicUsize::new(0usize);
-        let settled: Vec<Result<EvidencePacket, CacheError>> = join_all(top.iter().map(|r| {
+        let settled: Vec<Result<EvidencePacket, CacheError>> = join_all(top.iter().enumerate().map(|(i, r)| {
             let sem = Arc::clone(&sem);
             let done_pages = &done_pages;
             async move {
@@ -1451,7 +1469,7 @@ impl<'a> Extractor<'a> {
                 let t_page = std::time::Instant::now();
                 let p = match tokio::time::timeout(
                     Duration::from_millis(budget + BROWSER_ALLOWANCE_MS),
-                    self.extract_url_capped(r, Some(deadline)),
+                    self.extract_url_capped(r, Some(deadline), rank_base + i),
                 )
                 .await
                 {
@@ -1486,6 +1504,71 @@ impl<'a> Extractor<'a> {
         }
         Ok(packets)
     }
+}
+
+// ── Short-lived per-domain extraction health (§17/§29) + browser-tier
+// selectivity (§18). Pure bookkeeping over the EXISTING cascade — this
+// adds no new browser capability and no new tier. A page whose cascade
+// ended fully bot-blocked puts its domain on a TTL cooldown; the next
+// read of that domain then skips only the ATTEMPT at the already-
+// implemented browser seam and otherwise runs the identical HTTP cascade
+// + snippet tail. Nothing is permanent: every entry carries a TTL, the
+// store is bounded, and the rank cap just confines that attempt to the
+// top of the read window (it is the most expensive existing tier).
+const BROWSER_RANK_MAX: usize = 6;
+const DOMAIN_BOT_COOLDOWN_MS: u64 = 10 * 60_000;
+const DOMAIN_HEALTH_MAX: usize = 256;
+
+fn domain_health() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+    static STORE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    > = std::sync::OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+fn now_wall_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn domain_on_cooldown(domain: &str) -> bool {
+    let now = now_wall_ms();
+    let store = domain_health()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    store.get(domain).is_some_and(|exp| *exp > now)
+}
+
+fn record_domain_bot_block(domain: &str) {
+    let now = now_wall_ms();
+    let mut store = domain_health()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if store.len() >= DOMAIN_HEALTH_MAX {
+        // shortcut: LRU bookkeeping not worth it — drop expired entries,
+        // wipe if still full; every entry has a TTL so the store self-heals.
+        store.retain(|_, exp| *exp > now);
+        if store.len() >= DOMAIN_HEALTH_MAX {
+            store.clear();
+        }
+    }
+    store.insert(domain.to_string(), now + DOMAIN_BOT_COOLDOWN_MS);
+}
+
+/// Test-only: wipe cross-request health state (paired with
+/// `extraction_test_lock()`, mirroring the engine-health core).
+pub(crate) fn reset_extraction_health_for_tests() {
+    domain_health()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+}
+
+pub(crate) fn extraction_test_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
 /// Bundle-level SERP-baseline guarantee for results OUTSIDE the extractor's
@@ -1828,6 +1911,11 @@ mod tests {
 
     #[tokio::test]
     async fn fail_silent_bot_block_when_every_tier_misses() {
+        // The blocked tail records domain cooldown — process-wide static,
+        // so serialize with every other browser/blocked test exactly like
+        // the engine-health core does.
+        let _health_turn = extraction_test_lock().lock().await;
+        reset_extraction_health_for_tests();
         let net = ScriptedNet::default()
             .with_page("https://example.com/waf", page(200, true, &cf_blocked_html(), "text/html"))
             // jina itself returns challenge text
@@ -1852,6 +1940,97 @@ mod tests {
         // baseline + blocked-snippet passage
         assert_eq!(p.passages.len(), 2);
         assert_eq!(p.passages[1].passage_text, "a long enough indexed snippet for the baseline.");
+    }
+
+    /// §18 (scope-corrected: no new browser capability — only the EXISTING
+    /// seam is attempted less): browser attempts are confined to the top of
+    /// the read window; the rest settle to the identical jina/wayback/
+    /// snippet tail.
+    #[tokio::test]
+    async fn browser_attempt_confined_to_window_top() {
+        let _health_turn = extraction_test_lock().lock().await;
+        reset_extraction_health_for_tests();
+        let urls: Vec<String> = (0..7).map(|i| format!("https://waf-rank-{i}.test/u")).collect();
+        let mut net = ScriptedNet::default();
+        let bridge = ScriptedBridge::new();
+        for u in &urls {
+            net = net.with_page(u, page(200, true, &cf_blocked_html(), "text/html"));
+            bridge.with_page(
+                u,
+                crate::browser_bridge::OnePassExtraction {
+                    url: u.clone(),
+                    final_url: u.clone(),
+                    title: "Rendered".to_string(),
+                    status: Some(200),
+                    body_text: "rendered waf-page body text ".repeat(20),
+                    aria_snapshot: String::new(),
+                    json_ld: vec![],
+                    meta: vec![],
+                    window_state: vec![],
+                    ok: true,
+                    error: None,
+                },
+            );
+        }
+        let cache = ScriptedCache::default();
+        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
+        let ranked_v: Vec<_> = urls
+            .iter()
+            .map(|u| ranked(u, "Waf Page", "a long enough indexed snippet for the baseline."))
+            .collect();
+        let out = ex.extract_all(&ranked_v, 7, None, None, 0).await.unwrap();
+        for (i, p) in out.iter().enumerate() {
+            // Ranks 0..5 attempt the browser and recover; rank 6's attempt
+            // is skipped (jina/wayback unscripted → None) and it settles
+            // to the blocked tail like every other full miss.
+            let want = if i < BROWSER_RANK_MAX { "SUCCESS_BROWSER" } else { "FAIL_SILENT_BOT_BLOCK" };
+            assert_eq!(p.classification.as_deref(), Some(want), "rank {i}");
+        }
+        assert_eq!(bridge.call_count(), BROWSER_RANK_MAX, "rank 6 must not attempt the browser seam");
+    }
+
+    /// §17/§29: a fully bot-blocked read cools the DOMAIN down so the next
+    /// read of it fails fast, and the cooldown always lapses — extraction
+    /// attempts again once health expires (never a permanent blacklist).
+    #[tokio::test]
+    async fn bot_blocked_domain_cools_down_then_recovers_attempts() {
+        let _health_turn = extraction_test_lock().lock().await;
+        reset_extraction_health_for_tests();
+        let url = "https://waf-cool.test/u";
+        let net = ScriptedNet::default()
+            .with_page(url, page(200, true, &cf_blocked_html(), "text/html"));
+        let bridge = ScriptedBridge::new();
+        // Bridge fails even when attempted, so every read ends in the
+        // blocked tail — where the cooldown gets recorded.
+        bridge.with_page(
+            url,
+            crate::browser_bridge::OnePassExtraction {
+                url: url.to_string(),
+                final_url: url.to_string(),
+                title: "Waf".to_string(),
+                status: Some(403),
+                body_text: String::new(),
+                aria_snapshot: String::new(),
+                json_ld: vec![],
+                meta: vec![],
+                window_state: vec![],
+                ok: false,
+                error: Some("blocked".to_string()),
+            },
+        );
+        let cache = ScriptedCache::default();
+        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
+        let r = ranked(url, "Waf", "a long enough indexed snippet for the baseline.");
+        let p1 = ex.extract_url(&r).await.unwrap();
+        assert_eq!(p1.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
+        assert_eq!(bridge.call_count(), 1, "first read attempts the browser");
+        let p2 = ex.extract_url(&r).await.unwrap();
+        assert_eq!(p2.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
+        assert_eq!(bridge.call_count(), 1, "cooled domain skips the attempt (fail fast)");
+        reset_extraction_health_for_tests(); // stands in for TTL lapse
+        let p3 = ex.extract_url(&r).await.unwrap();
+        assert_eq!(p3.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
+        assert_eq!(bridge.call_count(), 2, "cooldown is short-lived, not a blacklist");
     }
 
     #[tokio::test]
@@ -1895,6 +2074,10 @@ mod tests {
 
     #[tokio::test]
     async fn browser_tier_recovers_when_bridge_scripted() {
+        // example.com cooldown recorder above could skip the browser
+        // attempt here — serialize + reset (see fail_silent_bot_block).
+        let _health_turn = extraction_test_lock().lock().await;
+        reset_extraction_health_for_tests();
         let net = ScriptedNet::default()
             .with_page("https://example.com/spa", page(403, false, &"blocked ".repeat(50), "text/html"));
         let bridge = ScriptedBridge::new();
@@ -2012,7 +2195,7 @@ mod tests {
             ranked("https://example.com/c", "C", "snippet c long enough for baseline"),
         ];
         let out = ex
-            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))), None)
+            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))), None, 0)
             .await
             .unwrap();
         assert_eq!(out.len(), 2); // maxUrls=2 → C never extracted
@@ -2023,7 +2206,7 @@ mod tests {
 
         // Any cache rejection rejects the whole batch (Promise.all).
         cache.set_throw(true);
-        assert!(ex.extract_all(&ranked_v, 2, None, None).await.is_err());
+        assert!(ex.extract_all(&ranked_v, 2, None, None, 0).await.is_err());
     }
 
     /// §11.3: a net whose every tier call hangs (never returns) reproduces
@@ -2066,6 +2249,8 @@ mod tests {
 
     #[tokio::test]
     async fn page_budget_abandons_slow_page_into_snippet_fallback() {
+        let _health_turn = extraction_test_lock().lock().await;
+        reset_extraction_health_for_tests();
         let net = SlowNet;
         let cache = ScriptedCache::default();
         let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
@@ -2082,6 +2267,7 @@ mod tests {
                 10,
                 Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))),
                 Some(300),
+                0,
             )
             .await
             .unwrap();
@@ -2106,6 +2292,8 @@ mod tests {
     /// HackerNews live turns were snippet-starved by the 60 s hard cut.)
     #[tokio::test]
     async fn budget_exhausted_page_still_gets_browser_allowance() {
+        let _health_turn = extraction_test_lock().lock().await;
+        reset_extraction_health_for_tests();
         let net = SlowNet;
         let cache = ScriptedCache::default();
         let bridge = ScriptedBridge::new();
@@ -2132,7 +2320,7 @@ mod tests {
             "indexed snippet long enough for the baseline gate",
         )];
         let t0 = std::time::Instant::now();
-        let out = ex.extract_all(&ranked_v, 10, None, Some(300)).await.unwrap();
+        let out = ex.extract_all(&ranked_v, 10, None, Some(300), 0).await.unwrap();
         let elapsed = t0.elapsed();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_id, "S1");

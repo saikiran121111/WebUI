@@ -722,6 +722,10 @@ export async function runWebResearch(
           done: base + donePages,
           total: readTotal,
         }),
+        undefined, // production page budget default
+        // `prev` = this slice's position in the full read window, so the
+        // §18 browser-attempt rank gate sees window ranks.
+        prev,
       );
       // extractAll numbers S1.. per call; keep running global ids so batch 2's
       // pages land at S(prev+1).. exactly as one full-window call numbered.

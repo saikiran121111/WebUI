@@ -947,11 +947,51 @@ async function withDeadline<T>(
   }
 }
 
+// ── Short-lived per-domain extraction health (§17/§29) + browser-tier
+// selectivity (§18) — mirrors the Rust store in ruke-websearch extractor.
+// Pure bookkeeping over the EXISTING cascade; adds no new browser
+// capability and no new tier. A read that ends fully bot-blocked cools
+// its domain down; the next read then skips only the ATTEMPT at the
+// already-implemented browser seam and runs the identical HTTP cascade +
+// snippet tail. Nothing permanent: every entry has a TTL, the store is
+// bounded, and the rank cap just confines that attempt to the top of the
+// read window (it is the most expensive existing tier).
+export const BROWSER_RANK_MAX = 6;
+const DOMAIN_BOT_COOLDOWN_MS = 10 * 60_000;
+const DOMAIN_HEALTH_MAX = 256;
+const domainHealth = new Map<string, number>();
+
+function domainOnCooldown(domain: string): boolean {
+  const exp = domainHealth.get(domain);
+  return exp !== undefined && exp > Date.now();
+}
+
+function recordDomainBotBlock(domain: string): void {
+  const now = Date.now();
+  if (domainHealth.size >= DOMAIN_HEALTH_MAX) {
+    // shortcut: LRU bookkeeping not worth it — drop expired, wipe if still
+    // full; every entry has a TTL so the store self-heals.
+    for (const [d, exp] of domainHealth) if (exp <= now) domainHealth.delete(d);
+    if (domainHealth.size >= DOMAIN_HEALTH_MAX) domainHealth.clear();
+  }
+  domainHealth.set(domain, now + DOMAIN_BOT_COOLDOWN_MS);
+}
+
+/** Test-only: wipe cross-request health state (the Rust twin pairs this
+    with a test lock; vitest isolates files and runs tests in-file
+    sequentially, so the Map needs no lock here). */
+export function resetExtractionHealth(): void {
+  domainHealth.clear();
+}
+
 export async function extractUrl(
   result: RankedResult,
   /** §11.3 AMENDMENT: absolute deadline (epoch ms) for the HTTP tiers.
       Omitted = uncapped cascade — the original golden/parity path. */
   deadline?: number,
+  /** §18: position of `result` in the pipeline's full read window —
+      drives browser-tier selectivity only; callers with no window pass 0. */
+  rankInWindow = 0,
 ): Promise<EvidencePacket & { classification: string }> {
   const url = result.canonical;
   // Set whenever a capped tier expired; drives the tail branch.
@@ -1131,7 +1171,17 @@ export async function extractUrl(
     (directOut?.status === 429) ||
     (directOut?.markdown.length < 200 && directOut?.tier === "crash") ||
     (directOut?.markdown.length < 100 && !(directOut?.tier === "crash"));
-  if (directThinnedOrBlocked) {
+  // §18: an attempt at the EXISTING browser seam is the most expensive
+  // move in the cascade, so it is confined to the top of the read window,
+  // and skipped for a domain still cooling down from a recent full
+  // bot-block (short TTL, never permanent — §17). Missing this attempt is
+  // just another tier miss: the jina/wayback/snippet tail below runs
+  // unchanged either way.
+  if (
+    directThinnedOrBlocked &&
+    rankInWindow < BROWSER_RANK_MAX &&
+    !domainOnCooldown(result.domain)
+  ) {
     const browserOut = await extractBrowser(result);
     if (browserOut && browserOut.markdown.length >= 200 && !browserOut.blocked) {
       packet.extraction = "direct";
@@ -1317,6 +1367,7 @@ export async function extractUrl(
       return { ...packet, classification: "FAIL_SILENT_LOGIN_WALL" };
     }
     if (/cloudflare|akamai|perimeterx|datadome|captcha|bot|js/i.test(kind)) {
+      recordDomainBotBlock(result.domain);
       return { ...packet, classification: "FAIL_SILENT_BOT_BLOCK" };
     }
     return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
@@ -1373,9 +1424,10 @@ const BUDGET_HIT = Symbol("page-budget-hit");
 async function extractUrlWithBudget(
   result: RankedResult,
   budgetMs: number,
+  rankInWindow = 0,
 ): Promise<EvidencePacket & { classification: string }> {
   const deadline = Date.now() + budgetMs;
-  const work = extractUrl(result, deadline);
+  const work = extractUrl(result, deadline, rankInWindow);
   const guard = work.catch(() => undefined); // absorb a post-budget rejection
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -1409,11 +1461,14 @@ export async function extractAll(
   /** §11.3 per-page wall-clock budget (MIGRATION-MAP); production always
       uses the default, tests may inject a smaller one. */
   pageBudgetMs = PAGE_BUDGET_DEFAULT_MS,
+  /** §18: start position of `ranked` inside the pipeline's full read
+      window; batched hops pass their offset, one-shot callers pass 0. */
+  rankBase = 0,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
   let donePages = 0;
   const settled = await Promise.all(
-    top.map((r) => limit(() => extractUrlWithBudget(r, pageBudgetMs)).then((p) => {
+    top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i)).then((p) => {
       donePages++;
       onPage?.(donePages, top.length);
       return p;
