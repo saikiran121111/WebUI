@@ -52,3 +52,5 @@ brotli = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# engine_bench example only (search-side latency/provider classification harness):
+tracing-subscriber = { workspace = true }
