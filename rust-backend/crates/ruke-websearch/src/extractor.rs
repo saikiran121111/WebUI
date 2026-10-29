@@ -1559,6 +1559,7 @@ fn record_domain_bot_block(domain: &str) {
 
 /// Test-only: wipe cross-request health state (paired with
 /// `extraction_test_lock()`, mirroring the engine-health core).
+#[cfg(test)]
 pub(crate) fn reset_extraction_health_for_tests() {
     domain_health()
         .lock()
@@ -1566,6 +1567,7 @@ pub(crate) fn reset_extraction_health_for_tests() {
         .clear();
 }
 
+#[cfg(test)]
 pub(crate) fn extraction_test_lock() -> &'static tokio::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
