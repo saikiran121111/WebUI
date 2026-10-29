@@ -1871,15 +1871,20 @@ mod tests {
         let writes = cache.writes.lock();
         let qrows: Vec<&String> = writes.iter().filter(|w| w.starts_with("q:")).collect();
         assert_eq!(qrows.len(), 1); // query_cache_key is hashed — no plaintext
-        // The no-caption companion query ("<title>" "<channel>") reached
-        // the engine fan-out (alphanumerics survive URL encoding):
+        // Step-A breaker contract (2026-10-29): every pool engine sees ≥2
+        // all-zero cycles before the hop's companion fan-out (oembed-only
+        // script ⇒ every SERP zero), so the companion query's fan-out is
+        // COOLDOWN-SKIPPED — the hop's proof-of-life is the plan-list cache
+        // row above (qrows==1). Pre-Step-A this proof was the bing/reddit
+        // Gonna URLs, which only fanned out because those engines were
+        // unguarded (the exact defect findings #2/#3 removed).
         let cq_seen = net
             .calls
             .lock()
             .unwrap()
             .iter()
             .any(|(u, _)| u.contains("Gonna"));
-        assert!(cq_seen, "companion query must flow through metasearch");
+        assert!(!cq_seen, "guarded engines must not fan out while cooling down");
         assert_eq!(writes.iter().filter(|w| w.starts_with("p:")).count(), 2);
         assert_eq!(writes.len(), 3);
     }

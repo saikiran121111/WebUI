@@ -243,9 +243,17 @@ fn streak_map() -> &'static Mutex<HashMap<String, (i64, i64)>> {
     M.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// TS `enginePacers` — shared by BOTH pacers; the tokio Mutex standing in for
-/// p-limit(1) serializes the jitter window only (TS holds the pLimit slot
-/// just for the scheduling section, never across the actual fetch).
+/// Consecutive trips per engine (cleared by a real success) — drives the
+/// exponential cooldown escalation (60/120/240/480 s). Health knowledge is
+/// cross-request and bounded: one entry per engine name, never a blacklist.
+fn trip_count_map() -> &'static Mutex<HashMap<String, u32>> {
+    static M: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// TS `enginePacers` — the tokio Mutex standing in for p-limit(1) serializes
+/// the jitter window only (TS holds the pLimit slot just for the scheduling
+/// section, never across the actual fetch).
 fn pacer_map() -> &'static tokio::sync::Mutex<HashMap<String, i64>> {
     static M: OnceLock<tokio::sync::Mutex<HashMap<String, i64>>> = OnceLock::new();
     M.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
@@ -277,7 +285,7 @@ pub fn engine_cooldown_remaining_ms(engine: &str) -> i64 {
 
 /// TS `tripCircuitBreaker` — one zero observation per call; trips on the
 /// SECOND consecutive zero inside `ZERO_STREAK_WINDOW_MS`.
-fn trip_circuit_breaker(engine: &str, reason: &str) {
+pub(crate) fn trip_circuit_breaker(engine: &str, reason: &str) {
     let now = now_ms();
     let streak = {
         let sm = streak_map();
@@ -300,23 +308,63 @@ fn trip_circuit_breaker(engine: &str, reason: &str) {
         streak
     };
     let _ = streak;
+    // Escalation: repeated trips back off exponentially (60/120/240/480 s),
+    // cleared by any real success. A single zero stays query-specific.
+    let trips = {
+        let tm = trip_count_map();
+        let mut tm = tm.lock().expect("trip count lock");
+        let c = tm.entry(engine.to_string()).or_insert(0);
+        *c += 1;
+        *c
+    };
+    let cooldown = ENGINE_COOLDOWN_MS << (trips - 1).min(3);
     cooldown_map()
         .lock()
         .expect("cooldown map lock")
-        .insert(engine.to_string(), now + ENGINE_COOLDOWN_MS);
+        .insert(engine.to_string(), now + cooldown);
     tracing::info!(
         engine = engine,
         reason = reason,
-        cooldown_ms = ENGINE_COOLDOWN_MS,
+        cooldown_ms = cooldown,
+        consecutive_trips = trips,
         "engine circuit breaker tripped"
     );
 }
 
-/// TS `noteEngineSuccess`.
-fn note_engine_success(engine: &str) {
+/// Transport failure (fetch → None/timeout) is never query-specific: cool the
+/// engine down on the first observation instead of waiting for a second zero.
+fn trip_immediate(engine: &str, reason: &str) {
+    streak_map().lock().expect("streak map lock").remove(engine);
+    let trips = {
+        let tm = trip_count_map();
+        let mut tm = tm.lock().expect("trip count lock");
+        let c = tm.entry(engine.to_string()).or_insert(0);
+        *c += 1;
+        *c
+    };
+    let cooldown = ENGINE_COOLDOWN_MS << (trips - 1).min(3);
+    cooldown_map()
+        .lock()
+        .expect("cooldown map lock")
+        .insert(engine.to_string(), now_ms() + cooldown);
+    tracing::info!(
+        engine = engine,
+        reason = reason,
+        cooldown_ms = cooldown,
+        "engine transport failure — breaker tripped immediately"
+    );
+}
+
+/// TS `noteEngineSuccess` — a real success clears BOTH the zero streak and
+/// the escalation history (the engine is healthy again).
+pub(crate) fn note_engine_success(engine: &str) {
     streak_map()
         .lock()
         .expect("streak map lock")
+        .remove(engine);
+    trip_count_map()
+        .lock()
+        .expect("trip count lock")
         .remove(engine);
 }
 
@@ -327,9 +375,15 @@ fn note_engine_success(engine: &str) {
 pub(crate) fn reset_engine_state_for_tests() {
     cooldown_map().lock().expect("lock").clear();
     streak_map().lock().expect("lock").clear();
-    // try_lock (not blocking_lock): this runs from async tests under
-    // engine_test_lock, where no pacer critical section can be live.
-    pacer_map().try_lock().expect("pacer map idle at reset").clear();
+    trip_count_map().lock().expect("lock").clear();
+    // try_lock (not blocking_lock): the pacer holds only scheduling
+    // timestamps (absolute epoch-ms), so a stale map across tests just adds
+    // one jitter window to the next call — harmless. Since the verticals
+    // went pacer-guarded, non-token tests can be queued on this mutex while
+    // a token test resets, so a hard expect() here is a cross-module race.
+    if let Ok(mut pm) = pacer_map().try_lock() {
+        pm.clear();
+    }
 }
 
 /// Test-only serialization token: engine-level flows share the (process-wide,
@@ -342,7 +396,9 @@ pub(crate) fn engine_test_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// TS `enginePacerWithBreaker` — true ⇒ allowed, false ⇒ skipped.
-async fn engine_pacer_with_breaker(engine: &str) -> bool {
+/// pub(crate): the metasearch vertical fetchers were unguarded (bench
+/// 2026-10-29: 429 storms with zero pacing) and now share this guard.
+pub(crate) async fn engine_pacer_with_breaker(engine: &str) -> bool {
     if engine_is_cooling_down(engine) {
         return false;
     }
@@ -362,24 +418,6 @@ async fn engine_pacer_with_breaker(engine: &str) -> bool {
     *entry = now_ms();
     drop(map);
     true
-}
-
-/// TS `enginePacer` — plain pacer without the breaker guard.
-async fn engine_pacer(engine: &str) {
-    let jitter = 250 + (js_random() * 200.0).floor() as i64;
-    let mut map = pacer_map().lock().await;
-    let entry = map.entry(engine.to_string()).or_insert(0);
-    let wait_until = *entry + jitter;
-    let now = now_ms();
-    let delay = (wait_until - now).max(0);
-    *entry = now + delay;
-    drop(map);
-    if delay > 0 {
-        tokio::time::sleep(Duration::from_millis(delay as u64)).await;
-    }
-    // TS `await entry.limit(() => {})` — an empty serialized slot; nothing
-    // observable in Rust (the pacer lock was already released above, exactly
-    // like p-limit releasing after the empty closure).
 }
 
 // ── helpers (engines.ts 228-307) ─────────────────────────────────────────
@@ -1293,7 +1331,10 @@ async fn google_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult>
         .await;
     let res = match res {
         Some(r) => r,
-        None => return Vec::new(),
+        None => {
+            trip_immediate("google", "google SERP fetch failed (transport/timeout)");
+            return Vec::new();
+        }
     };
     if res.body.is_empty() || js_len(&res.body) < 500 {
         return Vec::new();
@@ -1351,7 +1392,15 @@ async fn google_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult>
         );
         return Vec::new();
     }
-    if !out.is_empty() {
+    if out.is_empty() {
+        // Bench 2026-10-29: a 200 consent/bot wall parses to ZERO results;
+        // without recording the zero here the breaker never engages and
+        // google burns a full SERP fetch on every single cycle (59/59 live).
+        trip_circuit_breaker(
+            "google",
+            "google returned 200 with 0 parsed results (consent/bot wall)",
+        );
+    } else {
         note_engine_success("google");
     }
     out
@@ -1790,26 +1839,33 @@ async fn reddit_json(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
 }
 
 /// TS `redditSearch` — 3-stage Reddit: RSS feed → PullPush → search.json.
-/// Returns the first stage that produces results. NO breaker here (plain
-/// pacer only — reddit never trips the cooldown map).
+/// Returns the first stage that produces results. Breaker-gated ("reddit");
+/// trips / notes on the final result count (bench 2026-10-29: 429x54 on the
+/// general pool with no cooldown ever — unguarded).
 async fn reddit_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
-    engine_pacer("reddit").await;
+    if !engine_pacer_with_breaker("reddit").await {
+        return Vec::new();
+    }
     let stage_a = reddit_rss(net, query).await;
     if !stage_a.is_empty() {
+        note_engine_success("reddit");
         return stage_a;
     }
     let stage_b = reddit_pull_push(net, query).await;
     if !stage_b.is_empty() {
+        note_engine_success("reddit");
         return stage_b;
     }
     let stage_c = reddit_json(net, query).await;
     if !stage_c.is_empty() {
+        note_engine_success("reddit");
         return stage_c;
     }
     tracing::warn!(
         query = js_slice_max(query, 80),
         "reddit: all 3 stages returned 0 results"
     );
+    trip_circuit_breaker("reddit", "reddit: all 3 stages returned 0 results");
     Vec::new()
 }
 
@@ -2000,21 +2056,27 @@ async fn bing_html(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
 }
 
 /// TS `bingSearch` — 2-stage Bing: RSS feed → cookie-primed HTML.
-/// Returns the first stage that produces results. Plain pacer, NO breaker.
+/// Returns the first stage that produces results. Breaker-gated ("bing");
+/// trips / notes on the final result count.
 async fn bing_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
-    engine_pacer("bing").await;
+    if !engine_pacer_with_breaker("bing").await {
+        return Vec::new();
+    }
     let stage_a = bing_rss(net, query).await;
     if !stage_a.is_empty() {
+        note_engine_success("bing");
         return stage_a;
     }
     let stage_b = bing_html(net, query).await;
     if !stage_b.is_empty() {
+        note_engine_success("bing");
         return stage_b;
     }
     tracing::warn!(
         query = js_slice_max(query, 80),
         "bing: both stages returned 0 results"
     );
+    trip_circuit_breaker("bing", "bing: both stages returned 0 results");
     Vec::new()
 }
 
@@ -2093,12 +2155,14 @@ fn parse_bing_news_rss(xml: &str) -> Vec<RawSearchResult> {
 }
 
 /// TS `bingNewsRssSearch` — Bing News RSS (primary) + Google News RSS
-/// fallback. Plain pacer "bing-news" (no breaker, no trip/note).
+/// fallback. Breaker-gated ("bing-news"); trips / notes on the final count.
 async fn bing_news_rss_search_inner(
     net: &dyn Net,
     query: &str,
 ) -> Vec<RawSearchResult> {
-    engine_pacer("bing-news").await;
+    if !engine_pacer_with_breaker("bing-news").await {
+        return Vec::new();
+    }
 
     // ── Stage A: Bing News RSS (real target URLs via url= param) ────────
     let bing_url = "https://www.bing.com/news/search?q=".to_string()
@@ -2125,6 +2189,7 @@ async fn bing_news_rss_search_inner(
         if res.ok && !res.text.is_empty() {
             let out = parse_bing_news_rss(&res.text);
             if !out.is_empty() {
+                note_engine_success("bing-news");
                 return out;
             }
         }
@@ -2156,9 +2221,16 @@ async fn bing_news_rss_search_inner(
         .await
     {
         Some(r) => r,
-        None => return Vec::new(),
+        None => {
+            trip_immediate("bing-news", "google-news RSS fetch failed (transport/timeout)");
+            return Vec::new();
+        }
     };
     if !res.ok || res.text.is_empty() {
+        trip_circuit_breaker(
+            "bing-news",
+            &format!("news feeds returned {} with no usable items", res.status),
+        );
         return Vec::new();
     }
     static RE_GN_ITEM: OnceLock<Regex> = OnceLock::new();
@@ -2201,6 +2273,11 @@ async fn bing_news_rss_search_inner(
             published_date: pub_date,
             rank: (out.len() + 1) as i64,
         });
+    }
+    if out.is_empty() {
+        trip_circuit_breaker("bing-news", "news feeds parsed 0 usable items");
+    } else {
+        note_engine_success("bing-news");
     }
     out
 }
@@ -2257,7 +2334,8 @@ fn js_tostring_or_nullish_default(v: Option<&Value>, default: &str) -> String {
 }
 
 /// TS `githubSearch` — keyless REST API: users → repositories → issues.
-/// Breaker-gated ("github") but never trips/notes on its own.
+/// Breaker-gated ("github"); trips / notes on the FINAL result count
+/// (bench 2026-10-29: 403x35 + 429x109 with no cooldown ever).
 async fn github_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult> {
     if !engine_pacer_with_breaker("github").await {
         return Vec::new();
@@ -2411,6 +2489,11 @@ async fn github_search_inner(net: &dyn Net, query: &str) -> Vec<RawSearchResult>
         }
     }
 
+    if out.is_empty() {
+        trip_circuit_breaker("github", "github API returned 0 usable results");
+    } else {
+        note_engine_success("github");
+    }
     take_n(out, 15)
 }
 
@@ -3237,6 +3320,79 @@ mod serp_tests {
     }
 
     #[tokio::test]
+    async fn google_200_wall_zeros_trip_breaker_and_skip_while_cooling() {
+        let _g = engine_test_lock().lock().await;
+        reset_engine_state_for_tests();
+        // Bench finding #1 regression pin: a 200 consent wall parses to ZERO
+        // results and pre-fix recorded NEITHER trip nor success, so the
+        // breaker never engaged (google burned 59/59 live SERP fetches).
+        let url = "https://www.google.com/search?q=test&num=20&hl=en&gl=us";
+        let wall = "p".repeat(600); // ≥500 chars, no div.g blocks, no block keywords
+        let net = ScriptedNet::default().with_page(url, page(&wall));
+        let a = google_search(&net, "test").await;
+        assert!(a.is_empty());
+        assert_eq!(
+            engine_cooldown_remaining_ms("google"),
+            0,
+            "streak 1 stays an observation (a single zero may be query-specific)"
+        );
+        let b = google_search(&net, "test").await;
+        assert!(b.is_empty());
+        let remaining = engine_cooldown_remaining_ms("google");
+        assert!(remaining > 0 && remaining <= ENGINE_COOLDOWN_MS);
+        let calls_after_trip = calls_of(&net).len();
+        let c = google_search(&net, "test").await;
+        assert!(c.is_empty());
+        assert_eq!(
+            calls_of(&net).len(),
+            calls_after_trip,
+            "while cooling down google makes ZERO requests"
+        );
+    }
+
+    #[tokio::test]
+    async fn google_transport_none_trips_immediately() {
+        let _g = engine_test_lock().lock().await;
+        reset_engine_state_for_tests();
+        // Unscripted ⇒ fetch_page None ⇒ transport failure is NEVER
+        // query-specific: the FIRST observation already trips the breaker.
+        let net = ScriptedNet::default();
+        let a = google_search(&net, "test").await;
+        assert!(a.is_empty());
+        let remaining = engine_cooldown_remaining_ms("google");
+        assert!(
+            remaining > 0 && remaining <= ENGINE_COOLDOWN_MS,
+            "trip_immediate: call 1 already cools google down"
+        );
+        let calls_after_trip = calls_of(&net).len();
+        let b = google_search(&net, "test").await;
+        assert!(b.is_empty());
+        assert_eq!(calls_of(&net).len(), calls_after_trip, "no retry while cooling down");
+    }
+
+    #[tokio::test]
+    async fn breaker_cooldown_escalates_and_success_clears_history() {
+        let _g = engine_test_lock().lock().await;
+        reset_engine_state_for_tests();
+        // Pure health-core test (no net): streak-2 trip, exponential
+        // escalation across REPEATED trips, and success clearing history.
+        trip_circuit_breaker("esc-engine", "zero 1");
+        assert_eq!(engine_cooldown_remaining_ms("esc-engine"), 0, "streak 1 only");
+        trip_circuit_breaker("esc-engine", "zero 2"); // trip #1
+        let c1 = engine_cooldown_remaining_ms("esc-engine");
+        assert!(c1 > 0 && c1 <= ENGINE_COOLDOWN_MS, "first trip: base 60 s");
+        trip_circuit_breaker("esc-engine", "zero 3");
+        trip_circuit_breaker("esc-engine", "zero 4"); // trip #2 ⇒ escalated
+        let c2 = engine_cooldown_remaining_ms("esc-engine");
+        assert!(c2 > ENGINE_COOLDOWN_MS && c2 <= 2 * ENGINE_COOLDOWN_MS, "second trip doubles the cooldown");
+        note_engine_success("esc-engine"); // healthy again ⇒ escalation history gone
+        trip_circuit_breaker("esc-engine", "zero 5");
+        trip_circuit_breaker("esc-engine", "zero 6"); // trip back at base
+        let c3 = engine_cooldown_remaining_ms("esc-engine");
+        assert!(c3 > 0 && c3 <= ENGINE_COOLDOWN_MS, "success resets escalation to base");
+    }
+
+    #[tokio::test]
     async fn brave_dom_miss_falls_back_to_initial_state_json() {
         let _g = engine_test_lock().lock().await;
         reset_engine_state_for_tests();
@@ -3385,7 +3541,8 @@ mod serp_tests {
             "created_at passthrough"
         );
         assert!(out.iter().all(|r| r.engine == "github"));
-        // GitHub never trips/notes its own breaker:
+        // Non-empty results ⇒ github noted its own success (Step A), which
+        // also clears any stale escalation — cooldown stays 0:
         assert_eq!(engine_cooldown_remaining_ms("github"), 0);
     }
 

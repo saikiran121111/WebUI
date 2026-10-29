@@ -498,8 +498,28 @@ fn json_headers(ct: &str) -> Vec<(String, String)> {
 
 use chrono::{DateTime, SecondsFormat};
 use scraper::{Html, Selector};
+use crate::engines::{engine_pacer_with_breaker, note_engine_success, trip_circuit_breaker};
 
 pub fn wikipedia_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
+        // Guarded (bench 2026-10-29: 429x90, zero pacing/health state). An
+        // empty call is always a zero observation — inner early returns
+        // (429/transport/unparseable JSON) all funnel through here.
+        if !engine_pacer_with_breaker("wikipedia").await {
+            return Vec::new();
+        }
+        let out = wikipedia_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("wikipedia", "wikipedia vertical returned 0 results");
+        } else {
+            note_engine_success("wikipedia");
+        }
+        out
+    })
+}
+
+fn wikipedia_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -575,6 +595,22 @@ fn concat_field(obj: &Value, key: &str) -> String {
 pub fn hackernews_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
+        if !engine_pacer_with_breaker("hackernews").await {
+            return Vec::new();
+        }
+        let out = hackernews_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("hackernews", "hackernews vertical returned 0 results");
+        } else {
+            note_engine_success("hackernews");
+        }
+        out
+    })
+}
+
+fn hackernews_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
         let url = format!(
             "https://hn.algolia.com/api/v1/search?query={}&hitsPerPage=5",
             enc_component(&q)
@@ -646,6 +682,22 @@ fn node_text(el: Option<scraper::ElementRef>) -> Option<String> {
 pub fn arxiv_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
+        if !engine_pacer_with_breaker("arxiv").await {
+            return Vec::new();
+        }
+        let out = arxiv_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("arxiv", "arxiv vertical returned 0 results");
+        } else {
+            note_engine_success("arxiv");
+        }
+        out
+    })
+}
+
+fn arxiv_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
         let url = format!(
             "http://export.arxiv.org/api/query?search_query=all:{}&max_results=5",
             enc_component(&q)
@@ -706,6 +758,22 @@ pub fn arxiv_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawS
 }
 
 pub fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
+        if !engine_pacer_with_breaker("stackexchange").await {
+            return Vec::new();
+        }
+        let out = stack_exchange_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("stackexchange", "stackexchange vertical returned 0 results");
+        } else {
+            note_engine_success("stackexchange");
+        }
+        out
+    })
+}
+
+fn stack_exchange_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -787,6 +855,22 @@ pub fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a,
 pub fn wikidata_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
+        if !engine_pacer_with_breaker("wikidata").await {
+            return Vec::new();
+        }
+        let out = wikidata_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("wikidata", "wikidata vertical returned 0 results");
+        } else {
+            note_engine_success("wikidata");
+        }
+        out
+    })
+}
+
+fn wikidata_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
         let url = format!(
             "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json\
              &language=en&uselang=en&limit=5&search={}",
@@ -852,6 +936,25 @@ pub fn wikidata_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<R
 }
 
 pub fn semantic_scholar_search<'a>(
+    net: &'a dyn Net,
+    query: &str,
+) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
+        if !engine_pacer_with_breaker("semantic-scholar").await {
+            return Vec::new();
+        }
+        let out = semantic_scholar_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("semantic-scholar", "semantic-scholar vertical returned 0 results");
+        } else {
+            note_engine_success("semantic-scholar");
+        }
+        out
+    })
+}
+
+fn semantic_scholar_vertical<'a>(
     net: &'a dyn Net,
     query: &str,
 ) -> BoxFuture<'a, Vec<RawSearchResult>> {
@@ -924,6 +1027,22 @@ pub fn semantic_scholar_search<'a>(
 }
 
 pub fn imdb_suggestion_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+    let q = query.to_string();
+    Box::pin(async move {
+        if !engine_pacer_with_breaker("imdb").await {
+            return Vec::new();
+        }
+        let out = imdb_vertical(net, &q).await;
+        if out.is_empty() {
+            trip_circuit_breaker("imdb", "imdb vertical returned 0 results");
+        } else {
+            note_engine_success("imdb");
+        }
+        out
+    })
+}
+
+fn imdb_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -1992,6 +2111,11 @@ mod tests {
 
     #[tokio::test]
     async fn wikipedia_gate_tag_strip_url_and_rank() {
+        // The verticals are pacer/breaker-guarded now (bench finding #2), so
+        // direct-vertical tests share the engines health statics — same
+        // lock+reset discipline as the metasearch() tests further below.
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
         let net = ScriptedNet::default().with_url(
             &wiki_url("FooBar wiki"),
             ok_body(
@@ -2017,6 +2141,8 @@ mod tests {
 
     #[tokio::test]
     async fn wikipedia_non_string_title_aborts_the_whole_stage() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
         let net = ScriptedNet::default().with_url(
             &wiki_url("FooBar wiki"),
             ok_body(
@@ -2031,10 +2157,38 @@ mod tests {
         // `s.title.replace(...)` TypeErrors → outer catch → stage [] —
         // the already-collected first entry is discarded with it.
         assert!(wikipedia_search(&net, "FooBar wiki").await.is_empty());
+        // The wrapper tail records this stage abort as a ZERO observation —
+        // one zero stays a streak (two would trip like any other source).
+        // Pre-Step-A the verticals recorded NOTHING at all: the 429-storm
+        // root cause.
+        assert_eq!(crate::engines::engine_cooldown_remaining_ms("wikipedia"), 0);
+    }
+
+    #[tokio::test]
+    async fn wikipedia_wrapper_trips_breaker_after_two_zeros() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
+        // Unscripted ⇒ the wiki API fetch yields None ⇒ empty output; the
+        // pub wrapper (not just metasearch()) is pacer+breaker-guarded.
+        let net = ScriptedNet::default();
+        assert!(wikipedia_search(&net, "nothing scripted").await.is_empty());
+        assert_eq!(crate::engines::engine_cooldown_remaining_ms("wikipedia"), 0, "streak 1 only");
+        assert!(wikipedia_search(&net, "nothing scripted").await.is_empty());
+        let remaining = crate::engines::engine_cooldown_remaining_ms("wikipedia");
+        assert!(remaining > 0, "the wrapper tail trips at streak 2");
+        let calls_after_trip = net.calls.lock().expect("lock").len();
+        assert!(wikipedia_search(&net, "nothing scripted").await.is_empty());
+        assert_eq!(
+            net.calls.lock().expect("lock").len(),
+            calls_after_trip,
+            "the guard head skips: ZERO fetches while cooling down"
+        );
     }
 
     #[tokio::test]
     async fn arxiv_atom_whitespace_collapse_gate_and_published() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
         let url = format!(
             "http://export.arxiv.org/api/query?search_query=all:{}&max_results=5",
             enc_component("Quantum foo bar")
@@ -2068,6 +2222,8 @@ mod tests {
 
     #[tokio::test]
     async fn stackexchange_bad_creation_date_aborts_and_never_retries() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
         let url = format!(
             "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q={}&site=stackoverflow&pagesize=15",
             enc_component("Foo bar")
@@ -2089,6 +2245,8 @@ mod tests {
 
     #[tokio::test]
     async fn stackexchange_creation_date_rfc3339_and_snippet_eq_title() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
         let url = format!(
             "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q={}&site=stackoverflow&pagesize=15",
             enc_component("Foo bar")
@@ -2118,6 +2276,8 @@ mod tests {
 
     #[tokio::test]
     async fn imdb_id_and_kind_filters_with_cap_at_five() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
         let url = format!(
             "https://v3.sg.media-imdb.com/suggestion/x/{}.json?include_WARNINGS=false",
             enc_component("the movie")
