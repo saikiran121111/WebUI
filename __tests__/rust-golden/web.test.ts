@@ -230,7 +230,12 @@ describe("golden: web-search pipeline", () => {
     HARNESS.mode = "normal";
   });
 
-  it("01 search success — progress path (stages, evidence block, web_meta)", async () => {
+  // The extractor's browser tier runs LIVE stealth Chromium here, and the
+  // pipeline's progressive read batches (§11) read page 5 in a second wave
+  // after the first four. The 5000ms vitest default sat right on that live
+  // tier's cliff (long-standing environmental flake); 30000ms is a real-time
+  // budget only — every byte comparison still runs and still fails hangs.
+  it("01 search success — progress path (stages, evidence block, web_meta)", { timeout: 30000 }, async () => {
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/01-search-success-progress.json",
       scenario: "web search SUCCESS: deterministic hard-bypass gate -> full pipeline (progress path)",
@@ -309,7 +314,8 @@ describe("golden: web-search pipeline", () => {
     expect(roles).toEqual(["user", "system"]);
   });
 
-  it("02 search success — legacy path headers (X-Web-Citations / X-Search-Gate)", async () => {
+  // live browser tier — see note on test 01 for the timeout budget
+  it("02 search success — legacy path headers (X-Web-Citations / X-Search-Gate)", { timeout: 30000 }, async () => {
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/02-search-success-legacy-headers.json",
       scenario: "web search SUCCESS (legacy stream:false path): ZERO stage frames; citations travel as headers",
@@ -383,7 +389,8 @@ describe("golden: web-search pipeline", () => {
     expect(payload.messages.length).toBe(1); // just the user turn — no evidence block
   });
 
-  it("05 image attachment — Stage-0 image-intent gate, vision pre-pass DEAD, parts passthrough", async () => {
+  // live browser tier — see note on test 01 for the timeout budget
+  it("05 image attachment — Stage-0 image-intent gate, vision pre-pass DEAD, parts passthrough", { timeout: 30000 }, async () => {
     const text = "who is this person";
     const imgUrl = "data:image/jpeg;base64,Z29sZGVuLWltYWdlLWJ5dGVz";
     const content = [

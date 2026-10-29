@@ -115,6 +115,31 @@ use crate::browser_bridge::BrowserBridge;
 use crate::cache::{CacheError, SearchCache};
 use crate::engines::engine_cooldown_remaining_ms;
 use crate::extractor::{baseline_packets_for, next_source_index, renumber_packets, Extractor};
+// §11/§21 progressive-read batching + sufficiency target. Thresholds sit
+// deliberately ABOVE the scripted golden pool (5 pages ⇒ at most 5 good
+// packets < 6), so the goldens always read fully and their SSE/packet
+// bytes stay identical; the early stop can only fire on production pools.
+// Retuning these needs a §33 quality comparison, not just timer math.
+const READ_FIRST_BATCH: usize = 4;
+const READ_BATCH_STEP: usize = 3;
+const READ_MAX_PAGES: usize = 10;
+const EVIDENCE_GOOD_TARGET: usize = 6;
+const EVIDENCE_DOMAIN_MIN: usize = 3;
+const GOOD_MIN_PASSAGE_CHARS: usize = 400;
+
+/// "Good" evidence: the cascade terminated clean (classification None ==
+/// the tally's "ok" — the fixtures carry NO classification keys) AND its
+/// passage body carries real text (snippet-baseline shapes don't count).
+fn is_good_evidence(p: &EvidencePacket) -> bool {
+    p.classification.is_none()
+        && p.passages
+            .iter()
+            .map(|x| x.passage_text.chars().count())
+            .sum::<usize>()
+            >= GOOD_MIN_PASSAGE_CHARS
+}
+
+use futures_util::future::join_all;
 use crate::google_maps::{get_google_maps_evidence, is_google_maps_url, maps_companion_query, MapsEvidence};
 use crate::metasearch::{
     count_lexically_relevant, metasearch, metasearch_with_freshness_recovery, SearchPlan,
@@ -792,20 +817,31 @@ pub async fn run_web_research(
                 }
             })
             .collect();
-        let mut direct_results: Vec<RankedResult> = Vec::new();
-        if !direct_targets.is_empty() && !hit() {
+        // §26 direct-URL fast path: the TS comment promises direct targets
+        // fetched "in parallel with metasearch", but BOTH mirrors ran this
+        // sequentially — a single-URL prompt paid serial page reads before
+        // the SERP search even started. Now every direct target pre-reads
+        // CONCURRENTLY (slot order keeps the old sequential list's byte
+        // order) and the whole batch OVERLAPS the metasearch via
+        // tokio::join!. Extracted pages land in the page cache, so the
+        // reading hop's re-read of them is free.
+        let direct_fut = async {
+            if direct_targets.is_empty() || hit() {
+                return Vec::new();
+            }
             let t_direct = Instant::now();
-            for target in &direct_targets {
+            let slots: Vec<Option<RankedResult>> = join_all(direct_targets.iter().map(|target| async {
                 if hit() {
-                    break;
+                    return None;
                 }
                 let t_tgt = Instant::now();
                 match extractor.extract_url(target).await {
                     Ok(packet) => {
                         let first =
                             packet.passages.first().map(|p| p.passage_text.clone()).unwrap_or_default();
+                        tracing::info!(url = %target.url, direct_ms = t_tgt.elapsed().as_millis() as u64, "stage-0 direct target extracted");
                         // packet.title || target.domain — JS || truthiness:
-                        direct_results.push(RankedResult {
+                        Some(RankedResult {
                             title: if packet.title.is_empty() {
                                 target.domain.clone()
                             } else {
@@ -813,27 +849,33 @@ pub async fn run_web_research(
                             },
                             snippet: js_slice_head(&first, 300),
                             ..target.clone()
-                        });
-                        tracing::info!(url = %target.url, direct_ms = t_tgt.elapsed().as_millis() as u64, "stage-0 direct target extracted");
+                        })
                     }
                     Err(_) => {
                         tracing::warn!(url = %target.url, "stage-0 direct target failed — SERP pool still covers it");
+                        None
                     }
                 }
-            }
-            if !direct_results.is_empty() {
+            }))
+            .await;
+            let out: Vec<RankedResult> = slots.into_iter().flatten().collect();
+            if !out.is_empty() {
                 tracing::info!(
                     direct_stage0_ms = t_direct.elapsed().as_millis() as u64,
-                    extracted = direct_results.len(),
+                    extracted = out.len(),
                     "stage-0 direct targets ready"
                 );
             }
-        }
+            out
+        };
         // TS maps plans with `freshness: gate.decision.freshness` as a
         // no-op spread here (every plan already carries it) — passed
         // directly (kept verbatim).
         let t_meta = Instant::now();
-        let fr = metasearch_with_freshness_recovery(net, &plans, 20).await;
+        let (direct_results, fr) = tokio::join!(
+            direct_fut,
+            metasearch_with_freshness_recovery(net, &plans, 20)
+        );
         let meta_ms = t_meta.elapsed().as_millis() as u64;
         if !direct_results.is_empty() {
             let seen: HashSet<String> =
@@ -1061,8 +1103,17 @@ pub async fn run_web_research(
         }));
     }
 
-    // 9) READING
-    let read_total = search_results.len().min(10);
+    // 9) READING — progressive, sufficiency-driven batches (brief §11/§21):
+    // best 4 concurrent first, evaluate at the batch boundary, fetch the
+    // next 3 ONLY if evidence is still thin; overall hard ceiling stays 10
+    // pages (the per-page tier-boundary budget math inside extract_all is
+    // untouched — each batch carries its own per-page deadline). Pages
+    // never reached still join the bundle as snippet baselines at step 12.
+    // The on_page wrapper reports cumulative done against the PLANNED
+    // total, so a fully-read pool emits byte-identical SSE frames to the
+    // old single extract_all call — the goldens, whose 5-page scripted
+    // pool can never reach EVIDENCE_GOOD_TARGET, never change.
+    let read_total = search_results.len().min(READ_MAX_PAGES);
     emit(&PipelineProgress {
         stage: PipelineStage::Reading,
         detail: Some(format!("Reading top {read_total} pages...")),
@@ -1072,18 +1123,48 @@ pub async fn run_web_research(
     let mut packets: Vec<EvidencePacket> = Vec::new();
     let t_read = Instant::now();
     if !(hit() || search_results.is_empty()) {
-        let on_page = |done: usize, total: usize| {
-            emit(&PipelineProgress {
-                stage: PipelineStage::Reading,
-                detail: Some(format!("Read {done} of {total} pages...")),
-                done: Some(done),
-                total: Some(total),
-                ..Default::default()
-            });
-        };
-        packets = extractor
-            .extract_all(&search_results, 10, Some(&on_page), None)
-            .await?;
+        let mut prev = 0usize;
+        while prev < read_total {
+            let step = if prev == 0 { READ_FIRST_BATCH } else { READ_BATCH_STEP };
+            let take = (prev + step).min(read_total);
+            let base = prev;
+            let on_page = |done: usize, _batch_total: usize| {
+                let n = base + done;
+                emit(&PipelineProgress {
+                    stage: PipelineStage::Reading,
+                    detail: Some(format!("Read {n} of {read_total} pages...")),
+                    done: Some(n),
+                    total: Some(read_total),
+                    ..Default::default()
+                });
+            };
+            let batch = &search_results[prev..take];
+            let mut b = extractor
+                .extract_all(batch, take - prev, Some(&on_page), None)
+                .await?;
+            // extract_all numbers S1.. per call; keep running global ids so
+            // batch 2's pages land at S(prev+1).. exactly as one full-window
+            // call numbered them.
+            renumber_packets(&mut b, next_source_index(&packets));
+            packets.append(&mut b);
+            prev = take;
+            let good: Vec<&EvidencePacket> = packets.iter().filter(|p| is_good_evidence(p)).collect();
+            let domains: HashSet<&str> = good.iter().map(|p| p.domain.as_str()).collect();
+            if good.len() >= EVIDENCE_GOOD_TARGET && domains.len() >= EVIDENCE_DOMAIN_MIN {
+                tracing::info!(
+                    pages_read = prev,
+                    pages_planned = read_total,
+                    good_packets = good.len(),
+                    domains = domains.len(),
+                    reading_ms = t_read.elapsed().as_millis() as u64,
+                    "reading hop early-stopped on sufficient evidence"
+                );
+                break;
+            }
+            if hit() {
+                break;
+            }
+        }
     }
     // Post-extraction classification tally: the one log line that answers
     // "why couldn't we access X?" without re-running the cascade — every
@@ -1159,7 +1240,10 @@ pub async fn run_web_research(
     let single_url_query = prompt_urls.len() == 1;
     emit(&PipelineProgress::of(PipelineStage::Reranking, "Reranking with BM25..."));
     let t_rerank = Instant::now();
-    let mut top_passages = rerank(&packets, &ctx.user_prompt, &q_texts, 30, single_url_query);
+    // §22 evidence density over volume: top 15 quality passages, not 30
+    // (BM25 ordering already dropped the weak tail; scripted goldens hold
+    // 10 passages each, so their bytes are unchanged).
+    let mut top_passages = rerank(&packets, &ctx.user_prompt, &q_texts, 15, single_url_query);
     tracing::info!(passages = top_passages.len(), rerank_ms = t_rerank.elapsed().as_millis() as u64, "rerank complete");
 
     // 14) gap-search second hop (packets list itself is NEVER reassigned —
@@ -1191,7 +1275,10 @@ pub async fn run_web_research(
         let t_gap_read = Instant::now();
         if !gap_results.is_empty() {
             gap_search_fired = true;
-            let mut gap_packets = extractor.extract_all(&gap_results, 5, None, None).await?;
+            // Gap hop reads only the best 3 pages (brief's ~3-page gap
+            // budget): the first hop already had the full page budget;
+            // the 2nd hop is a targeted top-up, not a re-read.
+            let mut gap_packets = extractor.extract_all(&gap_results, 3, None, None).await?;
             renumber_packets(&mut gap_packets, next_source_index(&packets));
             let all_packets: Vec<EvidencePacket> =
                 packets.iter().cloned().chain(gap_packets).collect();
@@ -1201,7 +1288,7 @@ pub async fn run_web_research(
                 &all_packets,
                 &format!("{} {}", ctx.user_prompt, gap_query),
                 &gq,
-                30,
+                15,
                 single_url_query,
             );
             tracing::info!(

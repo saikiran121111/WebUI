@@ -67,6 +67,26 @@ import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("web-search/pipeline");
 
+// §11/§21 progressive read batches + evidence-sufficiency early stop
+// (mirrors the Rust pipeline constants).
+const READ_FIRST_BATCH = 4;
+const READ_BATCH_STEP = 3;
+const READ_MAX_PAGES = 10;
+const EVIDENCE_GOOD_TARGET = 6;
+const EVIDENCE_DOMAIN_MIN = 3;
+const GOOD_MIN_PASSAGE_CHARS = 400;
+
+// "Good" = clean extraction (no FAIL_*/classification label) with substance
+// behind it. shortcut: JS counts UTF-16 units where Rust counts chars —
+// immaterial at the 400 threshold.
+function isGoodEvidence(p: EvidencePacket): boolean {
+  return (
+    !p.classification &&
+    p.passages.reduce((n, x) => n + (x.passageText?.length ?? 0), 0) >=
+      GOOD_MIN_PASSAGE_CHARS
+  );
+}
+
 /**
  * Relevance floor: before handing evidence to the extractor, verify that
  * the fused results contain at least MIN_RELEVANT distinct URLs from
@@ -423,8 +443,15 @@ export async function runWebResearch(
     // if every search engine returns 429, the user's linked page is read.
     // These results are unshifted ahead of the SERP pool so they land in
     // the top-10 extraction window and become [S1] in the evidence block.
-    let directResults: RankedResult[] = [];
-    if (promptDomains.length > 0 && !ceilingHit()) {
+    // §26: the direct-target hop runs its targets CONCURRENTLY and OVERLAPS
+    // the whole hop with metasearch (previously sequential and BEFORE search
+    // started — the comment above always promised "in parallel with
+    // metasearch"; the code finally does). Slot order preserved by Promise.all.
+    // shortcut: ceilingHit() gates launch + per-target start, never mid-fetch
+    // abort (JS can't cancel in-flight fetches) — same coarse cancel
+    // semantics as raceToEnough.
+    const directFut = (async (): Promise<RankedResult[]> => {
+      if (promptDomains.length === 0 || ceilingHit()) return [];
       const directTargets = promptDomains.slice(0, 4).map((d) => ({
         url: d.url,
         canonical: d.url,
@@ -436,32 +463,38 @@ export async function runWebResearch(
         engines: ["direct-target"],
         engineRanks: { "direct-target": 1 },
       }));
-      for (const target of directTargets) {
-        if (ceilingHit()) break;
+      const settled = await Promise.all(directTargets.map(async (target): Promise<RankedResult | null> => {
+        if (ceilingHit()) return null;
         try {
           const packet = await extractUrl(target);
-          directResults.push({
-            ...target,
-            title: packet.title || target.domain,
-            snippet: (packet.passages?.[0]?.passageText ?? "").slice(0, 300),
-          });
           log.info(
             { domain: target.domain, classification: packet.classification, passages: packet.passages.length },
             "stage-0 direct target extracted",
           );
+          return {
+            ...target,
+            title: packet.title || target.domain,
+            snippet: (packet.passages?.[0]?.passageText ?? "").slice(0, 300),
+          };
         } catch {
           log.warn({ domain: target.domain }, "stage-0 direct target failed — SERP pool still covers it");
+          return null;
         }
+      }));
+      const ready = settled.filter((r): r is RankedResult => r !== null);
+      if (ready.length > 0) {
+        log.info({ domains: ready.map((r) => r.domain) }, "stage-0 direct targets ready");
       }
-      if (directResults.length > 0) {
-        log.info({ domains: directResults.map((r) => r.domain) }, "stage-0 direct targets ready");
-      }
-    }
+      return ready;
+    })();
 
-    const { results: fused, freshnessRecoveryUsed } = await metasearchWithFreshnessRecovery(
-      plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
-      20,
-    );
+    const [{ results: fused, freshnessRecoveryUsed }, directResults] = await Promise.all([
+      metasearchWithFreshnessRecovery(
+        plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
+        20,
+      ),
+      directFut,
+    ]);
     // Merge: direct targets first, then SERP results (dedup by canonical).
     if (directResults.length > 0) {
       const seen = new Set(directResults.map((d) => d.canonical));
@@ -655,30 +688,58 @@ export async function runWebResearch(
     };
   }
 
-  // ── extract (first hop) ────────────────────────────────────────────────
-  const readTotal = Math.min(10, searchResults.length);
+  // ── extract (first hop, §11/§21 progressive sufficiency-driven batches) ─
+  // Read the best READ_FIRST_BATCH, extend by READ_BATCH_STEP waves ONLY if
+  // evidence is still insufficient. The onPage wrapper emits cumulative counts
+  // against the PLANNED total, so a full read emits SSE bytes identical to the
+  // old single extractAll call. The sufficiency bar (>= EVIDENCE_GOOD_TARGET
+  // good packets AND >= EVIDENCE_DOMAIN_MIN domains) deliberately sits above
+  // the scripted golden pools (5 pages), so goldens always read fully and the
+  // fixtures stay byte-identical — no re-record.
+  const readTotal = Math.min(READ_MAX_PAGES, searchResults.length);
   onProgress?.({
     stage: "reading",
     detail: `Reading top ${readTotal} pages...`,
     total: readTotal,
   });
   const t = performance.now();
-  // onPage: real per-page completion inside the single extractAll await — the
+  // onPage: real per-page completion inside each extractAll await — the
   // client's "Reading web sources — page X of Y" step advances on measured
   // fetches, never on a timer.
-  let packets: (EvidencePacket & { classification: string })[] =
-    ceilingHit() || searchResults.length === 0
-      ? []
-      : await extractAll(
-    searchResults,
-    10,
-    (donePages, totalPages) => onProgress?.({
-      stage: "reading",
-      detail: `Read ${donePages} of ${totalPages} pages...`,
-      done: donePages,
-      total: totalPages,
-    }),
-  );
+  let packets: (EvidencePacket & { classification: string })[] = [];
+  if (!ceilingHit() && searchResults.length > 0) {
+    let prev = 0;
+    while (prev < readTotal) {
+      const step = prev === 0 ? READ_FIRST_BATCH : READ_BATCH_STEP;
+      const take = Math.min(prev + step, readTotal);
+      const base = prev;
+      const batch = await extractAll(
+        searchResults.slice(prev, take),
+        take - prev,
+        (donePages) => onProgress?.({
+          stage: "reading",
+          detail: `Read ${base + donePages} of ${readTotal} pages...`,
+          done: base + donePages,
+          total: readTotal,
+        }),
+      );
+      // extractAll numbers S1.. per call; keep running global ids so batch 2's
+      // pages land at S(prev+1).. exactly as one full-window call numbered.
+      renumberPackets(batch, nextSourceIndex(packets));
+      packets.push(...batch);
+      prev = take;
+      const good = packets.filter(isGoodEvidence);
+      const domains = new Set(good.map((p) => p.domain));
+      if (good.length >= EVIDENCE_GOOD_TARGET && domains.size >= EVIDENCE_DOMAIN_MIN) {
+        log.info(
+          { pagesRead: prev, pagesPlanned: readTotal, goodPackets: good.length, domains: domains.size },
+          "reading hop early-stopped on sufficient evidence",
+        );
+        break;
+      }
+      if (ceilingHit()) break;
+    }
+  }
   log.info({ ms: Math.round(performance.now() - t), packets: packets.length }, "extract all complete");
 
   // Prompt-URL video evidence joins the pool — deduped by video id against
@@ -728,9 +789,12 @@ export async function runWebResearch(
   const singleUrlQuery = promptUrls.length === 1;
 
   // ── rerank ─────────────────────────────────────────────────────────────
+  // §22 evidence density over volume: top 15 quality passages, not 30
+  // (BM25 ordering already dropped the weak tail; scripted goldens hold
+  // 10 passages each, so their bytes are unchanged).
   onProgress?.({ stage: "reranking", detail: "Reranking with BM25..." });
   const t2 = performance.now();
-  let topPassages = rerank(packets, ctx.userPrompt, qTexts, 30, {
+  let topPassages = rerank(packets, ctx.userPrompt, qTexts, 15, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
   });
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
@@ -752,14 +816,16 @@ export async function runWebResearch(
     const gapResults = await runGapMetasearch(coverage.gapQuery);
     if (gapResults.length > 0) {
       gapSearchFired = true;
-      const gapPackets = await extractAll(gapResults, 5);
+      // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
+      // fresh pages, not 5 (mirrors Rust).
+      const gapPackets = await extractAll(gapResults, 3);
       renumberPackets(gapPackets, nextSourceIndex(packets));
       const allPackets = [...packets, ...gapPackets];
       topPassages = rerank(
         allPackets,
         ctx.userPrompt + " " + coverage.gapQuery,
         [...qTexts, coverage.gapQuery],
-        30,
+        15,
         {
           ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
         },
