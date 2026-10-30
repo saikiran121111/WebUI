@@ -38,7 +38,9 @@ use crate::AppState;
 
 pub async fn notes_get(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match read_notes(&state.root, &id) {
-        Some(notes) if !notes.is_empty() => json_response(StatusCode::OK, json!({ "notes": notes })),
+        Some(notes) if !notes.is_empty() => {
+            json_response(StatusCode::OK, json!({ "notes": notes }))
+        }
         _ => err(StatusCode::NOT_FOUND, "No cached notes for this attachment"),
     }
 }
@@ -57,9 +59,17 @@ pub async fn notes_post(
 
 /// The POST body, factored out so the abort (499) branch can be driven
 /// with a pre-cancelled token — the TS route's only throwing path.
-async fn notes_post_inner(state: &AppState, att_id: &str, force: bool, token: &CancellationToken) -> Response {
+async fn notes_post_inner(
+    state: &AppState,
+    att_id: &str,
+    force: bool,
+    token: &CancellationToken,
+) -> Response {
     if !has_index(&state.root, att_id) {
-        return err(StatusCode::NOT_FOUND, "No knowledge index for this attachment");
+        return err(
+            StatusCode::NOT_FOUND,
+            "No knowledge index for this attachment",
+        );
     }
     if !force {
         // `if (cached)` — truthy only: `Some("")` falls through to regen.
@@ -88,7 +98,9 @@ async fn notes_post_inner(state: &AppState, att_id: &str, force: bool, token: &C
             tracing::warn!(att_id, "notes generation aborted by client");
             err(StatusCode::from_u16(499).unwrap(), "Cancelled")
         }
-        Ok(notes) if notes.is_empty() => err(StatusCode::UNPROCESSABLE_ENTITY, "Nothing to summarize"),
+        Ok(notes) if notes.is_empty() => {
+            err(StatusCode::UNPROCESSABLE_ENTITY, "Nothing to summarize")
+        }
         Ok(notes) => json_response(StatusCode::OK, json!({ "notes": notes, "cached": false })),
     }
 }
@@ -110,7 +122,7 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::Request;
-    use ruke_attach::{UnavailableEmbedder, write_notes};
+    use ruke_attach::{write_notes, UnavailableEmbedder};
     use ruke_core::{settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
     use tower::ServiceExt; // oneshot
 
@@ -120,7 +132,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         seed(tmp.path());
         let slot = Arc::new(InferenceSlot::new());
-        let store = Arc::new(crate::persistence::ConversationStore::new(tmp.path().join("conversations")));
+        let store = Arc::new(crate::persistence::ConversationStore::new(
+            tmp.path().join("conversations"),
+        ));
         let state = AppState {
             settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
             slot: slot.clone(),
@@ -158,7 +172,8 @@ mod tests {
     /// One spine block over chunk 0 ⇒ `generateNotes` reaches
     /// `noteForBlock` (the only place the abort can surface).
     const META_SPINE: &str = r#"{"attId":"att_notes2","name":"n","category":"text","createdAt":0,"chunkCount":1,"spine":"s","spineBlocks":[{"startSec":0.0,"endSec":60.0,"chunkFrom":0,"chunkTo":0,"keywords":[],"opening":"o","closing":"c"}],"frames":[]}"#;
-    const CHUNK0: &str = "{\"i\":0,\"startSec\":null,\"endSec\":null,\"text\":\"body text\",\"vec\":[]}\n";
+    const CHUNK0: &str =
+        "{\"i\":0,\"startSec\":null,\"endSec\":null,\"text\":\"body text\",\"vec\":[]}\n";
 
     async fn call(state: &AppState, method: &str, uri: &str) -> (StatusCode, Value) {
         let req = Request::builder()
@@ -166,9 +181,14 @@ mod tests {
             .uri(uri)
             .body(Body::empty())
             .unwrap();
-        let resp = crate::build_router(state.clone()).oneshot(req).await.unwrap();
+        let resp = crate::build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
         let status = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
@@ -178,21 +198,37 @@ mod tests {
             // att_notes1: index present, no notes file at all.
             seed_store(root, "att_notes1", META1, "");
             // att_notes3: empty-string note (the falsy nuance).
-            seed_store(root, "att_notes3", &META1.replace("att_notes1", "att_notes3"), "");
+            seed_store(
+                root,
+                "att_notes3",
+                &META1.replace("att_notes1", "att_notes3"),
+                "",
+            );
             write_notes(root, "att_notes3", "").unwrap();
             // att_notes4: a real cached note.
-            seed_store(root, "att_notes4", &META1.replace("att_notes1", "att_notes4"), "");
+            seed_store(
+                root,
+                "att_notes4",
+                &META1.replace("att_notes1", "att_notes4"),
+                "",
+            );
             write_notes(root, "att_notes4", "cached body").unwrap();
         };
         let (state, _tmp) = seeded_state(root_seed);
 
         let (status, body) = call(&state, "GET", "/api/ruke/attach/att_notes1/notes").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body, json!({ "error": "No cached notes for this attachment" }));
+        assert_eq!(
+            body,
+            json!({ "error": "No cached notes for this attachment" })
+        );
 
         let (status, body) = call(&state, "GET", "/api/ruke/attach/att_notes3/notes").await;
         assert_eq!(status, StatusCode::NOT_FOUND, "empty note is FALSY in TS");
-        assert_eq!(body, json!({ "error": "No cached notes for this attachment" }));
+        assert_eq!(
+            body,
+            json!({ "error": "No cached notes for this attachment" })
+        );
 
         let (status, body) = call(&state, "GET", "/api/ruke/attach/att_notes4/notes").await;
         assert_eq!(status, StatusCode::OK);
@@ -204,7 +240,10 @@ mod tests {
         // routing, not at the store — so probe an ATT_RE failure here.)
         let (status, body) = call(&state, "GET", "/api/ruke/attach/xyz/notes").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body, json!({ "error": "No cached notes for this attachment" }));
+        assert_eq!(
+            body,
+            json!({ "error": "No cached notes for this attachment" })
+        );
     }
 
     #[tokio::test]
@@ -215,7 +254,10 @@ mod tests {
 
         let (status, body) = call(&state, "POST", "/api/ruke/attach/att_missing1/notes").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body, json!({ "error": "No knowledge index for this attachment" }));
+        assert_eq!(
+            body,
+            json!({ "error": "No knowledge index for this attachment" })
+        );
 
         // Malformed id fails hasIndex too (store parity, not an error path).
         let (status, _) = call(&state, "POST", "/api/ruke/attach/x/notes").await;
@@ -232,12 +274,19 @@ mod tests {
         let (state, _tmp) = seeded_state(|root| {
             seed_store(root, "att_notes1", META1, "");
             write_notes(root, "att_notes1", "keep me").unwrap();
-            seed_store(root, "att_notes3", &META1.replace("att_notes1", "att_notes3"), "");
+            seed_store(
+                root,
+                "att_notes3",
+                &META1.replace("att_notes1", "att_notes3"),
+                "",
+            );
             write_notes(root, "att_notes3", "").unwrap();
         });
         // Pin the LLM target OFF the live server (golden seam): the
         // spineless index generates Ok("") WITHOUT ever fetching.
-        state.settings.set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
+        state
+            .settings
+            .set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
 
         let (status, body) = call(&state, "POST", "/api/ruke/attach/att_notes1/notes").await;
         assert_eq!(status, StatusCode::OK);
@@ -251,12 +300,18 @@ mod tests {
 
         // force=1 skips even a TRUTHY cache ⇒ same 422 (the cached note
         // is not returned and not consulted).
-        let (status, body) = call(&state, "POST", "/api/ruke/attach/att_notes1/notes?force=1").await;
+        let (status, body) =
+            call(&state, "POST", "/api/ruke/attach/att_notes1/notes?force=1").await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body, json!({ "error": "Nothing to summarize" }));
 
         // A non-"1" force value is NOT force (strict === "1").
-        let (status, body) = call(&state, "POST", "/api/ruke/attach/att_notes1/notes?force=yes").await;
+        let (status, body) = call(
+            &state,
+            "POST",
+            "/api/ruke/attach/att_notes1/notes?force=yes",
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, json!({ "notes": "keep me", "cached": true }));
     }
@@ -269,13 +324,20 @@ mod tests {
         let (state, _tmp) = seeded_state(|root| {
             seed_store(root, "att_notes2", META_SPINE, CHUNK0);
         });
-        state.settings.set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
+        state
+            .settings
+            .set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
 
         let token = CancellationToken::new();
         token.cancel();
         let resp = notes_post_inner(&state, "att_notes2", true, &token).await;
         assert_eq!(resp.status(), StatusCode::from_u16(499).unwrap());
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), json!({ "error": "Cancelled" }));
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap(),
+            json!({ "error": "Cancelled" })
+        );
     }
 }

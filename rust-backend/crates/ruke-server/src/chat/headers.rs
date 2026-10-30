@@ -63,11 +63,23 @@ pub fn stream_headers(
     search_gate: Option<&ResearchMeta>,
 ) -> HeaderMap {
     let mut h = HeaderMap::new();
-    insert(&mut h, axum::http::header::CONTENT_TYPE, content_type.unwrap_or("text/event-stream"));
-    insert(&mut h, axum::http::header::CACHE_CONTROL, "no-cache, no-transform");
+    insert(
+        &mut h,
+        axum::http::header::CONTENT_TYPE,
+        content_type.unwrap_or("text/event-stream"),
+    );
+    insert(
+        &mut h,
+        axum::http::header::CACHE_CONTROL,
+        "no-cache, no-transform",
+    );
     insert(&mut h, axum::http::header::CONNECTION, "keep-alive");
     insert(&mut h, HeaderName::from_static("x-accel-buffering"), "no");
-    insert(&mut h, HeaderName::from_static("x-decision-mode"), decision_mode);
+    insert(
+        &mut h,
+        HeaderName::from_static("x-decision-mode"),
+        decision_mode,
+    );
     // Slash-routed user skill only — decision-engine core skills NEVER ride
     // this header (strict-invisibility rule, project CLAUDE.md §2.2).
     if let Some(s) = used_skill {
@@ -127,7 +139,10 @@ mod tests {
     fn progress_headers_exact_order_and_defaults() {
         let h = stream_headers(None, None, "chart", None, None);
         assert_eq!(h[axum::http::header::CONTENT_TYPE], "text/event-stream");
-        assert_eq!(h[axum::http::header::CACHE_CONTROL], "no-cache, no-transform");
+        assert_eq!(
+            h[axum::http::header::CACHE_CONTROL],
+            "no-cache, no-transform"
+        );
         assert_eq!(h[axum::http::header::CONNECTION], "keep-alive");
         assert_eq!(h["x-accel-buffering"], "no");
         assert_eq!(h["x-decision-mode"], "chart");
@@ -136,7 +151,13 @@ mod tests {
 
     #[test]
     fn upstream_content_type_and_used_skill_pass_through() {
-        let h = stream_headers(Some("application/json"), Some("pdf-report"), "pdf", None, None);
+        let h = stream_headers(
+            Some("application/json"),
+            Some("pdf-report"),
+            "pdf",
+            None,
+            None,
+        );
         assert_eq!(h[axum::http::header::CONTENT_TYPE], "application/json");
         assert_eq!(h["x-used-skill"], "pdf-report");
     }
@@ -145,7 +166,13 @@ mod tests {
     fn web_gate_headers_encode_like_the_ts_wire() {
         // The map value is the compact JSON, encodeURIComponent'd — the
         // TS header is `encodeURIComponent(JSON.stringify(map))`.
-        let h = stream_headers(None, None, "research_chat", Some(&cite("S1", "https://x.example/a?b=1&c=2")), Some(&gate()));
+        let h = stream_headers(
+            None,
+            None,
+            "research_chat",
+            Some(&cite("S1", "https://x.example/a?b=1&c=2")),
+            Some(&gate()),
+        );
         assert_eq!(
             h["x-web-citations"],
             "%7B%22S1%22%3A%7B%22sourceId%22%3A%22S1%22%2C%22url%22%3A%22https%3A%2F%2Fx.example%2Fa%3Fb%3D1%26c%3D2%22%2C%22title%22%3A%22t%22%2C%22domain%22%3A%22d.example%22%7D%7D"

@@ -65,32 +65,29 @@ async fn raw_handshake(
     origin: &str,
     ticket: &str,
 ) -> axum::http::StatusCode {
-    let probe = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        async {
-            let mut stream = TcpStream::connect(addr).await.expect("connect server");
-            let req = format!(
-                "GET /api/ruke/browser/ws?ticket={ticket} HTTP/1.1\r\n\
+    let probe = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut stream = TcpStream::connect(addr).await.expect("connect server");
+        let req = format!(
+            "GET /api/ruke/browser/ws?ticket={ticket} HTTP/1.1\r\n\
                  Host: {addr}\r\nConnection: upgrade\r\nUpgrade: websocket\r\n\
                  Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
                  Sec-WebSocket-Version: 13\r\nOrigin: {origin}\r\n\r\n"
-            );
-            stream.write_all(req.as_bytes()).await.expect("send");
-            let mut buf: Vec<u8> = Vec::new();
-            let mut tmp = [0u8; 512];
-            loop {
-                let n = stream.read(&mut tmp).await.expect("read");
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-                if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 8192 {
-                    break;
-                }
+        );
+        stream.write_all(req.as_bytes()).await.expect("send");
+        let mut buf: Vec<u8> = Vec::new();
+        let mut tmp = [0u8; 512];
+        loop {
+            let n = stream.read(&mut tmp).await.expect("read");
+            if n == 0 {
+                break;
             }
-            String::from_utf8_lossy(&buf).into_owned()
-        },
-    )
+            buf.extend_from_slice(&tmp[..n]);
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 8192 {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&buf).into_owned()
+    })
     .await
     .expect("handshake response within 5s");
     let head = probe.lines().next().unwrap_or("").to_string();
@@ -145,7 +142,10 @@ async fn panel_ticket_and_socket_admission() {
     //    entropy between mints (no derivable sequence).
     let v = mint_ticket(app.clone()).await;
     assert_eq!(v["ok"], serde_json::json!(true));
-    let first = v["data"]["ticket"].as_str().expect("ticket present").to_string();
+    let first = v["data"]["ticket"]
+        .as_str()
+        .expect("ticket present")
+        .to_string();
     assert_eq!(first.len(), 32);
     assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
     let v2 = mint_ticket(app.clone()).await;

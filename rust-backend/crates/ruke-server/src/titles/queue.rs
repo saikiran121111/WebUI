@@ -60,7 +60,9 @@ use ruke_skills::jsstr;
 
 use crate::persistence::{now_ms, ConversationStore};
 use crate::titles::generate::{self, TitleCallModel};
-use crate::titles::policy::{apply_title_to_doc, first_user_text, looks_auto_title, should_generate};
+use crate::titles::policy::{
+    apply_title_to_doc, first_user_text, looks_auto_title, should_generate,
+};
 
 const MAX_ATTEMPTS: usize = 2;
 const RETRY_DELAY_MS: u64 = 3000;
@@ -80,10 +82,18 @@ pub struct JobResult {
 
 impl JobResult {
     fn ok_title(title: String) -> Self {
-        Self { ok: true, title: Some(title), reason: None }
+        Self {
+            ok: true,
+            title: Some(title),
+            reason: None,
+        }
     }
     fn fail(reason: &str) -> Self {
-        Self { ok: false, title: None, reason: Some(reason.to_string()) }
+        Self {
+            ok: false,
+            title: None,
+            reason: Some(reason.to_string()),
+        }
     }
     /// Spread into the route response: `{ queued: true, ...done }`.
     pub fn to_json(&self) -> Value {
@@ -135,7 +145,9 @@ pub struct TitleQueue {
 
 impl Clone for TitleQueue {
     fn clone(&self) -> Self {
-        Self { inner: Arc::clone(&self.inner) }
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
     }
 }
 
@@ -162,7 +174,11 @@ fn msgs_of(doc: &Value) -> &Value {
 }
 
 impl TitleQueue {
-    pub fn new(store: Arc<ConversationStore>, slot: Arc<InferenceSlot>, model: Arc<dyn TitleCallModel>) -> Self {
+    pub fn new(
+        store: Arc<ConversationStore>,
+        slot: Arc<InferenceSlot>,
+        model: Arc<dyn TitleCallModel>,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 store,
@@ -183,7 +199,10 @@ impl TitleQueue {
         };
         // `const meta = doc.meta ?? {}` — a stand-in whose keys all read
         // missing matches every non-object meta too (Value::get → None).
-        let meta = doc.get("meta").cloned().unwrap_or_else(|| Value::Object(Map::new()));
+        let meta = doc
+            .get("meta")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new()));
         if meta.get("titleSource").and_then(Value::as_str) == Some("manual") {
             return RequestOutcome::Skipped("manual".into());
         }
@@ -216,7 +235,9 @@ impl TitleQueue {
                 existing.pending.store(true, Ordering::Release);
                 return RequestOutcome::Coalesced;
             }
-            let flag = Arc::new(EntryFlag { pending: AtomicBool::new(false) });
+            let flag = Arc::new(EntryFlag {
+                pending: AtomicBool::new(false),
+            });
             entries.insert(id.to_string(), Arc::clone(&flag));
             flag
         };
@@ -262,7 +283,11 @@ impl TitleQueue {
 impl Inner {
     /// `runJob` verbatim; TS throws (→ job promise rejects → route 500)
     /// surface as the `Err` arm.
-    async fn run_job(self: &Arc<Inner>, id: &str, model: Option<&str>) -> Result<JobResult, String> {
+    async fn run_job(
+        self: &Arc<Inner>,
+        id: &str,
+        model: Option<&str>,
+    ) -> Result<JobResult, String> {
         let doc = match parse_doc(self.store.get(id)) {
             Some(d) => d,
             None => return Ok(JobResult::fail("not-found")),
@@ -289,7 +314,11 @@ impl Inner {
 
         // The user's conversation always owns the shared inference slot:
         // wait for an idle window (30 s, 1 s step — inference-busy.ts).
-        if !self.slot.wait_for_user_idle(Duration::from_secs(IDLE_WAIT_MS), Duration::from_secs(1)).await {
+        if !self
+            .slot
+            .wait_for_user_idle(Duration::from_secs(IDLE_WAIT_MS), Duration::from_secs(1))
+            .await
+        {
             return Ok(JobResult::fail("user-inference-busy"));
         }
 
@@ -317,7 +346,11 @@ impl Inner {
                     false => return Ok(JobResult::fail("stale-or-manual")),
                 }
             }
-            tracing::warn!(id, attempt = attempt as u64, "title generation produced nothing usable");
+            tracing::warn!(
+                id,
+                attempt = attempt as u64,
+                "title generation produced nothing usable"
+            );
             if attempt + 1 < MAX_ATTEMPTS {
                 tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
             }
@@ -478,17 +511,32 @@ mod tests {
         let q = TitleQueue::new(store.clone(), slot, model);
 
         // not-found
-        assert!(matches!(q.request("missing", None, false), RequestOutcome::Skipped(r) if r == "not-found"));
+        assert!(
+            matches!(q.request("missing", None, false), RequestOutcome::Skipped(r) if r == "not-found")
+        );
         // manual — the manual guard runs BEFORE the force gate (TS order)
         store
             .save(
                 "man",
-                &doc_json(r#"[{"role":"user","content":"a"},{"role":"assistant","content":"b"}]"#, r#"{"titleSource":"manual"}"#),
+                &doc_json(
+                    r#"[{"role":"user","content":"a"},{"role":"assistant","content":"b"}]"#,
+                    r#"{"titleSource":"manual"}"#,
+                ),
             )
             .unwrap();
-        assert!(matches!(q.request("man", None, true), RequestOutcome::Skipped(r) if r == "manual"));
+        assert!(
+            matches!(q.request("man", None, true), RequestOutcome::Skipped(r) if r == "manual")
+        );
         // fresh (count delta < 4)
-        store.save("fr", &doc_json(r#"[{"role":"user","content":"a"}]"#, r#"{"titleGenCount":10}"#)).unwrap();
+        store
+            .save(
+                "fr",
+                &doc_json(
+                    r#"[{"role":"user","content":"a"}]"#,
+                    r#"{"titleGenCount":10}"#,
+                ),
+            )
+            .unwrap();
         assert!(matches!(q.request("fr", None, false), RequestOutcome::Skipped(r) if r == "fresh"));
         // force + user-authored title (not an auto prefix) ⇒ not-auto-title
         store
@@ -500,11 +548,19 @@ mod tests {
                 ),
             )
             .unwrap();
-        assert!(matches!(q.request("ua", None, true), RequestOutcome::Skipped(r) if r == "not-auto-title"));
+        assert!(
+            matches!(q.request("ua", None, true), RequestOutcome::Skipped(r) if r == "not-auto-title")
+        );
         // force + placeholder title ⇒ auto ⇒ queued (job then fails for
         // lack of an assistant reply — force SKIPS the shouldGenerate gate).
         store
-            .save("ph", &doc_json(r#"[{"role":"user","content":"one user msg"}]"#, r#"{"title":"New conversation"}"#))
+            .save(
+                "ph",
+                &doc_json(
+                    r#"[{"role":"user","content":"one user msg"}]"#,
+                    r#"{"title":"New conversation"}"#,
+                ),
+            )
             .unwrap();
         let rx = queued!(q, "ph", None, true);
         let job = rx.await.unwrap().unwrap();
@@ -515,7 +571,9 @@ mod tests {
     async fn request_queued_writes_title() {
         let (store, _t) = two_msg_store();
         let slot = Arc::new(InferenceSlot::new());
-        let (model, m) = mock_pair(Arc::new(AnswerMock::new(vec![Some("First Sidebar Title".into())])));
+        let (model, m) = mock_pair(Arc::new(AnswerMock::new(vec![Some(
+            "First Sidebar Title".into(),
+        )])));
         let q = TitleQueue::new(store.clone(), slot, model);
         let rx = queued!(q, "c1", None, false);
         let job = rx.await.unwrap().unwrap();
@@ -523,7 +581,10 @@ mod tests {
         assert_eq!(m.count(), 1);
         // Saved doc carries the guarded-write fields; updatedAt untouched.
         let saved: Value = serde_json::from_str(&store.get("c1").unwrap()).unwrap();
-        assert_eq!(saved["meta"]["title"], Value::String("First Sidebar Title".into()));
+        assert_eq!(
+            saved["meta"]["title"],
+            Value::String("First Sidebar Title".into())
+        );
         assert_eq!(saved["meta"]["titleSource"], Value::String("auto".into()));
         assert_eq!(saved["meta"]["titleGenCount"], Value::from(2));
         // Entry removed under the lock BEFORE the send ⇒ empty right after await.
@@ -552,7 +613,10 @@ mod tests {
     async fn coalescing_reruns_on_fresh_history() {
         let (store, _t) = two_msg_store();
         let slot = Arc::new(InferenceSlot::new());
-        let mock = Arc::new(AnswerMock::new(vec![Some("First Title Kept".into()), Some("Second Title Kept".into())]));
+        let mock = Arc::new(AnswerMock::new(vec![
+            Some("First Title Kept".into()),
+            Some("Second Title Kept".into()),
+        ]));
         let (tx, rx_gate) = oneshot::channel();
         mock.set_gate(rx_gate);
         let (model, m) = mock_pair(mock);
@@ -564,14 +628,20 @@ mod tests {
         started.as_mut().enable();
         let rx1 = queued!(q, "c1", None, false);
         started.await; // job is mid-call (gate holding)
-        // A newer request lands mid-job ⇒ coalesced, never awaited.
-        assert!(matches!(q.request("c1", None, true), RequestOutcome::Coalesced));
+                       // A newer request lands mid-job ⇒ coalesced, never awaited.
+        assert!(matches!(
+            q.request("c1", None, true),
+            RequestOutcome::Coalesced
+        ));
         drop(tx); // release the first call
         let job = rx1.await.unwrap().unwrap();
         assert_eq!(job, JobResult::ok_title("Second Title Kept".into())); // LAST result wins
         assert_eq!(m.count(), 2);
         let saved: Value = serde_json::from_str(&store.get("c1").unwrap()).unwrap();
-        assert_eq!(saved["meta"]["title"], Value::String("Second Title Kept".into()));
+        assert_eq!(
+            saved["meta"]["title"],
+            Value::String("Second Title Kept".into())
+        );
         assert!(q.inner.entries.lock().unwrap().is_empty());
     }
 
@@ -585,7 +655,10 @@ mod tests {
             )
             .unwrap();
         let slot = Arc::new(InferenceSlot::new());
-        let mock = Arc::new(AnswerMock::new(vec![Some("Title One".into()), Some("Title Two".into())]));
+        let mock = Arc::new(AnswerMock::new(vec![
+            Some("Title One".into()),
+            Some("Title Two".into()),
+        ]));
         let (tx, rx_gate) = oneshot::channel();
         mock.set_gate(rx_gate);
         let (model, m) = mock_pair(mock);
@@ -600,8 +673,14 @@ mod tests {
         // (the global chain spans each task's whole run).
         assert_eq!(m.count(), 1);
         drop(tx);
-        assert_eq!(rx1.await.unwrap().unwrap(), JobResult::ok_title("Title One".into()));
-        assert_eq!(rx2.await.unwrap().unwrap(), JobResult::ok_title("Title Two".into()));
+        assert_eq!(
+            rx1.await.unwrap().unwrap(),
+            JobResult::ok_title("Title One".into())
+        );
+        assert_eq!(
+            rx2.await.unwrap().unwrap(),
+            JobResult::ok_title("Title Two".into())
+        );
         assert_eq!(m.count(), 2);
     }
 
@@ -611,7 +690,10 @@ mod tests {
         let slot = Arc::new(InferenceSlot::new());
         // Each call returns ONLY on token cancel (TS: the registered
         // controller aborts the fetch → plan null, aborted=true).
-        let mock = Arc::new(AnswerMock { wait_cancel: true, ..AnswerMock::new(vec![]) });
+        let mock = Arc::new(AnswerMock {
+            wait_cancel: true,
+            ..AnswerMock::new(vec![])
+        });
         let (model, m) = mock_pair(mock);
         let q = TitleQueue::new(store.clone(), slot.clone(), model);
 
@@ -619,8 +701,8 @@ mod tests {
         started.as_mut().enable(); // registered NOW (pre-request)
         let rx = queued!(q, "c1", None, false);
         started.await; // model call in flight, slot idle
-        // A real user turn claims the slot mid-call: begin_user_turn
-        // cancels every registered title token.
+                       // A real user turn claims the slot mid-call: begin_user_turn
+                       // cancels every registered title token.
         slot.begin_user_turn();
         let job = rx.await.unwrap().unwrap();
         assert_eq!(job, JobResult::fail("yielded-to-user"));
@@ -652,7 +734,8 @@ mod tests {
         let job = rx.await.unwrap().unwrap();
         assert_eq!(job, JobResult::fail("stale-or-manual"));
         let saved: Value = serde_json::from_str(&store.get("c1").unwrap()).unwrap();
-        assert_eq!(saved["meta"]["title"], Value::String("My Own Name".into())); // manual rename wins
+        assert_eq!(saved["meta"]["title"], Value::String("My Own Name".into()));
+        // manual rename wins
     }
 
     #[tokio::test]
@@ -671,14 +754,22 @@ mod tests {
             )
             .unwrap();
         let slot = Arc::new(InferenceSlot::new());
-        let (model, _m) = mock_pair(Arc::new(AnswerMock::new(vec![Some("Any Title Here".into())])));
+        let (model, _m) = mock_pair(Arc::new(AnswerMock::new(vec![Some(
+            "Any Title Here".into(),
+        )])));
         let q = TitleQueue::new(store, slot, model);
         let rx = queued!(q, "weird", None, false);
         let res = rx.await.unwrap();
-        assert!(res.is_err(), "apply TypeError must surface as Err (route 500)");
+        assert!(
+            res.is_err(),
+            "apply TypeError must surface as Err (route 500)"
+        );
         assert!(q.inner.entries.lock().unwrap().contains_key("weird")); // leaked, like TS
-        // Later requests coalesce forever against the dead entry.
-        assert!(matches!(q.request("weird", None, true), RequestOutcome::Coalesced));
+                                                                        // Later requests coalesce forever against the dead entry.
+        assert!(matches!(
+            q.request("weird", None, true),
+            RequestOutcome::Coalesced
+        ));
     }
 
     #[tokio::test]
@@ -700,7 +791,10 @@ mod tests {
         let (model, m) = mock_pair(Arc::new(AnswerMock::new(vec![Some("Nope".into())])));
         let q = TitleQueue::new(store, slot, model);
         let rx = queued!(q, "noret", None, false);
-        assert_eq!(rx.await.unwrap().unwrap(), JobResult::fail("no-assistant-reply"));
+        assert_eq!(
+            rx.await.unwrap().unwrap(),
+            JobResult::fail("no-assistant-reply")
+        );
         assert_eq!(m.count(), 0);
     }
 }

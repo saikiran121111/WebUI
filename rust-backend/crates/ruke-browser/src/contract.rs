@@ -110,8 +110,8 @@ command_registry! {
     TabCdpEvents / "tab_cdp_events" => CdpEventsPayload,
     TabPageAssetsList / "tab_page_assets_list" => TabTarget,
     TabPageAssetsBundle / "tab_page_assets_bundle" => TabTarget,
-    TabBrowserAuthHandoff / "tab_browser_auth_handoff" => TabTarget,
-    TabBotDetectionReport / "tab_bot_detection_report" => TabTarget,
+    TabBrowserAuthHandoff / "tab_browser_auth_handoff" => BrowserAuthHandoffPayload,
+    TabBotDetectionReport / "tab_bot_detection_report" => BotReportPayload,
     TabDevLogs / "tab_dev_logs" => DevLogsPayload,
     TabManualHandoffRequest / "tab_manual_handoff_request" => HandoffPayload,
     DomCuaGetVisibleDom / "dom_cua_get_visible_dom" => TabTarget,
@@ -529,6 +529,16 @@ mod tests {
             (
                 "playwright_locator_wait_for",
                 json!({"selector": "#a", "state": "visible"}),
+            ),
+            (
+                "tab_browser_auth_handoff",
+                json!({"origin": "https://example.org", "fields": [
+                    {"id": "u", "label": "User", "type": "text", "required": true, "selector": "#u"}
+                ]}),
+            ),
+            (
+                "tab_bot_detection_report",
+                json!({"reason": "captcha_failed"}),
             ),
             ("webmcp_invoke_tool", json!({"tool": "t"})),
             ("site_status", json!({"url": "https://example.org/"})),

@@ -22,9 +22,18 @@ use serde_json::json;
 /// as a failed connection, so callers treat it as the unreachable branch.
 pub fn upstream_headers(api_key: &str) -> Option<HeaderMap> {
     let mut h = HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    h.insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {api_key}")).ok()?);
-    h.insert(header::ACCEPT, HeaderValue::from_static("text/event-stream"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    h.insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {api_key}")).ok()?,
+    );
+    h.insert(
+        header::ACCEPT,
+        HeaderValue::from_static("text/event-stream"),
+    );
     Some(h)
 }
 
@@ -89,11 +98,13 @@ pub fn json_error(status: StatusCode, message: &str) -> Response {
         _,
         std::io::Error,
     >(
-        Bytes::from(body)
+        Bytes::from(body),
     )])));
     *resp.status_mut() = status;
-    resp.headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     resp
 }
 
@@ -120,7 +131,10 @@ mod tests {
     fn truncation_counts_utf16_units_not_runes() {
         let s = "\u{1F600}".repeat(150); // 300 UTF-16 units
         let m = upstream_error_message(500, &s);
-        assert_eq!(m, format!("Upstream returned 500: {}", "\u{1F600}".repeat(100)));
+        assert_eq!(
+            m,
+            format!("Upstream returned 500: {}", "\u{1F600}".repeat(100))
+        );
     }
 
     #[test]

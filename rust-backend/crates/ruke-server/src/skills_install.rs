@@ -84,8 +84,11 @@ pub async fn skills_install_post(State(state): State<AppState>, req: Request) ->
 
     match install_skill(&body, &state.root).await {
         Ok(out) => {
-            let names: Vec<Value> =
-                out.installed_skill_names.into_iter().map(Value::String).collect();
+            let names: Vec<Value> = out
+                .installed_skill_names
+                .into_iter()
+                .map(Value::String)
+                .collect();
             json_response(
                 StatusCode::OK,
                 json!({
@@ -125,11 +128,18 @@ pub(crate) struct InstallOutcome {
 }
 
 async fn install_skill(body: &Value, root: &Path) -> Result<InstallOutcome, String> {
-    let input = body.get("repoOrCommand").and_then(Value::as_str).unwrap_or("");
+    let input = body
+        .get("repoOrCommand")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let parsed = registry::parse_install_request(input)?;
 
-    let mut npx_args: Vec<String> =
-        vec!["-y".into(), "skills".into(), "add".into(), parsed.repo.clone()];
+    let mut npx_args: Vec<String> = vec![
+        "-y".into(),
+        "skills".into(),
+        "add".into(),
+        parsed.repo.clone(),
+    ];
     if let Some(skill) = &parsed.skill_name {
         npx_args.push("--skill".into());
         npx_args.push(skill.clone());
@@ -168,7 +178,10 @@ async fn install_skill(body: &Value, root: &Path) -> Result<InstallOutcome, Stri
     // `targets.filter((n) => n)` — NOT "what was installed": names that
     // failed the skillExists gate are still reported (TS quirk, kept).
     let installed_skill_names = targets.into_iter().filter(|n| !n.is_empty()).collect();
-    Ok(InstallOutcome { installed_skill_names, command_output })
+    Ok(InstallOutcome {
+        installed_skill_names,
+        command_output,
+    })
 }
 
 /// `runInstall(args, cwd)` ⇔ spawn cmd.exe/npx with piped stdio, the
@@ -232,14 +245,19 @@ async fn run_install(npx_args: &[String], root: &Path) -> Result<String, String>
             for p in pumps {
                 let _ = p.await;
             }
-            let output = Arc::try_unwrap(acc).map(|m| m.into_inner().0).unwrap_or_default();
+            let output = Arc::try_unwrap(acc)
+                .map(|m| m.into_inner().0)
+                .unwrap_or_default();
             if status.success() {
                 // `code === 0`
                 return Ok(output);
             }
             // `code` is null when the process died from a signal — TS
             // string-concatenates it as "null".
-            let code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "null".to_string());
+            let code = status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "null".to_string());
             Err(format!(
                 "Skill install failed (exit {code}): {}",
                 jsstr::js_slice_tail(&output, 500)
@@ -311,7 +329,11 @@ mod tests {
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(UnavailableEmbedder),
             conversations: store.clone(),
-            titles: Arc::new(TitleQueue::new(store, slot, Arc::new(UnconfiguredTitleModel))),
+            titles: Arc::new(TitleQueue::new(
+                store,
+                slot,
+                Arc::new(UnconfiguredTitleModel),
+            )),
             web: Arc::new(crate::WebRuntime {
                 net: ruke_websearch::net::RealNet,
                 cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
@@ -332,9 +354,14 @@ mod tests {
             .header(axum::http::header::CONTENT_TYPE, "application/json")
             .body(body)
             .unwrap();
-        let resp = crate::build_router(state.clone()).oneshot(req).await.unwrap();
+        let resp = crate::build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
         let status = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
@@ -358,8 +385,11 @@ mod tests {
         }
 
         // Core-tier guard runs on the RAW string, even mid-token.
-        let (status, body) =
-            post_body(&s, Body::from(r#"{"repoOrCommand":"npx skills add me/./.cskills/x"}"#)).await;
+        let (status, body) = post_body(
+            &s,
+            Body::from(r#"{"repoOrCommand":"npx skills add me/./.cskills/x"}"#),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(
             body["error"],
@@ -376,10 +406,16 @@ mod tests {
         let (status, body) =
             post_body(&s, Body::from(r#"{"repoOrCommand":"--frobnicate x/y"}"#)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["error"], json!("Unsupported install flag: --frobnicate"));
+        assert_eq!(
+            body["error"],
+            json!("Unsupported install flag: --frobnicate")
+        );
 
         let (status, body) = post_body(&s, Body::from(r#"{"repoOrCommand":"."}"#)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["error"], json!("Repository must be an owner/repo slug or a github URL"));
+        assert_eq!(
+            body["error"],
+            json!("Repository must be an owner/repo slug or a github URL")
+        );
     }
 }

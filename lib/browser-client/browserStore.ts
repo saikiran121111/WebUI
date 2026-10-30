@@ -22,7 +22,11 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { BrowserTab } from "./browserClient";
+import type {
+  ApprovalRequestCard,
+  AuthHandoffRequestCard,
+  BrowserTab,
+} from "./browserClient";
 
 export interface BrowserState {
   /** panel visibility (user-toggled or stage-driven) */
@@ -37,6 +41,13 @@ export interface BrowserState {
   error: string | null;
   /** conversation the browser session belongs to (session_id in Rust) */
   conversation: string | null;
+  /* ── Phase 9 card + takeover state ──────────────────────────────────── */
+  /** parked approvals the engine is waiting on (approval_request) */
+  approvals: ApprovalRequestCard[];
+  /** parked browser-auth handoffs the human must authorize */
+  authHandoffs: AuthHandoffRequestCard[];
+  /** tab_id -> takeover reason; presence = the tab is the human's */
+  takeovers: Record<string, string>;
 }
 
 const EMPTY: BrowserState = {
@@ -48,6 +59,9 @@ const EMPTY: BrowserState = {
   agentActive: false,
   error: null,
   conversation: null,
+  approvals: [],
+  authHandoffs: [],
+  takeovers: {},
 };
 
 let state: BrowserState = EMPTY;
@@ -99,7 +113,22 @@ export function setTabs(tabs: BrowserTab[]): void {
     frames = {};
     for (const t of tabs) if (state.frames[t.tab_id]) frames[t.tab_id] = state.frames[t.tab_id];
   }
-  set({ tabs, selected, frames });
+  // Phase 9: card parked on a dead tab is orphaned (the engine forgets
+  // parked approvals when the tab goes away) — drop it client-side.
+  const approvals = state.approvals.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
+  const authHandoffs = state.authHandoffs.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
+  // Mirror the `taken_over` row flag (tab_json) onto the takeover map;
+  // the event carries the reason, so a flag-true row keeps the known
+  // reason and only defaults when the panel missed the event (e.g. a
+  // (re)connect mid-handoff). Claiming resets the flag → banner clears.
+  let takeovers = state.takeovers;
+  if (tabs.some((t) => t.taken_over !== undefined) || Object.keys(takeovers).length) {
+    takeovers = {};
+    for (const t of tabs) {
+      if (t.taken_over) takeovers[t.tab_id] = state.takeovers[t.tab_id] ?? "handoff";
+    }
+  }
+  set({ tabs, selected, frames, approvals, authHandoffs, takeovers });
 }
 
 /** Merge one tab row (e.g. a `subscribed` ack) into the listing. */
@@ -119,6 +148,44 @@ export function selectTab(tabId: string): void {
 /** Latest frame wins per tab; the panel renders the selected tab's. */
 export function setFrame(tabId: string, base64Jpeg: string): void {
   set({ frames: { ...state.frames, [tabId]: `data:image/jpeg;base64,${base64Jpeg}` } });
+}
+
+/* ── Phase 9 cards + takeover (parked engine waiters) ───────────────────── */
+
+/** Park an approval card (deduped by id — a replayed frame is a no-op). */
+export function addApproval(card: ApprovalRequestCard): void {
+  if (state.approvals.some((c) => c.id === card.id)) return;
+  set({ approvals: [...state.approvals, card] });
+}
+
+export function removeApproval(id: string): void {
+  if (!state.approvals.some((c) => c.id === id)) return;
+  set({ approvals: state.approvals.filter((c) => c.id !== id) });
+}
+
+/** Park an auth-handoff card (deduped by id). */
+export function addAuthHandoff(card: AuthHandoffRequestCard): void {
+  if (state.authHandoffs.some((c) => c.id === card.id)) return;
+  set({ authHandoffs: [...state.authHandoffs, card] });
+}
+
+export function removeAuthHandoff(id: string): void {
+  if (!state.authHandoffs.some((c) => c.id === id)) return;
+  set({ authHandoffs: state.authHandoffs.filter((c) => c.id !== id) });
+}
+
+/** The tab is the human's now (manual handoff / takeover event). */
+export function setTakeover(tabId: string, reason: string): void {
+  if (state.takeovers[tabId] === reason) return;
+  set({ takeovers: { ...state.takeovers, [tabId]: reason } });
+}
+
+/** Claimed back ("return to agent") or the engine flag says otherwise. */
+export function clearTakeover(tabId: string): void {
+  if (!(tabId in state.takeovers)) return;
+  const next = { ...state.takeovers };
+  delete next[tabId];
+  set({ takeovers: next });
 }
 
 /* ── model-turn stage frames ────────────────────────────────────────────── */

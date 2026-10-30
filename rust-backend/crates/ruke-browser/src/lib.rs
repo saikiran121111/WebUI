@@ -22,6 +22,8 @@
 //! or explicitly marked `[adapted]` (a documented behavioral equivalent
 //! at the native boundary). No placeholders, no fixture knowledge.
 
+pub mod auth_handoff;
+pub mod authority;
 pub mod ax;
 pub mod ax_action;
 pub mod cdp;

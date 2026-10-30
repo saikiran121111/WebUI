@@ -131,7 +131,10 @@ pub async fn search_more_post(State(state): State<AppState>, req: Request) -> Re
     let body: Value = match serde_json::from_slice(&raw) {
         Ok(v) => v,
         Err(_) => {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Malformed JSON body" })))
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "Malformed JSON body" })),
+            )
                 .into_response();
         }
     };

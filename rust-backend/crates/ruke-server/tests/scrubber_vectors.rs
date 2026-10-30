@@ -70,7 +70,14 @@ fn utf8_split_matrix_never_mangles_bytes() {
     // The approved vector set: no think tags in this stream, so every
     // expectedRustUtf8 IS the original stream — feed order never changes
     // the bytes.
-    assert_eq!(stream, fx["upstreamStreamUtf8"].as_str().unwrap().as_bytes());
+    assert_eq!(
+        stream,
+        fx["upstreamStreamUtf8"].as_str().unwrap().as_bytes()
+    );
     let per_byte: Vec<&[u8]> = stream.chunks(1).collect();
-    assert_eq!(run(&per_byte), stream, "byte-at-a-time keeps the stream intact");
+    assert_eq!(
+        run(&per_byte),
+        stream,
+        "byte-at-a-time keeps the stream intact"
+    );
 }

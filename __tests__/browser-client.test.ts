@@ -19,6 +19,11 @@ import {
   BROWSER_ID,
   BrowserCommandError,
   UI_TURN_ID,
+  approvalAnswer,
+  authHandoffAnswer,
+  authVisibleFields,
+  clearBrowserPolicy,
+  fetchBrowserPolicy,
   fetchWsTicket,
   keyMessage,
   mapPointerToViewport,
@@ -27,6 +32,7 @@ import {
   readModifiers,
   runActingCommand,
   sendBrowserCommand,
+  setBrowserPolicy,
   wheelMessage,
 } from "../lib/browser-client/browserClient";
 
@@ -219,5 +225,104 @@ describe("normalizeOmniboxUrl", () => {
     expect(normalizeOmniboxUrl(" http://example.com ")).toBe("http://example.com");
     expect(normalizeOmniboxUrl("file:///C:/x.html")).toBe("file:///C:/x.html");
     expect(normalizeOmniboxUrl("   ")).toBe("");
+  });
+});
+
+/* ── Phase 9: card answers, auth-field selection, policy RPC ─────────── */
+
+describe("approval/auth_handoff answer frames (Rust handle_ui_message)", () => {
+  it("approval answer carries type/id/decision exactly", () => {
+    expect(approvalAnswer("ab12cd34ef567890", "always_allow")).toEqual({
+      type: "approval",
+      id: "ab12cd34ef567890",
+      decision: "always_allow",
+    });
+  });
+
+  it("auth_handoff answer omits values/selected_option when absent", () => {
+    expect(authHandoffAnswer("id1", { action: "decline" })).toEqual({
+      type: "auth_handoff",
+      id: "id1",
+      action: "decline",
+    });
+    const full = authHandoffAnswer("id1", {
+      action: "proceed",
+      values: { user: "me", pass: "hunter2" },
+      selected_option: "password",
+    });
+    expect(full).toEqual({
+      type: "auth_handoff",
+      id: "id1",
+      action: "proceed",
+      values: { user: "me", pass: "hunter2" },
+      selected_option: "password",
+    });
+  });
+});
+
+describe("authVisibleFields (sign-in option field pinning)", () => {
+  const card = {
+    fields: [
+      { id: "user", label: "Email", type: "text" },
+      { id: "pass", label: "Password", type: "password" },
+      { id: "code", label: "Code", type: "text" },
+    ],
+    options: [
+      { id: "password", label: "Password", field_ids: ["user", "pass"] },
+      { id: "otp", label: "One-time code", field_ids: ["code"] },
+      { id: "link", label: "Magic link", selector: "#send" },
+    ],
+  };
+  it("pins exactly the selected option's field_ids", () => {
+    expect(authVisibleFields(card, "password").map((f) => f.id)).toEqual(["user", "pass"]);
+    expect(authVisibleFields(card, "otp").map((f) => f.id)).toEqual(["code"]);
+  });
+  it("selector-only options (and no selection) show every field", () => {
+    expect(authVisibleFields(card, "link").map((f) => f.id)).toEqual(["user", "pass", "code"]);
+    expect(authVisibleFields(card, undefined).map((f) => f.id)).toEqual(["user", "pass", "code"]);
+  });
+  it("a card without options shows every field", () => {
+    expect(authVisibleFields({ fields: card.fields, options: null }, "x")).toEqual(card.fields);
+  });
+});
+
+describe("policy RPC over /api/browser/policy", () => {
+  it("GET unwraps {rules}", async () => {
+    const calls = stubFetch([jsonResponse({ ok: true, data: { rules: { "x.test": { access: "deny" } } } })]);
+    const got = await fetchBrowserPolicy();
+    expect(got.rules["x.test"]?.access).toBe("deny");
+    expect(calls[0].url).toBe("/api/browser/policy");
+    expect(calls[0].init.method).toBe("GET");
+  });
+
+  it("PUT saves host/facet/decision verbatim", async () => {
+    const calls = stubFetch([jsonResponse({ ok: true, data: { rules: {} } })]);
+    await setBrowserPolicy("x.test", "uploads", "never_ask");
+    expect(calls[0].init.method).toBe("PUT");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      host: "x.test",
+      facet: "uploads",
+      decision: "never_ask",
+    });
+  });
+
+  it("clear sends {clear:host} and answers the full rule set", async () => {
+    const calls = stubFetch([jsonResponse({ ok: true, data: { rules: { kept: { access: "deny" } } } })]);
+    const got = await clearBrowserPolicy("x.test");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ clear: "x.test" });
+    expect(got.rules.kept?.access).toBe("deny");
+  });
+
+  it("typed refusals (unknown facet) surface as BrowserCommandError", async () => {
+    stubFetch([
+      jsonResponse({
+        ok: false,
+        error_code: "browser_payload_invalid",
+        message: 'unknown facet "bogus"',
+      }),
+    ]);
+    const err = await setBrowserPolicy("x.test", "bogus" as never, "deny").catch((e) => e) as BrowserCommandError;
+    expect(err).toBeInstanceOf(BrowserCommandError);
+    expect(err.errorCode).toBe("browser_payload_invalid");
   });
 });

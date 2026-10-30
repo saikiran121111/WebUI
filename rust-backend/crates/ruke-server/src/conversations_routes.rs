@@ -143,7 +143,10 @@ pub async fn conversation_create_post(State(state): State<AppState>, req: Reques
 }
 
 /// `/api/ruke/conversations/{id}` GET — verbatim stored text.
-pub async fn conversation_doc_get(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+pub async fn conversation_doc_get(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
     match state.conversations.get(&id) {
         Some(raw) if !raw.is_empty() => (
             StatusCode::OK,
@@ -182,7 +185,10 @@ static ATT_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"att_[a-z0-9]{4,32}").expect("att regex"));
 
 /// `/api/ruke/conversations/{id}` DELETE.
-pub async fn conversation_doc_delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+pub async fn conversation_doc_delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
     if let Some(raw) = state.conversations.get(&id).filter(|r| !r.is_empty()) {
         // `new Set(raw.match(/att_[a-z0-9]{4,32}/g) ?? [])` — greedy match,
         // first-seen dedup.
@@ -307,7 +313,11 @@ mod tests {
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(UnavailableEmbedder),
             conversations: store.clone(),
-            titles: Arc::new(TitleQueue::new(store, slot, Arc::new(FixedTitle("Generated Title")))),
+            titles: Arc::new(TitleQueue::new(
+                store,
+                slot,
+                Arc::new(FixedTitle("Generated Title")),
+            )),
             web: Arc::new(crate::WebRuntime {
                 net: ruke_websearch::net::RealNet,
                 cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
@@ -332,9 +342,14 @@ mod tests {
             .uri(uri)
             .body(body)
             .unwrap();
-        let resp = crate::build_router(state.clone()).oneshot(req).await.unwrap();
+        let resp = crate::build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
         let status = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
@@ -344,14 +359,23 @@ mod tests {
         uri: &str,
         body: Body,
     ) -> (StatusCode, Option<String>, Vec<u8>) {
-        let req = HttpRequest::builder().method(method).uri(uri).body(body).unwrap();
-        let resp = crate::build_router(state.clone()).oneshot(req).await.unwrap();
+        let req = HttpRequest::builder()
+            .method(method)
+            .uri(uri)
+            .body(body)
+            .unwrap();
+        let resp = crate::build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
         let status = resp.status();
         let ctype = resp
             .headers()
             .get(header::CONTENT_TYPE)
             .map(|v| v.to_str().unwrap().to_string());
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         (status, ctype, bytes.to_vec())
     }
 
@@ -364,7 +388,10 @@ mod tests {
             &s,
             "POST",
             "/api/ruke/conversations",
-            Body::from(format!("{{\"id\":\"c1\",\"json\":{}}}", serde_json::to_string(doc).unwrap())),
+            Body::from(format!(
+                "{{\"id\":\"c1\",\"json\":{}}}",
+                serde_json::to_string(doc).unwrap()
+            )),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -376,7 +403,10 @@ mod tests {
             &s,
             "POST",
             "/api/ruke/conversations",
-            Body::from(format!("{{\"id\":\"c2\",\"json\":{}}}", serde_json::to_string(doc2).unwrap())),
+            Body::from(format!(
+                "{{\"id\":\"c2\",\"json\":{}}}",
+                serde_json::to_string(doc2).unwrap()
+            )),
         )
         .await;
 
@@ -403,7 +433,8 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let (_status, _, bytes) = call_raw(&s, "GET", "/api/ruke/conversations/c1", Body::empty()).await;
+        let (_status, _, bytes) =
+            call_raw(&s, "GET", "/api/ruke/conversations/c1", Body::empty()).await;
         assert_eq!(String::from_utf8(bytes).unwrap(), "plain not-even-json");
         // …and the list now DROPS it (JSON.parse failure swallowed).
         let (_status, list) = call(&s, "GET", "/api/ruke/conversations", Body::empty()).await;
@@ -415,9 +446,19 @@ mod tests {
         assert_eq!(body, json!({ "ok": true }));
         let (status, _) = call(&s, "GET", "/api/ruke/conversations/c1", Body::empty()).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        call(&s, "PUT", "/api/ruke/conversations/c1", Body::from("resurrect?")).await;
+        call(
+            &s,
+            "PUT",
+            "/api/ruke/conversations/c1",
+            Body::from("resurrect?"),
+        )
+        .await;
         let (status, _) = call(&s, "GET", "/api/ruke/conversations/c1", Body::empty()).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "recently-deleted tombstone must swallow the save");
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "recently-deleted tombstone must swallow the save"
+        );
         assert!(!tmp.path().join("conversations").join("c1.json").exists());
     }
 
@@ -435,7 +476,10 @@ mod tests {
             &s,
             "POST",
             "/api/ruke/conversations",
-            Body::from(format!("{{\"id\":\"gc1\",\"json\":{}}}", serde_json::to_string(doc).unwrap())),
+            Body::from(format!(
+                "{{\"id\":\"gc1\",\"json\":{}}}",
+                serde_json::to_string(doc).unwrap()
+            )),
         )
         .await;
         assert!(tmp.path().join(".data/attach-index/att_ab12").exists());
@@ -448,15 +492,27 @@ mod tests {
     #[tokio::test]
     async fn post_gates_required_fields_and_nonstring_ids() {
         let (s, _t) = seeded_state(|_| {});
-        for body_text in ["{}", r#"{"id":""}"#, r#"{"id":"x"}"#, r#"{"id":"x","json":5}"#, r#"{"json":"{}"}"#] {
-            let (status, body) = call(&s, "POST", "/api/ruke/conversations", Body::from(body_text)).await;
+        for body_text in [
+            "{}",
+            r#"{"id":""}"#,
+            r#"{"id":"x"}"#,
+            r#"{"id":"x","json":5}"#,
+            r#"{"json":"{}"}"#,
+        ] {
+            let (status, body) =
+                call(&s, "POST", "/api/ruke/conversations", Body::from(body_text)).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{body_text} ⇒ {body}");
             assert_eq!(body["error"], json!("id and json required"));
         }
         // Truthy non-string id passes the gates then TypeErrors inside the
         // TS store (recorded: Rust says 500 with an {error} envelope).
-        let (status, _) =
-            call(&s, "POST", "/api/ruke/conversations", Body::from(r#"{"id":42,"json":"{}"}"#)).await;
+        let (status, _) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations",
+            Body::from(r#"{"id":42,"json":"{}"}"#),
+        )
+        .await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         // Invalid JSON ⇒ recorded deviation of TS's uncaught-throw 500.
         let (status, _) = call(&s, "POST", "/api/ruke/conversations", Body::from("{oops")).await;
@@ -470,12 +526,16 @@ mod tests {
     #[tokio::test]
     async fn post_merges_protected_title_exactly_like_persistence_fn() {
         let (s, _t) = seeded_state(|_| {});
-        let stored = r#"{"id":"c5","meta":{"title":"Auto: keep me","titleSource":"auto"},"messages":[]}"#;
+        let stored =
+            r#"{"id":"c5","meta":{"title":"Auto: keep me","titleSource":"auto"},"messages":[]}"#;
         call(
             &s,
             "POST",
             "/api/ruke/conversations",
-            Body::from(format!("{{\"id\":\"c5\",\"json\":{}}}", serde_json::to_string(stored).unwrap())),
+            Body::from(format!(
+                "{{\"id\":\"c5\",\"json\":{}}}",
+                serde_json::to_string(stored).unwrap()
+            )),
         )
         .await;
         let incoming = r#"{"id":"c5","meta":{},"messages":[{"role":"user","content":"new turn"}]}"#;
@@ -483,10 +543,14 @@ mod tests {
             &s,
             "POST",
             "/api/ruke/conversations",
-            Body::from(format!("{{\"id\":\"c5\",\"json\":{}}}", serde_json::to_string(incoming).unwrap())),
+            Body::from(format!(
+                "{{\"id\":\"c5\",\"json\":{}}}",
+                serde_json::to_string(incoming).unwrap()
+            )),
         )
         .await;
-        let (_status, _, bytes) = call_raw(&s, "GET", "/api/ruke/conversations/c5", Body::empty()).await;
+        let (_status, _, bytes) =
+            call_raw(&s, "GET", "/api/ruke/conversations/c5", Body::empty()).await;
         let saved = String::from_utf8(bytes).unwrap();
         assert_eq!(saved, merge_protected_title(Some(stored), incoming));
     }
@@ -496,8 +560,13 @@ mod tests {
         let (s, _t) = seeded_state(|_| {});
 
         // Missing conversation.
-        let (_status, body) =
-            call(&s, "POST", "/api/ruke/conversations/nope/title?force=1", Body::empty()).await;
+        let (_status, body) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations/nope/title?force=1",
+            Body::empty(),
+        )
+        .await;
         assert_eq!(body, json!({ "queued": false, "reason": "not-found" }));
 
         let put_doc = |state: &crate::AppState, id: &str, doc: &str| {
@@ -505,7 +574,13 @@ mod tests {
             let id = id.to_string(); // owned: the async block must not borrow
             let doc = doc.to_string();
             async move {
-                call(&state, "PUT", &format!("/api/ruke/conversations/{id}"), Body::from(doc)).await;
+                call(
+                    &state,
+                    "PUT",
+                    &format!("/api/ruke/conversations/{id}"),
+                    Body::from(doc),
+                )
+                .await;
             }
         };
 
@@ -516,7 +591,13 @@ mod tests {
             r#"{"id":"m1","meta":{"title":"Locked","titleSource":"manual"},"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b"}]}"#,
         )
         .await;
-        let (_status, body) = call(&s, "POST", "/api/ruke/conversations/m1/title", Body::empty()).await;
+        let (_status, body) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations/m1/title",
+            Body::empty(),
+        )
+        .await;
         assert_eq!(body, json!({ "queued": false, "reason": "manual" }));
 
         // A human-titled conversation: force ⇒ not-auto-title…
@@ -526,15 +607,29 @@ mod tests {
             r#"{"id":"m2","meta":{"title":"My Hand Title","titleSource":"user"},"messages":[{"role":"user","content":"hello there"},{"role":"assistant","content":"hi"},{"role":"user","content":"more"},{"role":"assistant","content":"yo"}]}"#,
         )
         .await;
-        let (_status, body) =
-            call(&s, "POST", "/api/ruke/conversations/m2/title?force=1", Body::empty()).await;
+        let (_status, body) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations/m2/title?force=1",
+            Body::empty(),
+        )
+        .await;
         assert_eq!(body, json!({ "queued": false, "reason": "not-auto-title" }));
         // …and non-force: titleGenCount was never set ⇒ the TS first-time
         // rule (messageCount >= 2) makes shouldGenerate TRUE — the guard
         // only refuses titleSource === "manual", so a "user"-authored
         // title IS overwritten by the auto job (TS quirk, pinned here).
-        let (_status, body) = call(&s, "POST", "/api/ruke/conversations/m2/title", Body::empty()).await;
-        assert_eq!(body, json!({ "queued": true, "ok": true, "title": "Generated Title" }));
+        let (_status, body) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations/m2/title",
+            Body::empty(),
+        )
+        .await;
+        assert_eq!(
+            body,
+            json!({ "queued": true, "ok": true, "title": "Generated Title" })
+        );
     }
 
     #[tokio::test]
@@ -550,8 +645,13 @@ mod tests {
         )
         .await;
 
-        let (status, body) =
-            call(&s, "POST", "/api/ruke/conversations/t1/title?force=1", Body::empty()).await;
+        let (status, body) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations/t1/title?force=1",
+            Body::empty(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body,
@@ -559,15 +659,21 @@ mod tests {
         );
 
         // The saved doc now carries the generated auto title.
-        let (_status, _, bytes) = call_raw(&s, "GET", "/api/ruke/conversations/t1", Body::empty()).await;
+        let (_status, _, bytes) =
+            call_raw(&s, "GET", "/api/ruke/conversations/t1", Body::empty()).await;
         let saved: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(saved["meta"]["title"], json!("Generated Title"));
         assert_eq!(saved["meta"]["titleSource"], json!("auto"));
 
         // A garbage body never breaks the route (TS catch → no override);
         // the doc is still auto-titled ⇒ queued again, still ok.
-        let (status, body) =
-            call(&s, "POST", "/api/ruke/conversations/t1/title?force=1", Body::from("{oops")).await;
+        let (status, body) = call(
+            &s,
+            "POST",
+            "/api/ruke/conversations/t1/title?force=1",
+            Body::from("{oops"),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["queued"], json!(true));
         assert_eq!(body["ok"], json!(true));

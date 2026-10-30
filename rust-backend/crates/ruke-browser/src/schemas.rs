@@ -454,6 +454,134 @@ pub struct HandoffPayload {
     pub reason: Option<HandoffReason>,
 }
 
+// ── bot detection + browser-auth handoff (Phase 9) ────────────────────
+
+/// `tab_bot_detection_report` reason union (MAIN-D1/D6 recovered
+/// capture, names verbatim): the model's own diagnosis of *why* the
+/// page is resisting automation. Reporting is a pure telemetry
+/// gesture — it never unblocks anything by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum BotDetectionReason {
+    #[serde(rename = "captcha_failed")]
+    CaptchaFailed,
+    #[serde(rename = "access_denied")]
+    AccessDenied,
+    #[serde(rename = "challenge_loop")]
+    ChallengeLoop,
+    #[serde(rename = "sign_in_blocked")]
+    SignInBlocked,
+    #[serde(rename = "add_to_cart_blocked")]
+    AddToCartBlocked,
+    #[serde(rename = "purchase_blocked")]
+    PurchaseBlocked,
+    #[serde(rename = "unexpected_bot_error")]
+    UnexpectedBotError,
+}
+
+impl BotDetectionReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::CaptchaFailed => "captcha_failed",
+            Self::AccessDenied => "access_denied",
+            Self::ChallengeLoop => "challenge_loop",
+            Self::SignInBlocked => "sign_in_blocked",
+            Self::AddToCartBlocked => "add_to_cart_blocked",
+            Self::PurchaseBlocked => "purchase_blocked",
+            Self::UnexpectedBotError => "unexpected_bot_error",
+        }
+    }
+}
+
+/// `tab_bot_detection_report` payload: reason + tab handle
+/// (MAIN-D6 `{...{browser_id, tab_id}}`).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct BotReportPayload {
+    pub browser_id: String,
+    pub tab_id: String,
+    pub reason: BotDetectionReason,
+}
+
+/// Credential-field id grammar shared by fields and options (SVC-D4
+/// zod: `/^[A-Za-z0-9_-]{1,48}$/`). Enforced by the validator in
+/// `authority` so the refusal message is explicit, not a serde echo.
+pub fn is_browser_auth_id(s: &str) -> bool {
+    !matches!(s, "__proto__" | "constructor" | "prototype")
+        && !s.is_empty()
+        && s.len() <= 48
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// browserAuth request field (SVC-D4 zod `fieldSchema`, wire keys
+/// verbatim). `selector` is where the panel's answer is applied in
+/// the page; values themselves never travel through the model.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct BrowserAuthField {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub autocomplete: Option<String>,
+    pub required: bool,
+    pub selector: String,
+}
+
+/// browserAuth sign-in option (SVC-D4 zod `optionSchema`: either a
+/// `selector` or non-empty `field_ids`, never both and never neither
+/// — the refine message is kept verbatim).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct BrowserAuthOption {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub selector: Option<String>,
+    #[serde(default)]
+    pub field_ids: Option<Vec<String>>,
+}
+
+/// How the sign-in is finally submitted after the fields are filled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum BrowserAuthSubmitAction {
+    #[serde(rename = "click")]
+    Click,
+    #[serde(rename = "press_enter")]
+    PressEnter,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct BrowserAuthSubmit {
+    pub selector: String,
+    pub action: BrowserAuthSubmitAction,
+}
+
+/// `tab_browser_auth_handoff` payload: the SVC-D4 zod
+/// `requestSchema` plus the `{browser_id, tab_id}` command framing.
+/// The zod refine boundaries (id grammar, counts, origin scheme,
+/// conditional rules) are validated in `auth_handoff` with the
+/// recovered messages; serde only pins the shape.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct BrowserAuthHandoffPayload {
+    pub browser_id: String,
+    pub tab_id: String,
+    pub origin: String,
+    #[serde(default)]
+    pub account_identifier: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<BrowserAuthField>,
+    #[serde(default)]
+    pub options: Option<Vec<BrowserAuthOption>>,
+    /// `z.literal(true).optional()` — anything but `true` is refused
+    /// by the validator.
+    #[serde(default)]
+    pub qr_code: Option<bool>,
+    #[serde(default)]
+    pub submit: Option<BrowserAuthSubmit>,
+    /// zod `otpHandle`: wire key is camelCase verbatim.
+    #[serde(default, rename = "otpHandle")]
+    pub otp_handle: Option<String>,
+}
+
 // ── DOM CUA ───────────────────────────────────────────────────────────
 
 /// DomClickOptions `{node_id}` (shared by click/double_click).

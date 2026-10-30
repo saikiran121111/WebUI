@@ -145,8 +145,14 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/ruke/model-stats", get(model_stats::model_stats_get))
         .route("/api/ruke/skills", get(skills_routes::skills_get))
-        .route("/api/ruke/skills/install", post(skills_install::skills_install_post))
-        .route("/api/ruke/skills/{skillName}", delete(skills_routes::skill_delete))
+        .route(
+            "/api/ruke/skills/install",
+            post(skills_install::skills_install_post),
+        )
+        .route(
+            "/api/ruke/skills/{skillName}",
+            delete(skills_routes::skill_delete),
+        )
         .route(
             "/api/ruke/skills/{skillName}/scenario",
             patch(skills_routes::scenario_patch),
@@ -156,12 +162,18 @@ pub fn build_router(state: AppState) -> Router {
         // when the supervisor exports RUKE_RUST_BACKEND=1; the plain
         // paths stay Next-owned on this server (guard test below).
         .route("/api/ruke/search", get(search_routes::search_get))
-        .route("/api/ruke/search-more", post(search_routes::search_more_post))
+        .route(
+            "/api/ruke/search-more",
+            post(search_routes::search_more_post),
+        )
         .route("/api/ruke/decision", post(decision_routes::decision_post))
         // Browser Use (Phase 2): the command RPC for the browser panel /
         // tool loop. Errors ride the wire contract with HTTP 200; only
         // auth failures use a status code (browser_routes.rs).
-        .route("/api/ruke/browser/command", post(browser_routes::command_post))
+        .route(
+            "/api/ruke/browser/command",
+            post(browser_routes::command_post),
+        )
         // Browser Panel socket (Phase 3): ticket mint is bridge-authed;
         // the WS itself admits on Origin + one-shot ticket (ticket
         // because a WS handshake cannot carry the bridge-secret header).
@@ -170,6 +182,12 @@ pub fn build_router(state: AppState) -> Router {
             post(browser_routes::ws_ticket_post),
         )
         .route("/api/ruke/browser/ws", get(browser_routes::ui_ws_get))
+        // Authority policy (Phase 9): the human's facet rules for the
+        // engine (GET list / PUT save-or-clear), bridge-authed.
+        .route(
+            "/api/ruke/browser/policy",
+            get(browser_routes::policy_get).put(browser_routes::policy_put),
+        )
         .with_state(state)
 }
 
@@ -192,7 +210,10 @@ pub fn init_tracing() {
         Err(_) => tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
     };
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_target(true).try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .try_init();
 }
 
 #[cfg(test)]
@@ -210,8 +231,9 @@ mod tests {
         // set_var across this binary's test threads is benign here.
         std::env::set_var("WEB_SEARCH_GATE_DISABLED", "1");
         let slot = Arc::new(InferenceSlot::new());
-        let conversations =
-            Arc::new(persistence::ConversationStore::new(tmp.path().join("conversations")));
+        let conversations = Arc::new(persistence::ConversationStore::new(
+            tmp.path().join("conversations"),
+        ));
         let state = AppState {
             settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
             slot: slot.clone(),
@@ -262,7 +284,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["ok"], false);
         assert_eq!(v["error_code"], "browser_command_envelope_invalid");
@@ -286,7 +310,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["error_code"], "browser_command_unknown");
     }
@@ -304,7 +330,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], json!(true));
         assert_eq!(v["user_turn_active"], json!(false));
@@ -331,7 +359,11 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{path} must not exist before its Part");
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "{path} must not exist before its Part"
+            );
         }
     }
 
@@ -342,7 +374,8 @@ mod tests {
     #[tokio::test]
     async fn chat_route_exists_and_streams_the_unreachable_contract() {
         let (s, _t) = state();
-        s.settings.set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
+        s.settings
+            .set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
         let resp = build_router(s.clone())
             .oneshot(
                 http::Request::builder()
@@ -356,13 +389,22 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "early-open progress response");
-        assert_eq!(resp.headers()[http::header::CONTENT_TYPE], "text/event-stream");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "early-open progress response"
+        );
+        assert_eq!(
+            resp.headers()[http::header::CONTENT_TYPE],
+            "text/event-stream"
+        );
         assert_eq!(resp.headers()["cache-control"], "no-cache, no-transform");
         assert_eq!(resp.headers()["x-accel-buffering"], "no");
         assert!(resp.headers().contains_key("x-decision-mode"));
 
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         let text = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(text.starts_with("data: {\"ruke_stage\":{\"stage\":\"decision_done\""));
         assert!(text.contains(
@@ -396,8 +438,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(resp.headers()[http::header::CONTENT_TYPE], "application/json");
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        assert_eq!(
+            resp.headers()[http::header::CONTENT_TYPE],
+            "application/json"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         assert_eq!(&bytes[..], br#"{"error":"invalid JSON body"}"#);
 
         let resp = router
@@ -412,7 +459,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         assert_eq!(&bytes[..], br#"{"error":"message required"}"#);
 
         // 200 path: the in-process deterministic router answers without
@@ -423,17 +472,33 @@ mod tests {
                 http::Request::builder()
                     .method(http::Method::POST)
                     .uri("/api/ruke/decision")
-                    .body(axum::body::Body::from(r#"{"message":"make me a chart of sales"}"#))
+                    .body(axum::body::Body::from(
+                        r#"{"message":"make me a chart of sales"}"#,
+                    ))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.headers()[http::header::CONTENT_TYPE], "application/json");
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        assert_eq!(
+            resp.headers()[http::header::CONTENT_TYPE],
+            "application/json"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        for key in ["active_mode", "decided_by", "stripped_prompt", "confidence", "skill_to_load"] {
-            assert!(v.get(key).is_some(), "envelope must carry snake_case key {key}");
+        for key in [
+            "active_mode",
+            "decided_by",
+            "stripped_prompt",
+            "confidence",
+            "skill_to_load",
+        ] {
+            assert!(
+                v.get(key).is_some(),
+                "envelope must carry snake_case key {key}"
+            );
         }
         assert_eq!(v["stripped_prompt"], json!("make me a chart of sales"));
     }
@@ -451,12 +516,17 @@ mod tests {
             let resp = router
                 .clone()
                 .oneshot(
-                    http::Request::builder().uri(uri).body(axum::body::Body::empty()).unwrap(),
+                    http::Request::builder()
+                        .uri(uri)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
                 )
                 .await
                 .unwrap();
             assert_eq!(resp.status(), StatusCode::OK, "{uri}");
-            let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+            let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+                .await
+                .unwrap();
             assert_eq!(&bytes[..], br#"{"results":[]}"#, "{uri}");
         }
 
@@ -480,7 +550,9 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{body}");
-            let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+            let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+                .await
+                .unwrap();
             assert_eq!(&bytes[..], want, "{body}");
         }
     }

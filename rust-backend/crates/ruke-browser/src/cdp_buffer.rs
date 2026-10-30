@@ -205,6 +205,7 @@ mod tests {
             url: "https://x.test/".into(),
             title: String::new(),
             created_by_turn: None,
+            taken_over: false,
         }
     }
 

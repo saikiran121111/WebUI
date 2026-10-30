@@ -130,7 +130,12 @@ pub async fn run_turn_pipeline(
     let att_ids: Vec<String> = payload
         .get("messages")
         .and_then(Value::as_array)
-        .map(|m| collect_attachment_refs(m).into_iter().map(|r| r.att_id).collect())
+        .map(|m| {
+            collect_attachment_refs(m)
+                .into_iter()
+                .map(|r| r.att_id)
+                .collect()
+        })
         .unwrap_or_default();
     if has_attachment_refs {
         if let Some(ch) = ch.as_mut() {
@@ -138,26 +143,27 @@ pub async fn run_turn_pipeline(
         }
     }
     let retrieval_started = Instant::now();
-    let retrieval: Result<usize, Cancelled> = match payload.get_mut("messages").and_then(Value::as_array_mut) {
-        Some(messages) => {
-            let llm = NotesLlm {
-                url: state.settings.llm_api_url(),
-                key: state.settings.llm_api_key(),
-            };
-            build_attachment_turn(
-                messages,
-                last_user_idx + 1,
-                question,
-                &state.root,
-                state.attach_embedder.as_ref(),
-                &state.http,
-                &llm,
-                token,
-            )
-            .await
-        }
-        None => Ok(0),
-    };
+    let retrieval: Result<usize, Cancelled> =
+        match payload.get_mut("messages").and_then(Value::as_array_mut) {
+            Some(messages) => {
+                let llm = NotesLlm {
+                    url: state.settings.llm_api_url(),
+                    key: state.settings.llm_api_key(),
+                };
+                build_attachment_turn(
+                    messages,
+                    last_user_idx + 1,
+                    question,
+                    &state.root,
+                    state.attach_embedder.as_ref(),
+                    &state.http,
+                    &llm,
+                    token,
+                )
+                .await
+            }
+            None => Ok(0),
+        };
     match retrieval {
         Ok(blocks) => {
             if blocks > 0 {
@@ -245,8 +251,16 @@ pub async fn run_turn_pipeline(
         let history_turns: Vec<HistoryTurn> = history
             .iter()
             .map(|h| HistoryTurn {
-                role: h.get("role").and_then(Value::as_str).unwrap_or_default().to_string(),
-                content: h.get("content").and_then(Value::as_str).unwrap_or_default().to_string(),
+                role: h
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                content: h
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             })
             .collect();
         let ctx = SearchGateContext {
@@ -460,7 +474,11 @@ pub(crate) fn turn_image_parts(content: Option<&Value>) -> Vec<String> {
     parts
         .iter()
         .filter(|p| p.get("type").and_then(Value::as_str) == Some("image_url"))
-        .filter_map(|p| p.get("image_url").and_then(|i| i.get("url")).and_then(Value::as_str))
+        .filter_map(|p| {
+            p.get("image_url")
+                .and_then(|i| i.get("url"))
+                .and_then(Value::as_str)
+        })
         .filter(|u| u.starts_with("data:"))
         .map(str::to_string)
         .collect()
@@ -497,7 +515,10 @@ pub(crate) fn citation_map_from(bundle: &EvidenceBundle) -> CitationMap {
             domain: p.domain.clone(),
             published_at: p.published_at.clone(),
         };
-        map.insert(p.source_id.clone(), serde_json::to_value(&c).unwrap_or_default());
+        map.insert(
+            p.source_id.clone(),
+            serde_json::to_value(&c).unwrap_or_default(),
+        );
     }
     map
 }
@@ -513,7 +534,10 @@ pub(crate) fn research_meta(bundle: &EvidenceBundle) -> ResearchMeta {
         queries: d
             .queries
             .iter()
-            .map(|q| GateQuery { query: q.query.clone(), intent: wire_str(&q.intent) })
+            .map(|q| GateQuery {
+                query: q.query.clone(),
+                intent: wire_str(&q.intent),
+            })
             .collect(),
     }
 }
@@ -550,8 +574,16 @@ mod tests {
                     freshness: Freshness::Week,
                     depth: Depth::Deep,
                     queries: vec![
-                        SearchQuery { query: "q one".into(), intent: Intent::News, preferred_domains: None },
-                        SearchQuery { query: "q two".into(), intent: Intent::Docs, preferred_domains: None },
+                        SearchQuery {
+                            query: "q one".into(),
+                            intent: Intent::News,
+                            preferred_domains: None,
+                        },
+                        SearchQuery {
+                            query: "q two".into(),
+                            intent: Intent::Docs,
+                            preferred_domains: None,
+                        },
                     ],
                 },
                 source: GateSource::MainModel,
@@ -576,7 +608,10 @@ mod tests {
             { "type": "image_url" },
             { "type": "image_url", "image_url": { "url": 7 } },
         ]);
-        assert_eq!(turn_image_parts(Some(&content)), vec!["data:image/png;base64,AAA"]);
+        assert_eq!(
+            turn_image_parts(Some(&content)),
+            vec!["data:image/png;base64,AAA"]
+        );
         // String content and missing content are BOTH `[]` (TS `?.`).
         assert!(turn_image_parts(Some(&serde_json::json!("s"))).is_empty());
         assert!(turn_image_parts(None).is_empty());
@@ -586,14 +621,24 @@ mod tests {
     fn citation_map_follows_packet_order_and_drops_absent_published_at() {
         let bundle = bundle_with(vec![
             EvidencePacket {
-                source_id: "S1".into(), url: "https://a.example".into(), title: "A".into(),
-                domain: "a.example".into(), published_at: Some("2026-01-01".into()),
-                extraction: ExtractionKind::SnippetOnly, passages: vec![], classification: None,
+                source_id: "S1".into(),
+                url: "https://a.example".into(),
+                title: "A".into(),
+                domain: "a.example".into(),
+                published_at: Some("2026-01-01".into()),
+                extraction: ExtractionKind::SnippetOnly,
+                passages: vec![],
+                classification: None,
             },
             EvidencePacket {
-                source_id: "yt".into(), url: "https://yt.example".into(), title: "Y".into(),
-                domain: "yt.example".into(), published_at: None,
-                extraction: ExtractionKind::Direct, passages: vec![], classification: None,
+                source_id: "yt".into(),
+                url: "https://yt.example".into(),
+                title: "Y".into(),
+                domain: "yt.example".into(),
+                published_at: None,
+                extraction: ExtractionKind::Direct,
+                passages: vec![],
+                classification: None,
             },
         ]);
         let map = citation_map_from(&bundle);

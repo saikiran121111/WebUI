@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use ruke_core::{config, settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
 use ruke_server::{
-    build_router, init_tracing, persistence::ConversationStore,
+    build_router, init_tracing,
+    persistence::ConversationStore,
     titles::{generate::HttpTitleModel, queue::TitleQueue},
     AppState, WebRuntime,
 };
@@ -144,7 +145,10 @@ async fn main() {
         titles: Arc::new(TitleQueue::new(
             conversations,
             slot.clone(),
-            Arc::new(HttpTitleModel { http: http.clone(), settings }),
+            Arc::new(HttpTitleModel {
+                http: http.clone(),
+                settings,
+            }),
         )),
         // Part 8: shared web runtime (chat seam + search pair).
         web,

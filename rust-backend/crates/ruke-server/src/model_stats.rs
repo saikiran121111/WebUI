@@ -39,7 +39,10 @@ use crate::AppState;
 /// `UPSTREAM_TIMEOUT_MS = 3000`.
 const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(3);
 
-pub async fn model_stats_get(State(state): State<AppState>, Query(q): Query<HashMap<String, String>>) -> Response {
+pub async fn model_stats_get(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     // `searchParams.get("live") === "1"` — strict, NOT truthy.
     if q.get("live").map(String::as_str) == Some("1") {
         let slots = fetch_upstream(&state, "/slots").await;
@@ -63,7 +66,10 @@ pub async fn model_stats_get(State(state): State<AppState>, Query(q): Query<Hash
         };
         let mut m = Map::new();
         m.insert("ok".into(), Value::Bool(true));
-        m.insert("processing".into(), Value::Bool(slot.get("is_processing") == Some(&Value::Bool(true))));
+        m.insert(
+            "processing".into(),
+            Value::Bool(slot.get("is_processing") == Some(&Value::Bool(true))),
+        );
         m.insert("prompt_tokens".into(), number_of("n_prompt_tokens"));
         m.insert("n_ctx".into(), number_of("n_ctx"));
         return json_response(StatusCode::OK, Value::Object(m));
@@ -77,8 +83,9 @@ pub async fn model_stats_get(State(state): State<AppState>, Query(q): Query<Hash
     }
     let props = props.unwrap();
     // `p.default_generation_settings && typeof … === "object" ? … : {}`
-    let gen: Option<&Value> =
-        props.get("default_generation_settings").filter(|v| matches!(v, Value::Object(_) | Value::Array(_)));
+    let gen: Option<&Value> = props
+        .get("default_generation_settings")
+        .filter(|v| matches!(v, Value::Object(_) | Value::Array(_)));
     let number_of = |v: Option<&Value>| -> Value {
         match v {
             Some(v @ Value::Number(_)) => v.clone(),
@@ -154,7 +161,11 @@ mod tests {
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(UnavailableEmbedder),
             conversations: store.clone(),
-            titles: Arc::new(TitleQueue::new(store, slot, Arc::new(UnconfiguredTitleModel))),
+            titles: Arc::new(TitleQueue::new(
+                store,
+                slot,
+                Arc::new(UnconfiguredTitleModel),
+            )),
             web: Arc::new(crate::WebRuntime {
                 net: ruke_websearch::net::RealNet,
                 cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
@@ -174,7 +185,9 @@ mod tests {
             .await
             .unwrap();
         let status = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
@@ -236,28 +249,46 @@ mod tests {
             r#"[{"is_processing":false,"n_prompt_tokens":5,"n_ctx":8192},{"is_processing":true,"n_prompt_tokens":77}]"#.to_string(),
         )])
         .await;
-        s.settings.set_upstream_override(format!("{origin}/v1/chat/completions"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1/chat/completions"), "k");
         let (status, body) = call(&s, "/api/ruke/model-stats?live=1").await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, json!({"ok": true, "processing": true, "prompt_tokens": 77, "n_ctx": null}));
+        assert_eq!(
+            body,
+            json!({"ok": true, "processing": true, "prompt_tokens": 77, "n_ctx": null})
+        );
     }
 
     #[tokio::test]
     async fn live_first_slot_fallback_empty_and_non_array() {
         let (s, _t) = state();
-        let origin = mock_upstream(vec![("/slots", 200, "[{\"is_processing\":false,\"n_ctx\":3}]".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        let origin = mock_upstream(vec![(
+            "/slots",
+            200,
+            "[{\"is_processing\":false,\"n_ctx\":3}]".to_string(),
+        )])
+        .await;
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats?live=1").await;
-        assert_eq!(body, json!({"ok": true, "processing": false, "prompt_tokens": null, "n_ctx": 3}));
+        assert_eq!(
+            body,
+            json!({"ok": true, "processing": false, "prompt_tokens": null, "n_ctx": 3})
+        );
 
         let origin = mock_upstream(vec![("/slots", 200, "[]".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats?live=1").await;
-        assert_eq!(body, json!({"ok": true, "processing": false, "prompt_tokens": null, "n_ctx": null}));
+        assert_eq!(
+            body,
+            json!({"ok": true, "processing": false, "prompt_tokens": null, "n_ctx": null})
+        );
 
         // Non-array json (an object here) ⇒ {ok:false}.
         let origin = mock_upstream(vec![("/slots", 200, "{\"a\":1}".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats?live=1").await;
         assert_eq!(body, json!({"ok": false}));
     }
@@ -271,20 +302,29 @@ mod tests {
             r#"{"model_alias":"Llama-3","total_slots":2,"default_generation_settings":{"n_ctx":8192}}"#.to_string(),
         )])
         .await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
-        assert_eq!(body, json!({"ok": true, "model_alias": "Llama-3", "n_ctx": 8192, "total_slots": 2}));
+        assert_eq!(
+            body,
+            json!({"ok": true, "model_alias": "Llama-3", "n_ctx": 8192, "total_slots": 2})
+        );
 
         // PROPS IS AN ARRAY ⇒ TS typeof-object passes; all keys read missing
         // ⇒ ok:true with null fields (array-pass parity pin).
         let origin = mock_upstream(vec![("/props", 200, "[1,2]".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
-        assert_eq!(body, json!({"ok": true, "model_alias": null, "n_ctx": null, "total_slots": null}));
+        assert_eq!(
+            body,
+            json!({"ok": true, "model_alias": null, "n_ctx": null, "total_slots": null})
+        );
 
         // A JSON NUMBER is typeof "number" (falsy-but-typed) ⇒ ok:false.
         let origin = mock_upstream(vec![("/props", 200, "5".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
         assert_eq!(body, json!({"ok": false}));
     }
@@ -302,19 +342,22 @@ mod tests {
         // Connection refused (nothing listening on the port).
         let origin = mock_upstream(vec![]).await;
         drop(origin); // mock task exits immediately
-        s.settings.set_upstream_override("http://127.0.0.1:9/v1", "k");
+        s.settings
+            .set_upstream_override("http://127.0.0.1:9/v1", "k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
         assert_eq!(body, json!({"ok": false}));
 
         // Non-2xx upstream ⇒ !res.ok ⇒ null (NOT passed through).
         let origin = mock_upstream(vec![("/props", 500, "{}".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
         assert_eq!(body, json!({"ok": false}));
 
         // 2xx but not JSON ⇒ res.json() throw ⇒ null.
         let origin = mock_upstream(vec![("/props", 200, "not json".to_string())]).await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
         assert_eq!(body, json!({"ok": false}));
     }
@@ -361,7 +404,8 @@ mod tests {
         }
         let (s, _t) = state();
         let origin = mock_echo_auth().await;
-        s.settings.set_upstream_override(format!("{origin}/v1"), "secret-k");
+        s.settings
+            .set_upstream_override(format!("{origin}/v1"), "secret-k");
         let (_, body) = call(&s, "/api/ruke/model-stats").await;
         assert_eq!(
             body,

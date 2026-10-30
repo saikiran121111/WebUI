@@ -67,14 +67,20 @@ pub async fn skills_get(State(state): State<AppState>) -> Response {
         };
         rec.insert("skillName".into(), Value::String(name.clone()));
         rec.insert("installed".into(), Value::Bool(true));
-        rec.insert("description".into(), Value::String(registry::skill_description(root, &name)));
+        rec.insert(
+            "description".into(),
+            Value::String(registry::skill_description(root, &name)),
+        );
         records.push(Value::Object(rec));
     }
     json_response(StatusCode::OK, json!({ "skills": records }))
 }
 
 /// `app/api/skills/[skillName]/route.ts` DELETE.
-pub async fn skill_delete(State(state): State<AppState>, Path(skill_name): Path<String>) -> Response {
+pub async fn skill_delete(
+    State(state): State<AppState>,
+    Path(skill_name): Path<String>,
+) -> Response {
     if !registry::is_safe_skill_name(&skill_name) {
         return err(StatusCode::BAD_REQUEST, "Invalid skill name");
     }
@@ -90,7 +96,11 @@ pub async fn skill_delete(State(state): State<AppState>, Path(skill_name): Path<
 const ALLOWED_FIELDS: [&str; 4] = ["enabled", "autoUse", "whenToUse", "triggerKeywords"];
 
 /// `app/api/skills/[skillName]/scenario/route.ts` PATCH.
-pub async fn scenario_patch(State(state): State<AppState>, Path(skill_name): Path<String>, req: Request) -> Response {
+pub async fn scenario_patch(
+    State(state): State<AppState>,
+    Path(skill_name): Path<String>,
+    req: Request,
+) -> Response {
     if !registry::is_safe_skill_name(&skill_name) {
         return err(StatusCode::BAD_REQUEST, "Invalid skill name");
     }
@@ -166,7 +176,11 @@ mod tests {
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(UnavailableEmbedder),
             conversations: store.clone(),
-            titles: Arc::new(TitleQueue::new(store, slot, Arc::new(UnconfiguredTitleModel))),
+            titles: Arc::new(TitleQueue::new(
+                store,
+                slot,
+                Arc::new(UnconfiguredTitleModel),
+            )),
             web: Arc::new(crate::WebRuntime {
                 net: ruke_websearch::net::RealNet,
                 cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
@@ -203,9 +217,14 @@ mod tests {
             .header(axum::http::header::CONTENT_TYPE, "application/json")
             .body(body)
             .unwrap();
-        let resp = crate::build_router(state.clone()).oneshot(req).await.unwrap();
+        let resp = crate::build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
         let status = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
@@ -245,7 +264,9 @@ mod tests {
                 root,
                 "beta",
                 "---\nname: beta\ndescription: Beta does things.\n---\n# heading\n",
-                Some(r#"{"skillName":"beta","sourceRepo":"acme/beta","enabled":false,"autoUse":true,"whenToUse":"use it","triggerKeywords":["b"],"blockedReason":null}"#),
+                Some(
+                    r#"{"skillName":"beta","sourceRepo":"acme/beta","enabled":false,"autoUse":true,"whenToUse":"use it","triggerKeywords":["b"],"blockedReason":null}"#,
+                ),
             );
         });
         let (_status, body) = call(&s, "GET", "/api/ruke/skills", Body::empty()).await;
@@ -272,21 +293,39 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["error"], json!("Allowed fields: enabled, autoUse, whenToUse, triggerKeywords"));
+        assert_eq!(
+            body["error"],
+            json!("Allowed fields: enabled, autoUse, whenToUse, triggerKeywords")
+        );
 
         // Empty object ⇒ same 400 (keys.length === 0).
-        let (status, _) =
-            call(&s, "PATCH", "/api/ruke/skills/gamma/scenario", Body::from("{}")).await;
+        let (status, _) = call(
+            &s,
+            "PATCH",
+            "/api/ruke/skills/gamma/scenario",
+            Body::from("{}"),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         // Non-object bodies ⇒ same 400 class (Object.keys ⇒ []/index keys).
-        let (status, _) =
-            call(&s, "PATCH", "/api/ruke/skills/gamma/scenario", Body::from("null")).await;
+        let (status, _) = call(
+            &s,
+            "PATCH",
+            "/api/ruke/skills/gamma/scenario",
+            Body::from("null"),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         // Bad JSON ⇒ distinct 400.
-        let (status, body) =
-            call(&s, "PATCH", "/api/ruke/skills/gamma/scenario", Body::from("{oops")).await;
+        let (status, body) = call(
+            &s,
+            "PATCH",
+            "/api/ruke/skills/gamma/scenario",
+            Body::from("{oops"),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"], json!("Invalid JSON body"));
 
@@ -337,7 +376,11 @@ mod tests {
         // The name rides along — NOT `deleted: true`.
         assert_eq!(body, json!({ "ok": true, "deleted": "delta" }));
         assert!(!tmp.path().join("skills").join("delta").exists());
-        assert!(!tmp.path().join("skill-scenarios").join("delta.json").exists());
+        assert!(!tmp
+            .path()
+            .join("skill-scenarios")
+            .join("delta.json")
+            .exists());
 
         // Second delete ⇒ not removed ⇒ 404.
         let (status, body) = call(&s, "DELETE", "/api/ruke/skills/delta", Body::empty()).await;

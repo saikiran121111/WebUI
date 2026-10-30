@@ -17,7 +17,10 @@
  *   server pushes an initial snapshot, `{"type":"tabs","tabs":[…]}`
  *   listings, `{"type":"frame","tab_id","data","metadata"}` JPEGs,
  *   `{"type":"subscribed","tab":…}`, `{"type":"pong"}`, and typed error
- *   frames (`to_wire()` + `type:"error"`).
+ *   frames (`to_wire()` + `type:"error"`). Phase 9 adds the card frames
+ *   (`approval_request`, `auth_handoff_request`, `tab_takeover`) and the
+ *   matching panel answers (`approval`, `auth_handoff`), plus a policy
+ *   RPC over `/api/browser/policy`.
  *
  * Turn identity: every panel RPC carries the SAME stable turn id
  * (`UI_TURN_ID`) under the conversation's session id, so tabs the human
@@ -42,6 +45,8 @@ export interface BrowserTab {
   url: string;
   title: string;
   created_by_agent: boolean;
+  /** Phase 9 manual-handoff lock: the tab is currently the human's. */
+  taken_over?: boolean;
 }
 
 export interface WsTicket {
@@ -289,6 +294,166 @@ export function insertTextMessage(text: string): InputTextEvent {
   return { kind: "insert_text", text };
 }
 
+/* ── Phase 9: approval + browser-auth handoff + takeover frames ─────────── */
+
+/** Facet/decision vocabularies verbatim from Rust `authority.rs`. */
+export type BrowserFacet = "access" | "uploads" | "downloads" | "full_cdp_access";
+export type BrowserDecision = "deny" | "always_ask" | "never_ask";
+export type ApprovalDecision = "accept" | "always_allow" | "block" | "decline";
+
+/** Card the engine parks before a gated command (approval_request). */
+export interface ApprovalRequestCard {
+  type: "approval_request";
+  id: string;
+  action: string;
+  facet: string;
+  origin: string;
+  url: string;
+  tab_id: string;
+}
+
+/** Panel answer for one parked approval (engine keys on `decision`). */
+export function approvalAnswer(
+  id: string,
+  decision: ApprovalDecision,
+): Record<string, unknown> {
+  return { type: "approval", id, decision };
+}
+
+/** Field/option/submit shapes verbatim from Rust `schemas.rs`. */
+export interface BrowserAuthField {
+  id: string;
+  label: string;
+  type: string;
+  autocomplete?: string | null;
+  required?: boolean;
+  selector?: string | null;
+}
+
+export interface BrowserAuthOption {
+  id: string;
+  label: string;
+  selector?: string | null;
+  field_ids?: string[] | null;
+}
+
+export interface BrowserAuthSubmit {
+  selector: string;
+  action: "click" | "press_enter";
+}
+
+/** Sign-in the MODEL asked the human to authorize (auth_handoff_request).
+ *  Credential VALUES never appear here — the human types them into the
+ *  card and they travel only panel → engine → CDP fill. Never logged. */
+export interface AuthHandoffRequestCard {
+  type: "auth_handoff_request";
+  id: string;
+  tab_id: string;
+  origin: string;
+  url: string;
+  account_identifier?: string | null;
+  fields: BrowserAuthField[];
+  options?: BrowserAuthOption[] | null;
+  qr_code?: boolean;
+  submit?: BrowserAuthSubmit | null;
+  has_otp?: boolean;
+}
+
+export interface AuthHandoffAnswer {
+  action: "proceed" | "decline" | "cancel";
+  values?: Record<string, string>;
+  selected_option?: string;
+}
+
+/** Panel answer for one auth handoff (values/selected_option ride it). */
+export function authHandoffAnswer(
+  id: string,
+  answer: AuthHandoffAnswer,
+): Record<string, unknown> {
+  const msg: Record<string, unknown> = { type: "auth_handoff", id, action: answer.action };
+  if (answer.values) msg.values = answer.values;
+  if (answer.selected_option !== undefined) msg.selected_option = answer.selected_option;
+  return msg;
+}
+
+/** `tab_takeover`: the model handed a tab to the human (manual handoff). */
+export interface TabTakeoverCard {
+  type: "tab_takeover";
+  tab_id: string;
+  reason?: string | null;
+}
+
+/** Field set shown for the selected sign-in option (an option may pin
+ *  its own `field_ids`; an option with none shows everything). Pure —
+ *  pinned by the vitest contract tests; the card component renders it. */
+export function authVisibleFields(
+  card: Pick<AuthHandoffRequestCard, "fields" | "options">,
+  selectedOption: string | undefined,
+): BrowserAuthField[] {
+  const opt = card.options?.find((o) => o.id === selectedOption);
+  if (!opt?.field_ids || opt.field_ids.length === 0) return card.fields;
+  const allowed = new Set(opt.field_ids);
+  return card.fields.filter((f) => allowed.has(f.id));
+}
+
+/* ── Phase 9: saved site-permission policy (GET/PUT /api/browser/policy) ── */
+
+export interface BrowserPolicyData {
+  rules: Record<string, Partial<Record<BrowserFacet, BrowserDecision>>>;
+}
+
+async function policyRequest(init: RequestInit): Promise<BrowserPolicyData> {
+  let res: Response;
+  try {
+    res = await fetch("/api/browser/policy", init);
+  } catch (err) {
+    throw new BrowserCommandError(
+      "browser_transport_error",
+      `policy request failed: ${String((err as Error)?.message ?? err)}`,
+    );
+  }
+  let wire: WireEnvelope<BrowserPolicyData> | null = null;
+  try {
+    wire = (await res.json()) as WireEnvelope<BrowserPolicyData>;
+  } catch {
+    wire = null;
+  }
+  if (!wire?.ok || !wire.data?.rules) {
+    throw new BrowserCommandError(
+      wire?.error_code ?? "browser_transport_error",
+      wire?.message ?? `policy request failed (HTTP ${res.status})`,
+    );
+  }
+  return wire.data;
+}
+
+/** List every persisted facet rule (host -> facet -> decision). */
+export function fetchBrowserPolicy(): Promise<BrowserPolicyData> {
+  return policyRequest({ method: "GET" });
+}
+
+/** Save one rule; the answer is the full updated rule set. */
+export function setBrowserPolicy(
+  host: string,
+  facet: BrowserFacet,
+  decision: BrowserDecision,
+): Promise<BrowserPolicyData> {
+  return policyRequest({
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ host, facet, decision }),
+  });
+}
+
+/** Forget every rule saved for a host. */
+export function clearBrowserPolicy(host: string): Promise<BrowserPolicyData> {
+  return policyRequest({
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clear: host }),
+  });
+}
+
 /* ── pointer → page-viewport mapping (letterbox-aware, pure) ───────────── */
 
 export interface ViewportPoint {
@@ -336,6 +501,9 @@ export type UiServerMessage =
   | { type: "subscribed"; tab: BrowserTab }
   | { type: "pong" }
   | { type: "error"; ok?: false; error_code?: string; message?: string }
+  | ApprovalRequestCard
+  | AuthHandoffRequestCard
+  | TabTakeoverCard
   | { type: string; [k: string]: unknown };
 
 export interface SocketHandlers {
@@ -397,6 +565,17 @@ export class BrowserSocket {
 
   sendInput(tabId: string, event: BrowserInputEvent): void {
     this.send({ type: "input", tab_id: tabId, event });
+  }
+
+  /** Answer one parked approval card (Phase 9). */
+  answerApproval(id: string, decision: ApprovalDecision): void {
+    this.send(approvalAnswer(id, decision));
+  }
+
+  /** Answer one browser-auth handoff card (Phase 9). Credential
+   *  values cross the socket exactly here and are never logged. */
+  answerAuthHandoff(id: string, answer: AuthHandoffAnswer): void {
+    this.send(authHandoffAnswer(id, answer));
   }
 
   private send(obj: Record<string, unknown>): void {

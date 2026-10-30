@@ -19,8 +19,8 @@
 
 use std::collections::HashMap;
 
-use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::{header, header::HeaderName, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -86,7 +86,11 @@ fn bridge_ok(headers: &HeaderMap) -> bool {
 /// Auth failures are the only status-code failures on this surface
 /// (the wire contract keeps command errors on HTTP 200).
 fn unauthorized() -> Response {
-    (StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))).into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": "unauthorized" })),
+    )
+        .into_response()
 }
 
 /// Some(secret configured) / None(dev mode: loopback bind is the guard).
@@ -268,6 +272,29 @@ async fn handle_ui_message(state: &AppState, client: u64, text: &str, socket: &m
             }),
         },
         "ping" => Ok(Some(json!({ "type": "pong" }))),
+        // Phase 9 card answers: the approval card
+        // (`{decision: accept|always_allow|block|decline}`) and the
+        // browser-auth handoff card (`{action: proceed|decline|cancel,
+        // values?, selected_option?}` — credential values enter the
+        // engine here and nowhere else). Both resolve the parked
+        // waiter by card id; an unknown/answered/expired id is a typed
+        // refusal so the panel learns its answer landed too late.
+        "approval" | "auth_handoff" => {
+            let id = value.get("id").and_then(Value::as_str).unwrap_or("");
+            if id.is_empty() {
+                Err(BrowserError::PayloadInvalid {
+                    command: "browser_ui_message".into(),
+                    reason: format!("{kind} answer carries no \"id\""),
+                })
+            } else if state.browser.resolve_approval(id, &value) {
+                Ok(None) // the waiting command resumes; no ack frame owed
+            } else {
+                Err(BrowserError::PayloadInvalid {
+                    command: "browser_ui_message".into(),
+                    reason: "unknown, already-answered, or expired card id".into(),
+                })
+            }
+        }
         other => Err(BrowserError::PayloadInvalid {
             command: "browser_ui_message".into(),
             reason: format!("unknown message type {other:?}"),
@@ -283,6 +310,71 @@ async fn handle_ui_message(state: &AppState, client: u64, text: &str, socket: &m
         // themselves (tab broadcast / frames); no ack frame is owed.
         Ok(None) => {}
         Err(e) => send_ui_error(socket, &e).await,
+    }
+}
+
+// ── Phase 9: human-side authority policy surface ───────────────────────
+// The human's half of the authority model (the "manage sites" half of
+// the recovered permission UI; the settings UI lands with the Phase-14
+// runtime pass): GET lists the persisted facet rules, PUT saves one
+// (`{host, facet, decision}`) or forgets a domain (`{clear: host}`).
+// Bridge-authed like every other internal hop; the store itself lives
+// under the engine root and survives browser restarts — a saved deny
+// is a saved deny.
+
+pub async fn policy_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !bridge_ok(&headers) {
+        return unauthorized();
+    }
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "data": state.browser.policy_list() })),
+    )
+        .into_response()
+}
+
+pub async fn policy_put(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !bridge_ok(&headers) {
+        return unauthorized();
+    }
+    let value: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => {
+            return wire_error(&BrowserError::PayloadInvalid {
+                command: "browser_policy_set".into(),
+                reason: "body is not valid JSON".into(),
+            })
+        }
+    };
+    if let Some(host) = value.get("clear").and_then(Value::as_str) {
+        state.browser.policy_clear_host(host);
+        return (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "data": state.browser.policy_list() })),
+        )
+            .into_response();
+    }
+    let field = |k: &str| {
+        value
+            .get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    match state
+        .browser
+        .policy_set(&field("host"), &field("facet"), &field("decision"))
+    {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "data": state.browser.policy_list() })),
+        )
+            .into_response(),
+        Err(e) => wire_error(&e),
     }
 }
 

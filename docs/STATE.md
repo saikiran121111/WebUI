@@ -2192,3 +2192,79 @@ line 12: cargo build before anything starts).
   13228). Model side (stream 48s, gate→skip ~2.7s decision-engine) is OUT of scope, reported only.
 - [8.6 LEFT] No TS extractor stopWhen unit tests; TS lacks the wave-stop log line Rust emits;
   30s-vs-60s bench never run; coalescing intentionally omitted (documented in 63598d0 msg).
+
+---
+
+## Session 2026-10-31-A — Browser Use Phases 0–9 (rust `ruke-browser` engine + panel)
+
+### 8.1 Objective & milestone
+Implement Ruke's full interactive Browser Use capability (RE docs:
+`reverse-engineering/internal-browser/`). Plan board rows 0–9 now
+IMPLEMENTED+TESTED; Phase 9 (security facets/approvals/browser-auth
+handoff/manual handoff/bot report) completed this session on both sides
+(Rust engine + routes, TS client/store/panel). Next: Phase 10 — the
+model-facing tool surface + agent-loop seam in the chat pipeline.
+
+### 8.2 Locked completed (do not re-read/re-do)
+- Commits: 19707ae (P1) … 8528392, 7086b6f (P4), f2efbd2 (P5), bff4317
+  (P6), 4056cb2 (P7), ee07848 (P8); Phase 9 committed this session
+  (feat(browser): Phase 9). 55/82 registry commands real, rest typed
+  `Unsupported` (catch-all in executor).
+- Phase 9 Rust: `authority.rs` (facets/decisions/psl host store
+  `ruke-browser-policy.json`, ApprovalRegistry 120 s, `gate_for(cmd)`
+  matrix, `apply_gate`; `ui` turn skips gates), `auth_handoff.rs`
+  (validate verbatim + origin floor + 300 s + fill/submit + status
+  enum), `session.rs` `taken_over` + claim flips it off, executor gate
+  preamble + `tab_manual_handoff_request` / `tab_bot_detection_report`
+  / `tab_browser_auth_handoff` arms, `tab_json` +`taken_over`,
+  engine wrappers (resolve_approval/policy_*), routes:
+  `handle_ui_message` `approval|auth_handoff` arm + GET/PUT
+  `/api/ruke/browser/policy` (bridge-authed).
+- Phase 9 TS: `browserClient.ts` (UiServerMessage +3 frames,
+  approvalAnswer/authHandoffAnswer/authVisibleFields pure, policy RPC
+  over `/api/browser/policy` Next proxy `app/api/browser/policy`,
+  socket answerApproval/answerAuthHandoff), `browserStore.ts`
+  (approvals/authHandoffs/takeovers state + pruning + flag mirror),
+  `components/browser/BrowserCards.tsx` (approval + auth cards),
+  `BrowserPanel.tsx` (frames→store, takeover banner, Return-to-agent
+  claim), `styles/browser-panel.css` card styles.
+- Gates (real): ruke-browser 124 lib + smoke, ruke-server 100 + all
+  integration suites green; clippy 0 on both touched crates
+  (ruke-websearch dep warnings pre-existing, untouched); tsc clean;
+  vitest browser-client 29/29. NEVER `cargo fmt --all` (workspace not
+  rustfmt-clean) — `-p` only.
+
+### 8.4 Immutable contracts added (Phase 9, now in force)
+- WS frames engine→panel: `approval_request{id,action,facet,origin,url,
+  tab_id}`, `auth_handoff_request{id,tab_id,origin,url,
+  account_identifier?,fields,options?,qr_code?,submit?,has_otp?}`,
+  `tab_takeover{tab_id,reason?}`; panel→engine: `approval{id,decision:
+  accept|always_allow|block|decline}`, `auth_handoff{id,action:
+  proceed|decline|cancel,values?,selected_option?}`.
+- HTTP GET/PUT `/api/ruke/browser/policy` (Rust) ← Next
+  `/api/browser/policy`: PUT `{host,facet,decision}` | `{clear:host}`;
+  answers `{"ok":true,"data":{"rules":{host:{facet:decision}}}}`.
+- Bot report answer verbatim `{"status":"reported","hostname":…|null}`.
+- Saved-deny refusal verbatim "A saved permission or managed policy
+  denies access."; auth validation messages verbatim (auth_handoff.rs).
+- Auth law: credential values travel ONLY panel→engine→CDP fill; never
+  model-visible, never logged, never echoed in results/errors.
+- APPROVAL_TIMEOUT=120 s, AUTH_HANDOFF_TIMEOUT=300 s, ids 16-hex
+  [adapted constants].
+
+### 8.5 Verification state
+No Playwright sessions (policy: one final locked loop after Phase 29;
+memory `playwright-final-run-policy.md`). No `.ai-coordination` lock.
+Flaky-only-standalone: chatEngine.test.ts, rust-golden/web.test.ts
+(parallel-load timing — never "fix").
+
+### 8.8 Immediate next (Phase 10)
+1. Registry→model tool surface: expose browser commands as chat tools
+   in the Rust chat pipeline (`.decision-engine` + `lib/decision/`
+   unaffected); emit `browser:preparing|acting|handoff|done` stage
+   frames on the chat SSE (store seam `handleBrowserStage` already
+   wired; panel auto-open rides them).
+2. Turn identity: model turn = `(session_id, turn_id)` keys already
+   enforced by `can_act_on`; wire end_turn cleanup exists.
+3. Then Phases 11→29 continuously; ONE final locked Playwright loop;
+   shutdown only after all green.

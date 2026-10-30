@@ -42,7 +42,9 @@ use tokio_util::sync::CancellationToken;
 use ruke_core::settings::SettingsStore;
 use ruke_skills::jsstr;
 
-use crate::titles::transcript::{build_transcript, chunk_turns, format_transcript, transcript_chars};
+use crate::titles::transcript::{
+    build_transcript, chunk_turns, format_transcript, transcript_chars,
+};
 
 pub const TITLE_TRANSCRIPT_CHARS: usize = 12000;
 pub const TITLE_CHUNK_CHARS: usize = 5000;
@@ -71,31 +73,32 @@ pub const SUMMARY_SYSTEM: &str = concat!(
 const WSI: &str = r"\u{9}\u{a}\u{b}\u{c}\u{d}\u{20}\u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
 
 static TITLE_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"(?i)^[{WSI}]*(?:suggested[{WSI}]+)?(?:conversation[{WSI}]+)?title[{WSI}]*[:\-–—][{WSI}]*")).unwrap()
+    Regex::new(&format!(
+        r"(?i)^[{WSI}]*(?:suggested[{WSI}]+)?(?:conversation[{WSI}]+)?title[{WSI}]*[:\-–—][{WSI}]*"
+    ))
+    .unwrap()
 });
-static BULLET: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"^[{WSI}]*[-*•][{WSI}]+")).unwrap()
-});
-static NUM: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"^[{WSI}]*[0-9]+[.)][{WSI}]+")).unwrap()
-});
+static BULLET: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"^[{WSI}]*[-*•][{WSI}]+")).unwrap());
+static NUM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"^[{WSI}]*[0-9]+[.)][{WSI}]+")).unwrap());
 static INTRO: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r"(?i)^[{WSI}]*(?:this|the)[{WSI}]+conversation[{WSI}]+(?:is[{WSI}]+about|covers|discusses|deals[{WSI}]+with|is[{WSI}]+regarding|revolves[{WSI}]+around)[{WSI}]+"
     )).unwrap()
 });
 static TRAIL_PUNCT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?;:]+\z").unwrap());
-static QUOTES_HEAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\A[\x22\x27\x{201c}\x{201d}\x{2018}\x{2019}\x60]+"#).unwrap());
-static QUOTES_TAIL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"[\x22\x27\x{201c}\x{201d}\x{2018}\x{2019}\x60]+\z"#).unwrap());
-static PROSE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"\.[{WSI}]+[^{WSI}]")).unwrap()
-});
+static QUOTES_HEAD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\A[\x22\x27\x{201c}\x{201d}\x{2018}\x{2019}\x60]+"#).unwrap());
+static QUOTES_TAIL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"[\x22\x27\x{201c}\x{201d}\x{2018}\x{2019}\x60]+\z"#).unwrap());
+static PROSE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"\.[{WSI}]+[^{WSI}]")).unwrap());
 static REFUSAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"(?i)\b(?:I|we)[{WSI}]+(?:can(?:not|'t)|will[{WSI}]+not|am[{WSI}]+unable|don'?t[{WSI}]+know)\b")).unwrap()
 });
-static CUT_TRAIL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"[.!?;:,{WSI}]+\z")).unwrap()
-});
+static CUT_TRAIL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"[.!?;:,{WSI}]+\z")).unwrap());
 
 /// `raw.split(/\r?\n/)[0]` — JS `/\r?\n/` splits ONLY at "\n" (a lone "\r"
 /// is not a separator); a "\r" directly before the "\n" belongs to the
@@ -226,10 +229,23 @@ impl TitleCallModel for HttpTitleModel {
             let key = settings.llm_api_key();
             let mut body = Map::new();
             // `model: model || "default"` — empty is falsy in JS.
-            body.insert("model".into(), Value::String(if model.is_empty() { "default".to_string() } else { model }));
+            body.insert(
+                "model".into(),
+                Value::String(if model.is_empty() {
+                    "default".to_string()
+                } else {
+                    model
+                }),
+            );
             body.insert("stream".into(), Value::Bool(false));
-            body.insert("temperature".into(), Number::from_f64(0.2).map(Value::Number).unwrap());
-            body.insert("max_tokens".into(), Value::Number(Number::from(max_tokens as u64)));
+            body.insert(
+                "temperature".into(),
+                Number::from_f64(0.2).map(Value::Number).unwrap(),
+            );
+            body.insert(
+                "max_tokens".into(),
+                Value::Number(Number::from(max_tokens as u64)),
+            );
             body.insert("reasoning_effort".into(), Value::String("none".into()));
             let mut messages = Vec::with_capacity(2);
             for (role, content) in [("system", system), ("user", user)] {
@@ -272,7 +288,11 @@ impl TitleCallModel for HttpTitleModel {
                         Ok(v) => v,
                         Err(_) => return None, // `res.json().catch(() => null)`
                     };
-                    let content = data.get("choices")?.get(0)?.get("message")?.get("content")?;
+                    let content = data
+                        .get("choices")?
+                        .get(0)?
+                        .get("message")?
+                        .get("content")?;
                     // `typeof content === "string" && content.trim() ? content : null`
                     // — the RAW (untrimmed) content wins when it trims non-empty.
                     match content {
@@ -323,21 +343,30 @@ pub async fn plan_title(
         _ => "default",
     };
     if transcript_chars(&turns) <= TITLE_TRANSCRIPT_CHARS {
-        let raw = call.call(TITLE_SYSTEM.to_string(), format_transcript(&turns), model.to_string(), 24, token.clone()).await;
+        let raw = call
+            .call(
+                TITLE_SYSTEM.to_string(),
+                format_transcript(&turns),
+                model.to_string(),
+                24,
+                token.clone(),
+            )
+            .await;
         return normalize_title(raw.as_deref());
     }
     let chunks = chunk_turns(&turns, TITLE_CHUNK_CHARS);
     let n = chunks.len();
     let mut summaries: Vec<String> = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
-        let raw = call.call(
-            SUMMARY_SYSTEM.to_string(),
-            format!("Part {} of {}:\n{}", i + 1, n, format_transcript(chunk)),
-            model.to_string(),
-            48,
-            token.clone(),
-        )
-        .await;
+        let raw = call
+            .call(
+                SUMMARY_SYSTEM.to_string(),
+                format!("Part {} of {}:\n{}", i + 1, n, format_transcript(chunk)),
+                model.to_string(),
+                48,
+                token.clone(),
+            )
+            .await;
         if let Some(s) = raw {
             // `const line = s?.replace(/\s+/g, " ").trim(); if (line) summaries.push(line);`
             let collapsed = jsstr::js_collapse(&s);
@@ -350,7 +379,15 @@ pub async fn plan_title(
     if summaries.is_empty() {
         return None;
     }
-    let raw = call.call(TITLE_SYSTEM.to_string(), summaries.join("\n"), model.to_string(), 24, token.clone()).await;
+    let raw = call
+        .call(
+            TITLE_SYSTEM.to_string(),
+            summaries.join("\n"),
+            model.to_string(),
+            24,
+            token.clone(),
+        )
+        .await;
     normalize_title(raw.as_deref())
 }
 
@@ -379,20 +416,32 @@ mod tests {
         assert_eq!(n(Some("")), None);
         assert_eq!(n(Some("  ")), None); // collapses+trims to "" ⇒ <2
         assert_eq!(n(Some("Line one\nLine two")), Some("Line one".into())); // FIRST line only
-        assert_eq!(n(Some("Title: Rust Porting Plan")), Some("Rust Porting Plan".into()));
+        assert_eq!(
+            n(Some("Title: Rust Porting Plan")),
+            Some("Rust Porting Plan".into())
+        );
         assert_eq!(
             n(Some("Suggested conversation title — Sidebar Titles")),
             Some("Sidebar Titles".into())
         );
         assert_eq!(n(Some("title - ok two words")), Some("ok two words".into()));
         assert_eq!(n(Some("- Bullet Titled")), Some("Bullet Titled".into()));
-        assert_eq!(n(Some("3) Numbered Titled")), Some("Numbered Titled".into()));
-        assert_eq!(n(Some("This conversation is about Rust ports")), Some("Rust ports".into()));
+        assert_eq!(
+            n(Some("3) Numbered Titled")),
+            Some("Numbered Titled".into())
+        );
+        assert_eq!(
+            n(Some("This conversation is about Rust ports")),
+            Some("Rust ports".into())
+        );
         assert_eq!(
             n(Some("The conversation revolves around Sidebar Titles")),
             Some("Sidebar Titles".into())
         );
-        assert_eq!(n(Some("Rust porting plan!!")), Some("Rust porting plan".into()));
+        assert_eq!(
+            n(Some("Rust porting plan!!")),
+            Some("Rust porting plan".into())
+        );
         assert_eq!(n(Some("\"quoted title\"")), Some("quoted title".into()));
         assert_eq!(n(Some("“smart quoted”")), Some("smart quoted".into()));
         // Trailing punct OUTSIDE quotes: first punct strip takes it, then quotes —
@@ -417,13 +466,16 @@ mod tests {
         assert_eq!(n(Some("Two sentences. Right here")), None);
         assert_eq!(n(Some("Ends. With trailing punct")), None);
         assert_eq!(n(Some("Trailing dot.")), Some("Trailing dot".into())); // punct stripped BEFORE the prose test
-        // Refusal gate (case-insensitive, \b-guarded).
+                                                                           // Refusal gate (case-insensitive, \b-guarded).
         assert_eq!(n(Some("I cannot do that")), None);
         assert_eq!(n(Some("we CAN'T answer this")), None);
         assert_eq!(n(Some("We don't know the answer")), None);
         assert_eq!(n(Some("I am unable to help")), None);
         // 'I' inside a word is NOT a boundary ⇒ kept.
-        assert_eq!(n(Some("Paris trip planner")), Some("Paris trip planner".into()));
+        assert_eq!(
+            n(Some("Paris trip planner")),
+            Some("Paris trip planner".into())
+        );
         // Word-count gate: 13 short words fit under 60 chars ⇒ no cut, still >12.
         assert_eq!(n(Some("a b c d e f g h i j k l m")), None);
         // 12 words allowed.
@@ -440,8 +492,11 @@ mod tests {
         assert_eq!(n(Some(&hard)).as_deref(), Some("x".repeat(41).as_str()));
         // Space at 2 (<40) ⇒ keep the hard 60-char cut ("ab " + 57 c's).
         let early = "ab ".to_string() + &"c".repeat(57) + "d"; // 60 units exactly +1 = 61 ⇒ cut keeps 57 c's? recompute below
-        // length = 3 + 57 + 1 = 61 ⇒ cut = 60 = "ab " + 57 c; last space 2 ⇒ hard ⇒ no trailing punct/ws
-        assert_eq!(n(Some(&early)).as_deref(), Some(("ab ".to_string() + &"c".repeat(57)).as_str()));
+                                                               // length = 3 + 57 + 1 = 61 ⇒ cut = 60 = "ab " + 57 c; last space 2 ⇒ hard ⇒ no trailing punct/ws
+        assert_eq!(
+            n(Some(&early)).as_deref(),
+            Some(("ab ".to_string() + &"c".repeat(57)).as_str())
+        );
         // Hard-cut edge punct stripped by CUT_TRAIL ([.!?;:,] + JS ws):
         let hard_punct = "ab ".to_string() + &"c".repeat(55) + "!!!"; // 61 chars, no space past 2
         let cut_expect = "ab ".to_string() + &"c".repeat(55); // cut 60 = …55 c + "!!" wait compute: 3+55+3=61 ⇒ cut 60 = 3+55+2 "!" ⇒ CUT_TRAIL strips "!!" ⇒ "ab "+55 c
@@ -494,8 +549,14 @@ mod tests {
     fn long_msgs() -> Value {
         let mut parts: Vec<String> = Vec::new();
         for _ in 0..15 {
-            parts.push(format!(r#"{{"role":"user","content":"{}"}}"#, "u".repeat(400)));
-            parts.push(format!(r#"{{"role":"assistant","content":"{}"}}"#, "a".repeat(400)));
+            parts.push(format!(
+                r#"{{"role":"user","content":"{}"}}"#,
+                "u".repeat(400)
+            ));
+            parts.push(format!(
+                r#"{{"role":"assistant","content":"{}"}}"#,
+                "a".repeat(400)
+            ));
         }
         msgs(&format!("[{}]", parts.join(",")))
     }
@@ -515,7 +576,10 @@ mod tests {
         assert_eq!(m.count(), 1);
         let prompts = m.prompts.lock().unwrap();
         assert_eq!(prompts[0].0, TITLE_SYSTEM);
-        assert_eq!(prompts[0].1, "user: make titles server owned\nassistant: done, with a policy");
+        assert_eq!(
+            prompts[0].1,
+            "user: make titles server owned\nassistant: done, with a policy"
+        );
     }
 
     #[tokio::test]
@@ -523,7 +587,13 @@ mod tests {
         let m = Scripted::new(vec![]);
         let token = CancellationToken::new();
         // No assistant turn ⇒ no call at all.
-        let out = plan_title(&msgs(r#"[{"role":"user","content":"hi"}]"#), None, &m, &token).await;
+        let out = plan_title(
+            &msgs(r#"[{"role":"user","content":"hi"}]"#),
+            None,
+            &m,
+            &token,
+        )
+        .await;
         assert_eq!(out, None);
         assert_eq!(m.count(), 0);
         // Seam None ⇒ plan None.
@@ -547,8 +617,9 @@ mod tests {
         let chunks = chunk_turns(&turns, TITLE_CHUNK_CHARS);
         assert!(chunks.len() >= 2);
         // answers: one summary per chunk, then the final title.
-        let mut answers: Vec<Option<String>> =
-            (0..chunks.len()).map(|i| Some(format!("Summary line number {i}"))).collect();
+        let mut answers: Vec<Option<String>> = (0..chunks.len())
+            .map(|i| Some(format!("Summary line number {i}")))
+            .collect();
         answers.push(Some("Long Conversation Title".into()));
         let s = Scripted::new(answers);
         let token = CancellationToken::new();
@@ -557,7 +628,9 @@ mod tests {
         assert_eq!(s.count(), chunks.len() + 1);
         let prompts = s.prompts.lock().unwrap();
         assert_eq!(prompts[0].0, SUMMARY_SYSTEM);
-        assert!(prompts[0].1.starts_with(&format!("Part 1 of {}:\n", chunks.len())));
+        assert!(prompts[0]
+            .1
+            .starts_with(&format!("Part 1 of {}:\n", chunks.len())));
         // Final call: TITLE_SYSTEM + the whitespace-collapsed summaries joined by \n.
         let (sys, user) = prompts.last().unwrap();
         assert_eq!(sys, TITLE_SYSTEM);
@@ -576,8 +649,9 @@ mod tests {
         let m = long_msgs();
         let turns = build_transcript(&m);
         let chunks = chunk_turns(&turns, TITLE_CHUNK_CHARS);
-        let answers: Vec<Option<String>> =
-            (0..chunks.len()).map(|i| if i == 0 { Some("   ".into()) } else { None }).collect();
+        let answers: Vec<Option<String>> = (0..chunks.len())
+            .map(|i| if i == 0 { Some("   ".into()) } else { None })
+            .collect();
         let s = Scripted::new(answers);
         let token = CancellationToken::new();
         let out = plan_title(&m, None, &s, &token).await;
@@ -590,7 +664,10 @@ mod tests {
     /// Minimal HTTP/1.1 responder: reads one request (headers + body),
     /// replies with `status_line` + `body`, and hands the raw request back
     /// through `rx`. One connection per call.
-    fn mock_upstream(status_line: &'static str, body: &'static str) -> (String, std::sync::mpsc::Receiver<Vec<u8>>) {
+    fn mock_upstream(
+        status_line: &'static str,
+        body: &'static str,
+    ) -> (String, std::sync::mpsc::Receiver<Vec<u8>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -646,9 +723,15 @@ mod tests {
 
     #[tokio::test]
     async fn http_model_golden_request_and_raw_content() {
-        let (url, rx) = mock_upstream("200 OK", r#"{"choices":[{"message":{"content":"  Trim Me  "}}]}"#);
+        let (url, rx) = mock_upstream(
+            "200 OK",
+            r#"{"choices":[{"message":{"content":"  Trim Me  "}}]}"#,
+        );
         let (settings, _t) = store_with(&url);
-        let model = HttpTitleModel { http: reqwest::Client::new(), settings };
+        let model = HttpTitleModel {
+            http: reqwest::Client::new(),
+            settings,
+        };
         let token = CancellationToken::new();
         // plan_title end-to-end with the real HTTP seam:
         let out = plan_title(
@@ -665,17 +748,37 @@ mod tests {
         assert!(head.contains("POST /v1/chat/completions"));
         assert!(head.contains("authorization: Bearer golden-key"));
         assert!(head.contains("content-type: application/json"));
-        let body_json: Value = serde_json::from_str(req.split("\r\n\r\n").nth(1).unwrap().trim()).unwrap();
+        let body_json: Value =
+            serde_json::from_str(req.split("\r\n\r\n").nth(1).unwrap().trim()).unwrap();
         // Exact key ORDER (preserve_order keeps serde insertion order ⇔ the JS literal order).
         let keys: Vec<&String> = body_json.as_object().unwrap().keys().collect();
-        assert_eq!(keys, vec!["model", "stream", "temperature", "max_tokens", "reasoning_effort", "messages"]);
+        assert_eq!(
+            keys,
+            vec![
+                "model",
+                "stream",
+                "temperature",
+                "max_tokens",
+                "reasoning_effort",
+                "messages"
+            ]
+        );
         assert_eq!(body_json["model"], Value::String("chosen-model".into()));
         assert_eq!(body_json["temperature"], serde_json::json!(0.2));
         assert_eq!(body_json["max_tokens"], serde_json::json!(24));
         assert_eq!(body_json["reasoning_effort"], Value::String("none".into()));
-        assert_eq!(body_json["messages"][0]["role"], Value::String("system".into()));
-        assert_eq!(body_json["messages"][0]["content"], Value::String(TITLE_SYSTEM.into()));
-        assert_eq!(body_json["messages"][1]["content"], Value::String("user: first ask here\nassistant: reply body".into()));
+        assert_eq!(
+            body_json["messages"][0]["role"],
+            Value::String("system".into())
+        );
+        assert_eq!(
+            body_json["messages"][0]["content"],
+            Value::String(TITLE_SYSTEM.into())
+        );
+        assert_eq!(
+            body_json["messages"][1]["content"],
+            Value::String("user: first ask here\nassistant: reply body".into())
+        );
     }
 
     #[tokio::test]
@@ -683,33 +786,73 @@ mod tests {
         let token = CancellationToken::new();
         let (url, _rx) = mock_upstream("503 Service Unavailable", "{}");
         let (settings, _t) = store_with(&url);
-        let model = HttpTitleModel { http: reqwest::Client::new(), settings };
-        assert_eq!(model.call("s".into(), "u".into(), "m".into(), 24, token.clone()).await, None);
+        let model = HttpTitleModel {
+            http: reqwest::Client::new(),
+            settings,
+        };
+        assert_eq!(
+            model
+                .call("s".into(), "u".into(), "m".into(), 24, token.clone())
+                .await,
+            None
+        );
         // 200 but content null ⇒ None (no throw).
         let (url, _rx) = mock_upstream("200 OK", r#"{"choices":[{"message":{"content":null}}]}"#);
         let (settings, _t) = store_with(&url);
-        let model = HttpTitleModel { http: reqwest::Client::new(), settings };
-        assert_eq!(model.call("s".into(), "u".into(), "m".into(), 24, token.clone()).await, None);
+        let model = HttpTitleModel {
+            http: reqwest::Client::new(),
+            settings,
+        };
+        assert_eq!(
+            model
+                .call("s".into(), "u".into(), "m".into(), 24, token.clone())
+                .await,
+            None
+        );
         // content that trims empty (FEFF is JS ws) ⇒ None.
-        let (url, _rx) = mock_upstream("200 OK", r#"{"choices":[{"message":{"content":" \u{a0} "}}]}"#);
+        let (url, _rx) = mock_upstream(
+            "200 OK",
+            r#"{"choices":[{"message":{"content":" \u{a0} "}}]}"#,
+        );
         let (settings, _t) = store_with(&url);
-        let model = HttpTitleModel { http: reqwest::Client::new(), settings };
-        assert_eq!(model.call("s".into(), "u".into(), "m".into(), 24, token.clone()).await, None);
+        let model = HttpTitleModel {
+            http: reqwest::Client::new(),
+            settings,
+        };
+        assert_eq!(
+            model
+                .call("s".into(), "u".into(), "m".into(), 24, token.clone())
+                .await,
+            None
+        );
         // 200 but NOT json ⇒ res.json().catch(()=>null) ⇒ None.
         let (url, _rx) = mock_upstream("200 OK", "not json at all");
         let (settings, _t) = store_with(&url);
-        let model = HttpTitleModel { http: reqwest::Client::new(), settings };
-        assert_eq!(model.call("s".into(), "u".into(), "m".into(), 24, token).await, None);
+        let model = HttpTitleModel {
+            http: reqwest::Client::new(),
+            settings,
+        };
+        assert_eq!(
+            model
+                .call("s".into(), "u".into(), "m".into(), 24, token)
+                .await,
+            None
+        );
     }
 
     #[tokio::test]
     async fn http_model_pre_cancelled_token_issues_no_request() {
         let (url, rx) = mock_upstream("200 OK", r#"{"choices":[{"message":{"content":"X"}}]}"#);
         let (settings, _t) = store_with(&url);
-        let model = HttpTitleModel { http: reqwest::Client::new(), settings };
+        let model = HttpTitleModel {
+            http: reqwest::Client::new(),
+            settings,
+        };
         let token = CancellationToken::new();
         token.cancel(); // TS: outer signal already aborted ⇒ inner.abort() ⇒ fetch rejects WITHOUT network I/O
-        let out = model.call("s".into(), "u".into(), "m".into(), 24, token).await;
+        let out = model
+            .call("s".into(), "u".into(), "m".into(), 24, token)
+            .await;
         assert_eq!(out, None);
         assert!(rx.try_recv().is_err()); // nothing reached the upstream
     }

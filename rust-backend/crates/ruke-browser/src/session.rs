@@ -34,6 +34,11 @@ pub struct TabRecord {
     /// `Some((session,turn))` ⇒ agent-created (turn-cleanup candidate);
     /// `None` ⇒ user tab.
     pub created_by_turn: Option<TurnKey>,
+    /// Phase-9 manual handoff (`tab_manual_handoff_request`): the human
+    /// has taken the wheel. True blocks every agent mutation on the tab
+    /// (even an agent-created one) until the user hands control back via
+    /// `browser_user_claim_tab` — the panel's "return to agent" action.
+    pub taken_over: bool,
 }
 
 #[derive(Default, Debug)]
@@ -76,6 +81,7 @@ impl Registry {
             url: url.to_string(),
             title: title.to_string(),
             created_by_turn: owner.clone(),
+            taken_over: false,
         };
         self.order.push(tab_id.clone());
         self.by_target.insert(target_id.to_string(), tab_id.clone());
@@ -137,7 +143,24 @@ impl Registry {
     pub fn claim(&mut self, tab_id: &str, key: &TurnKey) -> Result<(), BrowserError> {
         self.require(tab_id)?;
         self.claims.insert(tab_id.to_string(), key.1.clone());
+        // A claim is also how the user hands a taken-over tab back to
+        // the agent (panel "return to agent" rides this command).
+        if let Some(rec) = self.tabs.get_mut(tab_id) {
+            rec.taken_over = false;
+        }
         Ok(())
+    }
+
+    /// Phase-9 manual handoff: flip/clear the human-took-the-wheel bit
+    /// on a known tab. Returns whether the tab was known.
+    pub fn set_taken_over(&mut self, tab_id: &str, taken_over: bool) -> bool {
+        match self.tabs.get_mut(tab_id) {
+            Some(rec) => {
+                rec.taken_over = taken_over;
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn is_claimed_by(&self, tab_id: &str, key: &TurnKey) -> bool {
@@ -145,11 +168,13 @@ impl Registry {
     }
 
     /// Phase-2 tab-ownership floor for mutations: agent-created tabs or
-    /// explicitly claimed tabs. (Phase 9 layers the per-origin authority
-    /// facets on top; this rule survives it.)
+    /// explicitly claimed tabs, and never while the human has taken the
+    /// tab over. (Phase 9 layers the per-origin authority facets and the
+    /// manual-handoff lock on top; the ownership rule survives them.)
     pub fn can_act_on(&self, tab_id: &str, key: &TurnKey) -> bool {
         self.get(tab_id).is_some_and(|t| {
-            t.created_by_turn.as_ref() == Some(key) || self.is_claimed_by(tab_id, key)
+            !t.taken_over
+                && (t.created_by_turn.as_ref() == Some(key) || self.is_claimed_by(tab_id, key))
         })
     }
 

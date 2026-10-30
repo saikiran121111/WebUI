@@ -64,6 +64,15 @@ pub struct BrowserRuntime {
     /// under `<root>/downloads`). Every tab-removal path forgets here
     /// too, so stale handles fail closed.
     pub(crate) io: Arc<crate::io_state::IoRegistries>,
+    /// The per-origin authority store (Phase 9): persisted facet rules
+    /// (`<root>/ruke-browser-policy.json`) consulted before gated
+    /// commands; survives host restarts and shutdown on purpose — a
+    /// saved deny is a saved deny.
+    pub(crate) authority: Arc<crate::authority::AuthorityStore>,
+    /// Pending Browser Panel approvals (Phase 9): permission cards and
+    /// browser-auth handoff forms parked on their turn's command.
+    /// Tab-removal paths forget their waiters; host death cancels all.
+    pub(crate) approvals: Arc<crate::authority::ApprovalRegistry>,
 }
 
 impl BrowserRuntime {
@@ -75,6 +84,9 @@ impl BrowserRuntime {
         // `playwright_download_path` without scraping Chromium's
         // .crdownload bookkeeping. Computed before `root` moves.
         let io = Arc::new(crate::io_state::IoRegistries::new(root.join("downloads")));
+        // Phase 9: policy loads before `root` moves; a missing or
+        // corrupt file is the all-always-ask default, never an error.
+        let authority = Arc::new(crate::authority::AuthorityStore::load(&root));
         Self {
             root,
             host: AsyncMutex::new(None),
@@ -86,6 +98,8 @@ impl BrowserRuntime {
             ax: Arc::new(crate::ax::AxRegistries::default()),
             pw: Arc::new(crate::pw::PwRegistries::default()),
             io,
+            authority,
+            approvals: Arc::new(crate::authority::ApprovalRegistry::new()),
         }
     }
 
@@ -109,6 +123,7 @@ impl BrowserRuntime {
             self.ax.clear_all();
             self.pw.clear_all();
             self.io.clear_all();
+            self.approvals.cancel_all();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -159,6 +174,7 @@ impl BrowserRuntime {
                 Arc::clone(&self.ax),
                 Arc::clone(&self.pw),
                 Arc::clone(&self.io),
+                Arc::clone(&self.approvals),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -279,6 +295,7 @@ impl BrowserRuntime {
             self.ax.forget_tab(&t.tab_id);
             self.pw.forget_tab(&t.tab_id);
             self.io.forget_tab(&t.tab_id);
+            self.approvals.forget_tab(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -299,6 +316,7 @@ impl BrowserRuntime {
         self.ax.clear_all();
         self.pw.clear_all();
         self.io.clear_all();
+        self.approvals.cancel_all();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -320,6 +338,52 @@ impl BrowserRuntime {
     /// Admit a WebSocket upgrade exactly once per ticket.
     pub fn claim_ws_ticket(&self, ticket: &str) -> bool {
         self.ui.claim_ticket(ticket)
+    }
+
+    // ── Phase 9: approvals + human-side policy ───────────────────────
+
+    /// Answer a parked approval/handoff card from the panel socket
+    /// (`{"id":…, …}`). False = unknown, already-answered, or expired.
+    pub fn resolve_approval(&self, id: &str, answer: &Value) -> bool {
+        self.approvals.resolve(id, answer)
+    }
+
+    /// The persisted facet rules, for the policy GET route.
+    pub fn policy_list(&self) -> Value {
+        json!({ "rules": self.authority.list() })
+    }
+
+    /// Human-side policy write (Panel settings / "always allow"
+    /// management): unknown facet or decision strings are typed
+    /// payload refusals; a successful write persists immediately.
+    pub fn policy_set(&self, host: &str, facet: &str, decision: &str) -> Result<(), BrowserError> {
+        let host = host.trim();
+        if host.is_empty() {
+            return Err(BrowserError::PayloadInvalid {
+                command: "browser_policy_set".into(),
+                reason: "host must be a non-empty registrable domain".into(),
+            });
+        }
+        let facet =
+            crate::authority::Facet::parse(facet).ok_or_else(|| BrowserError::PayloadInvalid {
+                command: "browser_policy_set".into(),
+                reason: format!(
+                "unknown facet {facet:?}: expected access | uploads | downloads | full_cdp_access"
+            ),
+            })?;
+        let decision = crate::authority::Decision::parse(decision).ok_or_else(|| {
+            BrowserError::PayloadInvalid {
+                command: "browser_policy_set".into(),
+                reason: "unknown decision: expected deny | always_ask | never_ask".into(),
+            }
+        })?;
+        self.authority.set(host, facet, decision);
+        Ok(())
+    }
+
+    /// Forget a domain's saved rules (policy UI "forget this site").
+    pub fn policy_clear_host(&self, host: &str) {
+        self.authority.clear_host(host.trim());
     }
 
     /// Register a connected panel socket: its id plus the outbound
@@ -418,6 +482,7 @@ async fn event_pump(
     ax: Arc<crate::ax::AxRegistries>,
     pw: Arc<crate::pw::PwRegistries>,
     io: Arc<crate::io_state::IoRegistries>,
+    approvals: Arc<crate::authority::ApprovalRegistry>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -479,6 +544,7 @@ async fn event_pump(
                         ax.forget_tab(&rec.tab_id);
                         pw.forget_tab(&rec.tab_id);
                         io.forget_tab(&rec.tab_id);
+                        approvals.forget_tab(&rec.tab_id);
                         ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
                         ui.tabs_changed();
                     }

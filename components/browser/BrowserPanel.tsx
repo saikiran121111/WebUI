@@ -31,23 +31,45 @@ import {
   runActingCommand,
   sendBrowserCommand,
   wheelMessage,
+  type ApprovalDecision,
+  type ApprovalRequestCard,
+  type AuthHandoffAnswer,
+  type AuthHandoffRequestCard,
   type BrowserTab,
   type UiServerMessage,
 } from "../../lib/browser-client/browserClient";
 import {
+  addApproval,
+  addAuthHandoff,
+  clearTakeover,
   closeBrowserPanel,
   mergeTab,
+  removeApproval,
+  removeAuthHandoff,
   selectTab,
   setConnected,
   setFrame,
   setPanelError,
   setTabs,
+  setTakeover,
   useBrowserState,
 } from "../../lib/browser-client/browserStore";
+import { ApprovalCards, AuthHandoffCards, takeoverSentence } from "./BrowserCards";
 import "../../styles/browser-panel.css";
 
 export default function BrowserPanel({ sessionId }: { sessionId: string }) {
-  const { open, tabs, selected, frames, connected, agentActive, error } = useBrowserState();
+  const {
+    open,
+    tabs,
+    selected,
+    frames,
+    connected,
+    agentActive,
+    error,
+    approvals,
+    authHandoffs,
+    takeovers,
+  } = useBrowserState();
 
   // sessionId can change mid-mount (conversation switch); RPC session
   // must follow the CURRENT conversation, so the socket handlers read it
@@ -91,6 +113,32 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
         } else if (msg.type === "error") {
           const em = msg as { message?: string; error_code?: string };
           setPanelError(em.message ?? em.error_code ?? "browser panel error");
+        } else if (msg.type === "approval_request") {
+          // Phase 9 parked waiters: the engine's command is literally
+          // paused until the matching card below is answered, so these
+          // frames only park in the store — never auto-answered.
+          const c = msg as Partial<ApprovalRequestCard>;
+          if (typeof c.id === "string" && typeof c.tab_id === "string") {
+            addApproval({
+              type: "approval_request",
+              id: c.id,
+              action: typeof c.action === "string" ? c.action : "",
+              facet: typeof c.facet === "string" ? c.facet : "",
+              origin: typeof c.origin === "string" ? c.origin : "",
+              url: typeof c.url === "string" ? c.url : "",
+              tab_id: c.tab_id,
+            });
+          }
+        } else if (msg.type === "auth_handoff_request") {
+          const c = msg as Partial<AuthHandoffRequestCard>;
+          if (typeof c.id === "string" && typeof c.tab_id === "string" && Array.isArray(c.fields)) {
+            addAuthHandoff(msg as AuthHandoffRequestCard);
+          }
+        } else if (msg.type === "tab_takeover") {
+          const c = msg as { tab_id?: unknown; reason?: unknown };
+          if (typeof c.tab_id === "string") {
+            setTakeover(c.tab_id, typeof c.reason === "string" ? c.reason : "user_requested");
+          }
         }
       },
       onConnectionChange: setConnected,
@@ -132,6 +180,33 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
       act(() => runActingCommand(commandType, { tab_id: tabId }, sessionRef.current)),
     [act],
   );
+
+  /* ── Phase 9 card answers (each resolves one parked engine waiter) ── */
+  const answerApprovalCard = useCallback((id: string, decision: ApprovalDecision) => {
+    socketRef.current?.answerApproval(id, decision);
+    removeApproval(id);
+  }, []);
+
+  const answerAuthCard = useCallback((id: string, answer: AuthHandoffAnswer) => {
+    // Credential values leave the page exactly here: panel → engine →
+    // CDP fill. The model never sees them (Rule 17 / auth-handoff law).
+    socketRef.current?.answerAuthHandoff(id, answer);
+    removeAuthHandoff(id);
+  }, []);
+
+  const returnTabToAgent = useCallback(() => {
+    if (!selected) return;
+    void act(async () => {
+      // The claim flips taken_over back to false engine-side; every
+      // viewer's row flag (tab_json) mirrors it, clearing the banner.
+      await sendBrowserCommand(
+        "browser_user_claim_tab",
+        { tab_id: selected },
+        sessionRef.current,
+      );
+      clearTakeover(selected);
+    });
+  }, [selected, act]);
 
   const submitOmnibox = useCallback(() => {
     const url = normalizeOmniboxUrl(omni);
@@ -354,6 +429,18 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
           }}
         />
       </div>
+
+      {selected && takeovers[selected] && (
+        <div className="bp-takeover" role="status">
+          <span>{takeoverSentence(takeovers[selected])}</span>
+          <button className="bp-btn bp-btn-primary" onClick={returnTabToAgent}>
+            Return to agent
+          </button>
+        </div>
+      )}
+
+      <ApprovalCards cards={approvals} onAnswer={answerApprovalCard} />
+      <AuthHandoffCards cards={authHandoffs} onAnswer={answerAuthCard} />
 
       {error && (
         <div className="bp-error" role="alert">

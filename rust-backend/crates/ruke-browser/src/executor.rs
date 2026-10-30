@@ -24,11 +24,18 @@
 //! (security, tool loop, UI…) replace arm-by-arm as they land; the
 //! registry itself (82 rows) was already pinned in Phase 1.
 //!
-//! Security floor until Phase 9 layers the full authority model:
-//! navigation is restricted to `http(s)` and `about:blank` — `file:`,
-//! `data:` and `javascript:` URLs are refused outright — and the agent
-//! may only *mutate* tabs it created or that were explicitly claimed via
-//! `browser_user_claim_tab` (the shared-session handoff rule).
+//! Security floors: navigation is restricted to `http(s)` and
+//! `about:blank` — `file:`, `data:` and `javascript:` URLs are refused
+//! outright — and the agent may only *mutate* tabs it created or that
+//! were explicitly claimed via `browser_user_claim_tab` (the
+//! shared-session handoff rule), never while a manual handoff has the
+//! tab. Layered on top since Phase 9: the per-origin authority model
+//! (`authority.rs` — access / uploads / downloads / full_cdp_access
+//! facets, persisted rule store, always-ask approval cards parked in
+//! the Browser Panel), the manual-handoff takeover lock, the
+//! browser-auth credential handoff (`auth_handoff.rs` — credentials
+//! travel human→CDP only, never through the model), and bot-detection
+//! telemetry.
 
 use std::time::{Duration, Instant};
 
@@ -84,6 +91,18 @@ impl BrowserRuntime {
                 return Err(BrowserError::JsDialogBlocksMethod {
                     dialog_type: dialog.dialog_type,
                 });
+            }
+        }
+        // Phase-9 authority facets (the recovered `acquireAuthority()`
+        // preamble): observe/act/uploads/downloads/full-CDP each consult
+        // the per-origin rule store — a saved deny refuses, always-ask
+        // parks an approval card in the Browser Panel. Human-origin
+        // commands (the panel itself) skip the gates; the human is the
+        // one who grants.
+        if let Some((tab_id, gates)) = crate::authority::gate_for(cmd) {
+            for gate in gates {
+                self.apply_gate(key, &tab_id, gate.facet, gate.label)
+                    .await?;
             }
         }
         match cmd {
@@ -176,6 +195,9 @@ impl BrowserRuntime {
                 self.ax.forget_tab(&p.tab_id);
                 self.pw.forget_tab(&p.tab_id);
                 self.io.forget_tab(&p.tab_id);
+                // Parked approval cards for a closed tab resolve as
+                // "cancelled" rather than sitting until timeout.
+                self.approvals.forget_tab(&p.tab_id);
                 Ok(json!({ "tab_id": p.tab_id, "closed": true }))
             }
             Command::NavigateTabUrl(p) => {
@@ -277,10 +299,11 @@ impl BrowserRuntime {
             }
             Command::TabCdpCall(p) => {
                 check_browser(&p.browser_id)?;
-                // Raw CDP floor until Phase 9 layers the
-                // `full_cdp_access` facet + confirmations: a raw call can
-                // do anything a structured mutation can, so the turn
-                // must own the tab (created or claimed). The method is
+                // Raw CDP floor — the `full_cdp_access` facet gate
+                // (execute's preamble) asks/blocks per origin on top of
+                // this ownership floor: a raw call can do anything a
+                // structured mutation can, so the turn must own the tab
+                // (created or claimed). The method is
                 // sent on the tab's own flattened session — never on the
                 // bare browser endpoint — so a call can't reach outside
                 // the tab it was authorized for.
@@ -863,6 +886,55 @@ impl BrowserRuntime {
                 let d = self.io.wait_for_download_complete(&d.guid, timeout).await?;
                 Ok(json!({ "path": d.path }))
             }
+            // ── Phase 9: manual takeover, bot telemetry, browser-auth ──
+
+            // Fire-and-forget in the reference (returns void); Ruke
+            // confirms the takeover it just performed. The tab flips
+            // `taken_over`: every agent mutation on it fails closed
+            // until the human hands it back via
+            // `browser_user_claim_tab` (panel "return to agent").
+            Command::TabManualHandoffRequest(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                // The handoff mark also protects the tab from turn
+                // cleanup (recovered handoff-tab survival rule).
+                self.registry.lock().mark_handoff(key, &p.tab_id)?;
+                self.registry.lock().set_taken_over(&p.tab_id, true);
+                // Whatever the agent had pending on this tab is dead:
+                // parked approval cards resolve as cancelled.
+                self.approvals.forget_tab(&p.tab_id);
+                self.ui.event(json!({
+                    "type": "tab_takeover",
+                    "tab_id": rec.tab_id,
+                    "reason": p.reason,
+                }));
+                Ok(json!({}))
+            }
+            // Pure telemetry (recovered contract: reporting never
+            // unblocks anything). The observe facet gate already ran;
+            // no ownership floor — a report is a statement, not a
+            // mutation, but the handle must be live (fail closed).
+            Command::TabBotDetectionReport(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let hostname = crate::authority::registrable_host(&rec.url);
+                tracing::info!(
+                    tab_id = %rec.tab_id,
+                    reason = p.reason.as_str(),
+                    hostname = hostname.as_deref().unwrap_or(""),
+                    "browser_use_bot_detection_reported"
+                );
+                Ok(json!({ "status": "reported", "hostname": hostname }))
+            }
+            // The model describes the sign-in, the human supplies the
+            // credentials (validator + origin floor + panel flow in
+            // auth_handoff.rs; values never touch the model or logs).
+            Command::TabBrowserAuthHandoff(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.tab_browser_auth_handoff(&conn, &rec, p).await
+            }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that
             // pretends to have driven a page).
@@ -1065,10 +1137,12 @@ fn check_browser(browser_id: &str) -> Result<(), BrowserError> {
     })
 }
 
-/// Baseline navigation floor (full origin authority arrives in Phase 9):
-/// `http(s)` and `about:blank` only — never `file:`, `data:`, `javascript:`,
-/// or anything that could reach the local filesystem or inject script
-/// through a URL.
+/// Baseline navigation floor: `http(s)` and `about:blank` only — never
+/// `file:`, `data:`, `javascript:`, or anything that could reach the
+/// local filesystem or inject script through a URL. The per-origin
+/// `access` facet (`authority::gate_for`) layers on top of this: a
+/// denied or never-yet-approved origin refuses or parks an approval
+/// card before this floor is even consulted.
 fn check_navigable(url: &str) -> Result<(), BrowserError> {
     if url == "about:blank" {
         return Ok(());
@@ -1093,5 +1167,9 @@ pub(crate) fn tab_json(rec: &TabRecord) -> Value {
         "url": rec.url,
         "title": rec.title,
         "created_by_agent": rec.created_by_turn.is_some(),
+        // Phase 9: the manual-handoff lock rides the row itself so a
+        // (re)connected panel paints the "handed to you" banner from
+        // the snapshot alone, without replaying the takeover event.
+        "taken_over": rec.taken_over,
     })
 }

@@ -23,9 +23,10 @@ pub fn strip_attachment_refs(messages: &mut [Value]) {
 /// pipeline mutates the payload (route.ts:644/:758) — it decides whether
 /// the `retrieval` / `retrieval_done` frames open and close the pair.
 pub fn turn_has_attachment_ref(content: Option<&Value>) -> bool {
-    content
-        .and_then(Value::as_array)
-        .is_some_and(|a| a.iter().any(|p| p.get("type").and_then(Value::as_str) == Some("attachment_ref")))
+    content.and_then(Value::as_array).is_some_and(|a| {
+        a.iter()
+            .any(|p| p.get("type").and_then(Value::as_str) == Some("attachment_ref"))
+    })
 }
 
 /// `firstTextPart(content)`: a string content is itself; an array content
@@ -84,7 +85,8 @@ pub fn remove_key_preserving_order(map: &mut Map<String, Value>, key: &str) -> O
 /// Object-safe wrapper: no-op when `v` is not an object (JS `delete` on a
 /// non-object is a no-op too).
 pub fn remove_key(v: &mut Value, key: &str) -> Option<Value> {
-    v.as_object_mut().and_then(|o| remove_key_preserving_order(o, key))
+    v.as_object_mut()
+        .and_then(|o| remove_key_preserving_order(o, key))
 }
 
 #[cfg(test)]
@@ -111,7 +113,10 @@ mod tests {
 
     #[test]
     fn string_content_untouched_and_missing_content_safe() {
-        let mut msgs = vec![json!({ "role": "assistant", "content": "ok" }), json!({ "role": "user" })];
+        let mut msgs = vec![
+            json!({ "role": "assistant", "content": "ok" }),
+            json!({ "role": "user" }),
+        ];
         strip_attachment_refs(&mut msgs);
         assert_eq!(msgs[0]["content"], "ok");
         assert!(msgs[1].get("content").is_none());
@@ -119,7 +124,9 @@ mod tests {
 
     #[test]
     fn attachment_ref_predicate() {
-        assert!(turn_has_attachment_ref(Some(&json!([{ "type": "attachment_ref" }]))));
+        assert!(turn_has_attachment_ref(Some(
+            &json!([{ "type": "attachment_ref" }])
+        )));
         assert!(!turn_has_attachment_ref(Some(&json!([{ "type": "text" }]))));
         assert!(!turn_has_attachment_ref(Some(&json!("string content"))));
         assert!(!turn_has_attachment_ref(None));
@@ -129,7 +136,9 @@ mod tests {
     fn first_text_part_verbatim_first_nonblank() {
         assert_eq!(first_text_part(Some(&json!("hi"))), "hi");
         assert_eq!(
-            first_text_part(Some(&json!([{ "type": "text", "text": "  " }, { "type": "text", "text": " real " }]))),
+            first_text_part(Some(
+                &json!([{ "type": "text", "text": "  " }, { "type": "text", "text": " real " }])
+            )),
             " real ",
             "returns the untrimmed text"
         );
@@ -148,7 +157,11 @@ mod tests {
             json!({ "role": "user", "content": "pin" }),
         ];
         let h = history_before(&msgs, 4);
-        assert_eq!(h.len(), 2, "system role drops, blank user turn drops, the pinned turn itself is excluded");
+        assert_eq!(
+            h.len(),
+            2,
+            "system role drops, blank user turn drops, the pinned turn itself is excluded"
+        );
         assert_eq!(h[0], json!({ "role": "user", "content": "first" }));
         assert_eq!(h[1]["role"], "assistant");
         assert_eq!(h[1]["content"].as_str().unwrap().chars().count(), 500);

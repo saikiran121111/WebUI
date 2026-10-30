@@ -48,7 +48,9 @@ fn recorded_upstream_error(fx: &Value) -> (u16, String) {
             .expect("ruke_error frame")
             .to_string()
     };
-    let rest = msg.strip_prefix("Upstream returned ").expect("contract prefix");
+    let rest = msg
+        .strip_prefix("Upstream returned ")
+        .expect("contract prefix");
     let colon = rest.find(": ").expect("status separator");
     let status: u16 = rest[..colon].parse().expect("status digits");
     (status, rest[colon + 2..].to_string())
@@ -177,7 +179,10 @@ async fn errors_05_no_body_legacy() {
 
 #[tokio::test]
 async fn errors_06_no_body_progress() {
-    replay("errors/06-no-body-progress.json", |_| vec![Script::no_body()]).await;
+    replay("errors/06-no-body-progress.json", |_| {
+        vec![Script::no_body()]
+    })
+    .await;
 }
 
 /// The unreachable pair needs NO mock: the override points at port 9
@@ -260,14 +265,20 @@ async fn chat_07_client_abort_propagates_upstream_and_releases_slot() {
     // Contract up to the abort: decision_done + the passthrough frame, and
     // NO error frame (errorFramesAfterAbort: 0 — a client abort closes
     // silently, it is not an upstream failure).
-    assert!(!acc.contains("ruke_error"), "abort must not emit a ruke_error frame");
+    assert!(
+        !acc.contains("ruke_error"),
+        "abort must not emit a ruke_error frame"
+    );
     let (frames, _, _) = parse_logical(&acc);
     assert_eq!(
         Value::Array(frames),
         fx["logicalFramesBeforeAbort"].clone(),
         "frames before the abort"
     );
-    assert!(state.slot.user_turn_active(), "turn holds the slot while streaming");
+    assert!(
+        state.slot.user_turn_active(),
+        "turn holds the slot while streaming"
+    );
 
     // The client walks away mid-stream.
     drop(stream);
@@ -278,7 +289,10 @@ async fn chat_07_client_abort_propagates_upstream_and_releases_slot() {
     while !abort_witness.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(abort_witness.load(Ordering::SeqCst), "upstream was never aborted");
+    assert!(
+        abort_witness.load(Ordering::SeqCst),
+        "upstream was never aborted"
+    );
 
     // And the inference slot returns (exactly once) so the next turn can run.
     assert_slot_idle(&state, "chat/07").await;

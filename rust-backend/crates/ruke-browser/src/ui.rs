@@ -300,6 +300,24 @@ impl UiHub {
             .retain(|_, slot| slot.tx.send(msg.clone()).is_ok());
     }
 
+    /// One engine-initiated event frame to every connected client
+    /// (Phase 9: approval requests, browser-auth handoff requests, tab
+    /// takeover banners). Same fan-out/prune contract as `tabs_changed`
+    /// — a dead socket is unregistered, never retried.
+    pub fn event(&self, value: Value) {
+        let mut inner = self.inner.lock();
+        inner
+            .clients
+            .retain(|_, slot| slot.tx.send(value.clone()).is_ok());
+    }
+
+    /// Is any panel socket connected? Phase 9's approval gates fail
+    /// closed without one: an unattended browser must not sit waiting
+    /// for a decision nobody can make (and must not silently allow).
+    pub fn has_clients(&self) -> bool {
+        !self.inner.lock().clients.is_empty()
+    }
+
     /// One protocol error to one client (typed wire error, same codes as
     /// the command RPC — the panel keys off `error_code`).
     pub fn error_to(&self, client: u64, error: &BrowserError) {
@@ -476,7 +494,7 @@ pub(crate) fn input_dispatch(event: &Value) -> Result<(&'static str, Value), Bro
 
 // ── ticket entropy (std-only; see UiHub::new) ───────────────────────────
 
-fn mix_seed() -> u64 {
+pub(crate) fn mix_seed() -> u64 {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
@@ -492,7 +510,7 @@ fn mix_seed() -> u64 {
         ^ thread_hasher.finish()
 }
 
-fn splitmix64(state: &mut u64) -> u64 {
+pub(crate) fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = *state;
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);

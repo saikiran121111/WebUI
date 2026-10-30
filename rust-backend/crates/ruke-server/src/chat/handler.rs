@@ -55,7 +55,9 @@ pub async fn chat_post(State(state): State<AppState>, req: Request) -> Response 
     // span carries `turn_id` into every log line (instrumented below so
     // `parent:`-attached logs in the forwarders land in the same context).
     let turn = state.turns.turn();
-    chat_inner(state, &turn, req).instrument(turn.span.clone()).await
+    chat_inner(state, &turn, req)
+        .instrument(turn.span.clone())
+        .await
 }
 
 async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Response {
@@ -78,8 +80,9 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
     let raw_s = String::from_utf8_lossy(&raw_bytes).into_owned();
 
     // (2) JSON.parse with the same "null stays null" semantics.
-    let mut payload: Option<Value> =
-        serde_json::from_str::<Value>(&raw_s).ok().filter(|v| !v.is_null());
+    let mut payload: Option<Value> = serde_json::from_str::<Value>(&raw_s)
+        .ok()
+        .filter(|v| !v.is_null());
 
     // (3)
     let model: String = payload
@@ -103,7 +106,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
             if let Some(messages) = p.get_mut("messages").and_then(Value::as_array_mut) {
                 attach::strip_attachment_refs(messages);
             }
-            tracing::info!(model = model.as_str(), "compaction passthrough: skipping decision pipeline");
+            tracing::info!(
+                model = model.as_str(),
+                "compaction passthrough: skipping decision pipeline"
+            );
             let body = serde_json::to_vec(p).unwrap_or_default();
             return forward::forward_legacy(
                 &state,
@@ -122,7 +128,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
 
     // (5) the decision gate: NON-EMPTY messages array only (04c skips it).
     if let Some(p) = payload.as_mut() {
-        if p.get("messages").and_then(Value::as_array).is_some_and(|m| !m.is_empty()) {
+        if p.get("messages")
+            .and_then(Value::as_array)
+            .is_some_and(|m| !m.is_empty())
+        {
             // TS wraps this in try/catch; the Rust port degrades internally
             // (every IO failure in routing already yields None), so there
             // is nothing to catch here — same observable outcome.
@@ -145,8 +154,7 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // frames: `hasAttachmentRef` rides the LAST USER
                     // TURN's parts, evaluated before the pipeline
                     // injects anything (route.ts:644 / :758).
-                    let has_refs =
-                        attach::turn_has_attachment_ref(messages[idx].get("content"));
+                    let has_refs = attach::turn_has_attachment_ref(messages[idx].get("content"));
                     (idx, full_text, pinned, has_refs)
                 })
             };
@@ -164,7 +172,11 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                 let env = match pinned {
                     Some(m) => DecisionEnvelope::passthrough(m, &full_text),
                     None => get_decision_sync(
-                        if js_trim(&full_text).is_empty() { "" } else { &full_text },
+                        if js_trim(&full_text).is_empty() {
+                            ""
+                        } else {
+                            &full_text
+                        },
                         &history,
                     ),
                 };
@@ -184,8 +196,13 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // gate runs (route.ts), so the citation/gate pair can
                     // never ride them — the citations travel in the
                     // `web_meta` frame instead (Rule 2.2/2.3).
-                    let resp_headers =
-                        stream_headers(None, used_skill.as_deref(), decision_mode.as_str(), None, None);
+                    let resp_headers = stream_headers(
+                        None,
+                        used_skill.as_deref(),
+                        decision_mode.as_str(),
+                        None,
+                        None,
+                    );
                     let payload_owned = std::mem::replace(p, Value::Null);
                     tokio::spawn(pipeline::pump_progress(
                         state.clone(),

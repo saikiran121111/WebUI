@@ -38,7 +38,10 @@ use ruke_skills::jsstr;
 use crate::AppState;
 
 pub async fn settings_get(State(state): State<AppState>) -> Response {
-    json_response(StatusCode::OK, json!({ "settings": state.settings.read_settings() }))
+    json_response(
+        StatusCode::OK,
+        json!({ "settings": state.settings.read_settings() }),
+    )
 }
 
 pub async fn settings_put(State(state): State<AppState>, req: Request) -> Response {
@@ -68,13 +71,20 @@ pub async fn settings_put(State(state): State<AppState>, req: Request) -> Respon
     // arrays have neither key in JSON, so the object match is faithful.
     if let Some(Value::Object(ct)) = body.get("compact_thresholds") {
         if ct.contains_key("auto") && ct.contains_key("tokens") {
-            let auto = if ct.get("auto").and_then(Value::as_f64) == Some(1.0) { 1 } else { 0 };
+            let auto = if ct.get("auto").and_then(Value::as_f64) == Some(1.0) {
+                1
+            } else {
+                0
+            };
             let mut ct_norm = Map::new();
             ct_norm.insert("auto".into(), Value::Number(Number::from(auto)));
-            ct_norm.insert("tokens".into(), match ct.get("tokens").and_then(Value::as_f64) {
-                Some(x) if x.is_finite() => js_round_max0(x),
-                _ => Value::Number(Number::from(0)),
-            });
+            ct_norm.insert(
+                "tokens".into(),
+                match ct.get("tokens").and_then(Value::as_f64) {
+                    Some(x) if x.is_finite() => js_round_max0(x),
+                    _ => Value::Number(Number::from(0)),
+                },
+            );
             patch.insert("compact_thresholds".into(), Value::Object(ct_norm));
         }
     }
@@ -98,7 +108,9 @@ fn js_round_max0(x: f64) -> Value {
     } else if r < 9.0e18 {
         Value::Number(Number::from(r as i64))
     } else {
-        Number::from_f64(r).map(Value::Number).unwrap_or_else(|| Value::Number(Number::from(0)))
+        Number::from_f64(r)
+            .map(Value::Number)
+            .unwrap_or_else(|| Value::Number(Number::from(0)))
     }
 }
 
@@ -166,9 +178,14 @@ mod tests {
             .header(axum::http::header::CONTENT_TYPE, "application/json")
             .body(body)
             .unwrap();
-        let resp = crate::build_router(state.clone()).oneshot(req).await.unwrap();
+        let resp = crate::build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
         let status = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
@@ -197,8 +214,13 @@ mod tests {
         assert_eq!(body["settings"]["llm_api_key"], json!("  spaced  "));
 
         // Empty-string url fails the trim gate — NOT inserted, NOT cleared.
-        let (status, body) =
-            call(&s, "PUT", "/api/ruke/settings", Body::from(r#"{"llm_api_url":"   "}"#)).await;
+        let (status, body) = call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"llm_api_url":"   "}"#),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["settings"]["llm_api_url"], json!("http://a:8080/v1"));
 
@@ -211,7 +233,10 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["settings"]["compact_thresholds"], json!({"auto": 0, "tokens": 0}));
+        assert_eq!(
+            body["settings"]["compact_thresholds"],
+            json!({"auto": 0, "tokens": 0})
+        );
 
         let (_status, body) = call(
             &s,
@@ -222,15 +247,23 @@ mod tests {
         .await;
         // Math.round(2.4) = 2; integer JSON (no "2.0").
         assert_eq!(
-            serde_json::to_string(body["settings"]["compact_thresholds"].as_object().unwrap()).unwrap(),
+            serde_json::to_string(body["settings"]["compact_thresholds"].as_object().unwrap())
+                .unwrap(),
             "{\"auto\":1,\"tokens\":2}"
         );
 
         // A partial object fails the `in` gates entirely — key untouched.
-        let (_status, body) =
-            call(&s, "PUT", "/api/ruke/settings", Body::from(r#"{"compact_thresholds":{"auto":1}}"#))
-                .await;
-        assert_eq!(body["settings"]["compact_thresholds"], json!({"auto": 1, "tokens": 2}));
+        let (_status, body) = call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"compact_thresholds":{"auto":1}}"#),
+        )
+        .await;
+        assert_eq!(
+            body["settings"]["compact_thresholds"],
+            json!({"auto": 1, "tokens": 2})
+        );
 
         // tokens non-finite/non-number ⇒ 0.
         let (_status, body) = call(
@@ -240,7 +273,10 @@ mod tests {
             Body::from(r#"{"compact_thresholds":{"auto":"1","tokens":"12"}}"#),
         )
         .await;
-        assert_eq!(body["settings"]["compact_thresholds"], json!({"auto": 0, "tokens": 0}));
+        assert_eq!(
+            body["settings"]["compact_thresholds"],
+            json!({"auto": 0, "tokens": 0})
+        );
     }
 
     #[tokio::test]
@@ -260,7 +296,13 @@ mod tests {
     #[tokio::test]
     async fn delete_clears_then_get_returns_defaults() {
         let (s, _t) = state();
-        call(&s, "PUT", "/api/ruke/settings", Body::from(r#"{"llm_api_key":"k"}"#)).await;
+        call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"llm_api_key":"k"}"#),
+        )
+        .await;
         let (status, body) = call(&s, "DELETE", "/api/ruke/settings", Body::empty()).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, json!({ "ok": true }));

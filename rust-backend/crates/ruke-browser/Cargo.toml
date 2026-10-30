@@ -15,6 +15,9 @@ tokio = { workspace = true, features = ["process", "fs"] } # tokio::process = ki
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 url.workspace = true
+# Phase 9 (authority): registrable-domain keying for the per-origin
+# facet rules (same public-suffix library the web-search crate uses).
+psl = { workspace = true }
 parking_lot.workspace = true
 tracing.workspace = true
 
