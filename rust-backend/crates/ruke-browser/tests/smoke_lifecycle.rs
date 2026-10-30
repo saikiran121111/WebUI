@@ -335,6 +335,109 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     );
     rt.ui_close(panel).await;
 
+    // ── Phase 4: raw CDP bridge + bounded event replay (the SAME
+    // session and tab the commands drove) ───────────────────────────
+    // tab_cdp_call runs a real Runtime.evaluate on the tab's own
+    // flattened session — the answer comes from the live page, never
+    // from an echoed payload (conn.call already unwrapped the wire
+    // `result`, so the evaluate RemoteObject nests under result.result).
+    let r = ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"tab_cdp_call","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1,
+                              "method":"Runtime.evaluate",
+                              "params":{"expression":"document.title","returnByValue":true}}}),
+        )
+        .await,
+        "tab_cdp_call Runtime.evaluate",
+    );
+    assert_eq!(r["method"], json!("Runtime.evaluate"));
+    assert_eq!(
+        r["result"]["result"]["value"],
+        json!(PAGE_R),
+        "the raw CDP read must come from live page state (the panel-\
+         navigated receipt page): {r}"
+    );
+
+    // tab_cdp_events: real protocol events the pump buffered during the
+    // navigations above. limit=1 paging walks the whole ring: sequences
+    // are strictly consecutive, the cursor resumes exactly where each
+    // page left off, and only the final page drops has_more.
+    let mut cursor = 0u64;
+    let mut methods: Vec<String> = Vec::new();
+    let mut pages = 0usize;
+    let mut truncated_seen = false;
+    loop {
+        let r = ok(
+            cmd(
+                &rt,
+                "s1",
+                "t1",
+                json!({"commandType":"tab_cdp_events","session_id":"s1","turn_id":"t1",
+                       "payload":{"browser_id":"default","tab_id":tab1,
+                                  "cursor":cursor,"limit":1}}),
+            )
+            .await,
+            "tab_cdp_events page",
+        );
+        pages += 1;
+        assert!(pages <= 5_000, "paging did not terminate at {cursor}");
+        truncated_seen |= r["truncated"].as_bool().unwrap();
+        let evs = r["events"].as_array().unwrap();
+        assert_eq!(evs.len(), 1, "paging stalled at cursor {cursor}: {r}");
+        let e = &evs[0];
+        let seq = e["sequence"].as_u64().unwrap();
+        assert_eq!(seq, cursor + 1, "the cursor is exclusive");
+        assert_eq!(e["source"]["tab_id"], json!(tab1));
+        assert_eq!(
+            r["source"]["tab_id"],
+            json!(tab1),
+            "every page describes the tab it was queried for: {r}"
+        );
+        assert_eq!(r["next_cursor"], json!(seq));
+        methods.push(e["method"].as_str().unwrap().to_string());
+        cursor = seq;
+        if !r["has_more"].as_bool().unwrap() {
+            break;
+        }
+    }
+    assert!(
+        methods.iter().any(|m| m == "Page.frameNavigated"),
+        "replay must contain the REAL navigation events: {methods:?}"
+    );
+    assert!(
+        methods.iter().any(|m| m == "Page.loadEventFired"),
+        "the pump's load sightings are replayable: {methods:?}"
+    );
+    assert!(
+        !methods.iter().any(|m| m == "Page.screencastFrame"),
+        "JPEG frames are UiHub fan-out, never replay evidence: {methods:?}"
+    );
+    assert!(
+        !truncated_seen,
+        "nothing evicted from a 2000-deep ring at this traffic level"
+    );
+
+    // An unknown method on a live session is a real CDP wire error, not
+    // a fabricated success.
+    let err = cmd(
+        &rt,
+        "s1",
+        "t1",
+        json!({"commandType":"tab_cdp_call","session_id":"s1","turn_id":"t1",
+               "payload":{"browser_id":"default","tab_id":tab1,
+                          "method":"NotReal.method"}}),
+    )
+    .await
+    .expect_err("unknown CDP method must fail");
+    assert!(
+        matches!(err, BrowserError::CdpFailed { .. }),
+        "expected CdpFailed, got {err:?}"
+    );
+
     // ── turn cleanup: unmarked tab closes, deliverable survives ──────
     let r = ok(
         cmd(

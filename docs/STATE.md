@@ -1,6 +1,7 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–3
-locked; the 2026-10-28 media-caption cycle below is prior history; the
+Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–4
+locked; PAUSED BY USER after Phase 4 — resume on "continue" with Phase 5;
+the 2026-10-28 media-caption cycle below is prior history; the
 2026-10-25 browser lines stay HISTORY ONLY — superseded on 10-26).
 
 [CURRENT CYCLE 2026-10-30 — BROWSER USE IN RUST (unattended phase run)]:
@@ -42,13 +43,41 @@ locked; the 2026-10-28 media-caption cycle below is prior history; the
   53, ruke-server lib 100 + browser_ui 1 + golden 19 + scrubber 2 +
   attach 6 + store 6, smoke 1/1 --ignored; clippy owned crates 0 warnings
   (7 known remain ONLY in LOCKED ruke-websearch engines.rs:3030-3035).
+  Phase 4 (committed THIS cycle): `crates/ruke-browser/src/cdp_buffer.rs`
+  (NEW — bounded per-tab CDP replay ring, TAB_EVENT_CAPACITY=2000,
+  sequence per-tab from 1, cursor-EXCLUSIVE paging, limit engine-clamped
+  1..=1000 default 100, next_cursor = last returned seq else echo cursor,
+  truncated = cursor strictly before oldest retained (cursor 0 ⇒ evicted),
+  Page.screencastFrame NEVER buffered; 8 unit tests) + pump feeds buffer
+  BEFORE registry routing (bind cloned TabRecord in plain let — guard-
+  lifetime law) + eviction forget on ALL removal paths (pump
+  targetDestroyed / TabClose / end_turn / host-death clear / shutdown) +
+  executor arms TabCdpCall (actable_tab floor until Phase-9 facet; sent on
+  the tab's own flattened session, response {tab_id,method,result} with
+  CdpConn's single unwrap → evaluate value at result.result.value) and
+  TabCdpEvents (registry.require only — reads never relaunch). NO ledger'd
+  interface change (no manifest regen). Gates: ruke-browser 61 unit +
+  smoke 1/1 --ignored (NEW: evaluate-on-live-receipt-page ground truth,
+  limit=1 full walk — consecutive seqs, exclusive cursor, per-page source
+  tab_id, frameNavigated+loadEventFired replayed, screencastFrame absent,
+  !truncated — plus NotReal.method ⇒ CdpFailed); ruke-server 100+6+1+19+2+6
+  regression green; clippy ruke-browser --all-targets 0 warnings. Smoke
+  debug lesson: test-side `let r` INSIDE the paging loop shadowed the
+  outer evaluate response — page-source assert belongs INSIDE the loop.
 - [8.4 contracts in force] Envelope `{commandType,session_id,turn_id,
   payload}`; RPC errors ride HTTP 200 `to_wire()`, 401 is auth-only, non-JSON
   body ⇒ `browser_command_envelope_invalid`; bridge secret semantics reuse
   ruke-websearch browser-bridge constants; tab_ids are numeric strings, never
   reused; CDP awaited value = wire frame `result` unwrapped ONCE (evaluate
-  value at `result.value`, pinned by cdp::tests); 13 lifecycle commands real,
-  other 69 kinds typed `browser_operation_unsupported` until their phase.
+  value at `result.value`, pinned by cdp::tests); 15 commands real (13
+  lifecycle + tab_cdp_call/tab_cdp_events), other 67 kinds typed
+  `browser_operation_unsupported` until their phase. tab_cdp_events page
+  shape: `{tab_id, source:{tab_id,session_id,target_id}, events:
+  [{sequence,method,params,source:{tab_id,session_id,target_id}}…],
+  next_cursor, has_more, truncated}` (extension_id has no Ruke analogue);
+  payload limit 1..=1000 rejected at validate_command AND clamped engine-
+  side; empty/unknown-tab = empty page not error; tab ids never reused so
+  forget+re-register is unambiguous.
   Panel WS protocol (pinned): first msg = tab snapshot (has `tabs`, NO
   `type`); `{"type":"tabs","tabs":[…]}` broadcast (NOT tabs_changed);
   `{"type":"frame","tab_id","data"(base64 jpeg),"metadata"}`;
@@ -72,11 +101,11 @@ locked; the 2026-10-28 media-caption cycle below is prior history; the
   both green standalone — never "fix" them for this).
 - [8.6 open items] None blocking. Panel auto-open + browser-session UI
   E2E are Phase-10/17–19 work, not bugs.
-- [8.8 next 3 atoms] (1) Phase 4: CDP bridge + bounded event buffer in
-  ruke-browser (sequence numbers, cursor paging 1..1000, hasMore,
-  truncated, source{sessionId,tabId,targetId}) — contract in RE docs +
-  plan matrix row 4. (2) Phase 5: DOM CUA + deterministic refs + frames.
-  (3) Phase 6: AX engine. Cargo/smoke need NO `.ai-coordination` lock
+- [8.8 next 3 atoms] USER PAUSE 2026-10-30: stop after Phase 4 commit;
+  resume ONLY on user "continue" in this chat. (1) Phase 5: DOM CUA +
+  deterministic refs + frames — read dom-snapshot-and-cdp.md §4/§5 +
+  plan locked facts first. (2) Phase 6: AX engine. (3) Phase 7: locator
+  runtime. Cargo/smoke need NO `.ai-coordination` lock
   (not model-driven); real-model Playwright E2E (Phases 19–24) does.
   Panel auto-open lands when Phase-10 emits real browser:* frames (useChat
   seam already wired). Plan file stays the live matrix — update per phase.

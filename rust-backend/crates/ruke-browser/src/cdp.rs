@@ -11,8 +11,9 @@
 //!   their phases; turn cancellation aborts at the loop layer, Phase 10).
 //! - Events are forwarded on an unbounded channel; the engine's pump
 //!   consumer is the sole drain, so the queue depth tracks live browser
-//!   activity, not an unbounded firehose (the bounded replay buffer of
-//!   §"CDP buffer" is Phase 4 and layers on top of this channel).
+//!   activity, not an unbounded firehose (the bounded per-tab replay
+//!   buffer — cdp_buffer.rs, Phase 4 — layers on top of this channel at
+//!   the pump).
 //! - A dead socket (or failed write) marks the conn dead and fails every
 //!   parked waiter — "stale handles fail closed" starts here.
 

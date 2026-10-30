@@ -25,6 +25,7 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::cdp::{CdpConn, CdpEvent};
+use crate::cdp_buffer::{buffered_method, CdpEventBuffer};
 use crate::errors::BrowserError;
 use crate::host::{HostConfig, LaunchedHost};
 use crate::session::Registry;
@@ -42,6 +43,9 @@ pub struct BrowserRuntime {
     /// The Browser Panel hub (Phase 3): UI sockets, screencast
     /// ref-counting, tab/frame fan-out.
     pub ui: Arc<UiHub>,
+    /// The bounded per-tab CDP event replay buffer (Phase 4): fed by the
+    /// lifecycle pump, served by `tab_cdp_events`.
+    pub(crate) cdp_events: Arc<CdpEventBuffer>,
 }
 
 impl BrowserRuntime {
@@ -53,6 +57,7 @@ impl BrowserRuntime {
             ui: Arc::new(UiHub::new(Arc::clone(&registry))),
             registry,
             session_names: Mutex::new(HashMap::new()),
+            cdp_events: Arc::new(CdpEventBuffer::default()),
         }
     }
 
@@ -71,6 +76,7 @@ impl BrowserRuntime {
             let dead = slot.take().expect("slot checked above");
             drop(dead);
             self.registry.lock().clear_all();
+            self.cdp_events.clear();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -111,6 +117,7 @@ impl BrowserRuntime {
             tokio::spawn(event_pump(
                 rx,
                 Arc::clone(&self.registry),
+                Arc::clone(&self.cdp_events),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -181,6 +188,7 @@ impl BrowserRuntime {
                 )
                 .await;
             self.registry.lock().remove_tab(&t.tab_id);
+            self.cdp_events.forget_tab(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -196,6 +204,7 @@ impl BrowserRuntime {
             host.shutdown().await;
         }
         self.registry.lock().clear_all();
+        self.cdp_events.clear();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -304,15 +313,31 @@ impl BrowserRuntime {
 /// The lifecycle pump: keeps the registry in step with what the browser
 /// is actually doing (the human may click, close tabs, or navigate while
 /// the agent works — the shared-session rule). Later phases extend this
-/// match (dialogs Phase 8, request/CDP buffer Phase 4, WebMCP, etc.);
-/// unhandled methods are simply not registry-relevant yet.
+/// match (dialogs Phase 8, WebMCP, etc.); unhandled methods are simply
+/// not registry-relevant yet.
+#[allow(clippy::too_many_arguments)]
 async fn event_pump(
     mut rx: mpsc::UnboundedReceiver<CdpEvent>,
     registry: Arc<Mutex<Registry>>,
+    cdp_events: Arc<CdpEventBuffer>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
     while let Some(ev) = rx.recv().await {
+        // Phase 4 replay buffer: every event belonging to a registered
+        // tab is buffered BEFORE registry routing, so a method the match
+        // below ignores still reaches `tab_cdp_events` replay. Frames
+        // are excluded (UiHub fan-out, not protocol evidence). Bind the
+        // cloned record in a plain statement — an `if let` scrutinee
+        // would keep the registry guard alive through the body.
+        if let Some(sid) = ev.session_id.as_deref() {
+            if buffered_method(&ev.method) {
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(tab) = tab.as_ref() {
+                    cdp_events.push(tab, &ev);
+                }
+            }
+        }
         match ev.method.as_str() {
             "Target.targetInfoChanged" => {
                 let info = ev.params.get("targetInfo");
@@ -351,6 +376,7 @@ async fn event_pump(
                     // smoke hanging in shutdown).
                     let destroyed = registry.lock().remove_by_target(target_id);
                     if let Some(rec) = destroyed {
+                        cdp_events.forget_tab(&rec.tab_id);
                         ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
                         ui.tabs_changed();
                     }

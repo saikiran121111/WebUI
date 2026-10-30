@@ -23,6 +23,7 @@
 //! at the native boundary). No placeholders, no fixture knowledge.
 
 pub mod cdp;
+pub mod cdp_buffer;
 pub mod contract;
 pub mod engine;
 pub mod errors;

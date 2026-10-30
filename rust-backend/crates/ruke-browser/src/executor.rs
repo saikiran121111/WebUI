@@ -6,11 +6,13 @@
 //! echo of intent.
 //!
 //! Increment policy (pinned for the Phase-26 coverage audit): the 13
-//! lifecycle commands implemented here execute for real; every other
-//! registered command kind answers `Unsupported { operation }` — an
-//! honest typed error, never a fake success. Later phases (DOM/AX,
-//! input, dialogs, files, CDP buffer…) replace arm-by-arm; the registry
-//! itself (82 rows) was already pinned in Phase 1.
+//! lifecycle commands (Phase 2) plus the raw-CDP bridge pair
+//! `tab_cdp_call`/`tab_cdp_events` (Phase 4) implemented here execute
+//! for real; every other registered command kind answers
+//! `Unsupported { operation }` — an honest typed error, never a fake
+//! success. Later phases (DOM/AX, input, dialogs, files…) replace
+//! arm-by-arm; the registry itself (82 rows) was already pinned in
+//! Phase 1.
 //!
 //! Security floor until Phase 9 layers the full authority model:
 //! navigation is restricted to `http(s)` and `about:blank` — `file:`,
@@ -139,6 +141,10 @@ impl BrowserRuntime {
                 )
                 .await?;
                 self.registry.lock().remove_tab(&p.tab_id);
+                // Complement of the pump's targetDestroyed forget: the
+                // close command removes the handle first, so the ring
+                // must be dropped here (tab ids are never reused).
+                self.cdp_events.forget_tab(&p.tab_id);
                 Ok(json!({ "tab_id": p.tab_id, "closed": true }))
             }
             Command::NavigateTabUrl(p) => {
@@ -237,6 +243,35 @@ impl BrowserRuntime {
                     .lock()
                     .insert(key.0.clone(), p.name.clone());
                 Ok(json!({ "session_id": key.0, "name": p.name }))
+            }
+            Command::TabCdpCall(p) => {
+                check_browser(&p.browser_id)?;
+                // Raw CDP floor until Phase 9 layers the
+                // `full_cdp_access` facet + confirmations: a raw call can
+                // do anything a structured mutation can, so the turn
+                // must own the tab (created or claimed). The method is
+                // sent on the tab's own flattened session — never on the
+                // bare browser endpoint — so a call can't reach outside
+                // the tab it was authorized for.
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let result = conn
+                    .call(&p.method, p.params.clone(), Some(&rec.cdp_session_id))
+                    .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "method": p.method,
+                    "result": result,
+                }))
+            }
+            Command::TabCdpEvents(p) => {
+                check_browser(&p.browser_id)?;
+                // Read-only replay from the Phase-4 buffer: the handle
+                // must exist (stale handles fail closed); a tab nobody
+                // has driven yet simply answers an empty page. Listing
+                // semantics: never relaunch the browser for a read.
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                Ok(self.cdp_events.page(&rec, p.cursor, p.limit))
             }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that
