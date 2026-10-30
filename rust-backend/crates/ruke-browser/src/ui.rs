@@ -125,10 +125,13 @@ impl UiHub {
     pub fn open(&self) -> (u64, mpsc::UnboundedReceiver<Value>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let id = self.next_client.fetch_add(1, Ordering::Relaxed);
-        self.inner
-            .lock()
-            .clients
-            .insert(id, ClientSlot { tx, subs: HashSet::new() });
+        self.inner.lock().clients.insert(
+            id,
+            ClientSlot {
+                tx,
+                subs: HashSet::new(),
+            },
+        );
         (id, rx)
     }
 
@@ -230,8 +233,7 @@ impl UiHub {
             let Some(session) = inner.tab_sessions.get(&tab_id).cloned() else {
                 continue;
             };
-            if !self.still_viewing_locked(&inner, &session)
-                && inner.screencasting.remove(&session)
+            if !self.still_viewing_locked(&inner, &session) && inner.screencasting.remove(&session)
             {
                 inner.tab_sessions.remove(&tab_id);
                 stops.push(session);
@@ -283,9 +285,9 @@ impl UiHub {
         };
         let msg = json!({ "type": "frame", "tab_id": tab_id, "data": data, "metadata": metadata });
         let mut inner = self.inner.lock();
-        inner.clients.retain(|_, slot| {
-            !slot.subs.contains(&tab_id) || slot.tx.send(msg.clone()).is_ok()
-        });
+        inner
+            .clients
+            .retain(|_, slot| !slot.subs.contains(&tab_id) || slot.tx.send(msg.clone()).is_ok());
     }
 
     /// Full tab listing to every connected client (the panel diffs).
@@ -293,7 +295,9 @@ impl UiHub {
         let tabs = self.tabs_snapshot(); // registry only, before `inner`
         let msg = json!({ "type": "tabs", "tabs": tabs });
         let mut inner = self.inner.lock();
-        inner.clients.retain(|_, slot| slot.tx.send(msg.clone()).is_ok());
+        inner
+            .clients
+            .retain(|_, slot| slot.tx.send(msg.clone()).is_ok());
     }
 
     /// One protocol error to one client (typed wire error, same codes as
@@ -357,12 +361,18 @@ pub(crate) fn input_dispatch(event: &Value) -> Result<(&'static str, Value), Bro
             (Some(x), Some(y)) if x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0 => {
                 Ok((x, y))
             }
-            _ => Err(bad("event.x/event.y must be non-negative finite numbers".into())),
+            _ => Err(bad(
+                "event.x/event.y must be non-negative finite numbers".into()
+            )),
         }
     };
     let modifiers = |event: &Value| -> u32 {
         let m = event.get("modifiers").and_then(Value::as_object);
-        let on = |k: &str| m.and_then(|m| m.get(k)).and_then(Value::as_bool).unwrap_or(false);
+        let on = |k: &str| {
+            m.and_then(|m| m.get(k))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        };
         (u32::from(on("alt")))
             | (u32::from(on("ctrl")) << 1)
             | (u32::from(on("meta")) << 2)
@@ -377,20 +387,14 @@ pub(crate) fn input_dispatch(event: &Value) -> Result<(&'static str, Value), Bro
                 Some("move") => "mouseMoved",
                 Some("press") => "mousePressed",
                 Some("release") => "mouseReleased",
-                _ => {
-                    return Err(bad(
-                        "event.action must be move | press | release".into(),
-                    ))
-                }
+                _ => return Err(bad("event.action must be move | press | release".into())),
             };
             let button = match event.get("button").and_then(Value::as_str) {
                 None | Some("left") => "left",
                 Some("middle") => "middle",
                 Some("right") => "right",
                 Some("none") => "none",
-                Some(other) => {
-                    return Err(bad(format!("unknown mouse button {other:?}")))
-                }
+                Some(other) => return Err(bad(format!("unknown mouse button {other:?}"))),
             };
             // CDP counts the DOWN as the click: press carries clickCount,
             // the matching release carries the same count.
@@ -429,9 +433,7 @@ pub(crate) fn input_dispatch(event: &Value) -> Result<(&'static str, Value), Bro
             let cdp_type = match action {
                 Some("down") => "keyDown",
                 Some("up") => "keyUp",
-                _ => {
-                    return Err(bad("event.action must be down | up".into()))
-                }
+                _ => return Err(bad("event.action must be down | up".into())),
             };
             let key = event
                 .get("key")
@@ -484,8 +486,7 @@ fn mix_seed() -> u64 {
     let stack = std::thread::current().id();
     let mut thread_hasher = std::collections::hash_map::DefaultHasher::new();
     std::hash::Hash::hash(&stack, &mut thread_hasher);
-    nanos
-        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    nanos.wrapping_mul(0x9E37_79B9_7F4A_7C15)
         ^ hasher1.finish()
         ^ hasher2.finish().rotate_left(17)
         ^ thread_hasher.finish()
@@ -520,7 +521,10 @@ mod tests {
         assert_eq!(ttl, WS_TICKET_TTL.as_millis() as u64);
         assert_eq!(ticket.len(), 32);
         assert!(hub.claim_ticket(&ticket), "first claim admits");
-        assert!(!hub.claim_ticket(&ticket), "the same ticket cannot be replayed");
+        assert!(
+            !hub.claim_ticket(&ticket),
+            "the same ticket cannot be replayed"
+        );
         assert!(!hub.claim_ticket("00000000000000000000000000000000"));
     }
 
@@ -536,7 +540,10 @@ mod tests {
     fn expired_tickets_are_refused_and_purged() {
         let (hub, _r) = hub_with_tab("1");
         let ticket = "deadbeefdeadbeefdeadbeefdeadbeef".to_string();
-        hub.inner.lock().tickets.insert(ticket.clone(), Instant::now());
+        hub.inner
+            .lock()
+            .tickets
+            .insert(ticket.clone(), Instant::now());
         assert!(!hub.claim_ticket(&ticket), "expired tickets fail closed");
         assert!(hub.inner.lock().tickets.is_empty(), "expired entries purge");
     }
@@ -671,8 +678,7 @@ mod tests {
     #[test]
     fn mouse_press_release_map_to_cdp_dispatches() {
         let (method, press) =
-            input_dispatch(&json!({"kind":"mouse","action":"press","x":200.0,"y":150.0}))
-                .unwrap();
+            input_dispatch(&json!({"kind":"mouse","action":"press","x":200.0,"y":150.0})).unwrap();
         assert_eq!(method, "Input.dispatchMouseEvent");
         assert_eq!(press["type"], json!("mousePressed"));
         assert_eq!(press["x"], json!(200.0));
@@ -682,8 +688,8 @@ mod tests {
             input_dispatch(&json!({"kind":"mouse","action":"release","x":200.0,"y":150.0}))
                 .unwrap();
         assert_eq!(release["type"], json!("mouseReleased"));
-        let (_, mv) = input_dispatch(&json!({"kind":"mouse","action":"move","x":1.0,"y":2.0}))
-            .unwrap();
+        let (_, mv) =
+            input_dispatch(&json!({"kind":"mouse","action":"move","x":1.0,"y":2.0})).unwrap();
         assert_eq!(mv["type"], json!("mouseMoved"));
         assert_eq!(mv["button"], json!("none"));
     }
