@@ -20,6 +20,7 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
+use std::time::Duration;
 
 use ruke_browser::contract::parse_envelope;
 use ruke_browser::engine::BrowserRuntime;
@@ -28,11 +29,20 @@ use serde_json::{json, Value};
 
 const PAGE_A: &str = "Ruke Smoke Page A";
 const PAGE_B: &str = "Ruke Smoke Page B";
+const PAGE_R: &str = "Ruke Receipt Page";
 
+/// Phase-3 addition: every page carries a fixed 100×300 px click target
+/// whose handler navigates to `/receipt` — so a real CDP `Input.*` click
+/// (the Browser Panel path) is verified by REAL navigation state, not an
+/// echoed payload. The headless default viewport (800×600) comfortably
+/// contains the target.
 fn page_html(title: &str) -> String {
     format!(
         "<!doctype html><html><head><title>{title}</title></head>\
-         <body><h1>{title}</h1><a href=\"/b\">go to B</a></body></html>"
+         <body><h1>{title}</h1><a href=\"/b\">go to B</a>\
+         <div id=\"hit\" onclick=\"location.href='/receipt'\" \
+          style=\"position:fixed;left:100px;top:100px;width:200px;height:200px\">click me</div>\
+         </body></html>"
     )
 }
 
@@ -56,6 +66,7 @@ fn start_fixture() -> String {
             let (status, body) = match path.as_str() {
                 "/a" => ("200 OK", page_html(PAGE_A)),
                 "/b" => ("200 OK", page_html(PAGE_B)),
+                "/receipt" => ("200 OK", page_html(PAGE_R)),
                 _ => (
                     "404 Not Found",
                     "<!doctype html><html><head><title>fixture 404</title></head><body>404</body></html>".to_string(),
@@ -93,6 +104,11 @@ async fn cmd(
 }
 
 fn ok(result: Result<Value, BrowserError>, what: &str) -> Value {
+    result.unwrap_or_else(|e| panic!("{what} failed: {e}"))
+}
+
+/// Same fail-loud rule for the panel helpers that answer `()`.
+fn okx<T>(result: Result<T, BrowserError>, what: &str) -> T {
     result.unwrap_or_else(|e| panic!("{what} failed: {e}"))
 }
 
@@ -236,6 +252,89 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     assert_eq!(r["url"], json!(url_b));
     assert_eq!(r["title"], json!(PAGE_B));
 
+    // ── Browser Panel (Phase 3): live screencast + real input into the
+    // SAME tab the commands drive (one shared session, no parallel
+    // browser) ──────────────────────────────────────────────────────
+    let (panel, mut hub_rx) = rt.ui_open();
+    let sub = ok(
+        rt.ui_subscribe(panel, &tab1).await,
+        "panel subscribe (starts the ref-counted screencast)",
+    );
+    assert_eq!(sub["tab_id"], json!(tab1));
+    assert_eq!(sub["url"], json!(url_b));
+
+    // A real JPEG frame rides the hub channel (ignoring `tabs`
+    // broadcasts that arrive alongside).
+    let frame = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let msg = hub_rx.recv().await.expect("hub channel stays open");
+            if msg["type"] == json!("frame") && msg["tab_id"] == json!(tab1) {
+                return msg;
+            }
+        }
+    })
+    .await
+    .expect("no screencast frame within 15s");
+    assert!(
+        !frame["data"].as_str().unwrap_or("").is_empty(),
+        "the first frame carries image bytes, not a placeholder"
+    );
+
+    // A real click through the panel path: press + release inside the
+    // fixture's fixed click target. The page's own handler navigates to
+    // /receipt — verified against REAL navigated state (the pump
+    // propagating url + title into the registry), never a command echo.
+    okx(
+        rt.ui_input(
+            panel,
+            &tab1,
+            &json!({"kind":"mouse","action":"press","x":200.0,"y":200.0,
+                    "button":"left","click_count":1}),
+        )
+        .await,
+        "panel mouse press",
+    );
+    okx(
+        rt.ui_input(
+            panel,
+            &tab1,
+            &json!({"kind":"mouse","action":"release","x":200.0,"y":200.0,
+                    "button":"left","click_count":1}),
+        )
+        .await,
+        "panel mouse release",
+    );
+    let receipt_url = format!("{base}/receipt");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let r = ok(
+            cmd(
+                &rt,
+                "s1",
+                "t1",
+                json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
+                       "payload":{"browser_id":"default","tab_id":tab1}}),
+            )
+            .await,
+            "get_tab after panel click",
+        );
+        if r["url"] == json!(receipt_url) && r["title"] == json!(PAGE_R) {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("panel click never reached the page (registry: {r})");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Acting without a live subscription is a typed refusal (the panel
+    // gate), and unsubscribing leaves no capture running behind it.
+    okx(
+        rt.ui_unsubscribe(panel, &tab1).await,
+        "panel unsubscribe (last viewer stops the screencast)",
+    );
+    rt.ui_close(panel).await;
+
     // ── turn cleanup: unmarked tab closes, deliverable survives ──────
     let r = ok(
         cmd(
@@ -277,8 +376,9 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     );
     let tabs = r["tabs"].as_array().unwrap();
     assert!(
-        find_tab(tabs, &tab1)["title"] == json!(PAGE_B),
-        "deliverable tab must survive turn cleanup: {tabs:?}"
+        find_tab(tabs, &tab1)["url"] == json!(receipt_url),
+        "deliverable tab must survive turn cleanup (still on the panel-\
+         navigated receipt page): {tabs:?}"
     );
     assert!(
         !tabs.iter().any(|t| t["tab_id"] == json!(tab2)),

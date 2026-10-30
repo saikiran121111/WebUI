@@ -318,8 +318,9 @@ impl BrowserRuntime {
     }
 
     /// Evaluate an expression whose value must be a string; a JS-side
-    /// throw is a real CdpFailed (not a silent empty read).
-    async fn eval_string(
+    /// throw is a real CdpFailed (not a silent empty read). Also used by
+    /// the lifecycle pump for authoritative post-load reads.
+    pub(crate) async fn eval_string(
         conn: &CdpConn,
         cdp_session_id: &str,
         expression: &str,
@@ -401,7 +402,7 @@ fn check_navigable(url: &str) -> Result<(), BrowserError> {
 /// claim. CDP `targetId`s are deliberately never model-visible — the
 /// registry handle is the stable contract (stale-handle semantics live
 /// in `browser_context_unavailable`).
-fn tab_json(rec: &TabRecord) -> Value {
+pub(crate) fn tab_json(rec: &TabRecord) -> Value {
     json!({
         "tab_id": rec.tab_id,
         "url": rec.url,

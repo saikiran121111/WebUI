@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -28,6 +28,7 @@ use crate::cdp::{CdpConn, CdpEvent};
 use crate::errors::BrowserError;
 use crate::host::{HostConfig, LaunchedHost};
 use crate::session::Registry;
+use crate::ui::UiHub;
 
 /// The single Ruke agent browser's id. The payloads carry `browser_id`
 /// because the reference contract does; anything else fails closed.
@@ -38,14 +39,19 @@ pub struct BrowserRuntime {
     host: AsyncMutex<Option<LaunchedHost>>,
     pub(crate) registry: Arc<Mutex<Registry>>,
     pub(crate) session_names: Mutex<HashMap<String, String>>,
+    /// The Browser Panel hub (Phase 3): UI sockets, screencast
+    /// ref-counting, tab/frame fan-out.
+    pub ui: Arc<UiHub>,
 }
 
 impl BrowserRuntime {
     pub fn new(root: PathBuf) -> Self {
+        let registry = Arc::new(Mutex::new(Registry::default()));
         Self {
             root,
             host: AsyncMutex::new(None),
-            registry: Arc::new(Mutex::new(Registry::default())),
+            ui: Arc::new(UiHub::new(Arc::clone(&registry))),
+            registry,
             session_names: Mutex::new(HashMap::new()),
         }
     }
@@ -65,6 +71,8 @@ impl BrowserRuntime {
             let dead = slot.take().expect("slot checked above");
             drop(dead);
             self.registry.lock().clear_all();
+            self.ui.clear_state();
+            self.ui.tabs_changed();
         }
 
         let cfg = HostConfig::discover(&self.root)?;
@@ -100,8 +108,16 @@ impl BrowserRuntime {
             initial_page_targets: Vec::new(),
         });
         if let Some(rx) = events {
-            tokio::spawn(event_pump(rx, Arc::clone(&self.registry)));
+            tokio::spawn(event_pump(
+                rx,
+                Arc::clone(&self.registry),
+                Arc::clone(&self.ui),
+                conn.clone(),
+            ));
         }
+        // A connected panel learns about session-restored / initial tabs
+        // the moment the browser comes up (it never polls).
+        self.ui.tabs_changed();
         Ok(conn)
     }
 
@@ -165,7 +181,9 @@ impl BrowserRuntime {
                 )
                 .await;
             self.registry.lock().remove_tab(&t.tab_id);
+            self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
+        self.ui.tabs_changed();
     }
 
     /// Graceful browser teardown (supervisor shutdown / server exit).
@@ -178,6 +196,108 @@ impl BrowserRuntime {
             host.shutdown().await;
         }
         self.registry.lock().clear_all();
+        self.ui.clear_state();
+        self.ui.tabs_changed();
+    }
+
+    // ── Browser Panel (Phase 3) ───────────────────────────────────────
+    // The live human view into the SAME session the model controls (plan
+    // §0: one browser, one tab set — no parallel hidden browser).
+    // Transport guards (loopback bind, Origin allowlist, one-shot
+    // ticket) live in the ruke-server route; everything here is the
+    // protocol and the CDP plumbing.
+
+    /// Mint a one-shot UI-socket ticket: `(ticket, ttl_ms)`. The
+    /// authenticated HTTP route hands it to the panel, which rides it on
+    /// the WS query (handshakes cannot set the bridge-secret header).
+    pub fn ws_ticket(&self) -> (String, u64) {
+        self.ui.mint_ticket()
+    }
+
+    /// Admit a WebSocket upgrade exactly once per ticket.
+    pub fn claim_ws_ticket(&self, ticket: &str) -> bool {
+        self.ui.claim_ticket(ticket)
+    }
+
+    /// Register a connected panel socket: its id plus the outbound
+    /// channel the route drains into the WebSocket.
+    pub fn ui_open(&self) -> (u64, mpsc::UnboundedReceiver<Value>) {
+        self.ui.open()
+    }
+
+    /// The tab snapshot sent the moment a panel connects.
+    pub fn ui_tabs_snapshot(&self) -> Value {
+        json!({ "browser_id": BROWSER_ID, "tabs": self.ui.tabs_snapshot() })
+    }
+
+    /// Start (or join) viewing a tab: ref-counted `Page.startScreencast`
+    /// on its CDP session. A panel watching is a *user* action, so the
+    /// host launches on demand like any other command path.
+    pub async fn ui_subscribe(&self, client: u64, tab_id: &str) -> Result<Value, BrowserError> {
+        let fresh = self.ui.subscribe(client, tab_id)?;
+        if let Some(cdp_session) = fresh {
+            let conn = self.client().await?;
+            let started = conn
+                .call(
+                    "Page.startScreencast",
+                    Some(json!({"format": "jpeg", "quality": 70, "everyNthFrame": 1})),
+                    Some(&cdp_session),
+                )
+                .await;
+            if let Err(e) = started {
+                self.ui.forget_subscribe(client, tab_id, &cdp_session);
+                return Err(e);
+            }
+        }
+        let rec = self.registry.lock().require(tab_id)?;
+        Ok(crate::executor::tab_json(&rec))
+    }
+
+    pub async fn ui_unsubscribe(&self, client: u64, tab_id: &str) -> Result<(), BrowserError> {
+        if let Some(cdp_session) = self.ui.unsubscribe(client, tab_id)? {
+            if let Ok(conn) = self.try_client().await {
+                // Best-effort: the session may already be gone (tab
+                // closed); the hub bookkeeping is unwound either way.
+                let _ = conn
+                    .call("Page.stopScreencast", Some(json!({})), Some(&cdp_session))
+                    .await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Panel socket closed: stop the screencasts it was the last viewer
+    /// of (a dead host makes them moot, hence try_client + best-effort).
+    pub async fn ui_close(&self, client: u64) {
+        let stops = self.ui.close(client);
+        if stops.is_empty() {
+            return;
+        }
+        if let Ok(conn) = self.try_client().await {
+            for session in stops {
+                let _ = conn
+                    .call("Page.stopScreencast", Some(json!({})), Some(&session))
+                    .await;
+            }
+        }
+    }
+
+    /// A panel input event drives the SAME tab over the SAME CDP session
+    /// the agent uses. The acting gate is the live subscription itself
+    /// (`require_subscribed`): you act only on what you are looking at.
+    pub async fn ui_input(
+        &self,
+        client: u64,
+        tab_id: &str,
+        event: &Value,
+    ) -> Result<(), BrowserError> {
+        self.ui.require_subscribed(client, tab_id)?;
+        let rec = self.registry.lock().require(tab_id)?;
+        let (method, params) = crate::ui::input_dispatch(event)?;
+        let conn = self.client().await?;
+        conn.call(method, Some(params), Some(&rec.cdp_session_id))
+            .await?;
+        Ok(())
     }
 }
 
@@ -186,7 +306,12 @@ impl BrowserRuntime {
 /// the agent works — the shared-session rule). Later phases extend this
 /// match (dialogs Phase 8, request/CDP buffer Phase 4, WebMCP, etc.);
 /// unhandled methods are simply not registry-relevant yet.
-async fn event_pump(mut rx: mpsc::UnboundedReceiver<CdpEvent>, registry: Arc<Mutex<Registry>>) {
+async fn event_pump(
+    mut rx: mpsc::UnboundedReceiver<CdpEvent>,
+    registry: Arc<Mutex<Registry>>,
+    ui: Arc<UiHub>,
+    conn: Arc<CdpConn>,
+) {
     while let Some(ev) = rx.recv().await {
         match ev.method.as_str() {
             "Target.targetInfoChanged" => {
@@ -207,13 +332,28 @@ async fn event_pump(mut rx: mpsc::UnboundedReceiver<CdpEvent>, registry: Arc<Mut
                         let schemeless = url.and_then(|u| u.split_once("://").map(|(_, r)| r));
                         let meaningful = title
                             .filter(|t| !t.is_empty() && Some(*t) != url && Some(*t) != schemeless);
-                        registry.lock().update_by_target(target_id, url, meaningful);
+                        if registry.lock().update_by_target(target_id, url, meaningful) {
+                            ui.tabs_changed();
+                        }
                     }
                 }
             }
             "Target.targetDestroyed" => {
                 if let Some(target_id) = ev.params.get("targetId").and_then(|v| v.as_str()) {
-                    registry.lock().remove_by_target(target_id);
+                    // Bind the owned record in a plain statement: an
+                    // `if let` scrutinee temporary keeps the registry
+                    // guard alive through the whole body, and
+                    // `tabs_changed` re-locks the registry — parking_lot
+                    // is not reentrant, so the nested form self-deadlocked
+                    // the moment Chromium destroyed a registered tab on
+                    // its own (Browser.close tearing down session-
+                    // restored user tabs; caught by the real-Chromium
+                    // smoke hanging in shutdown).
+                    let destroyed = registry.lock().remove_by_target(target_id);
+                    if let Some(rec) = destroyed {
+                        ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
+                        ui.tabs_changed();
+                    }
                 }
             }
             "Page.frameNavigated" => {
@@ -225,9 +365,59 @@ async fn event_pump(mut rx: mpsc::UnboundedReceiver<CdpEvent>, registry: Arc<Mut
                         ev.session_id.as_deref(),
                         frame.and_then(|f| f.get("url")).and_then(|v| v.as_str()),
                     ) {
-                        registry.lock().update_by_session(sid, Some(url), None);
+                        if registry.lock().update_by_session(sid, Some(url), None) {
+                            ui.tabs_changed();
+                        }
                     }
                 }
+            }
+            // Title refresh for navigations nobody commanded (a user
+            // click inside a panel-viewed tab, page JS, or a target-init
+            // nav): once the new document fires `load`, read its title
+            // authoritatively. `Target.targetInfoChanged` is not
+            // reliably delivered for title updates on a flattened
+            // attach (real-Chromium smoke caught the stale registry
+            // title after a page-JS navigation), and the panel tab
+            // strip must never show the previous page's title.
+            "Page.loadEventFired" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let title = BrowserRuntime::eval_string(&conn, sid, "document.title")
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(title) = title {
+                    if registry.lock().update_by_session(sid, None, Some(&title)) {
+                        ui.tabs_changed();
+                    }
+                }
+            }
+            // Panel screencast (Phase 3): frames flow only for sessions
+            // with a live `Page.startScreencast` (subscribe ref-counts
+            // them). The frameAck is what releases Chromium's NEXT
+            // frame, so ack before fanning — a slow or vanished viewer
+            // must never stall the pipeline. Anti-throttle launch flags
+            // (host.rs) keep frames flowing while the tab is occluded.
+            "Page.screencastFrame" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                if !ui.watching(sid) {
+                    continue;
+                }
+                let _ = conn
+                    .call(
+                        "Page.screencastFrameAck",
+                        Some(json!({"sessionId": sid})),
+                        Some(sid),
+                    )
+                    .await;
+                ui.frame(
+                    sid,
+                    ev.params.get("data").and_then(|v| v.as_str()).unwrap_or(""),
+                    ev.params.get("metadata"),
+                );
             }
             _ => {}
         }

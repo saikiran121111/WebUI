@@ -30,3 +30,4 @@ pub mod executor;
 pub mod host;
 pub mod schemas;
 pub mod session;
+pub mod ui;
