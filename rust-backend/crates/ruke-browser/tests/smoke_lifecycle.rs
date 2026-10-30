@@ -218,6 +218,33 @@ async fn eval_value(
         .unwrap_or(Value::Null)
 }
 
+/// Phase-6 helper: `tab_ax_get_state` over the axState content mode
+/// (the screenshot modes land with Phase 8), optionally disabling the
+/// diff so the full-tree answer is testable too.
+async fn ax_state(
+    rt: &BrowserRuntime,
+    session: &str,
+    turn: &str,
+    tab: &str,
+    disable_diffing: Option<bool>,
+) -> Value {
+    let mut payload = json!({"browser_id": "default", "tab_id": tab, "content": "axState"});
+    if let Some(d) = disable_diffing {
+        payload["disable_diffing"] = json!(d);
+    }
+    ok(
+        cmd(
+            rt,
+            session,
+            turn,
+            json!({"commandType":"tab_ax_get_state","session_id":session,"turn_id":turn,
+                   "payload":payload}),
+        )
+        .await,
+        "tab_ax_get_state",
+    )
+}
+
 #[tokio::test]
 #[ignore = "launches real Chromium and takes the product profile lock (see file header)"]
 async fn phase2_lifecycle_smoke_against_real_chromium() {
@@ -831,6 +858,177 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         "typing must reach the real focused element inside the iframe"
     );
 
+    // ── Phase 6: AX capture against REAL page state through the SAME
+    // session/tab command path — grounded full tree with the pinned
+    // header, the recovered no-change text, REAL changed lines after a
+    // real focus/value mutation, full-tree mode, frame descent, and
+    // full-tree restart on a new document ────────────────────────────
+    const DIFF_HEADER: &str = "The following is a diff from the previous accessibility tree \
+                               with ~ and + representing changed and added elements, \
+                               respectively. Removed elements are summarized by ID range.";
+    const NO_CHANGE: &str = "There has been no change in the accessibility tree.";
+
+    ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1,"url":url_form}}),
+        )
+        .await,
+        "navigate /form (AX battery)",
+    );
+
+    // First capture: the full tree with the pinned header contract.
+    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let ax1 = r["rendered"].as_str().expect("rendered").to_string();
+    assert!(
+        ax1.starts_with(&format!(
+            "Browser tab: {tab1}, Title: \"Ruke Form Page\", URL: \"{url_form}\".\n"
+        )),
+        "the pinned header line is missing: {ax1}"
+    );
+    assert!(ax1.contains("Go to receipt"), "the button name is missing: {ax1}");
+    assert!(
+        !ax1.contains("Sup3rS3cret!"),
+        "the AX tree must never leak a page-JS-set password value: {ax1}"
+    );
+    assert!(
+        r["element_count"].as_u64().unwrap() >= 6,
+        "the form controls belong in the tree: {r}"
+    );
+    assert!(
+        r["document_key"].as_str().is_some_and(|k| !k.is_empty()),
+        "a committed revision answers its document key: {r}"
+    );
+
+    // Same document, no mutation: the recovered no-change text.
+    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let ax2 = r["rendered"].as_str().expect("rendered").to_string();
+    assert_eq!(
+        ax2.lines().last().unwrap_or(""),
+        NO_CHANGE,
+        "an unchanged document must answer the no-change text: {ax2}"
+    );
+
+    // A REAL click + type mutates focus (and the input's value): the
+    // next capture is a diff carrying changed/added lines.
+    let snap = ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"dom_cua_get_visible_dom","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1}}),
+        )
+        .await,
+        "dom_cua_get_visible_dom /form (AX battery)",
+    );
+    let dom = snap["dom"].as_str().expect("dom string").to_string();
+    let name_node = dom_node_id(&dom, "placeholder=\"your name\"");
+    ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1,"node_id":name_node}}),
+        )
+        .await,
+        "dom_cua_click input#name (AX battery)",
+    );
+    ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"dom_cua_type","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1,"text":"Ruke AX"}}),
+        )
+        .await,
+        "dom_cua_type (AX battery)",
+    );
+    assert_eq!(
+        eval_value(
+            &rt,
+            "s1",
+            "t1",
+            &tab1,
+            "document.getElementById('name').value"
+        )
+        .await,
+        json!("Ruke AX"),
+        "the mutation the diff must describe is real page state"
+    );
+    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let ax3 = r["rendered"].as_str().expect("rendered").to_string();
+    assert!(
+        ax3.contains(DIFF_HEADER),
+        "the second committed revision turns the next capture into a diff: {ax3}"
+    );
+    assert_eq!(r["diff"], json!(true), "the answer flags the diff: {r}");
+    assert!(
+        ax3.lines().any(|l| {
+            let t = l.trim_start();
+            t.starts_with("~ ") || t.starts_with("+ ")
+        }),
+        "a real focus/value change must produce at least one changed \
+         or added line: {ax3}"
+    );
+
+    // disable_diffing: full tree again, diff or not.
+    let r = ax_state(&rt, "s1", "t1", &tab1, Some(true)).await;
+    let ax4 = r["rendered"].as_str().expect("rendered").to_string();
+    assert!(
+        !ax4.contains(DIFF_HEADER) && ax4.contains("your name"),
+        "disable_diffing must answer the full tree: {ax4}"
+    );
+
+    // Frames: the AX walk descends into the iframe document, and the
+    // addressable elements carry the id tags the action path binds to.
+    ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1,"url":url_frames}}),
+        )
+        .await,
+        "navigate /frames (AX battery)",
+    );
+    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let ax5 = r["rendered"].as_str().expect("rendered").to_string();
+    assert!(
+        ax5.contains("inner field"),
+        "the AX capture must descend into the iframe document: {ax5}"
+    );
+    assert!(
+        ax5.contains("[id=0]"),
+        "the first addressable element carries an [id=N] tag: {ax5}"
+    );
+
+    // A fresh navigation is a new document: the diff baseline resets
+    // and the tree is answered in full.
+    ok(
+        cmd(
+            &rt,
+            "s1",
+            "t1",
+            json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
+                   "payload":{"browser_id":"default","tab_id":tab1,"url":url_form}}),
+        )
+        .await,
+        "navigate /form again (AX battery)",
+    );
+    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let ax6 = r["rendered"].as_str().expect("rendered").to_string();
+    assert!(
+        !ax6.contains(DIFF_HEADER) && ax6.contains("Go to receipt"),
+        "a new document must restart with the full tree: {ax6}"
+    );
+
     // ── turn cleanup: unmarked tab closes, deliverable survives ──────
     let r = ok(
         cmd(
@@ -872,9 +1070,9 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     );
     let tabs = r["tabs"].as_array().unwrap();
     assert!(
-        find_tab(tabs, &tab1)["url"] == json!(url_frames),
-        "deliverable tab must survive turn cleanup (still on the DOM-CUA-\
-         navigated frames page): {tabs:?}"
+        find_tab(tabs, &tab1)["url"] == json!(url_form),
+        "deliverable tab must survive turn cleanup (still on the page the \
+         AX battery last navigated to): {tabs:?}"
     );
     assert!(
         !tabs.iter().any(|t| t["tab_id"] == json!(tab2)),

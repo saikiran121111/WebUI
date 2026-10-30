@@ -50,6 +50,10 @@ pub struct BrowserRuntime {
     /// maps and the FIFO isolated-world cache. Every tab-removal path
     /// forgets here too, so stale handles fail closed.
     pub(crate) dom: Arc<crate::dom_cua::DomRegistries>,
+    /// The AX registries (Phase 6): per-tab navigation state machine,
+    /// committed revisions, and the capture pipeline. Every tab-removal
+    /// path forgets here too, so stale handles fail closed.
+    pub(crate) ax: Arc<crate::ax::AxRegistries>,
 }
 
 impl BrowserRuntime {
@@ -63,6 +67,7 @@ impl BrowserRuntime {
             session_names: Mutex::new(HashMap::new()),
             cdp_events: Arc::new(CdpEventBuffer::default()),
             dom: Arc::new(crate::dom_cua::DomRegistries::default()),
+            ax: Arc::new(crate::ax::AxRegistries::default()),
         }
     }
 
@@ -83,6 +88,7 @@ impl BrowserRuntime {
             self.registry.lock().clear_all();
             self.cdp_events.clear();
             self.dom.clear_all();
+            self.ax.clear_all();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -125,6 +131,7 @@ impl BrowserRuntime {
                 Arc::clone(&self.registry),
                 Arc::clone(&self.cdp_events),
                 Arc::clone(&self.dom),
+                Arc::clone(&self.ax),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -171,6 +178,12 @@ impl BrowserRuntime {
         // Phase 5: the DOM domain backs getFrameOwner/describeNode/
         // getContentQuads for DOM CUA geometry and resolution.
         conn.call("DOM.enable", None, Some(&session_id)).await?;
+        // Phase 6: the Accessibility domain backs `getFullAXTree`
+        // captures, and its loadComplete/nodesUpdated events drive the
+        // capture pipeline's quiet-window waits. Without this enable
+        // the AX registries would never observe an update.
+        conn.call("Accessibility.enable", None, Some(&session_id))
+            .await?;
         Ok(session_id)
     }
 
@@ -200,6 +213,7 @@ impl BrowserRuntime {
             self.registry.lock().remove_tab(&t.tab_id);
             self.cdp_events.forget_tab(&t.tab_id);
             self.dom.forget_tab(&t.tab_id);
+            self.ax.forget_tab(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -217,6 +231,7 @@ impl BrowserRuntime {
         self.registry.lock().clear_all();
         self.cdp_events.clear();
         self.dom.clear_all();
+        self.ax.clear_all();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -333,6 +348,7 @@ async fn event_pump(
     registry: Arc<Mutex<Registry>>,
     cdp_events: Arc<CdpEventBuffer>,
     dom: Arc<crate::dom_cua::DomRegistries>,
+    ax: Arc<crate::ax::AxRegistries>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -400,6 +416,39 @@ async fn event_pump(
                 // Main-frame navigations only (parentId absent).
                 let frame = ev.params.get("frame");
                 let main = frame.is_some_and(|f| f.get("parentId").is_none());
+                // H-BS-27 committed landing: the AX state machine
+                // settles the frame/loader/url pair, flips pending, and
+                // (bfcache) fast-paints. Subframe navs invalidate the
+                // committed revision outright.
+                if let Some(sid) = ev.session_id.as_deref() {
+                    let tab = registry.lock().by_session(sid).cloned();
+                    if let Some(t) = tab.as_ref() {
+                        if main {
+                            let bfcache = ev
+                                .params
+                                .get("type")
+                                .or_else(|| frame.and_then(|f| f.get("type")))
+                                .and_then(Value::as_str)
+                                .is_some_and(|ty| {
+                                    ty.eq_ignore_ascii_case("BackForwardCacheRestore")
+                                });
+                            ax.on_main_frame_navigated(
+                                &t.tab_id,
+                                frame
+                                    .and_then(|f| f.get("id"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(""),
+                                frame
+                                    .and_then(|f| f.get("loaderId"))
+                                    .and_then(Value::as_str),
+                                frame.and_then(|f| f.get("url")).and_then(Value::as_str),
+                                bfcache,
+                            );
+                        } else {
+                            ax.invalidate_subtree(&t.tab_id);
+                        }
+                    }
+                }
                 if main {
                     if let (Some(sid), Some(url)) = (
                         ev.session_id.as_deref(),
@@ -423,6 +472,10 @@ async fn event_pump(
                 let Some(sid) = ev.session_id.as_deref() else {
                     continue;
                 };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_load_event(&t.tab_id);
+                }
                 let title = BrowserRuntime::eval_string(&conn, sid, "document.title")
                     .await
                     .ok()
@@ -458,6 +511,121 @@ async fn event_pump(
                     ev.params.get("data").and_then(|v| v.as_str()).unwrap_or(""),
                     ev.params.get("metadata"),
                 );
+            }
+            // Phase 6: Accessibility domain activity stamps the tab's
+            // last-update instant, which the capture pipeline's quiet
+            // window measures against.
+            "Accessibility.loadComplete" | "Accessibility.nodesUpdated" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.note_ax_update(&t.tab_id);
+                }
+            }
+            // H-BS-27 navigation state machine. The main-frame filter
+            // (and every other rule) lives inside the hooks; the pump
+            // only decodes CDP params and hands them over.
+            "Page.frameStartedLoading" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_frame_started_loading(
+                        &t.tab_id,
+                        frame_id,
+                        ev.params.get("loaderId").and_then(Value::as_str),
+                    );
+                }
+            }
+            "Page.frameDetached" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.invalidate_subtree(&t.tab_id);
+                }
+            }
+            // Dialogs bump the revision: an open dialog blocks page
+            // input, so any AX state captured around one is suspect.
+            "Page.javascriptDialogOpening" | "Page.javascriptDialogClosed" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_dialog_event(&t.tab_id);
+                }
+            }
+            "Page.domContentEventFired" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_dom_content_loaded(&t.tab_id);
+                }
+            }
+            "Page.frameStoppedLoading" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_frame_stopped_loading(&t.tab_id, frame_id);
+                }
+            }
+            "Page.navigatedWithinDocument" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(url) = ev.params.get("url").and_then(Value::as_str) else {
+                    continue;
+                };
+                let nav_type = ev.params.get("type").and_then(Value::as_str).unwrap_or("");
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_navigated_within_document(&t.tab_id, frame_id, url, nav_type);
+                }
+            }
+            "Page.lifecycleEvent" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(name) = ev.params.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                // Loader progress counts as committed unless the engine
+                // explicitly says otherwise.
+                let progress_committed = ev
+                    .params
+                    .get("loaderProgress")
+                    .is_none_or(|p| p.as_str().is_none_or(|s| s == "committed"));
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ax.on_lifecycle_event(
+                        &t.tab_id,
+                        frame_id,
+                        ev.params.get("loaderId").and_then(Value::as_str),
+                        name,
+                        progress_committed,
+                    );
+                }
             }
             _ => {}
         }

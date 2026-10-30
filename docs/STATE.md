@@ -1,8 +1,9 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–5
-locked; user directive: complete ALL 29 phases without stopping — next is
-Phase 6 AX engine; the 2026-10-28 media-caption cycle below is prior
-history; the 2026-10-25 browser lines stay HISTORY ONLY — superseded 10-26).
+Synced: 2026-10-31 — RUST BROWSER-USE SUBSYSTEM RUN (Phases 0–6
+locked incl. Phase-6 AX engine full-smoke green; user directive: complete
+ALL 29 phases without stopping — next is Phase 7 locator runtime; the
+2026-10-28 media-caption cycle below is prior history; the 2026-10-25
+browser lines stay HISTORY ONLY — superseded 10-26).
 
 [CURRENT CYCLE 2026-10-30 — BROWSER USE IN RUST (unattended phase run)]:
 - [8.1] Mission: complete interactive Browser Use (model + human share one
@@ -97,6 +98,52 @@ history; the 2026-10-25 browser lines stay HISTORY ONLY — superseded 10-26).
   LEARNED: Page.getFrameTree answer is `{frameTree:{frame}}` NOT
   `{frame}`; walker line last-attr abuts `>` when no other attrs
   (`<button node_id=5>` — parse leading digits).
+  Phase 6 (committed THIS cycle): `crates/ruke-browser/src/ax.rs`
+  (NEW ~2000 ln — full accessibility capture engine: Pool-A diff text
+  literals verbatim (DIFF_HEADER / NO_CHANGE_TEXT / `Removed element
+  IDs: ` + compact_id_ranges; UNCHANGED lines omitted; saved <
+  MIN_SAVED_BYTES=500 ⇒ full tree), build_line/build_revision —
+  `[id=N]` tag == element_index == CDP-array position, credential
+  scan (21-name PROP_ALLOWLIST; credential_hit needles pinned,
+  "telephone"=TRUE) + closed-shadow Inside/Ancestor exclusion,
+  H-BS-23 per-tab state machine (revision bumps: provisional pairing,
+  fragment early-return, PAINT_LIFECYCLE_NAMES + loaderProgress ==
+  "committed", dialog bump, subframe invalidate_subtree), H-BS-26
+  capture() flow (ensure_tracked → wait_for_navigation → first-paint
+  wait → AX quiet window 750/100/50 ms → 3-attempt candidate loop
+  with q2 large-DOM replace + j2 settled gate → commit_capture
+  freshness ⇒ ax_capture_empty / ax_capture_changed_before_committed
+  retry), Fv-identity AxTargetInfo recorded for Phase 8 actions).
+  engine.rs pump arms: frameNavigated (bfcache detect + subframe
+  invalidate), loadEventFired, Accessibility.loadComplete|nodesUpdated,
+  frameStartedLoading, frameDetached, javascriptDialogOpening/Closed,
+  domContentEventFired, frameStoppedLoading, navigatedWithinDocument,
+  lifecycleEvent. executor: TabAxGetState arm (content axState real,
+  3-attempt loop, disable_diffing honored; screenshot +
+  axStateAndScreenshot ⇒ unsupported until P8; TabClose forgets).
+  DIALECT LAWS (live-probed vs bundled chromium-1243 — never re-guess):
+  DOMSnapshot.captureSnapshot params EXACTLY `{computedStyles:[],
+  includePaintOrder:false,includeDOMRects:false}` (modern `computed`
+  ⇒ "Invalid parameters"); answer has TOP-LEVEL plain `strings` array,
+  DENSE parentIndex/nodeName(string-index)/attributes(flat name/value
+  string-index PAIRS per node), SPARSE {index,value} shadowRootType;
+  NO childNodeIndex/childNodeCount (children derive from parentIndex).
+  Accessibility.getFullAXTree answers ONLY the queried frame's subtree
+  (flat read leaves Iframe.childIds EMPTY) → ax::full_ax_nodes:
+  Page.getFrameTree BFS + per-frame `getFullAXTree {frameId}` +
+  `DOM.getFrameOwner{frameId}`→`{backendNodeId}` join onto the host
+  Iframe AX node (probe-verified equal) + `DOM.getFrameOwner` answer
+  carries ONLY {backendNodeId}; frame subtrees renumbered from
+  1_000_000_000 (frame-local ids collide); per-frame read failure
+  degrades like the recovered `Iframe … accessibility unavailable`
+  warning (never fabricated). 14 ax unit tests (86 lib total).
+  Smoke Phase-6 battery GREEN: header/title/URL pin, no `Sup3rS3cret!`
+  leak, second capture == NO_CHANGE line, DOM click+type ⇒ REAL page
+  value ⇒ diff with `~ `/`+ ` line + diff:true, disable_diffing true
+  ⇒ full tree, fresh navigation ⇒ full tree (baseline reset), AX
+  descend into iframe (inner placeholder under stitched RootWebArea),
+  `[id=0]` tag present. Turn-cleanup URL pin now expects the battery's
+  LAST navigation (/form) — survival contract itself unchanged.
 - [8.4 contracts in force] Envelope `{commandType,session_id,turn_id,
   payload}`; RPC errors ride HTTP 200 `to_wire()`, 401 is auth-only, non-JSON
   body ⇒ `browser_command_envelope_invalid`; bridge secret semantics reuse
@@ -104,14 +151,16 @@ history; the 2026-10-25 browser lines stay HISTORY ONLY — superseded 10-26).
   reused; CDP awaited value = wire frame `result` unwrapped ONCE (evaluate
   value at `result.value`, pinned by cdp::tests); `Page.getFrameTree`
   answer is `{frameTree:{frame,childFrames}}` — root frame id pointer
-  `/frameTree/frame`; 20 commands real (13 lifecycle + tab_cdp_call/
+  `/frameTree/frame`; 21 commands real (13 lifecycle + tab_cdp_call/
   tab_cdp_events + 5 DOM CUA: dom_cua_get_visible_dom → `{tab_id,
   element_count, dom}`, dom_cua_click/double_click → `{tab_id,node_id,
   x,y}`, dom_cua_scroll → `{tab_id,x,y,deltaX,deltaY}`, dom_cua_type →
-  `{tab_id,typed_chars}`), dom_cua_keypress (KeysPayload) +
-  dom_cua_download_media (DomDownloadMediaPayload) stay unsupported
-  until Phase 8; other 63 kinds typed `browser_operation_unsupported`
-  until their phase. StaleDomNode{node_id} display pinned verbatim
+  `{tab_id,typed_chars}` + tab_ax_get_state → `{tab_id,document_key,
+  element_count,diff,rendered}`), dom_cua_keypress (KeysPayload) +
+  dom_cua_download_media (DomDownloadMediaPayload) + tab_ax_action +
+  tab_ax_get_state screenshot/axStateAndScreenshot content modes stay
+  unsupported until Phase 8; other 62 kinds typed
+  `browser_operation_unsupported` until their phase. StaleDomNode{node_id} display pinned verbatim
   `DOM node {node_id} is stale or missing`. DOM CUA payload mapping
   (contract.rs): GetVisibleDom→TabTarget, click/dblclick→DomNodePayload
   {browser_id,tab_id,node_id:u64}, scroll→DomScrollPayload{node_id:
@@ -151,15 +200,23 @@ history; the 2026-10-25 browser lines stay HISTORY ONLY — superseded 10-26).
 - [8.6 open items] None blocking. Panel auto-open + browser-session UI
   E2E are Phase-10/17–19 work, not bugs.
 - [8.8 next 3 atoms] Unattended 29-phase run ACTIVE (user: complete all
-  29, never stop). (1) Phase 6: AX engine — read dom-snapshot-and-cdp.md
-  §5 + A16 §5.1 capture-stabilization state machine; CDP Accessibility
-  behavioral equivalent of the wasm revision. (2) Phase 7: Playwright-
-  style locator runtime (mode:"ai" aria snapshot, aria-ref, enter-frame,
-  waitFor*). (3) Phase 8: input/screenshots/dialogs/file-chooser/uploads/
-  downloads incl. dom_cua_keypress KeysPayload (X11 map Bs/Yy/Tp;
-  modifiers down/up stacks; Yy-type keys need down+up, others
-  Input.insertText) + dom_cua_download_media. Cargo/smoke need NO `.ai-coordination` lock
-  (not model-driven); real-model Playwright E2E (Phases 19–24) does.
+  29, never stop). (1) Phase 7: Playwright-style locator runtime
+  (mode:"ai" aria snapshot, aria-ref, enter-frame, waitFor*). (2) Phase 8:
+  input/screenshots/dialogs/file-chooser/uploads/downloads incl.
+  dom_cua_keypress KeysPayload (X11 map Bs/Yy/Tp; modifiers down/up
+  stacks; Yy-type keys need down+up, others Input.insertText) +
+  dom_cua_download_media + tab_ax_action (Fv identities +
+  CommittedRev.targets already recorded; pinned action error strings
+  from the plan: Tre `Accessibility element ${element_index} does not
+  support secondary action …`, settle `Accessibility element ${id} did
+  not settle after scrolling`, covered `Accessibility element ${id} is
+  covered by … or otherwise not hittable`) + screenshot content modes +
+  per-frame DOMSnapshot metas (credential/closed inside iframes).
+  (3) Cargo/smoke need NO `.ai-coordination` lock (not model-driven);
+  real-model Playwright E2E (Phases 19–24) does — and per the user's
+  standing policy the model-driven Playwright battery runs ONCE at the
+  very END (after all 29 phases), locked state, fix→rerun loop until
+  green (memory: playwright-final-run-policy).
   Panel auto-open lands when Phase-10 emits real browser:* frames (useChat
   seam already wired). Plan file stays the live matrix — update per phase.
 

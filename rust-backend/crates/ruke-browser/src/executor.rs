@@ -7,12 +7,14 @@
 //!
 //! Increment policy (pinned for the Phase-26 coverage audit): the 13
 //! lifecycle commands (Phase 2), the raw-CDP bridge pair
-//! `tab_cdp_call`/`tab_cdp_events` (Phase 4), and the five DOM CUA
+//! `tab_cdp_call`/`tab_cdp_events` (Phase 4), the five DOM CUA
 //! commands `dom_cua_get_visible_dom`/`dom_cua_click`/
-//! `dom_cua_double_click`/`dom_cua_scroll`/`dom_cua_type` (Phase 5)
-//! implemented here execute for real; every other registered command
-//! kind — including `dom_cua_keypress` and `dom_cua_download_media`,
-//! which land in Phase 8 — answers
+//! `dom_cua_double_click`/`dom_cua_scroll`/`dom_cua_type` (Phase 5),
+//! and the AX read command `tab_ax_get_state` (Phase 6) implemented
+//! here execute for real; every other registered command kind —
+//! including `dom_cua_keypress`, `dom_cua_download_media`, and
+//! `tab_ax_action`, which land in Phase 8, and the screenshot content
+//! modes of `tab_ax_get_state` — answers
 //! `Unsupported { operation }` — an honest typed error, never a fake
 //! success. Later phases (DOM/AX, input, dialogs, files…) replace
 //! arm-by-arm; the registry itself (82 rows) was already pinned in
@@ -33,6 +35,7 @@ use crate::cdp::CdpConn;
 use crate::contract::Command;
 use crate::engine::{BrowserRuntime, BROWSER_ID};
 use crate::errors::BrowserError;
+use crate::schemas::AxStateContent;
 use crate::session::{TabRecord, TurnKey};
 
 /// Navigation settle budget: bounded polling of `document.readyState`
@@ -150,6 +153,7 @@ impl BrowserRuntime {
                 // must be dropped here (tab ids are never reused).
                 self.cdp_events.forget_tab(&p.tab_id);
                 self.dom.forget_tab(&p.tab_id);
+                self.ax.forget_tab(&p.tab_id);
                 Ok(json!({ "tab_id": p.tab_id, "closed": true }))
             }
             Command::NavigateTabUrl(p) => {
@@ -309,6 +313,65 @@ impl BrowserRuntime {
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
                 self.dom_type(&conn, &rec, &p.text).await
+            }
+            Command::TabAxGetState(p) => {
+                check_browser(&p.browser_id)?;
+                match p.content {
+                    AxStateContent::AxState => {
+                        // Read-only like the visible-DOM read: the
+                        // handle must exist, but the capture pipeline
+                        // (H-BS-26) drives its own navigation settle,
+                        // so no actable-tab gate.
+                        let rec = self.registry.lock().require(&p.tab_id)?;
+                        let conn = self.client().await?;
+                        // H-BS-28 [adapted]: the pipeline already
+                        // re-anchors candidates whose document moved
+                        // mid-read, so a surfaced
+                        // AxCaptureChangedBeforeCommitted means the
+                        // committed-revision CAS lost a race. Bound the
+                        // retry (diff disabled past attempt 0 keeps the
+                        // prev anchor honest under churn) instead of
+                        // looping unbounded on a flapping page.
+                        for attempt in 0..3u32 {
+                            match self
+                                .ax
+                                .capture(
+                                    &conn,
+                                    &rec,
+                                    p.disable_diffing.unwrap_or(false) || attempt > 0,
+                                )
+                                .await
+                            {
+                                Ok(r) => {
+                                    return Ok(json!({
+                                        "tab_id": rec.tab_id,
+                                        "document_key": r.document_key,
+                                        "element_count": r.element_count,
+                                        "diff": r.used_diff,
+                                        "rendered": r.state,
+                                    }))
+                                }
+                                Err(BrowserError::AxCaptureChangedBeforeCommitted)
+                                    if attempt < 2 =>
+                                {
+                                    continue;
+                                }
+                                Err(e) => return Err(e),
+                            }
+                        }
+                        Err(BrowserError::AxCaptureChangedBeforeCommitted)
+                    }
+                    AxStateContent::Screenshot | AxStateContent::AxStateAndScreenshot => {
+                        // Screenshot capture (and its AX+screenshot
+                        // blend) lands with the Phase-8 capture stack;
+                        // the state modes are already wired above.
+                        Err(BrowserError::Unsupported {
+                            operation: "tab_ax_get_state screenshot content (screenshot capture \
+                                        lands in Phase 8)"
+                                .to_string(),
+                        })
+                    }
+                }
             }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that

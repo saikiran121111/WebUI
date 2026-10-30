@@ -22,6 +22,7 @@
 //! or explicitly marked `[adapted]` (a documented behavioral equivalent
 //! at the native boundary). No placeholders, no fixture knowledge.
 
+pub mod ax;
 pub mod cdp;
 pub mod cdp_buffer;
 pub mod contract;

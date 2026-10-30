@@ -34,6 +34,8 @@ pub enum ErrorCode {
     StaleAxElement,
     AxPreviousPage,
     AxCapturePreviousPage,
+    AxCaptureEmpty,
+    AxCaptureChangedBeforeCommitted,
     NoSettableValue,
     ClickTargetUnavailable,
     ShadowRootCheckFailed,
@@ -70,6 +72,8 @@ impl ErrorCode {
             ErrorCode::StaleAxElement => "ax_element_stale",
             ErrorCode::AxPreviousPage => "ax_element_previous_page",
             ErrorCode::AxCapturePreviousPage => "ax_capture_previous_page",
+            ErrorCode::AxCaptureEmpty => "ax_capture_empty",
+            ErrorCode::AxCaptureChangedBeforeCommitted => "ax_capture_changed_before_committed",
             ErrorCode::NoSettableValue => "ax_no_settable_value",
             ErrorCode::ClickTargetUnavailable => "click_target_unavailable",
             ErrorCode::ShadowRootCheckFailed => "click_shadow_root_check_failed",
@@ -144,6 +148,19 @@ pub enum BrowserError {
 
     #[error("Accessibility capture belongs to a previous page")]
     AxCapturePreviousPage,
+
+    /// Verbatim: the capture state machine's empty-tree error (H-BS-26
+    /// `capture()`: `if(b==null&&r!=="screenshot")throw new Error(
+    /// "Accessibility capture was empty")`).
+    #[error("Accessibility capture was empty")]
+    AxCaptureEmpty,
+
+    /// Verbatim terminal error (H-BS-26 final commit attempt):
+    /// "Accessibility capture changed before it was committed". (The
+    /// §5.1 summary paraphrase said "stabilized"; the recovered code
+    /// string is authoritative and is what the model sees.)
+    #[error("Accessibility capture changed before it was committed")]
+    AxCaptureChangedBeforeCommitted,
 
     #[error("Accessibility element {element_index} has no settable value")]
     NoSettableValue { element_index: u64 },
@@ -246,6 +263,10 @@ impl BrowserError {
             BrowserError::StaleAxElement { .. } => ErrorCode::StaleAxElement,
             BrowserError::AxPreviousPage { .. } => ErrorCode::AxPreviousPage,
             BrowserError::AxCapturePreviousPage => ErrorCode::AxCapturePreviousPage,
+            BrowserError::AxCaptureEmpty => ErrorCode::AxCaptureEmpty,
+            BrowserError::AxCaptureChangedBeforeCommitted => {
+                ErrorCode::AxCaptureChangedBeforeCommitted
+            }
             BrowserError::NoSettableValue { .. } => ErrorCode::NoSettableValue,
             BrowserError::ClickTargetUnavailable => ErrorCode::ClickTargetUnavailable,
             BrowserError::ShadowRootCheckFailed => ErrorCode::ShadowRootCheckFailed,
@@ -329,6 +350,14 @@ mod tests {
         assert_eq!(
             BrowserError::AxCapturePreviousPage.to_string(),
             "Accessibility capture belongs to a previous page"
+        );
+        assert_eq!(
+            BrowserError::AxCaptureEmpty.to_string(),
+            "Accessibility capture was empty"
+        );
+        assert_eq!(
+            BrowserError::AxCaptureChangedBeforeCommitted.to_string(),
+            "Accessibility capture changed before it was committed"
         );
         assert_eq!(
             BrowserError::NoSettableValue { element_index: 3 }.to_string(),
