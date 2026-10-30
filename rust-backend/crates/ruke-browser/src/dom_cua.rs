@@ -644,8 +644,10 @@ fn parse_walk_payload(value: Value) -> Option<WalkPayload> {
 impl BrowserRuntime {
     /// Evaluate a page function inside the frame's named isolated
     /// world (`wa`: create-once per (tab,frame,loader), FIFO cache,
-    /// ONE rebuild on a context-gone error).
-    async fn world_eval(
+    /// ONE rebuild on a context-gone error). `pub(crate)`: the Phase-7
+    /// locator scope engine (`pw.rs`) runs its per-frame CSS queries
+    /// through the exact same world cache.
+    pub(crate) async fn world_eval(
         &self,
         conn: &CdpConn,
         rec: &TabRecord,

@@ -565,6 +565,20 @@ struct RawNode {
     backend_dom_node_id: Option<i64>,
 }
 
+/// The compact merged-AX-tree node shape the Phase-7 aria-snapshot
+/// renderer walks (`pw.rs`). It exists so the raw wire structs above
+/// stay private to ax.rs; `pw_ax_nodes` is the cross-module contract.
+#[derive(Clone, Debug)]
+pub(crate) struct PwAxNode {
+    pub(crate) node_id: String,
+    pub(crate) ignored: bool,
+    pub(crate) role: String,
+    pub(crate) name: Option<String>,
+    pub(crate) props: Vec<(String, Value)>,
+    pub(crate) child_ids: Vec<String>,
+    pub(crate) bnid: Option<i64>,
+}
+
 fn node_id_from_value(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -1514,6 +1528,46 @@ impl AxRegistries {
     /// degrades the way the recovered code warns (`Iframe …
     /// accessibility unavailable`): the capture proceeds without that
     /// frame's subtree rather than fabricating one.
+    /// Phase 7: the merged cross-frame AX tree (see `full_ax_nodes`)
+    /// re-expressed as the compact [`PwAxNode`] shape the aria-snapshot
+    /// renderer walks. The raw wire decode stays here so `pw.rs` never
+    /// touches `Accessibility` wire types.
+    pub(crate) async fn pw_ax_nodes(
+        &self,
+        conn: &CdpConn,
+        session: &str,
+    ) -> Result<Vec<PwAxNode>, BrowserError> {
+        let raw = self.full_ax_nodes(conn, session).await?;
+        let nodes: Vec<RawNode> =
+            serde_json::from_value(Value::Array(raw)).map_err(|e| BrowserError::Internal {
+                detail: format!("merged AX tree decode failed: {e}"),
+            })?;
+        Ok(nodes
+            .into_iter()
+            .map(|n| PwAxNode {
+                ignored: n.ignored,
+                role: n.role_name(),
+                name: n.name_str(),
+                props: n
+                    .properties
+                    .iter()
+                    .map(|p| {
+                        let v = p
+                            .value
+                            .value
+                            .clone()
+                            .or_else(|| p.value.b.map(Value::Bool))
+                            .unwrap_or(Value::Null);
+                        (p.name.clone(), v)
+                    })
+                    .collect(),
+                child_ids: n.child_ids.unwrap_or_default(),
+                bnid: n.backend_dom_node_id,
+                node_id: n.node_id,
+            })
+            .collect())
+    }
+
     async fn full_ax_nodes(
         &self,
         conn: &CdpConn,

@@ -49,6 +49,9 @@ pub enum ErrorCode {
     SelectTextNotFound,
     SelectTextAmbiguous,
     SecondaryActionNotAllowed,
+    // Playwright-style locator runtime (Phase 7).
+    LocatorStrict,
+    LocatorFailed,
     Unsupported,
     InvalidUrl,
     TimedOut,
@@ -87,6 +90,8 @@ impl ErrorCode {
             ErrorCode::SelectTextNotFound => "select_text_not_found",
             ErrorCode::SelectTextAmbiguous => "select_text_ambiguous",
             ErrorCode::SecondaryActionNotAllowed => "secondary_action_not_allowed",
+            ErrorCode::LocatorStrict => "locator_strict_violation",
+            ErrorCode::LocatorFailed => "locator_failed",
             ErrorCode::Unsupported => "browser_operation_unsupported",
             ErrorCode::InvalidUrl => "browser_url_invalid",
             ErrorCode::TimedOut => "browser_timeout",
@@ -224,6 +229,31 @@ pub enum BrowserError {
     #[error("Secondary action \"{action}\" is not available on this element")]
     SecondaryActionNotAllowed { action: String },
 
+    // ── Playwright-style locator runtime (Phase 7) ──────────────────
+    // Messages composed to mirror the reference locator error surface
+    // (the "strict mode violation" token and the `Timeout …ms exceeded`
+    // timeout grammar); Ruke's strict-mode locators make the resolved-
+    // to-N wording honest for both zero and multiple hits, matching
+    // Playwright's own strict semantics.
+    #[error("strict mode violation: locator \"{selector}\" resolved to {count} elements (expected exactly one)")]
+    LocatorStrict { selector: String, count: usize },
+
+    #[error("Timeout {timeout_ms}ms exceeded waiting for locator \"{selector}\" to be {state}")]
+    LocatorTimeout {
+        selector: String,
+        state: String,
+        timeout_ms: u64,
+    },
+
+    #[error("Timeout {timeout_ms}ms exceeded waiting for {what}")]
+    PwTimeout { what: String, timeout_ms: u64 },
+
+    #[error("aria snapshot reference \"{token}\" is stale or missing; take a fresh playwright_dom_snapshot")]
+    LocatorStaleRef { token: String },
+
+    #[error("locator \"{selector}\" failed: {reason}")]
+    LocatorFailed { selector: String, reason: String },
+
     /// Honest unsupported-operation surface at native boundaries that the
     /// contract itself declares unsupported (e.g. requestManualHandoff on
     /// headless CDP tabs is replaced by the Ruke Browser Panel handoff UI,
@@ -280,6 +310,11 @@ impl BrowserError {
             BrowserError::SelectTextNotFound => ErrorCode::SelectTextNotFound,
             BrowserError::SelectTextAmbiguous => ErrorCode::SelectTextAmbiguous,
             BrowserError::SecondaryActionNotAllowed { .. } => ErrorCode::SecondaryActionNotAllowed,
+            BrowserError::LocatorStrict { .. } => ErrorCode::LocatorStrict,
+            BrowserError::LocatorTimeout { .. } => ErrorCode::TimedOut,
+            BrowserError::PwTimeout { .. } => ErrorCode::TimedOut,
+            BrowserError::LocatorStaleRef { .. } => ErrorCode::StaleDomNode,
+            BrowserError::LocatorFailed { .. } => ErrorCode::LocatorFailed,
             BrowserError::Unsupported { .. } => ErrorCode::Unsupported,
             BrowserError::InvalidUrl { .. } => ErrorCode::InvalidUrl,
             BrowserError::TimedOut { .. } => ErrorCode::TimedOut,
@@ -331,6 +366,76 @@ mod tests {
             e2.to_string(),
             "Missing required Ruke turn metadata: turn_id"
         );
+    }
+
+    /// Phase-7 locator messages: composed to mirror the reference
+    /// strict-mode and timeout grammar (adapted composition, not a
+    /// recovered literal — the reference builds these across frames).
+    #[test]
+    fn locator_error_strings_are_pinned() {
+        assert_eq!(
+            BrowserError::LocatorStrict {
+                selector: "button".into(),
+                count: 3
+            }
+            .to_string(),
+            "strict mode violation: locator \"button\" resolved to 3 elements (expected exactly one)"
+        );
+        assert_eq!(
+            BrowserError::LocatorTimeout {
+                selector: "#go".into(),
+                state: "visible".into(),
+                timeout_ms: 30_000
+            }
+            .to_string(),
+            "Timeout 30000ms exceeded waiting for locator \"#go\" to be visible"
+        );
+        assert_eq!(
+            BrowserError::PwTimeout {
+                what: "load state \"networkidle\"".into(),
+                timeout_ms: 5_000
+            }
+            .to_string(),
+            "Timeout 5000ms exceeded waiting for load state \"networkidle\""
+        );
+        assert_eq!(
+            BrowserError::LocatorStaleRef { token: "e7".into() }.to_string(),
+            "aria snapshot reference \"e7\" is stale or missing; take a fresh playwright_dom_snapshot"
+        );
+        assert_eq!(
+            BrowserError::LocatorFailed {
+                selector: "x".into(),
+                reason: "not an iframe".into()
+            }
+            .to_string(),
+            "locator \"x\" failed: not an iframe"
+        );
+        assert_eq!(
+            BrowserError::LocatorStrict {
+                selector: "a".into(),
+                count: 0
+            }
+            .code(),
+            ErrorCode::LocatorStrict
+        );
+        assert_eq!(
+            ErrorCode::LocatorStrict.as_str(),
+            "locator_strict_violation"
+        );
+        assert_eq!(
+            BrowserError::LocatorTimeout {
+                selector: "a".into(),
+                state: "attached".into(),
+                timeout_ms: 1
+            }
+            .code(),
+            ErrorCode::TimedOut
+        );
+        assert_eq!(
+            BrowserError::LocatorStaleRef { token: "e1".into() }.code(),
+            ErrorCode::StaleDomNode
+        );
+        assert_eq!(ErrorCode::LocatorFailed.as_str(), "locator_failed");
     }
 
     #[test]

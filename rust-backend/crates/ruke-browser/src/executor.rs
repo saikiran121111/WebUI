@@ -154,6 +154,7 @@ impl BrowserRuntime {
                 self.cdp_events.forget_tab(&p.tab_id);
                 self.dom.forget_tab(&p.tab_id);
                 self.ax.forget_tab(&p.tab_id);
+                self.pw.forget_tab(&p.tab_id);
                 Ok(json!({ "tab_id": p.tab_id, "closed": true }))
             }
             Command::NavigateTabUrl(p) => {
@@ -372,6 +373,149 @@ impl BrowserRuntime {
                         })
                     }
                 }
+            }
+            // ── Playwright-style locator runtime (Phase 7) ──────────
+            // Reads require the tab handle to exist; actions obey the
+            // same turn-ownership floor as the DOM-CUA mutators.
+            Command::PlaywrightDomSnapshot(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_dom_snapshot(self, &conn, &rec).await
+            }
+            Command::PlaywrightEvaluate(p) => {
+                check_browser(&p.browser_id)?;
+                // Arbitrary in-page JS is a mutation: the tab must be
+                // ours to drive.
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.pw.pw_evaluate(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightElementInfo(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_element_info(&conn, &rec, p).await
+            }
+            Command::PlaywrightElementScreenshot(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_element_screenshot(&conn, &rec, p).await
+            }
+            Command::PlaywrightWaitForTimeout(p) => {
+                check_browser(&p.browser_id)?;
+                self.registry.lock().require(&p.tab_id)?;
+                self.pw.pw_wait_for_timeout(p).await
+            }
+            Command::PlaywrightWaitForLoadState(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_wait_for_load_state(&conn, &rec, p).await
+            }
+            Command::PlaywrightWaitForUrl(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_wait_for_url(&conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorCount(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_count(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorAllTextContents(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw
+                    .pw_locator_all_text_contents(self, &conn, &rec, p)
+                    .await
+            }
+            Command::PlaywrightLocatorReadAll(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_read_all(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorIsVisible(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_is_visible(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorIsEnabled(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_is_enabled(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorGetAttribute(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_get_attribute(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorInnerText(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_inner_text(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorTextContent(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_text_content(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorWaitFor(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_wait_for(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorClick(p) | Command::PlaywrightLocatorDblclick(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let dblclick = matches!(cmd, Command::PlaywrightLocatorDblclick(_));
+                self.pw
+                    .pw_locator_click(self, &conn, &rec, p, dblclick)
+                    .await
+            }
+            Command::PlaywrightLocatorFill(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_fill(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorPress(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_press(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorPressSequentially(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.pw
+                    .pw_locator_press_sequentially(self, &conn, &rec, p)
+                    .await
+            }
+            Command::PlaywrightLocatorSelectOption(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_select_option(self, &conn, &rec, p).await
+            }
+            Command::PlaywrightLocatorSetChecked(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.pw.pw_locator_set_checked(self, &conn, &rec, p).await
             }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that

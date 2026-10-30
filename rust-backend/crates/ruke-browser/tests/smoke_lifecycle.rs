@@ -889,7 +889,10 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         )),
         "the pinned header line is missing: {ax1}"
     );
-    assert!(ax1.contains("Go to receipt"), "the button name is missing: {ax1}");
+    assert!(
+        ax1.contains("Go to receipt"),
+        "the button name is missing: {ax1}"
+    );
     assert!(
         !ax1.contains("Sup3rS3cret!"),
         "the AX tree must never leak a page-JS-set password value: {ax1}"

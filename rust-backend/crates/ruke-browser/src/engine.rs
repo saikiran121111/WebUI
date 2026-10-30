@@ -54,6 +54,11 @@ pub struct BrowserRuntime {
     /// committed revisions, and the capture pipeline. Every tab-removal
     /// path forgets here too, so stale handles fail closed.
     pub(crate) ax: Arc<crate::ax::AxRegistries>,
+    /// The Playwright-style locator registries (Phase 7): per-tab aria
+    /// snapshot `[ref=eN]` maps consumed by the `playwright_*` command
+    /// family. Every tab-removal path forgets here too, so stale refs
+    /// fail closed.
+    pub(crate) pw: Arc<crate::pw::PwRegistries>,
 }
 
 impl BrowserRuntime {
@@ -68,6 +73,7 @@ impl BrowserRuntime {
             cdp_events: Arc::new(CdpEventBuffer::default()),
             dom: Arc::new(crate::dom_cua::DomRegistries::default()),
             ax: Arc::new(crate::ax::AxRegistries::default()),
+            pw: Arc::new(crate::pw::PwRegistries::default()),
         }
     }
 
@@ -89,6 +95,7 @@ impl BrowserRuntime {
             self.cdp_events.clear();
             self.dom.clear_all();
             self.ax.clear_all();
+            self.pw.clear_all();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -132,6 +139,7 @@ impl BrowserRuntime {
                 Arc::clone(&self.cdp_events),
                 Arc::clone(&self.dom),
                 Arc::clone(&self.ax),
+                Arc::clone(&self.pw),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -214,6 +222,7 @@ impl BrowserRuntime {
             self.cdp_events.forget_tab(&t.tab_id);
             self.dom.forget_tab(&t.tab_id);
             self.ax.forget_tab(&t.tab_id);
+            self.pw.forget_tab(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -232,6 +241,7 @@ impl BrowserRuntime {
         self.cdp_events.clear();
         self.dom.clear_all();
         self.ax.clear_all();
+        self.pw.clear_all();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -349,6 +359,7 @@ async fn event_pump(
     cdp_events: Arc<CdpEventBuffer>,
     dom: Arc<crate::dom_cua::DomRegistries>,
     ax: Arc<crate::ax::AxRegistries>,
+    pw: Arc<crate::pw::PwRegistries>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -407,6 +418,8 @@ async fn event_pump(
                     if let Some(rec) = destroyed {
                         cdp_events.forget_tab(&rec.tab_id);
                         dom.forget_tab(&rec.tab_id);
+                        ax.forget_tab(&rec.tab_id);
+                        pw.forget_tab(&rec.tab_id);
                         ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
                         ui.tabs_changed();
                     }
