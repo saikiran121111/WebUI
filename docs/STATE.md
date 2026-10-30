@@ -1,8 +1,8 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–4
-locked; PAUSED BY USER after Phase 4 — resume on "continue" with Phase 5;
-the 2026-10-28 media-caption cycle below is prior history; the
-2026-10-25 browser lines stay HISTORY ONLY — superseded on 10-26).
+Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–5
+locked; user directive: complete ALL 29 phases without stopping — next is
+Phase 6 AX engine; the 2026-10-28 media-caption cycle below is prior
+history; the 2026-10-25 browser lines stay HISTORY ONLY — superseded 10-26).
 
 [CURRENT CYCLE 2026-10-30 — BROWSER USE IN RUST (unattended phase run)]:
 - [8.1] Mission: complete interactive Browser Use (model + human share one
@@ -64,14 +64,63 @@ the 2026-10-28 media-caption cycle below is prior history; the
   regression green; clippy ruke-browser --all-targets 0 warnings. Smoke
   debug lesson: test-side `let r` INSIDE the paging loop shadowed the
   outer evaluate response — page-source assert belongs INSIDE the loop.
+  Phase 5 (committed THIS cycle): `crates/ruke-browser/src/dom_cua.rs`
+  (NEW ~1300 ln — BYTE-EXACT `hY` page walker (EXACT_MATCH vs raw dump;
+  never re-read the bundle to re-verify), registry `DomRegistries`
+  mirroring `yo`/`aD`/`cO`/`uD`/`uO` (public ids stable per main-doc key
+  `{rootFrameId}:{loaderId}`, 5000-entry cache eviction restarts ids,
+  stale ⇒ pinned `DOM node N is stale or missing`), FIFO 50 isolated-
+  world cache (`ruke-dom-cua` world, ZX context-gone rebuild-ONCE),
+  verbatim `p5`/`ui`/`hp` geometry (§3.0.4 file-identity law: the ONLY
+  valid extraction copy is plugins/browser's browser-service.mjs —
+  hY@char763,971; the 160,335/160,527 offsets are DEAD), per-hop frame
+  chain [adapted], budgets 20k/200 + credential 15k/150, CREDENTIAL
+  guard: password-ish values render `value="<redacted>"` NEVER raw),
+  `WalkCtx`/`WalkItem`/`WalkPayload`/`WalkedFrame` plumbing (clippy-
+  clean param objects mirroring the reference's single parameter
+  object), Box::pin recursion law). engine.rs: `dom` field wired into
+  client()/pump/attach(DOM.enable)/end_turn/TabClose/targetDestroyed/
+  shutdown forget paths. executor.rs arms: dom_cua_get_visible_dom
+  (require — reads never relaunch), click/double_click (clickCount
+  1/2 dispatchMouseEvent press+release at resolved point), scroll
+  (node-less ⇒ wheel at cssVisualViewport center), type = `Input.
+  insertText` [adapted: TextPayload has NO node → focused-element
+  semantics — click to focus FIRST]. 11 dom_cua unit pins (72/72).
+  Smoke Phase-5 block (NEW fixtures /form,/frames,/inner — NEVER
+  re-read; assertions ALL via real page state through tab_cdp_call
+  eval helper): grounded title, attr rendering, `value="<redacted>"`
+  + no `Sup3rS3cret!` leak, `value="two"`, stable ids, REAL scrollTop
+  after wheel, click→REAL focus→type→REAL value, walker-button click
+  ⇒ REAL nav, stale StaleDomNode verbatim string, iframe descend,
+  inner click ⇒ REAL contentDocument.activeElement=="inner-in"
+  (per-hop transform PROVEN), inner type ⇒ REAL iframe value.
+  LEARNED: Page.getFrameTree answer is `{frameTree:{frame}}` NOT
+  `{frame}`; walker line last-attr abuts `>` when no other attrs
+  (`<button node_id=5>` — parse leading digits).
 - [8.4 contracts in force] Envelope `{commandType,session_id,turn_id,
   payload}`; RPC errors ride HTTP 200 `to_wire()`, 401 is auth-only, non-JSON
   body ⇒ `browser_command_envelope_invalid`; bridge secret semantics reuse
   ruke-websearch browser-bridge constants; tab_ids are numeric strings, never
   reused; CDP awaited value = wire frame `result` unwrapped ONCE (evaluate
-  value at `result.value`, pinned by cdp::tests); 15 commands real (13
-  lifecycle + tab_cdp_call/tab_cdp_events), other 67 kinds typed
-  `browser_operation_unsupported` until their phase. tab_cdp_events page
+  value at `result.value`, pinned by cdp::tests); `Page.getFrameTree`
+  answer is `{frameTree:{frame,childFrames}}` — root frame id pointer
+  `/frameTree/frame`; 20 commands real (13 lifecycle + tab_cdp_call/
+  tab_cdp_events + 5 DOM CUA: dom_cua_get_visible_dom → `{tab_id,
+  element_count, dom}`, dom_cua_click/double_click → `{tab_id,node_id,
+  x,y}`, dom_cua_scroll → `{tab_id,x,y,deltaX,deltaY}`, dom_cua_type →
+  `{tab_id,typed_chars}`), dom_cua_keypress (KeysPayload) +
+  dom_cua_download_media (DomDownloadMediaPayload) stay unsupported
+  until Phase 8; other 63 kinds typed `browser_operation_unsupported`
+  until their phase. StaleDomNode{node_id} display pinned verbatim
+  `DOM node {node_id} is stale or missing`. DOM CUA payload mapping
+  (contract.rs): GetVisibleDom→TabTarget, click/dblclick→DomNodePayload
+  {browser_id,tab_id,node_id:u64}, scroll→DomScrollPayload{node_id:
+  Option default, x,y:i64}, type→TextPayload (NO node — focused
+  element). Smoke helpers: `dom_node_id(dom,needle)` (leading digits of
+  `node_id=` token), `eval_value(rt,session,turn,tab,expr)` via
+  tab_cdp_call Runtime.evaluate returnByValue (value at /result/result/
+  value); fixtures /form (PAGE_F; redacted pw Sup3rS3cret!), /frames +
+  /inner (fixed iframe 60/90 300x200). tab_cdp_events page
   shape: `{tab_id, source:{tab_id,session_id,target_id}, events:
   [{sequence,method,params,source:{tab_id,session_id,target_id}}…],
   next_cursor, has_more, truncated}` (extension_id has no Ruke analogue);
@@ -101,11 +150,15 @@ the 2026-10-28 media-caption cycle below is prior history; the
   both green standalone — never "fix" them for this).
 - [8.6 open items] None blocking. Panel auto-open + browser-session UI
   E2E are Phase-10/17–19 work, not bugs.
-- [8.8 next 3 atoms] USER PAUSE 2026-10-30: stop after Phase 4 commit;
-  resume ONLY on user "continue" in this chat. (1) Phase 5: DOM CUA +
-  deterministic refs + frames — read dom-snapshot-and-cdp.md §4/§5 +
-  plan locked facts first. (2) Phase 6: AX engine. (3) Phase 7: locator
-  runtime. Cargo/smoke need NO `.ai-coordination` lock
+- [8.8 next 3 atoms] Unattended 29-phase run ACTIVE (user: complete all
+  29, never stop). (1) Phase 6: AX engine — read dom-snapshot-and-cdp.md
+  §5 + A16 §5.1 capture-stabilization state machine; CDP Accessibility
+  behavioral equivalent of the wasm revision. (2) Phase 7: Playwright-
+  style locator runtime (mode:"ai" aria snapshot, aria-ref, enter-frame,
+  waitFor*). (3) Phase 8: input/screenshots/dialogs/file-chooser/uploads/
+  downloads incl. dom_cua_keypress KeysPayload (X11 map Bs/Yy/Tp;
+  modifiers down/up stacks; Yy-type keys need down+up, others
+  Input.insertText) + dom_cua_download_media. Cargo/smoke need NO `.ai-coordination` lock
   (not model-driven); real-model Playwright E2E (Phases 19–24) does.
   Panel auto-open lands when Phase-10 emits real browser:* frames (useChat
   seam already wired). Plan file stays the live matrix — update per phase.

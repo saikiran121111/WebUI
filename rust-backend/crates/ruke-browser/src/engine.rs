@@ -46,6 +46,10 @@ pub struct BrowserRuntime {
     /// The bounded per-tab CDP event replay buffer (Phase 4): fed by the
     /// lifecycle pump, served by `tab_cdp_events`.
     pub(crate) cdp_events: Arc<CdpEventBuffer>,
+    /// The DOM CUA registries (Phase 5): per-tab snapshot frame/node
+    /// maps and the FIFO isolated-world cache. Every tab-removal path
+    /// forgets here too, so stale handles fail closed.
+    pub(crate) dom: Arc<crate::dom_cua::DomRegistries>,
 }
 
 impl BrowserRuntime {
@@ -58,6 +62,7 @@ impl BrowserRuntime {
             registry,
             session_names: Mutex::new(HashMap::new()),
             cdp_events: Arc::new(CdpEventBuffer::default()),
+            dom: Arc::new(crate::dom_cua::DomRegistries::default()),
         }
     }
 
@@ -77,6 +82,7 @@ impl BrowserRuntime {
             drop(dead);
             self.registry.lock().clear_all();
             self.cdp_events.clear();
+            self.dom.clear_all();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -118,6 +124,7 @@ impl BrowserRuntime {
                 rx,
                 Arc::clone(&self.registry),
                 Arc::clone(&self.cdp_events),
+                Arc::clone(&self.dom),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -161,6 +168,9 @@ impl BrowserRuntime {
             .to_string();
         conn.call("Page.enable", None, Some(&session_id)).await?;
         conn.call("Runtime.enable", None, Some(&session_id)).await?;
+        // Phase 5: the DOM domain backs getFrameOwner/describeNode/
+        // getContentQuads for DOM CUA geometry and resolution.
+        conn.call("DOM.enable", None, Some(&session_id)).await?;
         Ok(session_id)
     }
 
@@ -189,6 +199,7 @@ impl BrowserRuntime {
                 .await;
             self.registry.lock().remove_tab(&t.tab_id);
             self.cdp_events.forget_tab(&t.tab_id);
+            self.dom.forget_tab(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -205,6 +216,7 @@ impl BrowserRuntime {
         }
         self.registry.lock().clear_all();
         self.cdp_events.clear();
+        self.dom.clear_all();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -320,6 +332,7 @@ async fn event_pump(
     mut rx: mpsc::UnboundedReceiver<CdpEvent>,
     registry: Arc<Mutex<Registry>>,
     cdp_events: Arc<CdpEventBuffer>,
+    dom: Arc<crate::dom_cua::DomRegistries>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -377,6 +390,7 @@ async fn event_pump(
                     let destroyed = registry.lock().remove_by_target(target_id);
                     if let Some(rec) = destroyed {
                         cdp_events.forget_tab(&rec.tab_id);
+                        dom.forget_tab(&rec.tab_id);
                         ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
                         ui.tabs_changed();
                     }

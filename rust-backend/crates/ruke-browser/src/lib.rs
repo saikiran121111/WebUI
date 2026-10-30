@@ -25,6 +25,7 @@
 pub mod cdp;
 pub mod cdp_buffer;
 pub mod contract;
+pub mod dom_cua;
 pub mod engine;
 pub mod errors;
 pub mod executor;

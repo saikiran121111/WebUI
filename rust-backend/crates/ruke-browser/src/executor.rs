@@ -6,9 +6,13 @@
 //! echo of intent.
 //!
 //! Increment policy (pinned for the Phase-26 coverage audit): the 13
-//! lifecycle commands (Phase 2) plus the raw-CDP bridge pair
-//! `tab_cdp_call`/`tab_cdp_events` (Phase 4) implemented here execute
-//! for real; every other registered command kind answers
+//! lifecycle commands (Phase 2), the raw-CDP bridge pair
+//! `tab_cdp_call`/`tab_cdp_events` (Phase 4), and the five DOM CUA
+//! commands `dom_cua_get_visible_dom`/`dom_cua_click`/
+//! `dom_cua_double_click`/`dom_cua_scroll`/`dom_cua_type` (Phase 5)
+//! implemented here execute for real; every other registered command
+//! kind — including `dom_cua_keypress` and `dom_cua_download_media`,
+//! which land in Phase 8 — answers
 //! `Unsupported { operation }` — an honest typed error, never a fake
 //! success. Later phases (DOM/AX, input, dialogs, files…) replace
 //! arm-by-arm; the registry itself (82 rows) was already pinned in
@@ -145,6 +149,7 @@ impl BrowserRuntime {
                 // close command removes the handle first, so the ring
                 // must be dropped here (tab ids are never reused).
                 self.cdp_events.forget_tab(&p.tab_id);
+                self.dom.forget_tab(&p.tab_id);
                 Ok(json!({ "tab_id": p.tab_id, "closed": true }))
             }
             Command::NavigateTabUrl(p) => {
@@ -272,6 +277,38 @@ impl BrowserRuntime {
                 // semantics: never relaunch the browser for a read.
                 let rec = self.registry.lock().require(&p.tab_id)?;
                 Ok(self.cdp_events.page(&rec, p.cursor, p.limit))
+            }
+            Command::DomCuaGetVisibleDom(p) => {
+                check_browser(&p.browser_id)?;
+                // Read-only snapshot: the handle must exist (stale
+                // handles fail closed after a relaunch wiped the
+                // registry); never relaunch for a read.
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.dom_visible_dom(&conn, &rec).await
+            }
+            Command::DomCuaClick(p) | Command::DomCuaDoubleClick(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let click_count: i64 = if matches!(cmd, Command::DomCuaDoubleClick(_)) {
+                    2
+                } else {
+                    1
+                };
+                self.dom_click(&conn, &rec, p.node_id, click_count).await
+            }
+            Command::DomCuaScroll(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.dom_scroll(&conn, &rec, p.node_id, p.x, p.y).await
+            }
+            Command::DomCuaType(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.dom_type(&conn, &rec, &p.text).await
             }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that
