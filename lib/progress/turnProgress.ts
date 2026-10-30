@@ -86,6 +86,16 @@ const WEB_BAND: Record<string, { label: string; band: number }> = {
   "web:done": { label: "Web evidence ready", band: 100 },
 };
 
+/* Browser Use (Phase 3): bands for the model-driven browser tool loop.
+ * The frames arrive with the Phase-10 Rust loop; the honest client-side
+ * mapping is wired now so real frames land on real UI, not guesswork. */
+const BROWSER_BAND: Record<string, { label: string; band: number }> = {
+  "browser:preparing": { label: "Preparing the browser", band: 15 },
+  "browser:acting": { label: "Driving the browser for you", band: 45 },
+  "browser:handoff": { label: "Waiting for you in the browser", band: 80 },
+  "browser:done": { label: "Browser task finished", band: 100 },
+};
+
 const MODE_LABEL: Record<RendererMode, string> = {
   excel: "Building your spreadsheet (XLSX)…",
   docs: "Drafting your document (DOCX)…",
@@ -124,6 +134,7 @@ const MODE_DEFAULT_CHARS: Record<RendererMode, number> = {
 };
 
 const WEBSEARCH_WEIGHT = 3;
+const BROWSER_WEIGHT = 3;
 const WRITING_WEIGHT = 3.5;
 const THINKING_WEIGHT = 1.5;
 
@@ -184,6 +195,7 @@ export class TurnProgressTracker {
         break; // message metadata, handled by useChat — not a progress phase
       default:
         if (e.stage.startsWith("web:")) this.noteWeb(e);
+        else if (e.stage.startsWith("browser:")) this.noteBrowser(e);
     }
   }
 
@@ -217,6 +229,14 @@ export class TurnProgressTracker {
     }
     this.addStep("websearch", label, WEBSEARCH_WEIGHT, "active", percent);
     if (e.stage === "web:done") this.done("websearch");
+  }
+
+  private noteBrowser(e: StageEvent): void {
+    const band = BROWSER_BAND[e.stage];
+    if (!band) return; // unknown sub-stage: honest no-op, no invented label
+    this.done("routing");
+    this.addStep("browser", band.label, BROWSER_WEIGHT, "active", band.band);
+    if (e.stage === "browser:done") this.done("browser");
   }
 
   /* ── client-measured signals ──────────────────────────────────────────── */

@@ -175,6 +175,11 @@
         "nullable": false
       },
       {
+        "name": "session",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
         "name": "url",
         "present": "optional-omit-when-absent",
         "nullable": false

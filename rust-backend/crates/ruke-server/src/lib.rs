@@ -162,6 +162,14 @@ pub fn build_router(state: AppState) -> Router {
         // tool loop. Errors ride the wire contract with HTTP 200; only
         // auth failures use a status code (browser_routes.rs).
         .route("/api/ruke/browser/command", post(browser_routes::command_post))
+        // Browser Panel socket (Phase 3): ticket mint is bridge-authed;
+        // the WS itself admits on Origin + one-shot ticket (ticket
+        // because a WS handshake cannot carry the bridge-secret header).
+        .route(
+            "/api/ruke/browser/ws-ticket",
+            post(browser_routes::ws_ticket_post),
+        )
+        .route("/api/ruke/browser/ws", get(browser_routes::ui_ws_get))
         .with_state(state)
 }
 

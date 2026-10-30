@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDown, AlertCircle, RefreshCw, ChevronDown } from "lucide-react";
 import ChatMessage from "../components/ChatMessage";
@@ -12,6 +13,12 @@ import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import RecentsModal from "../components/ui/RecentsModal";
 import CompactDividerBadge from "../components/ui/CompactDividerBadge";
+
+// Browser Panel (Browser Use, Phase 3): lazy chunk, client-only — the
+// panel decides its own visibility from lib/browser-client/browserStore,
+// so the page mount is unconditional and cheap. Never in the initial
+// bundle (CLAUDE.md §5.1).
+const BrowserPanel = dynamic(() => import("../components/browser/BrowserPanel"), { ssr: false });
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { useTokenMeter } from "../hooks/useTokenMeter";
@@ -539,6 +546,7 @@ export default function HomePage() {
           onBulkMoveGroup={handleBulkMoveGroup}
         />
       )}
+      <BrowserPanel sessionId={activeId ?? "default"} />
     </div>
   );
 }

@@ -199,6 +199,7 @@ fn stage_event_citation_gate_field_ledgers() {
     ev.done = Some(2);
     ev.total = Some(3);
     ev.coverage = Some(0.5);
+    ev.session = Some("conv-1".into());
     ev.url = Some("https://x.test".into());
     ev.domain = Some("x.test".into());
     let mut cites = CitationMap::new();

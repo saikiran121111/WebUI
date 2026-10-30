@@ -57,6 +57,10 @@ pub struct StageEvent {
     pub total: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coverage: Option<f64>,
+    /// `browser:*` frames (Phase-10 tool loop) only: the browser session
+    /// (conversation id) the model's browser activity belongs to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +81,7 @@ impl StageEvent {
             done: None,
             total: None,
             coverage: None,
+            session: None,
             url: None,
             domain: None,
             web_citations: None,

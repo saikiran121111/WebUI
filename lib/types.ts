@@ -270,7 +270,8 @@ export interface StreamToolCallDelta {
  * `web_meta` stage instead of response headers on streamed turns.
  */
 export interface StageEvent {
-  /** decision_done | skill | retrieval | retrieval_done | web_meta | web:<PipelineStage> */
+  /** decision_done | skill | retrieval | retrieval_done | web_meta |
+   *  web:<PipelineStage> | browser:<Phase> (Phase-10 browser tool loop) */
   stage: string;
   detail?: string;
   /** decision mode at decision_done */
@@ -279,6 +280,10 @@ export interface StageEvent {
   done?: number;
   total?: number;
   coverage?: number;
+  /** browser:* frames (Phase-10 tool loop) only: the browser session
+   *  (conversation id) the model's browser activity belongs to — the
+   *  Browser Panel store keys its state by this. */
+  session?: string;
   /** web:auth_required only: the login-walled URL and its domain — the
    *  client opens its in-app Browser panel targeted at this page. */
   url?: string;

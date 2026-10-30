@@ -1,5 +1,5 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–2
+Synced: 2026-10-30 — RUST BROWSER-USE SUBSYSTEM OVERNIGHT RUN (Phases 0–3
 locked; the 2026-10-28 media-caption cycle below is prior history; the
 2026-10-25 browser lines stay HISTORY ONLY — superseded on 10-26).
 
@@ -16,9 +16,32 @@ locked; the 2026-10-28 media-caption cycle below is prior history; the
   Chromium lifecycle smoke — GREEN 2026-10-30: grounded url/title, history
   walk, turn cleanup, stale-handle fail-closed) + ruke-server
   `browser_routes.rs` (`POST /api/browser`) + `AppState.browser` wiring +
-  graceful shutdown. Gates: ruke-browser 37/37 unit, smoke 1/1 (--ignored),
-  ruke-server 133/133, clippy clean for own crates (7 known warnings remain
-  only in LOCKED ruke-websearch).
+  graceful shutdown. Phase 3 (core commit 9b87dd2; routes+panel committed
+  THIS cycle): UiHub (ref-counted screencast, one-shot 60 s tickets,
+  RUKE_BROWSER_UI_ORIGINS fail-closed, refused handshake does NOT burn
+  ticket) + browser_routes ws endpoints (ws-ticket/ws, raw axum::serve
+  handshake test browser_ui_routes.rs 1/1) + Next proxies
+  `app/api/browser/{route,ticket}` (bridge secret via internalSecretHeaders,
+  client same-name headers stripped, honest 503 when Rust off) +
+  `lib/browser-client/{browserClient,browserStore}.ts` +
+  `components/browser/BrowserPanel.tsx` (dynamic ssr:false mount from
+  page.tsx) + `styles/browser-panel.css` + `__tests__/browser-client.
+  test.ts` 19 pins (envelope, HTTP-200 typed errors, claim-and-retry ONCE
+  on browser_capability_blocked, ticket, input builders, letterbox math) +
+  useChat seam: `browser:*` stage frames → handleBrowserStage (first stmt
+  in `if (ev.stage)`, NEVER returns early, never enters compaction) +
+  turnProgress BROWSER_BAND/noteBrowser. Panel auto-open deferred to
+  Phase-10 (emits real frames; seam wired, not faked).
+  StageEvent `session?: string` added BOTH sides (lib/types.ts after
+  coverage; stages.rs skip-if-none + drift-test assignment) — manifest
+  REGENERATED. LAW: any ledger'd-interface change ⇒ contracts:generate +
+  Rust mirror + drift-test assignment in the SAME commit.
+  Gates: tsc 0; vitest 73 files/751 passed/1 skipped (chatEngine +
+  rust-golden/web are LOAD-FLAKY — green standalone, pre-existing family);
+  contracts:generate+check OK; ruke-contracts 8 lib+6 drift, ruke-browser
+  53, ruke-server lib 100 + browser_ui 1 + golden 19 + scrubber 2 +
+  attach 6 + store 6, smoke 1/1 --ignored; clippy owned crates 0 warnings
+  (7 known remain ONLY in LOCKED ruke-websearch engines.rs:3030-3035).
 - [8.4 contracts in force] Envelope `{commandType,session_id,turn_id,
   payload}`; RPC errors ride HTTP 200 `to_wire()`, 401 is auth-only, non-JSON
   body ⇒ `browser_command_envelope_invalid`; bridge secret semantics reuse
@@ -26,13 +49,37 @@ locked; the 2026-10-28 media-caption cycle below is prior history; the
   reused; CDP awaited value = wire frame `result` unwrapped ONCE (evaluate
   value at `result.value`, pinned by cdp::tests); 13 lifecycle commands real,
   other 69 kinds typed `browser_operation_unsupported` until their phase.
-- [8.8 next 3 atoms] (1) Phase 3: interactive Browser Panel UI in Next.js
-  (tab strip, omnibox, nav buttons, activity state, auto-open) wired to
-  `/api/browser` + Phase-4 screencast frames — contract in the RE docs §UI.
-  (2) Phase 4: CDP bridge + bounded event buffer (sequence/cursor/hasMore/
-  truncated). (3) Then Phase 5 DOM CUA. Cargo smoke needs NO
-  `.ai-coordination` lock (not model-driven); real-model Playwright E2E
-  (Phases 19–24) does.
+  Panel WS protocol (pinned): first msg = tab snapshot (has `tabs`, NO
+  `type`); `{"type":"tabs","tabs":[…]}` broadcast (NOT tabs_changed);
+  `{"type":"frame","tab_id","data"(base64 jpeg),"metadata"}`;
+  `{"type":"subscribed","tab":tab_json}`; `{"type":"pong"}`; errors =
+  to_wire()+`type:"error"`. Client→server: subscribe/unsubscribe/input/ping.
+  Panel RPC turn_id pinned "ui" (claims map keys on turn id ALONE; engine
+  end_turn only from the model loop — "ui" turns never cleaned).
+  input_dispatch kinds: mouse (x/y finite ≥0, action move|press|release,
+  button left|middle|right|none, click_count, modifiers→bitmask), wheel
+  (delta_x/delta_y), key (text ONLY on down; key_code→virtualKeyCode),
+  insert_text (non-empty). TS traps: tab_new returns minimal
+  {browser_id,tab_id} ONLY; React synthetic events lack offsetX/Y (use
+  nativeEvent); React root wheel listener is passive (attach manually
+  {passive:false}); vitest includes .ts only — pure helpers live in .ts.
+  Cargo from repo root REQUIRES `--manifest-path rust-backend/Cargo.toml`.
+- [8.5 verification state] Dev server :3000 = user's supervisor; Rust
+  :3101 rebuilt by supervisor. No .ai-coordination lock active. Panel WS
+  admission tested via raw socket (browser_ui_routes); no real-model
+  browser E2E exists yet (Phases 18–24 pending). Flaky files to remember:
+  chatEngine.test.ts + rust-golden/web.test.ts (parallel-load timing;
+  both green standalone — never "fix" them for this).
+- [8.6 open items] None blocking. Panel auto-open + browser-session UI
+  E2E are Phase-10/17–19 work, not bugs.
+- [8.8 next 3 atoms] (1) Phase 4: CDP bridge + bounded event buffer in
+  ruke-browser (sequence numbers, cursor paging 1..1000, hasMore,
+  truncated, source{sessionId,tabId,targetId}) — contract in RE docs +
+  plan matrix row 4. (2) Phase 5: DOM CUA + deterministic refs + frames.
+  (3) Phase 6: AX engine. Cargo/smoke need NO `.ai-coordination` lock
+  (not model-driven); real-model Playwright E2E (Phases 19–24) does.
+  Panel auto-open lands when Phase-10 emits real browser:* frames (useChat
+  seam already wired). Plan file stays the live matrix — update per phase.
 
 Synced: 2026-10-28 — MEDIA-CAPTION CYCLE (see block below; the
 2026-10-25 sections are HISTORY ONLY for browser-subsystem lines that were

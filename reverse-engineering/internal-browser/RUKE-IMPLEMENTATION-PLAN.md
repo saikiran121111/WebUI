@@ -72,7 +72,7 @@ no Node browser backend, no resurrected `lib/browser/**`/WebContentsView/nativeP
 | 0 | Current-repo audit + RE docs | DONE | no (docs sufficient) |
 | 1 | Contract manifest + typed schemas + errors (`crates/ruke-browser/src/{contract,schemas,errors}.rs`) | UNIT TESTED (21/21; clippy -D warnings clean) | no |
 | 2 | Browser host + session/tab manager (claims, deliverable/handoff, turn cleanup, stale handles fail closed) | INTEGRATION TESTED (37/37 ruke-browser unit; real-Chromium smoke green incl. grounded url/title, history walk, turn cleanup, fail-closed handles; ruke-server 133/133; clippy: own crates clean) | no |
-| 3 | Interactive Browser Panel UI (tab strip, omnibox, nav, activity state, auto-open) | NOT STARTED | |
+| 3 | Interactive Browser Panel UI (tab strip, omnibox, nav, activity state, auto-open) | IMPLEMENTED+UNIT+INTEGRATION TESTED (Rust: routes 1/1 via real axum::serve handshake, ruke-server 100+6+1+19+2+6, ruke-browser 53, smoke green; TS: tsc clean, vitest 751/751 incl. 19 new browser-client pins, contract manifest regenerated + both-side binders green). Auto-open deferred to Phase-10 `browser:*` frames (seam wired, not faked) | no |
 | 4 | CDP bridge + bounded event buffer (sequence/cursor/hasMore/truncated) | NOT STARTED | |
 | 5 | DOM CUA engine (walker constants, ref registries, frames, scroll→click, budget+credential math) | NOT STARTED | |
 | 6 | AX engine (CDP Accessibility behavioral equivalent of the wasm revision; capture stabilization state machine; verbatim strings) | NOT STARTED | |
@@ -140,6 +140,63 @@ no Node browser backend, no resurrected `lib/browser/**`/WebContentsView/nativeP
   loopback fixture, asserts REAL page state (titles, hrefs, history walk, cleanup,
   fail-closed). Takes the profile lock: never run while a Ruke server holds the same
   profile. Not a Playwright/model run — no `.ai-coordination` lock involved.
+
+### Phase 3 locked notes (2026-10-30)
+- Rust UI hub (`crates/ruke-browser/src/ui.rs` `UiHub`): ref-counted screencast — first
+  subscriber to a tab calls `Page.startScreencast {format:"jpeg",quality:70,everyNthFrame:1}`,
+  last unsubscribe stops it; frames rebroadcast to all watchers. Ticket admission: 60 s TTL
+  one-shot 32-hex tickets (refused handshakes do NOT burn the ticket — verified by test).
+  Origin allowlist env `RUKE_BROWSER_UI_ORIGINS` (default `http://localhost:3000,http://127.0.0.1:3000`),
+  fail-closed on missing Origin; loopback-only bind; tickets never logged (Rule 17).
+- WS protocol (server→client): initial snapshot (has `tabs` array, no `type`),
+  `{"type":"tabs","tabs":[…]}` broadcast (NOT "tabs_changed"),
+  `{"type":"frame","tab_id","data","metadata"}` (data = base64 JPEG),
+  `{"type":"subscribed","tab":…}` (browser_routes ack), `{"type":"pong"}`,
+  error frames = `to_wire()` + `type:"error"`. Client→server:
+  `subscribe{tab_id}`/`unsubscribe{tab_id}`/`input{tab_id,event}`/`ping`.
+- Mount paths corrected: Rust mounts `POST /api/ruke/browser/command`,
+  `POST /api/ruke/browser/ws-ticket`, `GET /api/ruke/browser/ws`; Next proxies
+  `app/api/browser/route.ts` + `app/api/browser/ticket/route.ts` (rustProxy `extraHeaders`
+  inject `x-ruke-internal-secret`; client-supplied same-name headers are STRIPPED).
+  Panel dials `ws_url` DIRECT — rustProxy strips `upgrade` (hop-by-hop), so the WS
+  cannot ride the Next proxy.
+- WS admission testing constraint: tower `oneshot` lacks the hyper `OnUpgrade` extension
+  (axum 0.8.9, hyper 1.12 — no public constructor) ⇒ handshake 426; the route's admission
+  is tested via real `axum::serve` + raw TCP handshake (`tests/browser_ui_routes.rs`).
+- Panel turn identity: EVERY panel RPC uses stable `turn_id:"ui"` (`UI_TURN_ID`) under the
+  conversation's session id (supersedes the earlier "ui-N" counter plan). Facts: engine
+  ownership floor compares `(session_id,turn_id)`; the session claims map keys on the TURN
+  ID ALONE (`session.rs` claim/is_claimed_by); `end_turn` is called only by the model loop
+  (engine.rs:164), so `ui` turns are never cleaned — human tabs stay operable across
+  panel commands and claims persist.
+- Input contract (`input_dispatch`, ui.rs:343): `kind` ∈ {mouse,wheel,key,insert_text};
+  mouse x/y non-negative finite + action move|press|release + button + click_count (0 for
+  move) + modifiers bitmask; wheel x/y/delta_x/delta_y; key down|up, `text` ONLY on down,
+  `key_code`→windowsVirtualKeyCode+nativeVirtualKeyCode; insert_text non-empty. Builders in
+  `browserClient.ts` emit these verbatim and are pinned by vitest.
+- TS-side traps pinned: `tab_new` responds with the MINIMAL row `{browser_id,tab_id}`
+  (executor.rs:118), full listing arrives via hub broadcast — panel `openTab` types it so;
+  React synthetic Pointer/Mouse events do NOT expose offsetX/offsetY (read
+  `ev.nativeEvent`); React root wheel listeners are passive ⇒ non-passive preventDefault
+  needs a manual `addEventListener("wheel",…,{passive:false})` on the stage; vitest
+  include is `__tests__/**/*.test.ts` in node env ⇒ `normalizeOmniboxUrl` lives in
+  browserClient.ts (importable), not the .tsx panel.
+- Letterbox pointer math (`mapPointerToViewport`): mirrors CSS `object-fit:contain`;
+  undoes centered bars, divides by uniform scale, CLAMPS bar-clicks to the frame edge —
+  never invents out-of-frame coords (pinned incl. degenerate→(0,0)).
+- Perf law respected: `page.tsx` mounts the panel via `next/dynamic` (ssr:false) WITHOUT
+  subscribing to the browser store (per-frame store updates must not re-render the chat
+  page, CLAUDE.md §5.3); useChat's `browser:*` seam calls `handleBrowserStage` then hands
+  the frame to the tracker (never returns early — progress sees every frame; browser:*
+  never enters compaction).
+- Contract manifest: `StageEvent.session?` added on BOTH sides (TS `lib/types.ts`,
+  Rust `ruke-contracts/src/stages.rs` skip-serializing-if-none) + `manifest.json`
+  REGENERATED via `npm run contracts:generate`; drift binders green (TS 8/8,
+  ruke-contracts 6/6, ruke-websearch manifest_drift 5/5). Law: any StageEvent field
+  change ⇒ regenerate manifest + mirror the Rust struct in the same commit.
+- Rust law (caught pre-commit again): `if let Some(x) = lock.method() {…}` keeps the
+  parking_lot guard alive across the WHOLE body — bind the owned result in a plain `let`
+  before touching the lock again in the body (self-deadlock otherwise).
 
 ## Key locked facts (do not re-derive)
 

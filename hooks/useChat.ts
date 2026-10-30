@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
+import { handleBrowserStage } from "../lib/browser-client/browserStore";
 import {
   compactConversation,
   type CompactResult,
@@ -395,6 +396,12 @@ export function useChat({
     // Server phase frames (ruke_stage): real counts into the tracker, plus
     // web metadata that streamed turns deliver in-band instead of headers.
     if (ev.stage) {
+      // Browser Use (Phase 3 seam): browser:* frames steer the Browser
+      // Panel store (open/active/idle). The progress tracker still sees
+      // the frame below — we do not swallow stage events.
+      if (typeof ev.stage.stage === "string" && ev.stage.stage.startsWith("browser:")) {
+        handleBrowserStage(ev.stage.stage, ev.stage.session);
+      }
       if (ev.stage.stage === "web_meta") {
         const id = assistantIdRef.current;
         const gateMeta = ev.stage.searchGate ?? ev.stage.researchLfm;
