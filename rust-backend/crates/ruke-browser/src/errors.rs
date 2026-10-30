@@ -43,6 +43,13 @@ pub enum ErrorCode {
     ClickNotSettled,
     ClickCovered,
     DialogBlocking,
+    JsDialogGone,
+    OnlyPromptAcceptsText,
+    ScreenshotUnavailable,
+    FileChooserUnknown,
+    FileChooserTabMismatch,
+    FileChooserNoFiles,
+    FileChooserNotMultiple,
     JsDialogInterrupted,
     InputPrepareTimeout,
     SelectChangedBeforeActivation,
@@ -85,6 +92,13 @@ impl ErrorCode {
             ErrorCode::ClickCovered => "click_covered",
             ErrorCode::DialogBlocking => "dialog_blocking",
             ErrorCode::JsDialogInterrupted => "js_dialog_interrupted",
+            ErrorCode::JsDialogGone => "js_dialog_gone",
+            ErrorCode::OnlyPromptAcceptsText => "only_prompt_accepts_text",
+            ErrorCode::ScreenshotUnavailable => "screenshot_unavailable",
+            ErrorCode::FileChooserUnknown => "file_chooser_unknown",
+            ErrorCode::FileChooserTabMismatch => "file_chooser_tab_mismatch",
+            ErrorCode::FileChooserNoFiles => "file_chooser_no_files",
+            ErrorCode::FileChooserNotMultiple => "file_chooser_not_multiple",
             ErrorCode::InputPrepareTimeout => "input_prepare_timeout",
             ErrorCode::SelectChangedBeforeActivation => "select_changed_before_activation",
             ErrorCode::SelectTextNotFound => "select_text_not_found",
@@ -207,6 +221,23 @@ pub enum BrowserError {
         dialog_type: String,
         detail: String,
     },
+    /// `tab_handle_js_dialog` with no active dialog (already dismissed or
+    /// never opened). Recovered pinned message.
+    #[error("JavaScript dialog is no longer active")]
+    JsDialogGone,
+    /// `prompt_text` supplied for a non-prompt dialog. Recovered pinned
+    /// message.
+    #[error("Only prompt dialogs accept text")]
+    OnlyPromptAcceptsText,
+    /// The command-level dialog guard (the recovered
+    /// `throwIfJsDialogBlocksMethod`); the discovery command carries
+    /// Ruke's snake_case name.
+    #[error("A {dialog_type} JavaScript dialog is active in this tab. Use `tab_get_js_dialog` to get it and dismiss it first.")]
+    JsDialogBlocksMethod { dialog_type: String },
+    /// `tab_ax_get_state` screenshot content mode while a JS dialog is
+    /// open — the reference's fallback text with Ruke's command names.
+    #[error("Screenshot unavailable while a JavaScript {dialog_type} dialog is open. Use tab_ax_get_state with content \"axState\" and a tab_ax_action click action (element_index) to interact with its controls.")]
+    ScreenshotUnavailable { dialog_type: String },
 
     /// Verbatim: focus-then-input budget (3e3 ms) —
     /// "Could not prepare accessibility element N for input within 3000 ms. No input was sent."
@@ -228,6 +259,26 @@ pub enum BrowserError {
     /// present in the element's `actionDescriptions` (Phase 6).
     #[error("Secondary action \"{action}\" is not available on this element")]
     SecondaryActionNotAllowed { action: String },
+
+    // ── File-chooser registry (Phase 8; strings verbatim from the
+    //    recovered r2 handler, schemas-and-ipc.md) ─────────────────────
+    #[error("Unknown file chooser id \"{file_chooser_id}\"")]
+    FileChooserUnknown { file_chooser_id: String },
+    #[error("File chooser \"{file_chooser_id}\" belongs to tab {actual_tab_id}")]
+    FileChooserTabMismatch {
+        file_chooser_id: String,
+        actual_tab_id: String,
+    },
+    #[error("fileChooser.setFiles requires at least one file")]
+    FileChooserNoFiles,
+    #[error("File chooser does not accept multiple files")]
+    FileChooserNotMultiple,
+    /// [adapted] Ruke's `playwright_file_chooser_set_files` payload
+    /// carries no chooser id, so the recovered "unknown chooser id"
+    /// surface becomes "this tab has no pending chooser" (the id-keyed
+    /// errors above stay wired through the registry validation chain).
+    #[error("No file chooser is pending on tab {tab_id}; click a file input and pair `playwright_wait_for_file_chooser` for the ordering contract")]
+    FileChooserPendingMissing { tab_id: String },
 
     // ── Playwright-style locator runtime (Phase 7) ──────────────────
     // Messages composed to mirror the reference locator error surface
@@ -261,6 +312,16 @@ pub enum BrowserError {
     /// operations and never used to fake a supported one).
     #[error("{operation} is not supported by the Ruke browser runtime")]
     Unsupported { operation: String },
+
+    /// A `tab_ax_action` failure re-raised after a fresh state capture —
+    /// the reference's `${message}\n\n\n${state}` rethrow (the appended
+    /// payload is the axState result serialized, Ruke shape). The wire
+    /// code stays the SOURCE's code so model-side handling is unchanged.
+    #[error("{source}\n\n\n{state}")]
+    AxActionFailed {
+        source: Box<BrowserError>,
+        state: String,
+    },
 
     #[error("Invalid navigation URL: {url}")]
     InvalidUrl { url: String },
@@ -304,6 +365,15 @@ impl BrowserError {
             BrowserError::ClickNotSettled { .. } => ErrorCode::ClickNotSettled,
             BrowserError::ClickCovered { .. } => ErrorCode::ClickCovered,
             BrowserError::DialogBlocking => ErrorCode::DialogBlocking,
+            BrowserError::JsDialogBlocksMethod { .. } => ErrorCode::DialogBlocking,
+            BrowserError::JsDialogGone => ErrorCode::JsDialogGone,
+            BrowserError::OnlyPromptAcceptsText => ErrorCode::OnlyPromptAcceptsText,
+            BrowserError::ScreenshotUnavailable { .. } => ErrorCode::ScreenshotUnavailable,
+            BrowserError::FileChooserUnknown { .. } => ErrorCode::FileChooserUnknown,
+            BrowserError::FileChooserTabMismatch { .. } => ErrorCode::FileChooserTabMismatch,
+            BrowserError::FileChooserNoFiles => ErrorCode::FileChooserNoFiles,
+            BrowserError::FileChooserNotMultiple => ErrorCode::FileChooserNotMultiple,
+            BrowserError::FileChooserPendingMissing { .. } => ErrorCode::FileChooserUnknown,
             BrowserError::JsDialogInterrupted { .. } => ErrorCode::JsDialogInterrupted,
             BrowserError::InputPrepareTimeout { .. } => ErrorCode::InputPrepareTimeout,
             BrowserError::SelectChangedBeforeActivation => ErrorCode::SelectChangedBeforeActivation,
@@ -316,6 +386,7 @@ impl BrowserError {
             BrowserError::LocatorStaleRef { .. } => ErrorCode::StaleDomNode,
             BrowserError::LocatorFailed { .. } => ErrorCode::LocatorFailed,
             BrowserError::Unsupported { .. } => ErrorCode::Unsupported,
+            BrowserError::AxActionFailed { source, .. } => source.code(),
             BrowserError::InvalidUrl { .. } => ErrorCode::InvalidUrl,
             BrowserError::TimedOut { .. } => ErrorCode::TimedOut,
             BrowserError::CdpFailed { .. } => ErrorCode::CdpFailed,
@@ -511,6 +582,68 @@ mod tests {
             }
             .to_string(),
             "Browser action \"click\" interrupted by JavaScript alert: \"Leave?\" The action may already have taken effect; do not retry it. Inspect or dismiss the dialog before continuing."
+        );
+        // Phase-8 dialog registry + file-chooser strings (chooser set
+        // verbatim from the recovered r2 handler).
+        assert_eq!(
+            BrowserError::JsDialogGone.to_string(),
+            "JavaScript dialog is no longer active"
+        );
+        assert_eq!(
+            BrowserError::OnlyPromptAcceptsText.to_string(),
+            "Only prompt dialogs accept text"
+        );
+        assert_eq!(
+            BrowserError::FileChooserUnknown {
+                file_chooser_id: "7".into()
+            }
+            .to_string(),
+            "Unknown file chooser id \"7\""
+        );
+        assert_eq!(
+            BrowserError::FileChooserTabMismatch {
+                file_chooser_id: "7".into(),
+                actual_tab_id: "3".into()
+            }
+            .to_string(),
+            "File chooser \"7\" belongs to tab 3"
+        );
+        assert_eq!(
+            BrowserError::FileChooserNoFiles.to_string(),
+            "fileChooser.setFiles requires at least one file"
+        );
+        assert_eq!(
+            BrowserError::FileChooserNotMultiple.to_string(),
+            "File chooser does not accept multiple files"
+        );
+        // [adapted] id-less set_files surface (see the variant docs).
+        assert_eq!(
+            BrowserError::FileChooserPendingMissing { tab_id: "4".into() }.to_string(),
+            "No file chooser is pending on tab 4; click a file input and pair `playwright_wait_for_file_chooser` for the ordering contract"
+        );
+        assert_eq!(
+            BrowserError::FileChooserPendingMissing { tab_id: "4".into() }.code(),
+            ErrorCode::FileChooserUnknown
+        );
+        assert_eq!(
+            BrowserError::JsDialogBlocksMethod {
+                dialog_type: "alert".into()
+            }
+            .code(),
+            ErrorCode::DialogBlocking
+        );
+    }
+
+    #[test]
+    fn ax_action_rethrow_keeps_the_source_code() {
+        let e = BrowserError::AxActionFailed {
+            source: Box::new(BrowserError::StaleAxElement { element_index: 5 }),
+            state: "{\"tab_id\":\"1\"}".into(),
+        };
+        assert_eq!(e.code(), ErrorCode::StaleAxElement);
+        assert_eq!(
+            e.to_string(),
+            "Accessibility element 5 is stale or missing\n\n\n{\"tab_id\":\"1\"}"
         );
     }
 

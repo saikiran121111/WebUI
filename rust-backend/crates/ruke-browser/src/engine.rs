@@ -59,11 +59,22 @@ pub struct BrowserRuntime {
     /// family. Every tab-removal path forgets here too, so stale refs
     /// fail closed.
     pub(crate) pw: Arc<crate::pw::PwRegistries>,
+    /// The I/O registries (Phase 8): per-tab JavaScript dialog state,
+    /// intercepted file choosers, and downloads (`allowAndName` files
+    /// under `<root>/downloads`). Every tab-removal path forgets here
+    /// too, so stale handles fail closed.
+    pub(crate) io: Arc<crate::io_state::IoRegistries>,
 }
 
 impl BrowserRuntime {
     pub fn new(root: PathBuf) -> Self {
         let registry = Arc::new(Mutex::new(Registry::default()));
+        // [adapted] downloads land under `<root>/downloads` with
+        // Chromium-assigned guid filenames (`Page.setDownloadBehavior`
+        // allowAndName): deterministic paths for
+        // `playwright_download_path` without scraping Chromium's
+        // .crdownload bookkeeping. Computed before `root` moves.
+        let io = Arc::new(crate::io_state::IoRegistries::new(root.join("downloads")));
         Self {
             root,
             host: AsyncMutex::new(None),
@@ -74,6 +85,7 @@ impl BrowserRuntime {
             dom: Arc::new(crate::dom_cua::DomRegistries::default()),
             ax: Arc::new(crate::ax::AxRegistries::default()),
             pw: Arc::new(crate::pw::PwRegistries::default()),
+            io,
         }
     }
 
@@ -96,6 +108,7 @@ impl BrowserRuntime {
             self.dom.clear_all();
             self.ax.clear_all();
             self.pw.clear_all();
+            self.io.clear_all();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -110,8 +123,13 @@ impl BrowserRuntime {
             initial_page_targets,
         } = LaunchedHost::launch(&cfg).await?;
 
+        // [adapted] downloads write here (`attach_target` pins the
+        // behavior per tab); best-effort — attach still works without
+        // the directory, the download paths would just fail later.
+        let _ = tokio::fs::create_dir_all(self.io.download_dir()).await;
+
         for t in &initial_page_targets {
-            match Self::attach_target(&conn, &t.target_id).await {
+            match self.attach_target(&conn, &t.target_id).await {
                 Ok(session_id) => {
                     let mut reg = self.registry.lock();
                     if reg.by_target(&t.target_id).is_none() {
@@ -140,6 +158,7 @@ impl BrowserRuntime {
                 Arc::clone(&self.dom),
                 Arc::clone(&self.ax),
                 Arc::clone(&self.pw),
+                Arc::clone(&self.io),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -163,7 +182,10 @@ impl BrowserRuntime {
 
     /// Attach flattened to a page target and turn on the domain events
     /// every later phase leans on (Page lifecycle + Runtime contexts).
+    /// `self` supplies only the downloads directory for the per-tab
+    /// `setDownloadBehavior` pin (Phase 8).
     pub(crate) async fn attach_target(
+        &self,
         conn: &CdpConn,
         target_id: &str,
     ) -> Result<String, BrowserError> {
@@ -192,6 +214,39 @@ impl BrowserRuntime {
         // the AX registries would never observe an update.
         conn.call("Accessibility.enable", None, Some(&session_id))
             .await?;
+        // Phase 8: route `<input type=file>` activations through
+        // `Page.fileChooserOpened` instead of letting Chromium open an
+        // OS file dialog no headless process can service. Best-effort:
+        // an older Chromium without this domain method simply keeps the
+        // chooser path unsupported at call time.
+        let _ = conn
+            .call(
+                "Page.setInterceptFileChooserDialog",
+                Some(json!({"enabled": true})),
+                Some(&session_id),
+            )
+            .await;
+        // The per-tab intercept MARK is minted lazily by the executor:
+        // attach only ever knows the CDP target id, while the registry
+        // mints the tab handle AFTER attach returns — a target-keyed
+        // mark could never match the tab-keyed lookups. Enabling here
+        // is what matters: chooser events are captured from the tab's
+        // very first chooser on, and re-enabling is idempotent.
+        // Phase 8 [adapted]: `allowAndName` stores every download at
+        // `<download-dir>/<guid>` so `playwright_download_path` and the
+        // media-download flows can hand back real filesystem paths with
+        // no Chromium dialog and no filename-collision renaming.
+        let _ = conn
+            .call(
+                "Page.setDownloadBehavior",
+                Some(json!({
+                    "behavior": "allowAndName",
+                    "downloadPath": self.io.download_dir().to_string_lossy(),
+                    "eventsEnabled": true,
+                })),
+                Some(&session_id),
+            )
+            .await;
         Ok(session_id)
     }
 
@@ -223,6 +278,7 @@ impl BrowserRuntime {
             self.dom.forget_tab(&t.tab_id);
             self.ax.forget_tab(&t.tab_id);
             self.pw.forget_tab(&t.tab_id);
+            self.io.forget_tab(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -242,6 +298,7 @@ impl BrowserRuntime {
         self.dom.clear_all();
         self.ax.clear_all();
         self.pw.clear_all();
+        self.io.clear_all();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -360,6 +417,7 @@ async fn event_pump(
     dom: Arc<crate::dom_cua::DomRegistries>,
     ax: Arc<crate::ax::AxRegistries>,
     pw: Arc<crate::pw::PwRegistries>,
+    io: Arc<crate::io_state::IoRegistries>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -420,6 +478,7 @@ async fn event_pump(
                         dom.forget_tab(&rec.tab_id);
                         ax.forget_tab(&rec.tab_id);
                         pw.forget_tab(&rec.tab_id);
+                        io.forget_tab(&rec.tab_id);
                         ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
                         ui.tabs_changed();
                     }
@@ -567,13 +626,75 @@ async fn event_pump(
             }
             // Dialogs bump the revision: an open dialog blocks page
             // input, so any AX state captured around one is suspect.
-            "Page.javascriptDialogOpening" | "Page.javascriptDialogClosed" => {
+            // Phase 8: the opening event is ALSO the dialog registry
+            // write (the recovered `jsDialogsByTabId` shape: id,
+            // message, defaultPrompt, type, url). `beforeunload` is
+            // remembered and auto-accepted (the recovered rule — head-
+            // less navigation confirmation must never strand a model
+            // command). `[adapted]` the reference's auth-dialog branch
+            // that auto-accepts for browser credential injection is
+            // N/A: Ruke has no browser-auth credential surface yet, so
+            // `beforeunload` is the only auto-accepted type.
+            "Page.javascriptDialogOpening" => {
                 let Some(sid) = ev.session_id.as_deref() else {
                     continue;
                 };
                 let tab = registry.lock().by_session(sid).cloned();
                 if let Some(t) = tab.as_ref() {
+                    let dialog = io.on_dialog_open(&t.tab_id, &ev.params);
                     ax.on_dialog_event(&t.tab_id);
+                    if dialog.dialog_type == "beforeunload" {
+                        let _ = conn
+                            .call(
+                                "Page.handleJavaScriptDialog",
+                                Some(json!({"accept": true})),
+                                Some(sid),
+                            )
+                            .await;
+                    }
+                }
+            }
+            "Page.javascriptDialogClosed" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    io.on_dialog_closed(&t.tab_id);
+                    ax.on_dialog_event(&t.tab_id);
+                }
+            }
+            // Phase 8: file-chooser interception (engineered from the
+            // CDP event grammar; the recovered bundle carries only the
+            // chooser REGISTRY and its consumption points, never this
+            // ingestion — see io_state.rs module header).
+            "Page.fileChooserOpened" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    io.on_file_chooser_opened(&t.tab_id, &ev.params);
+                }
+            }
+            // Phase 8: download progress for the `allowAndName` files
+            // pinned per tab at attach.
+            "Page.downloadWillBegin" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    io.on_download_begin(&t.tab_id, &ev.params);
+                }
+            }
+            "Page.downloadProgress" => {
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    io.on_download_progress(&t.tab_id, &ev.params);
                 }
             }
             "Page.domContentEventFired" => {

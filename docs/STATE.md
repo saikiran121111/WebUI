@@ -1,7 +1,10 @@
 # AI-INTERNAL STATE SNAPSHOT (8-Section Deep Compaction Format)
-Synced: 2026-10-31 — RUST BROWSER-USE SUBSYSTEM RUN (Phases 0–6
-locked incl. Phase-6 AX engine full-smoke green; user directive: complete
-ALL 29 phases without stopping — next is Phase 7 locator runtime; the
+Synced: 2026-10-31 — RUST BROWSER-USE SUBSYSTEM RUN (Phases 0–8
+locked incl. Phase-8 input/screenshots/dialogs/chooser/downloads
+109/109 unit green;
+user directive: complete
+ALL 29 phases without stopping — next is Phase 9 security/authority/
+confirmations/handoff; the
 2026-10-28 media-caption cycle below is prior history; the 2026-10-25
 browser lines stay HISTORY ONLY — superseded 10-26).
 
@@ -144,6 +147,99 @@ browser lines stay HISTORY ONLY — superseded 10-26).
   descend into iframe (inner placeholder under stitched RootWebArea),
   `[id=0]` tag present. Turn-cleanup URL pin now expects the battery's
   LAST navigation (/form) — survival contract itself unchanged.
+  Phase 7 (committed 2026-10-31, commit 4056cb2): `crates/ruke-browser/src/pw.rs`
+  (NEW ~2300 ln — Playwright-style locator runtime as a CDP behavioral
+  port, NO vendored playwright-core): selector parser (`Seg::{Css,Ref}`,
+  ` >> ` = top-level double-`>` chain token — quote/bracket-depth
+  protected, `push_part` rejects empty sides; `aria-ref=eN`→Ref; `css:`
+  prefix→Css; `internal:*` always rejected out-of-context; engine-form
+  `<name>=` rejected honestly via PW_ENGINES 10-name table, bare
+  `xpath://*` STAYS CSS (Playwright parity: no `=` ⇒ query-time error));
+  ENTER_FRAME_SEP literal ` >> internal:control=enter-frame >> ` pinned;
+  aria snapshot renderer `pw_dom_snapshot` (rt.ax.pw_ax_nodes →
+  `mode:"ai"` lines `- role "name" [prop] [ref=eN]`, refs eN minted
+  per-tab on bnid nodes, hoists ignored/empty-generic/listitem/group/
+  none/presentation + unnamed img-subtree drop, `statictext`→`text`,
+  SNAPSHOT_PROPS bool/number/string rendering, iframe lines get host
+  `[id]/[name]` via MAIN-world getAttribute, MAX_SNAPSHOT_LINES cap);
+  strict-mode pw_actionable poll (attached→visible/enabled states,
+  LocatorStrict/LocatorTimeout/LocatorStaleRef); locator ops
+  click/dblclick (real Input.dispatchMouseEvent, click_count), fill
+  (focus+execCommand/value, input+change), press (chord parse +
+  combo_mask + pw_key_spec named/F1-12/single-char + pw_send_key
+  rawKeyDown→char→keyUp), press_sequentially (Input.insertText per
+  char + \n→Enter + delay), select_option (index/label/value/any),
+  set_checked (click-repair loop), wait_for (attached/detached/
+  visible/hidden); reads count/all_text_contents/read_all/is_visible/
+  is_enabled/get_attribute/inner_text/text_content; pw_evaluate
+  (MAIN world, function-or-expression, selector fan-out All/First);
+  element_info (getNodeForLocation hit + describeNode.parentId chain +
+  interactable filter + candidates/primary + frame_selectors join via
+  getFrameOwner+HOST_SELECTOR_JS); element/full-page screenshots
+  (clip|Page.getLayoutMetrics+captureBeyondViewport); waits
+  wait_for_timeout (pure), wait_for_load_state (readyState gate +
+  resource-timing quiet-window NETWORK_IDLE_QUIET_MS=500),
+  wait_for_url (exact-or-pw_glob + wait_until gate). DEFAULT_TIMEOUT_MS
+  30_000 / POLL_MS 100. 24 pw unit pins → ruke-browser 97/97.
+  executor.rs Phase-7 arms: reads via require, mutations AND
+  playwright_evaluate via actable_tab (arbitrary JS = mutation).
+  PwKey owned-string law (no &'static + Box::leak). No manifest change.
+  Phase 8 (committed THIS cycle): `src/io_state.rs` (NEW — IoRegistries:
+  JsDialog{id,message,prompt_text,dialog_type,url}, FileChooser{id,
+  tab_id,frame_id,is_multiple,backend_node_id}, Download{guid,url,
+  suggested_filename,state,path}; dialog_generation/interrupt_dialog +
+  chooser_generation + download_generation counters drive the race
+  detection; wait_for_chooser/wait_for_download(Complete) POLL 100 ms →
+  PwTimeout "a file chooser"/"a download to complete"; validate_set_files
+  order tab-mismatch→empty→not-multiple; latest_pending_chooser_for_tab
+  for the id-less set_files; downloads dir = <root>/downloads, tokio
+  `fs` feature added to ruke-browser Cargo.toml) + `src/ax_action.rs`
+  (NEW — tab_ax_action: dialog race [adapted] at the action boundary
+  (generation compare + interrupt_dialog → JsDialogInterrupted with
+  quoted detail, outranks both result and error); staleness via
+  ax_element→AxElementRef (absent→StaleAxElement, committed≠current
+  key→AxPreviousPage); trusted click pipeline scroll_into_view →
+  box-settle (25 ms/500 ms/0.5 px; never→ClickFailed, unstable→
+  ClickNotSettled) → elementFromPoint containment (not ok→ClickCovered
+  w/ tag) → pw_dispatch_click; <option> JS-selection path w/
+  SelectChangedBeforeActivation + multi/no-select physical fallback;
+  PerformSecondaryAction grammar Expand|Collapse ∧ advertised; drag
+  8-step lerp; wheel scroll viewport-scaled; select_text input/
+  TreeWalker+Range w/ prefix/suffix uniqueness (NotFound/Ambiguous,
+  cursor_before/after collapse); set_value native prototype setters
+  (file→payload_invalid→file chooser path; checkbox bool regex; select
+  value-then-unique-label; color lowercase; retention check held≠want→
+  payload_invalid; else NoSettableValue); type/paste focus-prepare
+  (JS focus → click fallback → 3000 ms editable poll →
+  InputPrepareTimeout); paste html→execCommand insertHTML, text/md→
+  insertText; point targets validated vs cssVisualViewport) +
+  executor.rs 11 arms (TabAxAction rethrow wraps AxActionFailed{source,
+  state-json}; TabScreenshot = ax.capture retry blend w/ state json +
+  pw_element_screenshot merge {tab_id,data,mime_type}; TabGetJsDialog→
+  {dialog{id,type,message,prompt_text,url}}; TabHandleJsDialog prompt-
+  text-only-prompt→OnlyPromptAcceptsText, Page.handleJavaScriptDialog,
+  io.take_dialog; DomCuaKeypress combo grammar split/normalize →
+  pw_send_key; DomCuaDownloadMedia click→wait download→{}; WaitFor-
+  Download→{download_id,suggested_filename}; DownloadPath→{path:null
+  honest}; WaitForFileChooser lazy per-tab setInterceptFileChooserDialog
+  + mark→{file_chooser_id,is_multiple}; FileChooserSetFiles bnid else
+  focused-file-input objectId (CdpConn single-unwrap → /result/
+  objectId), DOM.setFileInputFiles, remove_chooser; LocatorDownload-
+  Media gen-before-click strict_one+scroll+box+dispatch → wait+complete
+  →{path}) + guarded_tab_id(cmd) dialog-guard matrix BEFORE dispatch
+  (every tab-scoped mutation blocked while a dialog is pending →
+  JsDialogBlocksMethod; exemptions: dialog get/handle pair, pure-state
+  reads, download/chooser waits, raw tab_cdp_call) + engine pump arms
+  (javascriptDialogOpening/Closing → io, Page.fileChooserOpened →
+  io.on_file_chooser_opened, Page.downloadWillBegin/downloadProgress →
+  io; attach_target lazy Page.setInterceptFileChooserDialog best-effort
+  (executor marks per tab); end_turn + targetDestroyed + TabClose →
+  io.forget_tab) + ax.rs AxElementRef/ax_element + dom_cua.rs
+  dom_cua_keypress/dom_cua_download_media + split_combo/normalize_
+  modifier/normalize_key_token (X11 grammar: ctrl+shift+t, KP_*,
+  Page_Up, Esc, plus) + errors.rs Phase-8 variants pinned. ruke-browser
+  109/109; pw.rs visibility bumps (pw_handle/pw_call_value/pw_key_spec/
+  pw_send_key/PwKey/pw_box_center/… pub(crate)). No manifest change.
 - [8.4 contracts in force] Envelope `{commandType,session_id,turn_id,
   payload}`; RPC errors ride HTTP 200 `to_wire()`, 401 is auth-only, non-JSON
   body ⇒ `browser_command_envelope_invalid`; bridge secret semantics reuse
@@ -151,15 +247,38 @@ browser lines stay HISTORY ONLY — superseded 10-26).
   reused; CDP awaited value = wire frame `result` unwrapped ONCE (evaluate
   value at `result.value`, pinned by cdp::tests); `Page.getFrameTree`
   answer is `{frameTree:{frame,childFrames}}` — root frame id pointer
-  `/frameTree/frame`; 21 commands real (13 lifecycle + tab_cdp_call/
+  `/frameTree/frame`; 44 commands real (13 lifecycle + tab_cdp_call/
   tab_cdp_events + 5 DOM CUA: dom_cua_get_visible_dom → `{tab_id,
   element_count, dom}`, dom_cua_click/double_click → `{tab_id,node_id,
   x,y}`, dom_cua_scroll → `{tab_id,x,y,deltaX,deltaY}`, dom_cua_type →
   `{tab_id,typed_chars}` + tab_ax_get_state → `{tab_id,document_key,
-  element_count,diff,rendered}`), dom_cua_keypress (KeysPayload) +
-  dom_cua_download_media (DomDownloadMediaPayload) + tab_ax_action +
-  tab_ax_get_state screenshot/axStateAndScreenshot content modes stay
-  unsupported until Phase 8; other 62 kinds typed
+  element_count,diff,rendered}` + 23 Phase-7 pw: playwright_dom_snapshot
+  → `{tab_id,dom_snapshot}`, playwright_evaluate → `{result}` (first/
+  none) or `{results}` (all), playwright_element_info → `{x,y,
+  elements[]}` (ElementInfo wire keys: node_id/preview/tag_name/role?/
+  aria_name?/visible_text?/test_id?/bounding_box?{x,y,width,height}/
+  selector{candidates[],primary?,frame_selectors?}), playwright_element_
+  screenshot → `{image_base64,mime_type:"image/png"[,width,height]}`,
+  playwright_wait_for_timeout → `{waited_ms}`, playwright_wait_for_
+  load_state → `{state}`, playwright_wait_for_url → `{url}`,
+  playwright_locator_count → `{count}`, all_text_contents → `{texts}`,
+  read_all → `{elements}`, is_visible/is_enabled → `{visible|enabled}`,
+  get_attribute → `{value}`, inner_text/text_content → `{text}`,
+  wait_for → `{state}`, click/dblclick → `{tab_id,x,y}`, fill/press/
+  press_sequentially → `{}`, select_option → `{selected_values}`,
+  set_checked → `{checked}`), + 11 Phase-8 REAL (44→55):
+  dom_cua_keypress → `{tab_id,keys_sent}`, dom_cua_download_media →
+  `{}`, tab_ax_action → `{tab_id,action}` (failure rethrow carries
+  AxActionFailed with the state json appended), tab_screenshot →
+  `{tab_id,data,mime_type}` (tab_ax_get_state screenshot/
+  axStateAndScreenshot modes blend the same state json),
+  tab_get_js_dialog → `{dialog:{id,type,message,prompt_text,url}}`
+  (null when none), tab_handle_js_dialog → `{}`,
+  playwright_wait_for_download → `{download_id,suggested_filename}`,
+  playwright_download_path → `{path}` (null = not completed),
+  playwright_wait_for_file_chooser → `{file_chooser_id,is_multiple}`,
+  playwright_file_chooser_set_files → `{}`,
+  playwright_locator_download_media → `{path}`; the remaining kinds typed
   `browser_operation_unsupported` until their phase. StaleDomNode{node_id} display pinned verbatim
   `DOM node {node_id} is stale or missing`. DOM CUA payload mapping
   (contract.rs): GetVisibleDom→TabTarget, click/dblclick→DomNodePayload
@@ -200,19 +319,18 @@ browser lines stay HISTORY ONLY — superseded 10-26).
 - [8.6 open items] None blocking. Panel auto-open + browser-session UI
   E2E are Phase-10/17–19 work, not bugs.
 - [8.8 next 3 atoms] Unattended 29-phase run ACTIVE (user: complete all
-  29, never stop). (1) Phase 7: Playwright-style locator runtime
-  (mode:"ai" aria snapshot, aria-ref, enter-frame, waitFor*). (2) Phase 8:
-  input/screenshots/dialogs/file-chooser/uploads/downloads incl.
-  dom_cua_keypress KeysPayload (X11 map Bs/Yy/Tp; modifiers down/up
-  stacks; Yy-type keys need down+up, others Input.insertText) +
-  dom_cua_download_media + tab_ax_action (Fv identities +
-  CommittedRev.targets already recorded; pinned action error strings
-  from the plan: Tre `Accessibility element ${element_index} does not
-  support secondary action …`, settle `Accessibility element ${id} did
-  not settle after scrolling`, covered `Accessibility element ${id} is
-  covered by … or otherwise not hittable`) + screenshot content modes +
-  per-frame DOMSnapshot metas (credential/closed inside iframes).
-  (3) Cargo/smoke need NO `.ai-coordination` lock (not model-driven);
+  29, never stop). (1) Phase 8 LOCKED (io_state.rs + ax_action.rs +
+  executor/pump wiring, 109/109 unit, board row 8 updated). (2) Phase 9
+  (NOW): security/authority/confirmations — facet gate
+  `access|uploads|downloads|full_cdp_access` per origin (psl), read
+  gate observeContent(url).assert() before content surfaces
+  (dom/ax/screenshot/dialog text/downloads), mutation gate
+  actInFrame(url) inside guarded_tab_id flow, Block/Requires-approval/
+  Always-allow decisions persisted `.data/ruke-browser-policy.json`,
+  deny-floor merge, browser-auth handoff + manual handoff (CAPTCHA ⇒
+  handoff only), confirmations surface; replace the actable_tab
+  floor-stub in executor with the facet gate. (3) Cargo/smoke need NO
+  `.ai-coordination` lock (not model-driven);
   real-model Playwright E2E (Phases 19–24) does — and per the user's
   standing policy the model-driven Playwright battery runs ONCE at the
   very END (after all 29 phases), locked state, fix→rerun loop until

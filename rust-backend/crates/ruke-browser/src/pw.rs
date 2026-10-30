@@ -582,7 +582,11 @@ async fn pw_props_to_bnids(
     Ok(out)
 }
 
-async fn pw_handle(conn: &CdpConn, session: &str, bnid: i64) -> Result<String, BrowserError> {
+pub(crate) async fn pw_handle(
+    conn: &CdpConn,
+    session: &str,
+    bnid: i64,
+) -> Result<String, BrowserError> {
     match conn
         .call(
             "DOM.resolveNode",
@@ -656,7 +660,7 @@ async fn pw_call_raw(
     Ok(res)
 }
 
-async fn pw_call_value(
+pub(crate) async fn pw_call_value(
     conn: &CdpConn,
     session: &str,
     object_id: Option<&str>,
@@ -714,7 +718,7 @@ async fn pw_pred(
 
 /// Page-space click point; hidden nodes surface as `None` (the pinned
 /// "Could not compute box model" protocol failure is the signal).
-async fn pw_box_center(
+pub(crate) async fn pw_box_center(
     conn: &CdpConn,
     session: &str,
     bnid: i64,
@@ -747,7 +751,11 @@ async fn pw_box_center(
     Ok(Some((x, y)))
 }
 
-async fn pw_scroll_into_view(conn: &CdpConn, session: &str, bnid: i64) -> Result<(), BrowserError> {
+pub(crate) async fn pw_scroll_into_view(
+    conn: &CdpConn,
+    session: &str,
+    bnid: i64,
+) -> Result<(), BrowserError> {
     conn.call(
         "DOM.scrollIntoViewIfNeeded",
         Some(json!({ "backendNodeId": bnid })),
@@ -759,7 +767,7 @@ async fn pw_scroll_into_view(conn: &CdpConn, session: &str, bnid: i64) -> Result
 
 /// Real trusted input: press/release pairs with increasing `clickCount`
 /// (probe-verified to focus and activate inner-frame targets).
-async fn pw_dispatch_click(
+pub(crate) async fn pw_dispatch_click(
     conn: &CdpConn,
     session: &str,
     x: f64,
@@ -899,9 +907,11 @@ impl PwRegistries {
 /// test; unnamed `img` subtrees drop like the recovered `Gte` test.
 /// [adapted]: `StaticText` prints as `text` and the line cap is a
 /// Ruke guard; neither appears in the recovered bundle.
-fn snapshot_lines(
-    nodes: &[PwAxNode],
-) -> (Vec<String>, HashMap<String, i64>, Vec<(usize, String, i64)>) {
+/// `snapshot_lines` result: (rendered lines, aria-ref → backendNodeId
+/// map, iframe host-attr splices: line index, ref token, backendNodeId).
+type SnapshotRender = (Vec<String>, HashMap<String, i64>, Vec<(usize, String, i64)>);
+
+fn snapshot_lines(nodes: &[PwAxNode]) -> SnapshotRender {
     let mut by_id: HashMap<&str, usize> = HashMap::new();
     let mut referenced: HashSet<&str> = HashSet::new();
     for (i, n) in nodes.iter().enumerate() {
@@ -1848,14 +1858,14 @@ const SELECT_JS: &str = r#"function(opts){
 /// One resolved logical key for `Input.dispatchKeyEvent` (Playwright
 /// key grammar: named keys plus single characters; printable keys carry
 /// `text` and ride the rawKeyDown→char→keyUp sequence).
-struct PwKey {
-    key: String,
-    code: Option<String>,
-    vk: Option<u32>,
-    text: Option<String>,
+pub(crate) struct PwKey {
+    pub(crate) key: String,
+    pub(crate) code: Option<String>,
+    pub(crate) vk: Option<u32>,
+    pub(crate) text: Option<String>,
 }
 
-fn pw_key_spec(raw: &str) -> Option<PwKey> {
+pub(crate) fn pw_key_spec(raw: &str) -> Option<PwKey> {
     let named: &[(&str, u32)] = &[
         ("Enter", 13),
         ("Tab", 9),
@@ -1925,7 +1935,7 @@ fn pw_key_spec(raw: &str) -> Option<PwKey> {
 }
 
 /// Modifier bit accumulation for `Input.dispatchKeyEvent`.
-fn combo_mask(mods: &[&str]) -> Result<u32, BrowserError> {
+pub(crate) fn combo_mask(mods: &[&str]) -> Result<u32, BrowserError> {
     let mut m = 0u32;
     for md in mods {
         m |= match *md {
@@ -2203,7 +2213,7 @@ impl PwRegistries {
 
 /// keyDown → [char] → keyUp for printable keys; keyDown → keyUp for
 /// named keys, with the optional down→up `delay`.
-async fn pw_send_key(
+pub(crate) async fn pw_send_key(
     conn: &CdpConn,
     session: &str,
     spec: &PwKey,

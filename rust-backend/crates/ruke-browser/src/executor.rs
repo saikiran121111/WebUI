@@ -10,15 +10,19 @@
 //! `tab_cdp_call`/`tab_cdp_events` (Phase 4), the five DOM CUA
 //! commands `dom_cua_get_visible_dom`/`dom_cua_click`/
 //! `dom_cua_double_click`/`dom_cua_scroll`/`dom_cua_type` (Phase 5),
-//! and the AX read command `tab_ax_get_state` (Phase 6) implemented
-//! here execute for real; every other registered command kind —
-//! including `dom_cua_keypress`, `dom_cua_download_media`, and
-//! `tab_ax_action`, which land in Phase 8, and the screenshot content
-//! modes of `tab_ax_get_state` — answers
-//! `Unsupported { operation }` — an honest typed error, never a fake
-//! success. Later phases (DOM/AX, input, dialogs, files…) replace
-//! arm-by-arm; the registry itself (82 rows) was already pinned in
-//! Phase 1.
+//! the AX read command `tab_ax_get_state` with ALL three content
+//! modes (Phases 6/8), the Phase-7 locator runtime, and the Phase-8
+//! surface — `tab_ax_action`, `tab_screenshot`, the JS-dialog pair
+//! `tab_get_js_dialog`/`tab_handle_js_dialog`, `dom_cua_keypress`,
+//! `dom_cua_download_media`, and the download/file-chooser commands
+//! `playwright_wait_for_download`, `playwright_download_path`,
+//! `playwright_wait_for_file_chooser`,
+//! `playwright_file_chooser_set_files`,
+//! `playwright_locator_download_media` — all execute for real; every
+//! other registered command kind answers `Unsupported { operation }`
+//! — an honest typed error, never a fake success. Later phases
+//! (security, tool loop, UI…) replace arm-by-arm as they land; the
+//! registry itself (82 rows) was already pinned in Phase 1.
 //!
 //! Security floor until Phase 9 layers the full authority model:
 //! navigation is restricted to `http(s)` and `about:blank` — `file:`,
@@ -35,7 +39,8 @@ use crate::cdp::CdpConn;
 use crate::contract::Command;
 use crate::engine::{BrowserRuntime, BROWSER_ID};
 use crate::errors::BrowserError;
-use crate::schemas::AxStateContent;
+use crate::io_state::IoRegistries;
+use crate::schemas::{AxStateContent, ScreenshotPayload};
 use crate::session::{TabRecord, TurnKey};
 
 /// Navigation settle budget: bounded polling of `document.readyState`
@@ -66,6 +71,21 @@ impl BrowserRuntime {
         key: &TurnKey,
         cmd: &Command,
     ) -> Result<Value, BrowserError> {
+        // Recovered `throwIfJsDialogBlocksMethod`: while a JS dialog
+        // is open on the tab, page-mutating and input-surfacing
+        // commands are refused until the model discovers and dismisses
+        // it — the error names `tab_get_js_dialog` as the escape
+        // route. Exemptions (see `guarded_tab_id`): the dialog pair
+        // itself, pure reads/state snapshots, and the download and
+        // file-chooser waits (they were legitimately armed *before*
+        // the dialog opened and must stay serviceable).
+        if let Some(tab_id) = guarded_tab_id(cmd) {
+            if let Some(dialog) = self.io.js_dialog(&tab_id) {
+                return Err(BrowserError::JsDialogBlocksMethod {
+                    dialog_type: dialog.dialog_type,
+                });
+            }
+        }
         match cmd {
             Command::Tabs(p) => {
                 check_browser(p.browser_id.as_deref().unwrap_or(BROWSER_ID))?;
@@ -118,7 +138,7 @@ impl BrowserRuntime {
                         detail: "Target.createTarget returned no targetId".into(),
                     })?
                     .to_string();
-                let session_id = Self::attach_target(&conn, &target_id).await?;
+                let session_id = self.attach_target(&conn, &target_id).await?;
                 let rec = self.registry.lock().add_tab(
                     &target_id,
                     &session_id,
@@ -155,6 +175,7 @@ impl BrowserRuntime {
                 self.dom.forget_tab(&p.tab_id);
                 self.ax.forget_tab(&p.tab_id);
                 self.pw.forget_tab(&p.tab_id);
+                self.io.forget_tab(&p.tab_id);
                 Ok(json!({ "tab_id": p.tab_id, "closed": true }))
             }
             Command::NavigateTabUrl(p) => {
@@ -363,14 +384,78 @@ impl BrowserRuntime {
                         Err(BrowserError::AxCaptureChangedBeforeCommitted)
                     }
                     AxStateContent::Screenshot | AxStateContent::AxStateAndScreenshot => {
-                        // Screenshot capture (and its AX+screenshot
-                        // blend) lands with the Phase-8 capture stack;
-                        // the state modes are already wired above.
-                        Err(BrowserError::Unsupported {
-                            operation: "tab_ax_get_state screenshot content (screenshot capture \
-                                        lands in Phase 8)"
-                                .to_string(),
-                        })
+                        // Phase 8: capture rides the same
+                        // `Page.captureScreenshot` primitive as
+                        // `playwright_element_screenshot` (viewport
+                        // mode — no clip, no beyond-viewport), and the
+                        // blend keeps the state capture's retry loop
+                        // above. A live JS dialog makes the viewport
+                        // unshottable (recovered fallback text).
+                        let rec = self.registry.lock().require(&p.tab_id)?;
+                        if let Some(dialog) = self.io.js_dialog(&rec.tab_id) {
+                            return Err(BrowserError::ScreenshotUnavailable {
+                                dialog_type: dialog.dialog_type,
+                            });
+                        }
+                        let conn = self.client().await?;
+                        let blend = matches!(p.content, AxStateContent::AxStateAndScreenshot);
+                        let mut ax_state: Option<Value> = None;
+                        if blend {
+                            for attempt in 0..3u32 {
+                                match self
+                                    .ax
+                                    .capture(
+                                        &conn,
+                                        &rec,
+                                        p.disable_diffing.unwrap_or(false) || attempt > 0,
+                                    )
+                                    .await
+                                {
+                                    Ok(r) => {
+                                        ax_state = Some(json!({
+                                            "tab_id": rec.tab_id,
+                                            "document_key": r.document_key,
+                                            "element_count": r.element_count,
+                                            "diff": r.used_diff,
+                                            "rendered": r.state,
+                                        }));
+                                        break;
+                                    }
+                                    Err(BrowserError::AxCaptureChangedBeforeCommitted)
+                                        if attempt < 2 =>
+                                    {
+                                        continue;
+                                    }
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                        }
+                        let shot = self
+                            .pw
+                            .pw_element_screenshot(
+                                &conn,
+                                &rec,
+                                &ScreenshotPayload {
+                                    browser_id: BROWSER_ID.to_string(),
+                                    tab_id: rec.tab_id.clone(),
+                                    clip: None,
+                                    full_page: None,
+                                },
+                            )
+                            .await?;
+                        match ax_state {
+                            None => Ok(json!({
+                                "tab_id": rec.tab_id,
+                                "data": shot["image_base64"],
+                                "mime_type": shot["mime_type"],
+                            })),
+                            Some(state) => {
+                                let mut out = state;
+                                out["data"] = shot["image_base64"].clone();
+                                out["mime_type"] = shot["mime_type"].clone();
+                                Ok(out)
+                            }
+                        }
                     }
                 }
             }
@@ -517,6 +602,267 @@ impl BrowserRuntime {
                 let conn = self.client().await?;
                 self.pw.pw_locator_set_checked(self, &conn, &rec, p).await
             }
+            // ── Phase 8: AX actions, dialogs, screenshots, downloads,
+            //    file choosers, DOM-CUA keys/media ────────────────────
+            Command::TabAxAction(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                match self.tab_ax_action(&conn, &rec, p).await {
+                    Ok(v) => Ok(v),
+                    Err(source) => {
+                        // Recovered contract: a failed AX action
+                        // re-raises with the CURRENT rendered state
+                        // appended, so the model re-grounds without a
+                        // second round-trip. If the state re-capture
+                        // itself fails (tab churn mid-action), keep the
+                        // bare source error rather than lie about it.
+                        let state = match self.ax.capture(&conn, &rec, true).await {
+                            Ok(r) => {
+                                let v = json!({
+                                    "tab_id": rec.tab_id,
+                                    "document_key": r.document_key,
+                                    "element_count": r.element_count,
+                                    "rendered": r.state,
+                                });
+                                serde_json::to_string(&v).unwrap_or_default()
+                            }
+                            Err(_) => String::new(),
+                        };
+                        if state.is_empty() {
+                            Err(source)
+                        } else {
+                            Err(BrowserError::AxActionFailed {
+                                source: Box::new(source),
+                                state,
+                            })
+                        }
+                    }
+                }
+            }
+            Command::TabScreenshot(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                self.pw.pw_element_screenshot(&conn, &rec, p).await
+            }
+            Command::TabGetJsDialog(p) => {
+                // The discovery command is never dialog-guarded: it IS
+                // the escape route the guard error names.
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                Ok(json!({
+                    "dialog": self.io.js_dialog(&rec.tab_id).map(|d| json!({
+                        "id": d.id,
+                        "type": d.dialog_type,
+                        "message": d.message,
+                        "prompt_text": d.prompt_text,
+                        "url": d.url,
+                    })),
+                }))
+            }
+            Command::TabHandleJsDialog(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let dialog = self
+                    .io
+                    .js_dialog(&rec.tab_id)
+                    .ok_or(BrowserError::JsDialogGone)?;
+                if p.prompt_text.is_some() && dialog.dialog_type != "prompt" {
+                    return Err(BrowserError::OnlyPromptAcceptsText);
+                }
+                let conn = self.client().await?;
+                let mut params = json!({ "accept": p.accept });
+                if let Some(t) = &p.prompt_text {
+                    params["promptText"] = json!(t);
+                }
+                conn.call(
+                    "Page.handleJavaScriptDialog",
+                    Some(params),
+                    Some(&rec.cdp_session_id),
+                )
+                .await?;
+                self.io.take_dialog(&rec.tab_id);
+                Ok(json!({}))
+            }
+            Command::DomCuaKeypress(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.dom_cua_keypress(&conn, &rec, &p.keys).await
+            }
+            Command::DomCuaDownloadMedia(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.dom_cua_download_media(&conn, &rec, p.node_id, p.timeout_ms)
+                    .await
+            }
+            Command::PlaywrightWaitForDownload(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                // Re-assert `allowAndName` on the (possibly re-attached)
+                // session before arming the wait: best-effort — the
+                // attach-time call usually already holds, and the pump
+                // records whatever Chromium reports either way.
+                let conn = self.client().await?;
+                let _ = conn
+                    .call(
+                        "Page.setDownloadBehavior",
+                        Some(json!({
+                            "behavior": "allowAndName",
+                            "downloadPath": self.io.download_dir().to_string_lossy(),
+                            "eventsEnabled": true,
+                        })),
+                        Some(&rec.cdp_session_id),
+                    )
+                    .await;
+                let gen = self.io.download_generation(&rec.tab_id);
+                let d = self
+                    .io
+                    .wait_for_download(&rec.tab_id, gen, p.timeout_ms.unwrap_or(30_000))
+                    .await?;
+                Ok(json!({
+                    "download_id": d.guid,
+                    "suggested_filename": d.suggested_filename,
+                }))
+            }
+            Command::PlaywrightDownloadPath(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                // [adapted] the TabTarget payload carries no download
+                // id (Ruke's one-browser-one-tab model tracks the
+                // tab's LATEST completed download — the same file the
+                // wait commands just armed). `path: null` honestly
+                // means "no completed download on this tab yet".
+                Ok(json!({
+                    "path": self.io.latest_completed_download(&rec.tab_id).map(|d| d.path),
+                }))
+            }
+            Command::PlaywrightWaitForFileChooser(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                if !self.io.chooser_intercept_enabled(&rec.tab_id) {
+                    // Lazy per-tab enable: attach-time enable fired
+                    // before this handle existed (and is idempotent —
+                    // chooser events flow from the FIRST chooser on
+                    // regardless; the mark is what keeps this command
+                    // reporting the tab's own state honestly).
+                    let conn = self.client().await?;
+                    let ok = conn
+                        .call(
+                            "Page.setInterceptFileChooserDialog",
+                            Some(json!({ "enabled": true })),
+                            Some(&rec.cdp_session_id),
+                        )
+                        .await
+                        .is_ok();
+                    if ok {
+                        self.io.mark_chooser_intercept(&rec.tab_id);
+                    }
+                }
+                let gen = self.io.chooser_generation(&rec.tab_id);
+                let c = self
+                    .io
+                    .wait_for_chooser(&rec.tab_id, gen, p.timeout_ms.unwrap_or(30_000))
+                    .await?;
+                Ok(json!({ "file_chooser_id": c.id, "is_multiple": c.is_multiple }))
+            }
+            Command::PlaywrightFileChooserSetFiles(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                // The pending-chooser lookup plus the recovered
+                // validation chain (tab mismatch → empty files →
+                // not-multiple) run before any CDP call.
+                let chooser = self
+                    .io
+                    .latest_pending_chooser_for_tab(&p.tab_id)
+                    .ok_or_else(|| BrowserError::FileChooserPendingMissing {
+                        tab_id: p.tab_id.clone(),
+                    })?;
+                IoRegistries::validate_set_files(&p.files, &chooser, &rec.tab_id)?;
+                let conn = self.client().await?;
+                match chooser.backend_node_id {
+                    Some(bnid) => {
+                        conn.call(
+                            "DOM.setFileInputFiles",
+                            Some(json!({ "files": p.files, "backendNodeId": bnid })),
+                            Some(&rec.cdp_session_id),
+                        )
+                        .await?;
+                    }
+                    None => {
+                        // [adapted] chooser event carried no node id:
+                        // the input whose activation opened the chooser
+                        // is the focused element; resolve it and set
+                        // files through the object id.
+                        let res = conn
+                            .call(
+                                "Runtime.evaluate",
+                                Some(json!({
+                                    "expression": "document.activeElement && \
+                                        document.activeElement.tagName === 'INPUT' && \
+                                        document.activeElement.type === 'file' ? \
+                                        document.activeElement : null",
+                                    "objectGroup": "ruke-file-chooser",
+                                })),
+                                Some(&rec.cdp_session_id),
+                            )
+                            .await?;
+                        let object_id = res
+                            .pointer("/result/objectId")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
+                        let object_id = object_id.ok_or_else(|| {
+                            crate::errors::payload_invalid(
+                                "playwright_file_chooser_set_files",
+                                "no focused file input to receive the files",
+                            )
+                        })?;
+                        conn.call(
+                            "DOM.setFileInputFiles",
+                            Some(json!({ "files": p.files, "objectId": object_id })),
+                            Some(&rec.cdp_session_id),
+                        )
+                        .await?;
+                        let _ = conn
+                            .call(
+                                "Runtime.releaseObjectGroup",
+                                Some(json!({ "objectGroup": "ruke-file-chooser" })),
+                                Some(&rec.cdp_session_id),
+                            )
+                            .await;
+                    }
+                }
+                // The chooser is consumed: the OS dialog never opened
+                // and the pending registry entry is retired.
+                self.io.remove_chooser(&chooser.id);
+                Ok(json!({}))
+            }
+            Command::PlaywrightLocatorDownloadMedia(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let timeout = p.timeout_ms.unwrap_or(30_000);
+                // Generation captured BEFORE the trigger click: only a
+                // download that begins after the click counts.
+                let gen = self.io.download_generation(&rec.tab_id);
+                let bnid = self
+                    .pw
+                    .pw_strict_one(self, &conn, &rec, &p.selector, timeout)
+                    .await?;
+                crate::pw::pw_scroll_into_view(&conn, &rec.cdp_session_id, bnid).await?;
+                let (x, y) = crate::pw::pw_box_center(&conn, &rec.cdp_session_id, bnid)
+                    .await?
+                    .ok_or_else(|| BrowserError::ClickFailed {
+                        element: p.selector.clone(),
+                    })?;
+                crate::pw::pw_dispatch_click(&conn, &rec.cdp_session_id, x, y, "left", 1, 0)
+                    .await?;
+                let d = self.io.wait_for_download(&rec.tab_id, gen, timeout).await?;
+                let d = self.io.wait_for_download_complete(&d.guid, timeout).await?;
+                Ok(json!({ "path": d.path }))
+            }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that
             // pretends to have driven a page).
@@ -634,6 +980,66 @@ impl BrowserRuntime {
             .pointer("/result/value")
             .and_then(Value::as_str)
             .map(str::to_string))
+    }
+}
+
+/// Command-level dialog-guard scope (the recovered
+/// `throwIfJsDialogBlocksMethod` table, Ruke command names): the tab
+/// whose dialog must be checked, for page-mutating and
+/// input-surfacing commands. Anything not matched is exempt — the
+/// JS-dialog pair (the guard error names it as the dismissal route),
+/// lifecycle/discovery reads (`tabs`/`get_tab`/`tab_new`/`tab_close`/
+/// the claim pair/`tab_cdp_events`), pure state snapshots
+/// (`dom_cua_get_visible_dom`, `playwright_dom_snapshot`,
+/// `tab_ax_get_state` — its screenshot mode raises the dedicated
+/// `screenshot_unavailable` contract instead), and the download /
+/// file-chooser wait + resolve commands (legitimately armed BEFORE a
+/// dialog opens; they must stay serviceable while one is up, and they
+/// touch no page input). The raw bridge guards every method EXCEPT
+/// `Page.handleJavaScriptDialog` — otherwise the model could dismiss
+/// through `tab_cdp_call` while the purpose-built command stayed
+/// blocked.
+fn guarded_tab_id(cmd: &Command) -> Option<String> {
+    match cmd {
+        Command::NavigateTabUrl(p) => Some(p.tab_id.clone()),
+        Command::NavigateTabBack(p) => Some(p.tab_id.clone()),
+        Command::NavigateTabForward(p) => Some(p.tab_id.clone()),
+        Command::NavigateTabReload(p) => Some(p.tab_id.clone()),
+        // Raw-bridge escape hatch exemption (see docs above).
+        Command::TabCdpCall(p) if p.method != "Page.handleJavaScriptDialog" => {
+            Some(p.tab_id.clone())
+        }
+        Command::DomCuaClick(p) => Some(p.tab_id.clone()),
+        Command::DomCuaDoubleClick(p) => Some(p.tab_id.clone()),
+        Command::DomCuaScroll(p) => Some(p.tab_id.clone()),
+        Command::DomCuaType(p) => Some(p.tab_id.clone()),
+        Command::DomCuaKeypress(p) => Some(p.tab_id.clone()),
+        Command::DomCuaDownloadMedia(p) => Some(p.tab_id.clone()),
+        Command::TabScreenshot(p) => Some(p.tab_id.clone()),
+        Command::TabAxAction(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightEvaluate(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightElementInfo(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightElementScreenshot(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightWaitForLoadState(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightWaitForUrl(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorCount(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorAllTextContents(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorReadAll(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorIsVisible(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorIsEnabled(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorGetAttribute(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorInnerText(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorTextContent(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorWaitFor(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorClick(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorDblclick(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorFill(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorPress(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorPressSequentially(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorSelectOption(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorSetChecked(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightLocatorDownloadMedia(p) => Some(p.tab_id.clone()),
+        _ => None,
     }
 }
 

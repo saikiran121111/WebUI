@@ -23,6 +23,7 @@
 //! at the native boundary). No placeholders, no fixture knowledge.
 
 pub mod ax;
+pub mod ax_action;
 pub mod cdp;
 pub mod cdp_buffer;
 pub mod contract;
@@ -31,6 +32,7 @@ pub mod engine;
 pub mod errors;
 pub mod executor;
 pub mod host;
+pub mod io_state;
 pub mod pw;
 pub mod schemas;
 pub mod session;

@@ -44,6 +44,7 @@ use serde_json::{json, Value};
 use crate::cdp::CdpConn;
 use crate::engine::BrowserRuntime;
 use crate::errors::BrowserError;
+use crate::pw::{combo_mask, pw_key_spec, pw_send_key};
 use crate::session::TabRecord;
 
 // ── Budget constants (verbatim `oc, ic, nY, oY, bD, gD`) ───────────────
@@ -1230,11 +1231,159 @@ impl BrowserRuntime {
         .await?;
         Ok(json!({"tab_id": rec.tab_id, "typed_chars": text.chars().count()}))
     }
+
+    /// `dom_cua_keypress` `[adapted]`: xdotool key-token combos
+    /// (`KeysPayload.keys`, each combo a `+`-chain — e.g.
+    /// `["ctrl+shift+t", "Return"]`; xdotool names normalize to
+    /// Playwright key grammar). Ruke drives CDP directly, so there is
+    /// no xdotool layer to shell out to: modifier tokens accumulate
+    /// the `Input.dispatchKeyEvent` mask (the same primitive
+    /// `playwright_locator_press` combos use — modifier *state*, not
+    /// held physical keys, is what the wire contract needs), and the
+    /// final token rides `pw_send_key` on the tab session.
+    pub(crate) async fn dom_cua_keypress(
+        &self,
+        conn: &CdpConn,
+        rec: &TabRecord,
+        keys: &[String],
+    ) -> Result<Value, BrowserError> {
+        let session = rec.cdp_session_id.as_str();
+        for combo in keys {
+            let (mods, final_tok) = split_combo(combo);
+            let mut names: Vec<&str> = Vec::with_capacity(mods.len());
+            for m in mods {
+                names.push(normalize_modifier(m).ok_or_else(|| {
+                    crate::errors::payload_invalid(
+                        "dom_cua_keypress",
+                        format!("\"{m}\" is not a modifier in combo position (combo \"{combo}\")"),
+                    )
+                })?);
+            }
+            let mask = combo_mask(&names)?;
+            let key = normalize_key_token(final_tok);
+            let spec = pw_key_spec(&key).ok_or_else(|| {
+                crate::errors::payload_invalid(
+                    "dom_cua_keypress",
+                    format!("unknown key \"{combo}\" (xdotool token grammar)"),
+                )
+            })?;
+            pw_send_key(conn, session, &spec, mask, 0).await?;
+        }
+        Ok(json!({"tab_id": rec.tab_id, "keys_sent": keys.len()}))
+    }
+
+    /// `dom_cua_download_media`: trigger the element's media download
+    /// with a real click, then hand back only after the file is on
+    /// disk. The engine set `Page.setDownloadBehavior
+    /// {allowAndName}` on every tab session at attach, so the pump
+    /// records `downloadWillBegin`/`downloadProgress` and the bytes
+    /// land at `<download-dir>/<guid>`; waiting for completion is what
+    /// makes any path handed back later name a real file.
+    pub(crate) async fn dom_cua_download_media(
+        &self,
+        conn: &CdpConn,
+        rec: &TabRecord,
+        node_id: u64,
+        timeout_ms: Option<u64>,
+    ) -> Result<Value, BrowserError> {
+        let timeout = timeout_ms.unwrap_or(30_000);
+        // Generation BEFORE the click: only downloads that begin after
+        // the trigger count (pump-recorded, race-free).
+        let gen = self.io.download_generation(&rec.tab_id);
+        // A single left click is the media-download trigger primitive
+        // — exactly `dom_cua_click`'s dispatch path.
+        self.dom_click(conn, rec, node_id, 1).await?;
+        let began = self.io.wait_for_download(&rec.tab_id, gen, timeout).await?;
+        self.io
+            .wait_for_download_complete(&began.guid, timeout)
+            .await?;
+        Ok(json!({}))
+    }
+}
+
+/// Split one `dom_cua_keypress` combo into held-modifier tokens and
+/// the final actioned token (xdotool `+`-chain grammar; a lone `"+"`
+/// is the plus key itself).
+fn split_combo(combo: &str) -> (Vec<&str>, &str) {
+    if combo == "+" {
+        return (Vec::new(), "+");
+    }
+    let toks: Vec<&str> = combo.split('+').collect();
+    match toks.split_last() {
+        Some((last, init)) => (init.to_vec(), last),
+        None => (Vec::new(), ""),
+    }
+}
+
+/// xdotool modifier token → the modifier name `combo_mask` accepts.
+fn normalize_modifier(tok: &str) -> Option<&'static str> {
+    match tok.to_ascii_lowercase().as_str() {
+        "ctrl" | "control" => Some("Control"),
+        "alt" | "option" => Some("Alt"),
+        "shift" => Some("Shift"),
+        "super" | "meta" | "cmd" | "command" | "win" => Some("Meta"),
+        _ => None,
+    }
+}
+
+/// xdotool key aliases → Playwright key names (`pw_key_spec`'s
+/// grammar). Keypad digits normalize to plain digits; unknown tokens
+/// pass through so `pw_key_spec` decides (and errors honestly).
+fn normalize_key_token(tok: &str) -> String {
+    match tok {
+        "Enter" | "Return" | "Linefeed" | "KP_Enter" => "Enter".into(),
+        "BackSpace" => "Backspace".into(),
+        "Up" => "ArrowUp".into(),
+        "Down" => "ArrowDown".into(),
+        "Left" => "ArrowLeft".into(),
+        "Right" => "ArrowRight".into(),
+        "Prior" | "Page_Up" => "PageUp".into(),
+        "Next" | "Page_Down" => "PageDown".into(),
+        "Esc" => "Escape".into(),
+        "space" => "Space".into(),
+        "plus" => "+".into(),
+        t if t.starts_with("KP_") && t.len() == 4 && t.as_bytes()[3].is_ascii_digit() => {
+            t[3..].to_string()
+        }
+        t => t.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keypress_combo_grammar_pins_split_and_normalization() {
+        assert_eq!(split_combo("ctrl+shift+t"), (vec!["ctrl", "shift"], "t"));
+        assert_eq!(split_combo("Return"), (vec![], "Return"));
+        // A lone plus is the key, not an empty combo chain.
+        assert_eq!(split_combo("+"), (vec![], "+"));
+        // `ctrl+plus` is the plus-with-ctrl spelling.
+        assert_eq!(split_combo("ctrl+plus"), (vec!["ctrl"], "plus"));
+
+        assert_eq!(normalize_modifier("ctrl"), Some("Control"));
+        assert_eq!(normalize_modifier("CTRL"), Some("Control"));
+        assert_eq!(normalize_modifier("super"), Some("Meta"));
+        assert_eq!(normalize_modifier("t"), None);
+
+        assert_eq!(normalize_key_token("Return"), "Enter");
+        assert_eq!(normalize_key_token("KP_Enter"), "Enter");
+        assert_eq!(normalize_key_token("BackSpace"), "Backspace");
+        assert_eq!(normalize_key_token("Prior"), "PageUp");
+        assert_eq!(normalize_key_token("Page_Down"), "PageDown");
+        assert_eq!(normalize_key_token("Next"), "PageDown");
+        assert_eq!(normalize_key_token("Esc"), "Escape");
+        assert_eq!(normalize_key_token("space"), "Space");
+        assert_eq!(normalize_key_token("plus"), "+");
+        assert_eq!(normalize_key_token("KP_7"), "7");
+        assert_eq!(normalize_key_token("t"), "t");
+        // Normalized tokens all resolve through the Phase-7 grammar.
+        for tok in ["Return", "Up", "Prior", "Esc", "space", "plus", "KP_5", "a"] {
+            let norm = normalize_key_token(tok);
+            assert!(pw_key_spec(&norm).is_some(), "token {tok} → {norm}");
+        }
+    }
 
     #[test]
     fn budget_constants_match_the_reference_verbatim() {

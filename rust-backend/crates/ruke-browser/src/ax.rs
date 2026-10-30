@@ -196,9 +196,9 @@ struct RevEntry {
 struct CommittedRev {
     document_key: String,
     entries: Vec<RevEntry>,
-    // The Phase-8 `tab_ax_action` path resolves identities through this
-    // map; recorded now so a committed revision is self-contained.
-    #[allow(dead_code)]
+    // The Phase-8 `tab_ax_action` path resolves elements through this
+    // map (`ax_element` below); recorded so a committed revision is
+    // self-contained.
     targets: HashMap<String, AxTargetInfo>,
 }
 
@@ -206,15 +206,27 @@ struct CommittedRev {
 /// `targets`; the secondary-action vocabulary is exactly Expand/
 /// Collapse derived from the recovered `expanded` prop rule).
 #[derive(Clone, Debug)]
-// The whole struct is consumed by the Phase-8 AX action surface; it is
-// recorded with each committed revision today.
-#[allow(dead_code)]
+// Consumed by the Phase-8 AX action surface (`ax_element` below); it is
+// recorded with each committed revision.
 pub(crate) struct AxTargetInfo {
     pub(crate) element_index: u64,
+    // Kept per committed revision for identity bookkeeping; the action
+    // path addresses elements by index + backend node id.
+    #[allow(dead_code)]
     pub(crate) identity: String,
     pub(crate) backend_dom_node_id: Option<i64>,
     pub(crate) action_descriptions: Vec<String>,
     pub(crate) is_option_element: bool,
+}
+
+/// A committed-revision element resolved for the Phase-8 action path:
+/// the target surface plus BOTH document keys so the caller can tell
+/// "index not on this page" (lookup returns `None`) from "the page
+/// changed under the committed revision" (the keys differ).
+pub(crate) struct AxElementRef {
+    pub(crate) committed_document_key: String,
+    pub(crate) current_document_key: String,
+    pub(crate) target: AxTargetInfo,
 }
 
 /// A flattened snapshot of the tab's navigation state (the recovered
@@ -321,6 +333,27 @@ impl AxRegistries {
 
     fn nav_state(&self, tab_id: &str) -> NavState {
         self.with_state(tab_id, |st| NavState::from_state(st))
+    }
+
+    /// Phase-8 action entry: resolve an element index against the LAST
+    /// COMMITTED AX revision (the one whose rendered tree the model was
+    /// shown), returning the target surface and both document keys.
+    /// Absent → `StaleAxElement`; committed ≠ current key → the page
+    /// moved (`AxPreviousPage`) — the recovered staleness contract.
+    pub(crate) fn ax_element(&self, tab_id: &str, element_index: u64) -> Option<AxElementRef> {
+        let inner = self.inner.lock();
+        let st = inner.get(tab_id)?;
+        let rev = st.committed_rev.as_ref()?;
+        let target = rev
+            .targets
+            .values()
+            .find(|t| t.element_index == element_index)?
+            .clone();
+        Some(AxElementRef {
+            committed_document_key: rev.document_key.clone(),
+            current_document_key: document_key(st),
+            target,
+        })
     }
 
     pub(crate) fn forget_tab(&self, tab_id: &str) {
@@ -2056,6 +2089,45 @@ mod tests {
             ..TabAx::default()
         };
         assert_eq!(document_key(&st), "F:L");
+    }
+
+    #[test]
+    fn ax_element_resolves_committed_targets_with_both_document_keys() {
+        let reg = AxRegistries::default();
+        reg.with_state("t1", |st| {
+            st.main_frame_id = Some("F".into());
+            st.loader_id = Some("L".into());
+            let mut targets = HashMap::new();
+            targets.insert(
+                "id-1".to_string(),
+                AxTargetInfo {
+                    element_index: 3,
+                    identity: "id-1".into(),
+                    backend_dom_node_id: Some(77),
+                    action_descriptions: vec!["Expand".into()],
+                    is_option_element: false,
+                },
+            );
+            st.committed_rev = Some(CommittedRev {
+                document_key: "F:L".into(),
+                entries: Vec::new(),
+                targets,
+            });
+        });
+        let r = reg.ax_element("t1", 3).expect("element 3 resolves");
+        assert_eq!(r.committed_document_key, "F:L");
+        assert_eq!(r.current_document_key, "F:L");
+        assert_eq!(r.target.backend_dom_node_id, Some(77));
+        assert!(r.target.action_descriptions.contains(&"Expand".to_string()));
+        // Index not on the committed page → absent (StaleAxElement).
+        assert!(reg.ax_element("t1", 9).is_none());
+        assert!(reg.ax_element("no-tab", 3).is_none());
+        // A loader swap under the same revision surfaces the
+        // previous-page distinction to the action path.
+        reg.with_state("t1", |st| st.loader_id = Some("L2".into()));
+        let r2 = reg.ax_element("t1", 3).expect("still resolvable");
+        assert_eq!(r2.committed_document_key, "F:L");
+        assert_eq!(r2.current_document_key, "F:L2");
     }
 
     /// Parity with the DOM CUA password guard needles: the unbounded
