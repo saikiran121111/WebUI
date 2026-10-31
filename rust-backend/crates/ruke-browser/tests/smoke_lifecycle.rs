@@ -16,11 +16,20 @@
 //! ```text
 //! cargo test -p ruke-browser --test smoke_lifecycle -- --ignored
 //! ```
+//!
+//! Since Phase 9, page-content commands on an AGENT turn park on a
+//! Browser Panel approval card (`cmd` below drives that real
+//! park→resolve loop end-to-end by connecting a dedicated approver
+//! socket and answering every card with `accept`). The turn stays a
+//! real agent turn (`t1`/`t2`), preserving the created_by_agent and
+//! end_turn cleanup coverage the smoke exists for.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::time::Duration;
+
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use ruke_browser::contract::parse_envelope;
 use ruke_browser::engine::BrowserRuntime;
@@ -134,8 +143,18 @@ fn start_fixture() -> String {
 
 /// Envelope → runtime.command, mirroring the route handler's path so the
 /// smoke exercises the real parse/dispatch chain, not a shortcut.
+///
+/// The Phase-9 approval contract runs THROUGH this helper: a gated
+/// command registers its approval card and parks, so the test watches
+/// the dedicated approver socket (`gate_rx`) while the command is in
+/// flight and answers every `approval_request` with `accept` — the
+/// product's real park→resolve loop, not a bypass. `accept` persists
+/// nothing, so each gated command earns (and the smoke resolves) its
+/// own card. Ungated bookkeeping commands simply complete before any
+/// card could arrive; broadcasts that do arrive are ignored.
 async fn cmd(
     rt: &BrowserRuntime,
+    gate_rx: &mut UnboundedReceiver<Value>,
     session: &str,
     turn: &str,
     envelope: Value,
@@ -144,7 +163,29 @@ async fn cmd(
         .unwrap_or_else(|e| panic!("test-authored envelope {envelope} rejected: {e}"));
     assert_eq!(env.session_id, session);
     assert_eq!(env.turn_id, turn);
-    rt.command(session, turn, &env.command).await
+    let fut = rt.command(session, turn, &env.command);
+    tokio::pin!(fut);
+    loop {
+        tokio::select! {
+            biased;
+            r = &mut fut => return r,
+            card = gate_rx.recv() => match card {
+                Some(m) if m["type"] == json!("approval_request") => {
+                    let id = m["id"].as_str().expect("an approval card carries an id");
+                    assert!(
+                        rt.resolve_approval(id, &json!({"decision": "accept"})),
+                        "card {id} was already resolved"
+                    );
+                }
+                // `tabs` broadcasts etc. — not a card.
+                Some(_) => {}
+                // Only reachable once the runtime shuts the hub down
+                // (post-shutdown probes): the command still answers
+                // with its own typed refusal then.
+                None => return (&mut fut).await,
+            }
+        }
+    }
 }
 
 fn ok(result: Result<Value, BrowserError>, what: &str) -> Value {
@@ -195,6 +236,7 @@ fn dom_node_id(dom: &str, needle: &str) -> u64 {
 /// all read REAL page state this way, never a command echo.
 async fn eval_value(
     rt: &BrowserRuntime,
+    gate_rx: &mut UnboundedReceiver<Value>,
     session: &str,
     turn: &str,
     tab: &str,
@@ -203,6 +245,7 @@ async fn eval_value(
     let r = ok(
         cmd(
             rt,
+            gate_rx,
             session,
             turn,
             json!({"commandType":"tab_cdp_call","session_id":session,"turn_id":turn,
@@ -223,6 +266,7 @@ async fn eval_value(
 /// diff so the full-tree answer is testable too.
 async fn ax_state(
     rt: &BrowserRuntime,
+    gate_rx: &mut UnboundedReceiver<Value>,
     session: &str,
     turn: &str,
     tab: &str,
@@ -235,6 +279,7 @@ async fn ax_state(
     ok(
         cmd(
             rt,
+            gate_rx,
             session,
             turn,
             json!({"commandType":"tab_ax_get_state","session_id":session,"turn_id":turn,
@@ -271,10 +316,19 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let url_a = format!("{base}/a");
     let url_b = format!("{base}/b");
 
+    // Phase-9 contract: with NO panel connected, page-content commands
+    // on an agent turn fail closed ("no Browser Panel is connected to
+    // grant it"). Connect a dedicated approver socket for the whole run
+    // — `cmd` reads the cards off this receiver and answers each with
+    // `accept` (the human decision path: `resolve_approval`, the same
+    // one the Panel's WS inbound drives).
+    let (_approver_client, mut gate_rx) = rt.ui_open();
+
     // ── create + navigate (real page state comes back) ───────────────
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"tab_new","session_id":"s1","turn_id":"t1",
@@ -288,6 +342,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -302,6 +357,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
@@ -318,6 +374,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -332,6 +389,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_back","session_id":"s1","turn_id":"t1",
@@ -346,6 +404,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_forward","session_id":"s1","turn_id":"t1",
@@ -361,6 +420,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_reload","session_id":"s1","turn_id":"t1",
@@ -430,6 +490,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         let r = ok(
             cmd(
                 &rt,
+                &mut gate_rx,
                 "s1",
                 "t1",
                 json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
@@ -464,6 +525,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"tab_cdp_call","session_id":"s1","turn_id":"t1",
@@ -485,7 +547,11 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     // tab_cdp_events: real protocol events the pump buffered during the
     // navigations above. limit=1 paging walks the whole ring: sequences
     // are strictly consecutive, the cursor resumes exactly where each
-    // page left off, and only the final page drops has_more.
+    // page left off, and only the final page drops has_more. The walk
+    // runs on the turn-"ui" key (gate- and budget-exempt) because the
+    // limit=1 paging is test scaffolding, not agent traffic: one page
+    // per ring event would blow the real 120-commands-per-turn cap that
+    // the agent turns must respect.
     let mut cursor = 0u64;
     let mut methods: Vec<String> = Vec::new();
     let mut pages = 0usize;
@@ -494,9 +560,10 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         let r = ok(
             cmd(
                 &rt,
+                &mut gate_rx,
                 "s1",
-                "t1",
-                json!({"commandType":"tab_cdp_events","session_id":"s1","turn_id":"t1",
+                "ui",
+                json!({"commandType":"tab_cdp_events","session_id":"s1","turn_id":"ui",
                        "payload":{"browser_id":"default","tab_id":tab1,
                                   "cursor":cursor,"limit":1}}),
             )
@@ -545,6 +612,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     // a fabricated success.
     let err = cmd(
         &rt,
+        &mut gate_rx,
         "s1",
         "t1",
         json!({"commandType":"tab_cdp_call","session_id":"s1","turn_id":"t1",
@@ -565,6 +633,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -579,6 +648,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let snap1 = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_get_visible_dom","session_id":"s1","turn_id":"t1",
@@ -622,6 +692,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let snap2 = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_get_visible_dom","session_id":"s1","turn_id":"t1",
@@ -642,6 +713,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_scroll","session_id":"s1","turn_id":"t1",
@@ -654,6 +726,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     loop {
         let top = eval_value(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             &tab1,
@@ -677,6 +750,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
@@ -691,13 +765,22 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         "click answers the resolved point: {r}"
     );
     assert_eq!(
-        eval_value(&rt, "s1", "t1", &tab1, "document.activeElement.id").await,
+        eval_value(
+            &rt,
+            &mut gate_rx,
+            "s1",
+            "t1",
+            &tab1,
+            "document.activeElement.id"
+        )
+        .await,
         json!("name"),
         "the DOM-CUA click must really focus the clicked input"
     );
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_type","session_id":"s1","turn_id":"t1",
@@ -710,6 +793,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     assert_eq!(
         eval_value(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             &tab1,
@@ -726,6 +810,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
@@ -739,6 +824,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         let r = ok(
             cmd(
                 &rt,
+                &mut gate_rx,
                 "s1",
                 "t1",
                 json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
@@ -761,6 +847,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     // wrong or fresh element.
     let err = cmd(
         &rt,
+        &mut gate_rx,
         "s1",
         "t1",
         json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
@@ -786,6 +873,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -797,6 +885,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let snap3 = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_get_visible_dom","session_id":"s1","turn_id":"t1",
@@ -814,6 +903,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
@@ -825,6 +915,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     assert_eq!(
         eval_value(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             &tab1,
@@ -837,6 +928,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_type","session_id":"s1","turn_id":"t1",
@@ -848,6 +940,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     assert_eq!(
         eval_value(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             &tab1,
@@ -871,6 +964,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -881,7 +975,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     );
 
     // First capture: the full tree with the pinned header contract.
-    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
     let ax1 = r["rendered"].as_str().expect("rendered").to_string();
     assert!(
         ax1.starts_with(&format!(
@@ -907,7 +1001,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     );
 
     // Same document, no mutation: the recovered no-change text.
-    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
     let ax2 = r["rendered"].as_str().expect("rendered").to_string();
     assert_eq!(
         ax2.lines().last().unwrap_or(""),
@@ -920,6 +1014,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let snap = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_get_visible_dom","session_id":"s1","turn_id":"t1",
@@ -933,6 +1028,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
@@ -944,6 +1040,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"dom_cua_type","session_id":"s1","turn_id":"t1",
@@ -955,6 +1052,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     assert_eq!(
         eval_value(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             &tab1,
@@ -964,7 +1062,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         json!("Ruke AX"),
         "the mutation the diff must describe is real page state"
     );
-    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
     let ax3 = r["rendered"].as_str().expect("rendered").to_string();
     assert!(
         ax3.contains(DIFF_HEADER),
@@ -981,7 +1079,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     );
 
     // disable_diffing: full tree again, diff or not.
-    let r = ax_state(&rt, "s1", "t1", &tab1, Some(true)).await;
+    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, Some(true)).await;
     let ax4 = r["rendered"].as_str().expect("rendered").to_string();
     assert!(
         !ax4.contains(DIFF_HEADER) && ax4.contains("your name"),
@@ -993,6 +1091,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -1001,7 +1100,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         .await,
         "navigate /frames (AX battery)",
     );
-    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
     let ax5 = r["rendered"].as_str().expect("rendered").to_string();
     assert!(
         ax5.contains("inner field"),
@@ -1017,6 +1116,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"navigate_tab_url","session_id":"s1","turn_id":"t1",
@@ -1025,7 +1125,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         .await,
         "navigate /form again (AX battery)",
     );
-    let r = ax_state(&rt, "s1", "t1", &tab1, None).await;
+    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
     let ax6 = r["rendered"].as_str().expect("rendered").to_string();
     assert!(
         !ax6.contains(DIFF_HEADER) && ax6.contains("Go to receipt"),
@@ -1036,6 +1136,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"tab_new","session_id":"s1","turn_id":"t1",
@@ -1049,6 +1150,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"tab_mark_deliverable","session_id":"s1","turn_id":"t1",
@@ -1063,6 +1165,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t2",
             json!({"commandType":"tabs","session_id":"s1","turn_id":"t2",
@@ -1086,6 +1189,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t1",
             json!({"commandType":"tab_close","session_id":"s1","turn_id":"t1",
@@ -1098,6 +1202,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
 
     let err = cmd(
         &rt,
+        &mut gate_rx,
         "s1",
         "t1",
         json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
@@ -1113,6 +1218,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     // A wrong browser_id is a typed refusal, not a silent default.
     let err = cmd(
         &rt,
+        &mut gate_rx,
         "s1",
         "t1",
         json!({"commandType":"tabs","session_id":"s1","turn_id":"t1",
@@ -1131,6 +1237,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
     let r = ok(
         cmd(
             &rt,
+            &mut gate_rx,
             "s1",
             "t3",
             json!({"commandType":"tabs","session_id":"s1","turn_id":"t3",
@@ -1147,6 +1254,7 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
 
     let err = cmd(
         &rt,
+        &mut gate_rx,
         "s1",
         "t1",
         json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
