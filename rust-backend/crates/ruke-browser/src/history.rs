@@ -321,57 +321,266 @@ fn table_exists(conn: &Connection, name: &str) -> Result<bool, rusqlite::Error> 
     .map(|c| matches!(c, Some(n) if n > 0))
 }
 
-/// Open the LIVE profile History db for writing (clear-data path).
-/// Ok(None) when no profile has ever launched (nothing to clear).
-fn open_live_for_write(root: &Path) -> Result<Option<Connection>, BrowserError> {
+/// Run `op` against the LIVE profile History db with an acquired
+/// write. A missing profile db is a clean no-op.
+///
+/// Phase 26 [adapted] — the gap battery proved the concurrency law
+/// exactly: while a Chromium session is alive, its history service
+/// holds the profile History db at an exclusive grade for the whole
+/// session — even a read-only external connection stays SQLITE_BUSY
+/// past 20 s (rows live in the WAL; the main db file never grows).
+/// NO external live write can ever win that race, so the live-host
+/// clear path goes through Chromium's own "Clear browsing data"
+/// dialog instead (executor's `clear_history_via_settings_ui`; the
+/// reference product likewise clears in-process through
+/// `browserSession.clearData`, never through SQLite). This writer
+/// remains the host-DOWN path — with no session holding the db it
+/// succeeds immediately — and keeps its bounded busy retry purely so
+/// a stray checkpoint or a half-exited process can't wedge an honest
+/// clear. Retries never fake success: the clear answers Ok only
+/// after the DELETEs actually ran, and still fails closed past the
+/// deadline.
+fn live_history_write(
+    root: &Path,
+    op: impl Fn(&Connection) -> rusqlite::Result<()>,
+) -> Result<(), BrowserError> {
     let live = profile_history_db(root);
     if !live.exists() {
-        return Ok(None);
-    }
-    let conn = Connection::open(&live).map_err(internal)?;
-    // Chromium writes its own history through the same WAL; five
-    // seconds of retry beats failing the clear on a transient lock.
-    conn.busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(internal)?;
-    Ok(Some(conn))
-}
-
-/// Clear the browse-history tables (the omnibox rows). `downloads`
-/// lives in the same database and is cleared by its own call (the
-/// reference download store clears `dataTypes: ['downloads']`
-/// separately — MAIN-A8-4).
-pub(crate) fn clear_history_db(root: &Path) -> Result<(), BrowserError> {
-    let Some(conn) = open_live_for_write(root)? else {
         return Ok(());
-    };
-    for table in ["visit_time_to_visit_transit", "visits", "urls"] {
-        if table_exists(&conn, table).map_err(internal)? {
-            conn.execute(&format!("DELETE FROM {table}"), [])
-                .map_err(internal)?;
+    }
+    // ~2 s of waiting per attempt plus a pause; eight attempts ≈ 18 s
+    // ceiling — long enough for Chromium's visit flush to commit,
+    // short enough to fail an honestly wedged database promptly.
+    const ATTEMPTS: u32 = 8;
+    const PER_ATTEMPT: std::time::Duration = std::time::Duration::from_secs(2);
+    const PAUSE: std::time::Duration = std::time::Duration::from_millis(250);
+    // SQLITE_BUSY (5) / SQLITE_LOCKED (6) base codes; extended
+    // variants (e.g. SQLITE_BUSY_SNAPSHOT) share the low byte.
+    const SQLITE_BUSY: i32 = 5;
+    const SQLITE_LOCKED: i32 = 6;
+    let mut last_detail = String::from("database is locked");
+    for _ in 0..ATTEMPTS {
+        let conn = Connection::open(&live).map_err(internal)?;
+        conn.busy_timeout(PER_ATTEMPT).map_err(internal)?;
+        match op(&conn) {
+            Ok(()) => return Ok(()),
+            Err(e @ rusqlite::Error::SqliteFailure(f, _))
+                if f.extended_code & 0xFF == SQLITE_BUSY
+                    || f.extended_code & 0xFF == SQLITE_LOCKED =>
+            {
+                last_detail = e.to_string();
+                std::thread::sleep(PAUSE);
+            }
+            Err(e) => return Err(internal(e)),
         }
     }
-    if table_exists(&conn, "sqlite_sequence").map_err(internal)? {
-        // Ids restart for a fresh history the same way Chromium's own
-        // clear leaves them; best-effort bookkeeping, never a failure.
-        let _ = conn.execute(
-            "DELETE FROM sqlite_sequence WHERE name IN ('urls','visits')",
-            [],
-        );
-    }
-    Ok(())
+    Err(internal(format!(
+        "{last_detail} after {ATTEMPTS} clear attempts"
+    )))
+}
+
+/// Clear the browse-history tables (the omnibox rows) — the
+/// host-DOWN path (see [`live_history_write`]; with the Chromium
+/// session running, the executor routes the clear through the
+/// browser's own settings dialog instead). `downloads` lives in the
+/// same database and is cleared by its own call (the reference
+/// download store clears `dataTypes: ['downloads']` separately —
+/// MAIN-A8-4).
+pub(crate) fn clear_history_db(root: &Path) -> Result<(), BrowserError> {
+    live_history_write(root, |conn| {
+        for table in ["visit_time_to_visit_transit", "visits", "urls"] {
+            if table_exists(conn, table)? {
+                conn.execute(&format!("DELETE FROM {table}"), [])?;
+            }
+        }
+        if table_exists(conn, "sqlite_sequence")? {
+            // Ids restart for a fresh history the same way Chromium's
+            // own clear leaves them; best-effort bookkeeping, never a
+            // failure (each attempt reopens, so this runs again on
+            // every try).
+            let _ = conn.execute(
+                "DELETE FROM sqlite_sequence WHERE name IN ('urls','visits')",
+                [],
+            );
+        }
+        Ok(())
+    })
 }
 
 /// Clear the download-history rows (Chromium's `downloads` table in
 /// the same History database; missing on a fresh profile ⇒ no-op).
 pub(crate) fn clear_downloads_db(root: &Path) -> Result<(), BrowserError> {
-    let Some(conn) = open_live_for_write(root)? else {
-        return Ok(());
-    };
-    if table_exists(&conn, "downloads").map_err(internal)? {
-        conn.execute("DELETE FROM downloads", [])
-            .map_err(internal)?;
+    live_history_write(root, |conn| {
+        if table_exists(conn, "downloads")? {
+            conn.execute("DELETE FROM downloads", [])?;
+        }
+        Ok(())
+    })
+}
+
+/// Shared helpers for the two "Clear browsing data" dialog scripts
+/// below. The settings UI is a mix of cr-lit shadow hosts and Polymer
+/// elements (proven on chromium-1243/1247): Polymer stamps its
+/// template into a shadow root that is NOT exposed on `.shadowRoot`
+/// but IS reachable on the instance's `.root` property, so the walk
+/// crosses both (every candidate is validated by `sr.host`, the one
+/// shape both kinds share, and deduped so a double-exposed root is
+/// visited once). These run as one-shot evaluates — the executor's
+/// wait loops live on the Rust side so no single CDP call ever runs
+/// near `cdp::CALL_TIMEOUT`.
+const CLEAR_DIALOG_HELPERS_JS: &str = "
+  const rootList = () => {
+    const seen = new Set([document]), q = [document], out = [];
+    while (q.length) {
+      const r = q.shift();
+      out.push(r);
+      const all = r.querySelectorAll ? r.querySelectorAll('*') : [];
+      for (const n of all) {
+        for (const sr of [n.shadowRoot, n.root]) {
+          if (sr && sr.host && !seen.has(sr)) { seen.add(sr); q.push(sr); }
+        }
+      }
     }
-    Ok(())
+    return out;
+  };
+  const deep = (sel) => { for (const r of rootList()) { const el = r.querySelector(sel); if (el) return el; } return null; };
+  const deepAll = (sel) => { const out = []; for (const r of rootList()) out.push(...r.querySelectorAll(sel)); return out; };
+";
+
+/// Probe script for the transient `chrome://settings/clearBrowserData`
+/// tab (live-host clear path — see [`live_history_write`] for why an
+/// external SQLite write can never win there, and the executor's
+/// `clear_history_via_settings_ui` for the drive). The deep link
+/// lands the tab on the settings page and stamps the
+/// `settings-clear-browsing-data-dialog` element; its confirm
+/// control is VISIBLE exactly while the dialog is up —
+/// `$.deleteButton` ("Delete from this device") on the
+/// chromium-1243/1247 Sectional-Experience build (the dialog's
+/// template sits behind a Polymer root `querySelector` chains cannot
+/// cross, and the id that build ships on is `deleteButton`, not the
+/// historical `#clearBrowsingDataConfirm`), with the older
+/// id-lookup kept as fallback. Visibility (`offsetWidth`) is the
+/// state, not mere element existence: the element is mounted from
+/// page boot. Returns 'present' while visible and 'absent'
+/// before/after; the same probe serves the appear-wait and the
+/// close-wait.
+pub(crate) fn clear_probe_js() -> String {
+    format!(
+        "(() => {{ {CLEAR_DIALOG_HELPERS_JS}
+          const d = deep('settings-clear-browsing-data-dialog');
+          if (d) {{
+            const btn = (d.$ && d.$.deleteButton) || deep('#clearBrowsingDataConfirm');
+            return (btn && btn.offsetWidth > 0 && btn.offsetHeight > 0) ? 'present' : 'absent';
+          }}
+          return deep('#clearBrowsingDataConfirm') ? 'present' : 'absent';
+        }})()"
+    )
+}
+
+/// Template for the one-shot drive script (an ASYNC body — the
+/// executor's evaluate passes `awaitPromise`): it first forces the
+/// time range to ALL time (a command that says "clear" means clear,
+/// not "clear the last hour"). On the chromium-1243/1247 build the
+/// range renders as `cr-chip`s inside the dialog's `$.timePicker`
+/// with "All time" hidden until `#moreButton` opens a
+/// `cr-action-menu` of `button[role=menuitem]` entries (clicking
+/// More stamps it into the picker's root; the script waits one
+/// settle tick before re-finding the entry) — with the older
+/// `#timeRange` select kept as fallback. It then scopes the row
+/// search to the dialog's own subtree (the settings page mounts
+/// more checkboxes than the dialog's four) and sets every row to
+/// EXACTLY the requested selection: rows are
+/// `settings-checkbox`/`cr-check-box` hosts matched by their visible
+/// label text (stable across the settings refactor churn that moves
+/// element ids). Toggling goes through the `checked` PROPERTY: this
+/// build's `settings-checkbox` has no native input (its `$` map
+/// exposes a `checkbox` DIV) and is Polymer-gesture driven, so a
+/// synthetic host click is inert, while the property set is exactly
+/// what the element's own change handler performs and flows through
+/// the same notify binding; each row is read back. Every row the
+/// caller did not authorize is explicitly UNCHECKED so the dialog's
+/// default all-checked state can never delete more than the command
+/// allowed.
+/// A row that fails to reach its requested state after toggling
+/// aborts the drive ('rows-not-set') instead of clicking confirm on
+/// a wrong selection. The confirm click only CLOSES the dialog when
+/// Chromium itself accepted the deletion, so the executor's
+/// post-click probe loop, not this script, is what establishes
+/// 'cleared'.
+const CLEAR_SETUP_JS_BODY: &str = "
+  const d = deep('settings-clear-browsing-data-dialog');
+  if (!d) return { status: 'dialog-not-found' };
+  const confirmBtn = (d.$ && d.$.deleteButton) || deep('#clearBrowsingDataConfirm');
+  if (!confirmBtn) return { status: 'confirm-not-found' };
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  let timeRange = 'unchanged';
+  const tp = d.$ && d.$.timePicker;
+  if (tp) {
+    const findEntry = () => {
+      const roots = [tp, tp.root];
+      if (tp.$) for (const k of Object.keys(tp.$)) { roots.push(tp.$[k]); roots.push(tp.$[k] && tp.$[k].root); }
+      for (const r of roots) {
+        const items = r && r.querySelectorAll
+          ? r.querySelectorAll('cr-chip, cr-menu-item, button[role=\"menuitem\"], .dropdown-item')
+          : [];
+        for (const c of items) if ((c.textContent || '').trim().toLowerCase() === 'all time') return c;
+      }
+      return null;
+    };
+    let entry = findEntry();
+    if (!entry && tp.$ && tp.$.moreButton) { tp.$.moreButton.click(); await sleep(500); entry = findEntry(); }
+    if (entry) { entry.click(); timeRange = 'allTime-' + (entry.tagName === 'CR-CHIP' ? 'chip' : 'menu'); }
+  }
+  if (timeRange === 'unchanged') {
+    const range = deep('#timeRange');
+    if (range) {
+      try {
+        range.value = 'allTime';
+        range.dispatchEvent(new Event('change', { bubbles: true }));
+        timeRange = range.value === 'allTime' ? 'allTime' : 'stuck:' + range.value;
+      } catch (e) { timeRange = 'error:' + e; }
+    }
+  }
+  const inDialog = (el) => {
+    for (let n = el, i = 0; n && i < 40; i += 1) {
+      if (n === d) return true;
+      n = n.parentElement || (n.getRootNode && n.getRootNode().host);
+    }
+    return false;
+  };
+  let rowsSeen = 0, rowsSet = 0;
+  for (const box of deepAll('settings-checkbox, cr-check-box, cr-checkbox').filter(inDialog)) {
+    rowsSeen += 1;
+    const label = (box.getAttribute('label') || box.textContent || '').toLowerCase();
+    let want = false;
+    if (label.includes('browsing history')) want = @@WANT_HISTORY@@;
+    else if (label.includes('download history')) want = @@WANT_DOWNLOADS@@;
+    if (box.checked !== want) box.checked = want;
+    if (box.checked === want) rowsSet += 1;
+  }
+  if (rowsSeen === 0) return { status: 'no-checkbox-rows', timeRange };
+  if (rowsSet !== rowsSeen) return { status: 'rows-not-set', timeRange, rowsSeen, rowsSet };
+  confirmBtn.click();
+  return { status: 'clicked', timeRange, rowsSeen, rowsSet };
+";
+
+/// Wrap [`CLEAR_SETUP_JS_BODY`] (plus the shared shadow-root helpers)
+/// into one async IIFE, instantiating it for one requested selection
+/// (history and/or download history; every other row is explicitly
+/// left unchecked).
+pub(crate) fn clear_setup_js(want_history: bool, want_downloads: bool) -> String {
+    // format!'s brace escaping and the JS bodies do not mix: both
+    // stay byte-exact as arguments; the two sentinels inject the
+    // authorization flags.
+    format!("(async () => {{ {CLEAR_DIALOG_HELPERS_JS} {CLEAR_SETUP_JS_BODY} }})()")
+        .replace(
+            "@@WANT_HISTORY@@",
+            if want_history { "true" } else { "false" },
+        )
+        .replace(
+            "@@WANT_DOWNLOADS@@",
+            if want_downloads { "true" } else { "false" },
+        )
 }
 
 #[cfg(test)]

@@ -1041,3 +1041,845 @@ async fn run_journeys() {
 fn okx<T>(result: Result<T, BrowserError>, what: &str) -> T {
     result.unwrap_or_else(|e| panic!("{what} failed: {e}"))
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Phase-26 gap battery (G1–G8): every command that had NO test before this
+// file gets at least one REAL assertion here — page truth via live evaluate,
+// bytes on disk, pump/DB state, or (for the page APIs that may legitimately
+// refuse) an honest branching assertion that pins exactly one of the two
+// truthful answer shapes. No model, no approval plumbing: the `ui` turn is
+// gate- and budget-exempt, so this runs inside the CODE phase.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Clipboard markers — the page clipboard API is exercised on whatever page
+/// the battery tab currently holds (no fixture page involvement).
+const GAP_CLIP: &str = "GAP-CLIP-4471";
+const GAP_CLIP_ITEMS: &str = "GAP-CLIP-ITEMS-8830";
+/// Mirrors the `GET /hard/webmcp` route (server.mjs) registered through the
+/// injected `document.modelContext` shim.
+const WEBMCP_TOOL: &str = "gap-echo";
+const WEBMCP_RESULT_PREFIX: &str = "TOOL-RESULT-";
+
+/// Copy of the smoke helper: public node id of the first snapshot line
+/// containing `needle` (`node_id=` is always the first emitted attribute).
+fn dom_node_id(dom: &str, needle: &str) -> u64 {
+    let line = dom
+        .lines()
+        .find(|l| l.contains(needle))
+        .unwrap_or_else(|| panic!("snapshot has no line containing {needle:?}: {dom}"));
+    line.split_whitespace()
+        .find_map(|tok| tok.strip_prefix("node_id="))
+        // The first attribute abuts `>` when the element has no others
+        // (`<button node_id=5>`), so take only the leading digits.
+        .and_then(|id| {
+            id.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+                .parse()
+                .ok()
+        })
+        .unwrap_or_else(|| panic!("line {line:?} carries no node_id"))
+}
+
+#[tokio::test]
+#[ignore = "launches real Chromium against the fixture server (see file header)"]
+async fn phase26_gap_battery_against_real_chromium() {
+    // Same heap-pinning rationale as the Phase-16 journeys entry point.
+    Box::pin(run_gap_battery()).await;
+}
+
+async fn run_gap_battery() {
+    let product_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("crate sits three levels below the project root")
+        .to_path_buf();
+
+    let exe = discover_product_chromium(&product_root);
+    std::env::set_var(ENV_EXECUTABLE, &exe);
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+
+    let node = start_fixture_server(&product_root).await;
+
+    // Throwaway root: profile under <temp>/.data, downloads under
+    // <temp>/downloads — no product locks taken.
+    let rt = &BrowserRuntime::new(root.clone());
+
+    // First command launches Chromium (lazy client).
+    let tab = new_tab(rt, TURN).await;
+
+    // ═══ G1: locator read surface, screenshots, dblclick navigation ═══════
+    navigate(rt, &tab, "/easy").await;
+    let r = locator(
+        rt,
+        "playwright_locator_get_attribute",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#go-arrived","name":"href"}),
+        "get_attribute href",
+    )
+    .await;
+    assert!(
+        r["value"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("/easy/arrived"),
+        "get_attribute href: {r}"
+    );
+    let r = locator(
+        rt,
+        "playwright_locator_is_enabled",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#go-arrived"}),
+        "is_enabled",
+    )
+    .await;
+    assert_eq!(r["enabled"], json!(true), "is_enabled: {r}");
+    let r = locator(
+        rt,
+        "playwright_locator_text_content",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#go-arrived"}),
+        "text_content",
+    )
+    .await;
+    assert!(
+        r["text"].as_str().unwrap_or_default().contains("Arrive"),
+        "text_content: {r}"
+    );
+    let r = locator(
+        rt,
+        "playwright_locator_read_all",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#go-arrived"}),
+        "read_all",
+    )
+    .await;
+    let rows = r["elements"].as_array().cloned().unwrap_or_default();
+    assert_eq!(rows.len(), 1, "read_all rows: {r}");
+    assert_eq!(rows[0]["tag_name"], json!("a"), "read_all row: {r}");
+    assert!(
+        rows[0]["href"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("/easy/arrived"),
+        "read_all href: {r}"
+    );
+
+    // element_info + clipped element_screenshot at the link's REAL box.
+    let center = pw_evaluate(
+        rt,
+        &tab,
+        "(() => { const b = document.getElementById('go-arrived').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()",
+    )
+    .await;
+    let r = locator(
+        rt,
+        "playwright_element_info",
+        json!({"browser_id":"default","tab_id":tab,"x":center["x"],"y":center["y"]}),
+        "element_info at link center",
+    )
+    .await;
+    let hits = r["elements"].as_array().cloned().unwrap_or_default();
+    assert!(
+        !hits.is_empty(),
+        "element_info at the link center found nothing: {r}"
+    );
+
+    let r = locator(
+        rt,
+        "tab_screenshot",
+        json!({"browser_id":"default","tab_id":tab}),
+        "tab_screenshot",
+    )
+    .await;
+    assert!(
+        r["image_base64"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "tab_screenshot image: {r}"
+    );
+    assert_eq!(
+        r["mime_type"],
+        json!("image/png"),
+        "tab_screenshot mime: {r}"
+    );
+
+    let clip = pw_evaluate(
+        rt,
+        &tab,
+        "(() => { const b = document.getElementById('go-arrived').getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; })()",
+    )
+    .await;
+    let r = locator(
+        rt,
+        "playwright_element_screenshot",
+        json!({"browser_id":"default","tab_id":tab,
+               "clip":{"x":clip["x"],"y":clip["y"],"width":clip["width"],"height":clip["height"]}}),
+        "element_screenshot clip",
+    )
+    .await;
+    assert!(
+        r["image_base64"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "element_screenshot image: {r}"
+    );
+    assert_eq!(
+        r["mime_type"],
+        json!("image/png"),
+        "element_screenshot mime: {r}"
+    );
+    assert!(
+        r["width"].as_f64().unwrap_or(0.0) > 0.0,
+        "element_screenshot size echo: {r}"
+    );
+
+    let r = locator(
+        rt,
+        "playwright_dom_snapshot",
+        json!({"browser_id":"default","tab_id":tab}),
+        "playwright_dom_snapshot",
+    )
+    .await;
+    let snap = r["dom_snapshot"].as_str().unwrap_or_default().to_string();
+    assert!(
+        snap.contains("Arrive"),
+        "dom_snapshot missing the link text: {snap}"
+    );
+    assert!(
+        snap.contains("link"),
+        "dom_snapshot missing the link role: {snap}"
+    );
+
+    locator(
+        rt,
+        "playwright_locator_dblclick",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#go-arrived"}),
+        "locator_dblclick",
+    )
+    .await;
+    locator(
+        rt,
+        "playwright_wait_for_url",
+        json!({"browser_id":"default","tab_id":tab,"url":"**/easy/arrived"}),
+        "wait_for_url after dblclick",
+    )
+    .await;
+    assert_eq!(
+        inner_text(rt, &tab, "#arrived-marker").await,
+        EASY_ARRIVED,
+        "dblclick did not actually navigate the tab"
+    );
+
+    // ═══ G2: every keyboard path writes REAL characters ══════════════════
+    navigate(rt, &tab, "/medium").await;
+    click(rt, &tab, "#note-input").await;
+    locator(
+        rt,
+        "playwright_locator_press",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#note-input","key":"a"}),
+        "locator_press a",
+    )
+    .await;
+    assert_eq!(
+        pw_evaluate(rt, &tab, "document.getElementById('note-input').value").await,
+        json!("a"),
+        "locator_press did not reach the input"
+    );
+    locator(
+        rt,
+        "playwright_locator_press_sequentially",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#note-input","text":"bc","delay":10}),
+        "press_sequentially bc",
+    )
+    .await;
+    assert_eq!(
+        pw_evaluate(rt, &tab, "document.getElementById('note-input').value").await,
+        json!("abc"),
+        "press_sequentially did not reach the input"
+    );
+    locator(
+        rt,
+        "dom_cua_keypress",
+        json!({"browser_id":"default","tab_id":tab,"keys":["d"]}),
+        "dom_cua_keypress d",
+    )
+    .await;
+    assert_eq!(
+        pw_evaluate(rt, &tab, "document.getElementById('note-input').value").await,
+        json!("abcd"),
+        "dom_cua_keypress did not reach the focused input"
+    );
+    locator(
+        rt,
+        "cua_type",
+        json!({"browser_id":"default","tab_id":tab,"text":"e"}),
+        "cua_type e",
+    )
+    .await;
+    assert_eq!(
+        pw_evaluate(rt, &tab, "document.getElementById('note-input').value").await,
+        json!("abcde"),
+        "cua_type did not reach the focused input"
+    );
+    locator(
+        rt,
+        "cua_keypress",
+        json!({"browser_id":"default","tab_id":tab,"keys":["f"]}),
+        "cua_keypress f",
+    )
+    .await;
+    assert_eq!(
+        pw_evaluate(rt, &tab, "document.getElementById('note-input').value").await,
+        json!("abcdef"),
+        "cua_keypress did not reach the focused input"
+    );
+
+    // ═══ G3: CUA pixel double-click, move, drag (Xy path objects) ════════
+    navigate(rt, &tab, "/hard/cua").await;
+    locator(
+        rt,
+        "cua_double_click",
+        json!({"browser_id":"default","tab_id":tab,"x":180.0,"y":184.0}),
+        "cua_double_click",
+    )
+    .await;
+    assert_eq!(
+        eval_value(rt, &tab, "document.getElementById('cua-count').textContent").await,
+        json!("2"),
+        "cua_double_click did not record two click events on the fixture button"
+    );
+    locator(
+        rt,
+        "cua_move",
+        json!({"browser_id":"default","tab_id":tab,"x":10.0,"y":10.0}),
+        "cua_move",
+    )
+    .await;
+    locator(
+        rt,
+        "cua_drag",
+        json!({"browser_id":"default","tab_id":tab,
+               "path":[{"x":5.0,"y":5.0},{"x":60.0,"y":60.0}]}),
+        "cua_drag",
+    )
+    .await;
+
+    // ═══ G4: media downloads — selector AND DOM-node paths, bytes verified ═
+    navigate(rt, &tab, "/hard/media").await;
+    let r = locator(
+        rt,
+        "playwright_locator_download_media",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#media-img","timeout_ms":30000}),
+        "locator_download_media",
+    )
+    .await;
+    let first = r["path"].as_str().unwrap_or_default().to_string();
+    let downloads_dir = root.join("downloads");
+    assert!(
+        !first.is_empty() && Path::new(&first).starts_with(&downloads_dir),
+        "media download {first:?} not under {downloads_dir:?}"
+    );
+    let bytes = std::fs::read(&first)
+        .unwrap_or_else(|e| panic!("download bytes unreadable at {first}: {e}"));
+    assert_eq!(
+        &bytes[0..4],
+        &[0x89u8, 0x50, 0x4E, 0x47],
+        "downloaded media is not the fixture PNG"
+    );
+
+    let r = locator(
+        rt,
+        "dom_cua_get_visible_dom",
+        json!({"browser_id":"default","tab_id":tab}),
+        "dom_cua_get_visible_dom /hard/media",
+    )
+    .await;
+    let dom = r["dom"].as_str().expect("dom string").to_string();
+    let media_node = dom_node_id(&dom, "asset-img.png");
+    locator(
+        rt,
+        "dom_cua_download_media",
+        json!({"browser_id":"default","tab_id":tab,"node_id":media_node,"timeout_ms":30000}),
+        "dom_cua_download_media",
+    )
+    .await;
+    let mut second = String::new();
+    for _ in 0..60 {
+        let r = locator(
+            rt,
+            "playwright_download_path",
+            json!({"browser_id":"default","tab_id":tab}),
+            "download_path poll",
+        )
+        .await;
+        let p = r["path"].as_str().unwrap_or_default().to_string();
+        if !p.is_empty() && p != first {
+            second = p;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(
+        !second.is_empty() && Path::new(&second).starts_with(&downloads_dir),
+        "the DOM-CUA media click never produced a second completed download"
+    );
+
+    // ═══ G5: clipboard pair — honest page-API mirror, both branches ══════
+    // The page clipboard API refuses without focus/permission; the engine
+    // carries that refusal verbatim (ok:false + error), never an empty
+    // "success". The battery pins the CONTRACT either way; eprintln marks
+    // which branch the live Chromium took.
+    let w = locator(
+        rt,
+        "tab_clipboard_write_text",
+        json!({"browser_id":"default","tab_id":tab,"text":GAP_CLIP}),
+        "clipboard write_text",
+    )
+    .await;
+    let wok = w["ok"].as_bool().unwrap_or(false);
+    eprintln!("[gap G5] clipboard write_text ok={wok} ({w})");
+    assert!(w["failed"].is_array(), "clipboard write failed list: {w}");
+    let rd = locator(
+        rt,
+        "tab_clipboard_read_text",
+        json!({"browser_id":"default","tab_id":tab}),
+        "clipboard read_text",
+    )
+    .await;
+    let rok = rd["ok"]
+        .as_bool()
+        .unwrap_or_else(|| panic!("clipboard read answer must carry ok: {rd}"));
+    if rok {
+        let text = rd["text"].as_str().unwrap_or_default();
+        eprintln!("[gap G5] clipboard read branch: PERMITTED ({text:?})");
+        assert!(
+            !text.is_empty(),
+            "a permitted clipboard read answered ok with empty text: {rd}"
+        );
+        if wok {
+            assert!(
+                text.contains(GAP_CLIP),
+                "clipboard text did not round-trip write→read: {rd}"
+            );
+        }
+    } else {
+        eprintln!("[gap G5] clipboard read branch: REFUSED ({})", rd["error"]);
+        assert!(
+            !rd["error"].is_null(),
+            "a refused clipboard read must carry the page-API error verbatim: {rd}"
+        );
+    }
+    let w2 = locator(
+        rt,
+        "tab_clipboard_write",
+        json!({"browser_id":"default","tab_id":tab,
+               "items":[{"entries":[{"text":GAP_CLIP_ITEMS}]}]}),
+        "clipboard write items",
+    )
+    .await;
+    let w2ok = w2["ok"].as_bool().unwrap_or(false);
+    eprintln!("[gap G5] clipboard write (structured items) ok={w2ok} ({w2})");
+    let r2 = locator(
+        rt,
+        "tab_clipboard_read",
+        json!({"browser_id":"default","tab_id":tab}),
+        "clipboard read",
+    )
+    .await;
+    assert!(
+        r2.get("ok").is_some() && r2.get("text").is_some() && r2.get("error").is_some(),
+        "clipboard read answer shape: {r2}"
+    );
+    if w2ok && r2["ok"].as_bool().unwrap_or(false) {
+        assert!(
+            r2["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains(GAP_CLIP_ITEMS),
+            "structured clipboard write did not round-trip: {r2}"
+        );
+    }
+
+    // ═══ G6: WebMCP — fixture page, shim, list, invoke, unknown tool ═════
+    navigate(rt, &tab, "/hard/webmcp").await;
+    assert_eq!(
+        inner_text(rt, &tab, "#webmcp-state").await,
+        "registered",
+        "the injected modelContext shim never reached the fixture page (or its native mirror)"
+    );
+    let r = locator(
+        rt,
+        "webmcp_list_tools",
+        json!({"browser_id":"default","tab_id":tab}),
+        "webmcp_list_tools",
+    )
+    .await;
+    let tools = r["tools"].as_array().cloned().unwrap_or_default();
+    assert!(
+        tools
+            .iter()
+            .any(|t| t["name"].as_str() == Some(WEBMCP_TOOL)),
+        "webmcp_list_tools never listed the fixture tool: {r}"
+    );
+    assert!(
+        tools.iter().any(|t| t.get("input_schema").is_some()),
+        "the listed tool carries no input_schema (pinned wire shape): {r}"
+    );
+    let r = locator(
+        rt,
+        "webmcp_invoke_tool",
+        json!({"browser_id":"default","tab_id":tab,"tool":WEBMCP_TOOL,"args":{"value":"ok"}}),
+        "webmcp_invoke_tool",
+    )
+    .await;
+    assert_eq!(r["ok"], json!(true), "webmcp_invoke_tool: {r}");
+    assert_eq!(
+        r["result"].as_str().unwrap_or_default(),
+        format!("{WEBMCP_RESULT_PREFIX}ok"),
+        "webmcp_invoke_tool result: {r}"
+    );
+    assert_eq!(
+        inner_text(rt, &tab, "#webmcp-invoke-count").await,
+        "1",
+        "the fixture handler never recorded the invocation"
+    );
+    let e = cmd(
+        rt,
+        SESSION,
+        TURN,
+        json!({"commandType":"webmcp_invoke_tool","session_id":SESSION,"turn_id":TURN,
+               "payload":{"browser_id":"default","tab_id":tab,"tool":"gap-missing"}}),
+    )
+    .await
+    .expect_err("invoking an unregistered WebMCP tool must fail closed");
+    assert!(
+        e.to_string().contains("webmcp_list_tools"),
+        "unregistered-tool error: {e}"
+    );
+
+    // ═══ G7: site policy, submission-verified, session name, History+cLEAR ═
+    let r = locator(
+        rt,
+        "site_status",
+        json!({"browser_id":"default","url":format!("{}/easy", base_url())}),
+        "site_status",
+    )
+    .await;
+    assert!(
+        r["host"].as_str().map(|h| !h.is_empty()).unwrap_or(false),
+        "site_status host: {r}"
+    );
+    let perms = r["permissions"].as_object().cloned().unwrap_or_default();
+    for facet in [
+        "access",
+        "uploads",
+        "downloads",
+        "full_cdp_access",
+        "history",
+    ] {
+        assert!(
+            perms.get(facet).map(|v| v.is_string()).unwrap_or(false),
+            "site_status permissions missing {facet}: {r}"
+        );
+    }
+    assert!(r["note"].is_string(), "site_status note: {r}");
+
+    // Real GET form submission, then the pump's own origin verdict.
+    navigate(rt, &tab, "/medium").await;
+    locator(
+        rt,
+        "playwright_locator_fill",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#note-input","value":"gap-submission"}),
+        "fill note (G7)",
+    )
+    .await;
+    click(rt, &tab, "#submit-btn").await;
+    let r = locator(
+        rt,
+        "playwright_wait_for_url",
+        json!({"browser_id":"default","tab_id":tab,"url":"**/medium/echo*"}),
+        "wait_for_url /medium/echo (G7)",
+    )
+    .await;
+    let echo_url = r["url"].as_str().unwrap_or_default().to_string();
+    assert!(echo_url.contains("/medium/echo"), "echo url: {r}");
+    assert!(
+        inner_text(rt, &tab, "#echo-output")
+            .await
+            .contains("gap-submission"),
+        "the server echo never showed the submitted note"
+    );
+    let sv = locator(
+        rt,
+        "site_submission_verified",
+        json!({"browser_id":"default","url":&echo_url}),
+        "site_submission_verified",
+    )
+    .await;
+    assert_eq!(
+        sv["origin"],
+        json!(base_url()),
+        "submission-verified origin: {sv}"
+    );
+    assert!(
+        !sv["verified_at"].is_null(),
+        "the pump never recorded this origin as submission-verified: {sv}"
+    );
+
+    let r = locator(
+        rt,
+        "browser_session_name",
+        json!({"browser_id":"default","name":"gap-session"}),
+        "browser_session_name",
+    )
+    .await;
+    assert_eq!(r["session_id"], json!(SESSION), "session name answer: {r}");
+    assert_eq!(r["name"], json!("gap-session"), "session name answer: {r}");
+
+    // The G1 visit must be in the native History DB…
+    let mut hit = false;
+    for _ in 0..40 {
+        let r = locator(
+            rt,
+            "browser_history",
+            json!({"browser_id":"default","queries":["arrived"],"limit":50}),
+            "browser_history",
+        )
+        .await;
+        if r["entries"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .any(|e| {
+                e["url"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .ends_with("/easy/arrived")
+            })
+        {
+            hit = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(hit, "History DB never recorded the G1 /easy/arrived visit");
+    // …and clearData(history) must empty it again.
+    let r = locator(
+        rt,
+        "browser_clear_data",
+        json!({"browser_id":"default","data_types":["history"]}),
+        "browser_clear_data history",
+    )
+    .await;
+    let cleared: Vec<String> = r["cleared"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    assert!(
+        cleared.iter().any(|c| c == "history"),
+        "clearData cleared list: {r}"
+    );
+    let mut emptied = false;
+    for _ in 0..40 {
+        let r = locator(
+            rt,
+            "browser_history",
+            json!({"browser_id":"default","queries":["arrived"],"limit":50}),
+            "browser_history after clear",
+        )
+        .await;
+        if r["entries"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .is_empty()
+        {
+            emptied = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(
+        emptied,
+        "History DB still carried rows after clearData(history)"
+    );
+
+    // ═══ G8: marks, handoffs, claims, and the honest refusal surface ══════
+    // G8a: a real AGENT turn (g1) marks its tab handoff ⇒ survives its own
+    // end_turn; the user side claims it (resetting ownership) and closes it.
+    let g1 = new_tab(rt, "g1").await;
+    let r = ok(
+        cmd(
+            rt,
+            SESSION,
+            "g1",
+            json!({"commandType":"tab_mark_handoff","session_id":SESSION,"turn_id":"g1",
+                   "payload":{"browser_id":"default","tab_id":g1}}),
+        )
+        .await,
+        "mark_handoff (g1)",
+    );
+    assert_eq!(r["tab_id"], json!(g1), "mark_handoff answer: {r}");
+    rt.end_turn(SESSION, "g1").await;
+    let g = get_tab(rt, &g1).await;
+    assert_eq!(
+        g["tab_id"],
+        json!(g1),
+        "handoff-marked tab must survive end_turn"
+    );
+    ok(
+        cmd(
+            rt,
+            SESSION,
+            TURN,
+            json!({"commandType":"browser_user_claim_tab","session_id":SESSION,"turn_id":TURN,
+                   "payload":{"browser_id":"default","tab_id":g1}}),
+        )
+        .await,
+        "claim g1",
+    );
+    let r = ok(
+        cmd(
+            rt,
+            SESSION,
+            TURN,
+            json!({"commandType":"tab_close","session_id":SESSION,"turn_id":TURN,
+                   "payload":{"browser_id":"default","tab_id":g1}}),
+        )
+        .await,
+        "close claimed handoff tab (g1)",
+    );
+    assert_eq!(r["closed"], json!(true), "close g1: {r}");
+
+    // G8b: the manual handoff REQUEST parks the tab as user-owned
+    // (taken_over), marks it handoff, and a claim is what re-opens it.
+    let g2 = new_tab(rt, "g2").await;
+    let r = ok(
+        cmd(
+            rt,
+            SESSION,
+            "g2",
+            json!({"commandType":"tab_manual_handoff_request","session_id":SESSION,"turn_id":"g2",
+                   "payload":{"browser_id":"default","tab_id":g2}}),
+        )
+        .await,
+        "manual handoff request (g2)",
+    );
+    assert_eq!(r, json!({}), "manual handoff answer: {r}");
+    let g = get_tab(rt, &g2).await;
+    assert_eq!(
+        g["taken_over"],
+        json!(true),
+        "manual handoff must set taken_over: {g}"
+    );
+    rt.end_turn(SESSION, "g2").await;
+    let g = get_tab(rt, &g2).await;
+    assert_eq!(
+        g["tab_id"],
+        json!(g2),
+        "manual-handoff tab must survive end_turn"
+    );
+    ok(
+        cmd(
+            rt,
+            SESSION,
+            TURN,
+            json!({"commandType":"browser_user_claim_tab","session_id":SESSION,"turn_id":TURN,
+                   "payload":{"browser_id":"default","tab_id":g2}}),
+        )
+        .await,
+        "claim g2",
+    );
+    let g = get_tab(rt, &g2).await;
+    assert_eq!(
+        g["taken_over"],
+        json!(false),
+        "a user claim must reset taken_over: {g}"
+    );
+    let r = ok(
+        cmd(
+            rt,
+            SESSION,
+            TURN,
+            json!({"commandType":"tab_close","session_id":SESSION,"turn_id":TURN,
+                   "payload":{"browser_id":"default","tab_id":g2}}),
+        )
+        .await,
+        "close claimed manual-handoff tab (g2)",
+    );
+    assert_eq!(r["closed"], json!(true), "close g2: {r}");
+
+    // G8c: the honest floor of the export/report/annotation surface on a
+    // NON-Google, NON-YouTube fixture tab.
+    let e = cmd(
+        rt,
+        SESSION,
+        TURN,
+        json!({"commandType":"tab_content_export_gsuite","session_id":SESSION,"turn_id":TURN,
+               "payload":{"browser_id":"default","tab_id":tab,"type":"pdf"}}),
+    )
+    .await
+    .expect_err("gsuite export on a non-Google tab must be a typed payload error");
+    assert!(
+        e.to_string().contains("gsuite"),
+        "gsuite refusal message: {e}"
+    );
+    let r = locator(
+        rt,
+        "tab_content_export_youtube_transcript",
+        json!({"browser_id":"default","tab_id":tab}),
+        "youtube transcript floor",
+    )
+    .await;
+    assert!(
+        r["transcript"].is_null(),
+        "a non-YouTube tab must answer an honest null transcript: {r}"
+    );
+    assert!(
+        r["url"].is_string() && r["note"].is_string(),
+        "transcript floor answer: {r}"
+    );
+    let r = locator(
+        rt,
+        "tab_bot_detection_report",
+        json!({"browser_id":"default","tab_id":tab,"reason":"captcha_failed"}),
+        "bot detection report",
+    )
+    .await;
+    assert_eq!(r["status"], json!("reported"), "bot report answer: {r}");
+    let r = locator(
+        rt,
+        "browser_annotation_capture",
+        json!({"browser_id":"default","tab_id":tab}),
+        "annotation capture (panel-only command)",
+    )
+    .await;
+    assert!(
+        r["page_url"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("/medium/echo"),
+        "annotation capture page_url: {r}"
+    );
+    assert!(r.get("anchor").is_some(), "annotation capture anchor: {r}");
+
+    // ═══ cleanup: end_turn sweeps the ui-owned battery tab; handoff tabs
+    // were claimed+closed above; the startup (user) tab is never swept.
+    rt.end_turn(SESSION, TURN).await;
+    let after: Vec<String> = tab_ids(&list_tabs(rt).await);
+    assert!(!after.contains(&tab), "gap battery tab survived end_turn");
+    assert!(
+        !after.contains(&g1) && !after.contains(&g2),
+        "claimed handoff tabs lingered"
+    );
+
+    rt.shutdown().await;
+    if let Some(mut child) = node {
+        let _ = child.start_kill();
+    }
+}

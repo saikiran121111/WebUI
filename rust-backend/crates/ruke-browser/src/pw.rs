@@ -733,8 +733,31 @@ async fn pw_pred(
     Ok(v.as_bool().unwrap_or(false))
 }
 
-/// Page-space click point; hidden nodes surface as `None` (the pinned
-/// "Could not compute box model" protocol failure is the signal).
+/// CDP input hit-testing is pixel-cell based: the dispatched float x/y is
+/// first rounded to an integer, and the event goes to whatever intersects
+/// that pixel cell (Phase-26 gap battery, live Chromium: a 1×1 target at
+/// x=8..9 receives nothing at the 8.5 box centre — dispatching x=8 lands
+/// the click). Pick the centre-rounded coordinate when its cell
+/// intersects the box; the centre's floor cell always does.
+fn dispatch_point(center: f64, min: f64, max: f64) -> f64 {
+    let r = center.round();
+    if r >= min && r < max {
+        return r;
+    }
+    let f = center.floor();
+    if f >= min && f < max {
+        return f;
+    }
+    if r < max {
+        r
+    } else {
+        f
+    }
+}
+
+/// Page-space click point, dispatch-snapped (see `dispatch_point`);
+/// hidden nodes surface as `None` (the pinned "Could not compute box
+/// model" protocol failure is the signal).
 pub(crate) async fn pw_box_center(
     conn: &CdpConn,
     session: &str,
@@ -763,9 +786,15 @@ pub(crate) async fn pw_box_center(
     if nums.len() < 8 {
         return Ok(None);
     }
-    let x = (nums[0] + nums[2] + nums[4] + nums[6]) / 4.0;
-    let y = (nums[1] + nums[3] + nums[5] + nums[7]) / 4.0;
-    Ok(Some((x, y)))
+    let xs = [nums[0], nums[2], nums[4], nums[6]];
+    let ys = [nums[1], nums[3], nums[5], nums[7]];
+    let l = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+    let r = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let t = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+    let b = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let cx = (xs[0] + xs[1] + xs[2] + xs[3]) / 4.0;
+    let cy = (ys[0] + ys[1] + ys[2] + ys[3]) / 4.0;
+    Ok(Some((dispatch_point(cx, l, r), dispatch_point(cy, t, b))))
 }
 
 pub(crate) async fn pw_scroll_into_view(
@@ -784,6 +813,9 @@ pub(crate) async fn pw_scroll_into_view(
 
 /// Real trusted input: press/release pairs with increasing `clickCount`
 /// (probe-verified to focus and activate inner-frame targets).
+/// Coordinates are sent as integers: CDP rounds floats to the hit-test
+/// pixel cell itself (Phase-26 battery), and snapping the same value
+/// here keeps what we send and what Chromium hit-tests identical.
 pub(crate) async fn pw_dispatch_click(
     conn: &CdpConn,
     session: &str,
@@ -799,8 +831,8 @@ pub(crate) async fn pw_dispatch_click(
                 "Input.dispatchMouseEvent",
                 Some(json!({
                     "type": typ,
-                    "x": x,
-                    "y": y,
+                    "x": x.round(),
+                    "y": y.round(),
                     "button": button,
                     "clickCount": n,
                     "modifiers": modifiers,
@@ -1233,9 +1265,13 @@ impl PwRegistries {
             .call(
                 "DOM.getNodeForLocation",
                 Some(json!({
-                    "x": x,
-                    "y": y,
-                    "includeUserActionShadow": false,
+                    // CDP declares x/y as INTEGERS — fractional CSS pixels
+                    // (what screenshots/rects actually give) fail parameter
+                    // validation, so the hit point is rounded to device
+                    // pixels before the call.
+                    "x": x.round() as i64,
+                    "y": y.round() as i64,
+                    "includeUserAgentShadowDOM": false,
                     "fromPoint": false,
                 })),
                 Some(session),

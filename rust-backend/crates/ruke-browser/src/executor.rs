@@ -1072,13 +1072,63 @@ impl BrowserRuntime {
                 // History database — the omnibox's source of truth.
                 // Clearing it IS the real browser's "clear browsing
                 // data", not a parallel Ruke-only store.
-                if types.contains(&"history") {
-                    crate::history::clear_history_db(&self.root)?;
-                    cleared.push("history");
-                }
-                if types.contains(&"downloads") {
-                    crate::history::clear_downloads_db(&self.root)?;
-                    cleared.push("downloads");
+                //
+                // Phase 26 [adapted]: the gap battery proved Chromium's
+                // live session holds that database at an exclusive grade
+                // (even read-only external connections stay SQLITE_BUSY
+                // past 20 s), so an external DELETE can NEVER succeed
+                // while the host runs. The live path therefore drives
+                // Chromium's own "Clear browsing data" dialog — the
+                // reference-product parity is that it clears in-process
+                // through `browserSession.clearData`, never through
+                // SQLite; the settings UI is Ruke's CDP-reachable form
+                // of that same in-browser authority. The direct database
+                // clear stays for the host-down case, where nothing
+                // holds the db and it is complete and honest.
+                if types.contains(&"history") || types.contains(&"downloads") {
+                    let want_history = types.contains(&"history");
+                    let want_downloads = types.contains(&"downloads");
+                    match self.try_client().await {
+                        Ok(conn) => {
+                            match Self::clear_history_via_settings_ui(
+                                &conn,
+                                want_history,
+                                want_downloads,
+                            )
+                            .await
+                            {
+                                Ok(()) => {
+                                    if want_history {
+                                        cleared.push("history");
+                                    }
+                                    if want_downloads {
+                                        cleared.push("downloads");
+                                    }
+                                }
+                                Err(reason) => {
+                                    for kind in ["history", "downloads"] {
+                                        let wanted = (kind == "history" && want_history)
+                                            || (kind == "downloads" && want_downloads);
+                                        if wanted {
+                                            skipped.push(
+                                                json!({ "type": kind, "reason": reason.clone() }),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            if want_history {
+                                crate::history::clear_history_db(&self.root)?;
+                                cleared.push("history");
+                            }
+                            if want_downloads {
+                                crate::history::clear_downloads_db(&self.root)?;
+                                cleared.push("downloads");
+                            }
+                        }
+                    }
                 }
                 Ok(json!({
                     "browser_id": p.browser_id,
@@ -1707,6 +1757,166 @@ impl BrowserRuntime {
             .pointer("/result/value")
             .and_then(Value::as_str)
             .map(str::to_string))
+    }
+
+    /// Live-host history/download-history clear (Phase 26): open a
+    /// transient `chrome://settings/clearBrowserData` target (the
+    /// deep link auto-opens the Clear-browsing-data dialog), attach
+    /// to it, run [`crate::history::clear_dialog_js`], then close
+    /// the tab — the CDP grammar mirrors the `tab_new`/`tab_close`
+    /// arms. The browser-level `Target.createTarget` carries no
+    /// `openerId`, so the pump's popup-adoption arm ignores it and
+    /// the tab never enters the registry: `tabs`, `get_tab`, and the
+    /// panel strip never see it (a human watching the physical
+    /// window may see the tab flash). A raw `Target.attachToTarget`
+    /// is deliberate: it keeps the page-runtime bootstrap scripts
+    /// out of a chrome:// settings page.
+    ///
+    /// The transient chrome:// target is an engine-initiated
+    /// privileged drive authorized by the `Facet::History` gate every
+    /// `browser_clear_data` has already passed; the navigate
+    /// command's http(s)-only URL law is a model-facing contract and
+    /// stays fully in force — no command payload can produce this
+    /// navigation, the URL is a compile-time constant here.
+    ///
+    /// Every CDP call in the drive is one short synchronous evaluate:
+    /// the appear-wait and close-wait loops live HERE, on the Rust
+    /// side, so no single call ever runs near the socket round-trip
+    /// ceiling (`cdp::CALL_TIMEOUT`) — the codebase's established
+    /// law for long browser waits (same shape as the locator
+    /// wait-for pollers). Ok only when the dialog itself closed,
+    /// i.e. Chromium accepted the deletion; every failure returns the
+    /// honest reason the caller records in the answer's `skipped`
+    /// entries.
+    async fn clear_history_via_settings_ui(
+        conn: &CdpConn,
+        want_history: bool,
+        want_downloads: bool,
+    ) -> Result<(), String> {
+        let opened = conn
+            .call(
+                "Target.createTarget",
+                Some(json!({"url": "chrome://settings/clearBrowserData"})),
+                None,
+            )
+            .await
+            .map_err(|e| format!("Target.createTarget: {e}"))?;
+        let target_id = opened
+            .get("targetId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Target.createTarget returned no targetId".to_string())?
+            .to_string();
+        let session = conn
+            .call(
+                "Target.attachToTarget",
+                Some(json!({"targetId": &target_id, "flatten": true})),
+                None,
+            )
+            .await
+            .map_err(|e| format!("Target.attachToTarget: {e}"))?
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "Target.attachToTarget returned no sessionId".to_string())?;
+
+        // The drive runs between open and close; the tab is closed
+        // FIRST regardless of how the drive ends, so a failed or
+        // wedged drive never leaves a settings tab in the user's
+        // window.
+        let drive = async {
+            // 1. Wait for the deep link's dialog to render (the
+            //    settings bundle boots first).
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                if Self::eval_clear_probe(conn, &session).await? {
+                    break;
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Err("settings clear dialog never opened".into());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+            // 2. Set the selection exactly as authorized and click
+            //    the dialog's own confirm button.
+            let setup = Self::eval_clear_value(
+                conn,
+                &session,
+                &crate::history::clear_setup_js(want_history, want_downloads),
+            )
+            .await?;
+            let status = setup
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("no-status");
+            if status != "clicked" {
+                return Err(format!("settings clear drive: {setup}"));
+            }
+            // 3. The dialog closing IS Chromium's own acceptance of
+            //    the deletion; the history service commits the
+            //    DELETEs synchronously enough for the panel-visible
+            //    omnibox rows to drop right after. 20 s covers the
+            //    chromium-side spinner phase (the dialog stays open
+            //    while `$.spinner` runs) without ever putting a
+            //    single long call on the socket.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                if !Self::eval_clear_probe(conn, &session).await? {
+                    return Ok(());
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Err("confirm click did not close the settings clear dialog".into());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        }
+        .await;
+        let closed = conn
+            .call(
+                "Target.closeTarget",
+                Some(json!({"targetId": &target_id})),
+                None,
+            )
+            .await;
+        drive?;
+        closed.map_err(|e| format!("Target.closeTarget: {e}"))?;
+        Ok(())
+    }
+
+    /// One evaluate of a clear-dialog script; a JS-side throw is an
+    /// honest drive failure, never a silent miss. `awaitPromise`
+    /// carries the setup script's async body (the one settle tick it
+    /// waits after opening the time-range More menu); plain probe
+    /// values pass through it unchanged. Every script still finishes
+    /// in well under a second, nowhere near `cdp::CALL_TIMEOUT`.
+    async fn eval_clear_value(
+        conn: &CdpConn,
+        session: &str,
+        expression: &str,
+    ) -> Result<Value, String> {
+        let res = conn
+            .call(
+                "Runtime.evaluate",
+                Some(
+                    json!({"expression": expression, "returnByValue": true, "awaitPromise": true}),
+                ),
+                Some(session),
+            )
+            .await
+            .map_err(|e| format!("Runtime.evaluate: {e}"))?;
+        if let Some(ex) = res.get("exceptionDetails") {
+            return Err(format!("clear dialog script: {ex}"));
+        }
+        Ok(res.pointer("/result/value").cloned().unwrap_or(Value::Null))
+    }
+
+    /// One dialog-presence probe ('present' / 'absent').
+    async fn eval_clear_probe(conn: &CdpConn, session: &str) -> Result<bool, String> {
+        let v = Self::eval_clear_value(conn, session, &crate::history::clear_probe_js()).await?;
+        match v.as_str() {
+            Some("present") => Ok(true),
+            Some("absent") => Ok(false),
+            _ => Err(format!("clear dialog probe returned {v}")),
+        }
     }
 }
 

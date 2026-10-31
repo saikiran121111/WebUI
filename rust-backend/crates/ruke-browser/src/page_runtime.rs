@@ -169,68 +169,112 @@ pub const PAGE_RUNTIME_SCRIPT: &str = r##"(() => {
   // read from a managed settings service that has no Ruke equivalent;
   // Ruke installs the surface unconditionally (closed contract) and
   // polices USE instead: listing is an observe-facet read and invoking
-  // runs page-declared code behind the act-facet gate. Registration
-  // tables live page-side in `window.__rukeWebmcp`; the engine ever
+  // runs page-declared code behind the act-facet gate. Phase 26
+  // [adapted]: Chromium now ships a native `document.modelContext` — a
+  // page whose browser already has one is MIRRORED (every registration
+  // lands in both the native table and ours; the native originals still
+  // run) instead of skipped, so the engine's reads never care which side
+  // declared the tool. Registration tables live page-side in
+  // `window.__rukeWebmcp`; the engine ever
   // reads name/description/inputSchema — never the handler reference —
   // and invokes the page's own handler as page code. Declarations are
   // page content: untrusted evidence that can never grant permission.
   const WEBMCP_EVENT = "toolchange";
   const WEBMCP_REGISTRY = "__rukeWebmcp";
+  const registry = new Map();
+  window[WEBMCP_REGISTRY] = registry;
+  const notify = (modelContext) => {
+    if (typeof modelContext?.dispatchEvent === "function") {
+      try { modelContext.dispatchEvent(new Event(WEBMCP_EVENT)); } catch (_) { /* native object may refuse the page event */ }
+    }
+    send("webmcp", { count: registry.size });
+  };
+  const registerValue = (modelContext, tool, handler) => {
+    if (tool == null || typeof tool !== "object" || Array.isArray(tool)) {
+      throw new TypeError("Invalid WebMCP tool registration");
+    }
+    const name = typeof tool.name === "string" ? tool.name.trim() : "";
+    if (!name) throw new TypeError("WebMCP tool requires a name");
+    if (handler !== undefined && typeof handler !== "function") {
+      throw new TypeError("WebMCP tool handler must be a function");
+    }
+    let inputSchema;
+    if (tool.inputSchema !== undefined) {
+      try { inputSchema = JSON.parse(JSON.stringify(tool.inputSchema)); }
+      catch (_) { throw new TypeError("WebMCP tool inputSchema must be JSON-serializable"); }
+    }
+    registry.set(name, {
+      name,
+      description: typeof tool.description === "string" ? tool.description : "",
+      inputSchema,
+      handler,
+    });
+    notify(modelContext);
+    return true;
+  };
+  const unregisterValue = (modelContext, nameOrTool) => {
+    const name = typeof nameOrTool === "string" ? nameOrTool : (nameOrTool && nameOrTool.name);
+    const had = registry.delete(name);
+    if (had) notify(modelContext);
+    return had;
+  };
+  const toolsArray = () => Array.from(registry.values()).map((r) => ({
+    name: r.name,
+    description: r.description,
+    inputSchema: r.inputSchema,
+  }));
   const existingMC = Reflect.get(document, "modelContext");
   if (existingMC == null || (typeof existingMC !== "object" && typeof existingMC !== "function")) {
     const modelContext = new EventTarget();
-    const registry = new Map();
-    window[WEBMCP_REGISTRY] = registry;
-    const notify = () => {
-      modelContext.dispatchEvent(new Event(WEBMCP_EVENT));
-      send("webmcp", { count: registry.size });
-    };
+    Reflect.defineProperty(modelContext, "registerTool", {
+      configurable: true, enumerable: false,
+      value: (tool, handler) => registerValue(modelContext, tool, handler),
+    });
+    Reflect.defineProperty(modelContext, "unregisterTool", {
+      configurable: true, enumerable: false,
+      value: (nameOrTool) => unregisterValue(modelContext, nameOrTool),
+    });
+    Reflect.defineProperty(modelContext, "tools", {
+      configurable: true, enumerable: false, get: toolsArray,
+    });
+    Reflect.defineProperty(document, "modelContext", {
+      configurable: true, enumerable: false, value: modelContext,
+    });
+  } else {
+    // A native `document.modelContext`: mirror it. Our validators run
+    // first (the recovered TypeError grammar is the page's contract on
+    // either side), the registration lands in the engine registry with
+    // its handler, and the native originals still execute best-effort.
+    const modelContext = existingMC;
+    const origRegister = typeof modelContext.registerTool === "function"
+      ? modelContext.registerTool.bind(modelContext) : null;
+    const origUnregister = typeof modelContext.unregisterTool === "function"
+      ? modelContext.unregisterTool.bind(modelContext) : null;
     Reflect.defineProperty(modelContext, "registerTool", {
       configurable: true, enumerable: false,
       value: (tool, handler) => {
-        if (tool == null || typeof tool !== "object" || Array.isArray(tool)) {
-          throw new TypeError("Invalid WebMCP tool registration");
+        const ok = registerValue(modelContext, tool, handler);
+        if (origRegister != null) {
+          try { origRegister(tool, handler); } catch (_) { /* native table is best-effort; ours is authoritative for the engine */ }
         }
-        const name = typeof tool.name === "string" ? tool.name.trim() : "";
-        if (!name) throw new TypeError("WebMCP tool requires a name");
-        if (handler !== undefined && typeof handler !== "function") {
-          throw new TypeError("WebMCP tool handler must be a function");
-        }
-        let inputSchema;
-        if (tool.inputSchema !== undefined) {
-          try { inputSchema = JSON.parse(JSON.stringify(tool.inputSchema)); }
-          catch (_) { throw new TypeError("WebMCP tool inputSchema must be JSON-serializable"); }
-        }
-        registry.set(name, {
-          name,
-          description: typeof tool.description === "string" ? tool.description : "",
-          inputSchema,
-          handler,
-        });
-        notify();
-        return true;
+        return ok;
       },
     });
     Reflect.defineProperty(modelContext, "unregisterTool", {
       configurable: true, enumerable: false,
       value: (nameOrTool) => {
-        const name = typeof nameOrTool === "string" ? nameOrTool : (nameOrTool && nameOrTool.name);
-        const had = registry.delete(name);
-        if (had) notify();
+        const had = unregisterValue(modelContext, nameOrTool);
+        if (origUnregister != null) {
+          try { origUnregister(nameOrTool); } catch (_) { /* best-effort, as above */ }
+        }
         return had;
       },
     });
-    Reflect.defineProperty(modelContext, "tools", {
-      configurable: true, enumerable: false,
-      get: () => Array.from(registry.values()).map((r) => ({
-        name: r.name,
-        description: r.description,
-        inputSchema: r.inputSchema,
-      })),
-    });
-    Reflect.defineProperty(document, "modelContext", {
-      configurable: true, enumerable: false, value: modelContext,
-    });
+    if (Reflect.get(modelContext, "tools") == null) {
+      Reflect.defineProperty(modelContext, "tools", {
+        configurable: true, enumerable: false, get: toolsArray,
+      });
+    }
   }
 
   document.addEventListener(OPEN_EVENT, (ev) => send("open_annotation", ev.detail));

@@ -205,7 +205,10 @@ const PAGE_WALKER_FN: &str = r##"function(e,t,r){let n=new Set(e.interactiveTags
 /// point: detached → null (caller raises stale), else `scrollIntoView`
 /// nearest and the first `getClientRects()` rect (or the bounding rect)
 /// clipped against the snapshot viewport clip, midpoint.
-const RESOLVE_POINT_FN: &str = r##"(e,t)=>{let n=globalThis.__browserUseVisibleDomState?.refToElement.get(e);if(!n?.isConnected)return null;n.scrollIntoView({block:"nearest",inline:"nearest"});let o=i=>{if(i.width<=0||i.height<=0)return null;let s=Math.max(i.left,t.left),a=Math.min(i.right,t.right),l=Math.max(i.top,t.top),u=Math.min(i.bottom,t.bottom);return a>s&&u>l?{x:s+(a-s)/2,y:l+(u-l)/2}:null};for(let i of n.getClientRects()){let s=o(i);if(s!=null)return s}return o(n.getBoundingClientRect())}"##;
+/// [adapted] Phase 26: the midpoint is snapped to the integer coordinate
+/// whose pixel cell the CDP hit-test lands on (the raw clipped midpoint
+/// is missed by ≤1px targets — same law as `pw::dispatch_point`).
+const RESOLVE_POINT_FN: &str = r##"(e,t)=>{let n=globalThis.__browserUseVisibleDomState?.refToElement.get(e);if(!n?.isConnected)return null;n.scrollIntoView({block:"nearest",inline:"nearest"});let p=(v,w)=>{let m=Math.round((v+w)/2);if(m>=v&&m<w)return m;let f=Math.floor((v+w)/2);return f>=v&&f<w?f:m<w?m:f};let o=i=>{if(i.width<=0||i.height<=0)return null;let s=Math.max(i.left,t.left),a=Math.min(i.right,t.right),l=Math.max(i.top,t.top),u=Math.min(i.bottom,t.bottom);return a>s&&u>l?{x:p(s,a),y:p(l,u)}:null};for(let i of n.getClientRects()){let s=o(i);if(s!=null)return s}return o(n.getBoundingClientRect())}"##;
 
 /// `yD` banner — the reference prepends it to every page-function
 /// template (it neutralizes bundler `__name` helpers); kept verbatim.

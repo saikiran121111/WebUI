@@ -1260,10 +1260,26 @@ async fn event_pump(
 /// attached sessions observed; the reference product additionally
 /// carries diagnostics attempt events (browserAuth §attempt schema),
 /// which Ruke's Phase-9 handoff deliberately does not model.
+// Phase 26 [adapted]: chromium-1243/1247 (and any host that dropped the
+// deprecated CDP Resource type field) send `Network.responseReceived`
+// with NO `type` on ANY request — the battery proved the old `==
+// "Document"` gate then never stamps, even for a real document. An
+// explicit `type` stays authoritative when present; when absent, the
+// protocol-required `mimeType` is the honest document grammar
+// (`text/html`), and the fallback remains closed: `application/
+// javascript` chrome:// resources, XHR JSON, and a missing mimeType all
+// still answer None.
 fn submission_document_origin(params: &Value) -> Option<String> {
     let resp = params.get("response")?;
-    if resp.get("type").and_then(Value::as_str) != Some("Document") {
-        return None;
+    match resp.get("type").and_then(Value::as_str) {
+        Some("Document") => {}
+        Some(_) => return None,
+        None => {
+            let mime = resp.get("mimeType").and_then(Value::as_str)?;
+            if !mime.starts_with("text/html") {
+                return None;
+            }
+        }
     }
     let status = resp.get("status").and_then(Value::as_u64)?;
     if !(200..=299).contains(&status) {
@@ -1578,8 +1594,20 @@ mod tests {
             "response": { "type": "Document", "status": 302, "url": "https://app.example.com/" }
         });
         assert_eq!(submission_document_origin(&redirect), None);
+        // Phase 26: hosts without the deprecated Resource type field
+        // fall back to the protocol-required mimeType — text/html 200
+        // stamps; JS/JSON subresources and missing mimeTypes do not.
+        let no_type_doc = json!({
+            "response": { "status": 200, "mimeType": "text/html", "url": "https://app.example.com/x" }
+        });
+        assert_eq!(
+            submission_document_origin(&no_type_doc).as_deref(),
+            Some("https://app.example.com")
+        );
         // …nor is an error page, nor a subresource, nor a non-web scheme.
         for params in [
+            json!({ "response": { "status": 200, "mimeType": "application/javascript", "url": "https://x.dev/a.js" } }),
+            json!({ "response": { "status": 200, "url": "https://x.dev/a.js" } }),
             json!({ "response": { "type": "Document", "status": 404, "url": "https://x.dev/" } }),
             json!({ "response": { "type": "XHR", "status": 200, "url": "https://x.dev/api" } }),
             json!({ "response": { "type": "Document", "status": 200, "url": "file:///c:/x.html" } }),
