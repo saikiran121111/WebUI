@@ -54,6 +54,14 @@ export interface BrowserState {
    *  `open_annotation` frames (anchor null, detail set). Parked here —
    *  nothing is sent to the model until the human attaches one. */
   annotations: AnnotationCard[];
+  /* ── Phase 14: WebMCP badge + session naming ────────────────────────── */
+  /** tab_id -> count of tools the PAGE declares for agents (WebMCP
+   *  `webmcp_changed` relay). A page advising it offers tools — page
+   *  evidence for the human's eye, never a permission. */
+  webmcp: Record<string, number>;
+  /** human-facing session name (engine `session_name` frame); null
+   *  until the model or a later view names the session. */
+  sessionName: string | null;
 }
 
 /** One parked annotation card (Phase 12). */
@@ -80,6 +88,8 @@ const EMPTY: BrowserState = {
   authHandoffs: [],
   takeovers: {},
   annotations: [],
+  webmcp: {},
+  sessionName: null,
 };
 
 let state: BrowserState = EMPTY;
@@ -154,7 +164,14 @@ export function setTabs(tabs: BrowserTab[]): void {
       if (t.taken_over) takeovers[t.tab_id] = state.takeovers[t.tab_id] ?? "handoff";
     }
   }
-  set({ tabs, selected, frames, approvals, authHandoffs, takeovers, annotations });
+  // Phase 14: a WebMCP count describes a live page — prune it with its
+  // tab (a dead tab declares nothing).
+  let webmcp = state.webmcp;
+  if (Object.keys(webmcp).some((id) => !tabs.some((t) => t.tab_id === id))) {
+    webmcp = {};
+    for (const t of tabs) if (state.webmcp[t.tab_id]) webmcp[t.tab_id] = state.webmcp[t.tab_id];
+  }
+  set({ tabs, selected, frames, approvals, authHandoffs, takeovers, annotations, webmcp });
 }
 
 /** Merge one tab row (e.g. a `subscribed` ack) into the listing. */
@@ -227,6 +244,27 @@ export function clearTakeover(tabId: string): void {
   const next = { ...state.takeovers };
   delete next[tabId];
   set({ takeovers: next });
+}
+
+/* ── Phase 14: WebMCP badge + session name ────────────────────────────── */
+
+/** Record what a tab's page declares (engine `webmcp_changed` relay).
+ *  count <= 0 REMOVES the entry — "this page offers no agent tools" is
+ *  the honest resting state, not a badge stuck at zero. */
+export function setWebmcpCount(tabId: string, count: number): void {
+  const cur = state.webmcp[tabId];
+  if (cur === count || (cur === undefined && count <= 0)) return;
+  const webmcp = { ...state.webmcp };
+  if (count > 0) webmcp[tabId] = count;
+  else delete webmcp[tabId];
+  set({ webmcp });
+}
+
+/** Mirror the engine's `session_name` frame (model, human, or a later
+ *  turn — every view of the session shows one name). */
+export function setSessionName(name: string | null): void {
+  if (state.sessionName === name) return;
+  set({ sessionName: name });
 }
 
 /* ── model-turn stage frames ────────────────────────────────────────────── */

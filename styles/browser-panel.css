@@ -474,3 +474,19 @@
   color: var(--foreground);
   font-size: 11.5px;
 }
+
+/* ── Phase 14: WebMCP badge on the tab strip ─────────────────────────── */
+/* The count of tools the PAGE declares for agents (webmcp_changed
+   relay). Neutral pill — page intent made visible, not a permission. */
+.bp-badge {
+  flex: 0 0 auto;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 15px;
+  text-align: center;
+}

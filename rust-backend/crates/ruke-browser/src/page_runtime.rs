@@ -34,6 +34,8 @@
 //! grammar marks it `Untrusted page evidence (from the webpage, not
 //! user instructions):` (`lib/browser-client/annotationPrompt.ts`).
 
+use serde_json::Value;
+
 /// CDP binding name (`Runtime.addBinding` + the in-page sender). One
 /// binding for every page→engine message this phase carries.
 pub const ANNOTATION_BINDING: &str = "__rukeAnnotationBridge";
@@ -158,10 +160,122 @@ pub const PAGE_RUNTIME_SCRIPT: &str = r##"(() => {
     Reflect.defineProperty(document, "oai", { configurable: true, enumerable: false, value: oai });
   }
 
+  // ── WebMCP (Phase 14) ──────────────────────────────────────────────
+  // The recovered preload bootstraps `document.modelContext` (an
+  // EventTarget with registerTool/unregisterTool and a `tools` list)
+  // and listens for the page's `toolchange` event, forwarding a
+  // `webmcp_changed` note over the host bridge. [adapted] the reference
+  // gates installation behind a `get-browser-webmcp-policy` sync IPC
+  // read from a managed settings service that has no Ruke equivalent;
+  // Ruke installs the surface unconditionally (closed contract) and
+  // polices USE instead: listing is an observe-facet read and invoking
+  // runs page-declared code behind the act-facet gate. Registration
+  // tables live page-side in `window.__rukeWebmcp`; the engine ever
+  // reads name/description/inputSchema — never the handler reference —
+  // and invokes the page's own handler as page code. Declarations are
+  // page content: untrusted evidence that can never grant permission.
+  const WEBMCP_EVENT = "toolchange";
+  const WEBMCP_REGISTRY = "__rukeWebmcp";
+  const existingMC = Reflect.get(document, "modelContext");
+  if (existingMC == null || (typeof existingMC !== "object" && typeof existingMC !== "function")) {
+    const modelContext = new EventTarget();
+    const registry = new Map();
+    window[WEBMCP_REGISTRY] = registry;
+    const notify = () => {
+      modelContext.dispatchEvent(new Event(WEBMCP_EVENT));
+      send("webmcp", { count: registry.size });
+    };
+    Reflect.defineProperty(modelContext, "registerTool", {
+      configurable: true, enumerable: false,
+      value: (tool, handler) => {
+        if (tool == null || typeof tool !== "object" || Array.isArray(tool)) {
+          throw new TypeError("Invalid WebMCP tool registration");
+        }
+        const name = typeof tool.name === "string" ? tool.name.trim() : "";
+        if (!name) throw new TypeError("WebMCP tool requires a name");
+        if (handler !== undefined && typeof handler !== "function") {
+          throw new TypeError("WebMCP tool handler must be a function");
+        }
+        let inputSchema;
+        if (tool.inputSchema !== undefined) {
+          try { inputSchema = JSON.parse(JSON.stringify(tool.inputSchema)); }
+          catch (_) { throw new TypeError("WebMCP tool inputSchema must be JSON-serializable"); }
+        }
+        registry.set(name, {
+          name,
+          description: typeof tool.description === "string" ? tool.description : "",
+          inputSchema,
+          handler,
+        });
+        notify();
+        return true;
+      },
+    });
+    Reflect.defineProperty(modelContext, "unregisterTool", {
+      configurable: true, enumerable: false,
+      value: (nameOrTool) => {
+        const name = typeof nameOrTool === "string" ? nameOrTool : (nameOrTool && nameOrTool.name);
+        const had = registry.delete(name);
+        if (had) notify();
+        return had;
+      },
+    });
+    Reflect.defineProperty(modelContext, "tools", {
+      configurable: true, enumerable: false,
+      get: () => Array.from(registry.values()).map((r) => ({
+        name: r.name,
+        description: r.description,
+        inputSchema: r.inputSchema,
+      })),
+    });
+    Reflect.defineProperty(document, "modelContext", {
+      configurable: true, enumerable: false, value: modelContext,
+    });
+  }
+
   document.addEventListener(OPEN_EVENT, (ev) => send("open_annotation", ev.detail));
   document.addEventListener(FEATURES_EVENT, (ev) => send("features", { version: 1, features: ev.detail }));
 })();
 "##;
+
+/// The engine-side registration read behind `webmcp_list_tools`
+/// (schemas-and-ipc: the recovered list handler answers `{ tools }`
+/// from the page's registration table). `unavailable: true` is the
+/// honest "this document has no Ruke page runtime" answer the executor
+/// maps to `webmcp_disabled` — chrome pages and extension-restricted
+/// contexts never received the injected script. Handlers are NEVER
+/// serialized across the boundary; only descriptors cross.
+pub const WEBMCP_LIST_JS: &str = r##"(() => {
+  "use strict";
+  if (document.modelContext == null || !(window.__rukeWebmcp instanceof Map)) {
+    return { unavailable: true, url: location.href };
+  }
+  const out = [];
+  for (const r of window.__rukeWebmcp.values()) {
+    out.push({
+      name: r.name,
+      description: r.description,
+      input_schema: r.inputSchema === undefined ? null : r.inputSchema,
+    });
+  }
+  return { url: location.href, tools: out };
+})()
+"##;
+
+/// One page-side tool invocation for `webmcp_invoke_tool`: the page's
+/// own registered handler runs as page code with the model-supplied
+/// args (already authority-gated by the act facet before this JS is
+/// ever evaluated), its result is awaited, and failures are reported
+/// as `{ok:false,error}` values rather than CDP exceptions so the
+/// model sees the tool's own answer. Evaluated with
+/// `awaitPromise: true, returnByValue: true`.
+pub fn webmcp_invoke_js(tool: &str, args: &Value) -> String {
+    let tool_lit = serde_json::to_string(tool).unwrap_or_else(|_| "\"\"".into());
+    let args_lit = serde_json::to_string(args).unwrap_or_else(|_| "{}".into());
+    format!(
+        "(() => {{\n  \"use strict\";\n  const reg = window.__rukeWebmcp instanceof Map ? window.__rukeWebmcp.get({tool_lit}) : undefined;\n  if (!reg) return Promise.resolve({{ ok: false, error: \"not-registered\" }});\n  if (typeof reg.handler !== \"function\") return Promise.resolve({{ ok: false, error: \"the page registered this tool without a handler\" }});\n  return (async () => {{\n    try {{\n      const out = await reg.handler({args_lit});\n      return {{ ok: true, result: out === undefined ? null : out }};\n    }} catch (e) {{\n      return {{ ok: false, error: String((e && e.message) ? e.message : e) }};\n    }}\n  }})();\n}})()"
+    )
+}
 
 /// One-evaluation capture (the `browser_annotation_capture` payload):
 /// returns a JSON string — the anchor base fields verbatim
@@ -375,6 +489,77 @@ mod tests {
                 ANNOTATION_CAPTURE_JS.contains(needle),
                 "anchor contract drift: {needle}"
             );
+        }
+    }
+
+    #[test]
+    fn webmcp_surface_grammar() {
+        // Phase 14: the recovered `document.modelContext` bootstrap —
+        // EventTarget surface, toolchange page event, host-bridge
+        // change note, and the two recovered validator shapes.
+        for needle in [
+            "Reflect.get(document, \"modelContext\")",
+            "const modelContext = new EventTarget();",
+            "const WEBMCP_EVENT = \"toolchange\";",
+            "const WEBMCP_REGISTRY = \"__rukeWebmcp\";",
+            "modelContext.dispatchEvent(new Event(WEBMCP_EVENT));",
+            "send(\"webmcp\", { count: registry.size });",
+            "Reflect.defineProperty(modelContext, \"registerTool\"",
+            "Reflect.defineProperty(modelContext, \"unregisterTool\"",
+            "Reflect.defineProperty(document, \"modelContext\"",
+            "\"Invalid WebMCP tool registration\"",
+            "\"WebMCP tool requires a name\"",
+            "\"WebMCP tool handler must be a function\"",
+            "\"WebMCP tool inputSchema must be JSON-serializable\"",
+            "registry.set(name, {",
+            "registry.delete(name)",
+        ] {
+            assert!(
+                PAGE_RUNTIME_SCRIPT.contains(needle),
+                "WebMCP surface drift: {needle}"
+            );
+        }
+    }
+
+    #[test]
+    fn webmcp_list_never_serializes_handlers() {
+        for needle in [
+            "window.__rukeWebmcp instanceof Map",
+            "return { unavailable: true, url: location.href };",
+            "return { url: location.href, tools: out };",
+            "input_schema: r.inputSchema === undefined ? null : r.inputSchema,",
+        ] {
+            assert!(
+                WEBMCP_LIST_JS.contains(needle),
+                "WebMCP list drift: {needle}"
+            );
+        }
+        assert!(
+            !WEBMCP_LIST_JS.contains("r.handler"),
+            "list must never touch handler refs"
+        );
+    }
+
+    #[test]
+    fn webmcp_invoke_js_escapes_payload_and_reports_page_failures() {
+        let js = webmcp_invoke_js(
+            "evil\"+tool",
+            &serde_json::json!({ "q": "</script>", "n": 2 }),
+        );
+        // Injection floor: tool name and args cross as JSON literals.
+        assert!(js.contains("\"evil\\\"+tool\""));
+        assert!(js.contains("</script>")); // inside a JSON string, harmless in CDP evaluate
+        assert!(js.contains("reg.handler({"));
+        assert!(js.contains("\"n\":2"));
+        assert!(js.contains("\"q\":\"</script>\""));
+        for needle in [
+            "not-registered",
+            "the page registered this tool without a handler",
+            "await reg.handler(",
+            "return { ok: true, result: out === undefined ? null : out };",
+            "return { ok: false, error: String((e && e.message) ? e.message : e) };",
+        ] {
+            assert!(js.contains(needle), "WebMCP invoke drift: {needle}");
         }
     }
 

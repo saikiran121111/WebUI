@@ -66,8 +66,10 @@ import {
   setConnected,
   setFrame,
   setPanelError,
+  setSessionName,
   setTabs,
   setTakeover,
+  setWebmcpCount,
   useBrowserState,
 } from "../../lib/browser-client/browserStore";
 import {
@@ -75,6 +77,10 @@ import {
   siteAnnotationComposerText,
 } from "../../lib/browser-client/annotationPrompt";
 import { OMNIBOX_MAX_RESULTS, omniboxSuggest } from "../../lib/browser-client/omniboxSuggest";
+import {
+  resolvePanelShortcut,
+  type PanelShortcutAction,
+} from "../../lib/browser-client/panelShortcuts";
 import PolicySettings from "./PolicySettings";
 import { AnnotationCards, ApprovalCards, AuthHandoffCards, takeoverSentence } from "./BrowserCards";
 import "../../styles/browser-panel.css";
@@ -92,6 +98,8 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
     authHandoffs,
     takeovers,
     annotations,
+    webmcp,
+    sessionName,
   } = useBrowserState();
 
   // sessionId can change mid-mount (conversation switch); RPC session
@@ -106,6 +114,8 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
   const natRef = useRef<{ w: number; h: number }>({ w: 800, h: 600 });
   const moveGateRef = useRef(0);
   const wheelAccRef = useRef<{ x: number; y: number; gate: number }>({ x: 0, y: 0, gate: 0 });
+  const panelRef = useRef<HTMLElement | null>(null);
+  const omniRef = useRef<HTMLInputElement | null>(null);
 
   const [omni, setOmni] = useState("");
   const selectedUrl = tabs.find((t) => t.tab_id === selected)?.url ?? "";
@@ -232,6 +242,28 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
               detail: c.detail,
               source: "site",
             });
+          }
+        } else if (msg.type === "webmcp_changed") {
+          // Phase 14: the page declared/withdrew WebMCP tools (shim
+          // toolchange → CDP binding → engine pump relay). A badge of
+          // page INTENT for the human's eye — never a permission; using
+          // a declared tool still rides the access-facet gate.
+          const c = msg as { tab_id?: unknown; detail?: { count?: unknown } };
+          if (typeof c.tab_id === "string") {
+            setWebmcpCount(c.tab_id, typeof c.detail?.count === "number" ? c.detail.count : 0);
+          }
+        } else if (msg.type === "session_name") {
+          // The engine relayed a human-facing session name
+          // (browser_session_name). Apply only when the frame names THIS
+          // conversation's session — another chat naming its browser
+          // turn must not relabel this panel.
+          const c = msg as { session_id?: unknown; name?: unknown };
+          if (
+            typeof c.name === "string" &&
+            c.name.trim() &&
+            c.session_id === sessionRef.current
+          ) {
+            setSessionName(c.name.trim());
           }
         }
       },
@@ -439,6 +471,65 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
     [act],
   );
 
+  /* ── Phase 14: panel keyboard shortcuts ──────────────────────────────── */
+  // The reference wires these as Electron global accelerators; Ruke's
+  // panel is a DOM surface inside a web page, so the [adapted] equivalent
+  // is a PANEL-SCOPED capture-phase listener: the chord acts before the
+  // screencast stage or omnibox see the keydown, and stopPropagation
+  // keeps a panel-owned chord from also reaching the page (a real browser
+  // never hands Ctrl+T to the page either). resolvePanelShortcut claims
+  // ONLY the exact chords implemented — everything else falls through.
+  const runShortcut = useCallback(
+    (action: PanelShortcutAction) => {
+      switch (action) {
+        case "focus_omnibox": {
+          const el = omniRef.current;
+          if (el) {
+            el.focus();
+            el.select();
+          }
+          break;
+        }
+        case "reload":
+          if (selected) void tabCmd("navigate_tab_reload", selected);
+          break;
+        case "nav_back":
+          if (selected) void tabCmd("navigate_tab_back", selected);
+          break;
+        case "nav_forward":
+          if (selected) void tabCmd("navigate_tab_forward", selected);
+          break;
+        case "new_tab":
+          void openTab();
+          break;
+        case "close_tab":
+          if (selected) void tabCmd("tab_close", selected);
+          break;
+      }
+    },
+    [selected, tabCmd, openTab],
+  );
+
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || !open) return;
+    const onKey = (ev: KeyboardEvent) => {
+      const action = resolvePanelShortcut({
+        key: ev.key,
+        ctrlKey: ev.ctrlKey,
+        metaKey: ev.metaKey,
+        altKey: ev.altKey,
+        shiftKey: ev.shiftKey,
+      });
+      if (!action) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      runShortcut(action);
+    };
+    el.addEventListener("keydown", onKey, true);
+    return () => el.removeEventListener("keydown", onKey, true);
+  }, [open, runShortcut]);
+
   /* ── pointer input (mapped through the contain-fit letterbox) ──────── */
   // React's synthetic events do NOT carry offsetX/offsetY (only the
   // native event does) — read the nativeEvent for the geometry.
@@ -566,9 +657,14 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
   const frame = selected ? frames[selected] : undefined;
 
   return (
-    <aside className="bp-panel" role="complementary" aria-label="Browser panel">
+    <aside ref={panelRef} className="bp-panel" role="complementary" aria-label="Browser panel">
       <header className="bp-head">
-        <span className="bp-title">Browser</span>
+        <span
+          className="bp-title"
+          title={sessionName ? `Browser session: ${sessionName}` : "Browser"}
+        >
+          {sessionName ?? "Browser"}
+        </span>
         <span className={`bp-conn${connected ? " on" : ""}`} role="status">
           {connected ? "● live" : "○ offline"}
         </span>
@@ -589,6 +685,14 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
             onClick={() => selectTab(t.tab_id)}
           >
             <span className="bp-tab-title">{t.title || t.url || "untitled"}</span>
+            {webmcp[t.tab_id] ? (
+              <span
+                className="bp-badge"
+                title={`This page declares ${webmcp[t.tab_id]} tool(s) for agents (WebMCP) — the page's word only; Ruke still asks before using them`}
+              >
+                {webmcp[t.tab_id]}
+              </span>
+            ) : null}
             <span
               className="bp-tab-close"
               role="button"
@@ -648,8 +752,10 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
           <ShieldCheck size={14} />
         </button>
         <input
+          ref={omniRef}
           className="bp-omni"
           value={omni}
+          title="Address bar (Ctrl+L / Cmd+L to focus)"
           spellCheck={false}
           role="combobox"
           aria-expanded={suggest.length > 0}

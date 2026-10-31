@@ -748,6 +748,26 @@ pub(crate) fn gate_for(cmd: &Command) -> Option<(String, Vec<Gate>)> {
                 label: "read raw CDP events",
             }],
         ),
+        // ── WebMCP (Phase 14) ────────────────────────────────────────
+        // The reference policed WebMCP with a get-browser-webmcp-policy
+        // IPC; Ruke always installs the shim and polices USE instead:
+        // listing is a page read (access/observe — it only reveals what
+        // the page already advertises), while invoking runs PAGE-
+        // DECLARED code — acting in the page under a name a hostile
+        // page chose, so it carries an explicit label on the card.
+        Command::WebmcpListTools(p) => observe(p.tab_id.clone()),
+        Command::WebmcpInvokeTool(p) => gates(
+            p.tab_id.clone(),
+            vec![Gate {
+                facet: Facet::Access,
+                label: "run a page-declared model tool",
+            }],
+        ),
+        // site_status / site_submission_verified read Ruke's OWN policy
+        // store and engine-observed session evidence — never page
+        // content, never the network — so they deliberately fall into
+        // `_ => None` (gating them on the policy they report would
+        // deadlock the UI that manages that policy).
         _ => None,
     }
 }
@@ -773,6 +793,46 @@ mod tests {
         assert_eq!(Decision::NeverAsk.as_str(), "never_ask");
         assert!(Facet::parse("network").is_none());
         assert!(Decision::parse("ask_first").is_none());
+    }
+
+    #[test]
+    fn webmcp_use_is_gated_and_policy_reads_are_not() {
+        use crate::contract::Command;
+        use crate::schemas::{SiteQueryPayload, TabTarget, WebmcpInvokePayload};
+        let list = gate_for(&Command::WebmcpListTools(TabTarget {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+        }))
+        .expect("listing page tools is a gated page read");
+        assert_eq!(list.0, "t1");
+        assert_eq!(list.1[0].facet, Facet::Access);
+        assert_eq!(list.1[0].label, "observe page content");
+        let invoke = gate_for(&Command::WebmcpInvokeTool(WebmcpInvokePayload {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+            tool: "submit_form".into(),
+            args: None,
+        }))
+        .expect("running page-declared code is gated");
+        assert_eq!(invoke.1.len(), 1);
+        assert_eq!(invoke.1[0].facet, Facet::Access);
+        // The card states what is about to run in OUR words — the tool
+        // name is page-chosen and untrusted, the label never is.
+        assert_eq!(invoke.1[0].label, "run a page-declared model tool");
+        // Policy/evidence reads answer about the gate itself: gating
+        // them on that gate would deadlock the UI that manages it.
+        for cmd in [
+            Command::SiteStatus(SiteQueryPayload {
+                browser_id: None,
+                url: "https://x.dev/".into(),
+            }),
+            Command::SiteSubmissionVerified(SiteQueryPayload {
+                browser_id: None,
+                url: "https://x.dev/".into(),
+            }),
+        ] {
+            assert!(gate_for(&cmd).is_none(), "{cmd:?} must not gate");
+        }
     }
 
     #[test]

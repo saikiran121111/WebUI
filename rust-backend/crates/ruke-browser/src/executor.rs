@@ -337,6 +337,14 @@ impl BrowserRuntime {
                 self.session_names
                     .lock()
                     .insert(key.0.clone(), p.name.clone());
+                // Push the rename so the panel header (and any other
+                // view of this session) reflects the name whoever set
+                // it — the model, the human UI, or a later turn.
+                self.ui.event(json!({
+                    "type": "session_name",
+                    "session_id": key.0,
+                    "name": p.name,
+                }));
                 Ok(json!({ "session_id": key.0, "name": p.name }))
             }
             Command::TabCdpCall(p) => {
@@ -1074,6 +1082,154 @@ impl BrowserRuntime {
                     "skipped": skipped,
                 }))
             }
+            // ── Phase 14: WebMCP surface (page-declared tools) ────────
+            // The shim (page_runtime.rs) is installed on every attached
+            // tab. Listing enumerates metadata only — a page's handler
+            // never crosses the wire. Invoking runs PAGE-DECLARED code,
+            // so the `access`-facet gate (gate_for, "run a page-declared
+            // model tool") asks/blocks per origin on top of the
+            // ownership floor.
+            Command::WebmcpListTools(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let res = conn
+                    .call(
+                        "Runtime.evaluate",
+                        Some(json!({
+                            "expression": crate::page_runtime::WEBMCP_LIST_JS,
+                            "returnByValue": true,
+                        })),
+                        Some(&rec.cdp_session_id),
+                    )
+                    .await?;
+                let value = res.pointer("/result/value").cloned().unwrap_or(Value::Null);
+                if value
+                    .get("unavailable")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    return Err(BrowserError::WebmcpDisabled);
+                }
+                // A page that registers nothing is a success with an
+                // empty list — "this page offers no tools" is exactly
+                // the answer the model needs, not an error.
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "url": rec.url,
+                    "tools": value
+                        .get("tools")
+                        .cloned()
+                        .unwrap_or_else(|| json!([])),
+                }))
+            }
+            Command::WebmcpInvokeTool(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let args = p.args.clone().unwrap_or_else(|| json!({}));
+                let js = crate::page_runtime::webmcp_invoke_js(&p.tool, &args);
+                let res = conn
+                    .call(
+                        "Runtime.evaluate",
+                        Some(json!({
+                            "expression": js,
+                            "awaitPromise": true,
+                            "returnByValue": true,
+                        })),
+                        Some(&rec.cdp_session_id),
+                    )
+                    .await?;
+                // The page-side IIFE wraps handler throws as an
+                // ok:false envelope, so exceptionDetails only fires if
+                // the shim itself broke — echo that as the envelope too
+                // instead of failing the whole turn.
+                let value = match res.pointer("/result/value") {
+                    Some(v) => v.clone(),
+                    None => {
+                        let reason = res
+                            .pointer("/exceptionDetails/exception/description")
+                            .or_else(|| res.pointer("/exceptionDetails/text"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("the WebMCP shim raised an exception")
+                            .to_string();
+                        return Ok(json!({
+                            "tab_id": rec.tab_id,
+                            "tool": p.tool,
+                            "ok": false,
+                            "error": reason,
+                        }));
+                    }
+                };
+                if value.get("error").and_then(Value::as_str) == Some("not-registered") {
+                    return Err(crate::errors::payload_invalid(
+                        "webmcp_invoke_tool",
+                        format!(
+                            "this page has no WebMCP tool named {:?} (call \
+                             webmcp_list_tools first)",
+                            p.tool
+                        ),
+                    ));
+                }
+                if value.get("ok").and_then(Value::as_bool) != Some(true) {
+                    // The page's tool answered that it refused or
+                    // failed: the model sees the page's own answer, not
+                    // an engine-level error.
+                    return Ok(json!({
+                        "tab_id": rec.tab_id,
+                        "tool": p.tool,
+                        "ok": false,
+                        "error": value
+                            .get("error")
+                            .cloned()
+                            .unwrap_or(json!("unknown page-side failure")),
+                    }));
+                }
+                // Reference grammar: an executeTool result must be a
+                // string or null; anything else is refused with the
+                // reference's own sentence.
+                let result = &value["result"];
+                if !(result.is_string() || result.is_null()) {
+                    return Ok(json!({
+                        "tab_id": rec.tab_id,
+                        "tool": p.tool,
+                        "ok": false,
+                        "error": "WebMCP executeTool returned an invalid result.",
+                    }));
+                }
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "tool": p.tool,
+                    "ok": true,
+                    "result": result,
+                }))
+            }
+            // ── Phase 14: site status + submission-verified ───────────
+            // Both deliberately UNGATED (gate_for answers None): they
+            // read Ruke's OWN policy store / engine-observed session
+            // evidence — never page content, never the network. Gating
+            // a question about the policy on that policy would deadlock
+            // the very UI that manages it.
+            Command::SiteStatus(p) => {
+                check_browser(p.browser_id.as_deref().unwrap_or(BROWSER_ID))?;
+                let parsed = Self::parse_site_url(&p.url, "site_status")?;
+                Ok(Self::site_status_answer(&self.authority, &parsed))
+            }
+            Command::SiteSubmissionVerified(p) => {
+                check_browser(p.browser_id.as_deref().unwrap_or(BROWSER_ID))?;
+                let parsed = Self::parse_site_url(&p.url, "site_submission_verified")?;
+                let origin = crate::authority::origin_of(&parsed);
+                // Honest evidence only: the origin counts verified iff
+                // the pump OBSERVED a 2xx Document response on this
+                // browser session — never the page claiming success,
+                // never a claim persisted across browser sessions.
+                let verified_at = self.submission_verified.lock().get(&origin).cloned();
+                Ok(json!({
+                    "url": parsed.as_str(),
+                    "origin": origin,
+                    "verified_at": verified_at,
+                }))
+            }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that
             // pretends to have driven a page).
@@ -1081,6 +1237,53 @@ impl BrowserRuntime {
                 operation: other.kind().as_str().to_string(),
             }),
         }
+    }
+
+    /// Parse + scheme-floor a site-query url (Phase 14): the same
+    /// http(s)-only floor navigation enforces, as a typed refusal —
+    /// `javascript:`/`data:`/`ftp:` and relative junk never reach the
+    /// policy lookup.
+    fn parse_site_url(url: &str, command: &str) -> Result<Url, BrowserError> {
+        let parsed = Url::parse(url.trim()).map_err(|_| BrowserError::PayloadInvalid {
+            command: command.into(),
+            reason: "url must be an absolute http(s) url".into(),
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(BrowserError::PayloadInvalid {
+                command: command.into(),
+                reason: "url must be an absolute http(s) url".into(),
+            });
+        }
+        Ok(parsed)
+    }
+
+    /// The site-status answer (Phase 14, CLOSED-contract adaptation):
+    /// the reference consulted a remote site-status service (24 h cache,
+    /// `site_status_blocked`); Ruke instead answers from the human's own
+    /// saved permissions — the truth the gates actually enforce — and
+    /// says so. Never a reputation score, never a remote call.
+    fn site_status_answer(authority: &crate::authority::AuthorityStore, parsed: &Url) -> Value {
+        use crate::authority::Facet;
+        let full = parsed.as_str();
+        let host = crate::authority::registrable_host(full)
+            .unwrap_or_else(|| parsed.host_str().unwrap_or("").to_string());
+        let permissions = json!({
+            "access": authority.decision(&host, Facet::Access).as_str(),
+            "uploads": authority.decision(&host, Facet::Uploads).as_str(),
+            "downloads": authority.decision(&host, Facet::Downloads).as_str(),
+            "full_cdp_access": authority.decision(&host, Facet::FullCdpAccess).as_str(),
+            // History is browser-level: its rule lives on the global
+            // "*" row, exactly where the gate reads it.
+            "history": authority.decision("*", Facet::History).as_str(),
+        });
+        json!({
+            "url": full,
+            "host": host,
+            "permissions": permissions,
+            "note": "site status reflects the permissions you saved in Ruke \
+                     (with the access-deny floor applied); there is no \
+                     remote site-status service and no reputation score.",
+        })
     }
 
     /// Shared-tab floor: the tab must exist (stale handles fail closed)

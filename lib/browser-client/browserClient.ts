@@ -599,6 +599,13 @@ export type UiServerMessage =
       tab_id: string;
       detail?: unknown;
     }
+  // Phase 14: WebMCP tool-surface changes (engine pump relay of the
+  // page shim's `toolchange` event; `detail.count` is the page-side
+  // registry size — a page ADVISING that it offers agent tools, never
+  // a request). `session_name` mirrors a BrowserSessionName rename from
+  // any party so every view of the session shows one name.
+  | { type: "webmcp_changed"; tab_id: string; detail?: { count?: number } }
+  | { type: "session_name"; session_id: string; name: string }
   | { type: string; [k: string]: unknown };
 
 export interface SocketHandlers {

@@ -90,6 +90,13 @@ pub struct BrowserRuntime {
     pub(crate) turn_cancels: Mutex<HashMap<TurnKey, CancellationToken>>,
     /// Per-turn command counts for `MAX_COMMANDS_PER_TURN` (Phase 11).
     pub(crate) turn_command_counts: Mutex<HashMap<TurnKey, u32>>,
+    /// Site-submission evidence (Phase 14): origin → ISO-8601 stamp of
+    /// the last `2xx Document` response the engine OBSERVED on a
+    /// registered tab's session (`Network.responseReceived`). Fed by
+    /// the pump, read by `site_submission_verified`. Session-scoped on
+    /// purpose — cleared with the host, because the honest claim is
+    /// "this browser session received it", not a persistent ledger.
+    pub(crate) submission_verified: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl BrowserRuntime {
@@ -119,6 +126,7 @@ impl BrowserRuntime {
             approvals: Arc::new(crate::authority::ApprovalRegistry::new()),
             turn_cancels: Mutex::new(HashMap::new()),
             turn_command_counts: Mutex::new(HashMap::new()),
+            submission_verified: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -144,6 +152,7 @@ impl BrowserRuntime {
             self.io.clear_all();
             self.approvals.cancel_all();
             self.cancel_all_turns();
+            self.submission_verified.lock().clear();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -195,6 +204,7 @@ impl BrowserRuntime {
                 Arc::clone(&self.pw),
                 Arc::clone(&self.io),
                 Arc::clone(&self.approvals),
+                Arc::clone(&self.submission_verified),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -250,6 +260,12 @@ impl BrowserRuntime {
         // the AX registries would never observe an update.
         conn.call("Accessibility.enable", None, Some(&session_id))
             .await?;
+        // Phase 14: the Network domain backs `site_submission_verified`
+        // — the engine can only verify what it actually observes, so
+        // `Network.responseReceived` must flow on every attached tab.
+        // The pump records 2xx Document responses per origin; the
+        // replay buffer bounds the traffic.
+        conn.call("Network.enable", None, Some(&session_id)).await?;
         // Phase 12: the page-runtime annotation surface. Install the
         // `document.oai.annotation` script for every future document in
         // this tab, run it once in the already-loaded document, and add
@@ -425,6 +441,7 @@ impl BrowserRuntime {
         self.io.clear_all();
         self.approvals.cancel_all();
         self.cancel_all_turns();
+        self.submission_verified.lock().clear();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -592,6 +609,7 @@ async fn event_pump(
     pw: Arc<crate::pw::PwRegistries>,
     io: Arc<crate::io_state::IoRegistries>,
     approvals: Arc<crate::authority::ApprovalRegistry>,
+    submission_verified: Arc<Mutex<HashMap<String, String>>>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -964,6 +982,14 @@ async fn event_pump(
                     "features" => "annotation_features",
                     "mode" => "annotation_mode",
                     "controls" => "annotation_controls",
+                    // Phase 14: the page's `toolchange` mirror. The
+                    // recovered preload forwards a `webmcp_changed`
+                    // note (version-tagged) on every registration
+                    // change; the panel uses it to refresh its
+                    // "this page declares AI tools" badge. Evidence,
+                    // never permission — the tools themselves are
+                    // listed only through the gated command.
+                    "webmcp" => "webmcp_changed",
                     _ => continue,
                 };
                 let tab = registry.lock().by_session(sid).cloned();
@@ -975,10 +1001,62 @@ async fn event_pump(
                     }));
                 }
             }
+            "Network.responseReceived" => {
+                // Phase 14 (`site_submission_verified`): the ONLY
+                // submission evidence the engine can honestly claim is
+                // a document response it actually observed on a
+                // registered tab's session. Stamp the origin on a 2xx
+                // Document; the reader answers `verified_at` from this
+                // map. Registry guard is bound to a cloned local first
+                // — never held across the map write.
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let Some(origin) = submission_document_origin(&ev.params) else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if tab.is_some() {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    submission_verified.lock().insert(
+                        origin,
+                        crate::history::iso8601_from_chrome_us(crate::history::ms_to_chrome_us(
+                            now_ms,
+                        )),
+                    );
+                }
+            }
             _ => {}
         }
     }
     tracing::debug!("browser event pump ended");
+}
+
+/// From one `Network.responseReceived` payload: the origin whose
+/// DOCUMENT submission this is, if the response is a same-protocol
+/// (http/https) 2xx document. Redirects (3xx) and error statuses are
+/// deliberately not "verified" — only the final document the page
+/// rendered counts. [adapted] scope: Ruke verifies what its own
+/// attached sessions observed; the reference product additionally
+/// carries diagnostics attempt events (browserAuth §attempt schema),
+/// which Ruke's Phase-9 handoff deliberately does not model.
+fn submission_document_origin(params: &Value) -> Option<String> {
+    let resp = params.get("response")?;
+    if resp.get("type").and_then(Value::as_str) != Some("Document") {
+        return None;
+    }
+    let status = resp.get("status").and_then(Value::as_u64)?;
+    if !(200..=299).contains(&status) {
+        return None;
+    }
+    let url = url::Url::parse(resp.get("url").and_then(Value::as_str)?).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    Some(crate::authority::origin_of(&url))
 }
 
 // ── RAII turn guard (Phase 11) ─────────────────────────────────────────
@@ -1151,5 +1229,153 @@ mod tests {
         }
         assert_eq!(rt.approvals.pending_count(), 0); // answered cards leave the registry
         guard.finish().await;
+    }
+
+    // ── Phase 14: submission evidence + local site status ─────────────
+
+    #[test]
+    fn submission_evidence_needs_a_2xx_document_on_the_page_protocol() {
+        let doc200 = json!({
+            "response": { "type": "Document", "status": 200, "url": "https://app.example.com/x" }
+        });
+        assert_eq!(
+            submission_document_origin(&doc200).as_deref(),
+            Some("https://app.example.com")
+        );
+        // Port-carrying origins keep the port (origin floor grammar).
+        let ported = json!({
+            "response": { "type": "Document", "status": 201, "url": "http://localhost:3210/done" }
+        });
+        assert_eq!(
+            submission_document_origin(&ported).as_deref(),
+            Some("http://localhost:3210")
+        );
+        // A redirect is not a received document…
+        let redirect = json!({
+            "response": { "type": "Document", "status": 302, "url": "https://app.example.com/" }
+        });
+        assert_eq!(submission_document_origin(&redirect), None);
+        // …nor is an error page, nor a subresource, nor a non-web scheme.
+        for params in [
+            json!({ "response": { "type": "Document", "status": 404, "url": "https://x.dev/" } }),
+            json!({ "response": { "type": "XHR", "status": 200, "url": "https://x.dev/api" } }),
+            json!({ "response": { "type": "Document", "status": 200, "url": "file:///c:/x.html" } }),
+            json!({ "response": { "type": "Document", "status": 200 } }),
+            json!({}),
+        ] {
+            assert_eq!(submission_document_origin(&params), None, "got {params:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn site_status_answers_from_saved_permissions_not_a_remote_service() {
+        let (_dir, rt) = runtime();
+        let ask = rt
+            .command(
+                "s",
+                "u",
+                &crate::contract::Command::SiteStatus(crate::schemas::SiteQueryPayload {
+                    browser_id: None,
+                    url: "https://www.example.com/board".into(),
+                }),
+            )
+            .await
+            .expect("site_status answers without a live host");
+        assert_eq!(ask["host"], "example.com");
+        // Nothing saved yet: every facet answers the honest effective
+        // default, and the browser-level history facet reads the global
+        // "*" row (also unset ⇒ always_ask).
+        for facet in [
+            "access",
+            "uploads",
+            "downloads",
+            "full_cdp_access",
+            "history",
+        ] {
+            assert_eq!(ask["permissions"][facet], "always_ask", "facet {facet}");
+        }
+        rt.policy_set("example.com", "access", "deny").unwrap();
+        rt.policy_set("*", "history", "never_ask").unwrap();
+        let ans = rt
+            .command(
+                "s",
+                "u",
+                &crate::contract::Command::SiteStatus(crate::schemas::SiteQueryPayload {
+                    browser_id: None,
+                    url: "https://www.example.com/board".into(),
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ans["host"], "example.com");
+        assert_eq!(ans["permissions"]["access"], "deny");
+        // An access-deny is the site-wide effective floor — every other
+        // facet on that host answers deny too (the same cascade the gate
+        // itself applies), and history reads the global row.
+        assert_eq!(ans["permissions"]["uploads"], "deny");
+        assert_eq!(ans["permissions"]["history"], "never_ask");
+        // Closed contract, spelled out in the answer itself.
+        assert!(ans["note"]
+            .as_str()
+            .unwrap()
+            .contains("no remote site-status service"));
+        // Non-web schemes and relative junk are typed refusals.
+        for bad in ["javascript:alert(1)", "not a url", "ftp://x.dev/"] {
+            let err = rt
+                .command(
+                    "s",
+                    "u",
+                    &crate::contract::Command::SiteStatus(crate::schemas::SiteQueryPayload {
+                        browser_id: None,
+                        url: bad.into(),
+                    }),
+                )
+                .await
+                .expect_err("site_status must refuse non-web urls");
+            assert!(
+                matches!(err, BrowserError::PayloadInvalid { .. }),
+                "got {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn site_submission_verified_answers_observed_evidence_or_none() {
+        let (_dir, rt) = runtime();
+        rt.submission_verified.lock().insert(
+            "https://app.example.com".into(),
+            "2026-10-31T00:00:00Z".into(),
+        );
+        let ans = rt
+            .command(
+                "s",
+                "u",
+                &crate::contract::Command::SiteSubmissionVerified(
+                    crate::schemas::SiteQueryPayload {
+                        browser_id: None,
+                        url: "https://app.example.com/thank-you".into(),
+                    },
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ans["origin"], "https://app.example.com");
+        assert_eq!(ans["verified_at"], "2026-10-31T00:00:00Z");
+        // An origin nobody submitted to this session: honest null,
+        // never a guessed "yes".
+        let ans = rt
+            .command(
+                "s",
+                "u",
+                &crate::contract::Command::SiteSubmissionVerified(
+                    crate::schemas::SiteQueryPayload {
+                        browser_id: None,
+                        url: "https://never.example/".into(),
+                    },
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(ans["verified_at"].is_null());
     }
 }
