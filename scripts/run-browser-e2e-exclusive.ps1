@@ -23,7 +23,11 @@ param(
         "tests/browser-medium.spec.ts",
         "tests/browser-hard.spec.ts"
     ),
-    [int]$AppWaitSeconds = 240
+    [int]$AppWaitSeconds = 240,
+    # Optional Playwright `-g` pattern — used to run ONE real-model journey
+    # per exclusive invocation (plan rows 19–24: one blocking invocation
+    # each, full idle between).
+    [string]$Grep = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -130,8 +134,15 @@ try {
     }
 
     # ── Playwright, foreground; artifacts preserved by the config ────────
-    Write-Output "Playwright starting: test files = $($TestFiles -join ', ')"
-    & npx.cmd playwright test @TestFiles
+    # (PS 5.1 has no ternary — build the suffix the old way.)
+    $grepNote = ""
+    if ($Grep -ne "") { $grepNote = " grep = $Grep" }
+    Write-Output "Playwright starting: test files = $($TestFiles -join ', ')$grepNote"
+    if ($Grep -ne "") {
+        & npx.cmd playwright test -g $Grep @TestFiles
+    } else {
+        & npx.cmd playwright test @TestFiles
+    }
     $testExit = $LASTEXITCODE
     Write-Output "Playwright exit code: $testExit"
 }
