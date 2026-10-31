@@ -68,7 +68,17 @@ try {
 } catch [System.IO.FileAlreadyExistsException] {
     throw "Another Playwright session owns the test lock: $lockPath"
 }
-$lockStream.Write([System.Text.Encoding]::UTF8.GetBytes("PID=$PID Started=$((Get-Date).ToString('o'))"))
+# NOTE: build the lock text in a separate statement — PS 5.1 mis-parses
+# nested `ToString('o')` interpolation inside GetBytes(...) and the script
+# dies AFTER the exclusive handle is held, stranding the lock file.
+try {
+    $lockText = "PID=$PID Started=" + (Get-Date).ToString('o')
+    $lockStream.Write([System.Text.Encoding]::UTF8.GetBytes($lockText))
+} catch {
+    $lockStream.Dispose()
+    Remove-Item -Path $lockPath -Force -ErrorAction SilentlyContinue
+    throw
+}
 $lockStream.Dispose()
 Write-Output "Playwright lock acquired: $lockPath"
 
