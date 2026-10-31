@@ -140,6 +140,10 @@ pub struct LaunchedHost {
     pub writer: JoinHandle<()>,
     pub reader: JoinHandle<()>,
     pub initial_page_targets: Vec<InitialPageTarget>,
+    /// Whether this host launched headless (`RUKE_BROWSER_HEADED`
+    /// unset ⇒ true). Read by `browser_visibility_get` (Phase 15):
+    /// a headless host has no OS window anyone can see.
+    pub headless: bool,
 }
 
 impl LaunchedHost {
@@ -242,6 +246,7 @@ impl LaunchedHost {
             writer: opened.writer,
             reader: opened.reader,
             initial_page_targets,
+            headless: cfg.headless,
         })
     }
 

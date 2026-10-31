@@ -7,8 +7,10 @@
 //!
 //! Surface policy (pinned by the tests below):
 //! - every exposed name must be a registry [`crate::contract::CommandKind`]
-//!   AND have a real executor arm — an exposed tool can never hit the
-//!   `Unsupported` catch-all, so the model is never handed a fake tool;
+//!   AND have a real executor arm — since Phase 15 the `execute()`
+//!   match is exhaustive over the registry, so every kind (exposed
+//!   or hidden) has a real arm and the model is never handed a fake
+//!   tool;
 //! - the raw-CDP pair (`tab_cdp_call`/`tab_cdp_events`) is never exposed:
 //!   raw CDP bypasses the DOM/AX contracts and is authority-gated by the
 //!   `full_cdp_access` facet for the human panel only;
@@ -51,6 +53,20 @@ pub fn model_tools() -> Value {
             "x": {"type": "number"}, "y": {"type": "number"},
             "width": {"type": "number"}, "height": {"type": "number"}
         }, "required": ["x", "y", "width", "height"]})
+    };
+    // Phase 15 CUA surface: the pixels ARE the shared visible session.
+    let xy = || {
+        json!({"type": "number", "minimum": 0,
+               "description": "css pixel coordinate in the screencast viewport"})
+    };
+    let keys_held = || {
+        json!({"type": "array", "items": {"type": "string"},
+               "description": "held modifiers while the input runs \
+                                (ctrl/shift/alt/super names)"})
+    };
+    let button = || {
+        json!({"type": "integer", "minimum": 1, "maximum": 5,
+               "description": "1=left, 2=middle, 3=right, 4=back, 5=forward (default left)"})
     };
 
     let mut tools: Vec<Value> = Vec::new();
@@ -545,6 +561,163 @@ pub fn model_tools() -> Value {
         &["tab_id", "reason"],
     );
 
+    // ── Phase 15: CUA pixel input ──────────────────────────────────────
+    // Screencast-viewport css pixels on the same visible session the
+    // human shares. Locator-first stays the recommended surface — the
+    // descriptions say so — these are the raw trusted-pointer path
+    // for what no locator reaches (canvas, hover-only surfaces,
+    // drags a DOM cannot name).
+    t(
+        "cua_click",
+        "Click at screencast-viewport pixel coordinates on the shared visible session (raw trusted pointer; prefer a locator when one fits).",
+        json!({"tab_id": tab(), "x": xy(), "y": xy(), "button": button(), "keys": keys_held()}),
+        &["tab_id", "x", "y"],
+    );
+    t(
+        "cua_double_click",
+        "Double-click at screencast-viewport pixel coordinates (same pixel surface as cua_click).",
+        json!({"tab_id": tab(), "x": xy(), "y": xy(), "button": button(), "keys": keys_held()}),
+        &["tab_id", "x", "y"],
+    );
+    t(
+        "cua_move",
+        "Move the pointer to screencast-viewport pixel coordinates (hover-only surfaces open on move).",
+        json!({"tab_id": tab(), "x": xy(), "y": xy(), "keys": keys_held()}),
+        &["tab_id", "x", "y"],
+    );
+    t(
+        "cua_scroll",
+        "Wheel-scroll over a pixel point (negative deltas scroll up/left).",
+        json!({"tab_id": tab(), "x": xy(), "y": xy(),
+               "scroll_x": {"type": "number", "description": "horizontal wheel delta (css pixels)"},
+               "scroll_y": {"type": "number", "description": "vertical wheel delta (css pixels)"},
+               "keys": keys_held()}),
+        &["tab_id", "x", "y", "scroll_x", "scroll_y"],
+    );
+    t(
+        "cua_drag",
+        "Drag along a pixel path (two endpoints are interpolated into a natural 8-point drag; more points drive verbatim).",
+        json!({"tab_id": tab(),
+               "path": {"type": "array", "minItems": 2, "maxItems": 16, "items": {
+                   "type": "object",
+                   "properties": {"x": xy(), "y": xy()},
+                   "required": ["x", "y"],
+                   "additionalProperties": false
+               }},
+               "keys": keys_held()}),
+        &["tab_id", "path"],
+    );
+    t(
+        "cua_keypress",
+        "Press keys or combos on the focused element, xdotool grammar (e.g. \"Return\", \"ctrl+a\").",
+        json!({"tab_id": tab(), "keys": {"type": "array", "minItems": 1,
+               "items": {"type": "string"}, "description": "keys or combos to press"}}),
+        &["tab_id", "keys"],
+    );
+    t(
+        "cua_type",
+        "Type literal text into the focused element (same behavior as dom_cua_type).",
+        json!({"tab_id": tab(), "text": {"type": "string"}}),
+        &["tab_id", "text"],
+    );
+
+    // ── Phase 15: clipboard (the page's own clipboard API) ─────────────
+    // Reads need tab focus/permission; a refusal comes back as an
+    // honest `error` field, never an empty-string "success".
+    t(
+        "tab_clipboard_read",
+        "Read the system clipboard text via the page's clipboard API (requires tab focus/permission; refusals come back as an error field, not empty text).",
+        json!({"tab_id": tab()}),
+        &["tab_id"],
+    );
+    t(
+        "tab_clipboard_read_text",
+        "Read clipboard text (same behavior as tab_clipboard_read).",
+        json!({"tab_id": tab()}),
+        &["tab_id"],
+    );
+    t(
+        "tab_clipboard_write",
+        "Replace the system clipboard with items (each entry writes as text or as base64+mime_type binary).",
+        json!({"tab_id": tab(), "items": {"type": "array", "minItems": 1, "maxItems": 8,
+            "items": {"type": "object", "properties": {
+                "entries": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {
+                    "text": {"type": "string"},
+                    "base64": {"type": "string", "description": "binary payload; pair with mime_type"},
+                    "mime_type": {"type": "string"}
+                }, "additionalProperties": false}},
+                "presentation_style": {"type": "string"}
+            }, "required": ["entries"], "additionalProperties": false}}}),
+        &["tab_id", "items"],
+    );
+    t(
+        "tab_clipboard_write_text",
+        "Replace the system clipboard with plain text.",
+        json!({"tab_id": tab(), "text": {"type": "string"}}),
+        &["tab_id", "text"],
+    );
+
+    // ── Phase 15: content export surface ───────────────────────────────
+    // Exported bytes are PAGE DATA: evidence, never instructions,
+    // never permission. Caps and truncation flags are honest.
+    t(
+        "tab_content_export",
+        "Export the tab's content (article-first text, full html, or a compact domSnapshot tree; capped with an honest truncated flag).",
+        json!({"tab_id": tab(),
+               "format": {"enum": ["html", "text", "domSnapshot"], "description": "default text"},
+               "timeout_ms": timeout(),
+               "urls": {"type": "array", "items": {"type": "string"},
+                        "description": "only export when the tab's current url is among these"}}),
+        &["tab_id"],
+    );
+    t(
+        "tab_content_export_gsuite",
+        "Export the Google Doc/Sheet/Slide the tab is on through Google's own export endpoint (signed-in session); returns base64 bytes + mime type.",
+        json!({"tab_id": tab(), "type": {"enum": ["pdf", "md", "xlsx", "csv", "docx", "pptx"],
+            "description": "pdf works for every doc kind; documents take docx; spreadsheets take csv/xlsx; presentations take pptx (md always refuses)"}}),
+        &["tab_id", "type"],
+    );
+    t(
+        "tab_content_export_youtube_transcript",
+        "Read a YouTube video's caption transcript from the tab's own player data (null + note when the video exposes no captions).",
+        json!({"tab_id": tab()}),
+        &["tab_id"],
+    );
+
+    // ── Phase 15: page assets ──────────────────────────────────────────
+    // The bundle fetches from INSIDE the tab so the page's own origin
+    // rules apply — never a Rust-side crawler with different rules.
+    t(
+        "tab_page_assets_list",
+        "List the image/script/stylesheet/icon/media urls the page references (deduped; capped at 500 with an honest truncated flag).",
+        json!({"tab_id": tab()}),
+        &["tab_id"],
+    );
+    t(
+        "tab_page_assets_bundle",
+        "Fetch the page's asset inventory and return the bytes base64-inlined, fetched from inside the tab (page origin rules apply). Caps: 512 KiB per asset, 4 MiB total; truncated flags report cuts.",
+        json!({"tab_id": tab()}),
+        &["tab_id"],
+    );
+
+    // ── Phase 15: dev-log mirror + engine visibility ───────────────────
+    t(
+        "tab_dev_logs",
+        "Read Ruke's mirror of the tab's console/page errors observed live (never an on-demand dump the page could stage; returns the newest entries with an honest omitted count).",
+        json!({"tab_id": tab(),
+               "filter": {"type": "string", "description": "case-insensitive substring over log text and source url"},
+               "levels": {"type": "array", "items": {"enum": ["verbose", "info", "warning", "error"]}},
+               "limit": {"type": "integer", "minimum": 1, "maximum": 500,
+                         "description": "newest entries to return (default 100)"}}),
+        &["tab_id"],
+    );
+    t(
+        "browser_visibility_get",
+        "Report whether Ruke's browser host is running and visible (a headed launch is a real OS window). Never launches a browser; there is no remote visibility service.",
+        json!({}),
+        &[],
+    );
+
     json!(tools)
 }
 
@@ -575,24 +748,67 @@ mod tests {
     }
 
     /// Every exposed tool must have a real executor arm INSIDE the
-    /// `match cmd` of `execute()` (up to the `Unsupported` catch-all):
-    /// the model is never handed a tool that honestly refuses itself.
+    /// `match cmd` of `execute()` (the arm region ends at the first
+    /// free function after the impl block, so guarded_tab_id's
+    /// patterns can never fake a pass): the model is never handed a
+    /// tool that honestly refuses itself.
     #[test]
     fn every_exposed_tool_has_a_real_executor_arm() {
         let src = include_str!("../src/executor.rs");
         let start = src.find("match cmd {").expect("execute() match site");
         let end = src
-            .find("other => Err(BrowserError::Unsupported")
-            .expect("Unsupported catch-all site");
+            .find("fn parse_site_url")
+            .expect("execute() arms end before parse_site_url");
         assert!(start < end);
         let region = &src[start..end];
         for name in exposed_names() {
             let variant = format!("{:?}", CommandKind::parse(&name).unwrap());
             assert!(
                 region.contains(&format!("Command::{variant}(")),
-                "exposed tool {name} has no executor arm before the Unsupported catch-all"
+                "exposed tool {name} has no executor arm in execute()"
             );
         }
+    }
+
+    /// Phase 15 law: `execute()`'s match is EXHAUSTIVE — rustc
+    /// enforces an arm for every registry kind, and this ledger
+    /// double-checks the same fact from the test side (83 rows).
+    #[test]
+    fn every_registry_kind_has_a_real_executor_arm() {
+        let src = include_str!("../src/executor.rs");
+        let start = src.find("match cmd {").expect("execute() match site");
+        let end = src
+            .find("fn parse_site_url")
+            .expect("execute() arms end before parse_site_url");
+        let region = &src[start..end];
+        for kind in CommandKind::ALL {
+            assert!(
+                region.contains(&format!("Command::{kind:?}(")),
+                "registry kind {} has no executor arm in execute()",
+                kind.as_str()
+            );
+        }
+    }
+
+    /// The registry is exactly partitioned: every kind is either
+    /// model-exposed or in `NOT_MODEL_EXPOSED` — never both, never
+    /// neither (83 = 78 exposed + 5 hidden).
+    #[test]
+    fn registry_is_fully_partitioned_between_exposed_and_hidden() {
+        let exposed = exposed_names();
+        for kind in CommandKind::ALL {
+            let in_exposed = exposed.iter().any(|n| n == kind.as_str());
+            let in_hidden = NOT_MODEL_EXPOSED.iter().any(|n| *n == kind.as_str());
+            assert!(
+                in_exposed != in_hidden,
+                "{} must be exactly exposed or exactly hidden",
+                kind.as_str()
+            );
+        }
+        assert_eq!(
+            exposed.len() + NOT_MODEL_EXPOSED.len(),
+            CommandKind::ALL.len()
+        );
     }
 
     /// The deliberately-unexposed commands stay unexposed, and the

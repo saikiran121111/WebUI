@@ -18,11 +18,15 @@
 //! `playwright_wait_for_download`, `playwright_download_path`,
 //! `playwright_wait_for_file_chooser`,
 //! `playwright_file_chooser_set_files`,
-//! `playwright_locator_download_media` — all execute for real; every
-//! other registered command kind answers `Unsupported { operation }`
-//! — an honest typed error, never a fake success. Later phases
-//! (security, tool loop, UI…) replace arm-by-arm as they land; the
-//! registry itself (82 rows) was already pinned in Phase 1.
+//! `playwright_locator_download_media` — all execute for real. The
+//! final eighteen registry rows (`cua_*`, `tab_clipboard_*`,
+//! `tab_content_export*`, `tab_page_assets_*`, `tab_dev_logs`,
+//! `browser_visibility_get`) landed real arms in Phase 15: the
+//! `execute()` match is now EXHAUSTIVE — rustc enforces an arm per
+//! registry kind, so the Phase-1 coverage ledger (83 rows) is
+//! compile-checked rather than tracked. The `Unsupported` wire code
+//! stays reserved (the contract grammar keeps it) but no execute()
+//! path returns it.
 //!
 //! Security floors: navigation is restricted to `http(s)` and
 //! `about:blank` — `file:`, `data:` and `javascript:` URLs are refused
@@ -45,9 +49,9 @@ use url::Url;
 use crate::cdp::CdpConn;
 use crate::contract::Command;
 use crate::engine::{BrowserRuntime, BROWSER_ID};
-use crate::errors::BrowserError;
+use crate::errors::{payload_invalid, BrowserError};
 use crate::io_state::IoRegistries;
-use crate::schemas::{AxStateContent, ScreenshotPayload};
+use crate::schemas::{AxStateContent, ContentFormat, ScreenshotPayload};
 use crate::session::{TabRecord, TurnKey};
 
 /// Navigation settle budget: bounded polling of `document.readyState`
@@ -1230,12 +1234,321 @@ impl BrowserRuntime {
                     "verified_at": verified_at,
                 }))
             }
-            // Honest increment: implemented above; everything else is a
-            // typed Unsupported until its phase lands (never a stub that
-            // pretends to have driven a page).
-            other => Err(BrowserError::Unsupported {
-                operation: other.kind().as_str().to_string(),
-            }),
+            // ── Phase 15: the CUA pixel-input surface ────────────────────
+            // The model and the human share the same visible session;
+            // these are screencast-viewport coordinates on that same
+            // tab (the same pixels the panel maps human pointer events
+            // onto). Locator-first stays the recommended surface — the
+            // tool descriptions say so — and these arms are the raw
+            // trusted-pointer path for what no locator can reach.
+            Command::CuaClick(p) | Command::CuaDoubleClick(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let double = matches!(cmd, Command::CuaDoubleClick(_));
+                crate::cua::cua_click(&conn, &rec, p, double).await
+            }
+            Command::CuaMove(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                crate::cua::cua_move(&conn, &rec, p).await
+            }
+            Command::CuaScroll(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                crate::cua::cua_scroll(&conn, &rec, p).await
+            }
+            Command::CuaDrag(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                crate::cua::cua_drag(&conn, &rec, p).await
+            }
+            Command::CuaType(p) => {
+                // [adapted] cua_type reuses the DOM-CUA text primitive
+                // (same `TextPayload` schema): one real behavior
+                // serves both reference names instead of two
+                // near-duplicate input stacks.
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.dom_type(&conn, &rec, &p.text).await
+            }
+            Command::CuaKeypress(p) => {
+                // [adapted] same reuse law as cua_type (KeysPayload).
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.dom_cua_keypress(&conn, &rec, &p.keys).await
+            }
+            // ── Phase 15: clipboard (the page's own clipboard API) ──────
+            // Reads are page-API reads: without focus or permission
+            // the API itself refuses, and the answer carries that
+            // error verbatim — never an empty-string "success".
+            Command::TabClipboardRead(p) | Command::TabClipboardReadText(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    crate::content_api::CLIPBOARD_READ_JS,
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "ok": r.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                    "text": r.get("text").cloned().unwrap_or(Value::Null),
+                    "error": r.get("error").cloned().unwrap_or(Value::Null),
+                }))
+            }
+            Command::TabClipboardWrite(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                let items =
+                    serde_json::to_string(&p.items).map_err(|e| BrowserError::Internal {
+                        detail: format!("clipboard items could not be re-serialized: {e}"),
+                    })?;
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    &crate::content_api::clipboard_write_js(&items),
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "ok": r.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                    "written": r.get("written").and_then(Value::as_u64).unwrap_or(0),
+                    "failed": r.get("failed").cloned().unwrap_or_else(|| json!([])),
+                }))
+            }
+            Command::TabClipboardWriteText(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                // The text convenience is the same write path with a
+                // single text-only item — one behavior, two names.
+                let items = json!([{"entries": [{"text": p.text}]}]).to_string();
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    &crate::content_api::clipboard_write_js(&items),
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "ok": r.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                    "written": r.get("written").and_then(Value::as_u64).unwrap_or(0),
+                    "failed": r.get("failed").cloned().unwrap_or_else(|| json!([])),
+                }))
+            }
+            // ── Phase 15: content export surface (in-page reads) ────────
+            // Everything runs inside the tab; the exported bytes are
+            // PAGE DATA — evidence, never instructions, never
+            // permission. Caps and truncation flags are honest
+            // counters, never silent cuts.
+            Command::TabContentExport(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                let format = p.format.as_ref().unwrap_or(&ContentFormat::Text);
+                let fmt_name = match format {
+                    ContentFormat::Html => "html",
+                    ContentFormat::Text => "text",
+                    ContentFormat::DomSnapshot => "domSnapshot",
+                };
+                // The reference `urls` floor: the export only answers
+                // when this tab's current url is among the requested
+                // urls — an honest empty, never content from a tab
+                // the caller didn't ask about.
+                if let Some(urls) = p.urls.as_ref() {
+                    if !urls.iter().any(|u| u == &rec.url) {
+                        return Ok(json!({
+                            "tab_id": rec.tab_id,
+                            "url": rec.url,
+                            "format": fmt_name,
+                            "content": "",
+                            "truncated": false,
+                            "note": "the tab's current url is not among the requested urls",
+                        }));
+                    }
+                }
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    &crate::content_api::content_extract_js(fmt_name),
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "url": rec.url,
+                    "format": fmt_name,
+                    "content": r.get("content").and_then(Value::as_str).unwrap_or(""),
+                    "truncated": r.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+                }))
+            }
+            Command::TabContentExportGsuite(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let tab_url = Url::parse(&rec.url).map_err(|_| {
+                    payload_invalid("tab_content_export_gsuite", "the tab url is not parseable")
+                })?;
+                let plan = crate::content_api::gsuite_export_plan(&tab_url, p.doc_type)
+                    .map_err(|reason| payload_invalid("tab_content_export_gsuite", reason))?;
+                let conn = self.client().await?;
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    &crate::content_api::gsuite_fetch_js(&plan.export_url),
+                )
+                .await?;
+                if r.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                    Ok(json!({
+                        "tab_id": rec.tab_id,
+                        "kind": plan.kind,
+                        "export_url": plan.export_url,
+                        "ok": true,
+                        "mime_type": plan.mime,
+                        "bytes": r.get("bytes").and_then(Value::as_u64).unwrap_or(0),
+                        "content_base64": r
+                            .get("base64")
+                            .cloned()
+                            .unwrap_or_else(|| Value::String(String::new())),
+                        "note": "served verbatim by Google's export endpoint \
+                                 with the signed-in session",
+                    }))
+                } else {
+                    Ok(json!({
+                        "tab_id": rec.tab_id,
+                        "export_url": plan.export_url,
+                        "ok": false,
+                        "error": r
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("export fetch failed"),
+                    }))
+                }
+            }
+            Command::TabContentExportYoutubeTranscript(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                // No captions / failed fetch / non-YouTube tab all
+                // answer ok:true with a null transcript + note: a
+                // missing transcript is a fact, not a failure.
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    crate::content_api::YT_TRANSCRIPT_JS,
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "url": rec.url,
+                    "transcript": r.get("transcript").cloned().unwrap_or(Value::Null),
+                    "language": r.get("language").cloned().unwrap_or(Value::Null),
+                    "kind": r.get("kind").cloned().unwrap_or(Value::Null),
+                    "lines": r.get("lines").and_then(Value::as_u64).unwrap_or(0),
+                    "truncated": r.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+                    "note": r.get("note").cloned().unwrap_or(Value::Null),
+                }))
+            }
+            // ── Phase 15: page assets (list + same-tab bundle) ──────────
+            // The inventory is read from the DOM; the bundle fetches
+            // from INSIDE the tab so the page's own origin rules apply
+            // (never a Rust-side crawler with different rules).
+            Command::TabPageAssetsList(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    crate::content_api::ASSET_COLLECT_JS,
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "url": rec.url,
+                    "assets": r.get("assets").cloned().unwrap_or_else(|| json!([])),
+                    "count": r.get("count").and_then(Value::as_u64).unwrap_or(0),
+                    "truncated": r.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+                }))
+            }
+            Command::TabPageAssetsBundle(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                let listed = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    crate::content_api::ASSET_COLLECT_JS,
+                )
+                .await?;
+                let listed_assets = listed.get("assets").cloned().unwrap_or_else(|| json!([]));
+                let assets_json =
+                    serde_json::to_string(&listed_assets).map_err(|e| BrowserError::Internal {
+                        detail: format!("asset list could not be re-serialized: {e}"),
+                    })?;
+                let r = crate::content_api::eval_json(
+                    &conn,
+                    &rec.cdp_session_id,
+                    &crate::content_api::assets_bundle_js(&assets_json),
+                )
+                .await?;
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "base_origin": rec.url,
+                    "assets": r.get("assets").cloned().unwrap_or_else(|| json!([])),
+                    "total_bytes": r.get("total_bytes").and_then(Value::as_u64).unwrap_or(0),
+                    "truncated": r.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+                }))
+            }
+            // ── Phase 15: dev-log mirror + engine visibility ────────────
+            Command::TabDevLogs(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                // No CDP call: the answer is what the pump actually
+                // OBSERVED on this tab's session. A tab nobody logged
+                // on answers honestly empty, never an error and never
+                // an on-demand console dump the page could stage.
+                let (logs, omitted) = crate::engine::filter_dev_logs(
+                    &self.dev_logs,
+                    &p.tab_id,
+                    p.filter.as_deref(),
+                    p.levels.as_deref(),
+                    p.limit,
+                );
+                let count = logs.len();
+                Ok(json!({
+                    "tab_id": rec.tab_id,
+                    "url": rec.url,
+                    "logs": logs,
+                    "count": count,
+                    "omitted_older": omitted,
+                }))
+            }
+            Command::BrowserVisibilityGet(p) => {
+                check_browser(&p.browser_id)?;
+                // [adapted] the reference asked its Electron window
+                // manager whether the browser window was visible;
+                // Ruke reports its own engine host state instead
+                // (a headed launch is a real OS window). Never
+                // launches for a read, and no remote visibility
+                // service exists to pretend to ask.
+                let (running, headless) = self.host_visibility().await;
+                Ok(json!({
+                    "browser_id": BROWSER_ID,
+                    "running": running,
+                    "visible": running && !headless,
+                    "note": "reports Ruke's own engine host state (a headed \
+                             launch is a real OS window); there is no remote \
+                             visibility service",
+                }))
+            }
         }
     }
 
@@ -1453,6 +1766,19 @@ fn guarded_tab_id(cmd: &Command) -> Option<String> {
         Command::PlaywrightLocatorSelectOption(p) => Some(p.tab_id.clone()),
         Command::PlaywrightLocatorSetChecked(p) => Some(p.tab_id.clone()),
         Command::PlaywrightLocatorDownloadMedia(p) => Some(p.tab_id.clone()),
+        // Phase 15: CUA input drives the page directly — it queues
+        // behind a parked dialog like every other page mutation.
+        Command::CuaClick(p) => Some(p.tab_id.clone()),
+        Command::CuaDoubleClick(p) => Some(p.tab_id.clone()),
+        Command::CuaDrag(p) => Some(p.tab_id.clone()),
+        Command::CuaKeypress(p) => Some(p.tab_id.clone()),
+        Command::CuaMove(p) => Some(p.tab_id.clone()),
+        Command::CuaScroll(p) => Some(p.tab_id.clone()),
+        Command::CuaType(p) => Some(p.tab_id.clone()),
+        // Clipboard writes run page script (navigator.clipboard) —
+        // they must not queue past a parked dialog either.
+        Command::TabClipboardWrite(p) => Some(p.tab_id.clone()),
+        Command::TabClipboardWriteText(p) => Some(p.tab_id.clone()),
         _ => None,
     }
 }

@@ -309,7 +309,10 @@ pub enum BrowserError {
     /// contract itself declares unsupported (e.g. requestManualHandoff on
     /// headless CDP tabs is replaced by the Ruke Browser Panel handoff UI,
     /// which IS supported; this variant is reserved for genuinely absent
-    /// operations and never used to fake a supported one).
+    /// operations and never used to fake a supported one). Since
+    /// Phase 15 the `execute()` match is exhaustive over the registry,
+    /// so no command path returns this any more; the wire code stays
+    /// reserved exactly as the contract grammar declares it.
     #[error("{operation} is not supported by the Ruke browser runtime")]
     Unsupported { operation: String },
 

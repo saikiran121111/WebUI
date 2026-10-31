@@ -599,10 +599,11 @@ impl BrowserRuntime {
 /// download family asserts `downloads`, the raw CDP pair asserts
 /// `full_cdp_access`. Lifecycle/ownership bookkeeping
 /// (`tabs`/`get_tab`/`tab_new`/`tab_close`/claim/marks/manual
-/// handoff) carries no page-content authority and is not gated.
-/// Unimplemented commands are deliberately NOT gated either: an
-/// approval card for a command that will answer `Unsupported` next
-/// would be theater.
+/// handoff) carries no page-content authority and is not gated. Since
+/// Phase 15 every registry command has a real arm, so there are no
+/// unimplemented commands left to skip; the remaining `_ => None`
+/// rows are reads of Ruke's OWN engine state — never page content
+/// (see the comment above the fallthrough).
 pub(crate) fn gate_for(cmd: &Command) -> Option<(String, Vec<Gate>)> {
     let gates = |tab_id: String, g: Vec<Gate>| Some((tab_id, g));
     let observe = |tab_id: String| {
@@ -763,11 +764,61 @@ pub(crate) fn gate_for(cmd: &Command) -> Option<(String, Vec<Gate>)> {
                 label: "run a page-declared model tool",
             }],
         ),
+        // ── Phase 15: CUA pixel input (actInFrame) ─────────────────
+        // Raw trusted-pointer drives on the shared visible session:
+        // the same access/act gate as every locator click, because
+        // the pixels address the very page the locators address.
+        Command::CuaClick(p) => act(p.tab_id.clone()),
+        Command::CuaDoubleClick(p) => act(p.tab_id.clone()),
+        Command::CuaDrag(p) => act(p.tab_id.clone()),
+        Command::CuaKeypress(p) => act(p.tab_id.clone()),
+        Command::CuaMove(p) => act(p.tab_id.clone()),
+        Command::CuaScroll(p) => act(p.tab_id.clone()),
+        Command::CuaType(p) => act(p.tab_id.clone()),
+        // ── Phase 15: clipboard (access, explicit labels) ──────────
+        // The system clipboard is cross-site state: the approval card
+        // says exactly what gets read or replaced — it never borrows
+        // the generic page labels for a cross-surface capability.
+        // (read pair shares `TabTarget`; the write pair does not:
+        // `ClipboardWritePayload` vs `TextPayload`, so separate arms)
+        Command::TabClipboardRead(p) | Command::TabClipboardReadText(p) => gates(
+            p.tab_id.clone(),
+            vec![Gate {
+                facet: Facet::Access,
+                label: "read the clipboard",
+            }],
+        ),
+        Command::TabClipboardWrite(p) => gates(
+            p.tab_id.clone(),
+            vec![Gate {
+                facet: Facet::Access,
+                label: "replace the clipboard contents",
+            }],
+        ),
+        Command::TabClipboardWriteText(p) => gates(
+            p.tab_id.clone(),
+            vec![Gate {
+                facet: Facet::Access,
+                label: "replace the clipboard contents",
+            }],
+        ),
+        // ── Phase 15: content exports + dev logs (observe) ─────────
+        // Page-derived reads (exported content, Google/YouTube
+        // exports, asset inventory, the console/dev-log mirror):
+        // reads, so access/observe — the bytes are evidence, never
+        // permission.
+        Command::TabContentExport(p) => observe(p.tab_id.clone()),
+        Command::TabContentExportGsuite(p) => observe(p.tab_id.clone()),
+        Command::TabContentExportYoutubeTranscript(p) => observe(p.tab_id.clone()),
+        Command::TabPageAssetsList(p) => observe(p.tab_id.clone()),
+        Command::TabPageAssetsBundle(p) => observe(p.tab_id.clone()),
+        Command::TabDevLogs(p) => observe(p.tab_id.clone()),
         // site_status / site_submission_verified read Ruke's OWN policy
-        // store and engine-observed session evidence — never page
-        // content, never the network — so they deliberately fall into
-        // `_ => None` (gating them on the policy they report would
-        // deadlock the UI that manages that policy).
+        // store and engine-observed session evidence, and
+        // browser_visibility_get reads the engine's host state — none
+        // of them touches page content or the network, so they
+        // deliberately fall into `_ => None` (gating them on the state
+        // they report would deadlock the UI that manages that state).
         _ => None,
     }
 }
@@ -833,6 +884,59 @@ mod tests {
         ] {
             assert!(gate_for(&cmd).is_none(), "{cmd:?} must not gate");
         }
+    }
+
+    #[test]
+    fn phase15_input_and_read_commands_are_gated_by_surface() {
+        use crate::contract::Command;
+        use crate::schemas::{
+            BrowserOnly, CuaClickPayload, DevLogsPayload, TabTarget, TextPayload,
+        };
+        // Pixel input drives the page: the same act gate as locators.
+        let click = gate_for(&Command::CuaClick(CuaClickPayload {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+            x: 10.0,
+            y: 20.0,
+            button: None,
+            keys: None,
+        }))
+        .expect("cua pixel input is gated");
+        assert_eq!(click.0, "t1");
+        assert_eq!(click.1[0].facet, Facet::Access);
+        assert_eq!(click.1[0].label, "act in the page");
+        // Clipboard is cross-site state: its cards carry explicit
+        // labels, never the generic page wording.
+        let read_cb = gate_for(&Command::TabClipboardRead(TabTarget {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+        }))
+        .expect("clipboard read is a gated read");
+        assert_eq!(read_cb.1[0].facet, Facet::Access);
+        assert_eq!(read_cb.1[0].label, "read the clipboard");
+        let write_cb = gate_for(&Command::TabClipboardWriteText(TextPayload {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+            text: "hi".into(),
+        }))
+        .expect("clipboard write is gated");
+        assert_eq!(write_cb.1[0].label, "replace the clipboard contents");
+        // The dev-log mirror surfaces PAGE output: an observe read.
+        let logs = gate_for(&Command::TabDevLogs(DevLogsPayload {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+            filter: None,
+            levels: None,
+            limit: None,
+        }))
+        .expect("dev logs are a gated read");
+        assert_eq!(logs.1[0].label, "observe page content");
+        // Engine host state is not page content: gating the read of
+        // it on the page gate would be theater over our own process.
+        assert!(gate_for(&Command::BrowserVisibilityGet(BrowserOnly {
+            browser_id: "default".into(),
+        }))
+        .is_none());
     }
 
     #[test]

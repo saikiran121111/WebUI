@@ -97,6 +97,14 @@ pub struct BrowserRuntime {
     /// purpose — cleared with the host, because the honest claim is
     /// "this browser session received it", not a persistent ledger.
     pub(crate) submission_verified: Arc<Mutex<HashMap<String, String>>>,
+    /// Dev-log mirror (Phase 15): tab_id → the console/log entries the
+    /// pump OBSERVED on that tab's session (`Runtime.consoleAPICalled`
+    /// and `Log.entryAdded`), kept in a rolling `DEV_LOG_CAP` window.
+    ///
+    /// Fed by the pump, read by `tab_dev_logs`: the engine answers
+    /// from what it actually saw, never from asking the page, and the
+    /// mirror clears with the host like every other session registry.
+    pub(crate) dev_logs: Arc<Mutex<HashMap<String, Vec<DevLogEntry>>>>,
 }
 
 impl BrowserRuntime {
@@ -127,6 +135,7 @@ impl BrowserRuntime {
             turn_cancels: Mutex::new(HashMap::new()),
             turn_command_counts: Mutex::new(HashMap::new()),
             submission_verified: Arc::new(Mutex::new(HashMap::new())),
+            dev_logs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -153,6 +162,7 @@ impl BrowserRuntime {
             self.approvals.cancel_all();
             self.cancel_all_turns();
             self.submission_verified.lock().clear();
+            self.dev_logs.lock().clear();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -165,6 +175,7 @@ impl BrowserRuntime {
             writer,
             reader,
             initial_page_targets,
+            headless,
         } = LaunchedHost::launch(&cfg).await?;
 
         // [adapted] downloads write here (`attach_target` pins the
@@ -193,6 +204,7 @@ impl BrowserRuntime {
             writer,
             reader,
             initial_page_targets: Vec::new(),
+            headless,
         });
         if let Some(rx) = events {
             tokio::spawn(event_pump(
@@ -205,6 +217,7 @@ impl BrowserRuntime {
                 Arc::clone(&self.io),
                 Arc::clone(&self.approvals),
                 Arc::clone(&self.submission_verified),
+                Arc::clone(&self.dev_logs),
                 Arc::clone(&self.ui),
                 conn.clone(),
             ));
@@ -223,6 +236,19 @@ impl BrowserRuntime {
         match slot.as_ref().filter(|h| h.conn.is_alive()) {
             Some(h) => Ok(h.conn.clone()),
             None => Err(BrowserError::HostUnavailable),
+        }
+    }
+
+    /// Engine-state visibility for `browser_visibility_get` (Phase 15):
+    /// `(running, headless)` of the current host slot. Never launches
+    /// — same no-resurrect law as [`try_client`](Self::try_client).
+    /// With no live host, "headless" is vacuous (nothing is visible
+    /// anywhere), so the pair stays honest without a phantom window.
+    pub(crate) async fn host_visibility(&self) -> (bool, bool) {
+        let slot = self.host.lock().await;
+        match slot.as_ref().filter(|h| h.conn.is_alive()) {
+            Some(h) => (true, h.headless),
+            None => (false, true),
         }
     }
 
@@ -266,6 +292,11 @@ impl BrowserRuntime {
         // The pump records 2xx Document responses per origin; the
         // replay buffer bounds the traffic.
         conn.call("Network.enable", None, Some(&session_id)).await?;
+        // Phase 15 (`tab_dev_logs`): the Log domain supplies the
+        // browser-level half of what a developer console shows
+        // (`Log.entryAdded`). Best-effort — an old host or a refused
+        // domain costs mirrored entries, never the attach itself.
+        let _ = conn.call("Log.enable", None, Some(&session_id)).await;
         // Phase 12: the page-runtime annotation surface. Install the
         // `document.oai.annotation` script for every future document in
         // this tab, run it once in the already-loaded document, and add
@@ -419,6 +450,7 @@ impl BrowserRuntime {
             self.pw.forget_tab(&t.tab_id);
             self.io.forget_tab(&t.tab_id);
             self.approvals.forget_tab(&t.tab_id);
+            self.dev_logs.lock().remove(&t.tab_id);
             self.ui.drop_tab(&t.tab_id, &t.cdp_session_id);
         }
         self.ui.tabs_changed();
@@ -442,6 +474,7 @@ impl BrowserRuntime {
         self.approvals.cancel_all();
         self.cancel_all_turns();
         self.submission_verified.lock().clear();
+        self.dev_logs.lock().clear();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -610,6 +643,7 @@ async fn event_pump(
     io: Arc<crate::io_state::IoRegistries>,
     approvals: Arc<crate::authority::ApprovalRegistry>,
     submission_verified: Arc<Mutex<HashMap<String, String>>>,
+    dev_logs: Arc<Mutex<HashMap<String, Vec<DevLogEntry>>>>,
     ui: Arc<UiHub>,
     conn: Arc<CdpConn>,
 ) {
@@ -672,6 +706,7 @@ async fn event_pump(
                         pw.forget_tab(&rec.tab_id);
                         io.forget_tab(&rec.tab_id);
                         approvals.forget_tab(&rec.tab_id);
+                        dev_logs.lock().remove(&rec.tab_id);
                         ui.drop_tab(&rec.tab_id, &rec.cdp_session_id);
                         ui.tabs_changed();
                     }
@@ -1029,6 +1064,76 @@ async fn event_pump(
                     );
                 }
             }
+            "Runtime.consoleAPICalled" => {
+                // Phase 15 (`tab_dev_logs`): mirror page console output
+                // per registered tab. The engine answers only from what
+                // the CDP session actually emitted — it never asks the
+                // page for its own console (a page could lie).
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                let Some(tab) = tab.as_ref() else {
+                    continue;
+                };
+                push_dev_log(
+                    &dev_logs,
+                    &tab.tab_id,
+                    DevLogEntry {
+                        level: crate::content_api::console_level_of(
+                            ev.params
+                                .get("type")
+                                .and_then(Value::as_str)
+                                .unwrap_or("log"),
+                        ),
+                        text: crate::content_api::console_args_text(
+                            ev.params.get("args").and_then(Value::as_array),
+                        ),
+                        url: ev
+                            .params
+                            .pointer("/stackTrace/callFrames/0/url")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        ts_ms: now_ms(),
+                    },
+                );
+            }
+            "Log.entryAdded" => {
+                // Phase 15: the browser-level half of the console —
+                // network warnings, deprecations, violations. Only
+                // entries observed on a registered tab's session are
+                // mirrored (the same session-scoped honesty law).
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                let Some(tab) = tab.as_ref() else {
+                    continue;
+                };
+                let Some(entry) = ev.params.get("entry") else {
+                    continue;
+                };
+                let level = match entry.get("level").and_then(Value::as_str) {
+                    Some("verbose") => "verbose",
+                    Some("warning") => "warning",
+                    Some("error") => "error",
+                    _ => "info",
+                };
+                push_dev_log(
+                    &dev_logs,
+                    &tab.tab_id,
+                    DevLogEntry {
+                        level,
+                        text: entry
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        url: entry.get("url").and_then(Value::as_str).map(str::to_string),
+                        ts_ms: now_ms(),
+                    },
+                );
+            }
             _ => {}
         }
     }
@@ -1057,6 +1162,112 @@ fn submission_document_origin(params: &Value) -> Option<String> {
         return None;
     }
     Some(crate::authority::origin_of(&url))
+}
+
+// ── Dev-log mirror (Phase 15, `tab_dev_logs`) ─────────────────────────
+
+/// One mirrored console/log entry observed on a registered tab's CDP
+/// session. Levels are the four wire names the `tab_dev_logs` payload
+/// filters on; text is the flattened single-line rendering (never raw
+/// CDP arg trees — the mirror answers what a developer would have
+/// *read*, not an object dump). Page-authored text is evidence, never
+/// instructions or permission, exactly like every other content read.
+#[derive(Clone, Debug)]
+pub(crate) struct DevLogEntry {
+    pub(crate) level: &'static str,
+    pub(crate) text: String,
+    pub(crate) url: Option<String>,
+    pub(crate) ts_ms: i64,
+}
+
+/// Rolling per-tab window. A long-lived tab can log thousands of
+/// lines; the model-facing mirror keeps only the tail, and the answer
+/// reports how much older it omitted rather than pretending the
+/// window was the whole story.
+pub(crate) const DEV_LOG_CAP: usize = 200;
+
+/// Append one observed entry and trim the oldest past the cap.
+pub(crate) fn push_dev_log(
+    dev_logs: &Mutex<HashMap<String, Vec<DevLogEntry>>>,
+    tab_id: &str,
+    entry: DevLogEntry,
+) {
+    let mut map = dev_logs.lock();
+    let v = map.entry(tab_id.to_string()).or_default();
+    v.push(entry);
+    if v.len() > DEV_LOG_CAP {
+        let excess = v.len() - DEV_LOG_CAP;
+        v.drain(..excess);
+    }
+}
+
+/// Wire name of a payload level (kept separate from the entry's
+/// stored name so the two stay pinned by the same match).
+fn level_name(level: crate::schemas::DevLogLevel) -> &'static str {
+    match level {
+        crate::schemas::DevLogLevel::Verbose => "verbose",
+        crate::schemas::DevLogLevel::Info => "info",
+        crate::schemas::DevLogLevel::Warning => "warning",
+        crate::schemas::DevLogLevel::Error => "error",
+    }
+}
+
+/// Read the mirror for `tab_id`: level filter, case-insensitive
+/// substring over text+url, and a bounded tail of the most recent
+/// matches. Returns the JSON array plus how many matching entries the
+/// tail cut off (`omitted_older`) — never silently fewer.
+pub(crate) fn filter_dev_logs(
+    dev_logs: &Mutex<HashMap<String, Vec<DevLogEntry>>>,
+    tab_id: &str,
+    filter: Option<&str>,
+    levels: Option<&[crate::schemas::DevLogLevel]>,
+    limit: Option<u64>,
+) -> (Vec<Value>, usize) {
+    let guard = dev_logs.lock();
+    let entries: &[DevLogEntry] = guard.get(tab_id).map(Vec::as_slice).unwrap_or(&[]);
+    let needle = filter.map(|f| f.to_ascii_lowercase());
+    let wanted: Vec<&DevLogEntry> = entries
+        .iter()
+        .filter(|e| levels.is_none_or(|lv| lv.iter().any(|l| e.level == level_name(*l))))
+        .filter(|e| {
+            let Some(n) = needle.as_deref() else {
+                return true;
+            };
+            e.text.to_ascii_lowercase().contains(n)
+                || e.url
+                    .as_deref()
+                    .map(|u| u.to_ascii_lowercase().contains(n))
+                    .unwrap_or(false)
+        })
+        .collect();
+    // Default 100, bounded 1..=500 — the tail model-facing read, like
+    // the history and dev tools surfaces.
+    let limit = limit.unwrap_or(100).clamp(1, 500) as usize;
+    let kept = &wanted[wanted.len().saturating_sub(limit)..];
+    let omitted = wanted.len() - kept.len();
+    (
+        kept.iter()
+            .map(|e| {
+                json!({
+                    "level": e.level,
+                    "text": e.text,
+                    "url": e.url,
+                    "ts_ms": e.ts_ms,
+                })
+            })
+            .collect(),
+        omitted,
+    )
+}
+
+/// Epoch millis for mirror timestamps (coarse is fine: entries are
+/// stamped at observation, and ordering within the window is the
+/// insertion order).
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 // ── RAII turn guard (Phase 11) ─────────────────────────────────────────
@@ -1377,5 +1588,56 @@ mod tests {
             .await
             .unwrap();
         assert!(ans["verified_at"].is_null());
+    }
+
+    #[test]
+    fn dev_log_mirror_window_and_filter_are_honest() {
+        use crate::schemas::DevLogLevel;
+        let map: Mutex<HashMap<String, Vec<DevLogEntry>>> = Mutex::new(HashMap::new());
+        for i in 0..=204u32 {
+            push_dev_log(
+                &map,
+                "t1",
+                DevLogEntry {
+                    level: if i % 3 == 0 { "error" } else { "info" },
+                    text: format!("msg {i}"),
+                    url: None,
+                    ts_ms: i as i64,
+                },
+            );
+        }
+        // Two honest layers: the mirror itself is capped at
+        // DEV_LOG_CAP (205 pushes ⇒ the oldest 5 are gone), and the
+        // default read window keeps the newest 100 — each layer
+        // REPORTS what it dropped instead of hiding it.
+        let (logs, omitted) = filter_dev_logs(&map, "t1", None, None, None);
+        assert_eq!(logs.len(), 100);
+        assert_eq!(omitted, 100);
+        assert_eq!(logs[0]["text"], "msg 105");
+        assert_eq!(logs[logs.len() - 1]["text"], "msg 204");
+        // Level filter + limit: of the 200 surviving mirror entries 67
+        // are errors; the reader keeps the newest 5 and says so.
+        let (errors, omitted) = filter_dev_logs(
+            &map,
+            "t1",
+            None,
+            Some([DevLogLevel::Error].as_slice()),
+            Some(5),
+        );
+        assert_eq!(errors.len(), 5);
+        assert_eq!(omitted, 62);
+        assert_eq!(errors[4]["text"], "msg 204");
+        for e in &errors {
+            assert_eq!(e["level"], "error");
+        }
+        // The substring filter is case-insensitive over text + url.
+        let (hits, omitted) = filter_dev_logs(&map, "t1", Some("MSG 150"), None, None);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["text"], "msg 150");
+        assert_eq!(omitted, 0);
+        // A tab nobody ever logged on answers honestly empty.
+        let (none, omitted) = filter_dev_logs(&map, "nobody", None, None, None);
+        assert!(none.is_empty());
+        assert_eq!(omitted, 0);
     }
 }
