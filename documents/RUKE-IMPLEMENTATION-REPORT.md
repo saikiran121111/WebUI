@@ -57,10 +57,12 @@ gates by design).
   `tab_mark_deliverable`, `tab_mark_handoff`, `tab_new`, `tab_close`,
   `browser_session_name`, `browser_history`, `browser_clear_data`,
   `browser_user_open_tabs`, `browser_user_claim_tab`, `browser_annotation_capture`.
-- **78 are exposed to the model** as tool schemas; **5 are never model-exposed**
-  (`tab_cdp_call`, `tab_cdp_events`, `browser_user_open_tabs`, `browser_user_claim_tab`,
-  `browser_annotation_capture`) — raw CDP stays an operator/panel capability, the user-tab
-  pair and annotation capture are panel RPCs.
+- **79 are exposed to the model** as tool schemas; **4 are never model-exposed**
+  (`tab_cdp_call`, `tab_cdp_events`, `browser_user_open_tabs`,
+  `browser_annotation_capture`) — raw CDP stays an operator/panel capability, opening tabs
+  for the human and annotation capture are panel-only gestures. `browser_user_claim_tab`
+  IS model-exposed: the agent's takeover direction (human tab → agent) needs a model-side
+  exit, otherwise the tab-ownership floor dead-ends model turns — see defect #8 in §6.
 - The full command → payload → gate → test matrix (with per-command test columns) is the
   "Coverage matrix" section of the implementation plan.
 
@@ -123,6 +125,29 @@ navigation evidence.
    the dialog subtree, an abort gate if any requested checkbox fails to set *before* the
    confirm click).
 
+### Defects the final locked E2E loop found (all fixed, all verified)
+
+6. **No way to open the Browser Panel** (commit 3196c56): auto-open only fires on
+   `browser:*` frames, which require `browser_session`, which requires the panel open —
+   a catch-22 with zero human entry. Fixed: Globe toggle in TopBar
+   (`Open/Close browser panel` accessible names; conversation = `activeId ?? "default"`).
+7. **Test harness clicked into the screencast** (spec fix, d02543c): the open panel's
+   screencast layer intercepts pointer events at the page center, so coordinate clicks
+   on the composer hit the panel instead of the hero ChatInput. Fix: `fill()`+Enter on
+   the accessible-name-anchored composer, never `click()` at coordinates; fast-fail send
+   assert; one attempt + PATIENCE-RULE timing under the launcher window.
+8. **The shared-tab law had no model-side exit** (commit 67d654d): the `actable_tab`
+   executor floor refuses click/type/navigate on tabs the model turn did not open, and
+   its refusal text tells the agent to call `browser_user_claim_tab` — but that command
+   sat in `NOT_MODEL_EXPOSED`. A model turn landing on a human-opened tab was stuck:
+   EASY burned the full 12-round cap on three consecutive runs. Fix: expose the tool
+   (`{tab_id}` required; turn-only claim; never closes the tab; grants no extra host
+   access; the human watches live), raise `MAX_TOOL_ROUNDS` 12→20 (a one-call-per-round
+   local model needs tabs→claim→act→read→answer plus honest retries), and add the
+   tab-ownership + cheap-text-tools bullets to `BROWSER_GUIDANCE`. Post-fix census
+   proof: EASY completed in 8 rounds with the claim at round 4 (49.7 s).
+   Partition consequence: 79 exposed / 4 hidden (§2).
+
 ## 7. CLOSED-contract adaptations (documented, never silent)
 
 | Reference behavior | Ruke equivalent |
@@ -142,22 +167,43 @@ navigation evidence.
   `contracts:check` OK (generated contracts + fixture manifest up to date).
 - clippy at baseline (pre-existing `ruke-websearch` warnings only; ruke-browser clean),
   `cargo fmt` clean.
-- No-model Playwright E2E specs (`tests/browser-easy/medium/hard.spec.ts`) are written and
-  type-checked; they — plus the real-model EASY/MEDIUM/HARD acceptance journeys (plan rows
-  19–24) — run in ONE final exclusive locked session (`scripts/run-browser-e2e-exclusive.ps1`,
-  `.ai-coordination/playwright.lock`) so the shared local inference backend is never
-  competing with development. Until that loop records green, those rows stay open; today
-  `tab_ax_action` and `tab_browser_auth_handoff` have unit-level (not real-browser) coverage
-  only.
+- **Final locked Playwright loop RECORDED GREEN (2026-10-31)** via
+  `scripts/run-browser-e2e-exclusive.ps1` (atomic `.ai-coordination/playwright.lock`,
+  foreground, exit code = Playwright's).
+  - Leg 1 — no-model E2E (`tests/browser-easy/medium/hard.spec.ts`): **11 passed**,
+    exit 0; re-run after the defect-#8 Rust changes: **11 passed (6.7 s)**, exit 0.
+  - Leg 2 — real-model acceptance (`tests/browser-model-acceptance.spec.ts`, one
+    blocking launcher invocation per journey, full idle between; actual Strata model
+    traffic through the shared `:8080` backend):
+
+    | Journey | Result | Duration | Evidence |
+    |---|---|---|---|
+    | EASY | passed, exit 0 | 49.7 s | 8 tool rounds; refusal→`browser_user_claim_tab`→act sequence observed in the tool census; `#arrived-marker` exact echo |
+    | MEDIUM | passed, exit 0 | 1.8 m | four-field form filled+submitted through the shared human-opened tab; exact echo assertions |
+    | HARD | passed, exit 0 | 59.7 s | `tab_new`→popup adoption (ownership inherits opener)→`mark_deliverable`→child survives cleanup→`#popup-marker` exact |
+
+  - Every run released the lock cleanly (finally-block); no stale locks.
+- Rust suites re-run after the defect-#8 changes: ruke-browser lib 170/170;
+  ruke-server lib 106/106 — the golden-replay byte contracts are NOT broken by the
+  guidance/round-count change; `fixture_journeys --ignored` 2/2 (11.78 s).
 - Coverage tallies: smoke 16/83 commands; fixture journeys 71/83; gap battery 49/83;
-  written specs 24/83; placeholder scan CLEAN (zero TODO/FIXME/stub bodies).
+  written specs 24/83; plus the real-model journeys exercising the sharing laws
+  end-to-end; placeholder scan CLEAN (zero TODO/FIXME/stub bodies).
 
 ## 9. Known limitations
 
-- Real-model acceptance (rows 19–24) is intentionally deferred to the single final locked
-  loop; results will be reported here once recorded.
-- Model tool selection is journey-level: the 78 exposed commands are reachable by the model,
-  but per-command model exercise depends on what the model chooses during the acceptance
-  runs.
+- Real-model acceptance recorded green (§8), but model prose varies run-to-run: the specs
+  assert REAL page state (markers, form echoes), never model text, so replays can differ
+  in path length while still passing.
+- Model tool selection is journey-level: the 79 exposed commands are reachable by the
+  model, but per-command model exercise depends on what the model chooses during the
+  acceptance runs; `tab_ax_action` and `tab_browser_auth_handoff` remain unit-backed
+  except where an acceptance journey happened to drive them.
+- Background-tab CDP screenshots can hit the 30 s CDP call timeout once (observed);
+  `BROWSER_GUIDANCE` steers the model to the cheap text tools for link/form work.
+- A stray `host:"0.1"` rule left by an early debug policy PUT persists in the gitignored
+  `ruke-browser-policy.json`; exact-match host lookup never resolves to it — cosmetic.
+- `tests/conversations-live-chat.spec.ts` was not exercised by this loop (pre-existing
+  suspect against the hero-composer + open-panel layout; unverified, out of scope).
 - WebMCP/annotation surfaces honestly report absence on older Chromium builds (best-effort
   runtime install).
