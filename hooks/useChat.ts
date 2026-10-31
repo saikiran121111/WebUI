@@ -38,6 +38,13 @@ export interface UseChatOptions {
   model?: string;
   apiUrl?: string;
   apiKey?: string;
+  /**
+   * Browser Use (Phase 10): returns the conversation id whose Browser
+   * Panel is currently open (undefined = no browser for this send).
+   * Consulted at SEND time through a ref — the caller wires it
+   * non-reactively (page.tsx) so panel state never re-renders the chat.
+   */
+  getBrowserSession?: () => string | undefined;
 }
 
 export interface UseChatReturn {
@@ -82,6 +89,7 @@ export function useChat({
   model = "",
   apiUrl,
   apiKey,
+  getBrowserSession,
 }: UseChatOptions = {}): UseChatReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus]   = useState<SendStatus>("complete");
@@ -101,6 +109,9 @@ export function useChat({
   //     [system?, compacted-context message, ...recent tail, ...new turns].
   const compactThresholdsRef = useRef<CompactThresholds | null>(null);
   const compactingRef = useRef(false);
+  // Latest getter without re-render coupling (Phase 10 browser marker).
+  const getBrowserSessionRef = useRef(getBrowserSession);
+  getBrowserSessionRef.current = getBrowserSession;
 
   // Post-turn rebuild of the model-facing history, applied LAZILY. When a
   // turn ends we remember the LLM array as it stood BEFORE the turn (the
@@ -662,7 +673,17 @@ export function useChat({
       const requestHistory = [...llmHistoryRef.current, userMsg];
 
       await client.chat(
-        { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
+        {
+          messages: requestHistory,
+          model,
+          stream: true,
+          reasoning_effort: curEffort === "off" ? undefined : curEffort,
+          tools,
+          // Browser turns (Phase 10): marker ONLY when the Browser Panel
+          // was open at send time; omitted (undefined) otherwise, and
+          // never set on compaction/fence-repair calls (their own paths).
+          browser_session: getBrowserSessionRef.current?.(),
+        },
         (ev) => handleEvent(ev, controller),
         controller.signal,
         (headers) => {

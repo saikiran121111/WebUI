@@ -404,6 +404,10 @@ pub async fn pump_progress(
     history: Vec<Value>,
     span: Span,
     token: CancellationToken,
+    // Some((conversation, turn)) on a browser turn: the turn routes
+    // through the browser tool loop instead of plain forwarding
+    // (Phase 10; handler computed it before stripping the marker).
+    browser: Option<(String, String)>,
     mut ch: ProgressChannel,
 ) {
     let decision_mode = env.active_mode.as_str();
@@ -458,7 +462,29 @@ pub async fn pump_progress(
     // (every fallible load already degrades to `None`/empty the way the TS
     // catch arms do), and `forward_into` performs its own `ch.fail` for
     // every upstream failure — so no synthetic frame is needed here.
-    forward::forward_into(&state, body, decision_mode, &model, &span, &token, &mut ch).await;
+    //
+    // Browser turns (Phase 10) take the tool-loop path with the SAME
+    // stripped payload; non-browser turns are byte-identical to before.
+    match browser {
+        Some((session_id, turn_id)) => {
+            crate::chat::browser_loop::run_tool_loop(
+                &state,
+                payload,
+                last_user_idx,
+                &model,
+                &span,
+                &token,
+                &mut ch,
+                session_id,
+                turn_id,
+            )
+            .await;
+        }
+        None => {
+            forward::forward_into(&state, body, decision_mode, &model, &span, &token, &mut ch)
+                .await;
+        }
+    }
 }
 
 /* ── web-gate helpers (⇔ the inline TS blocks in route.ts step 6) ─────── */

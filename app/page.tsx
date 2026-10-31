@@ -21,6 +21,7 @@ import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 const BrowserPanel = dynamic(() => import("../components/browser/BrowserPanel"), { ssr: false });
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
+import { getBrowserState } from "../lib/browser-client/browserStore";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
@@ -33,6 +34,9 @@ function uid(prefix = ""): string {
 export default function HomePage() {
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Read at send time by the browser-session getter below (never re-renders).
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
@@ -48,6 +52,11 @@ export default function HomePage() {
     compact, compactState, activeTokenCount,
   } = useChat({
     model: process.env.NEXT_PUBLIC_MODEL_ID ?? "",
+    // Browser Use (Phase 10): tag chat sends with the conversation whose
+    // Browser Panel is OPEN right now (read non-reactively from the
+    // browser store — panel state must never re-render the chat tree).
+    getBrowserSession: () =>
+      getBrowserState().open ? activeIdRef.current ?? "default" : undefined,
   });
 
   // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.

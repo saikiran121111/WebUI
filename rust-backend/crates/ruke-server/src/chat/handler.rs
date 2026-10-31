@@ -84,6 +84,23 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
         .ok()
         .filter(|v| !v.is_null());
 
+    // (2b) Browser Use (Phase 10): the client sets `browser_session` to
+    // the conversation id ONLY while the Browser Panel is open. It is a
+    // transport marker — stripped from the payload before anything
+    // leaves (compaction included), and it selects the browser tool
+    // loop instead of plain forwarding on the progress path. Compaction
+    // never carries it (the TS client only sets it on chat sends, and
+    // the strip below runs before the passthrough either way).
+    let browser_session = payload
+        .as_ref()
+        .and_then(|p| p.get("browser_session"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(p) = payload.as_mut() {
+        attach::remove_key(p, "browser_session");
+    }
+
     // (3)
     let model: String = payload
         .as_ref()
@@ -220,6 +237,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         history,
                         span.clone(),
                         token.clone(),
+                        // Browser tool loop key: (conversation, this
+                        // turn) — the same identity the panel RPC's
+                        // turn bookkeeping uses.
+                        browser_session.map(|s| (s, turn.turn_id.to_string())),
                         ProgressChannel::new(tx),
                     ));
                     // Dropping this body (client walked away) cancels the

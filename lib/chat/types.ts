@@ -20,6 +20,14 @@ export interface ChatRequest {
    * system prompt IS the contract and the history must stay verbatim.
    */
   purpose?: "compact";
+  /**
+   * Browser Use (Phase 10) transport marker: the conversation id whose
+   * Browser Panel is open while this send is live. The Rust chat route
+   * uses it to route the turn through the browser tool loop, and strips
+   * it before forwarding — it never reaches upstream. Browser turns are
+   * streaming-path only.
+   */
+  browser_session?: string;
 }
 
 /**

@@ -2268,3 +2268,66 @@ Flaky-only-standalone: chatEngine.test.ts, rust-golden/web.test.ts
    enforced by `can_act_on`; wire end_turn cleanup exists.
 3. Then Phases 11→29 continuously; ONE final locked Playwright loop;
    shutdown only after all green.
+
+---
+
+## Session 2026-10-31-B — Browser Use Phase 10 (MODEL TOOLS + RUST TOOL LOOP)
+
+### 8.1 Core objective
+Model-facing browser tool surface + the Rust agent-loop seam: browser
+turns route through `run_tool_loop` in the chat pipeline; all other
+turns keep the byte-verbatim `forward_into` fast path. Phase 10 is
+committed on `develop`; plan board row 10 =
+IMPLEMENTED+UNIT TESTED. Phases 11→29 continue.
+
+### 8.2 Locked completed (do not re-read/re-do)
+- Created: `rust-backend/crates/ruke-browser/src/tools.rs`
+  (`model_tools()` = 54 function tools; `NOT_MODEL_EXPOSED =
+  [tab_cdp_call, tab_cdp_events, browser_user_open_tabs,
+  browser_user_claim_tab]`; 3 unit pins incl. executor-arm round-trip
+  via `include_str!("../src/executor.rs")`),
+  `rust-backend/crates/ruke-server/src/chat/browser_loop.rs`
+  (`BROWSER_GUIDANCE` 7-law block; `ToolStreamRelay` frame/tool_call
+  accumulator; `cull_tool_result` KEEP_INLINE=256; `tool_content`
+  24k cap; `run_tool_loop` MAX_TOOL_ROUNDS=12, ONE slot guard for the
+  whole loop, `end_turn` always exactly once after the loop; 6 pins).
+- Edited: `ruke-browser/src/lib.rs` (`pub mod tools;`),
+  `ruke-server/src/chat/mod.rs` (`pub mod browser_loop;`),
+  `handler.rs` (browser_session extract+strip BEFORE compaction
+  passthrough; spawn passes `browser_session.map(|s| (s,
+  turn.turn_id.to_string()))`), `pipeline.rs` (pump_progress gains
+  `browser: Option<(String,String)>`; final `match browser` routes
+  ONLY marked turns), `lib/chat/types.ts` (`browser_session?:
+  string`), `lib/chat/client.ts` (buildBody forwards marker),
+  `hooks/useChat.ts` (`getBrowserSession?` option + ref),
+  `app/page.tsx` (getBrowserState().open ⇒ activeIdRef.current ??
+  "default"), `app/api/chat/route.ts` (non-Rust path deletes the
+  marker).
+- `cargo fmt -p ruke-browser -p ruke-server` re-normalized
+  tools.rs, browser_loop.rs, pipeline.rs on disk — Read before Edit.
+
+### Gates (actual, this session)
+- `cargo test -p ruke-browser -p ruke-server`: ruke-browser lib
+  127/127, ruke-server lib 106/106, attachment_replay 6,
+  browser_ui_routes 1, golden_replay 19 (non-browser turns
+  byte-identical CONFIRMED), remaining integration suites green,
+  0 failures; 1 smoke ignored (profile lock — never run while a
+  Ruke server holds the profile).
+- `cargo clippy`: zero new warnings (7 pre-existing ruke-websearch).
+- `npm run typecheck` clean; `npx vitest run
+  __tests__/browser-client.test.ts` 29/29; full `npm test` 73 files
+  760 passed 1 skipped.
+
+### 8.6 Accepted gaps (Phase 11 targets)
+- Mid-command cancellation: approval/auth-handoff parked waits (≤120
+  s / ≤300 s) not interruptible by the turn token; token checked
+  between rounds/commands only.
+- Panel bp-error when a card answer arrives after the wait lapsed.
+
+### 8.8 Immediate next (Phase 11 — RAII/cancellation hardening)
+1. `authority.rs` + `auth_handoff.rs` parked waits: `select!` on the
+   turn CancellationToken ⇒ cancelled status surfaces; RE-FORMATTED
+   files — Read before Edit.
+2. `engine.rs`/`browser_loop.rs`: turn-scoped command caps + loop-end
+   cleanup audit (end_turn idempotence).
+3. Keep goldens green; then Phases 12→29 continuously.

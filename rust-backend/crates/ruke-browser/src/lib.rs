@@ -38,4 +38,5 @@ pub mod io_state;
 pub mod pw;
 pub mod schemas;
 pub mod session;
+pub mod tools;
 pub mod ui;

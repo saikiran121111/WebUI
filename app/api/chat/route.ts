@@ -625,6 +625,11 @@ export async function POST(req: NextRequest) {
   // prompt. The compaction system prompt IS the whole contract; the history
   // must reach the model untouched. (No progress frames either: the
   // compaction client parses content deltas only.)
+  // Browser Use (Phase 10): `browser_session` selects the browser tool loop
+  // in the RUST route (rustProxy above leaves it in the body). The TS path
+  // has no browser engine, but the key must still never reach upstream.
+  if (payload) delete payload.browser_session;
+
   if (payload?.purpose === "compact") {
     delete payload.purpose; // transport marker: never reaches the upstream
     if (Array.isArray(payload.messages)) stripAttachmentRefs(payload.messages);

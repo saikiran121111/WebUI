@@ -23,6 +23,7 @@
 //!   history slicing, order-preserving key removal).
 
 pub mod attach;
+pub mod browser_loop;
 pub mod error;
 pub mod forward;
 pub mod handler;
