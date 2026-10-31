@@ -276,6 +276,9 @@ fn parse_rules(value: &Value) -> HashMap<String, HashMap<Facet, Decision>> {
 #[derive(Debug)]
 struct PendingApproval {
     tab_id: String,
+    /// The turn that parked this card (Phase 11): `end_turn` and the
+    /// turn guard's Drop fail it closed when its owner is gone.
+    key: TurnKey,
     tx: oneshot::Sender<Value>,
 }
 
@@ -296,7 +299,7 @@ impl ApprovalRegistry {
     /// Mint a decision id + its waiter. Ids are 16 hex chars from the
     /// same std-only splitmix stream the WS tickets use ([adapted]
     /// shape; the reference ids are Gc-managed opaque handles).
-    pub fn register(&self, tab_id: &str) -> (String, oneshot::Receiver<Value>) {
+    pub fn register(&self, tab_id: &str, key: &TurnKey) -> (String, oneshot::Receiver<Value>) {
         let id = {
             let mut seed = self.seed.lock();
             loop {
@@ -311,6 +314,7 @@ impl ApprovalRegistry {
             id.clone(),
             PendingApproval {
                 tab_id: tab_id.to_string(),
+                key: key.clone(),
                 tx,
             },
         );
@@ -337,6 +341,22 @@ impl ApprovalRegistry {
         self.pending.lock().remove(id).is_some()
     }
 
+    /// The turn that parked these cards is over (`end_turn` / guard
+    /// Drop, Phase 11): park no more for it. Returns the forgotten ids
+    /// so the engine can tell the panel to prune exactly those cards.
+    pub fn forget_turn(&self, key: &TurnKey) -> Vec<String> {
+        let mut forgotten = Vec::new();
+        self.pending.lock().retain(|id, p| {
+            if p.key == *key {
+                forgotten.push(id.clone());
+                false
+            } else {
+                true
+            }
+        });
+        forgotten
+    }
+
     /// Host death / engine shutdown: every waiter fails closed.
     pub fn cancel_all(&self) {
         self.pending.lock().clear();
@@ -344,6 +364,62 @@ impl ApprovalRegistry {
 
     pub fn pending_count(&self) -> usize {
         self.pending.lock().len()
+    }
+}
+
+// ── parked waits: answer | timeout | turn-cancel ──────────────────────
+
+/// How a parked panel-card wait ended (Phase 11).
+#[derive(Debug)]
+pub(crate) enum Parked {
+    /// The human answered; the value is the answer frame.
+    Answer(Value),
+    /// The wait budget elapsed; the registry entry was dropped.
+    Expired,
+    /// The turn that parked the wait ended (Stop, disconnect, round
+    /// cap, task abort); the registry entry was dropped.
+    Cancelled,
+    /// The tab or panel vanished while parked (sender closed).
+    SenderClosed,
+}
+
+impl BrowserRuntime {
+    /// Park a panel-card waiter on ALL of its exits: the human's
+    /// answer, the timeout, and — Phase 11 — the owning turn's
+    /// cancellation. A parked wait must never outlive the turn that
+    /// parked it, so it also selects on the token registered by
+    /// [`begin_turn`](Self::begin_turn); `end_turn` and the turn
+    /// guard's Drop fire it. On Expired/Cancelled the entry is
+    /// forgotten and the panel is told the card went stale, so
+    /// too-late answers can't surface as panel errors.
+    pub(crate) async fn park_approval(
+        &self,
+        key: &TurnKey,
+        id: &str,
+        rx: oneshot::Receiver<Value>,
+        timeout: Duration,
+    ) -> Parked {
+        let outcome = match self.turn_cancel(key) {
+            Some(token) => tokio::select! {
+                biased;
+                _ = token.cancelled() => Parked::Cancelled,
+                r = tokio::time::timeout(timeout, rx) => match r {
+                    Err(_elapsed) => Parked::Expired,
+                    Ok(Ok(answer)) => Parked::Answer(answer),
+                    Ok(Err(_closed)) => Parked::SenderClosed,
+                },
+            },
+            None => match tokio::time::timeout(timeout, rx).await {
+                Err(_elapsed) => Parked::Expired,
+                Ok(Ok(answer)) => Parked::Answer(answer),
+                Ok(Err(_closed)) => Parked::SenderClosed,
+            },
+        };
+        if matches!(outcome, Parked::Expired | Parked::Cancelled) {
+            self.approvals.forget(id);
+            self.ui.event(json!({ "type": "approval_stale", "id": id }));
+        }
+        outcome
     }
 }
 
@@ -402,7 +478,7 @@ impl BrowserRuntime {
                         ),
                     });
                 }
-                let (id, rx) = self.approvals.register(tab_id);
+                let (id, rx) = self.approvals.register(tab_id, key);
                 self.ui.event(json!({
                     "type": "approval_request",
                     "id": id,
@@ -412,22 +488,24 @@ impl BrowserRuntime {
                     "url": url,
                     "tab_id": tab_id,
                 }));
-                match tokio::time::timeout(APPROVAL_TIMEOUT, rx).await {
-                    Err(_) => {
-                        self.approvals.forget_tab(tab_id);
-                        Err(BrowserError::CapabilityBlocked {
-                            reason: format!(
-                                "{label} timed out after {}s waiting for a Browser Panel decision",
-                                APPROVAL_TIMEOUT.as_secs()
-                            ),
-                        })
-                    }
-                    Ok(Err(_)) => Err(BrowserError::CapabilityBlocked {
+                match self.park_approval(key, &id, rx, APPROVAL_TIMEOUT).await {
+                    Parked::Expired => Err(BrowserError::CapabilityBlocked {
+                        reason: format!(
+                            "{label} timed out after {}s waiting for a Browser Panel decision",
+                            APPROVAL_TIMEOUT.as_secs()
+                        ),
+                    }),
+                    Parked::SenderClosed => Err(BrowserError::CapabilityBlocked {
                         reason: format!(
                             "{label} was cancelled: the tab or panel closed before a decision"
                         ),
                     }),
-                    Ok(Ok(answer)) => {
+                    Parked::Cancelled => Err(BrowserError::CapabilityBlocked {
+                        reason: format!(
+                            "{label} was cancelled: the agent turn ended before a Browser Panel decision arrived"
+                        ),
+                    }),
+                    Parked::Answer(answer) => {
                         let decision = answer.get("decision").and_then(Value::as_str);
                         match decision {
                             Some("accept") => Ok(()),
@@ -704,18 +782,34 @@ mod tests {
     #[test]
     fn approvals_resolve_once_and_forget_tab_fails_closed() {
         let reg = ApprovalRegistry::new();
-        let (id, rx) = reg.register("7");
+        let key = ("s".to_string(), "t".to_string());
+        let (id, rx) = reg.register("7", &key);
         assert_eq!(reg.pending_count(), 1);
         assert!(!reg.resolve("nope", &json!({"decision": "accept"})));
         assert!(reg.resolve(&id, &json!({"decision": "accept"})));
         assert!(rx.blocking_recv().is_ok());
         assert!(!reg.resolve(&id, &json!({}))); // single-shot
-        let (_id2, rx2) = reg.register("7");
+        let (_id2, rx2) = reg.register("7", &key);
         reg.forget_tab("7");
         assert!(rx2.blocking_recv().is_err());
-        let (_id3, rx3) = reg.register("9");
+        let (_id3, rx3) = reg.register("9", &key);
         reg.cancel_all();
         assert!(rx3.blocking_recv().is_err());
+    }
+
+    #[test]
+    fn forget_turn_prunes_only_that_turns_cards() {
+        let reg = ApprovalRegistry::new();
+        let mine = ("s".to_string(), "7".to_string());
+        let theirs = ("s".to_string(), "8".to_string());
+        let (id, rx) = reg.register("7", &mine);
+        let (keep_id, keep_rx) = reg.register("8", &theirs);
+        assert_eq!(reg.forget_turn(&mine), vec![id]);
+        assert!(rx.blocking_recv().is_err()); // failed closed
+        assert_eq!(reg.pending_count(), 1); // the other turn is untouched
+        assert!(reg.resolve(&keep_id, &json!({"decision": "accept"})));
+        assert!(keep_rx.blocking_recv().is_ok());
+        assert!(reg.forget_turn(&mine).is_empty());
     }
 
     #[test]

@@ -504,6 +504,10 @@ export type UiServerMessage =
   | ApprovalRequestCard
   | AuthHandoffRequestCard
   | TabTakeoverCard
+  // Phase 11: the turn that parked an approval/handoff card ended
+  // (Stop, timeout, host death) — the wait already failed closed in the
+  // engine; the panel must prune the card by id.
+  | { type: "approval_stale"; id: string }
   | { type: string; [k: string]: unknown };
 
 export interface SocketHandlers {

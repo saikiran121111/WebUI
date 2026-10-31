@@ -78,6 +78,24 @@ impl BrowserRuntime {
         key: &TurnKey,
         cmd: &Command,
     ) -> Result<Value, BrowserError> {
+        // Turn-scoped command budget (Phase 11, plan §"turn-scoped
+        // command caps"): the count lives per turn in the engine and
+        // dies with it; a runaway model hits a refusal that tells it to
+        // report and hand back rather than a silent stall. Human turns
+        // (`ui`) are exempt — a human typing is not a runaway.
+        if key.1 != crate::authority::HUMAN_TURN_ID {
+            let mut counts = self.turn_command_counts.lock();
+            let seen = counts.entry(key.clone()).or_insert(0);
+            *seen += 1;
+            if *seen > crate::engine::MAX_COMMANDS_PER_TURN {
+                return Err(BrowserError::CapabilityBlocked {
+                    reason: format!(
+                        "this browser turn exceeded its cap of {} commands; report what you have and let the user take it from here",
+                        crate::engine::MAX_COMMANDS_PER_TURN
+                    ),
+                });
+            }
+        }
         // Recovered `throwIfJsDialogBlocksMethod`: while a JS dialog
         // is open on the tab, page-mutating and input-surfacing
         // commands are refused until the model discovers and dismisses
@@ -933,7 +951,7 @@ impl BrowserRuntime {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.tab_browser_auth_handoff(&conn, &rec, p).await
+                self.tab_browser_auth_handoff(&conn, &rec, p, key).await
             }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that

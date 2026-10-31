@@ -32,12 +32,12 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use url::Url;
 
-use crate::authority::origin_of;
+use crate::authority::{origin_of, Parked};
 use crate::cdp::CdpConn;
 use crate::engine::BrowserRuntime;
 use crate::errors::BrowserError;
 use crate::schemas::{is_browser_auth_id, BrowserAuthHandoffPayload, BrowserAuthSubmitAction};
-use crate::session::TabRecord;
+use crate::session::{TabRecord, TurnKey};
 
 /// How long the handoff card may sit unanswered in the Browser Panel
 /// before the command resolves `expired` ([adapted], see module header).
@@ -203,12 +203,15 @@ impl BrowserRuntime {
     /// `tab_browser_auth_handoff`: validate the model's sign-in
     /// description, pin it to the tab's live origin, park a credential
     /// form in the Browser Panel, then apply the human's answer to the
-    /// page over CDP. Statuses follow the SVC-D4 result enum.
+    /// page over CDP. Statuses follow the SVC-D4 result enum. The wait
+    /// is parked against its turn (Phase 11): when the turn ends the
+    /// card is pruned and the handoff resolves "cancelled".
     pub(crate) async fn tab_browser_auth_handoff(
         &self,
         conn: &CdpConn,
         rec: &TabRecord,
         p: &BrowserAuthHandoffPayload,
+        key: &TurnKey,
     ) -> Result<Value, BrowserError> {
         validate_browser_auth(p)?;
 
@@ -226,7 +229,7 @@ impl BrowserRuntime {
             });
         }
 
-        let (id, rx) = self.approvals.register(&rec.tab_id);
+        let (id, rx) = self.approvals.register(&rec.tab_id, key);
         // The card frame carries the sign-in DESCRIPTION only — never
         // any credential value (there are none in the payload; the
         // panel supplies them locally).
@@ -244,13 +247,13 @@ impl BrowserRuntime {
             "has_otp": p.otp_handle.is_some(),
         }));
 
-        match tokio::time::timeout(AUTH_HANDOFF_TIMEOUT, rx).await {
-            Err(_elapsed) => {
-                self.approvals.forget(&id);
-                Ok(json!({ "status": "expired" }))
-            }
-            Ok(Err(_closed)) => Ok(json!({ "status": "cancelled" })),
-            Ok(Ok(answer)) => match answer.get("action").and_then(Value::as_str) {
+        match self.park_approval(key, &id, rx, AUTH_HANDOFF_TIMEOUT).await {
+            Parked::Expired => Ok(json!({ "status": "expired" })),
+            // Turn ended or tab/panel vanished: the SVC-D4 status enum
+            // already has "cancelled" for both; the panel card was
+            // pruned with an approval_stale frame for the stale case.
+            Parked::Cancelled | Parked::SenderClosed => Ok(json!({ "status": "cancelled" })),
+            Parked::Answer(answer) => match answer.get("action").and_then(Value::as_str) {
                 Some("decline") => Ok(json!({ "status": "declined" })),
                 Some("cancel") => Ok(json!({ "status": "cancelled" })),
                 Some("proceed") => {

@@ -208,9 +208,7 @@ impl ToolStreamRelay {
 
 /// Index of the end (inclusive) of the first `\n\n` frame separator.
 fn find_frame_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(2)
-        .position(|w| w == *b"\n\n")
-        .map(|p| p + 2)
+    buf.windows(2).position(|w| w == *b"\n\n").map(|p| p + 2)
 }
 
 /// Replace oversized base64 image payloads in a tool result with a
@@ -275,6 +273,14 @@ pub async fn run_tool_loop(
     // exactly once when this function returns (Rule 5 — the rounds are
     // sequential so no second request ever competes).
     let _guard = state.slot.clone().begin_guard();
+
+    // Browser turn lifecycle (Phase 11): an RAII guard registers this
+    // turn's cancellation token up front, so however the turn leaves —
+    // clean finish, Stop, an early return — parked approval/handoff
+    // waits unpark with turn-ended errors and their panel cards get
+    // pruned. `finish()` below is the explicit turn end; the guard's
+    // Drop is the fallback.
+    let turn_guard = state.browser.begin_turn(&session_id, &turn_id);
 
     // Inject the guidance block once, in the skill-block slot (before the
     // last user message), then the tool surface.
@@ -446,13 +452,23 @@ pub async fn run_tool_loop(
                     "payload": args
                 });
                 let result = match parse_envelope(&envelope) {
-                    Ok(env) => match state
-                        .browser
-                        .command(&session_id, &turn_id, &env.command)
-                        .await
-                    {
-                        Ok(data) => cull_tool_result(data),
-                        Err(err) => err.to_wire(),
+                    // Stop cuts THROUGH an in-flight command (Phase
+                    // 11): dropping the command future unparks nothing
+                    // by itself, but the turn guard's Drop fires the
+                    // engine token, which fails closed any approval or
+                    // handoff wait the command parked.
+                    Ok(env) => tokio::select! {
+                        biased;
+                        _ = token.cancelled() => break 'outer Outcome::Aborted,
+                        r = state
+                            .browser
+                            .command(&session_id, &turn_id, &env.command) =>
+                        {
+                            match r {
+                                Ok(data) => cull_tool_result(data),
+                                Err(err) => err.to_wire(),
+                            }
+                        }
                     },
                     Err(err) => err.to_wire(),
                 };
@@ -477,10 +493,13 @@ pub async fn run_tool_loop(
         Outcome::Finished
     };
 
-    // Turn-end engine cleanup, EXACTLY ONCE per chat turn: releases this
-    // turn's tab claims and closes this turn's tabs except the ones
-    // marked deliverable/handoff (reference-faithful).
-    state.browser.end_turn(&session_id, &turn_id).await;
+    // Turn-end engine cleanup, EXACTLY ONCE per chat turn: fires the
+    // turn's cancellation token (failing closed any parked approval or
+    // handoff wait and pruning its panel card), releases this turn's
+    // tab claims, and closes this turn's tabs except the ones marked
+    // deliverable/handoff (reference-faithful). The guard's Drop would
+    // run the same cleanup if this call is ever skipped by unwinding.
+    turn_guard.finish().await;
     stage(ch, "browser:done", &session_id).await;
 
     match outcome {

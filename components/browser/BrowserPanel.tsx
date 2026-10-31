@@ -139,6 +139,15 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
           if (typeof c.tab_id === "string") {
             setTakeover(c.tab_id, typeof c.reason === "string" ? c.reason : "user_requested");
           }
+        } else if (msg.type === "approval_stale") {
+          // Phase 11: the engine's turn that parked this card ended —
+          // the wait already failed closed engine-side. Prune by id so
+          // a too-late click can't surface as a panel error.
+          const c = msg as { id?: unknown };
+          if (typeof c.id === "string") {
+            removeApproval(c.id);
+            removeAuthHandoff(c.id);
+          }
         }
       },
       onConnectionChange: setConnected,

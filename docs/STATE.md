@@ -2331,3 +2331,70 @@ IMPLEMENTED+UNIT TESTED. Phases 11→29 continue.
 2. `engine.rs`/`browser_loop.rs`: turn-scoped command caps + loop-end
    cleanup audit (end_turn idempotence).
 3. Keep goldens green; then Phases 12→29 continuously.
+
+---
+
+## Session 2026-10-31-C — Browser Use Phase 11 (CANCELLATION + RAII GUARD)
+
+### 8.1 Core objective
+Phase 11 of the Browser Use plan: make parked panel-card waits
+(120 s approval, 300 s auth-handoff) interruptible by the agent turn's
+cancellation, add an RAII `BrowserTurnGuard` so turn cleanup runs
+however the turn leaves, cap runaway model turns at 120 commands, and
+prune stale panel cards with a new `approval_stale` frame. COMMITTED
+(see git log; plan row 11 flipped to IMPLEMENTED+UNIT TESTED).
+
+### 8.2 Locked completed (do not re-read)
+- `engine.rs`: `turn_cancels`+`turn_command_counts` maps;
+  `begin_turn(self:&Arc<Self>)→BrowserTurnGuard` (pub), `turn_cancel`
+  (pub(crate)), `fire_turn_cancel`+`cancel_all_turns` (private);
+  `MAX_COMMANDS_PER_TURN=120` (pub const); `end_turn` fires
+  `fire_turn_cancel` FIRST; `cancel_all_turns` in dead-host +
+  shutdown blocks; `BrowserTurnGuard{finish() | Drop}` at EOF (Drop:
+  fire+prune sync, spawn end_turn when Handle exists, warn
+  otherwise); `#[cfg(test)] mod` 5 tests.
+- `authority.rs`: `PendingApproval.key:TurnKey`;
+  `register(tab_id,&key)`; `forget_turn(&key)→Vec<id>`;
+  `pub(crate) enum Parked{Answer,Expired,Cancelled,SenderClosed}`;
+  `park_approval(key,id,rx,timeout)` (biased select, token first;
+  Expired|Cancelled ⇒ forget+`approval_stale`); apply_gate wait fully
+  over Parked (new verbatim cancel message: "…was cancelled: the
+  agent turn ended before a Browser Panel decision arrived");
+  forget_turn test pin.
+- `auth_handoff.rs`: takes `key:&TurnKey`; parks via park_approval;
+  Cancelled|SenderClosed ⇒ SVC-D4 `{"status":"cancelled"}`.
+- `executor.rs`: per-turn count at `execute()` top (HUMAN_TURN_ID
+  exempt, CapabilityBlocked refusal); auth arm passes `key`.
+- `browser_loop.rs`: `begin_turn` after slot guard; command exec is
+  `tokio::select!{biased; token.cancelled()⇒break 'outer Aborted;
+  command}`; tail `turn_guard.finish().await`.
+- TS: `UiServerMessage` + `{type:"approval_stale";id}`;
+  `BrowserPanel.tsx` prunes approvals+authHandoffs by id
+  (removeApproval/removeAuthHandoff were already imported).
+- Gates: ruke-browser 133/133, ruke-server 106/106, golden 19
+  byte-identical, clippy 0 new (7 pre-existing ruke-websearch:
+  6 doc-list + 1 map_or), tsc clean, vitest 73/760+1skip,
+  browser-client 29/29. cargo fmt touched engine.rs+browser_loop.rs
+  (normalization rides the commit).
+
+### 8.5 Semantics pinned
+- Park exit grammar: token-cancel wins over timeout (biased); a card
+  parked under an ALREADY-DEAD key has no token ⇒ timeout-only
+  (test uses a fresh key2 — the dead key's spawned end_turn prunes
+  its own key's cards, deliberate fail-closed race behavior).
+- `approval_stale` broadcast ids come from BOTH park_approval
+  (Expired/Cancelled) and fire_turn_cancel (per forgotten card).
+
+### 8.6 Accepted gaps
+- Panel bp-error only if an answer races the stale broadcast
+  (browser_routes Err arm kept for genuinely-unknown ids —
+  deliberate).
+
+### 8.8 Immediate next (Phase 12 — annotation)
+1. Read `reverse-engineering/internal-browser` annotation-and-ui.md
+   (esp. :166 DOM contract) — no REA needed.
+2. Design: `document.oai` injection contract attrs, engine command +
+   panel DOM, `ruke:open-annotation` (recovered `codex:open-annotation`),
+   comment/Adjust flows; wire into tools.rs only if model-facing.
+3. Phases 12→29 continuously, no Playwright until the final locked
+   loop after Phase 29.

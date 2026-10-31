@@ -23,17 +23,25 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::cdp::{CdpConn, CdpEvent};
 use crate::cdp_buffer::{buffered_method, CdpEventBuffer};
 use crate::errors::BrowserError;
 use crate::host::{HostConfig, LaunchedHost};
-use crate::session::Registry;
+use crate::session::{Registry, TurnKey};
 use crate::ui::UiHub;
 
 /// The single Ruke agent browser's id. The payloads carry `browser_id`
 /// because the reference contract does; anything else fails closed.
 pub const BROWSER_ID: &str = "default";
+
+/// [adapted] A runaway-command cap for one agent browser turn. The
+/// reference contract has turn-scoped command budgets; the count itself
+/// is not a model-visible contract, but a cap protects the shared host
+/// from a model driving the browser forever. Human turns (`ui`) are
+/// exempt — a human typing is not a runaway.
+pub const MAX_COMMANDS_PER_TURN: u32 = 120;
 
 pub struct BrowserRuntime {
     root: PathBuf,
@@ -73,6 +81,13 @@ pub struct BrowserRuntime {
     /// browser-auth handoff forms parked on their turn's command.
     /// Tab-removal paths forget their waiters; host death cancels all.
     pub(crate) approvals: Arc<crate::authority::ApprovalRegistry>,
+    /// Per-turn cancellation tokens (Phase 11): `begin_turn` registers
+    /// one, parked approval/handoff waits select on it, and `end_turn`
+    /// or the turn guard's Drop fires it — a stopped turn can never
+    /// leave a zombie waiting on a panel card nobody will answer.
+    pub(crate) turn_cancels: Mutex<HashMap<TurnKey, CancellationToken>>,
+    /// Per-turn command counts for `MAX_COMMANDS_PER_TURN` (Phase 11).
+    pub(crate) turn_command_counts: Mutex<HashMap<TurnKey, u32>>,
 }
 
 impl BrowserRuntime {
@@ -100,6 +115,8 @@ impl BrowserRuntime {
             io,
             authority,
             approvals: Arc::new(crate::authority::ApprovalRegistry::new()),
+            turn_cancels: Mutex::new(HashMap::new()),
+            turn_command_counts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -124,6 +141,7 @@ impl BrowserRuntime {
             self.pw.clear_all();
             self.io.clear_all();
             self.approvals.cancel_all();
+            self.cancel_all_turns();
             self.ui.clear_state();
             self.ui.tabs_changed();
         }
@@ -266,15 +284,70 @@ impl BrowserRuntime {
         Ok(session_id)
     }
 
+    // ── turn lifecycle (Phase 11) ─────────────────────────────────────
+
+    /// Register a turn's cancellation token and hand back an RAII guard.
+    /// However the turn leaves — clean finish, Stop, an error `?`, or a
+    /// task abort — the guard's Drop (or an explicit `finish`) fires the
+    /// token and prunes the turn's parked cards, so no parked wait ever
+    /// outlives its turn. A same-key re-begin cancels the stale token.
+    pub fn begin_turn(self: &Arc<Self>, session_id: &str, turn_id: &str) -> BrowserTurnGuard {
+        let key = (session_id.to_string(), turn_id.to_string());
+        let stale = self
+            .turn_cancels
+            .lock()
+            .insert(key.clone(), CancellationToken::new());
+        if let Some(stale) = stale {
+            stale.cancel();
+        }
+        self.turn_command_counts.lock().insert(key.clone(), 0);
+        BrowserTurnGuard {
+            runtime: self.clone(),
+            key,
+            armed: true,
+        }
+    }
+
+    /// The token a parked wait selects on, when the turn is registered.
+    pub(crate) fn turn_cancel(&self, key: &TurnKey) -> Option<CancellationToken> {
+        self.turn_cancels.lock().get(key).cloned()
+    }
+
+    /// Fire and unregister ONE turn's cancellation, in order: the token
+    /// first (parked waits wake and fail closed), then that turn's
+    /// parked cards — each pruned with an `approval_stale` frame so the
+    /// panel removes the card instead of surfacing a too-late click as
+    /// an error — then its command budget. Idempotent: reached from
+    /// both `end_turn` and the guard's Drop.
+    fn fire_turn_cancel(&self, key: &TurnKey) {
+        if let Some(token) = self.turn_cancels.lock().remove(key) {
+            token.cancel();
+        }
+        for id in self.approvals.forget_turn(key) {
+            self.ui.event(json!({ "type": "approval_stale", "id": id }));
+        }
+        self.turn_command_counts.lock().remove(key);
+    }
+
+    /// Host death / shutdown: every turn's token fires at once.
+    fn cancel_all_turns(&self) {
+        let mut map = std::mem::take(&mut *self.turn_cancels.lock());
+        for (_, token) in map.drain() {
+            token.cancel();
+        }
+        self.turn_command_counts.lock().clear();
+    }
+
     /// Turn end: release claims and run turn cleanup — close the tabs the
     /// turn created that are neither the deliverable nor the handoff tab.
     /// Best-effort CDP closes: a tab that vanished on its own is simply
-    /// forgotten (its handle was already removed).
+    /// forgotten (its handle was already removed). The turn's parked
+    /// waits are cancelled FIRST (Phase 11), so no approval or handoff
+    /// wait is still parked while its tabs are closed underneath it.
     pub async fn end_turn(&self, session_id: &str, turn_id: &str) {
-        let to_close = self
-            .registry
-            .lock()
-            .end_turn(&(session_id.to_string(), turn_id.to_string()));
+        let key = (session_id.to_string(), turn_id.to_string());
+        self.fire_turn_cancel(&key);
+        let to_close = self.registry.lock().end_turn(&key);
         if to_close.is_empty() {
             return;
         }
@@ -317,6 +390,7 @@ impl BrowserRuntime {
         self.pw.clear_all();
         self.io.clear_all();
         self.approvals.cancel_all();
+        self.cancel_all_turns();
         self.ui.clear_state();
         self.ui.tabs_changed();
     }
@@ -831,4 +905,177 @@ async fn event_pump(
         }
     }
     tracing::debug!("browser event pump ended");
+}
+
+// ── RAII turn guard (Phase 11) ─────────────────────────────────────────
+
+/// Guard returned by [`BrowserRuntime::begin_turn`]. `finish` runs the
+/// full turn-end cleanup explicitly; if the guard is dropped without
+/// `finish` — Stop mid-command, an error `?`, a round-cap `break`, a
+/// task abort — Drop runs the same cleanup on a best-effort spawn, so
+/// claims are released, parked waits fail closed, and the turn's tabs
+/// close whatever way the turn left. Dropping the guard without
+/// finishing is a bug the type makes loud: cleanup still happens.
+pub struct BrowserTurnGuard {
+    runtime: Arc<BrowserRuntime>,
+    key: TurnKey,
+    armed: bool,
+}
+
+impl BrowserTurnGuard {
+    /// Explicit turn end: cancel the turn's waits, release claims, and
+    /// close its unmarked tabs (idempotent with the Drop path).
+    pub async fn finish(mut self) {
+        self.armed = false;
+        self.runtime.end_turn(&self.key.0, &self.key.1).await;
+    }
+}
+
+impl Drop for BrowserTurnGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        // Fire the token + prune cards synchronously: parked waits
+        // must not linger on a dead turn even if the CDP closes are
+        // deferred to a spawn.
+        self.runtime.fire_turn_cancel(&self.key);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                let runtime = self.runtime.clone();
+                let key = self.key.clone();
+                handle.spawn(async move {
+                    runtime.end_turn(&key.0, &key.1).await;
+                });
+            }
+            Err(_) => {
+                // No runtime to spawn the CDP closes on (Drop off the
+                // async context): the waits are already failed closed
+                // and the counts pruned; the tabs go with the next
+                // host death or shutdown.
+                tracing::warn!(
+                    session_id = %self.key.0,
+                    turn_id = %self.key.1,
+                    "browser turn guard dropped with no runtime handle: tab closes deferred"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::authority::Parked;
+
+    fn runtime() -> (tempfile::TempDir, Arc<BrowserRuntime>) {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = Arc::new(BrowserRuntime::new(dir.path().to_path_buf()));
+        (dir, rt)
+    }
+
+    #[tokio::test]
+    async fn begin_turn_registers_and_finish_clears_the_token() {
+        let (_dir, rt) = runtime();
+        let guard = rt.begin_turn("s", "7");
+        assert!(rt
+            .turn_cancel(&("s".to_string(), "7".to_string()))
+            .is_some());
+        guard.finish().await;
+        assert!(rt
+            .turn_cancel(&("s".to_string(), "7".to_string()))
+            .is_none());
+        assert!(rt.turn_command_counts.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn guard_drop_without_finish_unwinds_parked_cards() {
+        let (_dir, rt) = runtime();
+        let key = ("s".to_string(), "7".to_string());
+        let guard = rt.begin_turn("s", "7");
+        let (id, rx) = rt.approvals.register("t1", &key);
+        drop(guard);
+        // Token fired, card pruned (failed closed), counts cleared.
+        assert!(rt.turn_cancel(&key).is_none());
+        assert!(rx.await.is_err());
+        assert!(!rt.approvals.resolve(&id, &json!({"decision": "accept"})));
+        // The spawned end_turn runs against a dead host: best-effort.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(rt.turn_command_counts.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn end_turn_fires_token_and_prunes_only_that_turns_cards() {
+        let (_dir, rt) = runtime();
+        let mine = ("s".to_string(), "7".to_string());
+        let theirs = ("s".to_string(), "8".to_string());
+        let _g7 = rt.begin_turn("s", "7");
+        let _g8 = rt.begin_turn("s", "8");
+        let (gone_id, gone_rx) = rt.approvals.register("t1", &mine);
+        let (keep_id, keep_rx) = rt.approvals.register("t2", &theirs);
+        rt.turn_command_counts.lock().insert(mine.clone(), 5);
+        rt.end_turn("s", "7").await;
+        assert!(rt.turn_cancel(&mine).is_none());
+        assert!(gone_rx.await.is_err());
+        assert!(!rt.approvals.resolve(&gone_id, &json!({})));
+        // The other turn is untouched.
+        assert!(rt.turn_cancel(&theirs).is_some());
+        assert!(rt
+            .approvals
+            .resolve(&keep_id, &json!({"decision": "accept"})));
+        assert!(keep_rx.await.is_ok());
+        assert!(!rt.turn_command_counts.lock().contains_key(&mine));
+    }
+
+    #[tokio::test]
+    async fn park_cancelled_by_turn_token_and_expired_without_one() {
+        let (_dir, rt) = runtime();
+        let key = ("s".to_string(), "7".to_string());
+        let guard = rt.begin_turn("s", "7");
+        let (id, rx) = rt.approvals.register("t1", &key);
+        let token = rt.turn_cancel(&key).unwrap();
+        // Fire the turn token from a side task while the wait is parked.
+        let cancel_task = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            token.cancel();
+        });
+        let parked = rt
+            .park_approval(&key, &id, rx, std::time::Duration::from_secs(30))
+            .await;
+        assert!(matches!(parked, Parked::Cancelled), "got {parked:?}");
+        assert_eq!(rt.approvals.pending_count(), 0); // pruned
+        cancel_task.await.unwrap();
+        drop(guard);
+        // Without a registered turn, the timeout is the only exit. (A
+        // fresh key: the ended turn's spawned end_turn prunes anything
+        // parked under its own key — the deliberate fail-closed race
+        // behavior — so this card uses its own unregistered turn.)
+        let key2 = ("s".to_string(), "9".to_string());
+        let (id2, rx2) = rt.approvals.register("t2", &key2);
+        let parked = rt
+            .park_approval(&key2, &id2, rx2, std::time::Duration::from_millis(20))
+            .await;
+        assert!(matches!(parked, Parked::Expired), "got {parked:?}");
+        assert_eq!(rt.approvals.pending_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn answer_wins_a_park_wait() {
+        let (_dir, rt) = runtime();
+        let key = ("s".to_string(), "7".to_string());
+        let guard = rt.begin_turn("s", "7");
+        let (id, rx) = rt.approvals.register("t1", &key);
+        rt.approvals
+            .resolve(&id, &json!({"decision": "accept", "note": "ok"}));
+        let parked = rt
+            .park_approval(&key, &id, rx, std::time::Duration::from_secs(30))
+            .await;
+        match parked {
+            Parked::Answer(answer) => assert_eq!(answer["decision"], "accept"),
+            other => panic!("expected an answered park, got {other:?}"),
+        }
+        assert_eq!(rt.approvals.pending_count(), 0); // answered cards leave the registry
+        guard.finish().await;
+    }
 }
