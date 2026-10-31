@@ -2398,3 +2398,51 @@ prune stale panel cards with a new `approval_stale` frame. COMMITTED
    comment/Adjust flows; wire into tools.rs only if model-facing.
 3. Phases 12→29 continuously, no Playwright until the final locked
    loop after Phase 29.
+
+---
+
+## Session 2026-10-31-D — Phase 12 (annotation/comment surface)
+
+### 8.1 Locked shipped
+- Rust `src/page_runtime.rs`: `__rukeAnnotationBridge` binding,
+  `PAGE_RUNTIME_SCRIPT` (install-once; verbatim `document.oai` install
+  grammar + `api` surface + 15 DOM-contract names +
+  `codex:open-annotation` cancelable event), `ANNOTATION_CAPTURE_JS`
+  anchor read (text/element/none). 6 unit pins.
+- `engine.rs`: attach installs binding+scripts best-effort; pump
+  `Runtime.bindingCalled` arm fans open_annotation/annotation_features/
+  annotation_mode/annotation_controls UI frames.
+- `executor.rs`: `browser_annotation_capture` (TabTarget ⇒
+  {tab_id,page_url,anchor}); contract.rs registry now 83 rows
+  (ADAPTED_COMMAND_POOL len 10); tools.rs NOT_MODEL_EXPOSED now 5.
+- TS: `lib/browser-client/annotationPrompt.ts` (verbatim composer
+  grammar + serializers, leaf module), browserClient capture RPC +
+  `ruke:open-annotation`, browserStore annotation cards (tab-pruned),
+  BrowserPanel capture button + site card path, BrowserCards comment
+  cards, ChatInput listener (block prepended; hero+bar same component —
+  HeroComposer.tsx is unimported dead code, left alone).
+- 11 vitest grammar pins (`__tests__/annotationPrompt.test.ts`).
+
+### 8.2 Gates (real)
+- cargo test -p ruke-browser -p ruke-server: 139/139 lib, 106 server,
+  golden_replay 19, integration 6/1/2/6 — all green.
+- clippy both crates: exactly baseline 7 ruke-websearch warnings.
+- cargo fmt -p ruke-browser -p ruke-server (reformatted
+  page_runtime.rs — Read before next Edit).
+- tsc --noEmit clean; contracts:check OK (manifest does not enumerate
+  browser command names — no regen).
+- npx vitest run full: 768 passed/1 skipped; 3 failures ONLY in
+  documented-flaky rust-golden/web.test.ts — isolated re-run 5/5
+  (contention under parallel load; never "fix").
+
+### 8.8 Immediate next (Phase 13 — history/profile/clear-data/omnibox)
+1. Read schemas.rs `HistoryQueryPayload`/`ClearDataPayload`, io_state.rs
+   (browser IO dirs; History DB path under profile dir), executor arms
+   for browser_history/browser_clear_data (rows exist since Phase 1 —
+   verify arm presence), ruke-server/ruke-browser Cargo.toml rusqlite
+   presence.
+2. Implement rusqlite reads over the native Chromium History DB +
+   clearData types + omnibox history suggestions in BrowserPanel +
+   policy Settings UI pass (left open from Phase 9).
+3. Phases 13→29 continuously, no Playwright until the final locked
+   loop after Phase 29.

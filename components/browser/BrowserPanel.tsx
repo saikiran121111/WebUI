@@ -20,7 +20,7 @@
  */
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, MessageSquarePlus, Plus, RefreshCw, X } from "lucide-react";
 import {
   BrowserSocket,
   keyMessage,
@@ -31,6 +31,8 @@ import {
   runActingCommand,
   sendBrowserCommand,
   wheelMessage,
+  captureAnnotationAnchor,
+  dispatchRukeOpenAnnotation,
   type ApprovalDecision,
   type ApprovalRequestCard,
   type AuthHandoffAnswer,
@@ -39,11 +41,13 @@ import {
   type UiServerMessage,
 } from "../../lib/browser-client/browserClient";
 import {
+  addAnnotation,
   addApproval,
   addAuthHandoff,
   clearTakeover,
   closeBrowserPanel,
   mergeTab,
+  removeAnnotation,
   removeApproval,
   removeAuthHandoff,
   selectTab,
@@ -54,7 +58,11 @@ import {
   setTakeover,
   useBrowserState,
 } from "../../lib/browser-client/browserStore";
-import { ApprovalCards, AuthHandoffCards, takeoverSentence } from "./BrowserCards";
+import {
+  annotationComposerText,
+  siteAnnotationComposerText,
+} from "../../lib/browser-client/annotationPrompt";
+import { AnnotationCards, ApprovalCards, AuthHandoffCards, takeoverSentence } from "./BrowserCards";
 import "../../styles/browser-panel.css";
 
 export default function BrowserPanel({ sessionId }: { sessionId: string }) {
@@ -69,6 +77,7 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
     approvals,
     authHandoffs,
     takeovers,
+    annotations,
   } = useBrowserState();
 
   // sessionId can change mid-mount (conversation switch); RPC session
@@ -91,6 +100,51 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (!editingRef.current) setOmni(selectedUrl);
   }, [selectedUrl]);
+
+  /* ── Phase 12: comment-on-selection + parked annotation cards ───────── */
+  const [capturing, setCapturing] = useState(false);
+
+  /** Ask the engine for a live anchor of the current selection
+   *  (`browser_annotation_capture`, panel-only). `kind:"none"` is an
+   *  honest "nothing selected" answer, surfaced as a panel hint. */
+  const captureComment = useCallback(async () => {
+    if (!selected) return;
+    setCapturing(true);
+    setPanelError(null);
+    try {
+      const res = await captureAnnotationAnchor(selected, sessionRef.current);
+      if (!res.anchor || res.anchor.kind === "none") {
+        setPanelError("Select something on the page first, then comment on it.");
+        return;
+      }
+      addAnnotation({
+        id: crypto.randomUUID(),
+        tab_id: selected,
+        anchor: res.anchor,
+        source: "human",
+      });
+    } catch (err) {
+      setPanelError(err instanceof Error ? err.message : "annotation capture failed");
+    } finally {
+      setCapturing(false);
+    }
+  }, [selected]);
+
+  /** Hand one parked card to the composer. The anchor details travel
+   *  ONLY as marked untrusted evidence; the human's comment becomes the
+   *  `Comment:` line and their typed request follows `## My request:`. */
+  const addAnnotationToChat = useCallback(
+    (id: string, comment: string) => {
+      const card = annotations.find((c) => c.id === id);
+      if (!card) return;
+      const text = card.anchor
+        ? annotationComposerText([{ anchor: card.anchor, comment }])
+        : siteAnnotationComposerText(card.detail ?? { comment });
+      dispatchRukeOpenAnnotation({ text, tab_id: card.tab_id });
+      removeAnnotation(id);
+    },
+    [annotations],
+  );
 
   /* ── socket lifecycle: connected while the panel is open ───────────── */
   useEffect(() => {
@@ -147,6 +201,23 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
           if (typeof c.id === "string") {
             removeApproval(c.id);
             removeAuthHandoff(c.id);
+          }
+        } else if (msg.type === "open_annotation") {
+          // Phase 12: a SITE asked for a comment — `document.oai.
+          // annotation.request(...)` or a direct dispatch of the
+          // verbatim `codex:open-annotation` page event, ferried out
+          // through the CDP binding (Rust page_runtime.rs). Park a
+          // card; it is evidence, never permission, and nothing is
+          // sent until the human adds it to the chat.
+          const c = msg as { tab_id?: unknown; detail?: unknown };
+          if (typeof c.tab_id === "string") {
+            addAnnotation({
+              id: crypto.randomUUID(),
+              tab_id: c.tab_id,
+              anchor: null,
+              detail: c.detail,
+              source: "site",
+            });
           }
         }
       },
@@ -421,6 +492,10 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
           onClick={() => void tabCmd("navigate_tab_reload", selected!)}>
           <RefreshCw size={14} />
         </button>
+        <button className="bp-icon" aria-label="Comment on selection"
+          disabled={!selected || capturing} onClick={() => void captureComment()}>
+          <MessageSquarePlus size={14} />
+        </button>
         <input
           className="bp-omni"
           value={omni}
@@ -450,6 +525,11 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
 
       <ApprovalCards cards={approvals} onAnswer={answerApprovalCard} />
       <AuthHandoffCards cards={authHandoffs} onAnswer={answerAuthCard} />
+      <AnnotationCards
+        cards={annotations}
+        onAddToChat={addAnnotationToChat}
+        onDismiss={removeAnnotation}
+      />
 
       {error && (
         <div className="bp-error" role="alert">

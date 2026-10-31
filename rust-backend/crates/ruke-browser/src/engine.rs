@@ -248,6 +248,38 @@ impl BrowserRuntime {
         // the AX registries would never observe an update.
         conn.call("Accessibility.enable", None, Some(&session_id))
             .await?;
+        // Phase 12: the page-runtime annotation surface. Install the
+        // `document.oai.annotation` script for every future document in
+        // this tab, run it once in the already-loaded document, and add
+        // the single JSON bridge binding those payloads travel through.
+        // All three calls are best-effort: an older Chromium without
+        // Runtime.addBinding/Page.addScriptToEvaluateOnNewDocument keeps
+        // the annotation surface honestly absent at call time instead
+        // of failing the attach.
+        let _ = conn
+            .call(
+                "Runtime.addBinding",
+                Some(json!({"name": crate::page_runtime::ANNOTATION_BINDING})),
+                Some(&session_id),
+            )
+            .await;
+        let _ = conn
+            .call(
+                "Page.addScriptToEvaluateOnNewDocument",
+                Some(json!({"source": crate::page_runtime::PAGE_RUNTIME_SCRIPT})),
+                Some(&session_id),
+            )
+            .await;
+        let _ = conn
+            .call(
+                "Runtime.evaluate",
+                Some(json!({
+                    "expression": crate::page_runtime::PAGE_RUNTIME_SCRIPT,
+                    "sourceURL": "ruke-page-runtime",
+                })),
+                Some(&session_id),
+            )
+            .await;
         // Phase 8: route `<input type=file>` activations through
         // `Page.fileChooserOpened` instead of letting Chromium open an
         // OS file dialog no headless process can service. Best-effort:
@@ -899,6 +931,45 @@ async fn event_pump(
                         name,
                         progress_committed,
                     );
+                }
+            }
+            "Runtime.bindingCalled" => {
+                // Phase 12: the page-runtime annotation bridge
+                // (`page_runtime`). One binding carries every
+                // page→engine message this phase forwards; payloads
+                // arrive as JSON strings and cross to the panel hub as
+                // typed frames. Site-initiated `open_annotation` is
+                // evidence, never permission — the panel renders it and
+                // the composer grammar marks it untrusted.
+                let Some(sid) = ev.session_id.as_deref() else {
+                    continue;
+                };
+                if ev.params.get("name").and_then(Value::as_str)
+                    != Some(crate::page_runtime::ANNOTATION_BINDING)
+                {
+                    continue;
+                }
+                let Some(raw) = ev.params.get("payload").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Ok(msg) = serde_json::from_str::<Value>(raw) else {
+                    continue;
+                };
+                let kind = msg.get("kind").and_then(Value::as_str).unwrap_or("");
+                let frame_type = match kind {
+                    "open_annotation" => "open_annotation",
+                    "features" => "annotation_features",
+                    "mode" => "annotation_mode",
+                    "controls" => "annotation_controls",
+                    _ => continue,
+                };
+                let tab = registry.lock().by_session(sid).cloned();
+                if let Some(t) = tab.as_ref() {
+                    ui.event(json!({
+                        "type": frame_type,
+                        "tab_id": t.tab_id,
+                        "detail": msg.get("detail").cloned().unwrap_or(Value::Null),
+                    }));
                 }
             }
             _ => {}

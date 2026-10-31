@@ -19,7 +19,7 @@
  */
 "use client";
 import { useState } from "react";
-import { KeyRound, ShieldAlert, X } from "lucide-react";
+import { KeyRound, MessageSquareText, ShieldAlert, X } from "lucide-react";
 import { authVisibleFields } from "../../lib/browser-client/browserClient";
 import type {
   ApprovalDecision,
@@ -27,6 +27,7 @@ import type {
   AuthHandoffAnswer,
   AuthHandoffRequestCard,
 } from "../../lib/browser-client/browserClient";
+import type { AnnotationCard } from "../../lib/browser-client/browserStore";
 
 const FACET_LABELS: Record<string, string> = {
   access: "visit this site",
@@ -206,6 +207,92 @@ export function AuthHandoffCards({
     <div className="bp-cards" role="group" aria-label="Browser sign-in requests">
       {cards.map((c) => (
         <AuthHandoffCard key={c.id} card={c} onAnswer={onAnswer} />
+      ))}
+    </div>
+  );
+}
+
+/* ── Phase 12: parked annotation cards ──────────────────────────────────── */
+
+/**
+ * Comment cards parked on the panel (Browser Use, Phase 12). The engine
+ * never pushes these — they come from the human's "Comment on
+ * selection" capture (anchor set) or a site-initiated
+ * `open_annotation` frame through the page-runtime bridge (detail set,
+ * anchor null). Nothing reaches the model until the human clicks
+ * "Add to chat": the card is where human intent is written down, and
+ * the composer grammar (annotationPrompt) wraps the page details under
+ * an explicit untrusted-evidence marker.
+ */
+function AnnotationCardView({
+  card,
+  onAdd,
+  onDismiss,
+}: {
+  card: AnnotationCard;
+  onAdd(id: string, comment: string): void;
+  onDismiss(id: string): void;
+}) {
+  const [comment, setComment] = useState("");
+  const anchor = card.anchor;
+  const preview = anchor?.selectedText
+    ? `“${anchor.selectedText.length > 120 ? `${anchor.selectedText.slice(0, 120)}…` : anchor.selectedText}”`
+    : anchor
+      ? `a spot on “${anchor.title || anchor.pageUrl}”`
+      : "a comment the page itself asked for";
+  return (
+    <div className="bp-card" data-testid={`annotation-card-${card.id}`}>
+      <div className="bp-card-head">
+        <MessageSquareText size={14} aria-hidden />
+        <span className="bp-card-title">Browser comment</span>
+        <button
+          className="bp-icon bp-card-x"
+          aria-label="Dismiss comment"
+          onClick={() => onDismiss(card.id)}
+        >
+          <X size={13} />
+        </button>
+      </div>
+      <p className="bp-card-text">
+        Commenting on {preview}. Your words become the instruction; the
+        page details travel as marked untrusted evidence.
+      </p>
+      {anchor && <p className="bp-card-url">{anchor.pageUrl}</p>}
+      <textarea
+        className="bp-omni"
+        rows={3}
+        aria-label={`Comment for tab ${card.tab_id}`}
+        placeholder="What should change here?"
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+      />
+      <div className="bp-card-actions">
+        <button
+          className="bp-btn bp-btn-primary"
+          disabled={!comment.trim()}
+          onClick={() => onAdd(card.id, comment.trim())}
+        >
+          Add to chat
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function AnnotationCards({
+  cards,
+  onAddToChat,
+  onDismiss,
+}: {
+  cards: AnnotationCard[];
+  onAddToChat(id: string, comment: string): void;
+  onDismiss(id: string): void;
+}) {
+  if (cards.length === 0) return null;
+  return (
+    <div className="bp-cards" role="group" aria-label="Browser comments">
+      {cards.map((c) => (
+        <AnnotationCardView key={c.id} card={c} onAdd={onAddToChat} onDismiss={onDismiss} />
       ))}
     </div>
   );

@@ -35,6 +35,8 @@
  * for the vitest contract tests in `__tests__/browser-client.test.ts`.
  */
 
+import type { AnnotationAnchor } from "./annotationPrompt";
+
 export const BROWSER_ID = "default";
 /** Stable panel turn id — see the header note on tab operability. */
 export const UI_TURN_ID = "ui";
@@ -492,6 +494,52 @@ export function mapPointerToViewport(
   };
 }
 
+/* ── annotation surface (Phase 12) ──────────────────────────────────────── */
+
+export interface AnnotationCaptureResult {
+  tab_id: string;
+  page_url: string;
+  anchor: AnnotationAnchor;
+}
+
+/** Human-triggered anchor capture behind the panel's "Comment on
+ *  selection" affordance. The command is panel-only (`NOT_MODEL_EXPOSED`
+ *  engine-side); `anchor.kind === "none"` means the human selected
+ *  nothing — an honest answer, not an error. The anchor shape is pinned
+ *  by `page_runtime::ANNOTATION_CAPTURE_JS` (Rust) and
+ *  `annotationPrompt.ts` (grammar). */
+export function captureAnnotationAnchor(
+  tabId: string,
+  sessionId: string,
+): Promise<AnnotationCaptureResult> {
+  return sendBrowserCommand<AnnotationCaptureResult>(
+    "browser_annotation_capture",
+    { tab_id: tabId },
+    sessionId,
+  );
+}
+
+/** Panel→composer hand-off event. The IN-PAGE event name stays
+ *  `codex:open-annotation` (verbatim, page_runtime.rs); the panel-side
+ *  rename to `ruke:open-annotation` happens here, never in the page. */
+export const RUKE_OPEN_ANNOTATION_EVENT = "ruke:open-annotation";
+
+export interface RukeOpenAnnotationDetail {
+  text: string;
+  tab_id: string;
+}
+
+export function dispatchRukeOpenAnnotation(detail: RukeOpenAnnotationDetail): void {
+  if (typeof document === "undefined") return;
+  document.dispatchEvent(
+    new CustomEvent(RUKE_OPEN_ANNOTATION_EVENT, {
+      bubbles: false,
+      cancelable: false,
+      detail,
+    }),
+  );
+}
+
 /* ── screencast socket ──────────────────────────────────────────────────── */
 
 export type UiServerMessage =
@@ -508,6 +556,20 @@ export type UiServerMessage =
   // (Stop, timeout, host death) — the wait already failed closed in the
   // engine; the panel must prune the card by id.
   | { type: "approval_stale"; id: string }
+  // Phase 12: the page-runtime annotation bridge (Rust `page_runtime.rs`
+  // → CDP binding → engine pump → UiHub). `open_annotation` carries a
+  // site-initiated in-page `codex:open-annotation` request; the
+  // annotation_* siblings carry site-declared feature/mode/control
+  // changes. Page evidence, never permission.
+  | {
+      type:
+        | "open_annotation"
+        | "annotation_features"
+        | "annotation_mode"
+        | "annotation_controls";
+      tab_id: string;
+      detail?: unknown;
+    }
   | { type: string; [k: string]: unknown };
 
 export interface SocketHandlers {

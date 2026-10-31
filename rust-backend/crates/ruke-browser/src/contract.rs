@@ -183,6 +183,8 @@ command_registry! {
     BrowserUserOpenTabs / "browser_user_open_tabs" => BrowserOnly,
     #[doc = "[adapted] §2.4 claimTab from the user side."]
     BrowserUserClaimTab / "browser_user_claim_tab" => TabTarget,
+    #[doc = "[adapted] Phase 12: the panel-side anchor read behind the comment composer (the reference captures anchors through its internal composer plumbing; never model-exposed)."]
+    AnnotationCapture / "browser_annotation_capture" => TabTarget,
 }
 
 /// The exact §2.1 reference pool (73 names) — the coverage test asserts
@@ -263,8 +265,8 @@ pub const REFERENCE_COMMAND_POOL: [&str; 73] = [
     "site_submission_verified",
 ];
 
-/// [adapted] lifecycle names (9).
-pub const ADAPTED_COMMAND_POOL: [&str; 9] = [
+/// [adapted] lifecycle names (10).
+pub const ADAPTED_COMMAND_POOL: [&str; 10] = [
     "tab_mark_deliverable",
     "tab_mark_handoff",
     "tab_new",
@@ -274,6 +276,7 @@ pub const ADAPTED_COMMAND_POOL: [&str; 9] = [
     "browser_clear_data",
     "browser_user_open_tabs",
     "browser_user_claim_tab",
+    "browser_annotation_capture",
 ];
 
 /// The metadata keys, in the fixed order the recovered check uses.
@@ -435,7 +438,7 @@ mod tests {
             assert!(names.insert(n), "duplicate command name: {n}");
             assert_eq!(CommandKind::parse(n), Some(*kind), "round-trip failed: {n}");
         }
-        assert_eq!(CommandKind::ALL.len(), 82);
+        assert_eq!(CommandKind::ALL.len(), 83);
     }
 
     #[test]

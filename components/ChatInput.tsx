@@ -10,6 +10,7 @@ import { fetchSkills } from "../lib/skills/client-cache";
 import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib/files";
 import SkillsModal from "./SkillsModal";
 import { cn } from "../lib/utils";
+import { RUKE_OPEN_ANNOTATION_EVENT } from "../lib/browser-client/browserClient";
 
 const EFFORT_LEVELS: EffortLevel[] = ["off", "low", "medium", "high", "max"];
 const EFFORT_LABEL: Record<EffortLevel, string> = {
@@ -115,6 +116,24 @@ export default function ChatInput({
   const pickSlashSkill = useCallback((skillName: string) => {
     setValue("/" + skillName + " ");
     setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
+
+  // Browser Use (Phase 12): the Browser Panel hands a parked comment to
+  // the composer through this event. The text arrives fully assembled
+  // (grammar pinned in lib/browser-client/annotationPrompt) and already
+  // ends on "## My request:" — the block is PREPENDED so the human's
+  // typed request stays the governing instruction and every page-derived
+  // detail above it sits under the untrusted-evidence marker.
+  useEffect(() => {
+    const onAnnotation = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { text?: unknown } | undefined;
+      const text = detail?.text;
+      if (typeof text !== "string" || !text) return;
+      setValue((prev) => (prev.trim() ? `${text}\n${prev}` : text));
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+    document.addEventListener(RUKE_OPEN_ANNOTATION_EVENT, onAnnotation);
+    return () => document.removeEventListener(RUKE_OPEN_ANNOTATION_EVENT, onAnnotation);
   }, []);
 
   const isHero = variant === "hero";

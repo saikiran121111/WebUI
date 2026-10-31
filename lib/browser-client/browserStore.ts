@@ -27,6 +27,7 @@ import type {
   AuthHandoffRequestCard,
   BrowserTab,
 } from "./browserClient";
+import type { AnnotationAnchor } from "./annotationPrompt";
 
 export interface BrowserState {
   /** panel visibility (user-toggled or stage-driven) */
@@ -48,6 +49,22 @@ export interface BrowserState {
   authHandoffs: AuthHandoffRequestCard[];
   /** tab_id -> takeover reason; presence = the tab is the human's */
   takeovers: Record<string, string>;
+  /* ── Phase 12 annotation state ──────────────────────────────────────── */
+  /** parked comment cards: human captures (anchor set) and site-initiated
+   *  `open_annotation` frames (anchor null, detail set). Parked here —
+   *  nothing is sent to the model until the human attaches one. */
+  annotations: AnnotationCard[];
+}
+
+/** One parked annotation card (Phase 12). */
+export interface AnnotationCard {
+  id: string;
+  tab_id: string;
+  /** captured DOM anchor, or null for a site-declared request */
+  anchor: AnnotationAnchor | null;
+  /** recovered CustomEvent detail for site-initiated cards */
+  detail?: unknown;
+  source: "human" | "site";
 }
 
 const EMPTY: BrowserState = {
@@ -62,6 +79,7 @@ const EMPTY: BrowserState = {
   approvals: [],
   authHandoffs: [],
   takeovers: {},
+  annotations: [],
 };
 
 let state: BrowserState = EMPTY;
@@ -117,6 +135,9 @@ export function setTabs(tabs: BrowserTab[]): void {
   // parked approvals when the tab goes away) — drop it client-side.
   const approvals = state.approvals.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
   const authHandoffs = state.authHandoffs.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
+  // Phase 12: an annotation anchored to a dead tab is worthless (the
+  // page it pointed at is gone) — drop it with the tab.
+  const annotations = state.annotations.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
   // Mirror the `taken_over` row flag (tab_json) onto the takeover map;
   // the event carries the reason, so a flag-true row keeps the known
   // reason and only defaults when the panel missed the event (e.g. a
@@ -128,7 +149,7 @@ export function setTabs(tabs: BrowserTab[]): void {
       if (t.taken_over) takeovers[t.tab_id] = state.takeovers[t.tab_id] ?? "handoff";
     }
   }
-  set({ tabs, selected, frames, approvals, authHandoffs, takeovers });
+  set({ tabs, selected, frames, approvals, authHandoffs, takeovers, annotations });
 }
 
 /** Merge one tab row (e.g. a `subscribed` ack) into the listing. */
@@ -172,6 +193,21 @@ export function addAuthHandoff(card: AuthHandoffRequestCard): void {
 export function removeAuthHandoff(id: string): void {
   if (!state.authHandoffs.some((c) => c.id === id)) return;
   set({ authHandoffs: state.authHandoffs.filter((c) => c.id !== id) });
+}
+
+/* ── Phase 12 annotation cards ─────────────────────────────────────────── */
+
+/** Park one annotation card (ids are minted panel-side; a replayed
+ *  frame can never collide because each frame mints a fresh id — dedupe
+ *  by id still guards same-tick double dispatch). */
+export function addAnnotation(card: AnnotationCard): void {
+  if (state.annotations.some((c) => c.id === card.id)) return;
+  set({ annotations: [...state.annotations, card] });
+}
+
+export function removeAnnotation(id: string): void {
+  if (!state.annotations.some((c) => c.id === id)) return;
+  set({ annotations: state.annotations.filter((c) => c.id !== id) });
 }
 
 /** The tab is the human's now (manual handoff / takeover event). */

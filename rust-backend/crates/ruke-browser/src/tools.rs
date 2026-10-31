@@ -30,6 +30,10 @@ pub const NOT_MODEL_EXPOSED: &[&str] = &[
     "tab_cdp_events",
     "browser_user_open_tabs",
     "browser_user_claim_tab",
+    // Phase 12: the comment composer's anchor read belongs to the human
+    // panel; the model receives annotation text through the composer,
+    // never by probing the page for anchors itself.
+    "browser_annotation_capture",
 ];
 
 /// The OpenAI function-tool array injected on browser turns. One entry

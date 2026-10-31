@@ -160,6 +160,30 @@ impl BrowserRuntime {
                 let rec = self.registry.lock().require(&p.tab_id)?;
                 Ok(tab_json(&rec))
             }
+            Command::AnnotationCapture(p) => {
+                // Phase 12: the panel's comment-composer anchor read.
+                // Human-only (NOT_MODEL_EXPOSED); the page script owns
+                // the anchor shape (page_runtime::ANNOTATION_CAPTURE_JS),
+                // the engine just ferries the JSON through. `kind:"none"`
+                // is a valid honest answer, not an error.
+                check_browser(&p.browser_id)?;
+                let rec = self.registry.lock().require(&p.tab_id)?;
+                let conn = self.client().await?;
+                let anchor = Self::eval_string(
+                    &conn,
+                    &rec.cdp_session_id,
+                    crate::page_runtime::ANNOTATION_CAPTURE_JS,
+                )
+                .await?
+                .ok_or_else(|| BrowserError::Internal {
+                    detail: "annotation capture returned no anchor".into(),
+                })?;
+                let anchor: Value =
+                    serde_json::from_str(&anchor).map_err(|e| BrowserError::Internal {
+                        detail: format!("annotation anchor was not JSON: {e}"),
+                    })?;
+                Ok(json!({ "tab_id": p.tab_id, "page_url": rec.url, "anchor": anchor }))
+            }
             Command::TabNew(p) => {
                 check_browser(&p.browser_id)?;
                 let url = p.url.as_deref().unwrap_or("about:blank");
