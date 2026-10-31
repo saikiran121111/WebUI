@@ -126,6 +126,27 @@ pub fn model_tools() -> Value {
         &["name"],
     );
 
+    // ── browsing history + browsing data (Phase 13) ─────────────────────
+    t(
+        "browser_history",
+        "Search the real browser profile's browsing history (every visit in the session, including the human's own), newest first. History is sensitive personal data: call this only when necessary for the request, never speculatively, and make ONE focused call with date bounds and a small known set of queries instead of repeated exploratory calls. Answers may pause on an approval card for the user.",
+        json!({
+            "from_ms": {"type": "integer", "description": "earliest visit, Unix milliseconds (inclusive)"},
+            "to_ms": {"type": "integer", "description": "latest visit, Unix milliseconds (inclusive)"},
+            "queries": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 128}, "description": "case-insensitive substrings matched against URL or title; all must match"},
+            "limit": {"type": "integer", "minimum": 1, "description": "max entries (default 100)"}
+        }),
+        &[],
+    );
+    t(
+        "browser_clear_data",
+        "Clear browsing data in the real browser profile: cookies, cache, browsing history, and download history. This is DESTRUCTIVE — ask the user first unless they already asked for it. data_types defaults to all four categories; unknown categories are refused. Cookies/cache are skipped honestly when the browser is not running. Answers may pause on an approval card for the user.",
+        json!({
+            "data_types": {"type": "array", "items": {"enum": ["cookies", "cache", "history", "downloads"]}, "description": "categories to clear; omit or empty for all"}
+        }),
+        &[],
+    );
+
     // ── reading the page ────────────────────────────────────────────────
     t(
         "tab_ax_get_state",

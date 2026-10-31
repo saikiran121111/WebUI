@@ -298,8 +298,11 @@ export function insertTextMessage(text: string): InputTextEvent {
 
 /* ── Phase 9: approval + browser-auth handoff + takeover frames ─────────── */
 
-/** Facet/decision vocabularies verbatim from Rust `authority.rs`. */
-export type BrowserFacet = "access" | "uploads" | "downloads" | "full_cdp_access";
+/** Facet/decision vocabularies verbatim from Rust `authority.rs`.
+ *  `history` (Phase 13) gates browsing-history reads AND browsing-data
+ *  clears; its rules live on the global `"*"` host row, so the parked
+ *  card for it carries `tab_id: ""` and `url: null` (browser-level). */
+export type BrowserFacet = "access" | "uploads" | "downloads" | "full_cdp_access" | "history";
 export type BrowserDecision = "deny" | "always_ask" | "never_ask";
 export type ApprovalDecision = "accept" | "always_allow" | "block" | "decline";
 
@@ -310,7 +313,8 @@ export interface ApprovalRequestCard {
   action: string;
   facet: string;
   origin: string;
-  url: string;
+  /** Null for browser-level asks (Phase 13 history/clear cards). */
+  url: string | null;
   tab_id: string;
 }
 
@@ -396,6 +400,31 @@ export function authVisibleFields(
   if (!opt?.field_ids || opt.field_ids.length === 0) return card.fields;
   const allowed = new Set(opt.field_ids);
   return card.fields.filter((f) => allowed.has(f.id));
+}
+
+/* ── Phase 13: browsing history + browsing data (browser_history /
+   browser_clear_data RPC answers, mirroring the Rust executor JSON) ── */
+
+/** One history row: `date_visited` is the engine's ISO8601 UTC string
+ *  (Chromium epoch converted); `title` is omitted when the page had
+ *  none (the engine omits blank titles honestly). */
+export interface HistoryEntry {
+  url: string;
+  title?: string;
+  date_visited: string;
+}
+
+export interface HistoryResult {
+  entries: HistoryEntry[];
+  count: number;
+}
+
+/** `browser_clear_data` answer: every category lands in exactly one of
+ *  `cleared` or `skipped` — never silently lost (cookies/cache need a
+ *  live host, and the engine says so). */
+export interface ClearDataResult {
+  cleared: string[];
+  skipped: { type: string; reason: string }[];
 }
 
 /* ── Phase 9: saved site-permission policy (GET/PUT /api/browser/policy) ── */

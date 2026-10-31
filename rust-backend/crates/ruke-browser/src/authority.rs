@@ -62,6 +62,11 @@ pub enum Facet {
     Uploads,
     Downloads,
     FullCdpAccess,
+    /// Phase 13 [adapted]: the recovered browsing-history authority
+    /// verb (`readBrowsingHistory`) spans every origin — browsing data
+    /// belongs to the session, not to a page — so this facet keys the
+    /// global `"*"` policy row instead of a registrable host.
+    History,
 }
 
 impl Facet {
@@ -71,6 +76,7 @@ impl Facet {
             Self::Uploads => "uploads",
             Self::Downloads => "downloads",
             Self::FullCdpAccess => "full_cdp_access",
+            Self::History => "history",
         }
     }
 
@@ -80,6 +86,7 @@ impl Facet {
             "uploads" => Some(Self::Uploads),
             "downloads" => Some(Self::Downloads),
             "full_cdp_access" => Some(Self::FullCdpAccess),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -464,7 +471,57 @@ impl BrowserRuntime {
         }
         let host = registrable_host(&url)
             .unwrap_or_else(|| parsed.host_str().unwrap_or_default().to_string());
-        match self.authority.decision(&host, facet) {
+        self.gate_on_host(
+            key,
+            &host,
+            facet,
+            label,
+            tab_id,
+            (json!(origin_of(&parsed)), json!(url)),
+        )
+        .await
+    }
+
+    /// Browser-level gate (Phase 13): browsing history and browsing
+    /// data belong to the session, not to any single origin (the
+    /// recovered `readBrowsingHistory` authority verb spans the whole
+    /// profile — [adapted] keying), so these commands key the global
+    /// `"*"` policy row instead of a tab's registrable host. Their
+    /// approval card carries an empty `tab_id`: a panel card with no
+    /// tab is browser-level and is never pruned by tab frames.
+    pub(crate) async fn apply_global_gate(
+        &self,
+        key: &TurnKey,
+        facet: Facet,
+        label: &str,
+    ) -> Result<(), BrowserError> {
+        if key.1 == HUMAN_TURN_ID {
+            return Ok(());
+        }
+        self.gate_on_host(
+            key,
+            "*",
+            facet,
+            label,
+            "",
+            (json!("all sites"), Value::Null),
+        )
+        .await
+    }
+
+    /// Shared decision + park core of every facet gate (the recovered
+    /// handler preamble tail; factored out in Phase 13 so tab-level
+    /// and browser-level gates answer with identical grammar).
+    async fn gate_on_host(
+        &self,
+        key: &TurnKey,
+        host: &str,
+        facet: Facet,
+        label: &str,
+        tab_id: &str,
+        scope: (Value, Value), // (origin, url) — per-tab or browser-level
+    ) -> Result<(), BrowserError> {
+        match self.authority.decision(host, facet) {
             Decision::NeverAsk => Ok(()),
             Decision::Deny => Err(BrowserError::CapabilityBlocked {
                 reason: "A saved permission or managed policy denies access.".into(),
@@ -484,8 +541,8 @@ impl BrowserRuntime {
                     "id": id,
                     "action": label,
                     "facet": facet.as_str(),
-                    "origin": origin_of(&parsed),
-                    "url": url,
+                    "origin": scope.0,
+                    "url": scope.1,
                     "tab_id": tab_id,
                 }));
                 match self.park_approval(key, &id, rx, APPROVAL_TIMEOUT).await {
@@ -510,11 +567,11 @@ impl BrowserRuntime {
                         match decision {
                             Some("accept") => Ok(()),
                             Some("always_allow") => {
-                                self.authority.set(&host, facet, Decision::NeverAsk);
+                                self.authority.set(host, facet, Decision::NeverAsk);
                                 Ok(())
                             }
                             Some("block") => {
-                                self.authority.set(&host, facet, Decision::Deny);
+                                self.authority.set(host, facet, Decision::Deny);
                                 Err(BrowserError::CapabilityBlocked {
                                     reason: "A saved permission or managed policy denies access."
                                         .into(),

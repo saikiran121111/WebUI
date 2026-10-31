@@ -977,6 +977,103 @@ impl BrowserRuntime {
                 let conn = self.client().await?;
                 self.tab_browser_auth_handoff(&conn, &rec, p, key).await
             }
+            // ── history + browsing data (Phase 13) ──────────────────────
+            // The recovered browsing-history authority verb is
+            // session-wide, not per-origin, so both commands answer
+            // through the browser-level History-facet gate (global "*"
+            // policy row, browser-level approval card) — never the
+            // tab gates in gate_for, which have no tab to key on.
+            Command::BrowserHistory(p) => {
+                check_browser(&p.browser_id)?;
+                self.apply_global_gate(
+                    key,
+                    crate::authority::Facet::History,
+                    "read browsing history",
+                )
+                .await?;
+                crate::history::read_history_json(&self.root, p)
+            }
+            Command::BrowserClearData(p) => {
+                check_browser(&p.browser_id)?;
+                let types = crate::history::normalize_clear_types(p.data_types.as_ref()).map_err(
+                    |reason| BrowserError::PayloadInvalid {
+                        command: "browser_clear_data".into(),
+                        reason,
+                    },
+                )?;
+                self.apply_global_gate(
+                    key,
+                    crate::authority::Facet::History,
+                    "clear browsing data",
+                )
+                .await?;
+                let mut cleared: Vec<&'static str> = Vec::new();
+                let mut skipped: Vec<Value> = Vec::new();
+                // Cookies/cache live in the live browser's network
+                // store: clearing them must NEVER launch Chromium just
+                // to clear — try_client (not client), and an honest
+                // `skipped` entry when the host is down or the store
+                // refuses (never a silent success claim).
+                if types.contains(&"cookies") || types.contains(&"cache") {
+                    match self.try_client().await {
+                        Ok(conn) => {
+                            // Any live tab's session works for the
+                            // browser-wide Network store; with no tabs
+                            // the call goes bare against the browser
+                            // endpoint and its honest failure is
+                            // recorded as skipped.
+                            let sid = self
+                                .registry
+                                .lock()
+                                .list()
+                                .first()
+                                .map(|t| t.cdp_session_id.clone());
+                            for (method, kind) in [
+                                ("Network.clearBrowserCookies", "cookies"),
+                                ("Network.clearBrowserCache", "cache"),
+                            ] {
+                                if !types.contains(&kind) {
+                                    continue;
+                                }
+                                match conn.call(method, None, sid.as_deref()).await {
+                                    Ok(_) => cleared.push(kind),
+                                    Err(e) => skipped.push(json!({
+                                        "type": kind,
+                                        "reason": format!("{method}: {e}"),
+                                    })),
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            for kind in ["cookies", "cache"] {
+                                if types.contains(&kind) {
+                                    skipped.push(json!({
+                                        "type": kind,
+                                        "reason": "the browser host is not running; nothing live to clear",
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+                // History + download rows live in the profile's own
+                // History database — the omnibox's source of truth.
+                // Clearing it IS the real browser's "clear browsing
+                // data", not a parallel Ruke-only store.
+                if types.contains(&"history") {
+                    crate::history::clear_history_db(&self.root)?;
+                    cleared.push("history");
+                }
+                if types.contains(&"downloads") {
+                    crate::history::clear_downloads_db(&self.root)?;
+                    cleared.push("downloads");
+                }
+                Ok(json!({
+                    "browser_id": p.browser_id,
+                    "cleared": cleared,
+                    "skipped": skipped,
+                }))
+            }
             // Honest increment: implemented above; everything else is a
             // typed Unsupported until its phase lands (never a stub that
             // pretends to have driven a page).

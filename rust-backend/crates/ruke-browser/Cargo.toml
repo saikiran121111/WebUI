@@ -21,6 +21,9 @@ psl = { workspace = true }
 # Phase 11 (cancellation): turn-scoped CancellationToken making parked
 # approval/handoff waits interruptible (same tokio-util the chat layer uses).
 tokio-util.workspace = true
+# Phase 13 (history/clear-data): the native Chromium profile History
+# database (rusqlite bundled — no system sqlite on Windows laptops).
+rusqlite = { workspace = true }
 parking_lot.workspace = true
 tracing.workspace = true
 

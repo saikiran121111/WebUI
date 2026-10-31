@@ -44,7 +44,9 @@ pub const BROWSER_ID: &str = "default";
 pub const MAX_COMMANDS_PER_TURN: u32 = 120;
 
 pub struct BrowserRuntime {
-    root: PathBuf,
+    // Phase 13: the profile root is also the History-db home, so the
+    // executor's history/clear arms read it directly.
+    pub(crate) root: PathBuf,
     host: AsyncMutex<Option<LaunchedHost>>,
     pub(crate) registry: Arc<Mutex<Registry>>,
     pub(crate) session_names: Mutex<HashMap<String, String>>,
@@ -474,8 +476,9 @@ impl BrowserRuntime {
             crate::authority::Facet::parse(facet).ok_or_else(|| BrowserError::PayloadInvalid {
                 command: "browser_policy_set".into(),
                 reason: format!(
-                "unknown facet {facet:?}: expected access | uploads | downloads | full_cdp_access"
-            ),
+                    "unknown facet {facet:?}: expected access | uploads | downloads | \
+                 full_cdp_access | history"
+                ),
             })?;
         let decision = crate::authority::Decision::parse(decision).ok_or_else(|| {
             BrowserError::PayloadInvalid {

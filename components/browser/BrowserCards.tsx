@@ -34,10 +34,14 @@ const FACET_LABELS: Record<string, string> = {
   uploads: "upload files",
   downloads: "download files",
   full_cdp_access: "use advanced page access",
+  // Phase 13: history + clear-data are gated by the global ("*")
+  // History rule; the card's origin arrives as "all sites".
+  history: "read your browsing history",
 };
 
 /** One-line human sentence for a parked approval, from the engine's
- *  structured fields (never from page content). */
+ *  structured fields (never from page content). Browser-level asks
+ *  (Phase 13) carry origin "all sites", which reads naturally here. */
 function approvalSentence(card: ApprovalRequestCard): string {
   const facet = FACET_LABELS[card.facet] ?? card.facet;
   return `RUKE wants to ${facet} on ${card.origin || "this site"} (${card.action}).`;

@@ -33,6 +33,7 @@ pub mod dom_cua;
 pub mod engine;
 pub mod errors;
 pub mod executor;
+pub mod history;
 pub mod host;
 pub mod io_state;
 pub mod page_runtime;

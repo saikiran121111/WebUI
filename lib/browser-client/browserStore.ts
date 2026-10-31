@@ -133,7 +133,12 @@ export function setTabs(tabs: BrowserTab[]): void {
   }
   // Phase 9: card parked on a dead tab is orphaned (the engine forgets
   // parked approvals when the tab goes away) — drop it client-side.
-  const approvals = state.approvals.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
+  // Phase 13: browser-level asks (history/clear-data) carry tab_id "" —
+  // they belong to the session, not a tab, so tab churn must NOT prune
+  // them (otherwise the gate card vanishes before it can be answered).
+  const approvals = state.approvals.filter(
+    (c) => c.tab_id === "" || tabs.some((t) => t.tab_id === c.tab_id),
+  );
   const authHandoffs = state.authHandoffs.filter((c) => tabs.some((t) => t.tab_id === c.tab_id));
   // Phase 12: an annotation anchored to a dead tab is worthless (the
   // page it pointed at is gone) — drop it with the tab.

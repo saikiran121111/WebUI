@@ -20,7 +20,16 @@
  */
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, MessageSquarePlus, Plus, RefreshCw, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eraser,
+  MessageSquarePlus,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import {
   BrowserSocket,
   keyMessage,
@@ -38,6 +47,9 @@ import {
   type AuthHandoffAnswer,
   type AuthHandoffRequestCard,
   type BrowserTab,
+  type ClearDataResult,
+  type HistoryEntry,
+  type HistoryResult,
   type UiServerMessage,
 } from "../../lib/browser-client/browserClient";
 import {
@@ -62,6 +74,8 @@ import {
   annotationComposerText,
   siteAnnotationComposerText,
 } from "../../lib/browser-client/annotationPrompt";
+import { OMNIBOX_MAX_RESULTS, omniboxSuggest } from "../../lib/browser-client/omniboxSuggest";
+import PolicySettings from "./PolicySettings";
 import { AnnotationCards, ApprovalCards, AuthHandoffCards, takeoverSentence } from "./BrowserCards";
 import "../../styles/browser-panel.css";
 
@@ -288,13 +302,127 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
     });
   }, [selected, act]);
 
+  /* ── Phase 13: history-backed omnibox suggestions + clear-data ─────── */
+  // Suggestions are the human's OWN omnibox convenience: they ride the
+  // panel "ui" turn, which bypasses the History-facet gate (that gate
+  // exists to police the MODEL, not the human's own browser). Stale
+  // responses are dropped via suggestSeqRef — the last typed text wins.
+  const [suggest, setSuggest] = useState<HistoryEntry[]>([]);
+  const [activeSuggest, setActiveSuggest] = useState(-1);
+  const suggestSeqRef = useRef(0);
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const closeSuggest = useCallback(() => {
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    suggestSeqRef.current += 1;
+    setSuggest([]);
+    setActiveSuggest(-1);
+  }, []);
+
+  useEffect(() => () => {
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+  }, []);
+
+  const refreshSuggest = useCallback(async (text: string) => {
+    const q = text.trim();
+    const seq = ++suggestSeqRef.current;
+    if (!q) {
+      setSuggest([]);
+      setActiveSuggest(-1);
+      return;
+    }
+    try {
+      const res = await sendBrowserCommand<HistoryResult>(
+        "browser_history",
+        { queries: [q], limit: OMNIBOX_MAX_RESULTS },
+        sessionRef.current,
+      );
+      if (seq !== suggestSeqRef.current) return;
+      setSuggest(omniboxSuggest(q, res.entries ?? []));
+      setActiveSuggest(-1);
+    } catch {
+      // Honest silence: no history access (or host down) = no dropdown,
+      // never an error banner for a typing aid.
+      if (seq === suggestSeqRef.current) {
+        setSuggest([]);
+        setActiveSuggest(-1);
+      }
+    }
+  }, []);
+
+  const gotoUrl = useCallback(
+    (url: string) => {
+      if (!selected) return;
+      void act(() =>
+        runActingCommand("navigate_tab_url", { tab_id: selected, url }, sessionRef.current),
+      );
+    },
+    [selected, act],
+  );
+
+  const useSuggestion = useCallback(
+    (entry: HistoryEntry) => {
+      closeSuggest();
+      setOmni(entry.url);
+      editingRef.current = false;
+      gotoUrl(entry.url);
+    },
+    [closeSuggest, gotoUrl],
+  );
+
   const submitOmnibox = useCallback(() => {
+    closeSuggest();
     const url = normalizeOmniboxUrl(omni);
     if (!url || !selected) return;
-    void act(() =>
-      runActingCommand("navigate_tab_url", { tab_id: selected, url }, sessionRef.current),
-    );
-  }, [omni, selected, act]);
+    gotoUrl(url);
+  }, [omni, closeSuggest, gotoUrl]);
+
+  // Clear browsing data: two-step arm (no native confirm() — it is
+  // untestable and jarring). Destructive but human-initiated, so it
+  // rides the "ui" turn like every other panel action; the engine's
+  // answer states honestly which categories were cleared vs skipped.
+  const [clearArmed, setClearArmed] = useState(false);
+  const [clearMsg, setClearMsg] = useState<string | null>(null);
+
+  const clickClearData = useCallback(() => {
+    if (!clearArmed) {
+      setClearArmed(true);
+      setClearMsg(
+        "Clear cookies, cache, browsing history, and downloads? Click the eraser again to confirm.",
+      );
+      return;
+    }
+    setClearArmed(false);
+    void act(async () => {
+      try {
+        const res = await sendBrowserCommand<ClearDataResult>(
+          "browser_clear_data",
+          {},
+          sessionRef.current,
+        );
+        const cleared = res.cleared.length ? `Cleared: ${res.cleared.join(", ")}.` : "Nothing was cleared.";
+        const skipped = res.skipped.length
+          ? ` Skipped: ${res.skipped.map((s) => `${s.type} (${s.reason})`).join("; ")}.`
+          : "";
+        setClearMsg(cleared + skipped);
+      } catch (err) {
+        setClearMsg(null);
+        setPanelError(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }, [clearArmed, act]);
+
+  // "Add rule for current site" needs the selected tab's host (best
+  // effort — a non-URL row simply yields null).
+  const currentHost = (() => {
+    if (!selectedUrl) return null;
+    try {
+      return new URL(selectedUrl).hostname || null;
+    } catch {
+      return null;
+    }
+  })();
+  const [showPolicy, setShowPolicy] = useState(false);
 
   const openTab = useCallback(
     (url?: string) =>
@@ -496,23 +624,113 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
           disabled={!selected || capturing} onClick={() => void captureComment()}>
           <MessageSquarePlus size={14} />
         </button>
+        <button
+          className={clearArmed ? "bp-icon bp-icon-danger" : "bp-icon"}
+          aria-label="Clear browsing data"
+          title={
+            clearArmed
+              ? "Click again to confirm clearing cookies, cache, history, and downloads"
+              : "Clear browsing data"
+          }
+          data-testid="browser-clear-data"
+          onClick={clickClearData}
+        >
+          <Eraser size={14} />
+        </button>
+        <button
+          className="bp-icon"
+          aria-label="Site permissions"
+          title="Site permissions"
+          aria-expanded={showPolicy}
+          data-testid="browser-policy-toggle"
+          onClick={() => setShowPolicy((v) => !v)}
+        >
+          <ShieldCheck size={14} />
+        </button>
         <input
           className="bp-omni"
           value={omni}
           spellCheck={false}
+          role="combobox"
+          aria-expanded={suggest.length > 0}
+          aria-autocomplete="list"
+          aria-controls="bp-suggest-list"
           aria-label="Address bar"
           placeholder="Enter address"
           onChange={(e) => {
             editingRef.current = true;
             setOmni(e.target.value);
+            if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+            const v = e.target.value;
+            suggestTimerRef.current = setTimeout(() => void refreshSuggest(v), 250);
           }}
           onFocus={() => { editingRef.current = true; }}
-          onBlur={() => { editingRef.current = false; }}
+          onBlur={() => { editingRef.current = false; closeSuggest(); }}
           onKeyDown={(e) => {
+            if (suggest.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setActiveSuggest((i) => (i + 1) % suggest.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActiveSuggest((i) => (i <= 0 ? suggest.length - 1 : i - 1));
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeSuggest();
+                return;
+              }
+              if (e.key === "Enter" && activeSuggest >= 0) {
+                e.preventDefault();
+                useSuggestion(suggest[activeSuggest]);
+                return;
+              }
+            }
             if (e.key === "Enter") { e.preventDefault(); submitOmnibox(); }
           }}
         />
+        {/* History-backed omnibox dropdown (Phase 13): ranked by
+            omniboxSuggest over the real Chromium History DB. The
+            onMouseDown preventDefault keeps focus on the input so the
+            row's click lands before the blur-close fires. */}
+        {suggest.length > 0 && (
+          <div
+            id="bp-suggest-list"
+            className="bp-suggest"
+            role="listbox"
+            aria-label="Browsing history suggestions"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            {suggest.map((s, i) => (
+              <button
+                key={`${s.url}-${i}`}
+                role="option"
+                aria-selected={i === activeSuggest}
+                data-testid={`omnibox-suggest-${i}`}
+                className={i === activeSuggest ? "bp-suggest-row active" : "bp-suggest-row"}
+                onClick={() => useSuggestion(s)}
+              >
+                <span className="bp-suggest-title">{s.title || s.url}</span>
+                {s.title ? <span className="bp-suggest-url">{s.url}</span> : null}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {clearMsg && (
+        <div className="bp-note" role="status" data-testid="browser-clear-result">
+          <span>{clearMsg}</span>
+          <button className="bp-icon" aria-label="Dismiss message" onClick={() => setClearMsg(null)}>
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {showPolicy && <PolicySettings currentHost={currentHost} />}
 
       {selected && takeovers[selected] && (
         <div className="bp-takeover" role="status">
