@@ -393,6 +393,7 @@ export default function HomePage() {
         onToggleSidebar={() => setSidebarOpen(v => !v)}
         settings={<SettingsMenu effort={effort} onEffortChange={setEffort} onCompactNow={runCompact} />}
         progress={<ProgressChip progress={turnProgress} onDismiss={dismissProgress} />}
+        browserConversation={activeId ?? "default"}
       />
       <div className="flex flex-1 min-h-0">
       <Sidebar

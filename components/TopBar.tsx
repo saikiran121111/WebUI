@@ -1,9 +1,12 @@
 "use client";
 import type { ReactNode } from "react";
 import {
-  Menu, PanelLeft, ArrowLeft, ArrowRight, History, Code2,
+  Menu, PanelLeft, ArrowLeft, ArrowRight, History, Code2, Globe,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import {
+  useBrowserState, openBrowserPanel, closeBrowserPanel,
+} from "../lib/browser-client/browserStore";
 
 interface TopBarProps {
   sidebarOpen: boolean;
@@ -12,6 +15,10 @@ interface TopBarProps {
   settings: ReactNode;
   /** The turn progress chip (ProgressChip), hosted by the page. */
   progress?: ReactNode;
+  /** Conversation whose Browser Panel this toggle opens (matches the
+   *  chat-send `browser_session` marker: active id, or "default" on a
+   *  fresh chat). */
+  browserConversation?: string | null;
 }
 
 const ghost =
@@ -27,7 +34,15 @@ const ghost =
  * they exist so the desktop wrapper can wire them up later without a layout
  * change.
  */
-export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progress }: TopBarProps) {
+export default function TopBar({
+  sidebarOpen, onToggleSidebar, settings, progress, browserConversation,
+}: TopBarProps) {
+  // Browser Use: the human-facing entry to the Browser Panel. Without this
+  // affordance the panel could only auto-open on `browser:*` agent frames,
+  // which requires `browser_session` on the send, which requires the panel
+  // already open — a catch-22 that made browser turns impossible to start.
+  // Opening the panel is what arms `browser_session` for the next send.
+  const { open: browserOpen } = useBrowserState();
   return (
     <header
       data-testid="topbar"
@@ -69,8 +84,20 @@ export default function TopBar({ sidebarOpen, onToggleSidebar, settings, progres
         </button>
       </div>
 
-      {/* ── Right: progress chip / settings ───────────────────────────── */}
+      {/* ── Right: browser panel toggle / progress chip / settings ────── */}
       <div className="ml-auto flex items-center gap-1">
+        <button
+          onClick={() =>
+            browserOpen
+              ? closeBrowserPanel()
+              : openBrowserPanel(browserConversation ?? "default")
+          }
+          className={cn(ghost, browserOpen && "text-white/90 bg-white/[0.07]")}
+          aria-label={browserOpen ? "Close browser panel" : "Open browser panel"}
+          title="Browser panel"
+        >
+          <Globe className="w-4 h-4" />
+        </button>
         {progress}
         {settings}
       </div>
