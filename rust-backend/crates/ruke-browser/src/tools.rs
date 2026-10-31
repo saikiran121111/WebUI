@@ -14,10 +14,19 @@
 //! - the raw-CDP pair (`tab_cdp_call`/`tab_cdp_events`) is never exposed:
 //!   raw CDP bypasses the DOM/AX contracts and is authority-gated by the
 //!   `full_cdp_access` facet for the human panel only;
-//! - the human-side handoff pair (`browser_user_open_tabs`/
-//!   `browser_user_claim_tab`) is never exposed: claiming a tab is a
-//!   human gesture (the Browser Panel owns it), mirroring the reference
-//!   product's shared-tab rule.
+//! - `browser_user_open_tabs` (the panel's human-side tab pool read) is
+//!   never exposed: the model's view of the shared session is `tabs`;
+//! - `browser_user_claim_tab` IS exposed: the executor's shared-tab floor
+//!   (`actable_tab`) lets a turn act only on tabs it created or CLAIMED,
+//!   and its ownership-block error tells the agent to claim — hiding the
+//!   tool while commanding its use is a dead end (proven live 2026-10-31:
+//!   every model turn on a human-opened tab burned the whole round cap
+//!   with no exit). The claim is turn-keyed: it grants acting rights for
+//!   the current turn only, releases at `end_turn`, never closes the
+//!   human's tab, and grants no host access — every real page action
+//!   still passes the authority gates. This is the human→agent takeover
+//!   direction of the shared-tab rule; the panel keeps its own claim
+//!   gesture for the agent→human direction.
 //!
 //! `browser_id` is deliberately absent from every schema: the tool loop
 //! injects the default browser before decoding, so the model never has
@@ -31,7 +40,6 @@ pub const NOT_MODEL_EXPOSED: &[&str] = &[
     "tab_cdp_call",
     "tab_cdp_events",
     "browser_user_open_tabs",
-    "browser_user_claim_tab",
     // Phase 12: the comment composer's anchor read belongs to the human
     // panel; the model receives annotation text through the composer,
     // never by probing the page for anchors itself.
@@ -108,6 +116,15 @@ pub fn model_tools() -> Value {
     t(
         "tab_close",
         "Close a tab you created or were given.",
+        json!({"tab_id": tab()}),
+        &["tab_id"],
+    );
+    t(
+        "browser_user_claim_tab",
+        "Take over a tab the human opened so you can act on it. REQUIRED before any \
+         click/type/navigate on a tab you did not create yourself (get the tab_id \
+         from `tabs` first). The claim lasts only this turn, never closes the tab, \
+         and grants no host access; the human watches live and can interrupt.",
         json!({"tab_id": tab()}),
         &["tab_id"],
     );
@@ -289,7 +306,7 @@ pub fn model_tools() -> Value {
     // ── acting on the page ──────────────────────────────────────────────
     t(
         "tab_ax_action",
-        "Act on an accessibility ref from the latest tab_ax_get_state. `action` is a tagged object: {kind, …} where kind is one of paste{element_index?,text,format?}, click{target: element_index or {x,y}, mouse_button?, click_count?}, drag{from:{x,y},to:{x,y}}, perform_secondary_action{element_index,action}, press_key{element_index?,key,duration?}, scroll{target,direction,pages?}, select_text{element_index,text,prefix?,suffix?,selection_type?}, set_value{element_index,value}, type_text{element_index?,text}. A stale ref means the page changed: re-read first.",
+        "Act on an accessibility ref from the latest tab_ax_get_state. `action` is a tagged object: {kind, …} where kind is one of paste{element_index?,text,format?}, click{target: a BARE integer element_index (not an object) or an {x,y} point, mouse_button?, click_count?}, drag{from:{x,y},to:{x,y}}, perform_secondary_action{element_index,action}, press_key{element_index?,key,duration?}, scroll{target,direction,pages?}, select_text{element_index,text,prefix?,suffix?,selection_type?}, set_value{element_index,value}, type_text{element_index?,text}. A stale ref means the page changed: re-read first.",
         json!({
             "tab_id": tab(),
             "action": {
@@ -792,7 +809,7 @@ mod tests {
 
     /// The registry is exactly partitioned: every kind is either
     /// model-exposed or in `NOT_MODEL_EXPOSED` — never both, never
-    /// neither (83 = 78 exposed + 5 hidden).
+    /// neither (83 = 79 exposed + 4 hidden).
     #[test]
     fn registry_is_fully_partitioned_between_exposed_and_hidden() {
         let exposed = exposed_names();

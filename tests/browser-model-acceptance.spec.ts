@@ -79,8 +79,11 @@ async function arm(page: Page, request: APIRequestContext): Promise<BrowserE2E> 
 async function sendPrompt(page: Page, text: string): Promise<void> {
   // Home hero composer: ChatInput variant "hero" (app/page.tsx). Enter sends
   // unless the slash-skill menu is open, which these prompts never trigger.
+  // No click(): with the Browser Panel open its screencast overlay intercepts
+  // pointer events over the composer's center (the panel floats — intended
+  // ChatGPT-style UX; a human clicks an uncovered edge). fill() focuses the
+  // textarea directly and checks editable/visible — no hit-target check.
   const box = page.getByLabel("Message Ruke");
-  await box.click();
   await box.fill(text);
   await box.press("Enter");
 }
