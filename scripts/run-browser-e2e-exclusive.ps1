@@ -73,7 +73,8 @@ try {
 # dies AFTER the exclusive handle is held, stranding the lock file.
 try {
     $lockText = "PID=$PID Started=" + (Get-Date).ToString('o')
-    $lockStream.Write([System.Text.Encoding]::UTF8.GetBytes($lockText))
+    $lockBytes = [System.Text.Encoding]::UTF8.GetBytes($lockText)
+    $lockStream.Write($lockBytes, 0, $lockBytes.Length)
 } catch {
     $lockStream.Dispose()
     Remove-Item -Path $lockPath -Force -ErrorAction SilentlyContinue
