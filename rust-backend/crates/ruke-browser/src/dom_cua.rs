@@ -1192,6 +1192,9 @@ impl BrowserRuntime {
                 (w / 2.0, h / 2.0)
             }
         };
+        // Wheels only service the composited (foreground) tab — raise
+        // it before the dispatch (engine::raise_wheel_target).
+        crate::engine::raise_wheel_target(conn, &rec.cdp_session_id).await;
         conn.call(
             "Input.dispatchMouseEvent",
             Some(json!({

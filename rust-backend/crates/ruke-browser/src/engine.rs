@@ -16,7 +16,7 @@
 //! to the new browser (stale-handle rule from §"Cleanup").
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -254,115 +254,15 @@ impl BrowserRuntime {
 
     /// Attach flattened to a page target and turn on the domain events
     /// every later phase leans on (Page lifecycle + Runtime contexts).
-    /// `self` supplies only the downloads directory for the per-tab
-    /// `setDownloadBehavior` pin (Phase 8).
+    /// Thin wrapper over [`attach_page_target`]: `self` supplies only
+    /// the downloads directory for the per-tab `setDownloadBehavior`
+    /// pin (Phase 8).
     pub(crate) async fn attach_target(
         &self,
         conn: &CdpConn,
         target_id: &str,
     ) -> Result<String, BrowserError> {
-        let res = conn
-            .call(
-                "Target.attachToTarget",
-                Some(json!({"targetId": target_id, "flatten": true})),
-                None,
-            )
-            .await?;
-        let session_id = res
-            .get("sessionId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| BrowserError::Internal {
-                detail: "Target.attachToTarget returned no sessionId".into(),
-            })?
-            .to_string();
-        conn.call("Page.enable", None, Some(&session_id)).await?;
-        conn.call("Runtime.enable", None, Some(&session_id)).await?;
-        // Phase 5: the DOM domain backs getFrameOwner/describeNode/
-        // getContentQuads for DOM CUA geometry and resolution.
-        conn.call("DOM.enable", None, Some(&session_id)).await?;
-        // Phase 6: the Accessibility domain backs `getFullAXTree`
-        // captures, and its loadComplete/nodesUpdated events drive the
-        // capture pipeline's quiet-window waits. Without this enable
-        // the AX registries would never observe an update.
-        conn.call("Accessibility.enable", None, Some(&session_id))
-            .await?;
-        // Phase 14: the Network domain backs `site_submission_verified`
-        // — the engine can only verify what it actually observes, so
-        // `Network.responseReceived` must flow on every attached tab.
-        // The pump records 2xx Document responses per origin; the
-        // replay buffer bounds the traffic.
-        conn.call("Network.enable", None, Some(&session_id)).await?;
-        // Phase 15 (`tab_dev_logs`): the Log domain supplies the
-        // browser-level half of what a developer console shows
-        // (`Log.entryAdded`). Best-effort — an old host or a refused
-        // domain costs mirrored entries, never the attach itself.
-        let _ = conn.call("Log.enable", None, Some(&session_id)).await;
-        // Phase 12: the page-runtime annotation surface. Install the
-        // `document.oai.annotation` script for every future document in
-        // this tab, run it once in the already-loaded document, and add
-        // the single JSON bridge binding those payloads travel through.
-        // All three calls are best-effort: an older Chromium without
-        // Runtime.addBinding/Page.addScriptToEvaluateOnNewDocument keeps
-        // the annotation surface honestly absent at call time instead
-        // of failing the attach.
-        let _ = conn
-            .call(
-                "Runtime.addBinding",
-                Some(json!({"name": crate::page_runtime::ANNOTATION_BINDING})),
-                Some(&session_id),
-            )
-            .await;
-        let _ = conn
-            .call(
-                "Page.addScriptToEvaluateOnNewDocument",
-                Some(json!({"source": crate::page_runtime::PAGE_RUNTIME_SCRIPT})),
-                Some(&session_id),
-            )
-            .await;
-        let _ = conn
-            .call(
-                "Runtime.evaluate",
-                Some(json!({
-                    "expression": crate::page_runtime::PAGE_RUNTIME_SCRIPT,
-                    "sourceURL": "ruke-page-runtime",
-                })),
-                Some(&session_id),
-            )
-            .await;
-        // Phase 8: route `<input type=file>` activations through
-        // `Page.fileChooserOpened` instead of letting Chromium open an
-        // OS file dialog no headless process can service. Best-effort:
-        // an older Chromium without this domain method simply keeps the
-        // chooser path unsupported at call time.
-        let _ = conn
-            .call(
-                "Page.setInterceptFileChooserDialog",
-                Some(json!({"enabled": true})),
-                Some(&session_id),
-            )
-            .await;
-        // The per-tab intercept MARK is minted lazily by the executor:
-        // attach only ever knows the CDP target id, while the registry
-        // mints the tab handle AFTER attach returns — a target-keyed
-        // mark could never match the tab-keyed lookups. Enabling here
-        // is what matters: chooser events are captured from the tab's
-        // very first chooser on, and re-enabling is idempotent.
-        // Phase 8 [adapted]: `allowAndName` stores every download at
-        // `<download-dir>/<guid>` so `playwright_download_path` and the
-        // media-download flows can hand back real filesystem paths with
-        // no Chromium dialog and no filename-collision renaming.
-        let _ = conn
-            .call(
-                "Page.setDownloadBehavior",
-                Some(json!({
-                    "behavior": "allowAndName",
-                    "downloadPath": self.io.download_dir().to_string_lossy(),
-                    "eventsEnabled": true,
-                })),
-                Some(&session_id),
-            )
-            .await;
-        Ok(session_id)
+        attach_page_target(conn, target_id, self.io.download_dir()).await
     }
 
     // ── turn lifecycle (Phase 11) ─────────────────────────────────────
@@ -563,6 +463,16 @@ impl BrowserRuntime {
         let fresh = self.ui.subscribe(client, tab_id)?;
         if let Some(cdp_session) = fresh {
             let conn = self.client().await?;
+            // Chromium composites only the FOREGROUND tab, so a
+            // screencast started on a background tab never produces a
+            // frame. A fresh view therefore raises its tab first: the
+            // panel's contract is "you see live what you are looking
+            // at", and a later subscribe (a different tab) raises that
+            // one instead. Best-effort — a vanished page must not
+            // fail the subscription itself.
+            let _ = conn
+                .call("Page.bringToFront", Some(json!({})), Some(&cdp_session))
+                .await;
             let started = conn
                 .call(
                     "Page.startScreencast",
@@ -621,10 +531,142 @@ impl BrowserRuntime {
         let rec = self.registry.lock().require(tab_id)?;
         let (method, params) = crate::ui::input_dispatch(event)?;
         let conn = self.client().await?;
+        if params.get("type").and_then(Value::as_str) == Some("mouseWheel") {
+            raise_wheel_target(&conn, &rec.cdp_session_id).await;
+        }
         conn.call(method, Some(params), Some(&rec.cdp_session_id))
             .await?;
         Ok(())
     }
+}
+
+/// Wheel input is serviced only for COMPOSITED tabs: in the single
+/// window (and under the `--headless=new` product default) a hidden
+/// tab's compositor does no work at all, so `Input.dispatchMouseEvent
+/// {mouseWheel}` would sit pending until the CDP timeout. Every wheel
+/// path (`cua_scroll`, `dom_cua_scroll`, `tab_ax_action` Scroll, and
+/// the panel wheel) therefore raises the acted-on tab first — the same
+/// "you act on what the window shows" contract a fresh panel subscribe
+/// establishes in [`BrowserRuntime::ui_subscribe`]. Best-effort: if the
+/// page is already gone the wheel dispatch itself surfaces the error.
+pub(crate) async fn raise_wheel_target(conn: &CdpConn, session: &str) {
+    let _ = conn
+        .call("Page.bringToFront", Some(json!({})), Some(session))
+        .await;
+}
+
+/// Attach flattened to a page target and turn on the domain events every
+/// later phase leans on (Page lifecycle + Runtime contexts). Both the
+/// launch path ([`BrowserRuntime::attach_target`]) and the pump's popup
+/// adoption arm (Phase 16) go through here, so an adopted popup has
+/// exactly the enabled domains a command-created tab has.
+async fn attach_page_target(
+    conn: &CdpConn,
+    target_id: &str,
+    download_dir: &Path,
+) -> Result<String, BrowserError> {
+    let res = conn
+        .call(
+            "Target.attachToTarget",
+            Some(json!({"targetId": target_id, "flatten": true})),
+            None,
+        )
+        .await?;
+    let session_id = res
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| BrowserError::Internal {
+            detail: "Target.attachToTarget returned no sessionId".into(),
+        })?
+        .to_string();
+    conn.call("Page.enable", None, Some(&session_id)).await?;
+    conn.call("Runtime.enable", None, Some(&session_id)).await?;
+    // Phase 5: the DOM domain backs getFrameOwner/describeNode/
+    // getContentQuads for DOM CUA geometry and resolution.
+    conn.call("DOM.enable", None, Some(&session_id)).await?;
+    // Phase 6: the Accessibility domain backs `getFullAXTree`
+    // captures, and its loadComplete/nodesUpdated events drive the
+    // capture pipeline's quiet-window waits. Without this enable
+    // the AX registries would never observe an update.
+    conn.call("Accessibility.enable", None, Some(&session_id))
+        .await?;
+    // Phase 14: the Network domain backs `site_submission_verified`
+    // — the engine can only verify what it actually observes, so
+    // `Network.responseReceived` must flow on every attached tab.
+    // The pump records 2xx Document responses per origin; the
+    // replay buffer bounds the traffic.
+    conn.call("Network.enable", None, Some(&session_id)).await?;
+    // Phase 15 (`tab_dev_logs`): the Log domain supplies the
+    // browser-level half of what a developer console shows
+    // (`Log.entryAdded`). Best-effort — an old host or a refused
+    // domain costs mirrored entries, never the attach itself.
+    let _ = conn.call("Log.enable", None, Some(&session_id)).await;
+    // Phase 12: the page-runtime annotation surface. Install the
+    // `document.oai.annotation` script for every future document in
+    // this tab, run it once in the already-loaded document, and add
+    // the single JSON bridge binding those payloads travel through.
+    // All three calls are best-effort: an older Chromium without
+    // Runtime.addBinding/Page.addScriptToEvaluateOnNewDocument keeps
+    // the annotation surface honestly absent at call time instead
+    // of failing the attach.
+    let _ = conn
+        .call(
+            "Runtime.addBinding",
+            Some(json!({"name": crate::page_runtime::ANNOTATION_BINDING})),
+            Some(&session_id),
+        )
+        .await;
+    let _ = conn
+        .call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            Some(json!({"source": crate::page_runtime::PAGE_RUNTIME_SCRIPT})),
+            Some(&session_id),
+        )
+        .await;
+    let _ = conn
+        .call(
+            "Runtime.evaluate",
+            Some(json!({
+                "expression": crate::page_runtime::PAGE_RUNTIME_SCRIPT,
+                "sourceURL": "ruke-page-runtime",
+            })),
+            Some(&session_id),
+        )
+        .await;
+    // Phase 8: route `<input type=file>` activations through
+    // `Page.fileChooserOpened` instead of letting Chromium open an
+    // OS file dialog no headless process can service. Best-effort:
+    // an older Chromium without this domain method simply keeps the
+    // chooser path unsupported at call time.
+    let _ = conn
+        .call(
+            "Page.setInterceptFileChooserDialog",
+            Some(json!({"enabled": true})),
+            Some(&session_id),
+        )
+        .await;
+    // The per-tab intercept MARK is minted lazily by the executor:
+    // attach only ever knows the CDP target id, while the registry
+    // mints the tab handle AFTER attach returns — a target-keyed
+    // mark could never match the tab-keyed lookups. Enabling here
+    // is what matters: chooser events are captured from the tab's
+    // very first chooser on, and re-enabling is idempotent.
+    // Phase 8 [adapted]: `allowAndName` stores every download at
+    // `<download-dir>/<guid>` so `playwright_download_path` and the
+    // media-download flows can hand back real filesystem paths with
+    // no Chromium dialog and no filename-collision renaming.
+    let _ = conn
+        .call(
+            "Page.setDownloadBehavior",
+            Some(json!({
+                "behavior": "allowAndName",
+                "downloadPath": download_dir.to_string_lossy(),
+                "eventsEnabled": true,
+            })),
+            Some(&session_id),
+        )
+        .await;
+    Ok(session_id)
 }
 
 /// The lifecycle pump: keeps the registry in step with what the browser
@@ -683,6 +725,76 @@ async fn event_pump(
                             .filter(|t| !t.is_empty() && Some(*t) != url && Some(*t) != schemeless);
                         if registry.lock().update_by_target(target_id, url, meaningful) {
                             ui.tabs_changed();
+                        }
+                    }
+                }
+            }
+            // [adapted] Popup adoption (Phase 16): the reference's
+            // shared session shows `window.open` / `target=_blank`
+            // popups as real tabs — both the model (in `tabs`) and the
+            // human (in the panel strip) see them, and either can pick
+            // them up. Ruke adopts only page targets whose `openerId`
+            // points at an already-registered tab: startup targets have
+            // no opener (the launch loop attaches them) and
+            // browser-level `Target.createTarget` launches (`tab_new`)
+            // have no opener and are registered synchronously by their
+            // own command arm, so the opener condition removes every
+            // double-attach race with the command paths. Ownership
+            // inherits the opener: a popup from an agent tab belongs to
+            // the same turn (turn-cleanup candidate unless marked),
+            // while a popup the human opens with real panel mouse input
+            // stays a user tab and is claimable with
+            // `browser_user_claim_tab` exactly like any other human
+            // tab.
+            "Target.targetCreated" => {
+                let info = ev.params.get("targetInfo");
+                let popup = info
+                    .filter(|i| i.get("type").and_then(|v| v.as_str()) == Some("page"))
+                    .and_then(|i| i.get("targetId"))
+                    .and_then(|v| v.as_str())
+                    .zip(
+                        info.and_then(|i| i.get("openerId"))
+                            .and_then(|v| v.as_str()),
+                    );
+                if let Some((target_id, opener_id)) = popup {
+                    let inherit = {
+                        let reg = registry.lock();
+                        if reg.by_target(target_id).is_some() {
+                            None
+                        } else {
+                            reg.by_target(opener_id)
+                                .map(|opener| opener.created_by_turn.clone())
+                        }
+                    };
+                    if let Some(inherit) = inherit {
+                        let url = info
+                            .and_then(|i| i.get("url"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let title = info
+                            .and_then(|i| i.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        match attach_page_target(&conn, target_id, io.download_dir()).await {
+                            Ok(session_id) => {
+                                let adopted = {
+                                    let mut reg = registry.lock();
+                                    if reg.by_target(target_id).is_none() {
+                                        reg.add_tab(target_id, &session_id, url, title, inherit);
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                };
+                                if adopted {
+                                    ui.tabs_changed();
+                                }
+                            }
+                            Err(e) => tracing::warn!(
+                                popup_target = %target_id,
+                                error = %e,
+                                "popup target adopt failed; skipping it"
+                            ),
                         }
                     }
                 }

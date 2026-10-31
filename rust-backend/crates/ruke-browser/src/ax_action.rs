@@ -254,6 +254,9 @@ impl BrowserRuntime {
                     ScrollDirection::Left | ScrollDirection::L => dx = -(w.max(100.0)) * pages,
                     ScrollDirection::Right | ScrollDirection::R => dx = (w.max(100.0)) * pages,
                 }
+                // Wheels only service the composited (foreground) tab —
+                // raise it before the dispatch (engine::raise_wheel_target).
+                crate::engine::raise_wheel_target(conn, session).await;
                 conn.call(
                     "Input.dispatchMouseEvent",
                     Some(json!({"type":"mouseWheel","x":x,"y":y,"deltaX":dx,"deltaY":dy,"modifiers":0})),

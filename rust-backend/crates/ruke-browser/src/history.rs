@@ -563,7 +563,7 @@ mod tests {
         // connection, uncheckpointed rows — the copy read must still
         // see them, and the source connection must stay usable.
         let tmp = tempfile::tempdir().unwrap();
-        let mut conn = fixture(tmp.path());
+        let conn = fixture(tmp.path());
         conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
         insert(
             &conn,
@@ -583,7 +583,7 @@ mod tests {
         assert_eq!(v["entries"].as_array().unwrap().len(), 1);
         // the live writer is unbothered:
         insert(
-            &mut conn,
+            &conn,
             2,
             "https://still.example/",
             "Still Open",

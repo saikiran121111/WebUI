@@ -201,6 +201,9 @@ pub(crate) async fn cua_scroll(
         ));
     }
     let modifiers = held_modifier_mask("cua_scroll", p.keys.as_deref())?;
+    // Wheels only service the composited (foreground) tab — raise it
+    // (engine::raise_wheel_target) before any input lands.
+    crate::engine::raise_wheel_target(conn, &rec.cdp_session_id).await;
     // A wheel always happens over a point: move first, then wheel
     // (deltaX/deltaY are the CDP wheel deltas; negative scrolls
     // up/left, matching the reference CUA scroll signs).

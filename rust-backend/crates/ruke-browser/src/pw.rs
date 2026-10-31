@@ -303,7 +303,15 @@ async fn pw_frame_tree(
         let Some(frame) = node.get("frame") else {
             continue;
         };
-        let Some(frame_id) = frame.get("frameId").and_then(Value::as_str) else {
+        // Page.Frame spells its identifier `id` (the `frameId` spelling
+        // belongs to Page.* EVENTS, not this object — ax.rs/dom_cua.rs
+        // already read `id`; pw_frame_tree had it wrong and silently
+        // dropped every frame). `frameId` kept as a defensive fallback.
+        let Some(frame_id) = frame
+            .get("id")
+            .or_else(|| frame.get("frameId"))
+            .and_then(Value::as_str)
+        else {
             continue;
         };
         let idx = frames.len();
@@ -439,6 +447,12 @@ impl PwRegistries {
                                             false,
                                         )
                                         .await?;
+                                    // An evaluation exception must fail
+                                    // loudly — never degrade to "0 nodes"
+                                    // and masquerade as an attach timeout.
+                                    if let Some(e) = pw_exception_reason(&res, "Runtime.evaluate") {
+                                        return Err(e);
+                                    }
                                     if let Some(oid) =
                                         res.pointer("/result/objectId").and_then(Value::as_str)
                                     {
@@ -649,7 +663,10 @@ async fn pw_call_raw(
         params["objectId"] = json!(oid);
     }
     if let Some(a) = args {
-        params["arguments"] = Value::Array(a);
+        // Callers pass RAW values; the protocol demands CallArgument
+        // objects ({value: …}). Wrapping here keeps every call site
+        // honest and the protocol shape pinned in one place.
+        params["arguments"] = Value::Array(a.into_iter().map(|v| json!({ "value": v })).collect());
     }
     let res = conn
         .call("Runtime.callFunctionOn", Some(params), Some(session))

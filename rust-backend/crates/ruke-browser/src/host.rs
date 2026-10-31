@@ -202,8 +202,9 @@ impl LaunchedHost {
         let ws_url = wait_for_devtools_ws_url(&dtap, &mut child).await?;
         let opened = cdp::CdpConn::connect(&ws_url).await?;
 
-        // Target discovery powers the lifecycle pump (targetInfoChanged /
-        // targetDestroyed) and lists the startup tab.
+        // Target discovery powers the lifecycle pump (targetCreated /
+        // targetInfoChanged / targetDestroyed — targetCreated only ever
+        // adopts opener-linked popups) and lists the startup tab.
         opened
             .conn
             .call(
