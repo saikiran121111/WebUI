@@ -16,7 +16,17 @@
 // by the panel; what this leg verifies is END-TO-END model→tool→page.
 //
 // PATIENCE RULE (docs/e2e-test-state.md): per-test timeout must exceed the
-// assertion window plus model overflow. Marker-miss retries ONCE per plan.
+// assertion window plus model overflow. ONE attempt per invocation (retries
+// off): two attempts cannot fit under the launcher window, and a doubled
+// attempt is what killed the first run at the harness cap (2026-10-31).
+//
+// Defect #7 post-mortem (first EASY run): home "/" renders ChatInput
+// (variant "hero"), and the old sendPrompt hung on `locator("textarea")`
+// actionability until the whole 300 s test timeout burned with no error.
+// The send is now anchored to the composer's real accessible name and the
+// test FAST-FAILS if the send doesn't land (user bubble asserted visible),
+// plus actionTimeout converts any blocked locator action into a precise
+// actionable error instead of a silent 300 s stall.
 
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import {
@@ -67,7 +77,9 @@ async function arm(page: Page, request: APIRequestContext): Promise<BrowserE2E> 
 }
 
 async function sendPrompt(page: Page, text: string): Promise<void> {
-  const box = page.locator("textarea").first();
+  // Home hero composer: ChatInput variant "hero" (app/page.tsx). Enter sends
+  // unless the slash-skill menu is open, which these prompts never trigger.
+  const box = page.getByLabel("Message Ruke");
   await box.click();
   await box.fill(text);
   await box.press("Enter");
@@ -76,15 +88,24 @@ async function sendPrompt(page: Page, text: string): Promise<void> {
 /** Composer send + full model turn: wait until the stream (Stop button) ends. */
 async function runTurn(page: Page, text: string): Promise<void> {
   await sendPrompt(page, text);
-  await expect(page.getByLabel("Stop generating"), "model stream never finished").toHaveCount(0, { timeout: 240_000 });
+  // Fast-fail contract: the user bubble must land in the transcript, which
+  // also proves the conversation view took over from the hero.
+  await expect(
+    page.getByText(text.slice(0, 20)).first(),
+    "composer send never reached the transcript",
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByLabel("Stop generating"), "model stream never finished").toHaveCount(0, { timeout: 420_000 });
   // The SSE closes when the loop emits its final answer; the engine-side
   // turn end (cleanup) lands within a moment of it.
   await sleep(1500);
 }
 
 test.describe("browser real-model acceptance (leg 2, one journey per locked invocation)", () => {
-  test.describe.configure({ mode: "serial", retries: 1 });
-  test.setTimeout(300_000);
+  test.describe.configure({ mode: "serial", retries: 0 });
+  // Single attempt sized for the PATIENCE RULE while staying clear of the
+  // outer launcher window.
+  test.setTimeout(480_000);
+  test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 
   test.afterEach(async ({ request }) => {
     // Sweep fixture tabs so the next journey starts from a clean tab list;
