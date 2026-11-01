@@ -19,6 +19,7 @@ import type {
   EvidencePacket,
   EvidencePassage,
 } from "./types";
+import { freshnessFit } from "./freshness";
 
 /* ── chunking ──────────────────────────────────────────────────────────── */
 
@@ -285,7 +286,7 @@ export function rerank(
   userPrompt: string,
   gateQueries: string[],
   topN = 30,
-  opts?: { singleDomainUnlimited?: boolean },
+  opts?: { singleDomainUnlimited?: boolean; freshness?: string },
 ): EvidencePassage[] {
   interface ChunkRec {
     chunk: string;
@@ -321,15 +322,23 @@ export function rerank(
   const rawHits = bm25Score(idx, qText, topN * 3);
 
   // Apply the junk penalty so boilerplate chunks never outrank real content.
-  const hits: Array<[number, number]> = rawHits
+  // §11.10: `opts.freshness` adds an ORDER-ONLY prior — tuples become
+  // [recIdx, penalized, orderKey]; the STORED/displayed bm25Score stays
+  // the undecayed penalized score (evidence bytes "(BM25=…)" never shift).
+  // Exact op order (penalize FIRST, then × fit) is mirrored in the Rust
+  // reranker for IEEE-double parity — change one side, change both.
+  const hits: Array<[number, number, number]> = rawHits
     .map(([recIdx, rawScore]) => {
       const rec = recs[recIdx];
-      if (!rec) return [recIdx, rawScore] as [number, number];
+      if (!rec) return [recIdx, rawScore, rawScore] as [number, number, number];
       const penalty = junkPenalty(rec.chunk);
-      return [recIdx, rawScore * (1 - 0.8 * penalty)] as [number, number];
+      const penalized = rawScore * (1 - 0.8 * penalty);
+      const orderKey =
+        penalized * freshnessFit(rec.packet.publishedAt, opts?.freshness);
+      return [recIdx, penalized, orderKey] as [number, number, number];
     })
     .filter(([, s]) => s > 0)
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => b[2] - a[2]);
 
   if (hits.length === 0) {
     return packets.flatMap((p) => p.passages).slice(0, topN);

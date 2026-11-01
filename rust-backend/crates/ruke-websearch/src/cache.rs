@@ -54,6 +54,12 @@ pub const PURGE_THROTTLE_MS: i64 = 60_000;
 /// retention (shortcut: page bodies churn slowly; fresh SERPs surface
 /// new URLs whose extraction was never cached anyway).
 pub const FRESH_QUERY_TTL_MS: i64 = 15 * 60_000;
+/// §11.11: freshness "realtime" rows (prices, scores, status pages) cap at
+/// 5 minutes. The READ side never replays them at all (live_required
+/// skips the query cache outright); this TTL only bounds what a
+/// concurrent run may have written moments earlier. TS mirror:
+/// `REALTIME_QUERY_TTL_MS`.
+pub const REALTIME_QUERY_TTL_MS: i64 = 5 * 60_000;
 /// Background sweep period (TS `PURGE_SWEEP_INTERVAL_MS`).
 pub const PURGE_SWEEP_INTERVAL_MS: u64 = 15 * 60 * 1000;
 
@@ -362,8 +368,11 @@ impl SearchCache for SqliteSearchCache {
         }
         let key = query_cache_key(queries);
         let now = now_ms();
-        // §24: shorter retention for time-scoped runs (see FRESH_QUERY_TTL_MS).
-        let ttl = if freshness == "day" || freshness == "week" {
+        // §24: shorter retention for time-scoped runs (see FRESH_QUERY_TTL_MS);
+        // §11.11: "realtime" caps even harder (see REALTIME_QUERY_TTL_MS).
+        let ttl = if freshness == "realtime" {
+            self.ttl_ms.min(REALTIME_QUERY_TTL_MS)
+        } else if freshness == "day" || freshness == "week" {
             self.ttl_ms.min(FRESH_QUERY_TTL_MS)
         } else {
             self.ttl_ms

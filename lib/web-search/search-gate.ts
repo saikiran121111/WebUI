@@ -67,7 +67,7 @@ const GATE_JSON_SCHEMA = {
   properties: {
     search_required: { type: "boolean" },
     reason: { type: "string" },
-    freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "any"] },
+    freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "realtime", "any"] },
     depth: { type: "string", enum: ["quick", "standard", "deep"] },
     queries: {
       type: "array",
@@ -589,7 +589,7 @@ changed since training, search; otherwise answer without searching.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
- "freshness": "none"|"day"|"week"|"month"|"year"|"any",
+ "freshness": "none"|"day"|"week"|"month"|"year"|"realtime"|"any",
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
 
@@ -608,9 +608,10 @@ Query rules (only when search_required = true):
   obvious for a version, release, doc set, price, or office-holder fact,
   set preferred_domains to it (e.g. oracle.com, openjdk.org, nodejs.org,
   python.org, official project docs or repositories).
-- freshness: "day" for same-day facts, "week"/"month"/"year" when the
-  fact is time-scoped, "any" otherwise; "none" only with
-  search_required = false.
+- freshness: "day" for same-day facts, "realtime" when the fact changes
+  minute-to-minute (prices, scores, status pages, "right now" state),
+  "week"/"month"/"year" when the fact is time-scoped, "any" otherwise;
+  "none" only with search_required = false.
 - depth: "quick" single fact, "standard" comparison, "deep" multi-source
   research.
 Do NOT add anything else to your output.`;
@@ -786,7 +787,7 @@ function parseMainGateJson(raw: string, ctx: SearchGateContext): SearchDecision 
       return {
         search_required: true,
         reason: String(parsed.reason ?? "main model: live web content needed").slice(0, 300),
-        freshness: (["none", "day", "week", "month", "year", "any"].includes(parsed.freshness)
+        freshness: (["none", "day", "week", "month", "year", "realtime", "any"].includes(parsed.freshness)
           ? parsed.freshness
           : "any") as SearchDecision["freshness"],
         depth: (["quick", "standard", "deep"].includes(parsed.depth)

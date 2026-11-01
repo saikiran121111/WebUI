@@ -49,6 +49,14 @@ export const CACHE_TTL_MS: number = (() => {
  */
 export const FRESH_QUERY_TTL_MS = 15 * 60_000;
 
+/**
+ * §11.11: freshness "realtime" rows (prices, scores, status pages) cap at
+ * 5 minutes. The READ side never replays them at all (live_required skips
+ * the query cache outright); this TTL only bounds what a concurrent run
+ * may have written moments earlier. Rust mirror: `REALTIME_QUERY_TTL_MS`.
+ */
+export const REALTIME_QUERY_TTL_MS = 5 * 60_000;
+
 let _db: Database.Database | null = null;
 let _purgeSweepStarted = false;
 let _lastPurgeCheck = 0; // ms timestamp of last non-blocking purge check
@@ -222,7 +230,9 @@ export function putCachedQuery(
       JSON.stringify(plans),
       JSON.stringify(results),
       now,
-      now + (freshness === "day" || freshness === "week"
+      now + (freshness === "realtime"
+        ? Math.min(CACHE_TTL_MS, REALTIME_QUERY_TTL_MS)
+        : freshness === "day" || freshness === "week"
         ? Math.min(CACHE_TTL_MS, FRESH_QUERY_TTL_MS)
         : CACHE_TTL_MS),
     );

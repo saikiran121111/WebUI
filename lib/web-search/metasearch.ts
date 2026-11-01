@@ -29,6 +29,7 @@ import type { RawSearchResult, RankedResult } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
 import { scrubQuerySecrets } from "./ssrf";
+import { freshnessFit, isTimeScopedFreshness } from "./freshness";
 import {
   googleSearch,
   bingNewsRssSearch,
@@ -89,10 +90,28 @@ function docOf(html: string): any {
 
 /* ── URL normalization ─────────────────────────────────────────────────────── */
 
+// §11.8 pre-fetch normalization: exact-match tracking params. `utm_`
+// suffixed keys (utm_content, utm_id, …) are stripped separately via
+// prefix match. `ref` stays in the historical exact strip list (so it IS
+// removed — pinned by the shared vectors); the historical list is part of
+// the cached-key parity.
 const TRACKING_PARAMS = [
   "utm_source", "utm_medium", "utm_campaign", "utm_term",
   "fbclid", "gclid", "ref",
 ];
+
+/**
+ * §11.8 AMP/mobile dupe collapse. `m.`/`amp.`/`wap.` subdomains and the
+ * AMP URL shapes below normalize onto the desktop canonical. NOT stripped:
+ * `src`, `s`, `from` (semantically load-bearing on CDN/media hosts), and
+ * `mobile.` (some sites — e.g. mobile.de — use it as the canonical brand
+ * host). Default ports (`:80`) collapse identically on both sides — WHATWG
+ * URL drops the empty port and the `url` crate normalizes the same way;
+ * pinned in the shared vector tables.
+ */
+const MOBILE_SUBDOMAIN_RE = /^(?:m|amp|wap)\.(.+)$/i;
+const AMP_PATH_RE = /^\/amp(?:\/|$)/i;
+const AMP_SUFFIX_RE = /\/amp$/i;
 
 export function normalizeUrl(raw: string): string {
   try {
@@ -100,12 +119,20 @@ export function normalizeUrl(raw: string): string {
     u.hash = "";
     const p = new URLSearchParams(u.search);
     for (const k of TRACKING_PARAMS) p.delete(k);
+    for (const k of [...p.keys()]) if (k.startsWith("utm_")) p.delete(k);
     const q = p.toString();
     u.search = q ? "?" + q : "";
     let host = u.hostname.toLowerCase();
     if (host.startsWith("www.")) host = host.slice(4);
+    host = host.replace(MOBILE_SUBDOMAIN_RE, "$1");
     u.hostname = host;
     let path = u.pathname;
+    if (path !== "/") {
+      path = path.replace(AMP_PATH_RE, "/");
+      if (path !== "/" && AMP_SUFFIX_RE.test(path)) {
+        path = path.slice(0, -"/amp".length) || "/";
+      }
+    }
     if (path.length > 1) path = path.replace(/\/+$/, "");
     if (path === "") path = "/";
     u.pathname = path;
@@ -529,6 +556,32 @@ const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
 };
 
 /**
+ * §11.10 freshness-conditional vertical. A time-scoped run (realtime/day/
+ * week/month/year) asks "what's the CURRENT state of X" — the Wikipedia
+ * vertical answers with encyclopedic background that can crowd out fresher
+ * primary sources, so on time-scoped runs it is dropped from every intent
+ * table whose wiki entry exists only for topical grounding (general). The
+ * academic/docs intents KEEP wikipediaSearch: there the wiki is a concept
+ * disambiguator, not a recency source, and dropping it would hurt exactly
+ * the lookups those intents exist for.
+ *
+ * Rust mirror: `vertical_by_intent(intent, time_scoped)` — the general arm
+ * returns an empty vec when the wiki entry is dropped (identical behavior;
+ * the wiki is that arm's only engine). Change one table, change both.
+ *
+ * Exported only so the shared vector suite in
+ * `__tests__/web-search/retrieval-quality.test.ts` can pin the matrix;
+ * the Rust counterpart stays private (its matrix pin is in-file).
+ */
+export function verticalsForIntent(intent: Intent, timeScoped: boolean): SourceFn[] {
+  const base = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
+  if (timeScoped && intent !== "academic" && intent !== "docs") {
+    return base.filter((fn) => fn !== wikipediaSearch);
+  }
+  return base;
+}
+
+/**
  * News/breaking vertical: bingNewsRssSearch is routed here so it ONLY
  * fires for time-sensitive queries, never on coding tutorials,
  * restaurants, or e-commerce.
@@ -672,7 +725,7 @@ async function searchOne(
   // These are awaited WITHOUT the cap — they are fast (15s timeout,
   // usually <5s) and high-signal. They run in parallel with the pool
   // so their wall-clock cost is already overlapping with the pool.
-  const vertical = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
+  const vertical = verticalsForIntent(intent, isTimeScopedFreshness(freshness));
   const verticalResults = await Promise.allSettled(
     vertical.map((fn) => fn(query)),
   );
@@ -753,6 +806,7 @@ export function reciprocalRankFuse(
   rawResults: RawSearchResult[],
   preferredDomains?: string[],
   intent: Intent = "general",
+  freshness?: string,
 ): RankedResult[] {
   // key = normalized URL, value = best raw + per-engine rank map
   const byUrl = new Map<
@@ -805,6 +859,12 @@ export function reciprocalRankFuse(
       score += PREFERRED_BOOST;
     }
 
+    // §11.10 freshness fit — multiplicative decay/boost applied AFTER the
+    // preferred-domain additive boost (exact op order is mirrored in Rust
+    // `reciprocal_rank_fuse` for IEEE parity). Undated SERP entries stay
+    // ×1.0: recency only adjusts results that actually carry a date.
+    score *= freshnessFit(result.publishedDate, freshness);
+
     out.push({
       ...result,
       url: canonical,
@@ -834,7 +894,7 @@ export interface SearchPlan {
    * supported. A non-"any" freshness that returns < 5 results triggers
    * an automatic re-run with "any" (see metasearchWithFreshnessRecovery).
    */
-  freshness?: "none" | "day" | "week" | "month" | "year" | "any";
+  freshness?: "none" | "day" | "week" | "month" | "year" | "realtime" | "any";
   /**
    * Free text used as an EXTRA relevance anchor by the fused-pool
    * relevance floor (see metasearch()). The pipeline passes the user's
@@ -982,7 +1042,7 @@ export async function metasearch(
   const flat = settled.filter((r): r is RawSearchResult[] => r !== null).flat();
   const preferred = effectivePlans.flatMap((p) => p.preferredDomains ?? []);
   const intent = effectivePlans[0]?.intent ?? "general";
-  const ranked = reciprocalRankFuse(flat, preferred, intent);
+  const ranked = reciprocalRankFuse(flat, preferred, intent, freshness);
 
   // ── Per-result relevance floor (the junk-source filter) ─────────────────
   // Vertical sources (Wikipedia/HN/arXiv/StackExchange) are lexically gated

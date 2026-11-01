@@ -11,8 +11,8 @@ Status board (updated per phase):
 | Phase | Scope (short) | Status |
 | --- | --- | --- |
 | P1 | Trusted runtime-clock context injection | **CLOSED** (commit ad4f938, golden family re-recorded, verified) |
-| P6 | Safety: SSRF/DNS-rebinding/redirect revalidation, secret scrub, untrusted-data laws, wall law, §19 provenance | **CLOSED** (this commit — details below) |
-| P3 | Retrieval quality: freshness classes, TTL/RetrievalMode, wiki cap, normalize/dedupe, dynamic segment filtering; preserve structured metadata for P5 | pending |
+| P6 | Safety: SSRF/DNS-rebinding/redirect revalidation, secret scrub, untrusted-data laws, wall law, §19 provenance | **CLOSED** (commit 65ad1d2 — details below) |
+| P3 | Retrieval quality: freshness classes, TTL/RetrievalMode, wiki cap, normalize/dedupe, dynamic segment filtering; preserve structured metadata for P5 | **CLOSED** (this commit — details below) |
 | P2 | Model tools: `web_search`/`read_page`, kill `searchMoreStub`, gap loop, RetrievalFailure taxonomy, budgets, tool/result envelopes | pending |
 | P4 | Planner: query schema/domain semantics/decomposition, evidence sufficiency, bounded Deep, PresentationPlan router | pending |
 | P5 | UI: citations + U1–U13 + full universal rich-results registry (`components/web-results/`, no gradients) | pending |
@@ -105,7 +105,89 @@ revalidation, and DNS-rebinding mitigation; outbound queries/fetches never carry
 
 ---
 
-## Next-up contract reminders (carried into P3+)
-- §11 planner contracts (SearchCandidate, RetrievalMode, RetrievalFailure, budgets, dynamic-filter law) land in P3/P2 per the mapping in the parity doc §11.24.
-- Addendum binding for P3: retrieval must PRESERVE structured result metadata (JSON-LD facts: price, currency, rating, availability, hours, poster) — the P5 `RichResult` envelope consumes tool/retrieval data, never model-fabricated UI values.
+## P3 — Retrieval quality (CLOSED 2026-11-02, TS ⇄ Rust in one commit)
+
+Freshness-aware retrieval: the pipeline now distinguishes time-scoped queries from timeless ones,
+decays stale evidence, shortens cache retention for live-sensitive queries, canonicalizes URLs so
+duplicates collapse, and — the one new fetch-side law of this phase (§11.12) — filters off-query
+page segments before they ever join the rerank pool. Every semantic change is mirrored TS ⇄ Rust;
+structured result metadata is preserved untouched for P5's `RichResult` envelope.
+
+### Implementation — kernel (landed TS ⇄ Rust across sessions; committed here)
+- **Freshness engine** — TS `lib/web-search/freshness.ts` (NEW: `isTimeScopedFreshness`,
+  `freshnessFit`) ⇔ Rust `freshness_fit`/`is_time_scoped_freshness` in `types.rs`. Band table:
+  realtime w=1 day/boost 1.3, day 2/1.3, week 7/1.25, month 30/1.2, year 365/1.1. Fit ladder:
+  age ≤ window (future dates included) ⇒ boost; ≤2× window ⇒ 1.0; ≤8× ⇒ 0.7; else ⇒ 0.5;
+  undated/unparseable ⇒ 1.0 (never punish unknown dates); non-time-scoped ⇒ 1.0.
+  Shared test clock `NOW_MS = 1_781_481_600_000` (2026-06-15T00:00:00Z) pinned in BOTH test suites.
+- **RetrievalMode + per-freshness TTLs** — TS `types.ts` union `cached_preferred | live_preferred |
+  live_required` + `retrievalModeForFreshness` ⇔ Rust `types.rs` `RetrievalMode` +
+  `retrieval_mode_for_freshness`. realtime ⇒ `live_required` (cache READ skipped; write TTL capped
+  by `REALTIME_QUERY_TTL_MS` = 5 min), day/week ⇒ `live_preferred` (cap `FRESH_QUERY_TTL_MS` =
+  15 min; both constants live in `cache.ts` ⇔ `cache.rs`).
+- **Wiki vertical cap** — the wiki vertical is dropped from general results only for time-scoped
+  queries (encyclopedic pages must not out-rank fresh news).
+- **RRF fuse freshness decay** — fourth freshness-aware parameter in the fuse:
+  `score *= freshnessFit(publishedDate, freshness, nowMs)` (⇔ Rust identical placement).
+- **Rerank order-prior** — freshness multiplies the SORT KEY only
+  (`rawScore*(1-0.8*penalty)` then `*fit`, bit-identical op order both sides); the stored
+  `bm25Score` reported in evidence stays undecayed so citation blocks remain stable.
+- **normalizeUrl ⇔ normalize_url** (`metasearch.ts`/`metasearch.rs`): strips 7 `TRACKING_PARAMS`
+  + every `utm_*`; `m.`/`amp.`/`wap.` hosts fold to apex; AMP paths collapse. Dedupe consumes the
+  canonical form. Vector-pinned both sides.
+- **Gate prompt parity** — the search-gate system prompt is byte-identical TS ⇔ Rust
+  (filesystem probe test pins it).
+- **Freshness recovery** — when a time-scoped run yields <5 relevant results it auto-reruns with
+  freshness "any": `metasearchWithFreshnessRecovery` ⇔ `metasearch_with_freshness_recovery`,
+  `freshness_recovery_used` recorded both sides.
+
+### Implementation — §11.12 dynamic segment filtering (this session's completion)
+- TS `lib/web-search/segment-filter.ts` (NEW: `filterPassageSegments` / `applySegmentFilter`) ⇔
+  Rust `reranker.rs` (`filter_passage_segments` / `apply_segment_filter`). STRUCTURAL DEVIATION
+  (recorded): TS gets its own module; Rust lives in `reranker.rs` to reuse `tokenize`/`junk_penalty`.
+  The `extract_all` trait method signature (the scripted-fixture seam) was NOT touched — the filter
+  is applied at the pipeline call sites: main read waves + the gap hop (gap concatenates its
+  `gapQuery`), via hoisted `segmentFilterQuery` = user prompt + gate queries joined. Prompt-URL and
+  SERP-baseline packets are deliberately exempt.
+- Conservative by construction: no query terms ⇒ inert; `[Structured Page Facts]` ⇒ inert (P5 JSON-LD
+  preservation law); ≤2 blocks ⇒ inert; page with zero query-covered non-atomic block ⇒ inert
+  (never empties a page); nothing droppable ⇒ ORIGINAL bytes verbatim. Always keeps: fenced code,
+  pipe tables, query-covered blocks, headings. Drops only: junk-penalty ≥ 0.8 boilerplate (any
+  size) and zero-coverage prose ≥ 200 chars (UTF-16 length ⇔ `utf16_len`). No cloud model, ever.
+- Vectors pinned vector-for-vector in `__tests__/web-search/retrieval-quality.test.ts` ⇔ Rust
+  `segment_filter_shared_vectors` + `apply_segment_filter_mutates_passages_in_place`.
+
+### Byte-level findings recorded (do not re-derive)
+- **Fixture clock stability:** fixtures 01/02 carry dated sources (2026-02-11, 2024-12-30) that are
+  always >8× the week window ⇒ fit = 0.5 forever ⇒ rerank order is wall-clock stable in goldens.
+- The §11.12 filter is **INERT on the fixture corpus**: a full delete-and-re-record produced bytes
+  byte-identical to the pre-filter fixtures (structured-facts passages + short blocks). Fixtures
+  01/02 stay M from the earlier P3-kernel re-record; 05 is unchanged.
+- **Pre-existing golden reproducibility hazard (NOT introduced by P3):** `web.test.ts:235` documents
+  that the extractor browser tier runs LIVE stealth Chromium for non-scripted URLs. During this
+  phase one record attempt drifted on 01/02/05 with bytes that exist NOWHERE in the repo — live
+  multi-language `example.com` paragraphs (fixture 05) and BM25 11.01→11.35 (fixture 01/02: a
+  corpus IDF shift caused by that live content change). A fresh re-record then produced the OLD
+  bytes again. Conclusion: drift came from upstream web content, not repo code. If rust-golden web
+  drift ever reproduces on unchanged code, suspect live-tier content first. Never weaken assertions
+  to accommodate it; P7 must account for this hazard explicitly.
+
+### Verification (real commands, real exits — P3 gate)
+- `npx vitest run __tests__/web-search` → 10 files, **124/124 passed** (retrieval-quality.test.ts: 46).
+- `cargo test -p ruke-websearch --manifest-path rust-backend/Cargo.toml` → **320 lib + 5 integration, 0 failed**.
+- `cargo test -p ruke-server --manifest-path rust-backend/Cargo.toml` → **109 lib + 6 attachment_replay + 1 browser_ui_routes + 19 golden_replay, 0 failed** (TS ⇔ Rust byte parity intact with the filter active on both sides).
+- `cargo clippy -p ruke-websearch --manifest-path rust-backend/Cargo.toml` → exactly the 7 baseline warnings (engines.rs×6 doc-list + extractor.rs map_or) — the new filter code adds zero warnings.
+- `cargo fmt -p ruke-websearch --manifest-path …` → in-set files (cache/metasearch/pipeline/reranker/search_gate/types .rs) are FMT-STABLE (hash-checked across a second fmt pass); the 16 known out-of-set files reverted.
+- `npx vitest run __tests__/rust-golden --no-file-parallelism` → 10 files, **54/54 passed**, exit 0 (run twice incl. standalone web.test.ts 5/5 after the re-record audit above).
+- `npx tsc --noEmit` → exit 0.
+- No Playwright executed in P3 (reserved for the final locked P7 loop).
+
+---
+
+## Next-up contract reminders (carried into P2)
+- P2 wiring rides the EXISTING tools passthrough (`client.ts:70` law) — do not invent a new transport. Kill `searchMoreStub` in `pipeline.ts`; replace with the structured gap loop (§11.6). `RetrievalFailure` taxonomy (§11.13): Timeout, DnsFailure, HttpStatus, RateLimited, RobotsDenied, AuthRequired, CaptchaRequired, UnsupportedMime, ContentTooLarge, ParseFailure, UnsafeDestination, Cancelled.
+- P2 tool/result envelopes per the RICH RESULTS ADDENDUM: tool results carry the structured payload (never model-fabricated UI values); `[Structured Page Facts]` passages must survive every pipeline path — the segment filter already exempts them.
+- Fetched-page evidence is ALREADY §11.12-filtered at the two SERP extraction hops; tool-driven page reads (`read_page`) should route through `applySegmentFilter` / `apply_segment_filter` with the same guards.
+- Budgets reuse the P3 retrieval budgets (MAX_TOOL_ROUNDS=20 chat-side; 79/4 partition unchanged); §11.18 direct-URL semantics and §11.14 session tracking land in P2.
 - Evidence block = 8 bullets; any bullet edit ⇒ TS+Rust byte-identical + fixture re-record in the same commit.
+- P7 warning: rust-golden web fixtures carry live-browser-tier-captured bytes (see P3 findings) — treat upstream content drift as the first suspect for unexplained drift.

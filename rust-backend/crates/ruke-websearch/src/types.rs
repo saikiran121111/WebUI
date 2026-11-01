@@ -76,13 +76,19 @@ pub enum Freshness {
     Week,
     Month,
     Year,
+    /// §11.10: tightest class — facts that change minute-to-minute
+    /// (prices, scores, status pages, "right now" state). Retrieval treats
+    /// it as live_required (cache is never consulted) with 5-minute
+    /// retention on write.
+    Realtime,
     Any,
     /// Compat-schema passthrough (TS cast keeps the raw string verbatim).
     Other(String),
 }
 
 impl Freshness {
-    pub const KNOWN: [&'static str; 6] = ["none", "day", "week", "month", "year", "any"];
+    pub const KNOWN: [&'static str; 7] =
+        ["none", "day", "week", "month", "year", "realtime", "any"];
 
     pub fn known(s: &str) -> Option<Self> {
         match s {
@@ -91,6 +97,7 @@ impl Freshness {
             "week" => Some(Self::Week),
             "month" => Some(Self::Month),
             "year" => Some(Self::Year),
+            "realtime" => Some(Self::Realtime),
             "any" => Some(Self::Any),
             _ => None,
         }
@@ -103,6 +110,7 @@ impl Freshness {
             Self::Week => "week",
             Self::Month => "month",
             Self::Year => "year",
+            Self::Realtime => "realtime",
             Self::Any => "any",
             Self::Other(s) => s,
         }
@@ -129,6 +137,92 @@ pub fn normalize_freshness(f: &str) -> Freshness {
         "current" => Freshness::Day,
         "recent" => Freshness::Month,
         other => Freshness::known(other).unwrap_or_else(|| Freshness::Other(other.to_string())),
+    }
+}
+
+/// §11.11 retrieval-mode contract. The cache READ policy for a run is
+/// derived from the gate's freshness decision (⇔ TS `RetrievalMode` /
+/// `retrievalModeForFreshness` in `lib/web-search/types.ts`):
+///  - `LiveRequired`  (freshness "realtime"): NEVER read the query cache;
+///    every run hits the live engine pool. Short TTL on write.
+///  - `LivePreferred` (freshness "day"/"week"): a cache hit is only ever a
+///    short-TTL row (enforced at WRITE time by `FRESH_QUERY_TTL_MS`).
+///  - `CachedPreferred`: everything else; the normal TTL applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrievalMode {
+    CachedPreferred,
+    LivePreferred,
+    LiveRequired,
+}
+
+pub fn retrieval_mode_for_freshness(f: &Freshness) -> RetrievalMode {
+    match f.as_str() {
+        "realtime" => RetrievalMode::LiveRequired,
+        "day" | "week" => RetrievalMode::LivePreferred,
+        _ => RetrievalMode::CachedPreferred,
+    }
+}
+
+/// Freshness classes that carry a time band (⇔ TS `isTimeScopedFreshness`).
+pub fn is_time_scoped_freshness(f: &str) -> bool {
+    matches!(f, "realtime" | "day" | "week" | "month" | "year")
+}
+
+/// Rank multiplier for a result/passage given the run's freshness band
+/// (⇔ TS `freshnessFit` in `lib/web-search/freshness.ts` — same bands,
+/// same multipliers, same IEEE double operation order; the shared vectors
+/// in `freshness_vectors` pin both sides byte-for-byte):
+///
+///   freshness not time-scoped ("any"/"none"/unknown) ......... 1.0
+///   publishedAt missing or unparseable ........................ 1.0 (neutral)
+///   age ≤ band window (or future-dated) ....................... band boost
+///   band window < age ≤ 2× band ............................... 1.0
+///   2× band < age ≤ 8× band ................................... 0.7
+///   age > 8× band ............................................. 0.5
+///
+/// `now_ms` is injectable so tests never depend on the wall clock. Date
+/// parsing uses chrono RFC-3339 plus a `%Y-%m-%d` date-only fallback (both
+/// byte-identical to `Date.parse` for every ISO instant we emit); exotic
+/// legacy strings that only V8 understands resolve to neutral (1.0) here —
+/// a pinned divergence that is never "fixed" on one side alone.
+pub fn freshness_fit(published_at: Option<&str>, freshness: Option<&str>, now_ms: i64) -> f64 {
+    let freshness = match freshness {
+        Some(f) => f,
+        None => return 1.0,
+    };
+    let (w, boost): (f64, f64) = match freshness {
+        "realtime" => (1.0, 1.3),
+        "day" => (2.0, 1.3),
+        "week" => (7.0, 1.25),
+        "month" => (30.0, 1.2),
+        "year" => (365.0, 1.1),
+        _ => return 1.0,
+    };
+    let published_at = match published_at {
+        Some(p) => p,
+        None => return 1.0,
+    };
+    // Unparseable ⇒ neutral (the TS `Number.isNaN` guard), NOT a huge age.
+    let ts_ms = match chrono::DateTime::parse_from_rfc3339(published_at) {
+        Ok(t) => Some(t.timestamp_millis()),
+        Err(_) => chrono::NaiveDate::parse_from_str(published_at, "%Y-%m-%d")
+            .ok()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .map(|dt| dt.and_utc().timestamp_millis()),
+    };
+    let ts_ms = match ts_ms {
+        Some(t) => t,
+        None => return 1.0,
+    };
+    let age_days = (now_ms - ts_ms) as f64 / 86_400_000.0;
+    if age_days <= w {
+        boost
+    } else if age_days <= 2.0 * w {
+        1.0
+    } else if age_days <= 8.0 * w {
+        0.7
+    } else {
+        0.5
     }
 }
 
@@ -807,5 +901,118 @@ mod tests {
             s.contains(r#""gateMs":0}"#),
             "js-integer 0 at struct tail: {s}"
         );
+    }
+
+    /* ── §11.10/§11.11 freshness kernel — SHARED vectors ─────────────── */
+    // This table is byte-for-byte the same vector set as
+    // `__tests__/web-search/retrieval-quality.test.ts` (freshnessFit /
+    // isTimeScopedFreshness / retrievalModeForFreshness on the TS side).
+    // NOW = 1_781_481_600_000 ms = 2026-06-15T00:00:00Z. Change one side,
+    // change both in the same commit.
+    const NOW_MS: i64 = 1_781_481_600_000;
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-12
+    }
+
+    #[test]
+    fn freshness_fit_shared_vectors_bands() {
+        // week band: w=7d, boost 1.25 — tiers 1.0 / 0.7 (≤8w) / 0.5
+        let w = |d: &str| freshness_fit(Some(d), Some("week"), NOW_MS);
+        assert!(close(w("2026-06-12T00:00:00Z"), 1.25)); //  3d, in band
+        assert!(close(w("2026-06-08T00:00:00Z"), 1.25)); //  exactly 7d (boundary)
+        assert!(close(w("2026-06-20T00:00:00Z"), 1.25)); //  future-dated
+        assert!(close(w("2026-06-01T00:00:00Z"), 1.0)); //   exactly 2w (boundary)
+        assert!(close(w("2026-05-31T00:00:00Z"), 0.7)); //  15d
+        assert!(close(w("2026-04-20T00:00:00Z"), 0.7)); //  exactly 8w (boundary)
+        assert!(close(w("2026-04-19T00:00:00Z"), 0.5)); //  57d
+
+        // day band: w=2d, boost 1.3
+        let d = |x: &str| freshness_fit(Some(x), Some("day"), NOW_MS);
+        assert!(close(d("2026-06-14T12:00:00Z"), 1.3)); //  0.5d
+        assert!(close(d("2026-06-12T00:00:00Z"), 1.0)); //  3d
+        assert!(close(d("2026-06-10T00:00:00Z"), 0.7)); //  5d
+        assert!(close(d("2026-01-01T00:00:00Z"), 0.5)); //  165d
+
+        // realtime band: w=1d, boost 1.3 — date-only strings parse at UTC
+        // midnight (chrono `%Y-%m-%d` fallback ⇔ V8 ISO date-only semantics).
+        let r = |x: &str| freshness_fit(Some(x), Some("realtime"), NOW_MS);
+        assert!(close(r("2026-06-14"), 1.3)); //           1d, date-only
+        assert!(close(r("2026-06-13T00:00:00Z"), 1.0)); // exactly 2w
+        assert!(close(r("2026-06-11T00:00:00Z"), 0.7)); // 4d
+        assert!(close(r("2026-06-01T00:00:00Z"), 0.5)); // 14d (>8w)
+
+        // month band: w=30d, boost 1.2
+        let m = |x: &str| freshness_fit(Some(x), Some("month"), NOW_MS);
+        assert!(close(m("2026-06-01T00:00:00Z"), 1.2)); //   14d
+        assert!(close(m("2026-05-01T00:00:00Z"), 1.0)); //   45d
+        assert!(close(m("2025-12-01T00:00:00Z"), 0.7)); //  196d
+        assert!(close(m("2025-06-01T00:00:00Z"), 0.5)); //  379d
+
+        // year band: w=365d, boost 1.1
+        let y = |x: &str| freshness_fit(Some(x), Some("year"), NOW_MS);
+        assert!(close(y("2026-01-01T00:00:00Z"), 1.1)); //  165d
+        assert!(close(y("2025-05-01T00:00:00Z"), 1.0)); //  410d
+        assert!(close(y("2024-01-01T00:00:00Z"), 0.7)); //  896d (leap-aware)
+        assert!(close(y("2015-01-01T00:00:00Z"), 0.5)); // 4183d
+    }
+
+    #[test]
+    fn freshness_fit_shared_vectors_neutrality() {
+        // Undated and unparseable dates are NEUTRAL — never fabricated,
+        // never punished (freshness.ts law comment, mirrored here).
+        assert!(close(freshness_fit(None, Some("week"), NOW_MS), 1.0));
+        assert!(close(
+            freshness_fit(Some("garbage"), Some("week"), NOW_MS),
+            1.0
+        ));
+        // Non-time-scoped freshness never decays, whatever the date.
+        let old = Some("2015-01-01T00:00:00Z");
+        assert!(close(freshness_fit(old, Some("any"), NOW_MS), 1.0));
+        assert!(close(freshness_fit(old, Some("none"), NOW_MS), 1.0));
+        assert!(close(freshness_fit(old, None, NOW_MS), 1.0));
+        assert!(close(freshness_fit(old, Some("bogus"), NOW_MS), 1.0));
+    }
+
+    #[test]
+    fn is_time_scoped_freshness_pins() {
+        for f in ["realtime", "day", "week", "month", "year"] {
+            assert!(is_time_scoped_freshness(f), "{f} time-scoped");
+        }
+        for f in ["any", "none", "", "bogus"] {
+            assert!(!is_time_scoped_freshness(f), "{f} not time-scoped");
+        }
+    }
+
+    #[test]
+    fn retrieval_mode_for_freshness_pins() {
+        use RetrievalMode::*;
+        assert_eq!(
+            retrieval_mode_for_freshness(&Freshness::Realtime),
+            LiveRequired
+        );
+        assert_eq!(retrieval_mode_for_freshness(&Freshness::Day), LivePreferred);
+        assert_eq!(
+            retrieval_mode_for_freshness(&Freshness::Week),
+            LivePreferred
+        );
+        for f in [
+            Freshness::Month,
+            Freshness::Year,
+            Freshness::Any,
+            Freshness::None,
+        ] {
+            assert_eq!(retrieval_mode_for_freshness(&f), CachedPreferred, "{f:?}");
+        }
+    }
+
+    #[test]
+    fn realtime_freshness_wire_round_trip() {
+        // The gate wire enum gained "realtime" — wire bytes must round-trip.
+        assert_eq!(Freshness::known("realtime"), Some(Freshness::Realtime));
+        assert_eq!(Freshness::Realtime.as_str(), "realtime");
+        let v: Freshness = serde_json::from_str(r#""realtime""#).unwrap();
+        assert_eq!(v, Freshness::Realtime);
+        assert_eq!(serde_json::to_string(&v).unwrap(), r#""realtime""#);
     }
 }

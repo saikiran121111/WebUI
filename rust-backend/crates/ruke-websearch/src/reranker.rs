@@ -38,7 +38,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
-use crate::types::{EvidencePacket, EvidencePassage};
+use crate::types::{freshness_fit, EvidencePacket, EvidencePassage};
 
 /* ── JS-UTF-16 helpers ─────────────────────────────────────────────────── */
 
@@ -118,8 +118,8 @@ fn structured_facts_matches(s: &str) -> Vec<(usize, usize)> {
             continue;
         }
         let mut q = start + SPF_HEADER.len() + 1; // `[\s\S]+?` needs ≥1 char
-        // NOTE: `q.min(len)` keeps the search from going backwards; when
-        // q == len the find on "" yields None (loop ends).
+                                                  // NOTE: `q.min(len)` keeps the search from going backwards; when
+                                                  // q == len the find on "" yields None (loop ends).
         while let Some(rel) = s[q.min(s.len())..].find("\n\n") {
             let nl = q + rel;
             if nl + 2 <= start + SPF_HEADER.len() {
@@ -250,10 +250,7 @@ pub fn chunk_markdown(md: &str, target: usize, overlap: usize) -> Vec<Chunk> {
     let mut buf = String::new();
     let mut buf_start = 0usize;
 
-    let flush = |end: usize,
-                 buf: &mut String,
-                 buf_start: &mut usize,
-                 chunks: &mut Vec<Chunk>| {
+    let flush = |end: usize, buf: &mut String, buf_start: &mut usize, chunks: &mut Vec<Chunk>| {
         let text = buf.trim().to_string();
         if utf16_len(&text) >= 40 {
             chunks.push(Chunk {
@@ -273,7 +270,9 @@ pub fn chunk_markdown(md: &str, target: usize, overlap: usize) -> Vec<Chunk> {
         }
         // Paragraph that IS an atomic placeholder → own chunk, never split.
         if re_atomic_placeholder().is_match(p) {
-            let n: usize = p["[[ATOMIC_".len()..p.len() - "]]".len()].parse().unwrap_or(usize::MAX);
+            let n: usize = p["[[ATOMIC_".len()..p.len() - "]]".len()]
+                .parse()
+                .unwrap_or(usize::MAX);
             flush(pos, &mut buf, &mut buf_start, &mut chunks);
             // TS `atomicBlocks[Number(m[1])].text` throws on a bogus index;
             // expect mirrors that throw (panic) instead of silently skipping.
@@ -332,10 +331,10 @@ fn stopword_set() -> &'static HashSet<&'static str> {
         [
             "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "could", "did", "do",
             "does", "for", "from", "had", "have", "he", "her", "his", "i", "if", "in", "is", "it",
-            "its", "me", "my", "no", "nor", "not", "of", "on", "or", "she", "should", "so",
-            "that", "the", "their", "them", "they", "this", "to", "was", "we", "were", "what",
-            "when", "which", "who", "will", "with", "you", "your", "how", "why", "where", "whom",
-            "whose", "im", "dont", "don't", "most", "much", "many", "more",
+            "its", "me", "my", "no", "nor", "not", "of", "on", "or", "she", "should", "so", "that",
+            "the", "their", "them", "they", "this", "to", "was", "we", "were", "what", "when",
+            "which", "who", "will", "with", "you", "your", "how", "why", "where", "whom", "whose",
+            "im", "dont", "don't", "most", "much", "many", "more",
         ]
         .into_iter()
         .collect()
@@ -491,13 +490,17 @@ pub struct RerankHit {
 }
 
 /// ⇔ TS `rerank(packets, userPrompt, gateQueries, topN = 30, opts)`.
-/// `single_domain_unlimited` ⇔ `opts?.singleDomainUnlimited ?? false`.
+/// `single_domain_unlimited` ⇔ `opts?.singleDomainUnlimited ?? false`;
+/// `freshness` ⇔ `opts?.freshness` (§11.10 order-only prior; TS leaves it
+/// undefined sometimes — callers pass "any" for that neutral case).
+#[allow(clippy::too_many_arguments)]
 pub fn rerank(
     packets: &[EvidencePacket],
     user_prompt: &str,
     gate_queries: &[String],
     top_n: usize,
     single_domain_unlimited: bool,
+    freshness: &str,
 ) -> Vec<EvidencePassage> {
     let mut recs: Vec<(String, usize)> = Vec::new(); // (chunk, packetIdx)
     for (pi, packet) in packets.iter().enumerate() {
@@ -512,7 +515,11 @@ pub fn rerank(
         }
     }
     if recs.is_empty() {
-        return packets.iter().flat_map(|p| p.passages.clone()).take(top_n).collect();
+        return packets
+            .iter()
+            .flat_map(|p| p.passages.clone())
+            .take(top_n)
+            .collect();
     }
 
     let idx = build_bm25(recs.iter().map(|(c, _)| c.clone()).collect());
@@ -527,21 +534,37 @@ pub fn rerank(
     let raw_hits = bm25_score(&idx, &q_text, top_n * 3);
 
     // Junk penalty multiplier, then re-sort (stable ties keep raw order).
-    let mut hits: Vec<(usize, f64)> = raw_hits
+    // §11.10: `freshness` adds an ORDER-ONLY prior — tuples become
+    // (rec_idx, penalized, order_key); the STORED/displayed bm25_score
+    // stays the undecayed penalized score (evidence bytes "(BM25=…)"
+    // never shift). Exact op order (penalize FIRST, then × fit) mirrors
+    // the TS reranker for IEEE-double parity — change one side, change both.
+    let rerank_now_ms = chrono::Utc::now().timestamp_millis();
+    let mut hits: Vec<(usize, f64, f64)> = raw_hits
         .into_iter()
         .map(|(rec_idx, raw)| match recs.get(rec_idx) {
-            Some((chunk, _)) => {
+            Some((chunk, pi)) => {
                 let penalty = junk_penalty(chunk);
-                (rec_idx, raw * (1.0 - 0.8 * penalty))
+                let penalized = raw * (1.0 - 0.8 * penalty);
+                let fit = freshness_fit(
+                    packets[*pi].published_at.as_deref(),
+                    Some(freshness),
+                    rerank_now_ms,
+                );
+                (rec_idx, penalized, penalized * fit)
             }
-            None => (rec_idx, raw),
+            None => (rec_idx, raw, raw),
         })
-        .filter(|(_, s)| *s > 0.0)
+        .filter(|(_, s, _)| *s > 0.0)
         .collect();
-    hits.sort_by(|a, b| b.1.total_cmp(&a.1));
+    hits.sort_by(|a, b| b.2.total_cmp(&a.2));
 
     if hits.is_empty() {
-        return packets.iter().flat_map(|p| p.passages.clone()).take(top_n).collect();
+        return packets
+            .iter()
+            .flat_map(|p| p.passages.clone())
+            .take(top_n)
+            .collect();
     }
 
     // Per-domain cap: 6; unlimited when single_domain_unlimited.
@@ -549,7 +572,7 @@ pub fn rerank(
     let mut out: Vec<EvidencePassage> = Vec::new();
     let mut top_hit_idxs: Vec<usize> = Vec::new();
 
-    for (rec_idx, score) in hits {
+    for (rec_idx, score, _) in hits {
         if out.len() >= top_n {
             break;
         }
@@ -582,13 +605,7 @@ pub fn rerank(
     if !single_domain_unlimited && out.len() < 35 {
         let seen_keys: HashSet<String> = out
             .iter()
-            .map(|o| {
-                format!(
-                    "{}|{}",
-                    o.source_id,
-                    utf16_prefix(&o.passage_text, 80)
-                )
-            })
+            .map(|o| format!("{}|{}", o.source_id, utf16_prefix(&o.passage_text, 80)))
             .collect();
         let mut seen = seen_keys;
         let mut added = 0usize;
@@ -609,11 +626,7 @@ pub fn rerank(
                 if packets[*n_pi].source_id != packets[pi].source_id {
                     continue;
                 }
-                let key = format!(
-                    "{}|{}",
-                    packets[*n_pi].source_id,
-                    utf16_prefix(n_chunk, 80)
-                );
+                let key = format!("{}|{}", packets[*n_pi].source_id, utf16_prefix(n_chunk, 80));
                 if seen.contains(&key) {
                     continue;
                 }
@@ -641,6 +654,189 @@ pub fn rerank(
 
     out.truncate(top_n.max(35));
     out
+}
+
+/* ── §11.12 fetch-side query-focused segment filtering ────────────────── */
+
+/// Rust twin of `lib/web-search/segment-filter.ts` — §11.12 fetch-side
+/// dynamic filtering, applied by the pipeline at the two SERP extraction
+/// hops (main waves + gap hop) BEFORE packets join the rerank pool.
+/// Local-only signals (tokenize / query coverage / heading / junk), never
+/// a model. Prompt-URL and SERP-baseline packets never pass through here.
+///
+/// Inert guards (identical both sides, vector-pinned in BOTH suites —
+/// change one side, change both in the same commit): empty query terms,
+/// `[Structured Page Facts]` passages (P5 metadata law), ≤2 blocks, pages
+/// with no query-covered non-atomic block, and nothing-droppable return
+/// the ORIGINAL bytes verbatim. Atomic blocks (fences, pipe tables),
+/// covered blocks and heading blocks are always kept; the only drops are
+/// junk-penalty ≥0.8 boilerplate (any size) and zero-coverage prose
+/// ≥200 UTF-16 units. `block.text` lengths use [`utf16_len`] ⇔ JS
+/// `String.length` per this file's parity rule.
+struct SegBlock {
+    text: String,
+    atomic: bool,
+}
+
+/// ⇔ TS /^#{1,6}\s/ on the trimmed line.
+fn is_heading(t: &str) -> bool {
+    let hashes = t.chars().take_while(|c| *c == '#').count();
+    (1..=6).contains(&hashes)
+        && t[hashes..]
+            .chars()
+            .next()
+            .is_some_and(|c| c == ' ' || c == '\t')
+}
+
+/// ⇔ TS `scanBlocks` — blank line closes a block, a heading line opens a
+/// fresh one, fenced regions (incl. same-line inline fences) and runs of
+/// pipe-table rows each become ONE atomic block. Hand-written scan keeps
+/// V8 and this crate on identical rules (no regex-engine lookahead drift).
+fn scan_blocks(cleaned: &str) -> Vec<SegBlock> {
+    let mut blocks: Vec<SegBlock> = Vec::new();
+    let mut cur: Vec<String> = Vec::new();
+    let mut cur_atomic = false;
+    let mut in_fence = false;
+
+    fn flush_block(blocks: &mut Vec<SegBlock>, cur: &mut Vec<String>, cur_atomic: &mut bool) {
+        if cur.is_empty() {
+            return; // ⇔ TS early return WITHOUT resetting cur_atomic (flag
+                    // can only be true while cur is non-empty — unreachable)
+        }
+        let text = std::mem::take(cur).join("\n");
+        let text = text.trim().to_string();
+        let atomic = std::mem::replace(cur_atomic, false);
+        if !text.is_empty() {
+            blocks.push(SegBlock { text, atomic });
+        }
+    }
+
+    for line in cleaned.split('\n') {
+        let t = line.trim();
+
+        if in_fence {
+            cur.push(line.to_string());
+            if t.starts_with("```") {
+                in_fence = false;
+                flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+            }
+            continue;
+        }
+        if t.starts_with("```") {
+            // ⇔ TS `t.length > 3 && t.endsWith("```")`: same-line open+close
+            let inline_close = utf16_len(t) > 3 && t.ends_with("```");
+            if inline_close {
+                flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+                blocks.push(SegBlock {
+                    text: t.to_string(),
+                    atomic: true,
+                });
+            } else {
+                flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+                cur = vec![line.to_string()];
+                cur_atomic = true;
+                in_fence = true;
+            }
+            continue;
+        }
+        if t.is_empty() {
+            flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+            continue;
+        }
+        if line.trim_start().starts_with('|') {
+            // ⇔ TS /^\s*\|/
+            if !cur.is_empty() && !cur_atomic {
+                flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+            }
+            cur.push(line.to_string());
+            cur_atomic = true;
+            continue;
+        }
+        if is_heading(t) {
+            flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+            cur = vec![line.to_string()];
+            cur_atomic = false;
+            continue;
+        }
+        if !cur.is_empty() && cur_atomic {
+            flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+        }
+        cur.push(line.to_string());
+    }
+    flush_block(&mut blocks, &mut cur, &mut cur_atomic);
+    blocks
+}
+
+/// ⇔ TS `covered` — any query term appears in the block's tokens.
+fn seg_covered(text: &str, q_terms: &HashSet<String>) -> bool {
+    tokenize(text).iter().any(|term| q_terms.contains(term))
+}
+
+/// ⇔ TS `filterPassageSegments` — see the module header of
+/// `lib/web-search/segment-filter.ts` for the full conservative law.
+pub fn filter_passage_segments(markdown: &str, query_text: &str) -> String {
+    let q_terms: HashSet<String> = tokenize(query_text).into_iter().collect();
+    if q_terms.is_empty() {
+        return markdown.to_string();
+    }
+    // Structured facts ride the same passage bytes (extractor joins them);
+    // P5 needs them and §11.12 forbids stripping structure/metadata.
+    if markdown.contains("[Structured Page Facts]") {
+        return markdown.to_string();
+    }
+
+    let cleaned = markdown.replace("\r\n", "\n");
+    let blocks = scan_blocks(&cleaned);
+    if blocks.len() <= 2 {
+        return markdown.to_string();
+    }
+
+    let cov: Vec<bool> = blocks
+        .iter()
+        .map(|b| seg_covered(&b.text, &q_terms))
+        .collect();
+    if !cov.iter().zip(blocks.iter()).any(|(c, b)| *c && !b.atomic) {
+        return markdown.to_string();
+    }
+
+    let kept: Vec<&SegBlock> = blocks
+        .iter()
+        .zip(cov.iter())
+        .filter(|&(b, c)| {
+            if b.atomic || *c {
+                return true;
+            }
+            if is_heading(&b.text) {
+                return true;
+            }
+            if junk_penalty(&b.text) >= 0.8 {
+                return false;
+            }
+            utf16_len(&b.text) < 200
+        })
+        .map(|(b, _)| b)
+        .collect();
+    if kept.is_empty() || kept.len() == blocks.len() {
+        return markdown.to_string();
+    }
+    kept.iter()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// ⇔ TS `applySegmentFilter` — the pipeline hop that keeps the two
+/// engines byte-identical at the rerank input.
+pub fn apply_segment_filter(packets: &mut [EvidencePacket], query_text: &str) {
+    let q = query_text.trim();
+    if packets.is_empty() || q.is_empty() {
+        return;
+    }
+    for packet in packets.iter_mut() {
+        for passage in packet.passages.iter_mut() {
+            passage.passage_text = filter_passage_segments(&passage.passage_text, q);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -696,7 +892,8 @@ mod tests {
 
     #[test]
     fn chunk_markdown_protects_code_fence_atomic() {
-        let code = "fn main() {\n    let answer = compute_the_meaning();\n    println!(\"{answer}\");\n}";
+        let code =
+            "fn main() {\n    let answer = compute_the_meaning();\n    println!(\"{answer}\");\n}";
         let md = format!("tiny\n\n```\n{code}\n```\n\ntoo short to keep");
         let chunks = chunk_markdown(md.as_str(), 2000, 300);
         assert_eq!(chunks.len(), 1, "fence must be its own chunk");
@@ -710,7 +907,10 @@ mod tests {
         assert!(chunks[0].text.starts_with("[Structured Page Facts]"));
         assert!(chunks[0].text.contains("warranty"));
         assert!(!chunks[0].text.contains("Next Section"));
-        assert!(chunks.iter().skip(1).any(|c| c.text.contains("Next Section")));
+        assert!(chunks
+            .iter()
+            .skip(1)
+            .any(|c| c.text.contains("Next Section")));
     }
 
     #[test]
@@ -719,7 +919,10 @@ mod tests {
         let chunks = chunk_markdown(&p, 2000, 300);
         // i = 0, 1700, 3400 (5100 ≥ 4500 stops): 2000 + 2000 + 1100.
         assert_eq!(chunks.len(), 3);
-        assert_eq!(chunks.iter().map(|c| c.text.len()).collect::<Vec<_>>(), [2000, 2000, 1100]);
+        assert_eq!(
+            chunks.iter().map(|c| c.text.len()).collect::<Vec<_>>(),
+            [2000, 2000, 1100]
+        );
         assert_eq!(chunks[1].start_index, 1700);
     }
 
@@ -731,7 +934,10 @@ mod tests {
         let p2 = "c".repeat(1200);
         let chunks = chunk_markdown(&format!("{p1}\n\n{p2}"), 2000, 300);
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[1].text, p2, "no overlap tail may appear (ported bug)");
+        assert_eq!(
+            chunks[1].text, p2,
+            "no overlap tail may appear (ported bug)"
+        );
     }
 
     #[test]
@@ -759,21 +965,26 @@ mod tests {
         let pkts = [packet("s1", "a.com", &texts)];
         let gq = vec!["quantum computing".to_string()];
 
-        let capped = rerank(&pkts, "quantum computing", &gq, 30, false);
+        let capped = rerank(&pkts, "quantum computing", &gq, 30, false, "any");
         let real = capped
             .iter()
             .filter(|p| !p.passage_text.starts_with("[Context] "))
             .count();
         assert!(real <= 6, "per-domain cap must hold: {real}");
         assert!(
-            capped.iter().any(|p| p.passage_text.starts_with("[Context] ")),
+            capped
+                .iter()
+                .any(|p| p.passage_text.starts_with("[Context] ")),
             "neighbor expansion must fire"
         );
-        for p in capped.iter().filter(|p| !p.passage_text.starts_with("[Context] ")) {
+        for p in capped
+            .iter()
+            .filter(|p| !p.passage_text.starts_with("[Context] "))
+        {
             assert_eq!(p.bm25_score, (p.bm25_score * 1000.0).round() / 1000.0);
         }
 
-        let free = rerank(&pkts, "quantum computing", &gq, 30, true);
+        let free = rerank(&pkts, "quantum computing", &gq, 30, true, "any");
         assert_eq!(
             free.iter()
                 .filter(|p| !p.passage_text.starts_with("[Context] "))
@@ -792,8 +1003,90 @@ mod tests {
     fn rerank_empty_pool_falls_back_to_raw_passages() {
         let tiny = "tiny".repeat(3); // <40 ⇒ no chunks
         let pkts = [packet("s1", "a.com", &[tiny.as_str()])];
-        let out = rerank(&pkts, "anything", &[], 30, false);
+        let out = rerank(&pkts, "anything", &[], 30, false, "any");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].passage_text, "tinytinytiny");
+    }
+
+    /* ── §11.12 segment filter — ⇔ TS retrieval-quality.test.ts
+    "segment filter shared vectors": byte-identical fixture strings and
+    expectations; change one side, change both in the same commit. ───── */
+
+    const LONG_IRRELEVANT: &str = "Completely unrelated prose about gardening techniques and soil composition that continues well past two hundred characters to trigger the length rule for dropping zero-coverage prose blocks from a covered page entirely here now yes.";
+    const JUNK_BLOCK: &str = "We use cookies to improve your experience. By continuing you agree to our privacy policy and terms of service.";
+    const SHORT_IRRELEVANT: &str = "It also comes in blue and green colors.";
+    const COVERED: &str = "The Nimbus 3 launch date was announced yesterday.";
+
+    fn drop_input() -> String {
+        format!(
+            "{COVERED}\n\n{LONG_IRRELEVANT}\n\n{SHORT_IRRELEVANT}\n\n### Shipping and returns policy\n\n| Size | Material |\n| M | Cotton |\n\n```python\nprint(1)\n```\n\n{JUNK_BLOCK}"
+        )
+    }
+
+    fn drop_output() -> String {
+        format!(
+            "{COVERED}\n\n{SHORT_IRRELEVANT}\n\n### Shipping and returns policy\n\n| Size | Material |\n| M | Cotton |\n\n```python\nprint(1)\n```"
+        )
+    }
+
+    #[test]
+    fn segment_filter_shared_vectors() {
+        // fixture preconditions: length + junk pins
+        assert!(utf16_len(LONG_IRRELEVANT) >= 200);
+        assert!(utf16_len(SHORT_IRRELEVANT) < 200);
+        assert!(junk_penalty(JUNK_BLOCK) >= 0.8);
+
+        // drops long zero-coverage prose + boilerplate; keeps covered/short/
+        // heading/table/code
+        assert_eq!(
+            filter_passage_segments(&drop_input(), "nimbus launch"),
+            drop_output()
+        );
+        // no query terms (stop-words only) ⇒ identity
+        assert_eq!(
+            filter_passage_segments(&drop_input(), "what is the"),
+            drop_input()
+        );
+        // tiny page (<=2 blocks) ⇒ identity
+        let tiny = "Alpha beta gamma delta.\n\nEcho foxtrot golf hotel.";
+        assert_eq!(filter_passage_segments(tiny, "alpha"), tiny);
+        // page with no covered block ⇒ identity (never gut a page)
+        let uncovered = format!("{LONG_IRRELEVANT}\n\n{SHORT_IRRELEVANT}\n\n{JUNK_BLOCK}");
+        assert_eq!(
+            filter_passage_segments(&uncovered, "quantum tunneling"),
+            uncovered
+        );
+        // [Structured Page Facts] passage ⇒ identity (P5 metadata law)
+        let facts = format!("[Structured Page Facts]\n\nPrice: $9\n\n{LONG_IRRELEVANT}");
+        assert_eq!(filter_passage_segments(&facts, "price"), facts);
+        // CRLF input with drops ⇒ joined with LF; kept blocks trimmed
+        let crlf =
+            format!("The Nimbus 3 ships in June.\r\n\r\n{LONG_IRRELEVANT}\r\n\r\n{JUNK_BLOCK}");
+        assert_eq!(
+            filter_passage_segments(&crlf, "nimbus"),
+            "The Nimbus 3 ships in June."
+        );
+        // nothing droppable ⇒ ORIGINAL bytes verbatim
+        let all_kept = format!("{COVERED}\n\n{SHORT_IRRELEVANT}\n\n### Colors and pricing");
+        assert_eq!(
+            filter_passage_segments(&all_kept, "nimbus launch"),
+            all_kept
+        );
+        // query-covered boilerplate survives the junk rule
+        let cookie_query = format!("{COVERED}\n\n{JUNK_BLOCK}\n\n{LONG_IRRELEVANT}");
+        assert_eq!(
+            filter_passage_segments(&cookie_query, "nimbus launch cookies"),
+            format!("{COVERED}\n\n{JUNK_BLOCK}")
+        );
+    }
+
+    #[test]
+    fn apply_segment_filter_mutates_passages_in_place() {
+        let mut pkts = vec![packet("s1", "a.com", &[drop_input().as_str()])];
+        apply_segment_filter(&mut pkts, "nimbus launch");
+        assert_eq!(pkts[0].passages[0].passage_text, drop_output());
+        // stop-word-only query ⇒ inert
+        apply_segment_filter(&mut pkts, "what is the");
+        assert_eq!(pkts[0].passages[0].passage_text, drop_output());
     }
 }

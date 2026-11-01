@@ -4,7 +4,11 @@ export const SearchDecisionSchema = z
   .object({
     search_required: z.boolean(),
     reason: z.string(),
-    freshness: z.enum(["none", "day", "week", "month", "year", "any"]),
+    // §11.10: "realtime" is the tightest class — facts that change
+    // minute-to-minute (prices, scores, status pages, "right now" state).
+    // Retrieval treats it as live_required (cache is never consulted) with
+    // a 5-minute retention window on write.
+    freshness: z.enum(["none", "day", "week", "month", "year", "realtime", "any"]),
     depth: z.enum(["quick", "standard", "deep"]),
     queries: z.array(
       z.object({
@@ -29,6 +33,25 @@ function normalizeFreshness(f: string): SearchDecision["freshness"] {
     case "recent": return "month";
     default: return f as SearchDecision["freshness"];
   }
+}
+
+/**
+ * §11.11 retrieval-mode contract. The cache READ policy for a run is
+ * derived from the gate's freshness decision:
+ *  - live_required  (freshness "realtime"): NEVER read the query cache;
+ *    every run hits the live engine pool. Short TTL on write.
+ *  - live_preferred (freshness "day"/"week"): a cache hit is only ever a
+ *    short-TTL row (enforced at WRITE time by FRESH_QUERY_TTL_MS) — the
+ *    5-hour cached row is never produced for these decisions.
+ *  - cached_preferred: everything else; the normal TTL applies.
+ * Rust mirror: `RetrievalMode` + `retrieval_mode_for_freshness` (types.rs).
+ */
+export type RetrievalMode = "cached_preferred" | "live_preferred" | "live_required";
+
+export function retrievalModeForFreshness(f: string): RetrievalMode {
+  if (f === "realtime") return "live_required";
+  if (f === "day" || f === "week") return "live_preferred";
+  return "cached_preferred";
 }
 
 /**

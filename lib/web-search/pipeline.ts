@@ -27,6 +27,7 @@
  */
 import { runSearchGate } from "./search-gate";
 import type { SearchGateContext } from "./types";
+import { retrievalModeForFreshness } from "./types";
 import {
   metasearch,
   metasearchWithFreshnessRecovery,
@@ -44,6 +45,7 @@ import {
   extractUrl,
 } from "./extractor";
 import { rerank } from "./reranker";
+import { applySegmentFilter } from "./segment-filter";
 import {
   getYouTubeEvidence,
   youTubeCompanionQuery,
@@ -438,7 +440,13 @@ export async function runWebResearch(
 
   let fromCache = false;
   let searchResults: RankedResult[] = [];
-  const cached = getCachedQuery(plans);
+  // §11.11: freshness "realtime" maps to live_required — such a run NEVER
+  // consults the query cache; every realtime decision hits the live engine
+  // pool. (Rust mirror: `retrieval_mode_for_freshness(...) == LiveRequired`.)
+  const cached =
+    retrievalModeForFreshness(gate.decision.freshness) === "live_required"
+      ? null
+      : getCachedQuery(plans);
   if (cached) {
     fromCache = true;
     searchResults = cached.results;
@@ -712,6 +720,18 @@ export async function runWebResearch(
     detail: `Reading top ${readTotal} pages...`,
     total: readTotal,
   });
+  // §11.12 fetch-side dynamic segment filtering (⇔ Rust
+  // `segment_filter_query` above the waves + `apply_segment_filter` at the
+  // same two hops): freshly extracted passages are scored LOCALLY against
+  // the user prompt + the gate's query set before they join the rerank
+  // pool. Prompt-URL and SERP-baseline packets are exempt (user-directed /
+  // engine-indexed material); inert without query terms. The conservative
+  // drop law is documented in segment-filter.ts and vector-pinned both
+  // sides. This never touches what the main model's evidence block shows
+  // — it only prunes off-query segments from what rerank may select.
+  const segmentFilterQuery = [ctx.userPrompt, ...gate.decision.queries.map((q) => q.query)]
+    .filter(Boolean)
+    .join(" ");
   const t = performance.now();
   // onPage: real per-page completion inside each extractAll await — the
   // client's "Reading web sources — page X of Y" step advances on measured
@@ -755,6 +775,9 @@ export async function runWebResearch(
         prev,
         stopWhen,
       );
+      // §11.12: drop off-query / boilerplate segments before the pool joins
+      // rerank (⇔ Rust `apply_segment_filter(&mut b, &segment_filter_query)`).
+      applySegmentFilter(batch, segmentFilterQuery);
       // extractAll numbers S1.. per call; keep running global ids so batch 2's
       // pages land at S(prev+1).. exactly as one full-window call numbered.
       renumberPackets(batch, nextSourceIndex(packets));
@@ -828,6 +851,9 @@ export async function runWebResearch(
   const t2 = performance.now();
   let topPassages = rerank(packets, ctx.userPrompt, qTexts, 15, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
+    // §11.10: the gate's freshness band ranks dated passages by fit to the
+    // band (order-only; displayed BM25 bytes never shift).
+    freshness: gate.decision.freshness,
   });
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
 
@@ -851,6 +877,9 @@ export async function runWebResearch(
       // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
       // fresh pages, not 5 (mirrors Rust).
       const gapPackets = await extractAll(gapResults, 3);
+      // §11.12 gap-hop half (⇔ Rust): the gap query joins the filter query
+      // so coverage for the missing entities survives the drop rules.
+      applySegmentFilter(gapPackets, segmentFilterQuery + " " + coverage.gapQuery);
       renumberPackets(gapPackets, nextSourceIndex(packets));
       const allPackets = [...packets, ...gapPackets];
       topPassages = rerank(
@@ -860,6 +889,8 @@ export async function runWebResearch(
         15,
         {
           ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
+          // §11.10: same order-only freshness prior on the merged hop.
+          freshness: gate.decision.freshness,
         },
       );
       log.info(

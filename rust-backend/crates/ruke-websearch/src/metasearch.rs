@@ -100,7 +100,8 @@ use crate::engines::{
 use crate::net::{Net, UrlFetchOpts};
 use crate::ssrf::{is_safe_url, scrub_query_secrets};
 use crate::types::{
-    engine_rank_value, Freshness, Intent, RankedResult, RawSearchResult, SearchOrigin,
+    engine_rank_value, freshness_fit, is_time_scoped_freshness, Freshness, Intent, RankedResult,
+    RawSearchResult, SearchOrigin,
 };
 
 /// TS: `const ENGINE_TIMEOUT_MS = 40_000` — every metasearch fetcher.
@@ -229,10 +230,14 @@ fn parse_form_pairs(search: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Parity port of `normalizeUrl`: hash clear → tracking-param delete via
-/// URLSearchParams round-trip → lowercase host + `www.` strip → pathname
-/// trailing-slash strip guarded by `length > 1` → `"" → "/"`. Invalid URLs
-/// pass through verbatim (the TS catch).
+/// Parity port of `normalizeUrl`: hash clear → tracking-param delete (exact
+/// list + `utm_` prefix) via URLSearchParams round-trip → lowercase host +
+/// `www.` strip + `m.`/`amp.`/`wap.` mobile collapse (`mobile.` is NOT
+/// collapsed — some sites brand on it) → AMP path collapse (leading `/amp`
+/// segment and trailing `/amp`) → pathname trailing-slash strip guarded by
+/// `length > 1` → `"" → "/"`. Invalid URLs pass through verbatim (the TS
+/// catch). Default ports (`:80`) collapse identically on both sides via the
+/// URL normalizer.
 pub fn normalize_url(raw: &str) -> String {
     let mut u = match Url::parse(raw) {
         Ok(u) => u,
@@ -241,7 +246,7 @@ pub fn normalize_url(raw: &str) -> String {
     u.set_fragment(None);
     let search = u.query().unwrap_or("").to_string();
     let mut pairs = parse_form_pairs(&search);
-    pairs.retain(|(k, _)| !TRACKING_PARAMS.contains(&k.as_str()));
+    pairs.retain(|(k, _)| !TRACKING_PARAMS.contains(&k.as_str()) && !k.starts_with("utm_"));
     let q: Vec<String> = pairs
         .iter()
         .map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v)))
@@ -250,9 +255,38 @@ pub fn normalize_url(raw: &str) -> String {
     u.set_query(if q.is_empty() { None } else { Some(&q) });
     let host = u.host_str().unwrap_or("").to_lowercase();
     let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    // TS MOBILE_SUBDOMAIN_RE `^(?:m|amp|wap)\.` on the already-lowercased
+    // host; `(.+)` ⇒ only collapse when a non-empty remainder follows.
+    let host = ["m.", "amp.", "wap."]
+        .iter()
+        .find_map(|p| {
+            host.strip_prefix(p)
+                .filter(|rest| !rest.is_empty())
+                .map(|rest| rest.to_string())
+        })
+        .unwrap_or(host);
     let _ = u.set_host(Some(&host));
     static TRAIL: OnceLock<Regex> = OnceLock::new();
+    static AMP_PREFIX: OnceLock<Regex> = OnceLock::new();
+    static AMP_SUFFIX: OnceLock<Regex> = OnceLock::new();
     let path = u.path().to_string();
+    // TS: `path !== "/"` guard, then leading `/amp` (case-insensitive) →
+    // "/", then a trailing `/amp` cut while the path is still non-"/".
+    let path = if path != "/" {
+        let path = AMP_PREFIX
+            .get_or_init(|| Regex::new(r"(?i)^/amp(?:/|$)").expect("static regex"))
+            .replace(&path, "/")
+            .into_owned();
+        let amp_suffix = AMP_SUFFIX.get_or_init(|| Regex::new(r"(?i)/amp$").expect("static regex"));
+        if path != "/" && amp_suffix.is_match(&path) {
+            // matched suffix is ASCII (`(?i)/amp$`) → a 4-byte cut is safe
+            path[..path.len() - 4].to_string()
+        } else {
+            path
+        }
+    } else {
+        path
+    };
     // TS: `path.length > 1` (UTF-16); pathnames are percent-encoded → ASCII.
     let path = if path.chars().count() > 1 {
         TRAIL
@@ -1433,9 +1467,17 @@ fn query_looks_like_dev(q: &str) -> bool {
     re.is_match(q)
 }
 
-/// Mirrors `VERTICAL_BY_INTENT`; unknown/`Other(_)` intents fall to general
-/// (the TS lookup miss + `?? GENERAL` arm — Rust's `Intent::Other(s)` maps
-/// onto the same general fallback because the TS table is keyed by string).
+/// Mirrors `VERTICAL_BY_INTENT` + `verticalsForIntent`; unknown/`Other(_)`
+/// intents fall to general (the TS lookup miss + `?? GENERAL` arm — Rust's
+/// `Intent::Other(s)` maps onto the same general fallback because the TS
+/// table is keyed by string).
+///
+/// §11.10: when `time_scoped` (freshness realtime/day/week/month/year),
+/// the Wikipedia vertical is dropped from every arm that carries it except
+/// `academic`/`docs` (concept disambiguation, not a recency source). The
+/// general/unknown arm's wiki entry is that arm's ONLY engine, so dropping
+/// it yields an empty vec — byte-equivalent to the TS
+/// `base.filter(fn => fn !== wikipediaSearch)` mirror.
 ///
 /// Value-first routing (bench 2026-10-29): semantic-scholar (429×113,
 /// self-throttled), wikidata (0 results/59) and imdb (2/59, rel 0) left
@@ -1444,7 +1486,7 @@ fn query_looks_like_dev(q: &str) -> bool {
 /// the forum intent instead of the general pool. Docs drops wikidata to
 /// match the Rust arm (the TS table had a pre-existing extra wikidata
 /// entry; aligned here, wikidata is DISABLED_BY_DEFAULT).
-fn vertical_by_intent(intent: &Intent) -> Vec<EngineFn> {
+fn vertical_by_intent(intent: &Intent, time_scoped: bool) -> Vec<EngineFn> {
     match intent {
         Intent::Code => vec![stack_exchange_search, dev_to_search],
         Intent::Academic => vec![arxiv_search, wikipedia_search],
@@ -1452,7 +1494,13 @@ fn vertical_by_intent(intent: &Intent) -> Vec<EngineFn> {
         Intent::News => vec![hackernews_search],
         Intent::Docs => vec![stack_exchange_search, wikipedia_search, dev_to_search],
         // general + unknown:
-        _ => vec![wikipedia_search],
+        _ => {
+            if time_scoped {
+                Vec::new()
+            } else {
+                vec![wikipedia_search]
+            }
+        }
     }
 }
 
@@ -1531,7 +1579,10 @@ async fn search_one(
     let mut results: Vec<RawSearchResult> = pool;
 
     // Intent verticals (allSettled — ported engine fns cannot reject).
-    let verticals = vertical_by_intent(intent);
+    // §11.10: time-scoped freshness drops the wikipedia vertical except on
+    // academic/docs (⇔ TS `verticalsForIntent(intent, isTimeScopedFreshness(freshness))`).
+    let time_scoped = freshness.is_some_and(|f| is_time_scoped_freshness(f.as_str()));
+    let verticals = vertical_by_intent(intent, time_scoped);
     if !verticals.is_empty() {
         let t_v = std::time::Instant::now();
         let settled = join_all(verticals.iter().map(|f| f(net, query))).await;
@@ -1601,7 +1652,7 @@ struct FuseAggregate {
     ranks: Vec<(String, i64)>,
 }
 
-/// TS `reciprocalRankFuse(raw, preferredDomains?, intent = "general")`.
+/// TS `reciprocalRankFuse(raw, preferredDomains?, intent = "general", freshness?)`.
 ///
 /// Insertion order of `byUrl` (⇔ first-seen normalized URL) and of the
 /// per-URL engine `ranks` Map are load-bearing for `engines` / `engineRanks`
@@ -1611,6 +1662,7 @@ pub fn reciprocal_rank_fuse(
     raw: &[RawSearchResult],
     preferred_domains: Option<&[String]>,
     intent: &Intent,
+    freshness: &str,
 ) -> Vec<RankedResult> {
     let mut aggs: Vec<FuseAggregate> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
@@ -1661,6 +1713,9 @@ pub fn reciprocal_rank_fuse(
         None => HashSet::new(),
     };
 
+    // ⇔ TS `freshnessFit(...)` default arg `Date.now()` — pinned once per
+    // fuse call so every candidate is graded against the same instant.
+    let fuse_now_ms = chrono::Utc::now().timestamp_millis();
     let mut out: Vec<RankedResult> = Vec::new();
     for a in aggs {
         let mut score = 0.0f64;
@@ -1688,6 +1743,11 @@ pub fn reciprocal_rank_fuse(
         {
             score += PREFERRED_BOOST;
         }
+        // §11.10 freshness fit — multiplicative decay/boost AFTER the
+        // preferred-domain boost (exact op order ⇔ TS reciprocalRankFuse).
+        // Undated SERP entries stay ×1.0: recency only adjusts results that
+        // actually carry a date.
+        score *= freshness_fit(a.published_date.as_deref(), Some(freshness), fuse_now_ms);
         let engines: Vec<String> = a.ranks.iter().map(|(e, _)| e.clone()).collect();
         let mut engine_ranks: Map<String, Value> = Map::new();
         for (engine, rank) in &a.ranks {
@@ -1833,7 +1893,7 @@ pub async fn metasearch(
         .first()
         .map(|p| p.intent.clone())
         .unwrap_or(Intent::General);
-    let ranked = reciprocal_rank_fuse(&flat, Some(&preferred), &intent);
+    let ranked = reciprocal_rank_fuse(&flat, Some(&preferred), &intent, freshness.as_str());
 
     // ── Per-result relevance floor (starvation-guarded) ──
     let per_query_tokens: Vec<Vec<String>> = {
@@ -2242,6 +2302,50 @@ mod tests {
         );
         // invalid URLs pass through verbatim (the TS catch)
         assert_eq!(normalize_url("not a url"), "not a url");
+        // §11.8: `utm_` prefix strip beyond the exact list
+        assert_eq!(
+            normalize_url("https://example.com/p?utm_content=a&utm_id=b&id=5"),
+            "https://example.com/p?id=5"
+        );
+        // §11.8: mobile-subdomain collapse (`mobile.` keeps its brand host)
+        assert_eq!(
+            normalize_url("https://m.example.com/path"),
+            "https://example.com/path"
+        );
+        assert_eq!(
+            normalize_url("https://amp.example.com/path"),
+            "https://example.com/path"
+        );
+        assert_eq!(
+            normalize_url("https://wap.example.com/path"),
+            "https://example.com/path"
+        );
+        assert_eq!(
+            normalize_url("https://mobile.example.com/x"),
+            "https://mobile.example.com/x"
+        );
+        // §11.8: AMP path collapse, leading segment / trailing suffix, case
+        assert_eq!(
+            normalize_url("https://example.com/amp/story"),
+            "https://example.com/story"
+        );
+        assert_eq!(
+            normalize_url("https://example.com/amp"),
+            "https://example.com/"
+        );
+        assert_eq!(
+            normalize_url("https://example.com/AMP/Story"),
+            "https://example.com/Story"
+        );
+        assert_eq!(
+            normalize_url("https://example.com/x/amp"),
+            "https://example.com/x"
+        );
+        // subdomain + AMP path + tracking params together
+        assert_eq!(
+            normalize_url("https://m.example.com:8080/amp/p?utm_term=t&q=1"),
+            "https://example.com:8080/p?q=1"
+        );
     }
 
     // ── stripUrlPlans ─────────────────────────────────────────────────────
@@ -2392,6 +2496,7 @@ mod tests {
             &input,
             Some(&["www.Example.com/Docs".to_string()]),
             &Intent::General,
+            "any",
         );
         assert_eq!(out.len(), 2);
 
@@ -2431,6 +2536,108 @@ mod tests {
         );
         assert_eq!(out[1].title, "B title");
         assert_eq!(out[1].snippet, "sb");
+    }
+
+    #[test]
+    fn rrf_freshness_fit_decays_and_boosts() {
+        // ⇔ shared vector with the reciprocalRankFuse block in
+        // `__tests__/web-search/retrieval-quality.test.ts`. Dates are
+        // generated off the real clock: 2 days (inside the 7-day week band
+        // → ×1.25 boost) and 400 days (> 8×7 = 56 → ×0.5 decay). Tier
+        // margins are days wide, so clock skew never flips a pin.
+        let now = chrono::Utc::now();
+        let dated = |days: i64| -> String { (now - chrono::Duration::days(days)).to_rfc3339() };
+        let entry = |url: &str, days: Option<i64>| RawSearchResult {
+            title: "t".into(),
+            url: url.into(),
+            snippet: String::new(),
+            engine: "google".into(),
+            published_date: days.map(dated),
+            rank: 1,
+        };
+        let base = 1.2 / 61.0; // general-web weight 1.2 at rank 1 (RRF_K 60)
+
+        // week band: fresh boosted, ancient decayed, undated NEUTRAL.
+        let pool = vec![
+            entry("https://fresh.example.com/a", Some(2)),
+            entry("https://stale.example.com/a", Some(400)),
+            entry("https://undated.example.com/a", None),
+        ];
+        let out = reciprocal_rank_fuse(&pool, None, &Intent::General, "week");
+        let rrf = |u: &str| {
+            out.iter()
+                .find(|r| r.canonical == u)
+                .expect("candidate kept")
+                .rrf
+        };
+        assert!(approx(rrf("https://fresh.example.com/a"), base * 1.25));
+        assert!(approx(rrf("https://stale.example.com/a"), base * 0.5));
+        assert!(approx(rrf("https://undated.example.com/a"), base));
+        // ranking: the fit is strong enough to overtake a tie
+        assert_eq!(out[0].canonical, "https://fresh.example.com/a");
+
+        // non-time-scoped freshness ("any") leaves every score untouched.
+        let out_any = reciprocal_rank_fuse(&pool, None, &Intent::General, "any");
+        for r in &out_any {
+            assert!(approx(r.rrf, base));
+        }
+    }
+
+    #[test]
+    fn vertical_matrix_pins_time_scoped_wiki_drop() {
+        // §11.10 conditional vertical ⇔ TS `verticalsForIntent`. The only
+        // wiki-bearing arms are general/unknown (wiki is that arm's ONLY
+        // engine), academic, and docs; arms without wiki are untouched by
+        // the filter, so time-scoping changes nothing for them.
+        assert!(vertical_by_intent(&Intent::General, true).is_empty());
+        assert_eq!(vertical_by_intent(&Intent::General, false).len(), 1);
+        assert!(vertical_by_intent(&Intent::Other("x".into()), true).is_empty());
+        assert_eq!(vertical_by_intent(&Intent::Academic, true).len(), 2);
+        assert_eq!(vertical_by_intent(&Intent::Docs, true).len(), 3);
+        assert_eq!(vertical_by_intent(&Intent::Code, true).len(), 2);
+        assert_eq!(vertical_by_intent(&Intent::Forum, true).len(), 2);
+        assert_eq!(vertical_by_intent(&Intent::News, true).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn time_scoped_general_run_skips_the_wiki_vertical() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
+        let net = ScriptedNet::default().with_url(
+            &wiki_url("FooBar"),
+            ok_body(
+                json!({ "query": { "search": [
+                    { "title": "FooBar wiki entry", "snippet": "a foobar wiki article" }
+                ] } })
+                .to_string(),
+            ),
+        );
+        let wiki_calls = || -> usize {
+            net.calls
+                .lock()
+                .expect("lock")
+                .iter()
+                .filter(|(u, _)| u == &wiki_url("FooBar"))
+                .count()
+        };
+        // §11.10: a time-scoped general run drops the wiki vertical — that
+        // arm's only vertical — so no wikipedia request goes out at all
+        // (unscripted pool/news engines contribute nothing here).
+        let out = search_one(
+            &net,
+            "FooBar",
+            &Intent::General,
+            None,
+            Some(&Freshness::Week),
+        )
+        .await;
+        assert_eq!(wiki_calls(), 0);
+        assert!(out.is_empty());
+        // Unscoped general keeps the vertical (pre-existing behavior).
+        let out2 = search_one(&net, "FooBar", &Intent::General, None, None).await;
+        assert_eq!(wiki_calls(), 1);
+        assert_eq!(out2.len(), 1);
+        assert!(out2[0].url.contains("wikipedia.org"));
     }
 
     // ── pool-free async fetchers (direct net.fetch_url; zero engine
@@ -2880,7 +3087,11 @@ mod tests {
                 .to_string(),
             ),
         );
-        let plans = [plan("FooBar wiki", Intent::General, Some(Freshness::Week))];
+        // §11.10 conditional vertical: a time-scoped GENERAL run drops the
+        // wikipedia vertical, so this parity test keeps its wiki symmetry via
+        // "academic" (academic/docs retain wiki even when time-scoped). The
+        // general-drop leg is pinned directly by `vertical_matrix_pins`.
+        let plans = [plan("FooBar wiki", Intent::Academic, Some(Freshness::Week))];
         let rec = metasearch_with_freshness_recovery(&net, &plans, 20).await;
         assert_eq!(rec.results.len(), 1);
         assert!(!rec.freshness_recovery_used); // 2nd pass not strictly better → keep 1st

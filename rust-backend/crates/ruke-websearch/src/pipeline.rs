@@ -157,11 +157,12 @@ use crate::metasearch::{
 use crate::net::{FetchPageOpts, Net};
 use crate::platform_api::Verticals;
 use crate::query_planner::{evaluate_coverage, plan_queries, run_gap_metasearch};
-use crate::reranker::rerank;
+use crate::reranker::{apply_segment_filter, rerank};
 use crate::search_gate::{run_search_gate, SearchGateOptions};
 use crate::types::{
-    engine_rank_value, to_value, Depth, EvidencePacket, EvidencePassage, ExtractionKind, Freshness,
-    Intent, RankedResult, SearchGateContext, SearchGateResult, SearchOrigin,
+    engine_rank_value, retrieval_mode_for_freshness, to_value, Depth, EvidencePacket,
+    EvidencePassage, ExtractionKind, Freshness, Intent, RankedResult, RetrievalMode,
+    SearchGateContext, SearchGateResult, SearchOrigin,
 };
 use crate::url_detector::detect_urls_and_domains;
 use crate::youtube::{
@@ -844,7 +845,17 @@ pub async fn run_web_research(
     let mut search_results: Vec<RankedResult> = Vec::new();
     // getCachedQuery keys on the POST-hop plan queries (see header quirk).
     let plan_qs: Vec<String> = plans.iter().map(|p| p.query.clone()).collect();
-    if let Some(cached) = cache.get_cached_query(&plan_qs)? {
+    // §11.11: freshness "realtime" maps to live_required — such a run
+    // NEVER consults the query cache; every realtime decision hits the
+    // live engine pool. ⇔ TS `retrievalModeForFreshness(...) === "live_required"`.
+    let live_required =
+        retrieval_mode_for_freshness(&gate.decision.freshness) == RetrievalMode::LiveRequired;
+    let cached = if live_required {
+        None
+    } else {
+        cache.get_cached_query(&plan_qs)?
+    };
+    if let Some(cached) = cached {
         from_cache = true;
         search_results = cached.results;
     } else if !hit() {
@@ -1202,6 +1213,19 @@ pub async fn run_web_research(
         total: Some(read_total),
         ..Default::default()
     });
+    // §11.12 fetch-side dynamic segment filtering (⇔ TS `segmentFilterQuery`
+    // above the waves): the user prompt + the gate's query set score freshly
+    // extracted segments LOCALLY before they join the rerank pool. Prompt-URL
+    // and SERP-baseline packets are exempt; inert without query terms. The
+    // conservative drop law lives in reranker.rs and is vector-pinned both
+    // sides. This never touches what the main model's evidence block shows
+    // — it only prunes off-query segments from what rerank may select.
+    let segment_filter_query = {
+        let mut qs: Vec<String> = vec![ctx.user_prompt.clone()];
+        qs.extend(gate.decision.queries.iter().map(|q| q.query.clone()));
+        qs.retain(|s| !s.is_empty());
+        qs.join(" ")
+    };
     let mut packets: Vec<EvidencePacket> = Vec::new();
     let t_read = Instant::now();
     if !(hit() || search_results.is_empty()) {
@@ -1259,6 +1283,9 @@ pub async fn run_web_research(
                     Some(&mut stopper),
                 )
                 .await?;
+            // §11.12: drop off-query / boilerplate segments before the pool
+            // joins rerank (⇔ TS `applySegmentFilter`).
+            apply_segment_filter(&mut b, &segment_filter_query);
             // extract_all numbers S1.. per call; keep running global ids so
             // batch 2's pages land at S(prev+1).. exactly as one full-window
             // call numbered them.
@@ -1369,7 +1396,14 @@ pub async fn run_web_research(
     // §22 evidence density over volume: top 15 quality passages, not 30
     // (BM25 ordering already dropped the weak tail; scripted goldens hold
     // 10 passages each, so their bytes are unchanged).
-    let mut top_passages = rerank(&packets, &ctx.user_prompt, &q_texts, 15, single_url_query);
+    let mut top_passages = rerank(
+        &packets,
+        &ctx.user_prompt,
+        &q_texts,
+        15,
+        single_url_query,
+        gate.decision.freshness.as_str(),
+    );
     tracing::info!(
         passages = top_passages.len(),
         rerank_ms = t_rerank.elapsed().as_millis() as u64,
@@ -1415,6 +1449,12 @@ pub async fn run_web_research(
             let mut gap_packets = extractor
                 .extract_all(&gap_results, 3, None, None, 0, None)
                 .await?;
+            // §11.12 gap-hop half: the gap query joins the filter query so
+            // the missing-entity coverage survives the drop rules (⇔ TS).
+            apply_segment_filter(
+                &mut gap_packets,
+                &format!("{segment_filter_query} {gap_query}"),
+            );
             renumber_packets(&mut gap_packets, next_source_index(&packets));
             let all_packets: Vec<EvidencePacket> =
                 packets.iter().cloned().chain(gap_packets).collect();
@@ -1426,6 +1466,7 @@ pub async fn run_web_research(
                 &gq,
                 15,
                 single_url_query,
+                gate.decision.freshness.as_str(),
             );
             tracing::info!(
                 gap_search_ms,

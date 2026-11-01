@@ -104,7 +104,9 @@ fn utf16_prefix(s: &str, n: usize) -> String {
 /// form used by every fallback path.
 fn normalized_query_text(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let collapsed = RE.get_or_init(|| Regex::new(r"\s+").unwrap()).replace_all(s, " ");
+    let collapsed = RE
+        .get_or_init(|| Regex::new(r"\s+").unwrap())
+        .replace_all(s, " ");
     utf16_prefix(collapsed.trim(), 300)
 }
 
@@ -112,12 +114,35 @@ fn normalized_query_text(s: &str) -> String {
 
 const TRIVIAL_EXACT: &[&str] = &[
     // greetings
-    "hi", "hello", "hey", "yo", "sup", "thanks", "thank you", "thx", "ok", "okay", "cool", "nice",
-    "got it", "sounds good", "bye", "goodbye",
+    "hi",
+    "hello",
+    "hey",
+    "yo",
+    "sup",
+    "thanks",
+    "thank you",
+    "thx",
+    "ok",
+    "okay",
+    "cool",
+    "nice",
+    "got it",
+    "sounds good",
+    "bye",
+    "goodbye",
     // assistant-identity / pure chit-chat
-    "what are you doing", "what are you up to", "which model are you", "what model are you",
-    "who are you", "who made you", "who created you", "what are you", "are you alive",
-    "how do you work", "how are you", "what can you do",
+    "what are you doing",
+    "what are you up to",
+    "which model are you",
+    "what model are you",
+    "who are you",
+    "who made you",
+    "who created you",
+    "what are you",
+    "are you alive",
+    "how do you work",
+    "how are you",
+    "what can you do",
 ];
 
 fn re_trivial_filler() -> &'static Regex {
@@ -219,7 +244,9 @@ fn re_model_number() -> &'static Regex {
 
 fn re_time_sensitive() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?i)(?-u:\b(?:today|current|latest|recent|20(?:[012]\d))\b)").unwrap())
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?-u:\b(?:today|current|latest|recent|20(?:[012]\d))\b)").unwrap()
+    })
 }
 
 fn re_nonleading_cap() -> &'static Regex {
@@ -231,7 +258,9 @@ fn re_nonleading_cap() -> &'static Regex {
 /// ("renew" contains "new"); kept verbatim.
 fn re_rule_time() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?i)latest|recent|new|current|today|this (week|month|year|quarter)").unwrap())
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)latest|recent|new|current|today|this (week|month|year|quarter)").unwrap()
+    })
 }
 
 fn re_rule_version() -> &'static Regex {
@@ -467,7 +496,10 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
         // ("do not search the web"), so any escape test would self-cancel
         // — the residual re-test above is the guarded equivalent.
         return Some(HardBypassResult {
-            hit: HardBypassHit { matched: BypassMatched::LocalTask, detected: vec![] },
+            hit: HardBypassHit {
+                matched: BypassMatched::LocalTask,
+                detected: vec![],
+            },
             decision: local_task_decision(),
         });
     } else if re_web_intent().is_match(&web_intent_probe(p, local_artifact)) {
@@ -488,7 +520,10 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
             return None;
         }
         return Some(HardBypassResult {
-            hit: HardBypassHit { matched: BypassMatched::AttachmentEvidence, detected: vec![] },
+            hit: HardBypassHit {
+                matched: BypassMatched::AttachmentEvidence,
+                detected: vec![],
+            },
             decision: SearchDecision {
                 search_required: false,
                 reason: "deterministic_attachment_local".into(),
@@ -509,7 +544,10 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
             return None;
         }
         return Some(HardBypassResult {
-            hit: HardBypassHit { matched: BypassMatched::LocalTask, detected: vec![] },
+            hit: HardBypassHit {
+                matched: BypassMatched::LocalTask,
+                detected: vec![],
+            },
             decision: local_task_decision(),
         });
     } else {
@@ -522,8 +560,8 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
     const FILLER: &[&str] = &[
         "tell", "me", "what", "is", "the", "a", "an", "i", "want", "to", "so", "you", "can",
         "could", "please", "how", "about", "in", "on", "at", "by", "for", "from", "with", "that",
-        "this", "these", "those", "there", "here", "would", "like", "need", "look", "find",
-        "show", "give", "get", "best", "top", "good", "and", "it", "its", "of", "up",
+        "this", "these", "those", "there", "here", "would", "like", "need", "look", "find", "show",
+        "give", "get", "best", "top", "good", "and", "it", "its", "of", "up",
     ];
     let filler: HashSet<&str> = FILLER.iter().copied().collect();
     let lowered = re_http_url_strip().replace_all(p, " ").to_lowercase();
@@ -576,8 +614,16 @@ pub fn deterministic_hard_bypass(ctx: &SearchGateContext) -> Option<HardBypassRe
         decision: SearchDecision {
             search_required: true,
             reason: "deterministic_url_or_intent".into(),
-            freshness: if is_newsy { Freshness::Week } else { Freshness::Any },
-            depth: if has_detected { Depth::Deep } else { Depth::Standard },
+            freshness: if is_newsy {
+                Freshness::Week
+            } else {
+                Freshness::Any
+            },
+            depth: if has_detected {
+                Depth::Deep
+            } else {
+                Depth::Standard
+            },
             queries,
         },
     })
@@ -624,7 +670,11 @@ pub fn rules_based_plan(ctx: &SearchGateContext) -> SearchGateResult {
     let urls = extract_prompt_urls(p);
     let mut queries = vec![SearchQuery {
         query: normalized_query_text(p),
-        intent: if has_time_signal { Intent::News } else { Intent::General },
+        intent: if has_time_signal {
+            Intent::News
+        } else {
+            Intent::General
+        },
         preferred_domains: None,
     }];
     for u in urls.iter().take(3) {
@@ -686,7 +736,11 @@ fn build_fallback_queries(prompt: &str) -> Vec<SearchQuery> {
         0,
         SearchQuery {
             query: normalized_query_text(prompt),
-            intent: if has_time_signal { Intent::News } else { Intent::General },
+            intent: if has_time_signal {
+                Intent::News
+            } else {
+                Intent::General
+            },
             preferred_domains: None,
         },
     );
@@ -731,7 +785,7 @@ changed since training, search; otherwise answer without searching.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
- "freshness": "none"|"day"|"week"|"month"|"year"|"any",
+ "freshness": "none"|"day"|"week"|"month"|"year"|"realtime"|"any",
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
 
@@ -750,9 +804,10 @@ Query rules (only when search_required = true):
   obvious for a version, release, doc set, price, or office-holder fact,
   set preferred_domains to it (e.g. oracle.com, openjdk.org, nodejs.org,
   python.org, official project docs or repositories).
-- freshness: "day" for same-day facts, "week"/"month"/"year" when the
-  fact is time-scoped, "any" otherwise; "none" only with
-  search_required = false.
+- freshness: "day" for same-day facts, "realtime" when the fact changes
+  minute-to-minute (prices, scores, status pages, "right now" state),
+  "week"/"month"/"year" when the fact is time-scoped, "any" otherwise;
+  "none" only with search_required = false.
 - depth: "quick" single fact, "standard" comparison, "deep" multi-source
   research.
 Do NOT add anything else to your output."#;
@@ -1059,14 +1114,19 @@ async fn main_model_gate(
             .unwrap_or("");
         Some((content.to_string(), reasoning.to_string()))
     };
-    let (content, reasoning) = match tokio::time::timeout(Duration::from_millis(MAIN_GATE_TIMEOUT_MS), fut).await {
-        Err(_) => {
-            tracing::warn!(err = "timeout", timeout_ms = MAIN_GATE_TIMEOUT_MS, "gate unreachable / timeout");
-            return None;
-        }
-        Ok(None) => return None,
-        Ok(Some(pair)) => pair,
-    };
+    let (content, reasoning) =
+        match tokio::time::timeout(Duration::from_millis(MAIN_GATE_TIMEOUT_MS), fut).await {
+            Err(_) => {
+                tracing::warn!(
+                    err = "timeout",
+                    timeout_ms = MAIN_GATE_TIMEOUT_MS,
+                    "gate unreachable / timeout"
+                );
+                return None;
+            }
+            Ok(None) => return None,
+            Ok(Some(pair)) => pair,
+        };
 
     for raw in [content, reasoning] {
         if let Some(decision) = parse_main_gate_json(&raw, ctx) {
@@ -1121,9 +1181,9 @@ pub async fn run_search_gate(
                 source: GateSource::Deterministic,
                 gate_ms: 0.0,
             },
-            None if is_trivial_prompt(&ctx.user_prompt) => no_search_plan(
-                "trivial prompt — no web content needed",
-            ),
+            None if is_trivial_prompt(&ctx.user_prompt) => {
+                no_search_plan("trivial prompt — no web content needed")
+            }
             None => rules_based_plan(ctx),
         };
         tracing::info!(
@@ -1380,7 +1440,10 @@ mod tests {
             );
         }
         // Boundary law: "research" must NOT count through "search".
-        let r = deterministic_hard_bypass(&att_ctx("Research this file and rewrite it professionally.")).unwrap();
+        let r = deterministic_hard_bypass(&att_ctx(
+            "Research this file and rewrite it professionally.",
+        ))
+        .unwrap();
         assert_eq!(r.hit.matched, BypassMatched::AttachmentEvidence);
         assert!(!r.decision.search_required);
     }
@@ -1401,7 +1464,10 @@ mod tests {
         assert_eq!(r.hit.matched, BypassMatched::LocalTask);
         assert!(!r.decision.search_required);
         assert_eq!(r.decision.reason, "deterministic_self_contained");
-        assert!(r.decision.queries.is_empty(), "meta-instruction became a query");
+        assert!(
+            r.decision.queries.is_empty(),
+            "meta-instruction became a query"
+        );
         // Flag on (inline audio turn): still a deterministic NO — the
         // web-intent probe strips "attached audio" before `video`-class
         // narrow tokens can fire.
@@ -1413,7 +1479,8 @@ mod tests {
         //     force-YESes through a self-reference. Flag ⇒ attachment
         //     force-NO; no flag ⇒ the read-the-(attached-)video supplied
         //     arm force-NOs.
-        let burned = "Read the text burned into the attached video. Reply with exactly what you see.";
+        let burned =
+            "Read the text burned into the attached video. Reply with exactly what you see.";
         let r = deterministic_hard_bypass(&att_ctx(burned)).unwrap();
         assert_eq!(r.hit.matched, BypassMatched::AttachmentEvidence);
         assert!(!r.decision.search_required);
@@ -1439,13 +1506,15 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(r.hit.matched, BypassMatched::WebIntent);
-        let r = deterministic_hard_bypass(&att_ctx("What's the latest video from NVIDIA?")).unwrap();
+        let r =
+            deterministic_hard_bypass(&att_ctx("What's the latest video from NVIDIA?")).unwrap();
         assert_eq!(r.hit.matched, BypassMatched::WebIntent);
 
         // (d) The E1 guard law: "…, nothing else." does NOT make a turn
         //     local when a live-intent token survives OUTSIDE the
         //     phrase — the residual re-test re-fires the web arm.
-        let r = deterministic_hard_bypass(&ctx("Watch the launch event tomorrow, nothing else.")).unwrap();
+        let r = deterministic_hard_bypass(&ctx("Watch the launch event tomorrow, nothing else."))
+            .unwrap();
         assert_eq!(r.hit.matched, BypassMatched::WebIntent);
     }
 
@@ -1488,7 +1557,9 @@ mod tests {
             assert!(!r.decision.queries.is_empty(), "{p} must plan queries");
         }
         // Freshness outranks the skip layers even in a task-shaped prompt.
-        let r = deterministic_hard_bypass(&ctx("Write a script that reports the most recent release.")).unwrap();
+        let r =
+            deterministic_hard_bypass(&ctx("Write a script that reports the most recent release."))
+                .unwrap();
         assert_eq!(r.hit.matched, BypassMatched::Freshness);
         assert!(r.decision.search_required);
     }
@@ -1531,12 +1602,19 @@ mod tests {
     fn bypass_local_task_escapes_on_external_intent() {
         // The escape-hatch list guards layer 1b: a self-contained shape
         // that ALSO signals live-web intent falls through to the model.
-        assert!(deterministic_hard_bypass(&ctx("Translate this paragraph; check the web for slang usage.")).is_none());
-        assert!(deterministic_hard_bypass(&ctx("Summarize this text and browse online sources.")).is_none());
+        assert!(deterministic_hard_bypass(&ctx(
+            "Translate this paragraph; check the web for slang usage."
+        ))
+        .is_none());
+        assert!(
+            deterministic_hard_bypass(&ctx("Summarize this text and browse online sources."))
+                .is_none()
+        );
         // Layer 1a (explicit local-only intent) deliberately has NO escape
         // — the phrase list contains "web" itself, so an escape test would
         // self-cancel the user's explicit instruction.
-        let r = deterministic_hard_bypass(&ctx("Don't browse; only from the attached document.")).unwrap();
+        let r = deterministic_hard_bypass(&ctx("Don't browse; only from the attached document."))
+            .unwrap();
         assert_eq!(r.hit.matched, BypassMatched::LocalTask);
         assert!(!r.decision.search_required);
     }
@@ -1565,12 +1643,18 @@ mod tests {
         let mut c = ctx("is python 2 still supported?");
         c.current_date = Some("2030-06-15".into());
         let m = &build_main_gate_messages_for_test(&c)[0];
-        assert!(m.content.starts_with("Current date: 2030-06-15 (year 2030)."));
+        assert!(m
+            .content
+            .starts_with("Current date: 2030-06-15 (year 2030)."));
         assert!(m.content.contains("parametric knowledge may be STALE"));
         // Unset ⇒ the REAL runtime date, never a frozen constant (the
         // assertion is shape-only so the suite never couples to the clock).
         let m2 = &build_main_gate_messages_for_test(&ctx("hello"))[0];
-        assert!(Regex::new(r"Current date: \d{4}-\d{2}-\d{2} \(year \d{4}\)\.").unwrap().is_match(&m2.content));
+        assert!(
+            Regex::new(r"Current date: \d{4}-\d{2}-\d{2} \(year \d{4}\)\.")
+                .unwrap()
+                .is_match(&m2.content)
+        );
         assert!(!m2.content.contains("2030-06-15"));
     }
 
@@ -1580,13 +1664,23 @@ mod tests {
         // would fall back to rules_based_plan (source=rules, search=YES).
         // source=deterministic + gate_ms 0 proves ZERO gate-model calls
         // in BOTH universal directions (force-YES and force-NO).
-        let r = run_search_gate(&reqwest::Client::new(), &ctx("Who is the CEO of Acme Corp?"), &opts(false)).await;
+        let r = run_search_gate(
+            &reqwest::Client::new(),
+            &ctx("Who is the CEO of Acme Corp?"),
+            &opts(false),
+        )
+        .await;
         assert_eq!(r.source, GateSource::Deterministic);
         assert!(r.decision.search_required);
         assert!(!r.decision.queries.is_empty());
         assert_eq!(r.gate_ms, 0.0);
 
-        let r = run_search_gate(&reqwest::Client::new(), &ctx("Write Python code for binary search."), &opts(false)).await;
+        let r = run_search_gate(
+            &reqwest::Client::new(),
+            &ctx("Write Python code for binary search."),
+            &opts(false),
+        )
+        .await;
         assert_eq!(r.source, GateSource::Deterministic);
         assert!(!r.decision.search_required);
         assert!(r.decision.queries.is_empty());
@@ -1616,7 +1710,10 @@ mod tests {
         assert_eq!(r.gate_ms, 0.0);
         assert_eq!(r.decision.freshness, Freshness::Day);
         assert_eq!(r.decision.queries[0].intent, Intent::News);
-        assert_eq!(r.decision.queries[0].query, "latest news on react 18.2 release");
+        assert_eq!(
+            r.decision.queries[0].query,
+            "latest news on react 18.2 release"
+        );
 
         let r = rules_based_plan(&ctx("explain recursion simply"));
         assert_eq!(r.decision.freshness, Freshness::Any);
@@ -1626,15 +1723,29 @@ mod tests {
     #[test]
     fn gate_messages_cap_history_and_prompt() {
         let mut c = ctx(&"x".repeat(2500));
-        c.history = Some((0..6).map(|i| crate::types::HistoryTurn { role: "user".into(), content: format!("{i}{}", "y".repeat(400)) }).collect());
+        c.history = Some(
+            (0..6)
+                .map(|i| crate::types::HistoryTurn {
+                    role: "user".into(),
+                    content: format!("{i}{}", "y".repeat(400)),
+                })
+                .collect(),
+        );
         c.has_image_attachment = Some(true);
         let msgs = build_main_gate_messages_for_test(&c);
         assert_eq!(msgs.len(), 6); // system + last-4 history + user
         assert_eq!(msgs[1].content.chars().count(), 300); // history content sliced 300
         assert!(msgs[1].content.starts_with("2")); // slice(-4) kept turns 2..5
         assert_eq!(msgs[5].role, "user");
-        assert!(msgs[5].content.ends_with("(The user also attached an image/screenshot to this message.)"));
-        assert_eq!(msgs[5].content.chars().count(), 2000 + "\n\n(The user also attached an image/screenshot to this message.)".chars().count());
+        assert!(msgs[5]
+            .content
+            .ends_with("(The user also attached an image/screenshot to this message.)"));
+        assert_eq!(
+            msgs[5].content.chars().count(),
+            2000 + "\n\n(The user also attached an image/screenshot to this message.)"
+                .chars()
+                .count()
+        );
     }
 
     #[test]
@@ -1697,7 +1808,12 @@ mod tests {
         assert_eq!(r.decision.freshness, Freshness::None);
         assert_eq!(r.decision.depth, Depth::Quick);
 
-        let r = run_search_gate(&http, &ctx("how do I structure a monorepo build"), &opts(true)).await;
+        let r = run_search_gate(
+            &http,
+            &ctx("how do I structure a monorepo build"),
+            &opts(true),
+        )
+        .await;
         assert!(r.decision.search_required);
         assert_eq!(r.source, GateSource::Rules);
     }
@@ -1721,6 +1837,10 @@ mod tests {
 
     #[tokio::test]
     async fn call_llm_unreachable_returns_none() {
-        assert!(call_llm(&reqwest::Client::new(), &ctx("hello friend"), &opts(false)).await.is_none());
+        assert!(
+            call_llm(&reqwest::Client::new(), &ctx("hello friend"), &opts(false))
+                .await
+                .is_none()
+        );
     }
 }
