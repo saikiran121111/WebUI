@@ -37,7 +37,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -118,7 +118,8 @@ pub trait SearchCache: Send + Sync {
         freshness: &str,
     ) -> Result<(), CacheError>;
     fn get_cached_page(&self, url: &str) -> Result<Option<CachedPage>, CacheError>;
-    fn put_cached_page(&self, url: &str, extracted: &str, tier: PageTier) -> Result<(), CacheError>;
+    fn put_cached_page(&self, url: &str, extracted: &str, tier: PageTier)
+        -> Result<(), CacheError>;
     fn purge_expired(&self) -> Result<usize, CacheError>;
     fn close(&self) -> Result<(), CacheError>;
 }
@@ -133,7 +134,9 @@ fn now_ms() -> i64 {
 /// TS `parseInt(raw, 10)` semantics: leading optional sign + digit prefix,
 /// everything else NaN → default.
 pub fn parse_ttl_ms(raw: Option<&str>) -> i64 {
-    let Some(raw) = raw else { return DEFAULT_TTL_MS };
+    let Some(raw) = raw else {
+        return DEFAULT_TTL_MS;
+    };
     let s = raw.trim_start();
     let (sign, rest) = match s.strip_prefix('-') {
         Some(r) => (-1i64, r),
@@ -198,7 +201,9 @@ impl SqliteSearchCache {
     /// `<root>/.local-search/db/search-cache.sqlite` — same relative path
     /// TS derives from `process.cwd()`.
     pub fn db_path_for(root: &Path) -> PathBuf {
-        root.join(".local-search").join("db").join("search-cache.sqlite")
+        root.join(".local-search")
+            .join("db")
+            .join("search-cache.sqlite")
     }
 
     /// Zero-footprint on construction — the file is opened on first use
@@ -269,7 +274,10 @@ impl SqliteSearchCache {
         Ok(())
     }
 
-    fn with_db<T>(&self, f: impl FnOnce(&Connection) -> Result<T, CacheError>) -> Result<T, CacheError> {
+    fn with_db<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> Result<T, CacheError>,
+    ) -> Result<T, CacheError> {
         self.ensure_open()?;
         let guard = self.conn.lock();
         f(guard.as_ref().expect("opened above"))
@@ -387,7 +395,12 @@ impl SearchCache for SqliteSearchCache {
                     "SELECT extracted, tier FROM page_cache
                      WHERE url_hash = ?1 AND expires_at > ?2",
                     params![key, now_ms()],
-                    |r| Ok(CachedPage { extracted: r.get(0)?, tier: r.get(1)? }),
+                    |r| {
+                        Ok(CachedPage {
+                            extracted: r.get(0)?,
+                            tier: r.get(1)?,
+                        })
+                    },
                 )
                 .optional()?;
             Ok(row)
@@ -396,7 +409,12 @@ impl SearchCache for SqliteSearchCache {
 
     /// Refuse degraded writes: <200 JS-chars of whitespace-collapsed
     /// signal (UTF-16 `.length`, parity with TS).
-    fn put_cached_page(&self, url: &str, extracted: &str, tier: PageTier) -> Result<(), CacheError> {
+    fn put_cached_page(
+        &self,
+        url: &str,
+        extracted: &str,
+        tier: PageTier,
+    ) -> Result<(), CacheError> {
         let signal = ws_re().replace_all(extracted, " ");
         let signal = signal.trim();
         if signal.encode_utf16().count() < 200 {
@@ -413,7 +431,14 @@ impl SearchCache for SqliteSearchCache {
                      tier = excluded.tier,
                      cached_at = excluded.cached_at,
                      expires_at = excluded.expires_at"#,
-                params![hash(url), url, extracted, tier.as_str(), now, now + self.ttl_ms],
+                params![
+                    hash(url),
+                    url,
+                    extracted,
+                    tier.as_str(),
+                    now,
+                    now + self.ttl_ms
+                ],
             )?;
             Ok(())
         })
@@ -494,7 +519,9 @@ impl SearchCache for ScriptedCache {
         _freshness: &str,
     ) -> Result<(), CacheError> {
         self.check()?;
-        self.writes.lock().push(format!("q:{}", query_cache_key(queries)));
+        self.writes
+            .lock()
+            .push(format!("q:{}", query_cache_key(queries)));
         Ok(())
     }
     fn get_cached_page(&self, url: &str) -> Result<Option<CachedPage>, CacheError> {
@@ -502,7 +529,12 @@ impl SearchCache for ScriptedCache {
         let _ = url;
         Ok(None)
     }
-    fn put_cached_page(&self, url: &str, _extracted: &str, _tier: PageTier) -> Result<(), CacheError> {
+    fn put_cached_page(
+        &self,
+        url: &str,
+        _extracted: &str,
+        _tier: PageTier,
+    ) -> Result<(), CacheError> {
         self.check()?;
         self.writes.lock().push(format!("p:{url}"));
         Ok(())
@@ -538,6 +570,7 @@ mod tests {
                 m.insert("ddg".into(), js_number(1.0));
                 m
             },
+            origin: None,
         }
     }
 
@@ -549,17 +582,31 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         // Sanity: the cache file must NOT be the real store path.
         let c = SqliteSearchCache::with_ttl_ms(dir.path(), ttl_ms);
-        assert!(c.path().ends_with(".local-search/db/search-cache.sqlite")
-            || c.path().ends_with(std::path::Path::new(".local-search").join("db").join("search-cache.sqlite")));
+        assert!(
+            c.path().ends_with(".local-search/db/search-cache.sqlite")
+                || c.path().ends_with(
+                    std::path::Path::new(".local-search")
+                        .join("db")
+                        .join("search-cache.sqlite")
+                )
+        );
         (dir, c)
     }
 
     #[test]
     fn query_roundtrip_hit() {
         let (_d, c) = tmp_cache(DEFAULT_TTL_MS);
-        c.put_cached_query(&q(&["rust webui"]), &json!([{"query":"rust webui"}]), &[rr("https://x.dev")], "any")
-            .unwrap();
-        let hit = c.get_cached_query(&q(&["rust webui"])).unwrap().expect("hit");
+        c.put_cached_query(
+            &q(&["rust webui"]),
+            &json!([{"query":"rust webui"}]),
+            &[rr("https://x.dev")],
+            "any",
+        )
+        .unwrap();
+        let hit = c
+            .get_cached_query(&q(&["rust webui"]))
+            .unwrap()
+            .expect("hit");
         assert_eq!(hit.results.len(), 1);
         assert_eq!(hit.freshness, "any");
         c.close().unwrap();
@@ -569,7 +616,8 @@ mod tests {
     fn zero_results_never_written_and_poison_rows_are_misses() {
         let (_d, c) = tmp_cache(DEFAULT_TTL_MS);
         // put-side guard:
-        c.put_cached_query(&q(&["starved"]), &json!([]), &[], "any").unwrap();
+        c.put_cached_query(&q(&["starved"]), &json!([]), &[], "any")
+            .unwrap();
         assert!(c.get_cached_query(&q(&["starved"])).unwrap().is_none());
         // read-side guard: hand-write a poisoned zero-result row (an old
         // writer's legacy row) and confirm it reads as a MISS.
@@ -604,10 +652,20 @@ mod tests {
     #[test]
     fn fresh_freshness_shortens_query_ttl() {
         let (_d, c) = tmp_cache(60 * 60 * 1000); // 1 h full TTL
-        c.put_cached_query(&q(&["breaking news"]), &json!([]), &[rr("https://n.dev")], "day")
-            .unwrap();
-        c.put_cached_query(&q(&["timeless fact"]), &json!([]), &[rr("https://f.dev")], "any")
-            .unwrap();
+        c.put_cached_query(
+            &q(&["breaking news"]),
+            &json!([]),
+            &[rr("https://n.dev")],
+            "day",
+        )
+        .unwrap();
+        c.put_cached_query(
+            &q(&["timeless fact"]),
+            &json!([]),
+            &[rr("https://f.dev")],
+            "any",
+        )
+        .unwrap();
         let conn = Connection::open(c.path()).unwrap();
         let expiry = |query: &str| -> i64 {
             conn.query_row(
@@ -645,7 +703,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(hits, 1, "ON CONFLICT bumps hits (TS `hits = query_cache.hits + 1`)");
+        assert_eq!(
+            hits, 1,
+            "ON CONFLICT bumps hits (TS `hits = query_cache.hits + 1`)"
+        );
         let freshness: String = conn
             .query_row(
                 "SELECT freshness FROM query_cache WHERE query_hash = ?1",
@@ -662,11 +723,13 @@ mod tests {
     fn page_signal_guard_uses_js_length() {
         let (_d, c) = tmp_cache(DEFAULT_TTL_MS);
         let small = "a".repeat(199);
-        c.put_cached_page("https://x.dev/small", &small, PageTier::Direct).unwrap();
+        c.put_cached_page("https://x.dev/small", &small, PageTier::Direct)
+            .unwrap();
         assert!(c.get_cached_page("https://x.dev/small").unwrap().is_none());
 
         let ok = "word ".repeat(60); // 300 chars
-        c.put_cached_page("https://x.dev/ok", &ok, PageTier::Jina).unwrap();
+        c.put_cached_page("https://x.dev/ok", &ok, PageTier::Jina)
+            .unwrap();
         let page = c.get_cached_page("https://x.dev/ok").unwrap().expect("hit");
         assert_eq!(page.extracted, ok); // full text — no truncation
         assert_eq!(page.tier, "jina");
@@ -674,12 +737,14 @@ mod tests {
         // whitespace collapse: 250 chars of mostly-newlines collapses under
         // 200 ⇒ rejected.
         let mostly_ws = "a".repeat(50) + &"\n".repeat(250);
-        c.put_cached_page("https://x.dev/ws", &mostly_ws, PageTier::Direct).unwrap();
+        c.put_cached_page("https://x.dev/ws", &mostly_ws, PageTier::Direct)
+            .unwrap();
         assert!(c.get_cached_page("https://x.dev/ws").unwrap().is_none());
 
         // UTF-16 parity: 100 emoji = 200 JS-chars ⇒ stored.
         let emoji = "👍".repeat(100);
-        c.put_cached_page("https://x.dev/emoji", &emoji, PageTier::Wayback).unwrap();
+        c.put_cached_page("https://x.dev/emoji", &emoji, PageTier::Wayback)
+            .unwrap();
         assert!(c.get_cached_page("https://x.dev/emoji").unwrap().is_some());
         c.close().unwrap();
     }
@@ -690,7 +755,10 @@ mod tests {
         let b = query_cache_key(&q(&["baz", " FOO BAR  "]));
         assert_eq!(a, b, "lowercase+trim+sort");
         assert_eq!(hash("x").chars().count(), 32);
-        assert_eq!(hash("x").chars().next(), Some(hash("x").chars().next().unwrap()));
+        assert_eq!(
+            hash("x").chars().next(),
+            Some(hash("x").chars().next().unwrap())
+        );
         assert_ne!(hash("x"), hash("y"));
     }
 
@@ -699,7 +767,9 @@ mod tests {
         let (_d, c) = tmp_cache(DEFAULT_TTL_MS);
         c.get_cached_page("https://x.dev/open").unwrap(); // opens DB
         let conn = Connection::open(c.path()).unwrap();
-        let mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0)).unwrap();
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(mode.to_lowercase(), "wal");
         // both tables + both expires indexes exist
         let names: Vec<String> = conn
@@ -709,8 +779,16 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        for want in ["idx_page_expires", "idx_query_expires", "page_cache", "query_cache"] {
-            assert!(names.iter().any(|n| n == want), "missing {want} in {names:?}");
+        for want in [
+            "idx_page_expires",
+            "idx_query_expires",
+            "page_cache",
+            "query_cache",
+        ] {
+            assert!(
+                names.iter().any(|n| n == want),
+                "missing {want} in {names:?}"
+            );
         }
         drop(conn);
         c.close().unwrap();
@@ -733,9 +811,7 @@ mod tests {
         let (_d, c) = tmp_cache(0);
         c.put_cached_query(&q(&["swept"]), &json!([]), &[rr("https://x.dev")], "any")
             .unwrap();
-        let arc = std::sync::Arc::new(
-            SqliteSearchCache::with_ttl_ms(_d.path(), 0),
-        );
+        let arc = std::sync::Arc::new(SqliteSearchCache::with_ttl_ms(_d.path(), 0));
         let handle = start_purge_sweep(std::sync::Arc::clone(&arc));
         tokio::time::sleep(Duration::from_millis(50)).await;
         handle.abort(); // stop the sweep (the "unref" equivalent)
@@ -747,14 +823,13 @@ mod tests {
     fn scripted_cache_fixture_seam_behaves_like_the_mock_boundary() {
         let sc = ScriptedCache::default();
         assert!(sc.get_cached_query(&q(&["anything"])).unwrap().is_none());
-        sc.put_cached_query(&q(&["w"]), &json!([]), &[rr("https://x.dev")], "any").unwrap();
-        sc.put_cached_page("https://p.dev", &"x".repeat(300), PageTier::Direct).unwrap();
+        sc.put_cached_query(&q(&["w"]), &json!([]), &[rr("https://x.dev")], "any")
+            .unwrap();
+        sc.put_cached_page("https://p.dev", &"x".repeat(300), PageTier::Direct)
+            .unwrap();
         assert_eq!(sc.writes.lock().len(), 2);
         sc.set_throw(true);
         assert!(sc.get_cached_query(&q(&["x"])).is_err());
-        assert!(matches!(
-            sc.purge_expired(),
-            Err(CacheError::Scripted)
-        ));
+        assert!(matches!(sc.purge_expired(), Err(CacheError::Scripted)));
     }
 }

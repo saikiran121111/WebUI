@@ -37,9 +37,14 @@
 //! - `fetchPage` passes guard on `fpOrder.length - 1`, not on the number
 //!   of attempts ⇒ with `retryOnBlock = false` a blocked attempt falls out
 //!   of the loop into the Pass-C gate instead of being returned directly.
-//! - Auto-redirect (Pass A/B/C) does NOT re-validate SSRF per hop (only
-//!   `tlsTolerantGet` calls `isSafeUrl` per hop). TS identical — a real
-//!   SSRF gap; do NOT "fix" it without a cross-language change.
+//! - Redirect SSRF re-validation (HARDENED 2026-11-02, both engines):
+//!   reqwest `client_page` runs a `Policy::custom` that refuses every
+//!   redirect TARGET before it is followed (⇔ got's `beforeRedirect` throw)
+//!   and caps the chain at 10 hops (⇔ got `maxRedirects: 10`); each pass
+//!   additionally rechecks the final `res.url()` after landing (⇔ the TS
+//!   post-send `isSafeUrl` rechecks). Pass B/C in TS only recheck the FINAL
+//!   url (impit/wreq follow internally); the Rust policy also validates
+//!   their intermediate hops — strictly stronger, never weaker (recorded).
 //! - `fetchWithLinkPreviewBots` treats 3xx as ok (`status < 400`) despite
 //!   its doc comment claiming 200-299; the returned `elapsedMs` is the
 //!   LITERAL 0; the jar absorbs cookies but never replays them.
@@ -60,7 +65,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::ssrf::is_safe_url;
+use crate::ssrf::{is_safe_url, is_safe_url_with_dns};
 
 /// TS net.ts re-exports `isSafeUrl` (net.ts:59) — mirror it so W2/W3/W4
 /// can import everything from `net`.
@@ -192,7 +197,10 @@ pub fn header_merge(base: HeaderBag, extra: &[(String, String)]) -> HeaderBag {
 fn to_header_map(bag: &HeaderBag) -> HeaderMap {
     let mut map = HeaderMap::new();
     for (k, v) in bag {
-        if let (Ok(name), Ok(val)) = (HeaderName::from_bytes(k.as_bytes()), HeaderValue::from_bytes(v.as_bytes())) {
+        if let (Ok(name), Ok(val)) = (
+            HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_bytes(v.as_bytes()),
+        ) {
             map.append(name, val);
         }
     }
@@ -234,7 +242,10 @@ pub fn pick_fingerprint(exclude: Option<BrowserFingerprint>) -> (BrowserFingerpr
         }
         return (fp, browser_ident_headers(fp));
     }
-    (BrowserFingerprint::Chrome, browser_ident_headers(BrowserFingerprint::Chrome))
+    (
+        BrowserFingerprint::Chrome,
+        browser_ident_headers(BrowserFingerprint::Chrome),
+    )
 }
 
 /// Realistic browser-navigate headers for a given fingerprint.
@@ -275,7 +286,11 @@ pub fn api_headers(extra: &[(String, String)], fp: BrowserFingerprint) -> Header
 }
 
 /// `LINK_PREVIEW_UAS` row: (bot name, user-agent, extra headers).
-type LinkPreviewBot = (&'static str, &'static str, Vec<(&'static str, &'static str)>);
+type LinkPreviewBot = (
+    &'static str,
+    &'static str,
+    Vec<(&'static str, &'static str)>,
+);
 
 /// `LINK_PREVIEW_UAS` — verbatim net.ts:85-127 table.
 pub fn link_preview_uas() -> Vec<LinkPreviewBot> {
@@ -284,7 +299,10 @@ pub fn link_preview_uas() -> Vec<LinkPreviewBot> {
             "whatsapp",
             "WhatsApp/2.23.20.0",
             vec![
-                ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+                (
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                ),
                 ("Accept-Language", "en-US,en;q=0.9"),
                 ("Referer", "https://www.whatsapp.com/"),
             ],
@@ -293,7 +311,10 @@ pub fn link_preview_uas() -> Vec<LinkPreviewBot> {
             "facebook",
             "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
             vec![
-                ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+                (
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                ),
                 ("Accept-Language", "en-US,en;q=0.9"),
                 ("Referer", "https://www.facebook.com/"),
             ],
@@ -302,7 +323,10 @@ pub fn link_preview_uas() -> Vec<LinkPreviewBot> {
             "twitter",
             "Twitterbot/1.0",
             vec![
-                ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+                (
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                ),
                 ("Accept-Language", "en-US,en;q=0.9"),
                 ("Referer", "https://twitter.com/"),
             ],
@@ -311,7 +335,10 @@ pub fn link_preview_uas() -> Vec<LinkPreviewBot> {
             "slack",
             "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
             vec![
-                ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+                (
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                ),
                 ("Accept-Language", "en-US,en;q=0.9"),
                 ("Referer", "https://slack.com/"),
             ],
@@ -400,7 +427,6 @@ impl CookieJar {
     }
 }
 
-
 // ── TLS error sniffing (net.ts 601-610) ──────────────────────────────────
 
 fn cert_error_re() -> &'static Regex {
@@ -458,7 +484,23 @@ fn client_page() -> &'static Client {
     static C: OnceLock<Client> = OnceLock::new();
     C.get_or_init(|| {
         Client::builder()
-            .redirect(Policy::limited(10)) // got maxRedirects: 10; impit/wreq default 10-ish
+            // got `maxRedirects: 10` + `beforeRedirect` ⇔ this custom
+            // policy (P6 SSRF law): every redirect target is validated
+            // BEFORE it is followed — a private/reserved target makes
+            // send() error (⇠ the got `beforeRedirect` throw → catch →
+            // null), and each pass's final `res.url()` recheck below is
+            // the belt-and-braces layer. Policy::custom has no built-in
+            // cap, so the got hop limit is enforced manually (10).
+            .redirect(Policy::custom(|attempt| {
+                if attempt.previous().len() >= 10 {
+                    return attempt.error("too many redirects");
+                }
+                if is_safe_url(attempt.url().as_str()) {
+                    attempt.follow()
+                } else {
+                    attempt.error("SSRF redirect blocked")
+                }
+            }))
             // (no cookie_store method — reqwest built without the cookie-store
             // feature; the jar is ours anyway, matching got's manual jar)
             .build()
@@ -567,7 +609,11 @@ pub enum ReadBodyError {
 ///   after adding, before pushing),
 /// - the output buffer is `new Uint8Array(total)` where `total` INCLUDES
 ///   the dropped chunk ⇒ trailing NUL bytes in the decoded string.
-pub async fn read_bounded_stream<S, E>(mut stream: S, limit: usize, is_gzip: bool) -> Result<String, ReadBodyError>
+pub async fn read_bounded_stream<S, E>(
+    mut stream: S,
+    limit: usize,
+    is_gzip: bool,
+) -> Result<String, ReadBodyError>
 where
     S: futures_util::stream::Stream<Item = Result<Bytes, E>> + Unpin,
     E: std::fmt::Debug,
@@ -631,7 +677,8 @@ pub struct UrlFetchResult {
 pub fn is_text_content_type(ct: &str) -> bool {
     // TS: /text\/|html|json|xml|javascript/i.test(ct)
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?i)text/|html|json|xml|javascript").unwrap()).is_match(ct)
+    RE.get_or_init(|| Regex::new(r"(?i)text/|html|json|xml|javascript").unwrap())
+        .is_match(ct)
 }
 
 /// JS reads every header value as a lossy string (`res.headers[k]` is
@@ -681,10 +728,16 @@ fn got_decompress_body(bytes: Vec<u8>, content_encoding: &str) -> Vec<u8> {
 const GOT_ACCEPT_ENCODING: &str = "gzip, deflate, br";
 
 fn with_got_accept_encoding(headers: HeaderBag) -> HeaderBag {
-    if headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("accept-encoding")) {
+    if headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("accept-encoding"))
+    {
         headers
     } else {
-        header_merge(headers, &[("accept-encoding".into(), GOT_ACCEPT_ENCODING.into())])
+        header_merge(
+            headers,
+            &[("accept-encoding".into(), GOT_ACCEPT_ENCODING.into())],
+        )
     }
 }
 
@@ -729,6 +782,13 @@ async fn got_page_fetch(
     // status/url captured BEFORE bytes() consumes the response.
     let status = res.status().as_u16(); // res.statusCode
     let resolved_url = res.url().as_str().to_string();
+    // SSRF (§P6): belt-and-braces recheck of the LANDING url — the policy
+    // above normally refuses private redirect targets, but the final url
+    // must additionally be public before any body is read (TS net.ts:
+    // `firstUnsafeRedirectHop(redirects)` + `if (resolvedUrl && !isSafeUrl(resolvedUrl)) return null;`).
+    if !is_safe_url(&resolved_url) {
+        return None;
+    }
     let raw = res.bytes().await.ok()?;
     let raw = got_decompress_body(raw.to_vec(), &encoding);
     let mut body = utf8_lossy(&raw);
@@ -754,7 +814,11 @@ fn elapsed(t0: Instant) -> i64 {
     (t0.elapsed().as_secs_f64() * 1000.0).round() as i64
 }
 
-async fn got_url_fetch(url: &str, opts: &UrlFetchOpts, headers: &HeaderBag) -> Option<UrlFetchResult> {
+async fn got_url_fetch(
+    url: &str,
+    opts: &UrlFetchOpts,
+    headers: &HeaderBag,
+) -> Option<UrlFetchResult> {
     // got(url, { method, headers, proxy:false, throwHttpErrors:false,
     //   maxRedirects:10, retry:0, decompress:true, timeout:{request} })
     let method_str = opts.method.clone().unwrap_or_else(|| "GET".into());
@@ -762,12 +826,19 @@ async fn got_url_fetch(url: &str, opts: &UrlFetchOpts, headers: &HeaderBag) -> O
     let mut rb = client_page()
         .request(method, url)
         .headers(to_header_map(&with_got_accept_encoding(headers.clone())))
-        .timeout(Duration::from_millis(opts.timeout_ms.unwrap_or(DEFAULT_URL_TIMEOUT_MS)));
+        .timeout(Duration::from_millis(
+            opts.timeout_ms.unwrap_or(DEFAULT_URL_TIMEOUT_MS),
+        ));
     if let Some(b) = &opts.body {
         rb = rb.body(b.clone());
     }
     let res = rb.send().await.ok()?;
     let status = res.status().as_u16();
+    // SSRF (§P6): the chain's LANDING url must also be public (TS net.ts:
+    // `if (!isSafeUrl(String(res.url ?? url))) return null;`).
+    if !is_safe_url(res.url().as_str()) {
+        return None;
+    }
     let encoding = res
         .headers()
         .get("content-encoding")
@@ -790,8 +861,9 @@ async fn got_url_fetch(url: &str, opts: &UrlFetchOpts, headers: &HeaderBag) -> O
 // ── tlsTolerantGet (net.ts 618-699) ──────────────────────────────────────
 
 /// Node `https.get` with `rejectUnauthorized: false` + manual redirect
-/// visiting (≤6 hops) + per-hop `isSafeUrl` re-validation (the ONLY place
-/// in net.ts that re-checks SSRF on redirects — verbatim). Chunk
+/// visiting (≤6 hops) + per-hop `isSafeUrl` re-validation. (Pre-P6 this
+/// was the ONLY net.ts redirect re-check; P6 hardened the automatic passes
+/// too — the manual per-hop law here is unchanged, verbatim.) Chunk
 /// collection INCLUDES the crossing chunk (opposite of `readBounded`).
 pub async fn tls_tolerant_get(url: &str, timeout_ms: u64, limit: usize) -> Option<PageResponse> {
     let t0 = Instant::now();
@@ -912,7 +984,10 @@ impl Default for FetchPageOpts {
 }
 
 pub async fn fetch_page(url: &str, opts: FetchPageOpts) -> Option<PageResponse> {
-    if !is_safe_url(url) {
+    // SSRF (§P6): DNS-aware entry guard — a public name that resolves to a
+    // private address (rebinding) never gets fetched (TS net.ts:
+    // `if (!(await isSafeUrlWithDns(url))) return null;`).
+    if !is_safe_url_with_dns(url).await {
         return None;
     }
     let t0 = Instant::now();
@@ -939,7 +1014,16 @@ pub async fn fetch_page(url: &str, opts: FetchPageOpts) -> Option<PageResponse> 
             BrowserFingerprint::Chrome,
         );
         headers = header_merge(headers, &opts.headers);
-        got_resp = got_page_fetch(url, &headers, &opts.method, &jar, limit, default_timeout, t0).await;
+        got_resp = got_page_fetch(
+            url,
+            &headers,
+            &opts.method,
+            &jar,
+            limit,
+            default_timeout,
+            t0,
+        )
+        .await;
         if let Some(g) = &got_resp {
             if g.status > 0 && !BLOCK_STATUSES.contains(&g.status) {
                 return Some(g.clone());
@@ -948,7 +1032,11 @@ pub async fn fetch_page(url: &str, opts: FetchPageOpts) -> Option<PageResponse> 
     }
 
     // Pass B: impit ⇠ reqwest, header rotation, NO decompression.
-    let attempts = if opts.retry_on_block == Some(false) { 1 } else { fp_order.len() };
+    let attempts = if opts.retry_on_block == Some(false) {
+        1
+    } else {
+        fp_order.len()
+    };
     for attempt in 0..attempts {
         let fp = fp_order[attempt % fp_order.len()];
         let mut headers = realistic_headers_bag(
@@ -973,7 +1061,9 @@ pub async fn fetch_page(url: &str, opts: FetchPageOpts) -> Option<PageResponse> 
             Ok(r) => r,
             Err(e) => {
                 if is_cert_error(&e) {
-                    tracing::warn!("[web-search/net] {url}: pass B cert error, trying TLS-tolerant fallback");
+                    tracing::warn!(
+                        "[web-search/net] {url}: pass B cert error, trying TLS-tolerant fallback"
+                    );
                     if let Some(t) = tls_tolerant_get(url, default_timeout, limit).await {
                         return Some(t);
                     }
@@ -1008,6 +1098,27 @@ pub async fn fetch_page(url: &str, opts: FetchPageOpts) -> Option<PageResponse> 
         let content_type = ct_of(res.headers());
         let status = res.status().as_u16();
         let resolved_url = res.url().as_str().to_string();
+        // SSRF (§P6): the LANDING url must be public — impit follows
+        // redirects internally, so this is the authoritative recheck. An
+        // unsafe landing is a FAILED attempt: prefer the got observation,
+        // else the status-0 shape (TS net.ts Pass B: `if (!isSafeUrl(finalUrl))
+        // { if (gotResp) return gotResp; return {status:0, …}; }`).
+        if !is_safe_url(&resolved_url) {
+            if let Some(g) = got_resp {
+                return Some(g);
+            }
+            return Some(PageResponse {
+                status: 0,
+                ok: false,
+                body: String::new(),
+                content_type: String::new(),
+                elapsed_ms: elapsed(t0),
+                fingerprint: fp.as_str().to_string(),
+                cookies: Vec::new(),
+                resolved_url: String::new(),
+                bot_name: None,
+            });
+        }
         // NO decompression — is_gzip deliberately false (impit parity).
         let body = read_bounded_stream(res.bytes_stream(), limit, false)
             .await
@@ -1047,7 +1158,21 @@ pub async fn fetch_page(url: &str, opts: FetchPageOpts) -> Option<PageResponse> 
         _ => true,
     };
     if impit_all_blocked && opts.retry_on_block != Some(false) {
-        if let Some(wr) = wreq_fetch(url, &opts.method.clone(), &opts.headers, opts.timeout_ms.unwrap_or(DEFAULT_WREQ_TIMEOUT_MS)).await {
+        if let Some(wr) = wreq_fetch(
+            url,
+            &opts.method.clone(),
+            &opts.headers,
+            opts.timeout_ms.unwrap_or(DEFAULT_WREQ_TIMEOUT_MS),
+        )
+        .await
+        {
+            // SSRF (§P6): wreq follows redirects inside its stack — recheck
+            // the final URL it reports; unsafe ⇒ treat the pass as failed
+            // (TS net.ts: `if (wr && !isSafeUrl(wr.url ?? url)) return gotResp;`).
+            // The resolved_url:url literals below stay verbatim (TS parity).
+            if !is_safe_url(&wr.url) {
+                return got_resp;
+            }
             if wr.status > 0 && !BLOCK_STATUSES.contains(&wr.status) {
                 return Some(PageResponse {
                     status: wr.status,
@@ -1101,12 +1226,14 @@ async fn wreq_fetch(
         .ok()?;
     let status = res.status().as_u16();
     let content_type = ct_of(res.headers()); // capture BEFORE text() consumes
+    let url_final = res.url().as_str().to_string(); // §P6: the LANDING url (TS wr.url)
     let body = res.text().await.ok()?; // NO cap (verbatim)
     Some(UrlWreqResult {
         status,
         ok: (200..400).contains(&status),
         body,
         content_type,
+        url: url_final,
     })
 }
 
@@ -1118,6 +1245,9 @@ struct UrlWreqResult {
     ok: bool,
     body: String,
     content_type: String,
+    /// §P6: the post-redirect LANDING url (`res.url()` ⇔ TS `wr.url`) —
+    /// fetchPage re-validates it before accepting the pass.
+    url: String,
 }
 
 // ── fetchUrl (net.ts 881-944) ────────────────────────────────────────────
@@ -1149,7 +1279,9 @@ impl Default for UrlFetchOpts {
 }
 
 pub async fn fetch_url(url: &str, opts: UrlFetchOpts) -> Option<UrlFetchResult> {
-    if !is_safe_url(url) {
+    // SSRF (§P6): DNS-aware entry guard (TS net.ts fetchUrl entry:
+    // `if (!(await isSafeUrlWithDns(url))) return null;`).
+    if !is_safe_url_with_dns(url).await {
         return None;
     }
     let base_headers = if opts.use_realistic_headers {
@@ -1160,8 +1292,13 @@ pub async fn fetch_url(url: &str, opts: UrlFetchOpts) -> Option<UrlFetchResult> 
     let mut headers = base_headers;
     // TS: `if (opts.body && !headers["content-type"])` — exact-key check,
     // JS truthiness (empty body string does NOT add the header).
-    if opts.body.as_ref().is_some_and(|b| !b.is_empty()) && header_get(&headers, "content-type").is_none() {
-        headers.push(("content-type".into(), "application/x-www-form-urlencoded".into()));
+    if opts.body.as_ref().is_some_and(|b| !b.is_empty())
+        && header_get(&headers, "content-type").is_none()
+    {
+        headers.push((
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        ));
     }
     let got_resp = got_url_fetch(url, &opts, &headers).await;
     if let Some(g) = &got_resp {
@@ -1186,6 +1323,12 @@ pub async fn fetch_url(url: &str, opts: UrlFetchOpts) -> Option<UrlFetchResult> 
         }
         let res = rb.send().await.ok()?;
         let status = res.status().as_u16();
+        // SSRF (§P6): impit landed somewhere after redirects — the landing
+        // host must be public too; None routes through the `None => got_resp`
+        // arm below ⇔ TS `return gotResp`.
+        if !is_safe_url(res.url().as_str()) {
+            return None;
+        }
         let encoding = res
             .headers()
             .get("content-encoding")
@@ -1195,9 +1338,13 @@ pub async fn fetch_url(url: &str, opts: UrlFetchOpts) -> Option<UrlFetchResult> 
         let is_gzip = encoding.contains("gzip");
         // TS does decompress here when gzip (readBounded isGzip flag) —
         // content-encoding is inspected first (impit raw bytes parity).
-        let text = read_bounded_stream(res.bytes_stream(), opts.limit_bytes.unwrap_or(PAGE_LIMIT_BYTES), is_gzip)
-            .await
-            .unwrap_or_default();
+        let text = read_bounded_stream(
+            res.bytes_stream(),
+            opts.limit_bytes.unwrap_or(PAGE_LIMIT_BYTES),
+            is_gzip,
+        )
+        .await
+        .unwrap_or_default();
         Some(UrlFetchResult {
             status,
             ok: (200..300).contains(&status),
@@ -1232,7 +1379,9 @@ pub async fn fetch_with_link_preview_bots(
     timeout_ms: u64,
     limit_bytes: usize,
 ) -> Option<PageResponse> {
-    if !is_safe_url(url) {
+    // SSRF (§P6): DNS-aware entry guard (TS net.ts link-preview entry:
+    // `if (!(await isSafeUrlWithDns(url))) return null;`).
+    if !is_safe_url_with_dns(url).await {
         return None;
     }
     let jar = CookieJar::new();
@@ -1257,6 +1406,13 @@ pub async fn fetch_with_link_preview_bots(
             jar.absorb(res.url().as_str(), &raw_cookies);
         }
         let status = res.status().as_u16();
+        // SSRF (§P6): this bot's chain landed on a private host — skip it,
+        // never return that body under any bot label (TS net.ts:
+        // `const lpFinalUrl = …; if (!isSafeUrl(lpFinalUrl)) continue;`).
+        let lp_final = res.url().as_str().to_string();
+        if !is_safe_url(&lp_final) {
+            continue;
+        }
         let ok = (200..400).contains(&status); // <400 quirk verbatim
         if !ok {
             continue;
@@ -1275,7 +1431,7 @@ pub async fn fetch_with_link_preview_bots(
             elapsed_ms: 0,               // LITERAL 0 (TS parity)
             fingerprint: "chrome".into(),
             cookies: raw_cookies,
-            resolved_url: url.to_string(),
+            resolved_url: lp_final, // TS parity: lpFinalUrl (not the input url)
             bot_name: Some(name.into()),
         });
     }
@@ -1350,12 +1506,18 @@ impl ScriptedNet {
 
 impl Net for ScriptedNet {
     fn fetch_page(&self, url: &str, _opts: &FetchPageOpts) -> BoxFuture<'_, Option<PageResponse>> {
-        self.calls.lock().expect("lock").push((url.into(), "fetch_page"));
+        self.calls
+            .lock()
+            .expect("lock")
+            .push((url.into(), "fetch_page"));
         let u = url.to_string();
         Box::pin(async move { self.pages.get(&u).cloned() })
     }
     fn fetch_url(&self, url: &str, _opts: &UrlFetchOpts) -> BoxFuture<'_, Option<UrlFetchResult>> {
-        self.calls.lock().expect("lock").push((url.into(), "fetch_url"));
+        self.calls
+            .lock()
+            .expect("lock")
+            .push((url.into(), "fetch_url"));
         let u = url.to_string();
         Box::pin(async move { self.urls.get(&u).cloned() })
     }
@@ -1382,12 +1544,21 @@ mod tests {
             "https://x.dev/a",
             &["sid=abc; Path=/; HttpOnly".into(), "theme=dark".into()],
         );
-        assert_eq!(jar.cookie_for("https://x.dev/b").as_deref(), Some("sid=abc; theme=dark"));
+        assert_eq!(
+            jar.cookie_for("https://x.dev/b").as_deref(),
+            Some("sid=abc; theme=dark")
+        );
         // overwrite same name (filter by name-before-=)
         jar.absorb("https://x.dev/c", &["sid=xyz".into()]);
-        assert_eq!(jar.cookie_for("https://x.dev").as_deref(), Some("theme=dark; sid=xyz"));
+        assert_eq!(
+            jar.cookie_for("https://x.dev").as_deref(),
+            Some("theme=dark; sid=xyz")
+        );
         // empty value ⇒ deletion
-        jar.absorb("https://x.dev/d", &["theme=; Expires=Thu, 01 Jan 1970".into()]);
+        jar.absorb(
+            "https://x.dev/d",
+            &["theme=; Expires=Thu, 01 Jan 1970".into()],
+        );
         assert_eq!(jar.cookie_for("https://x.dev").as_deref(), Some("sid=xyz"));
         // garbage pairs skipped (eq <= 0)
         jar.absorb("https://y.dev", &["=novalue".into(), "nosemi-attr".into()]);
@@ -1407,10 +1578,16 @@ mod tests {
 
     #[test]
     fn header_merge_matches_js_spread() {
-        let base = vec![("user-agent".to_string(), "UA".into()), ("accept".to_string(), "A".into())];
+        let base = vec![
+            ("user-agent".to_string(), "UA".into()),
+            ("accept".to_string(), "A".into()),
+        ];
         let merged = header_merge(
             base,
-            &[("accept".to_string(), "B".into()), ("cookie".to_string(), "c=1".into())],
+            &[
+                ("accept".to_string(), "B".into()),
+                ("cookie".to_string(), "c=1".into()),
+            ],
         );
         assert_eq!(
             merged,
@@ -1438,7 +1615,10 @@ mod tests {
         let (fp3, _) = pick_fingerprint(None);
         assert_ne!(fp1, fp2, "rotation advances");
         assert_ne!(fp2, fp3);
-        assert!(!matches!(fp1, BrowserFingerprint::Safari | BrowserFingerprint::WreqChrome));
+        assert!(!matches!(
+            fp1,
+            BrowserFingerprint::Safari | BrowserFingerprint::WreqChrome
+        ));
         let (fp4, _) = pick_fingerprint(Some(BrowserFingerprint::Safari)); // exclude not in order anyway
         assert_ne!(fp4, BrowserFingerprint::Safari);
         // exclude the current rotation target:
@@ -1459,7 +1639,10 @@ mod tests {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         );
         let f = fingerprint_def(BrowserFingerprint::Firefox);
-        assert!(f.sec_ch_ua.is_none(), "Firefox NEVER sends Sec-CH-UA (TS comment)");
+        assert!(
+            f.sec_ch_ua.is_none(),
+            "Firefox NEVER sends Sec-CH-UA (TS comment)"
+        );
         let e = fingerprint_def(BrowserFingerprint::Edge);
         assert!(e.sec_ch_ua.unwrap().contains("Microsoft Edge"));
         let s = fingerprint_def(BrowserFingerprint::Safari);
@@ -1468,8 +1651,14 @@ mod tests {
             fingerprint_def(BrowserFingerprint::WreqChrome).user_agent,
             fingerprint_def(BrowserFingerprint::Chrome).user_agent
         );
-        assert_eq!(BrowserFingerprint::parse("bogus"), BrowserFingerprint::Chrome);
-        assert_eq!(BrowserFingerprint::parse("wreq-chrome"), BrowserFingerprint::WreqChrome);
+        assert_eq!(
+            BrowserFingerprint::parse("bogus"),
+            BrowserFingerprint::Chrome
+        );
+        assert_eq!(
+            BrowserFingerprint::parse("wreq-chrome"),
+            BrowserFingerprint::WreqChrome
+        );
     }
 
     #[test]
@@ -1484,15 +1673,26 @@ mod tests {
         // firefox: NO sec-ch-ua family at all
         let hf = realistic_headers_bag(&[], BrowserFingerprint::Firefox);
         assert!(header_get(&hf, "sec-ch-ua").is_none());
-        assert!(header_get(&hf, "user-agent").unwrap().contains("Firefox/131"));
+        assert!(header_get(&hf, "user-agent")
+            .unwrap()
+            .contains("Firefox/131"));
     }
 
     #[test]
     fn api_headers_accept_shape_and_only_sec_ch_ua() {
-        let h = api_headers(&[("authorization".into(), "Bearer x".into())], BrowserFingerprint::Edge);
-        assert_eq!(header_get(&h, "accept"), Some("application/json, text/plain, */*"));
+        let h = api_headers(
+            &[("authorization".into(), "Bearer x".into())],
+            BrowserFingerprint::Edge,
+        );
+        assert_eq!(
+            header_get(&h, "accept"),
+            Some("application/json, text/plain, */*")
+        );
         assert!(header_get(&h, "sec-ch-ua").is_some());
-        assert!(header_get(&h, "sec-ch-ua-platform").is_none(), "apiHeaders sends ONLY sec-ch-ua");
+        assert!(
+            header_get(&h, "sec-ch-ua-platform").is_none(),
+            "apiHeaders sends ONLY sec-ch-ua"
+        );
         assert_eq!(header_get(&h, "authorization"), Some("Bearer x"));
     }
 
@@ -1502,9 +1702,15 @@ mod tests {
         assert!(is_cert_error_msg("unable to verify the first certificate"));
         assert!(is_cert_error_msg("self-signed certificate"));
         assert!(is_cert_error_msg("self signed certificate"));
-        assert!(is_cert_error_msg("certificate has expired DEPTH_ZERO_SELF_SIGNED_CERT"));
-        assert!(is_cert_error_msg("unable to get local issuer certificate UNABLE_TO_GET_ISSUER_CERT_LOCALLY"));
-        assert!(is_cert_error_msg("error:0A00014B:SSL routines::tlsv1 alert"));
+        assert!(is_cert_error_msg(
+            "certificate has expired DEPTH_ZERO_SELF_SIGNED_CERT"
+        ));
+        assert!(is_cert_error_msg(
+            "unable to get local issuer certificate UNABLE_TO_GET_ISSUER_CERT_LOCALLY"
+        ));
+        assert!(is_cert_error_msg(
+            "error:0A00014B:SSL routines::tlsv1 alert"
+        ));
         assert!(is_cert_error_msg("tlsv1 alert unknown ca"));
         assert!(is_cert_error_msg("EPROTO"));
         // documented Rust-stack additions:
@@ -1518,7 +1724,14 @@ mod tests {
 
     #[test]
     fn is_text_content_type_parity() {
-        for ct in ["text/html; charset=utf-8", "application/xhtml+xml", "application/json", "text/plain", "application/rss+xml", "application/javascript"] {
+        for ct in [
+            "text/html; charset=utf-8",
+            "application/xhtml+xml",
+            "application/json",
+            "text/plain",
+            "application/rss+xml",
+            "application/javascript",
+        ] {
             assert!(is_text_content_type(ct), "{ct}");
         }
         for ct in ["application/octet-stream", "image/png", "application/pdf"] {
@@ -1528,8 +1741,11 @@ mod tests {
 
     #[tokio::test]
     async fn read_bounded_stream_quirk_trailing_zeros() {
-        let chunks: Vec<Result<Bytes, std::io::Error>> =
-            vec![Ok(Bytes::from("aaaa")), Ok(Bytes::from("bbbb")), Ok(Bytes::from("cccc"))];
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+            Ok(Bytes::from("aaaa")),
+            Ok(Bytes::from("bbbb")),
+            Ok(Bytes::from("cccc")),
+        ];
         let stream = futures_util::stream::iter(chunks);
         // limit 10: chunk 3 (12 total) crosses ⇒ excluded; buffer sized 12 ⇒
         // 8 real bytes + 4 NUL bytes (TS `new Uint8Array(total)` quirk).
@@ -1562,13 +1778,22 @@ mod tests {
         assert_eq!(bots.len(), 4);
         assert_eq!(bots[0].0, "whatsapp");
         assert_eq!(bots[0].1, "WhatsApp/2.23.20.0");
-        assert_eq!(bots[1].1, "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)");
+        assert_eq!(
+            bots[1].1,
+            "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+        );
         assert_eq!(bots[2].1, "Twitterbot/1.0");
-        assert_eq!(bots[3].1, "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)");
+        assert_eq!(
+            bots[3].1,
+            "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)"
+        );
         for (_, _, hdrs) in &bots {
             assert_eq!(
                 hdrs[0],
-                ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                (
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                )
             );
         }
         assert_eq!(bots[2].2[2], ("Referer", "https://twitter.com/"));
@@ -1579,24 +1804,66 @@ mod tests {
         // Loopback/private hosts are refused BEFORE any socket — the
         // fixture convention `http://127.0.0.1:9/...` therefore also
         // returns None here (TS parity: fetchPage checks isSafeUrl first).
-        assert!(fetch_page("http://127.0.0.1:9/page", FetchPageOpts::default()).await.is_none());
-        assert!(fetch_url("http://127.0.0.1:9/api", UrlFetchOpts::default()).await.is_none());
-        assert!(fetch_page("file:///etc/passwd", FetchPageOpts::default()).await.is_none());
-        assert!(fetch_with_link_preview_bots("http://localhost:3000/x", 1000, 1000).await.is_none());
+        assert!(
+            fetch_page("http://127.0.0.1:9/page", FetchPageOpts::default())
+                .await
+                .is_none()
+        );
+        assert!(fetch_url("http://127.0.0.1:9/api", UrlFetchOpts::default())
+            .await
+            .is_none());
+        assert!(fetch_page("file:///etc/passwd", FetchPageOpts::default())
+            .await
+            .is_none());
+        assert!(
+            fetch_with_link_preview_bots("http://localhost:3000/x", 1000, 1000)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
     async fn scripted_net_boundary() {
         let net = ScriptedNet::default()
-            .with_page("https://x.dev/a", PageResponse { status: 200, ok: true, body: "hi".into(), content_type: "text/html".into(), elapsed_ms: 1, fingerprint: "chrome".into(), cookies: vec![], resolved_url: "https://x.dev/a".into(), bot_name: None })
-            .with_url("https://api.x.dev/q", UrlFetchResult { status: 200, ok: true, text: "{\"r\":1}".into() });
-        let p = net.fetch_page("https://x.dev/a", &FetchPageOpts::default()).await;
+            .with_page(
+                "https://x.dev/a",
+                PageResponse {
+                    status: 200,
+                    ok: true,
+                    body: "hi".into(),
+                    content_type: "text/html".into(),
+                    elapsed_ms: 1,
+                    fingerprint: "chrome".into(),
+                    cookies: vec![],
+                    resolved_url: "https://x.dev/a".into(),
+                    bot_name: None,
+                },
+            )
+            .with_url(
+                "https://api.x.dev/q",
+                UrlFetchResult {
+                    status: 200,
+                    ok: true,
+                    text: "{\"r\":1}".into(),
+                },
+            );
+        let p = net
+            .fetch_page("https://x.dev/a", &FetchPageOpts::default())
+            .await;
         assert_eq!(p.map(|r| r.body), Some("hi".into()));
         // un-scripted page ⇒ None (fetch_url kill switch)
-        assert!(net.fetch_page("https://x.dev/miss", &FetchPageOpts::default()).await.is_none());
-        let u = net.fetch_url("https://api.x.dev/q", &UrlFetchOpts::default()).await;
+        assert!(net
+            .fetch_page("https://x.dev/miss", &FetchPageOpts::default())
+            .await
+            .is_none());
+        let u = net
+            .fetch_url("https://api.x.dev/q", &UrlFetchOpts::default())
+            .await;
         assert_eq!(u.map(|r| r.text), Some("{\"r\":1}".into()));
-        assert!(net.fetch_url("https://api.x.dev/other", &UrlFetchOpts::default()).await.is_none());
+        assert!(net
+            .fetch_url("https://api.x.dev/other", &UrlFetchOpts::default())
+            .await
+            .is_none());
         assert_eq!(net.calls.lock().unwrap().len(), 4);
     }
 
@@ -1605,7 +1872,10 @@ mod tests {
         let h = with_got_accept_encoding(vec![("accept-encoding".into(), "br".into())]);
         assert_eq!(h.len(), 1);
         let h2 = with_got_accept_encoding(vec![]);
-        assert_eq!(header_get(&h2, "accept-encoding"), Some(GOT_ACCEPT_ENCODING));
+        assert_eq!(
+            header_get(&h2, "accept-encoding"),
+            Some(GOT_ACCEPT_ENCODING)
+        );
     }
 
     #[test]
@@ -1626,7 +1896,10 @@ mod tests {
         // garbled-keep: got_decompress_body keeps raw when encoding absent
         assert_eq!(got_decompress_body(b"raw".to_vec(), ""), b"raw");
         // invalid gzip keeps raw (micro-divergence documented)
-        assert_eq!(got_decompress_body(b"not-gzip".to_vec(), "gzip"), b"not-gzip");
+        assert_eq!(
+            got_decompress_body(b"not-gzip".to_vec(), "gzip"),
+            b"not-gzip"
+        );
     }
 
     #[test]

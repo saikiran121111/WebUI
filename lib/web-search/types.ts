@@ -122,6 +122,16 @@ export interface NormalizedResult {
   engine: string;
   publishedDate?: string;
   domain: string;
+  /**
+   * §19 provenance stamp — how this candidate entered the pool. Stamped at
+   * the single merge/normalization points (metasearch fuse, Stage-0 direct
+   * targets); downstream ranking reads it but never rewrites it.
+   *  - "search": surfaced by an engine (SERP / vertical / news / fallback)
+   *  - "user": the URL came from the user's own prompt (direct-target hop)
+   *  - "retrieval": entered via an already-approved fetch (link expansion)
+   *  - "config": injected by operator configuration (preferred domains)
+   */
+  origin?: "search" | "user" | "retrieval" | "config";
 }
 
 export interface RankedResult extends NormalizedResult {

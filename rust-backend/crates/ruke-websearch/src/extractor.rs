@@ -176,9 +176,29 @@ fn js_encode_uri(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b';' | b'/' | b'?' | b':' | b'@'
-            | b'&' | b'=' | b'+' | b'$' | b',' | b'#' | b'-' | b'_' | b'.' | b'!' | b'~'
-            | b'*' | b'\'' | b'(' | b')' => out.push(*b as char),
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b';'
+            | b'/'
+            | b'?'
+            | b':'
+            | b'@'
+            | b'&'
+            | b'='
+            | b'+'
+            | b'$'
+            | b','
+            | b'#'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'!'
+            | b'~'
+            | b'*'
+            | b'\''
+            | b'('
+            | b')' => out.push(*b as char),
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -190,8 +210,18 @@ fn js_encode_uri_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*'
-            | b'\'' | b'(' | b')' => out.push(*b as char),
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'!'
+            | b'~'
+            | b'*'
+            | b'\''
+            | b'('
+            | b')' => out.push(*b as char),
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -244,13 +274,22 @@ re!(
     re_waf_boilerplate,
     r"(?i)checking your browser|just a moment|please enable javascript and cookies|verify you are human|i'm not a robot|are you a robot|enable cookies to continue|cf-chl|cf-turnstile|turnstile|please wait|verifying connection|access to this page has been limited|you are being redirected"
 );
-re!(re_login_wall1, r"(?i)sign in to (linkedin|facebook|instagram|twitter|x|youtube)");
+re!(
+    re_login_wall1,
+    r"(?i)sign in to (linkedin|facebook|instagram|twitter|x|youtube)"
+);
 re!(re_login_wall2, r"(?i)log (in|sign in) to (continue|begin)");
-re!(re_login_wall3, r"(?i)please (log in|sign in|create an account) (to|and)");
+re!(
+    re_login_wall3,
+    r"(?i)please (log in|sign in|create an account) (to|and)"
+);
 re!(re_login_wall4, r"(?i)your session has expired");
 re!(re_og_meta, r"^(og:|twitter:)");
 re!(re_class_login, r"(?i)login|sign in|auth");
-re!(re_class_bot, r"(?i)cloudflare|akamai|perimeterx|datadome|captcha|bot|js");
+re!(
+    re_class_bot,
+    r"(?i)cloudflare|akamai|perimeterx|datadome|captcha|bot|js"
+);
 re!(re_src_id, r"^S(\d+)$");
 
 /// collapse whitespace runs to single spaces + trim (JS `.replace(/\s+/g," ").trim()`).
@@ -281,9 +320,15 @@ struct BlockVerdict {
 
 impl BlockVerdict {
     fn blocked(reason: &str) -> Self {
-        Self { blocked: true, reason: reason.to_string() }
+        Self {
+            blocked: true,
+            reason: reason.to_string(),
+        }
     }
-    const OK: BlockVerdict = BlockVerdict { blocked: false, reason: String::new() };
+    const OK: BlockVerdict = BlockVerdict {
+        blocked: false,
+        reason: String::new(),
+    };
 }
 
 /// Classify a raw HTTP response for silent block signals (BEFORE DOM
@@ -585,11 +630,9 @@ impl<'a> Extractor<'a> {
 
         // Pass A structured facts + hydration — only when DOM came up thin.
         // QUIRK: bodyPlainLen collapses tags but NOT whitespace runs.
-        let body_plain_len =
-            js_len(re_tag().replace_all(&page.body, " ").trim());
-        let dom_thin = det.mode == ExtractionMode::Document
-            || body_plain_len < 1500
-            || js_len(&md) < 800;
+        let body_plain_len = js_len(re_tag().replace_all(&page.body, " ").trim());
+        let dom_thin =
+            det.mode == ExtractionMode::Document || body_plain_len < 1500 || js_len(&md) < 800;
         if dom_thin {
             let schema_md = schema_extract(&page.body);
             let hydration_md = unpack_hydration(&page.body);
@@ -726,9 +769,7 @@ impl<'a> Extractor<'a> {
                 },
             );
             if !cards.is_empty() {
-                parts.push(
-                    "## Hydration state (".to_string() + key + ")\n" + &cards,
-                );
+                parts.push("## Hydration state (".to_string() + key + ")\n" + &cards);
             }
         }
         // 7. ARIA semantic snapshot (capped for reranker budget).
@@ -901,7 +942,9 @@ impl<'a> Extractor<'a> {
             if let Some(res) = cdx_res.filter(|r| r.ok) {
                 if let Ok(rows) = serde_json::from_str::<Vec<Value>>(&res.text) {
                     let row = rows.iter().find(|r| {
-                        r.get(2).and_then(Value::as_str).is_some_and(|s| s.starts_with("200"))
+                        r.get(2)
+                            .and_then(Value::as_str)
+                            .is_some_and(|s| s.starts_with("200"))
                     });
                     if let Some(row) = row {
                         let orig = row.get(0).and_then(Value::as_str).unwrap_or("");
@@ -1137,7 +1180,8 @@ impl<'a> Extractor<'a> {
         if let Some(a) = adapter_out.as_ref().filter(|a| js_len(&a.markdown) >= 200) {
             packet.extraction = ExtractionKind::Direct;
             packet.passages.push(passage(a.markdown.clone()));
-            self.cache.put_cached_page(url, &a.markdown, PageTier::Adapter)?;
+            self.cache
+                .put_cached_page(url, &a.markdown, PageTier::Adapter)?;
             packet.classification = Some("SUCCESS_ADAPTER".to_string());
             return Ok(packet);
         }
@@ -1147,7 +1191,16 @@ impl<'a> Extractor<'a> {
         // substitutes the network-failure shape (status 0, blocked) which
         // keeps the downstream tier gates intact — the page still gets the
         // link-preview tier if it fits, and ALWAYS the browser tier.
-        let direct_out = match Self::timed_tier("direct", url, Self::capped(deadline, self.extract_direct(url, BrowserFingerprint::Chrome))).await {
+        let direct_out = match Self::timed_tier(
+            "direct",
+            url,
+            Self::capped(
+                deadline,
+                self.extract_direct(url, BrowserFingerprint::Chrome),
+            ),
+        )
+        .await
+        {
             Ok(o) => o,
             Err(()) => {
                 budget_hit = true;
@@ -1158,7 +1211,8 @@ impl<'a> Extractor<'a> {
         if !direct_out.blocked && js_len(&direct_out.markdown) >= 200 {
             packet.extraction = ExtractionKind::Direct;
             packet.passages.push(passage(direct_out.markdown.clone()));
-            self.cache.put_cached_page(url, &direct_out.markdown, PageTier::Direct)?;
+            self.cache
+                .put_cached_page(url, &direct_out.markdown, PageTier::Direct)?;
             packet.classification = Some("SUCCESS_DIRECT".to_string());
             return Ok(packet);
         }
@@ -1168,7 +1222,8 @@ impl<'a> Extractor<'a> {
         {
             packet.extraction = ExtractionKind::Direct;
             packet.passages.push(passage(direct_out.markdown.clone()));
-            self.cache.put_cached_page(url, &direct_out.markdown, PageTier::Metadata)?;
+            self.cache
+                .put_cached_page(url, &direct_out.markdown, PageTier::Metadata)?;
             packet.classification = Some("SUCCESS_METADATA".to_string());
             return Ok(packet);
         }
@@ -1182,7 +1237,13 @@ impl<'a> Extractor<'a> {
             // §11.3 AMENDMENT: the 4-bot link-preview stack is the worst
             // budget burner (4×45s); it is capped by the remaining budget
             // so the browser tier downstream always stays reachable.
-            let lp = match Self::timed_tier("link-preview", url, Self::capped(deadline, self.extract_link_preview(url))).await {
+            let lp = match Self::timed_tier(
+                "link-preview",
+                url,
+                Self::capped(deadline, self.extract_link_preview(url)),
+            )
+            .await
+            {
                 Ok(lp) => lp,
                 Err(()) => {
                     budget_hit = true;
@@ -1192,7 +1253,8 @@ impl<'a> Extractor<'a> {
             if let Some(lp) = lp.as_ref().filter(|l| js_len(&l.markdown) >= 200) {
                 packet.extraction = ExtractionKind::Direct;
                 packet.passages.push(passage(lp.markdown.clone()));
-                self.cache.put_cached_page(url, &lp.markdown, PageTier::Direct)?;
+                self.cache
+                    .put_cached_page(url, &lp.markdown, PageTier::Direct)?;
                 packet.classification = Some("SUCCESS_DIRECT".to_string());
                 return Ok(packet);
             }
@@ -1221,7 +1283,8 @@ impl<'a> Extractor<'a> {
             if js_len(&browser_out.markdown) >= 200 && !browser_out.blocked {
                 packet.extraction = ExtractionKind::Direct;
                 packet.passages.push(passage(browser_out.markdown.clone()));
-                self.cache.put_cached_page(url, &browser_out.markdown, PageTier::Browser)?;
+                self.cache
+                    .put_cached_page(url, &browser_out.markdown, PageTier::Browser)?;
                 // SUCCESS_BROWSER is real code truth though absent from the
                 // TS header list (see module doc).
                 packet.classification = Some("SUCCESS_BROWSER".to_string());
@@ -1234,17 +1297,21 @@ impl<'a> Extractor<'a> {
         // anti-stall tail — an expired budget skips them cheaply (the
         // browser allowance above already ran; that's what the budget cut
         // used to cut SHORT instead).
-        let jina_out = match Self::timed_tier("jina", url, Self::capped(deadline, self.extract_jina(url))).await {
-            Ok(j) => j,
-            Err(()) => {
-                budget_hit = true;
-                None
-            }
-        };
+        let jina_out =
+            match Self::timed_tier("jina", url, Self::capped(deadline, self.extract_jina(url)))
+                .await
+            {
+                Ok(j) => j,
+                Err(()) => {
+                    budget_hit = true;
+                    None
+                }
+            };
         if let Some(j) = jina_out.as_ref().filter(|j| js_len(&j.markdown) >= 200) {
             packet.extraction = ExtractionKind::JinaFallback;
             packet.passages.push(passage(j.markdown.clone()));
-            self.cache.put_cached_page(url, &j.markdown, PageTier::Jina)?;
+            self.cache
+                .put_cached_page(url, &j.markdown, PageTier::Jina)?;
             packet.classification = Some("SUCCESS_JINA_FALLBACK".to_string());
             return Ok(packet);
         }
@@ -1254,7 +1321,13 @@ impl<'a> Extractor<'a> {
             || direct_out.status == 0
             || (js_len(&direct_out.markdown) < 100 && direct_out.tier == Tier::Crash);
         if tier1_failed {
-            let wayback_out = match Self::timed_tier("wayback", url, Self::capped(deadline, self.extract_wayback(url))).await {
+            let wayback_out = match Self::timed_tier(
+                "wayback",
+                url,
+                Self::capped(deadline, self.extract_wayback(url)),
+            )
+            .await
+            {
                 Ok(w) => w,
                 Err(()) => {
                     budget_hit = true;
@@ -1265,7 +1338,8 @@ impl<'a> Extractor<'a> {
                 // QUIRK: extraction label REUSE from the jina branch.
                 packet.extraction = ExtractionKind::JinaFallback;
                 packet.passages.push(passage(w.markdown.clone()));
-                self.cache.put_cached_page(url, &w.markdown, PageTier::Wayback)?;
+                self.cache
+                    .put_cached_page(url, &w.markdown, PageTier::Wayback)?;
                 packet.classification = Some("SUCCESS_WAYBACK".to_string());
                 return Ok(packet);
             }
@@ -1289,7 +1363,16 @@ impl<'a> Extractor<'a> {
             // metasearch seam is infallible → no catch needed.)
             // §11.3 AMENDMENT: triangulation issues live metasearch engine
             // requests (~40s each) — capped by the remaining budget.
-            let synthesized = match Self::timed_tier("slug-triangulation", url, Self::capped(deadline, slug_triangulation(self.net, url, Some(&result.title)))).await {
+            let synthesized = match Self::timed_tier(
+                "slug-triangulation",
+                url,
+                Self::capped(
+                    deadline,
+                    slug_triangulation(self.net, url, Some(&result.title)),
+                ),
+            )
+            .await
+            {
                 Ok(s) => s,
                 Err(()) => {
                     budget_hit = true;
@@ -1316,7 +1399,16 @@ impl<'a> Extractor<'a> {
                     return Ok(packet);
                 }
             }
-            let fallback_results = match Self::timed_tier("url-search-fallback", url, Self::capped(deadline, url_search_fallback(self.net, url, Some(&result.title)))).await {
+            let fallback_results = match Self::timed_tier(
+                "url-search-fallback",
+                url,
+                Self::capped(
+                    deadline,
+                    url_search_fallback(self.net, url, Some(&result.title)),
+                ),
+            )
+            .await
+            {
                 Ok(v) => v,
                 Err(()) => {
                     budget_hit = true;
@@ -1473,7 +1565,10 @@ impl<'a> Extractor<'a> {
         for (i, r) in top.iter().enumerate() {
             let sem = Arc::clone(&sem);
             futs.push(async move {
-                let _permit = sem.acquire_owned().await.expect("semaphore is never closed");
+                let _permit = sem
+                    .acquire_owned()
+                    .await
+                    .expect("semaphore is never closed");
                 // §11.3 page budget (AMENDED 2026-10-29): the deadline is
                 // threaded INTO the cascade — each HTTP tier is capped by
                 // the remaining budget at its own await, and the browser
@@ -1566,9 +1661,8 @@ const DOMAIN_BOT_COOLDOWN_MS: u64 = 10 * 60_000;
 const DOMAIN_HEALTH_MAX: usize = 256;
 
 fn domain_health() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
-    static STORE: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, u64>>,
-    > = std::sync::OnceLock::new();
+    static STORE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        std::sync::OnceLock::new();
     STORE.get_or_init(Default::default)
 }
 
@@ -1697,6 +1791,7 @@ mod tests {
             rrf: 1.0,
             engines: vec![],
             engine_ranks: Default::default(),
+            origin: None,
         }
     }
 
@@ -1715,7 +1810,11 @@ mod tests {
     }
 
     fn urlf(ok: bool, text: &str) -> UrlFetchResult {
-        UrlFetchResult { status: 200, ok, text: text.to_string() }
+        UrlFetchResult {
+            status: 200,
+            ok,
+            text: text.to_string(),
+        }
     }
 
     /// Long readable body that survives every gate and yields markdown ≥200.
@@ -1800,7 +1899,8 @@ mod tests {
         // Indices computed on the ORIGINAL text, applied to the MUTATED
         // buffer (TS extractor.ts 307–317). Hand-computed on:
         //   100×a + "just a moment" + 100×b + "please wait" + 50×c
-        let text = "a".repeat(100) + "just a moment" + &"b".repeat(100) + "please wait" + &"c".repeat(50);
+        let text =
+            "a".repeat(100) + "just a moment" + &"b".repeat(100) + "please wait" + &"c".repeat(50);
         // match1 @100: cut [20,193) → 20×a + " " + orig[193..end]; end =
         // min(total, 100+13+80=193) → 100×b + "please wait" + 50×c… NO:
         // end=193 slices from UNIT 193 = the 80th b → 20×b remain.
@@ -1859,9 +1959,21 @@ mod tests {
     #[test]
     fn baseline_packets_for_skips_and_caps() {
         let rs = vec![
-            ranked("https://example.com/a", "A", "snippet about a, long enough to pass gate"),
-            ranked("https://example.com/b", "B", "snippet about b, long enough to pass gate"),
-            ranked("https://example.com/c", "C", "snippet about c, long enough to pass gate"),
+            ranked(
+                "https://example.com/a",
+                "A",
+                "snippet about a, long enough to pass gate",
+            ),
+            ranked(
+                "https://example.com/b",
+                "B",
+                "snippet about b, long enough to pass gate",
+            ),
+            ranked(
+                "https://example.com/c",
+                "C",
+                "snippet about c, long enough to pass gate",
+            ),
             ranked("https://example.com/d", "d", ""), // no baseline (title 1 char)
         ];
         let done = std::collections::HashSet::from(["https://example.com/b".to_string()]);
@@ -1869,7 +1981,10 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].url, "https://example.com/a");
         assert_eq!(out[1].url, "https://example.com/c"); // skipped b
-        assert_eq!(out[0].classification.as_deref(), Some("SUCCESS_SNIPPET_FALLBACK"));
+        assert_eq!(
+            out[0].classification.as_deref(),
+            Some("SUCCESS_SNIPPET_FALLBACK")
+        );
         assert_eq!(out[0].extraction, ExtractionKind::SnippetOnly);
         assert_eq!(out[0].passages.len(), 1);
     }
@@ -1877,7 +1992,11 @@ mod tests {
     #[test]
     fn renumber_and_next_source_index() {
         let mut ps = baseline_packets_for(
-            &[ranked("https://example.com/a", "A", "long enough snippet for the gate here")],
+            &[ranked(
+                "https://example.com/a",
+                "A",
+                "long enough snippet for the gate here",
+            )],
             &Default::default(),
             10,
         );
@@ -1925,17 +2044,35 @@ mod tests {
 
     #[tokio::test]
     async fn direct_success_writes_cache_and_baseline_first() {
-        let net = ScriptedNet::default()
-            .with_page("https://example.com/good", page(200, true, &healthy_html(), "text/html"));
+        let net = ScriptedNet::default().with_page(
+            "https://example.com/good",
+            page(200, true, &healthy_html(), "text/html"),
+        );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://example.com/good", "Report", "indexed snippet of the report page, plenty long.")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/good",
+                "Report",
+                "indexed snippet of the report page, plenty long.",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("SUCCESS_DIRECT"));
         assert_eq!(p.extraction, ExtractionKind::Direct);
         // baseline passage FIRST, direct passage second
         assert_eq!(p.passages.len(), 2);
-        assert!(p.passages[0].passage_text.starts_with("[SERP snippet baseline"));
-        assert!(!p.passages[1].passage_text.starts_with("[SERP snippet baseline"));
+        assert!(p.passages[0]
+            .passage_text
+            .starts_with("[SERP snippet baseline"));
+        assert!(!p.passages[1]
+            .passage_text
+            .starts_with("[SERP snippet baseline"));
         // parking_lot lock() returns the guard directly (no Result).
         let writes = cache.writes.lock();
         assert_eq!(writes.len(), 1);
@@ -1946,15 +2083,38 @@ mod tests {
     async fn blocked_page_cascades_to_jina_fallback() {
         let jina_body = "The full rendered article body from r.jina.ai. ".repeat(10);
         let net = ScriptedNet::default()
-            .with_page("https://example.com/blocked", page(200, true, &cf_blocked_html(), "text/html"))
+            .with_page(
+                "https://example.com/blocked",
+                page(200, true, &cf_blocked_html(), "text/html"),
+            )
             // encodeURI keeps :// intact
-            .with_page("https://r.jina.ai/https://example.com/blocked", page(200, true, &jina_body, "text/plain"));
+            .with_page(
+                "https://r.jina.ai/https://example.com/blocked",
+                page(200, true, &jina_body, "text/plain"),
+            );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://example.com/blocked", "Blocked", "a long enough indexed snippet for the baseline.")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/blocked",
+                "Blocked",
+                "a long enough indexed snippet for the baseline.",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("SUCCESS_JINA_FALLBACK"));
         assert_eq!(p.extraction, ExtractionKind::JinaFallback);
-        assert!(p.passages.last().unwrap().passage_text.starts_with("The full rendered article"));
+        assert!(p
+            .passages
+            .last()
+            .unwrap()
+            .passage_text
+            .starts_with("The full rendered article"));
     }
 
     #[tokio::test]
@@ -1981,13 +2141,28 @@ mod tests {
                 urlf(true, "[]"),
             );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://example.com/waf", "Waf", "a long enough indexed snippet for the baseline.")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/waf",
+                "Waf",
+                "a long enough indexed snippet for the baseline.",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
         assert_eq!(p.extraction, ExtractionKind::SnippetOnly);
         // baseline + blocked-snippet passage
         assert_eq!(p.passages.len(), 2);
-        assert_eq!(p.passages[1].passage_text, "a long enough indexed snippet for the baseline.");
+        assert_eq!(
+            p.passages[1].passage_text,
+            "a long enough indexed snippet for the baseline."
+        );
     }
 
     /// §18 (scope-corrected: no new browser capability — only the EXISTING
@@ -1998,7 +2173,9 @@ mod tests {
     async fn browser_attempt_confined_to_window_top() {
         let _health_turn = extraction_test_lock().lock().await;
         reset_extraction_health_for_tests();
-        let urls: Vec<String> = (0..7).map(|i| format!("https://waf-rank-{i}.test/u")).collect();
+        let urls: Vec<String> = (0..7)
+            .map(|i| format!("https://waf-rank-{i}.test/u"))
+            .collect();
         let mut net = ScriptedNet::default();
         let bridge = ScriptedBridge::new();
         for u in &urls {
@@ -2021,20 +2198,42 @@ mod tests {
             );
         }
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &bridge,
+        };
         let ranked_v: Vec<_> = urls
             .iter()
-            .map(|u| ranked(u, "Waf Page", "a long enough indexed snippet for the baseline."))
+            .map(|u| {
+                ranked(
+                    u,
+                    "Waf Page",
+                    "a long enough indexed snippet for the baseline.",
+                )
+            })
             .collect();
-        let out = ex.extract_all(&ranked_v, 7, None, None, 0, None).await.unwrap();
+        let out = ex
+            .extract_all(&ranked_v, 7, None, None, 0, None)
+            .await
+            .unwrap();
         for (i, p) in out.iter().enumerate() {
             // Ranks 0..5 attempt the browser and recover; rank 6's attempt
             // is skipped (jina/wayback unscripted → None) and it settles
             // to the blocked tail like every other full miss.
-            let want = if i < BROWSER_RANK_MAX { "SUCCESS_BROWSER" } else { "FAIL_SILENT_BOT_BLOCK" };
+            let want = if i < BROWSER_RANK_MAX {
+                "SUCCESS_BROWSER"
+            } else {
+                "FAIL_SILENT_BOT_BLOCK"
+            };
             assert_eq!(p.classification.as_deref(), Some(want), "rank {i}");
         }
-        assert_eq!(bridge.call_count(), BROWSER_RANK_MAX, "rank 6 must not attempt the browser seam");
+        assert_eq!(
+            bridge.call_count(),
+            BROWSER_RANK_MAX,
+            "rank 6 must not attempt the browser seam"
+        );
     }
 
     /// §17/§29: a fully bot-blocked read cools the DOMAIN down so the next
@@ -2045,8 +2244,8 @@ mod tests {
         let _health_turn = extraction_test_lock().lock().await;
         reset_extraction_health_for_tests();
         let url = "https://waf-cool.test/u";
-        let net = ScriptedNet::default()
-            .with_page(url, page(200, true, &cf_blocked_html(), "text/html"));
+        let net =
+            ScriptedNet::default().with_page(url, page(200, true, &cf_blocked_html(), "text/html"));
         let bridge = ScriptedBridge::new();
         // Bridge fails even when attempted, so every read ends in the
         // blocked tail — where the cooldown gets recorded.
@@ -2067,18 +2266,35 @@ mod tests {
             },
         );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
-        let r = ranked(url, "Waf", "a long enough indexed snippet for the baseline.");
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &bridge,
+        };
+        let r = ranked(
+            url,
+            "Waf",
+            "a long enough indexed snippet for the baseline.",
+        );
         let p1 = ex.extract_url(&r).await.unwrap();
         assert_eq!(p1.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
         assert_eq!(bridge.call_count(), 1, "first read attempts the browser");
         let p2 = ex.extract_url(&r).await.unwrap();
         assert_eq!(p2.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
-        assert_eq!(bridge.call_count(), 1, "cooled domain skips the attempt (fail fast)");
+        assert_eq!(
+            bridge.call_count(),
+            1,
+            "cooled domain skips the attempt (fail fast)"
+        );
         reset_extraction_health_for_tests(); // stands in for TTL lapse
         let p3 = ex.extract_url(&r).await.unwrap();
         assert_eq!(p3.classification.as_deref(), Some("FAIL_SILENT_BOT_BLOCK"));
-        assert_eq!(bridge.call_count(), 2, "cooldown is short-lived, not a blacklist");
+        assert_eq!(
+            bridge.call_count(),
+            2,
+            "cooldown is short-lived, not a blacklist"
+        );
     }
 
     #[tokio::test]
@@ -2087,11 +2303,25 @@ mod tests {
         // BEFORE detectBlock, so a 999 must still pass that gate — script
         // ok:true + 250-char body, then status 999 raises the LinkedIn-style
         // blocked reason inside detectBlock.
-        let net = ScriptedNet::default()
-            .with_page("https://linkedin.com/in/x", page(999, true, &"x".repeat(250), "text/html"));
+        let net = ScriptedNet::default().with_page(
+            "https://linkedin.com/in/x",
+            page(999, true, &"x".repeat(250), "text/html"),
+        );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://linkedin.com/in/x", "Profile", "headline snippet long enough to be evidence here")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://linkedin.com/in/x",
+                "Profile",
+                "headline snippet long enough to be evidence here",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("FAIL_SILENT_LOGIN_WALL"));
         assert_eq!(p.passages.len(), 2); // baseline + snippet
     }
@@ -2106,17 +2336,31 @@ mod tests {
         // reset_engine_state_for_tests try_locks the pacer map).
         let _engine_turn = crate::engines::engine_test_lock().lock().await;
         let net = ScriptedNet::default() // unscripted fetches → None
-            .with_page("https://example.com/gone", page(404, false, "nope", "text/html"));
+            .with_page(
+                "https://example.com/gone",
+                page(404, false, "nope", "text/html"),
+            );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
         // blocked crash → blocked path → FAIL_NETWORK_OR_CRASH (snippet <20, title used)
-        let p = ex.extract_url(&ranked("https://example.com/dead", "My Title", "")).await.unwrap();
+        let p = ex
+            .extract_url(&ranked("https://example.com/dead", "My Title", ""))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("FAIL_NETWORK_OR_CRASH"));
         // "" snippet + 8-char title (<12) → NO baseline passage.
         assert_eq!(p.passages.len(), 1);
         assert_eq!(p.passages[0].passage_text, "My Title");
         // 404 <200 body: crash but NOT blocked → empty-shell branch
-        let p = ex.extract_url(&ranked("https://example.com/gone", "Gone Title", "")).await.unwrap();
+        let p = ex
+            .extract_url(&ranked("https://example.com/gone", "Gone Title", ""))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("FAIL_EMPTY_JS_SHELL"));
     }
 
@@ -2126,8 +2370,10 @@ mod tests {
         // attempt here — serialize + reset (see fail_silent_bot_block).
         let _health_turn = extraction_test_lock().lock().await;
         reset_extraction_health_for_tests();
-        let net = ScriptedNet::default()
-            .with_page("https://example.com/spa", page(403, false, &"blocked ".repeat(50), "text/html"));
+        let net = ScriptedNet::default().with_page(
+            "https://example.com/spa",
+            page(403, false, &"blocked ".repeat(50), "text/html"),
+        );
         let bridge = ScriptedBridge::new();
         let one = crate::browser_bridge::OnePassExtraction {
             url: "https://example.com/spa".to_string(),
@@ -2137,17 +2383,35 @@ mod tests {
             body_text: "rendered app body text ".repeat(20),
             aria_snapshot: String::new(),
             json_ld: vec![],
-            meta: vec![("og:title".to_string(), "OG SPA".to_string()), ("theme-color".to_string(), "#fff".to_string())],
+            meta: vec![
+                ("og:title".to_string(), "OG SPA".to_string()),
+                ("theme-color".to_string(), "#fff".to_string()),
+            ],
             window_state: vec![("ytInitialData".to_string(), "{not json".to_string())],
             ok: true,
             error: None,
         };
         bridge.with_page("https://example.com/spa", one.clone());
         // bridge pool-exhaustion throw counterpart on another url
-        bridge.with_error("https://example.com/boom", "agentBrowser: pool exhausted after 60000ms wait");
+        bridge.with_error(
+            "https://example.com/boom",
+            "agentBrowser: pool exhausted after 60000ms wait",
+        );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
-        let p = ex.extract_url(&ranked("https://example.com/spa", "SPA", "long enough indexed snippet for the baseline gate")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &bridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/spa",
+                "SPA",
+                "long enough indexed snippet for the baseline gate",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("SUCCESS_BROWSER"));
         let text = &p.passages.last().unwrap().passage_text;
         assert!(text.contains("## Rendered page body (Playwright stealth Chromium)"));
@@ -2166,7 +2430,11 @@ mod tests {
         bad.error = Some("nav failed".to_string());
         bridge.with_page("https://example.com/spa2", bad);
         let p = ex
-            .extract_url(&ranked("https://example.com/spa2", "SPA2", "long enough indexed snippet for the baseline gate"))
+            .extract_url(&ranked(
+                "https://example.com/spa2",
+                "SPA2",
+                "long enough indexed snippet for the baseline gate",
+            ))
             .await
             .unwrap();
         assert_eq!(p.classification.as_deref(), Some("FAIL_NETWORK_OR_CRASH"));
@@ -2187,30 +2455,81 @@ mod tests {
                 page(200, true, &snap_html, "text/html"),
             );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://example.com/dead2", "Dead", "long enough indexed snippet for the baseline gate")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/dead2",
+                "Dead",
+                "long enough indexed snippet for the baseline gate",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("SUCCESS_WAYBACK"));
         // QUIRK: label reuse — extraction says jina-fallback, cache tier wayback
         assert_eq!(p.extraction, ExtractionKind::JinaFallback);
-        assert!(p.passages.last().unwrap().passage_text.starts_with("## Wayback Machine snapshot of https://example.com/dead2"));
+        assert!(p
+            .passages
+            .last()
+            .unwrap()
+            .passage_text
+            .starts_with("## Wayback Machine snapshot of https://example.com/dead2"));
     }
 
     #[tokio::test]
     async fn cache_hit_maps_tier_to_classification_without_network() {
         struct HitCache;
         impl crate::cache::SearchCache for HitCache {
-            fn get_cached_query(&self, _: &[String]) -> Result<Option<crate::cache::QueryCacheHit>, CacheError> { Ok(None) }
-            fn put_cached_query(&self, _: &[String], _: &Value, _: &[RankedResult], _: &str) -> Result<(), CacheError> { Ok(()) }
-            fn get_cached_page(&self, _: &str) -> Result<Option<CachedPage>, CacheError> {
-                Ok(Some(CachedPage { extracted: "x".repeat(300), tier: "wayback".to_string() }))
+            fn get_cached_query(
+                &self,
+                _: &[String],
+            ) -> Result<Option<crate::cache::QueryCacheHit>, CacheError> {
+                Ok(None)
             }
-            fn put_cached_page(&self, _: &str, _: &str, _: PageTier) -> Result<(), CacheError> { Ok(()) }
-            fn purge_expired(&self) -> Result<usize, CacheError> { Ok(0) }
-            fn close(&self) -> Result<(), CacheError> { Ok(()) }
+            fn put_cached_query(
+                &self,
+                _: &[String],
+                _: &Value,
+                _: &[RankedResult],
+                _: &str,
+            ) -> Result<(), CacheError> {
+                Ok(())
+            }
+            fn get_cached_page(&self, _: &str) -> Result<Option<CachedPage>, CacheError> {
+                Ok(Some(CachedPage {
+                    extracted: "x".repeat(300),
+                    tier: "wayback".to_string(),
+                }))
+            }
+            fn put_cached_page(&self, _: &str, _: &str, _: PageTier) -> Result<(), CacheError> {
+                Ok(())
+            }
+            fn purge_expired(&self) -> Result<usize, CacheError> {
+                Ok(0)
+            }
+            fn close(&self) -> Result<(), CacheError> {
+                Ok(())
+            }
         }
         let net = ScriptedNet::default();
-        let ex = Extractor { net: &net, cache: &HitCache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://example.com/c", "C", "long enough snippet baseline")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &HitCache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/c",
+                "C",
+                "long enough snippet baseline",
+            ))
+            .await
+            .unwrap();
         assert_eq!(p.classification.as_deref(), Some("SUCCESS_WAYBACK"));
         assert_eq!(p.extraction, ExtractionKind::Direct); // jina-only exception
         assert_eq!(p.passages.len(), 2);
@@ -2223,8 +2542,16 @@ mod tests {
         let net = ScriptedNet::default();
         let cache = ScriptedCache::default();
         cache.set_throw(true);
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let e = ex.extract_url(&ranked("https://example.com/x", "X", "s")).await.unwrap_err();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let e = ex
+            .extract_url(&ranked("https://example.com/x", "X", "s"))
+            .await
+            .unwrap_err();
         assert!(matches!(e, CacheError::Scripted), "{e:?}");
     }
 
@@ -2235,15 +2562,39 @@ mod tests {
             .with_page("https://example.com/a", page(200, true, &body, "text/html"))
             .with_page("https://example.com/b", page(200, true, &body, "text/html"));
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
         let counts = std::sync::Mutex::new(Vec::new());
         let ranked_v = vec![
-            ranked("https://example.com/a", "A", "snippet a long enough for baseline"),
-            ranked("https://example.com/b", "B", "snippet b long enough for baseline"),
-            ranked("https://example.com/c", "C", "snippet c long enough for baseline"),
+            ranked(
+                "https://example.com/a",
+                "A",
+                "snippet a long enough for baseline",
+            ),
+            ranked(
+                "https://example.com/b",
+                "B",
+                "snippet b long enough for baseline",
+            ),
+            ranked(
+                "https://example.com/c",
+                "C",
+                "snippet c long enough for baseline",
+            ),
         ];
         let out = ex
-            .extract_all(&ranked_v, 2, Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))), None, 0, None)
+            .extract_all(
+                &ranked_v,
+                2,
+                Some(&|d: usize, t: usize| counts.lock().unwrap().push((d, t))),
+                None,
+                0,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(out.len(), 2); // maxUrls=2 → C never extracted
@@ -2254,7 +2605,10 @@ mod tests {
 
         // Any cache rejection rejects the whole batch (Promise.all).
         cache.set_throw(true);
-        assert!(ex.extract_all(&ranked_v, 2, None, None, 0, None).await.is_err());
+        assert!(ex
+            .extract_all(&ranked_v, 2, None, None, 0, None)
+            .await
+            .is_err());
     }
 
     /// §25 mid-wave sufficiency stop: the predicate fires on the FIRST page
@@ -2270,7 +2624,12 @@ mod tests {
         let net = ScriptedNet::default()
             .with_page("https://example.com/a", page(200, true, &body, "text/html"));
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
         let ranked_v = (0..7u8)
             .map(|i| {
                 ranked(
@@ -2289,7 +2648,11 @@ mod tests {
         assert_eq!(out[0].source_id, "S1");
         assert_eq!(out[0].url, "https://example.com/a");
         let calls = net.calls.lock().unwrap();
-        assert_eq!(calls.len(), 1, "cancelled pages must never be fetched: {calls:?}");
+        assert_eq!(
+            calls.len(),
+            1,
+            "cancelled pages must never be fetched: {calls:?}"
+        );
     }
 
     /// §11.3: a net whose every tier call hangs (never returns) reproduces
@@ -2336,7 +2699,12 @@ mod tests {
         reset_extraction_health_for_tests();
         let net = SlowNet;
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
         let ranked_v = vec![ranked(
             "https://dead.example/slow",
             "Slow Site",
@@ -2358,12 +2726,20 @@ mod tests {
         let elapsed = t0.elapsed();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_id, "S1"); // still numbered — bundle shape unchanged
-        assert_eq!(out[0].classification.as_deref(), Some("PAGE_BUDGET_TIMEOUT"));
+        assert_eq!(
+            out[0].classification.as_deref(),
+            Some("PAGE_BUDGET_TIMEOUT")
+        );
         assert_eq!(out[0].extraction, ExtractionKind::SnippetOnly);
         assert_eq!(out[0].passages.len(), 1);
-        assert!(out[0].passages[0].passage_text.starts_with("[SERP snippet baseline"));
+        assert!(out[0].passages[0]
+            .passage_text
+            .starts_with("[SERP snippet baseline"));
         assert_eq!(*counts.lock().unwrap(), vec![(1, 1)]); // progress counted, no hang
-        assert!(elapsed < Duration::from_secs(10), "budget must cap the page: {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "budget must cap the page: {elapsed:?}"
+        );
     }
 
     /// §11.3 AMENDMENT (2026-10-29): the page budget now caps ONLY the HTTP
@@ -2397,14 +2773,22 @@ mod tests {
                 error: None,
             },
         );
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &bridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &bridge,
+        };
         let ranked_v = vec![ranked(
             "https://jsheavy.example/app",
             "JS Heavy Site",
             "indexed snippet long enough for the baseline gate",
         )];
         let t0 = std::time::Instant::now();
-        let out = ex.extract_all(&ranked_v, 10, None, Some(300), 0, None).await.unwrap();
+        let out = ex
+            .extract_all(&ranked_v, 10, None, Some(300), 0, None)
+            .await
+            .unwrap();
         let elapsed = t0.elapsed();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_id, "S1");
@@ -2414,19 +2798,35 @@ mod tests {
             "budget-exhausted page must still get the browser allowance"
         );
         assert_eq!(bridge.call_count(), 1); // the allowance actually ran
-        let text: String = out[0].passages.iter().map(|p| p.passage_text.as_str()).collect::<Vec<_>>().join("\n");
+        let text: String = out[0]
+            .passages
+            .iter()
+            .map(|p| p.passage_text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.contains("## Rendered page body (Playwright stealth Chromium)"));
-        assert!(elapsed < Duration::from_secs(10), "capped tiers expire fast, bridge is instant: {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "capped tiers expire fast, bridge is instant: {elapsed:?}"
+        );
     }
 
     #[test]
     fn timeout_fallback_packet_shape_mirrors_terminal_fallback() {
-        let with_base =
-            timeout_fallback_packet(&ranked("https://e/x", "Title Here", "a snippet long enough for baseline"));
-        assert_eq!(with_base.classification.as_deref(), Some("PAGE_BUDGET_TIMEOUT"));
+        let with_base = timeout_fallback_packet(&ranked(
+            "https://e/x",
+            "Title Here",
+            "a snippet long enough for baseline",
+        ));
+        assert_eq!(
+            with_base.classification.as_deref(),
+            Some("PAGE_BUDGET_TIMEOUT")
+        );
         assert_eq!(with_base.extraction, ExtractionKind::SnippetOnly);
         assert_eq!(with_base.passages.len(), 1);
-        assert!(with_base.passages[0].passage_text.starts_with("[SERP snippet baseline"));
+        assert!(with_base.passages[0]
+            .passage_text
+            .starts_with("[SERP snippet baseline"));
         // No baseline (snippet AND title under 12 chars): the title carries
         // the passage; an empty title yields the marker text.
         let tiny = timeout_fallback_packet(&ranked("https://e/y", "Ti", "ab"));
@@ -2442,7 +2842,12 @@ mod tests {
     async fn adapter_seam_none_without_verticals() {
         let net = ScriptedNet::default();
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
         assert!(ex.extract_adapter("https://reddit.com/r/x").await.is_none());
     }
 
@@ -2453,11 +2858,25 @@ mod tests {
             .collect();
         let json = serde_json::json!({"rows": rows}).to_string();
         assert!(json.len() >= 200);
-        let net = ScriptedNet::default()
-            .with_page("https://example.com/api.json", page(200, true, &json, "application/json"));
+        let net = ScriptedNet::default().with_page(
+            "https://example.com/api.json",
+            page(200, true, &json, "application/json"),
+        );
         let cache = ScriptedCache::default();
-        let ex = Extractor { net: &net, cache: &cache, verticals: &NoVerticals, bridge: &NoBrowserBridge };
-        let p = ex.extract_url(&ranked("https://example.com/api.json", "API", "long enough snippet baseline for gate")).await.unwrap();
+        let ex = Extractor {
+            net: &net,
+            cache: &cache,
+            verticals: &NoVerticals,
+            bridge: &NoBrowserBridge,
+        };
+        let p = ex
+            .extract_url(&ranked(
+                "https://example.com/api.json",
+                "API",
+                "long enough snippet baseline for gate",
+            ))
+            .await
+            .unwrap();
         // TS gate order is truth: pretty-printed JSON yields ≥200 chars of
         // document markdown, so the tier-1 DIRECT gate fires BEFORE the
         // metadata gate. SUCCESS_METADATA needs a 100..200-char document

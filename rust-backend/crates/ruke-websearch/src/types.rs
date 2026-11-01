@@ -321,7 +321,11 @@ fn parse_queries(v: Option<&Value>, strict: bool) -> Result<Vec<SearchQuery>, St
                 let list = v.as_array().ok_or("preferred_domains: Expected array")?;
                 let mut d = Vec::with_capacity(list.len());
                 for x in list {
-                    d.push(x.as_str().ok_or("preferred_domains: Expected string")?.to_string());
+                    d.push(
+                        x.as_str()
+                            .ok_or("preferred_domains: Expected string")?
+                            .to_string(),
+                    );
                 }
                 Some(d)
             }
@@ -346,7 +350,10 @@ fn parse_queries(v: Option<&Value>, strict: bool) -> Result<Vec<SearchQuery>, St
 /// reject on the true branch).
 pub fn parse_search_decision(v: &Value) -> Result<SearchDecision, String> {
     let m = as_object(v, "decision")?;
-    reject_unknown(m, &["search_required", "reason", "freshness", "depth", "queries"])?;
+    reject_unknown(
+        m,
+        &["search_required", "reason", "freshness", "depth", "queries"],
+    )?;
 
     let search_required = m
         .get("search_required")
@@ -440,6 +447,18 @@ pub struct EvidencePassage {
     pub bm25_score: f64,
 }
 
+/// §19 provenance: where a result entered the pipeline from.
+/// TS mirror: `SearchOrigin` union in types.ts (`"search" | "user" |
+/// "retrieval" | "config"`); camelCase serde names match byte-for-byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchOrigin {
+    Search,
+    User,
+    Retrieval,
+    Config,
+}
+
 /// A normalized result from ANY search source, after URL cleanup + dedup.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -452,6 +471,10 @@ pub struct NormalizedResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published_date: Option<String>,
     pub domain: String,
+    /// §19: optional provenance stamp — absent when the TS literal omits
+    /// it (skip_serializing keeps `undefined` ⇔ absent byte parity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SearchOrigin>,
 }
 
 /// `Record<string, number>` — serde_json Map (preserve_order ⇒ TS
@@ -476,6 +499,12 @@ pub struct RankedResult {
     pub engines: Vec<String>,
     /// Rank in each engine that returned this result.
     pub engine_ranks: EngineRanks,
+    /// §19 provenance — TS `RankedResult extends NormalizedResult`, so the
+    /// field lives here too. Stamped at the fuse (`search`) and the
+    /// direct-target fast path (`user`); absent (None ⇔ TS undefined) on
+    /// manual/synthesized results, matching the TS literals verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SearchOrigin>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -612,7 +641,9 @@ mod tests {
     fn strict_rejects_unknown_keys_but_compat_strips_them() {
         let mut v = strict_ok();
         v["surprise"] = json!(1);
-        assert!(parse_search_decision(&v).unwrap_err().contains("Unrecognized key"));
+        assert!(parse_search_decision(&v)
+            .unwrap_err()
+            .contains("Unrecognized key"));
 
         let mut c = strict_ok();
         c["surprise"] = json!(1);
@@ -632,7 +663,10 @@ mod tests {
                         "depth": "quick", "queries": []});
         assert!(parse_search_decision(&v2).is_ok());
         // COMPAT opposite polarity: search_required=TRUE + empty queries → REJECTED.
-        assert_eq!(parse_search_decision_compat(&v2).unwrap_err(), REFINE_MESSAGE);
+        assert_eq!(
+            parse_search_decision_compat(&v2).unwrap_err(),
+            REFINE_MESSAGE
+        );
         // compat false + empty → OK.
         assert!(parse_search_decision_compat(&v).is_ok());
     }
@@ -656,7 +690,10 @@ mod tests {
         // normalizeFreshness: current→day, recent→month.
         let mut v = strict_ok();
         v["freshness"] = json!("current");
-        assert_eq!(parse_search_decision_compat(&v).unwrap().freshness, Freshness::Day);
+        assert_eq!(
+            parse_search_decision_compat(&v).unwrap().freshness,
+            Freshness::Day
+        );
         v["freshness"] = json!("recent");
         assert_eq!(
             parse_search_decision_compat(&v).unwrap().freshness,
@@ -666,16 +703,19 @@ mod tests {
         v["freshness"] = json!("fortnight");
         let d = parse_search_decision_compat(&v).unwrap();
         assert_eq!(d.freshness, Freshness::Other("fortnight".into()));
-        assert_eq!(serde_json::to_string(&d.freshness).unwrap(), "\"fortnight\"");
+        assert_eq!(
+            serde_json::to_string(&d.freshness).unwrap(),
+            "\"fortnight\""
+        );
     }
 
     #[test]
     fn compat_coerces_free_form_intents() {
         let cases: &[(&str, Intent)] = &[
-            ("  NEWS  ", Intent::News), // lower + trim, known-prefix first
+            ("  NEWS  ", Intent::News),           // lower + trim, known-prefix first
             ("newspaper round-up", Intent::News), // startsWith("news")
-            ("breaking tonight", Intent::News), // fuzzy
-            ("documentation", Intent::Docs), // contains "doc"
+            ("breaking tonight", Intent::News),   // fuzzy
+            ("documentation", Intent::Docs),      // contains "doc"
             ("api manual", Intent::Docs),
             ("bug hunt", Intent::Code),
             ("arxiv research", Intent::Academic),
@@ -706,6 +746,7 @@ mod tests {
                 m.insert("ddg".into(), js_number(1.0));
                 m
             },
+            origin: None,
         };
         let s = serde_json::to_string(&rr).unwrap();
         assert!(s.contains(r#""rrf":1,"#), "{s}");
@@ -762,6 +803,9 @@ mod tests {
         };
         let s = serde_json::to_string(&g).unwrap();
         assert!(s.contains(r#""source":"main-model""#), "{s}");
-        assert!(s.contains(r#""gateMs":0}"#), "js-integer 0 at struct tail: {s}");
+        assert!(
+            s.contains(r#""gateMs":0}"#),
+            "js-integer 0 at struct tail: {s}"
+        );
     }
 }

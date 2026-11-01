@@ -31,7 +31,7 @@ function wreqLoad(): Promise<typeof import("wreq-js")> {
 async function wreqFetch(
   url: string,
   opts: { method?: "GET" | "POST"; headers?: Record<string, string>; timeoutMs?: number },
-): Promise<{ status: number; ok: boolean; body: string; contentType: string } | null> {
+): Promise<{ status: number; ok: boolean; body: string; contentType: string; url: string } | null> {
   try {
     const wreq = await wreqLoad();
     if (!wreq) return null;
@@ -47,6 +47,10 @@ async function wreqFetch(
       ok: res.status >= 200 && res.status < 400,
       body,
       contentType: String(res.headers?.get?.("content-type") ?? ""),
+      // SSRF revalidation needs the FINAL URL after wreq's own redirect
+      // following; when the binding doesn't surface one, fall back to the
+      // request URL (the entry guard already cleared it).
+      url: String((res as any)?.url ?? url),
     };
   } catch {
     return null;
@@ -54,7 +58,7 @@ async function wreqFetch(
 }
 import { gunzipSync, brotliDecompressSync } from "node:zlib";
 import https from "node:https";
-import { isSafeUrl } from "./ssrf";
+import { isSafeUrl, isSafeUrlWithDns, firstUnsafeRedirectHop } from "./ssrf";
 
 export { isSafeUrl };
 
@@ -421,6 +425,15 @@ async function gotPageFetch(
       retry: 0,
       decompress: true,
       timeout: { request: timeoutMs },
+      // SSRF (§P6): refuse every redirect TARGET before it is followed —
+      // a public URL 302-ing to http://169.254.169.254/ is the classic
+      // SSRF pivot. The throw rejects the got request; the catch below
+      // turns it into null so Pass B/C run their own entry + final-URL
+      // checks instead of silently following the hop.
+      beforeRedirect: (redirectOptions: any) => {
+        const next = String(redirectOptions?.url ?? "");
+        if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+      },
     } as any);
 
     const status: number = res.statusCode ?? 0;
@@ -446,6 +459,12 @@ async function gotPageFetch(
       : [];
     const resolvedUrl =
       redirects.length > 0 ? redirects[redirects.length - 1] : String(res.url ?? url);
+
+    // SSRF belt-and-braces: even if a got version skipped beforeRedirect,
+    // a chain that touched or landed on a private host never yields a
+    // response body here.
+    if (firstUnsafeRedirectHop(redirects) !== null) return null;
+    if (resolvedUrl && !isSafeUrl(resolvedUrl)) return null;
 
     return {
       status,
@@ -489,8 +508,16 @@ async function gotUrlFetch(
       retry: 0,
       decompress: true,
       timeout: { request: opts.timeoutMs ?? 40_000 },
+      // SSRF: refuse unsafe redirect targets (mirrors gotPageFetch).
+      beforeRedirect: (redirectOptions: any) => {
+        const next = String(redirectOptions?.url ?? "");
+        if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+      },
     } as any);
     const status: number = res.statusCode ?? 0;
+    // SSRF: final-URL revalidation — the chain's landing host must also be
+    // public, not just the entry URL.
+    if (!isSafeUrl(String(res.url ?? url))) return null;
     let text = String(res.body ?? "");
     const cap = opts.limitBytes ?? 50 * 1024 * 1024;
     if (text.length > cap) text = text.slice(0, cap);
@@ -734,7 +761,10 @@ export async function fetchPage(
     limitBytes?: number;
   } = {},
 ): Promise<PageResponse | null> {
-  if (!isSafeUrl(url)) return null;
+  // DNS-aware entry guard (§P6): a public hostname whose A/AAAA records
+  // resolve to a private address (DNS rebinding) is rejected before any
+  // pass runs. Rust mirrors this with a std ToSocketAddrs pre-check.
+  if (!(await isSafeUrlWithDns(url))) return null;
 
   const t0 = performance.now();
   const jar = newCookieJar();
@@ -788,6 +818,24 @@ export async function fetchPage(
       const elapsedMs = Math.round(performance.now() - t0);
       const isBlock = BLOCK_STATUSES.includes(status);
 
+      // impit follows redirects internally — revalidate the URL it ACTUALLY
+      // landed on (Rust mirror: reqwest Policy::custom per-hop + res.url()
+      // recheck). An unsafe landing is a dead pass, never a body.
+      const finalUrl = String((res as any)?.url ?? url);
+      if (!isSafeUrl(finalUrl)) {
+        if (gotResp) return gotResp;
+        return {
+          status: 0,
+          ok: false,
+          body: "",
+          contentType: "",
+          elapsedMs,
+          fingerprint: fp,
+          cookies: [],
+          resolvedUrl: "",
+        };
+      }
+
       if (!isBlock || attempt === fpOrder.length - 1) {
         const resp: PageResponse = {
           status,
@@ -797,7 +845,7 @@ export async function fetchPage(
           elapsedMs,
           fingerprint: fp,
           cookies: rawCookies,
-          resolvedUrl: String((res as any)?.url ?? url),
+          resolvedUrl: finalUrl,
         };
         // Both passes blocked → the fatter body wins.
         if ((isBlock || status === 0) && gotResp && gotResp.body.length > body.length) {
@@ -846,6 +894,11 @@ export async function fetchPage(
       headers: opts.headers,
       timeoutMs: opts.timeoutMs ?? 30_000,
     });
+    // SSRF: wreq-js follows redirects inside its Rust stack — recheck the
+    // final URL it reports; unsafe ⇒ treat the pass as failed.
+    if (wr && !isSafeUrl(wr.url ?? url)) {
+      return gotResp;
+    }
     if (wr && wr.status > 0 && !BLOCK_STATUSES.includes(wr.status)) {
       return {
         status: wr.status,
@@ -898,7 +951,8 @@ export async function fetchUrl(
     limitBytes?: number;
   } = {},
 ): Promise<{ status: number; ok: boolean; text: string } | null> {
-  if (!isSafeUrl(url)) return null;
+  // DNS-aware entry guard — see fetchPage above.
+  if (!(await isSafeUrlWithDns(url))) return null;
 
   const fp = opts.fingerprint ?? "chrome";
   const baseHeaders = opts.useRealisticHeaders
@@ -923,6 +977,9 @@ export async function fetchUrl(
       ...(opts.body ? { body: opts.body } : {}),
     } as any);
     const status: number = res.status;
+    // SSRF: impit landed somewhere after redirects — the landing host must
+    // be public too; unsafe ⇒ surface the Pass A observation instead.
+    if (!isSafeUrl(String((res as any)?.url ?? url))) return gotResp;
     // Detect gzip-encoded response (StackExchange, Reddit JSON APIs, etc.)
     const contentEncoding = String(
       (res.headers as any)?.get?.("content-encoding") ??
@@ -965,7 +1022,8 @@ export async function fetchWithLinkPreviewBots(
     limitBytes?: number;
   } = {},
 ): Promise<(PageResponse & { botName: string }) | null> {
-  if (!isSafeUrl(url)) return null;
+  // DNS-aware entry guard — see fetchPage above.
+  if (!(await isSafeUrlWithDns(url))) return null;
   const timeout = opts.timeoutMs ?? 45_000;
   const limitBytes = opts.limitBytes ?? PAGE_LIMIT_BYTES;
   const jar = newCookieJar();
@@ -984,6 +1042,10 @@ export async function fetchWithLinkPreviewBots(
         timeout,
       } as any);
       const status: number = res.status;
+      // SSRF: this bot's chain landed on a private host — skip it, never
+      // return that body under any bot label.
+      const lpFinalUrl = String((res as any)?.url ?? url);
+      if (!isSafeUrl(lpFinalUrl)) continue;
       const rawCookies: string[] =
         Array.from((res.headers as any)?.getSetCookie?.() ?? []) as string[];
       if (rawCookies.length > 0) jar.absorb(url, rawCookies);
@@ -1013,7 +1075,7 @@ export async function fetchWithLinkPreviewBots(
         elapsedMs: 0,
         fingerprint: "chrome",
         cookies: rawCookies,
-        resolvedUrl: String((res as any)?.url ?? url),
+        resolvedUrl: lpFinalUrl,
         botName: bot.name,
       };
     } catch {

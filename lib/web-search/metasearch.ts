@@ -28,6 +28,7 @@ import { parseHTML } from "linkedom";
 import type { RawSearchResult, RankedResult } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
+import { scrubQuerySecrets } from "./ssrf";
 import {
   googleSearch,
   bingNewsRssSearch,
@@ -630,6 +631,13 @@ async function searchOne(
   allQueries?: string[],
   freshness?: string,
 ): Promise<RawSearchResult[]> {
+  // §14 exfiltration law: deterministically strip well-known credential
+  // shapes from every query BEFORE any engine sees it — no model involved,
+  // applied at the single chokepoint all engine traffic passes through.
+  // Rust mirror: scrub_secrets() at the head of search_one (metasearch.rs).
+  query = scrubQuerySecrets(query);
+  if (allQueries) allQueries = allQueries.map(scrubQuerySecrets);
+
   // ALWAYS run the general web pool (Fix 3a): regardless of intent,
   // the sharded pool gives broad, high-recall results. Verticals are
   // layered on top, not instead of, the general pool.
@@ -805,6 +813,8 @@ export function reciprocalRankFuse(
       rrf: score,
       engines: [...ranks.keys()],
       engineRanks: Object.fromEntries(ranks),
+      // §19 provenance: this candidate was surfaced by a search engine.
+      origin: "search",
     });
   }
 
@@ -1111,7 +1121,9 @@ export async function urlSearchFallback(
   title?: string,
 ): Promise<RankedResult[]> {
   const titlePrefix = title && title !== targetUrl && title.length > 0 ? title + " " : "";
-  const query = titlePrefix + targetUrl;
+  // §14: the composed query embeds a user-supplied URL + title — scrub
+  // before it reaches ANY engine (searchOne scrubs again; idempotent).
+  const query = scrubQuerySecrets(titlePrefix + targetUrl);
 
   const raw: RawSearchResult[] = [];
 

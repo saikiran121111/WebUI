@@ -98,8 +98,10 @@ use crate::engines::{
     reddit_search, run_general_web_search, run_general_web_search_sharded, EngineFn,
 };
 use crate::net::{Net, UrlFetchOpts};
-use crate::ssrf::is_safe_url;
-use crate::types::{engine_rank_value, Freshness, Intent, RawSearchResult, RankedResult};
+use crate::ssrf::{is_safe_url, scrub_query_secrets};
+use crate::types::{
+    engine_rank_value, Freshness, Intent, RankedResult, RawSearchResult, SearchOrigin,
+};
 
 /// TS: `const ENGINE_TIMEOUT_MS = 40_000` — every metasearch fetcher.
 const ENGINE_TIMEOUT_MS: u64 = 40_000;
@@ -121,7 +123,10 @@ const VERTICAL_PER_ENGINE_CAP: usize = 5;
 #[allow(dead_code)]
 fn engine_concurrency() -> i64 {
     let raw = std::env::var("WEB_SEARCH_ENGINE_CONCURRENCY").unwrap_or_else(|_| "8".into());
-    let parsed: i64 = raw.trim().parse().unwrap_or(if raw.trim().is_empty() { 8 } else { i64::MIN });
+    let parsed: i64 =
+        raw.trim()
+            .parse()
+            .unwrap_or(if raw.trim().is_empty() { 8 } else { i64::MIN });
     8.max(parsed)
 }
 
@@ -144,7 +149,11 @@ pub struct SearchPlan {
 pub fn strip_url_plans(plans: &[SearchPlan]) -> Vec<SearchPlan> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"(?i)^https?://").expect("static regex"));
-    let kept: Vec<SearchPlan> = plans.iter().filter(|p| !re.is_match(&p.query)).cloned().collect();
+    let kept: Vec<SearchPlan> = plans
+        .iter()
+        .filter(|p| !re.is_match(&p.query))
+        .cloned()
+        .collect();
     if !kept.is_empty() {
         kept // all-URL → keep raw plans (TS quirk)
     } else {
@@ -190,10 +199,16 @@ fn form_decode(s: &str) -> String {
 
 /// JS `URLSearchParams` serializer: alnum + `*-._` pass through, space →
 /// `+`, everything else percent-encoded (uppercase hex).
-const FORM_SET: &AsciiSet = &NON_ALPHANUMERIC.remove(b'*').remove(b'-').remove(b'.').remove(b'_');
+const FORM_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'*')
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_');
 
 fn form_encode(s: &str) -> String {
-    utf8_percent_encode(s, FORM_SET).to_string().replace("%20", "+")
+    utf8_percent_encode(s, FORM_SET)
+        .to_string()
+        .replace("%20", "+")
 }
 
 /// `new URLSearchParams(search)` entry list (order preserved; a chunk with
@@ -240,13 +255,18 @@ pub fn normalize_url(raw: &str) -> String {
     let path = u.path().to_string();
     // TS: `path.length > 1` (UTF-16); pathnames are percent-encoded → ASCII.
     let path = if path.chars().count() > 1 {
-        TRAIL.get_or_init(|| Regex::new(r"/+$").expect("static regex"))
+        TRAIL
+            .get_or_init(|| Regex::new(r"/+$").expect("static regex"))
             .replace_all(&path, "")
             .into_owned()
     } else {
         path
     };
-    let path = if path.is_empty() { "/".to_string() } else { path };
+    let path = if path.is_empty() {
+        "/".to_string()
+    } else {
+        path
+    };
     u.set_path(&path);
     u.as_str().to_string()
 }
@@ -258,29 +278,213 @@ fn meta_stop_words() -> &'static HashSet<&'static str> {
     SET.get_or_init(|| {
         [
             // generic modifiers
-            "latest", "recent", "current", "new", "newest", "update", "updates", "release",
-            "releases", "notes", "note", "changelog", "changes", "best", "top", "good", "great",
-            "practices", "practice", "guide", "tutorial", "review", "reviews", "rating", "ratings",
-            "rated", "place", "places", "spot", "spots", "option", "options", "pick", "tell",
-            "want", "need", "find", "search", "looking", "look", "recommend", "recommendation",
-            "recommendations", "suggestion", "vs", "versus", "compare", "comparison",
-            "error", "errors", "handling", "how", "what", "where", "which", "when", "why", "issue",
-            "issues", "problem", "problems", "bug", "bugs", "feature", "features", "list", "lists",
-            "type", "types", "kind", "kinds", "way", "ways", "method", "methods", "style", "styles",
-            "format", "formats", "version", "versions", "setup", "install", "installation",
-            "config", "configuration", "configurating", "use", "using", "used", "usedto", "working",
-            "work", "works", "workaround", "workarounds", "fix", "fixes", "fixed", "solution",
-            "solutions", "help", "show", "please", "can", "could", "would", "should", "you",
-            "your", "yours", "i", "me", "my", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "in", "on", "at", "by", "for", "from", "to", "of", "with",
-            "without", "about", "into", "onto", "over", "under", "near", "around", "between",
-            "and", "or", "but", "if", "then", "else", "so", "yet", "also", "very", "really",
-            "just", "quite", "rather", "too", "only", "the", "a", "an", "this", "that", "these",
-            "those", "here", "there", "who", "whom", "whose", "shall", "may", "might", "must",
-            "do", "does", "did", "im", "ill", "ive", "dont", "cant", "wont", "our", "them", "they",
-            "he", "she", "its", "her", "him", "us",
+            "latest",
+            "recent",
+            "current",
+            "new",
+            "newest",
+            "update",
+            "updates",
+            "release",
+            "releases",
+            "notes",
+            "note",
+            "changelog",
+            "changes",
+            "best",
+            "top",
+            "good",
+            "great",
+            "practices",
+            "practice",
+            "guide",
+            "tutorial",
+            "review",
+            "reviews",
+            "rating",
+            "ratings",
+            "rated",
+            "place",
+            "places",
+            "spot",
+            "spots",
+            "option",
+            "options",
+            "pick",
+            "tell",
+            "want",
+            "need",
+            "find",
+            "search",
+            "looking",
+            "look",
+            "recommend",
+            "recommendation",
+            "recommendations",
+            "suggestion",
+            "vs",
+            "versus",
+            "compare",
+            "comparison",
+            "error",
+            "errors",
+            "handling",
+            "how",
+            "what",
+            "where",
+            "which",
+            "when",
+            "why",
+            "issue",
+            "issues",
+            "problem",
+            "problems",
+            "bug",
+            "bugs",
+            "feature",
+            "features",
+            "list",
+            "lists",
+            "type",
+            "types",
+            "kind",
+            "kinds",
+            "way",
+            "ways",
+            "method",
+            "methods",
+            "style",
+            "styles",
+            "format",
+            "formats",
+            "version",
+            "versions",
+            "setup",
+            "install",
+            "installation",
+            "config",
+            "configuration",
+            "configurating",
+            "use",
+            "using",
+            "used",
+            "usedto",
+            "working",
+            "work",
+            "works",
+            "workaround",
+            "workarounds",
+            "fix",
+            "fixes",
+            "fixed",
+            "solution",
+            "solutions",
+            "help",
+            "show",
+            "please",
+            "can",
+            "could",
+            "would",
+            "should",
+            "you",
+            "your",
+            "yours",
+            "i",
+            "me",
+            "my",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "in",
+            "on",
+            "at",
+            "by",
+            "for",
+            "from",
+            "to",
+            "of",
+            "with",
+            "without",
+            "about",
+            "into",
+            "onto",
+            "over",
+            "under",
+            "near",
+            "around",
+            "between",
+            "and",
+            "or",
+            "but",
+            "if",
+            "then",
+            "else",
+            "so",
+            "yet",
+            "also",
+            "very",
+            "really",
+            "just",
+            "quite",
+            "rather",
+            "too",
+            "only",
+            "the",
+            "a",
+            "an",
+            "this",
+            "that",
+            "these",
+            "those",
+            "here",
+            "there",
+            "who",
+            "whom",
+            "whose",
+            "shall",
+            "may",
+            "might",
+            "must",
+            "do",
+            "does",
+            "did",
+            "im",
+            "ill",
+            "ive",
+            "dont",
+            "cant",
+            "wont",
+            "our",
+            "them",
+            "they",
+            "he",
+            "she",
+            "its",
+            "her",
+            "him",
+            "us",
             // standalone small numbers that are just version/quantity modifiers
-            "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "30", "32", "50",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "20",
+            "21",
+            "22",
+            "23",
+            "24",
+            "25",
+            "30",
+            "32",
+            "50",
             "100",
         ]
         .into_iter()
@@ -316,7 +520,9 @@ fn dot_dash_re() -> &'static Regex {
 }
 
 fn normalize_token(token: &str) -> String {
-    dot_dash_re().replace_all(&token.to_lowercase(), "").into_owned()
+    dot_dash_re()
+        .replace_all(&token.to_lowercase(), "")
+        .into_owned()
 }
 
 /// Lower + `" "` + punctuation-stripped copy so "next.js" matches "nextjs".
@@ -371,11 +577,12 @@ pub fn count_lexically_relevant(results: &[RankedResult], anchor_text: &str) -> 
             // TS: `${r.title} ${r.snippet ?? ""} ${r.url}` (snippet is
             // always a String on the Rust side).
             let raw = format!("{} {} {}", r.title, r.snippet, r.url).to_lowercase();
-            let combined = format!(
-                "{raw} {}",
-                dot_dash_re().replace_all(&raw, "").into_owned()
-            );
-            norm_tokens.iter().filter(|t| combined.contains(t.as_str())).count() >= min_hits
+            let combined = format!("{raw} {}", dot_dash_re().replace_all(&raw, "").into_owned());
+            norm_tokens
+                .iter()
+                .filter(|t| combined.contains(t.as_str()))
+                .count()
+                >= min_hits
         })
         .count()
 }
@@ -483,7 +690,10 @@ async fn fetch_url_with_retry(
         opts.timeout_ms = Some(ENGINE_TIMEOUT_MS);
     }
     let res = net.fetch_url(url, &opts).await;
-    if res.as_ref().is_some_and(|r| r.status == 429 || r.status == 503) {
+    if res
+        .as_ref()
+        .is_some_and(|r| r.status == 429 || r.status == 503)
+    {
         tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_MS)).await;
         return net.fetch_url(url, &opts).await;
     }
@@ -496,9 +706,9 @@ fn json_headers(ct: &str) -> Vec<(String, String)> {
 
 /* ── vertical source fetchers (gated by intent + lexical overlap) ──────── */
 
+use crate::engines::{engine_pacer_with_breaker, note_engine_success, trip_circuit_breaker};
 use chrono::{DateTime, SecondsFormat};
 use scraper::{Html, Selector};
-use crate::engines::{engine_pacer_with_breaker, note_engine_success, trip_circuit_breaker};
 
 pub fn wikipedia_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
@@ -527,10 +737,14 @@ fn wikipedia_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<Ra
              &srprop=snippet&srlimit=5&srsearch={}",
             enc_component(&q)
         );
-        let res = fetch_url_with_retry(net, &url, UrlFetchOpts {
-            headers: json_headers("application/json"),
-            ..Default::default()
-        })
+        let res = fetch_url_with_retry(
+            net,
+            &url,
+            UrlFetchOpts {
+                headers: json_headers("application/json"),
+                ..Default::default()
+            },
+        )
         .await;
         let res = match res {
             Some(r) if r.ok => r,
@@ -615,10 +829,14 @@ fn hackernews_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<R
             "https://hn.algolia.com/api/v1/search?query={}&hitsPerPage=5",
             enc_component(&q)
         );
-        let res = fetch_url_with_retry(net, &url, UrlFetchOpts {
-            headers: json_headers("application/json"),
-            ..Default::default()
-        })
+        let res = fetch_url_with_retry(
+            net,
+            &url,
+            UrlFetchOpts {
+                headers: json_headers("application/json"),
+                ..Default::default()
+            },
+        )
         .await;
         let res = match res {
             Some(r) if r.ok => r,
@@ -702,10 +920,14 @@ fn arxiv_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSea
             "http://export.arxiv.org/api/query?search_query=all:{}&max_results=5",
             enc_component(&q)
         );
-        let res = fetch_url_with_retry(net, &url, UrlFetchOpts {
-            headers: json_headers("application/xml"),
-            ..Default::default()
-        })
+        let res = fetch_url_with_retry(
+            net,
+            &url,
+            UrlFetchOpts {
+                headers: json_headers("application/xml"),
+                ..Default::default()
+            },
+        )
         .await;
         let res = match res {
             Some(r) if r.ok => r,
@@ -757,7 +979,10 @@ fn arxiv_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSea
     })
 }
 
-pub fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn stack_exchange_search<'a>(
+    net: &'a dyn Net,
+    query: &str,
+) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         if !engine_pacer_with_breaker("stackexchange").await {
@@ -773,7 +998,10 @@ pub fn stack_exchange_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a,
     })
 }
 
-fn stack_exchange_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+fn stack_exchange_vertical<'a>(
+    net: &'a dyn Net,
+    query: &str,
+) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         let url = format!(
@@ -876,10 +1104,14 @@ fn wikidata_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<Raw
              &language=en&uselang=en&limit=5&search={}",
             enc_component(&q)
         );
-        let res = fetch_url_with_retry(net, &url, UrlFetchOpts {
-            headers: json_headers("application/json"),
-            ..Default::default()
-        })
+        let res = fetch_url_with_retry(
+            net,
+            &url,
+            UrlFetchOpts {
+                headers: json_headers("application/json"),
+                ..Default::default()
+            },
+        )
         .await;
         let res = match res {
             Some(r) if r.ok => r,
@@ -946,7 +1178,10 @@ pub fn semantic_scholar_search<'a>(
         }
         let out = semantic_scholar_vertical(net, &q).await;
         if out.is_empty() {
-            trip_circuit_breaker("semantic-scholar", "semantic-scholar vertical returned 0 results");
+            trip_circuit_breaker(
+                "semantic-scholar",
+                "semantic-scholar vertical returned 0 results",
+            );
         } else {
             note_engine_success("semantic-scholar");
         }
@@ -965,10 +1200,14 @@ fn semantic_scholar_vertical<'a>(
              &fields=title,abstract,url,year,externalIds&query={}",
             enc_component(&q)
         );
-        let res = fetch_url_with_retry(net, &url, UrlFetchOpts {
-            headers: json_headers("application/json"),
-            ..Default::default()
-        })
+        let res = fetch_url_with_retry(
+            net,
+            &url,
+            UrlFetchOpts {
+                headers: json_headers("application/json"),
+                ..Default::default()
+            },
+        )
         .await;
         let res = match res {
             Some(r) if r.ok => r,
@@ -1026,7 +1265,10 @@ fn semantic_scholar_vertical<'a>(
     })
 }
 
-pub fn imdb_suggestion_search<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSearchResult>> {
+pub fn imdb_suggestion_search<'a>(
+    net: &'a dyn Net,
+    query: &str,
+) -> BoxFuture<'a, Vec<RawSearchResult>> {
     let q = query.to_string();
     Box::pin(async move {
         if !engine_pacer_with_breaker("imdb").await {
@@ -1049,10 +1291,14 @@ fn imdb_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSear
             "https://v3.sg.media-imdb.com/suggestion/x/{}.json?include_WARNINGS=false",
             enc_component(&q)
         );
-        let res = fetch_url_with_retry(net, &url, UrlFetchOpts {
-            headers: json_headers("application/json"),
-            ..Default::default()
-        })
+        let res = fetch_url_with_retry(
+            net,
+            &url,
+            UrlFetchOpts {
+                headers: json_headers("application/json"),
+                ..Default::default()
+            },
+        )
         .await;
         let res = match res {
             Some(r) if r.ok => r,
@@ -1065,8 +1311,7 @@ fn imdb_vertical<'a>(net: &'a dyn Net, query: &str) -> BoxFuture<'a, Vec<RawSear
         static TT_ID: OnceLock<Regex> = OnceLock::new();
         static KIND: OnceLock<Regex> = OnceLock::new();
         let tt = TT_ID.get_or_init(|| Regex::new(r"^tt(?-u:\d){7,10}$").expect("static regex"));
-        let kind_re = KIND
-            .get_or_init(|| Regex::new(r"movie|series|film").expect("static regex"));
+        let kind_re = KIND.get_or_init(|| Regex::new(r"movie|series|film").expect("static regex"));
         let mut out: Vec<RawSearchResult> = Vec::new();
         for d in js_array(Some(&data), "d") {
             let id = opt_field(d, "id").map(value_to_string).unwrap_or_default();
@@ -1230,6 +1475,17 @@ async fn search_one(
     all_queries: Option<&[String]>,
     freshness: Option<&Freshness>,
 ) -> Vec<RawSearchResult> {
+    // §14 exfiltration law: deterministically strip well-known credential
+    // shapes from every query BEFORE any engine sees it — no model involved,
+    // applied at the single chokepoint all engine traffic passes through.
+    // (TS mirror: `query = scrubQuerySecrets(query)` + the allQueries map at
+    // the head of searchOne — same position; scrubbing is idempotent, so
+    // urlSearchFallback's pre-scrub passing through here is harmless.)
+    let query_scrubbed = scrub_query_secrets(query);
+    let query: &str = &query_scrubbed;
+    let aq_scrubbed: Option<Vec<String>> =
+        all_queries.map(|a| a.iter().map(|s| scrub_query_secrets(s)).collect());
+    let all_queries: Option<&[String]> = aq_scrubbed.as_deref();
     // TS: `allQueries && allQueries.length > 1` → sharded over the deduped
     // sub-queries; `deduplicateQueries(allQueries)[0]` is the primary
     // (JS undefined for an empty dedup list — unreachable when length>1;
@@ -1250,32 +1506,28 @@ async fn search_one(
     // Divergence: the losing pool future is CANCELLED here (JS keeps it
     // running in the background).
     let t_pool = std::time::Instant::now();
-    let pool: Vec<RawSearchResult> = match tokio::time::timeout(
-        Duration::from_millis(SEARCH_ONE_CAP_MS),
-        pool_task,
-    )
-    .await
-    {
-        Ok(v) => {
-            tracing::info!(
-                pool_ms = t_pool.elapsed().as_millis() as u64,
-                pool_results = v.len(),
-                pool_timed_out = false,
-                sharded = use_sharded,
-                "search_one: general pool settled"
-            );
-            v
-        }
-        Err(_) => {
-            tracing::warn!(
-                pool_ms = t_pool.elapsed().as_millis() as u64,
-                pool_timed_out = true,
-                sharded = use_sharded,
-                "search_one: general pool hit SEARCH_ONE_CAP"
-            );
-            Vec::new()
-        }
-    };
+    let pool: Vec<RawSearchResult> =
+        match tokio::time::timeout(Duration::from_millis(SEARCH_ONE_CAP_MS), pool_task).await {
+            Ok(v) => {
+                tracing::info!(
+                    pool_ms = t_pool.elapsed().as_millis() as u64,
+                    pool_results = v.len(),
+                    pool_timed_out = false,
+                    sharded = use_sharded,
+                    "search_one: general pool settled"
+                );
+                v
+            }
+            Err(_) => {
+                tracing::warn!(
+                    pool_ms = t_pool.elapsed().as_millis() as u64,
+                    pool_timed_out = true,
+                    sharded = use_sharded,
+                    "search_one: general pool hit SEARCH_ONE_CAP"
+                );
+                Vec::new()
+            }
+        };
     let mut results: Vec<RawSearchResult> = pool;
 
     // Intent verticals (allSettled — ported engine fns cannot reject).
@@ -1298,8 +1550,8 @@ async fn search_one(
     // News-sensitive: explicit "news" intent OR any freshness that is not
     // "any" (TS quirk: freshness "none" is truthy and ≠ "any" → the bing
     // news vertical fires for freshness=none plans).
-    let is_news_sensitive = matches!(intent, Intent::News)
-        || freshness.is_some_and(|f| f.as_str() != "any");
+    let is_news_sensitive =
+        matches!(intent, Intent::News) || freshness.is_some_and(|f| f.as_str() != "any");
     if is_news_sensitive {
         let t_news = std::time::Instant::now();
         let news = bing_news_rss_search(net, query).await;
@@ -1310,13 +1562,14 @@ async fn search_one(
         );
         // TS double-cap quirk: slice(0, capForEngine("bing-news")) THEN
         // applyEngineCap again.
-        let capped: Vec<RawSearchResult> =
-            news.into_iter().take(cap_for_engine("bing-news") as usize).collect();
+        let capped: Vec<RawSearchResult> = news
+            .into_iter()
+            .take(cap_for_engine("bing-news") as usize)
+            .collect();
         results.extend(apply_engine_cap(capped));
     }
 
-    let is_dev_query =
-        query_looks_like_dev(query) || matches!(intent, Intent::Code | Intent::Docs);
+    let is_dev_query = query_looks_like_dev(query) || matches!(intent, Intent::Code | Intent::Docs);
     if is_dev_query {
         let t_dev = std::time::Instant::now();
         let devs = dev_vertical();
@@ -1451,11 +1704,16 @@ pub fn reciprocal_rank_fuse(
             rrf: score,
             engines,
             engine_ranks,
+            // §19 provenance: every fused candidate is search-origin
+            // (TS mirror: `origin: "search"` at reciprocalRankFuse's out.push).
+            origin: Some(SearchOrigin::Search),
         });
     }
     // TS: `.sort((a, b) => b.rrf - a.rrf)` — stable, higher rrf first.
     out.sort_by(|a, b| {
-        b.rrf.partial_cmp(&a.rrf).unwrap_or(std::cmp::Ordering::Equal)
+        b.rrf
+            .partial_cmp(&a.rrf)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
     out
 }
@@ -1478,7 +1736,11 @@ pub fn reciprocal_rank_fuse(
 /// `log.info` telemetry lines are dropped; an EMPTY plan list resolves
 /// immediately (⇔ `Promise.allSettled([])` wins the race before the 6s
 /// grace / 15s hard cap can fire).
-pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize) -> Vec<RankedResult> {
+pub async fn metasearch(
+    net: &dyn Net,
+    plans: &[SearchPlan],
+    max_results: usize,
+) -> Vec<RankedResult> {
     let effective = strip_url_plans(plans);
     let all_queries: Vec<String> = effective.iter().map(|p| p.query.clone()).collect();
     // TS: `effectivePlans[0]?.freshness ?? "any"` — the FIRST plan's
@@ -1498,7 +1760,10 @@ pub async fn metasearch(net: &dyn Net, plans: &[SearchPlan], max_results: usize)
         let aq = all_queries.clone();
         let fresh = freshness.clone();
         futs.push(Box::pin(async move {
-            (i, search_one(net, &p.query, &p.intent, Some(&aq), Some(&fresh)).await)
+            (
+                i,
+                search_one(net, &p.query, &p.intent, Some(&aq), Some(&fresh)).await,
+            )
         }));
     }
 
@@ -1726,7 +1991,9 @@ pub async fn url_search_fallback(
         Some(t) if t != target_url && !t.is_empty() => format!("{t} "),
         _ => String::new(),
     };
-    let query = format!("{title_prefix}{target_url}");
+    // §14: the composed query embeds a user-supplied URL + title — scrub
+    // before it reaches ANY engine (searchOne scrubs again; idempotent).
+    let query = scrub_query_secrets(&format!("{title_prefix}{target_url}"));
 
     let mut raw: Vec<RawSearchResult> = Vec::new();
     // TS comment says "ddg"; the code runs the full general searchOne.
@@ -1774,6 +2041,9 @@ pub async fn url_search_fallback(
                 rrf: 1.0 / (RRF_K + i as f64 + 1.0),
                 engines: vec![r.engine],
                 engine_ranks,
+                // TS parity: manually-built fallback results are intentionally
+                // NOT origin-stamped (the TS literal omits the field).
+                origin: None,
             }
         })
         .collect()
@@ -1809,7 +2079,14 @@ pub async fn slug_triangulation(net: &dyn Net, target_url: &str, title: Option<&
         .collect();
 
     let quoted: Vec<String> = slug_tokens.iter().map(|t| format!("\"{t}\"")).collect();
-    let site_query = format!("site:{host} {}", if quoted.is_empty() { "*".to_string() } else { quoted.join(" ") });
+    let site_query = format!(
+        "site:{host} {}",
+        if quoted.is_empty() {
+            "*".to_string()
+        } else {
+            quoted.join(" ")
+        }
+    );
     // `"${host.replace(/\.\w+$/,"")}" ${tokens.join(" ")}` — the trailing
     // space when tokens are empty is a TS quirk, kept verbatim.
     static TLD: OnceLock<Regex> = OnceLock::new();
@@ -1849,7 +2126,11 @@ pub async fn slug_triangulation(net: &dyn Net, target_url: &str, title: Option<&
     }
 
     for r in all.iter().take(8) {
-        let t = if r.title.is_empty() { "(untitled)" } else { r.title.as_str() };
+        let t = if r.title.is_empty() {
+            "(untitled)"
+        } else {
+            r.title.as_str()
+        };
         lines.push(format!("- [{}] {}", r.engine, t));
         lines.push(format!("  URL: {}", r.url));
         if !r.snippet.is_empty() {
@@ -1891,6 +2172,7 @@ mod tests {
             rrf: 0.0,
             engines: Vec::new(),
             engine_ranks: Map::new(),
+            origin: None,
         }
     }
 
@@ -1929,7 +2211,9 @@ mod tests {
     fn normalize_url_vectors() {
         // tracking params dropped, non-tracking kept, fragment cleared
         assert_eq!(
-            normalize_url("https://en.wikipedia.org/wiki/Foo?utm_source=x&fbclid=y&ref=z&id=5#frag"),
+            normalize_url(
+                "https://en.wikipedia.org/wiki/Foo?utm_source=x&fbclid=y&ref=z&id=5#frag"
+            ),
             "https://en.wikipedia.org/wiki/Foo?id=5"
         );
         // empty pair list → query fully removed
@@ -1938,12 +2222,24 @@ mod tests {
             "https://example.com/p"
         );
         // trailing-slash strip only when path length > 1
-        assert_eq!(normalize_url("https://example.com//"), "https://example.com/");
-        assert_eq!(normalize_url("https://www.Example.com/A/"), "https://example.com/A");
+        assert_eq!(
+            normalize_url("https://example.com//"),
+            "https://example.com/"
+        );
+        assert_eq!(
+            normalize_url("https://www.Example.com/A/"),
+            "https://example.com/A"
+        );
         // default port collapses via the URL parser
-        assert_eq!(normalize_url("http://example.com:80/"), "http://example.com/");
+        assert_eq!(
+            normalize_url("http://example.com:80/"),
+            "http://example.com/"
+        );
         // URLSearchParams round-trip: a `=`-less chunk becomes `k=`, space → `+`
-        assert_eq!(normalize_url("https://example.com/?a b"), "https://example.com/?a+b=");
+        assert_eq!(
+            normalize_url("https://example.com/?a b"),
+            "https://example.com/?a+b="
+        );
         // invalid URLs pass through verbatim (the TS catch)
         assert_eq!(normalize_url("not a url"), "not a url");
     }
@@ -1970,9 +2266,7 @@ mod tests {
     #[test]
     fn query_core_tokens_orders_and_stops() {
         assert_eq!(
-            query_core_tokens(
-                "Next.js 15 App Router server actions error handling best practices"
-            ),
+            query_core_tokens("Next.js 15 App Router server actions error handling best practices"),
             vec!["next.js", "app", "router", "server", "actions"]
         );
         // dedup on first occurrence
@@ -1985,12 +2279,16 @@ mod tests {
 
     #[test]
     fn meets_lexical_threshold_floors() {
-        let toks = query_core_tokens("Next.js 15 App Router server actions error handling best practices");
+        let toks =
+            query_core_tokens("Next.js 15 App Router server actions error handling best practices");
         assert_eq!(toks.len(), 5); // pctFloor = ceil(2.0) = 2, absFloor = 2
         assert!(meets_lexical_threshold("Next.js app", &toks)); // 2 hits
         assert!(!meets_lexical_threshold("router only", &toks)); // 1 hit
-        // punctuation-insensitive: "nextjs" matches token "next.js"
-        assert!(meets_lexical_threshold("nextjs", &["next.js".to_string(), "app".to_string()]));
+                                                                 // punctuation-insensitive: "nextjs" matches token "next.js"
+        assert!(meets_lexical_threshold(
+            "nextjs",
+            &["next.js".to_string(), "app".to_string()]
+        ));
         // empty core → always true
         assert!(meets_lexical_threshold("nothing", &[]));
     }
@@ -2035,10 +2333,22 @@ mod tests {
 
         let mut input = Vec::new();
         for i in 0..6 {
-            input.push(raw("wikipedia", &format!("https://w.test/{i}"), i + 1, "t", "s"));
+            input.push(raw(
+                "wikipedia",
+                &format!("https://w.test/{i}"),
+                i + 1,
+                "t",
+                "s",
+            ));
         }
         for i in 0..5 {
-            input.push(raw("github", &format!("https://gh.test/{i}"), i + 1, "t", "s"));
+            input.push(raw(
+                "github",
+                &format!("https://gh.test/{i}"),
+                i + 1,
+                "t",
+                "s",
+            ));
         }
         let capped = apply_engine_cap(input);
         assert_eq!(capped.len(), 8); // 5 wikipedia + 3 github
@@ -2065,7 +2375,13 @@ mod tests {
     #[test]
     fn rrf_merge_order_dedup_and_boost() {
         let input = vec![
-            raw("google", "https://example.com/page?utm_source=x", 1, "Google A", "sn g"),
+            raw(
+                "google",
+                "https://example.com/page?utm_source=x",
+                1,
+                "Google A",
+                "sn g",
+            ),
             raw("brave", "https://example.com/page?ref=zz", 2, "", ""),
             raw("google", "https://other.org/b", 5, "", ""),
             raw("wikipedia", "https://other.org/b", 1, "B title", "sb"),
@@ -2086,8 +2402,14 @@ mod tests {
             1.2 / 61.0 + 1.2 / 62.0 + PREFERRED_BOOST
         ));
         assert_eq!(out[0].domain, "example.com");
-        assert_eq!(out[0].engines, vec!["google".to_string(), "brave".to_string()]);
-        assert_eq!(out[0].engine_ranks.get("google"), Some(&engine_rank_value(1)));
+        assert_eq!(
+            out[0].engines,
+            vec!["google".to_string(), "brave".to_string()]
+        );
+        assert_eq!(
+            out[0].engine_ranks.get("google"),
+            Some(&engine_rank_value(1))
+        );
         assert_eq!(out[0].title, "Google A");
         assert_eq!(out[0].snippet, "sn g");
 
@@ -2095,9 +2417,18 @@ mod tests {
         // title/snippet backfilled from the later wikipedia entry.
         assert_eq!(out[1].canonical, "https://other.org/b");
         assert!(approx(out[1].rrf, 1.2 / 65.0 + 0.65 / 61.0)); // no boost
-        assert_eq!(out[1].engine_ranks.get("google"), Some(&engine_rank_value(5)));
-        assert_eq!(out[1].engine_ranks.get("wikipedia"), Some(&engine_rank_value(1)));
-        assert_eq!(out[1].engines, vec!["google".to_string(), "wikipedia".to_string()]);
+        assert_eq!(
+            out[1].engine_ranks.get("google"),
+            Some(&engine_rank_value(5))
+        );
+        assert_eq!(
+            out[1].engine_ranks.get("wikipedia"),
+            Some(&engine_rank_value(1))
+        );
+        assert_eq!(
+            out[1].engines,
+            vec!["google".to_string(), "wikipedia".to_string()]
+        );
         assert_eq!(out[1].title, "B title");
         assert_eq!(out[1].snippet, "sb");
     }
@@ -2110,7 +2441,11 @@ mod tests {
         let url = "https://retry.test/once";
         let net = ScriptedNet::default().with_url(
             url,
-            UrlFetchResult { status: 429, ok: false, text: "slow down".into() },
+            UrlFetchResult {
+                status: 429,
+                ok: false,
+                text: "slow down".into(),
+            },
         );
         // The scripted 429 fires the 2 s backoff retry. ScriptedNet replays
         // the same scripted URL on every call, so the refetch observes the
@@ -2186,7 +2521,11 @@ mod tests {
         // pub wrapper (not just metasearch()) is pacer+breaker-guarded.
         let net = ScriptedNet::default();
         assert!(wikipedia_search(&net, "nothing scripted").await.is_empty());
-        assert_eq!(crate::engines::engine_cooldown_remaining_ms("wikipedia"), 0, "streak 1 only");
+        assert_eq!(
+            crate::engines::engine_cooldown_remaining_ms("wikipedia"),
+            0,
+            "streak 1 only"
+        );
         assert!(wikipedia_search(&net, "nothing scripted").await.is_empty());
         let remaining = crate::engines::engine_cooldown_remaining_ms("wikipedia");
         assert!(remaining > 0, "the wrapper tail trips at streak 2");
@@ -2229,7 +2568,10 @@ mod tests {
         assert_eq!(e.engine, "arxiv");
         assert_eq!(e.title, "Quantum Foo Bar"); // trim + /\s+/g collapse
         assert_eq!(e.url, "https://arxiv.org/abs/2401.00001"); // link[rel=alternate]
-        assert_eq!(e.snippet, "Quantum foo bar baz summary with enough words to pass.");
+        assert_eq!(
+            e.snippet,
+            "Quantum foo bar baz summary with enough words to pass."
+        );
         assert_eq!(e.published_date.as_deref(), Some("2024-01-01T00:00:00Z"));
         assert_eq!(e.rank, 1);
     }
@@ -2284,7 +2626,10 @@ mod tests {
         assert_eq!(e.url, "https://stackoverflow.com/q/1");
         assert_eq!(e.title, "Foo bar question");
         assert_eq!(e.snippet, "Foo bar question"); // snippet = title (TS)
-        assert_eq!(e.published_date.as_deref(), Some("2023-11-14T22:13:20.000Z"));
+        assert_eq!(
+            e.published_date.as_deref(),
+            Some("2023-11-14T22:13:20.000Z")
+        );
         assert_eq!(e.rank, 1);
     }
 
@@ -2435,23 +2780,37 @@ mod tests {
         let _g = crate::engines::engine_test_lock().lock().await;
         crate::engines::reset_engine_state_for_tests();
         let q = "FooBar wiki";
-        let news_url =
-            format!("https://www.bing.com/news/search?q={}&format=rss&count=20", enc_component(q));
+        let news_url = format!(
+            "https://www.bing.com/news/search?q={}&format=rss&count=20",
+            enc_component(q)
+        );
         let rss = "<rss><channel><item><title><![CDATA[FooBar wiki headline one line]]></title><link>http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;url=https%3A%2F%2Falpha-one.com%2Fnews&amp;get=1</link><pubDate>Tue, 14 Nov 2023 22:13:20 GMT</pubDate><description>a foobar wiki story body</description></item></channel></rss>";
         let net = ScriptedNet::default().with_url(&news_url, ok_body(rss.to_string()));
         let out = search_one(&net, q, &Intent::General, None, Some(&Freshness::Week)).await;
-        let news: Vec<&RawSearchResult> =
-            out.iter().filter(|r| r.engine == "bing-news").collect();
+        let news: Vec<&RawSearchResult> = out.iter().filter(|r| r.engine == "bing-news").collect();
         assert_eq!(news.len(), 1);
         assert_eq!(news[0].url, "https://alpha-one.com/news"); // url= param, decoded
-        assert_eq!(news[0].published_date.as_deref(), Some("Tue, 14 Nov 2023 22:13:20 GMT"));
-        assert!(net.calls.lock().expect("lock").iter().any(|(u, _)| u == &news_url));
+        assert_eq!(
+            news[0].published_date.as_deref(),
+            Some("Tue, 14 Nov 2023 22:13:20 GMT")
+        );
+        assert!(net
+            .calls
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|(u, _)| u == &news_url));
 
         // Freshness::Any must NOT fire the news vertical (TS gate: != "any").
         let net2 = ScriptedNet::default();
         let out2 = search_one(&net2, q, &Intent::General, None, Some(&Freshness::Any)).await;
         assert!(out2.is_empty());
-        assert!(!net2.calls.lock().expect("lock").iter().any(|(u, _)| u == &news_url));
+        assert!(!net2
+            .calls
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|(u, _)| u == &news_url));
     }
 
     #[tokio::test]
@@ -2496,7 +2855,9 @@ mod tests {
             .with_url(&wiki_url(site_q), ok_body(entry.to_string()))
             .with_url(&wiki_url(broad_q), ok_body(entry.to_string()));
         let out = slug_triangulation(&net, target, Some("My Target Title")).await;
-        assert!(out.starts_with("[Synthesized Web Index Evidence] for https://example.com/foo-bar/baz"));
+        assert!(
+            out.starts_with("[Synthesized Web Index Evidence] for https://example.com/foo-bar/baz")
+        );
         assert!(out.contains("Page title (from metasearch): My Target Title"));
         assert_eq!(out.matches("- [").count(), 1); // normalizeUrl dedupe across passes
         assert!(out.contains("  URL: https://en.wikipedia.org/wiki/Foo_bar_baz_page"));
@@ -2533,4 +2894,3 @@ mod tests {
         assert_eq!(wiki_hits, 2); // both passes ran (news vertical unscripted → [])
     }
 }
-

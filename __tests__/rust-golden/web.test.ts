@@ -249,7 +249,7 @@ describe("golden: web-search pipeline", () => {
         "'web:'-prefixed). One evidence system message is injected at " +
         "lastUserIdx+1 (CONTRACT DISCOVERY: with no skill block that index is AFTER the user turn — same " +
         "off-by-one family as the attachments block; recorded, not fixed). The block = ANTI_REFUSAL_DIRECTIVE + " +
-        "'\\n\\n' + evidenceBlock() and is pinned VERBATIM: the <evidence> header, the 6 guideline bullets, the " +
+        "'\\n\\n' + evidenceBlock() and is pinned VERBATIM: the <evidence> header, the 8 guideline bullets, the " +
         "CLOSING </evidence> tag BEFORE any [S#] line (LAYOUT QUIRK: passages are appended AFTER the closing tag, " +
         "so </evidence> never ends the message), then [S#] source lines with '(published ...)' suffix and quoted " +
         "excerpts (4000-char cap, whitespace-collapsed, '(BM25=x.xx)' suffix) — its bytes derive ONLY from the scripted SERP + scripted pages, so Rust must reproduce it " +
