@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "same retrieval on the legacy stream:false path",
-    "semantics": "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including the standard_chat off-by-one: block after the user turn); only the stage FRAMES are absent on the legacy path (stage() is a no-op), so retrieval_done never appears.",
+    "semantics": "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including the standard_chat off-by-one: block after the user turn; P1 2026-11-01: order is user, runtime_clock, knowledge); only the stage FRAMES are absent on the legacy path (stage() is a no-op), so retrieval_done never appears.",
     "comparison": "byte-exact",
     "harness": "__tests__/rust-golden/attachments.test.ts",
     "env": {
@@ -9,7 +9,7 @@
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions",
       "embed_seam": "embedOne fixed pseudo-vector [1,0,0.05]; index seeded via production writeIndex (BM25/RRF/pack unmocked)"
     },
-    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests)."
   },
   "request": {
     "rawBody": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"},{\"type\":\"attachment_ref\",\"att_id\":\"att_golden1a\",\"name\":\"intro-biology.pdf\",\"category\":\"text\"}]}]}"
@@ -23,7 +23,7 @@
         "authorization": "Bearer golden-key",
         "content-type": "application/json"
       },
-      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"}]},{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"intro-biology.pdf\\\">\\nPassages retrieved from the complete content of \\\"intro-biology.pdf\\\" (the full text is preserved locally — nothing was truncated):\\nPhotosynthesis converts light into chemical energy in the chloroplast.\\n\\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\\n\\nStomata regulate gas exchange on the underside of leaves.\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\\n</knowledge_index>\"}]}",
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"}]},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"intro-biology.pdf\\\">\\nPassages retrieved from the complete content of \\\"intro-biology.pdf\\\" (the full text is preserved locally — nothing was truncated):\\nPhotosynthesis converts light into chemical energy in the chloroplast.\\n\\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\\n\\nStomata regulate gas exchange on the underside of leaves.\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\\n</knowledge_index>\"}]}",
       "bodyJson": {
         "model": "strata-mock",
         "stream": false,
@@ -36,6 +36,10 @@
                 "text": "According to the indexed lecture notes, what happens in the Calvin cycle?"
               }
             ]
+          },
+          {
+            "role": "system",
+            "content": "<runtime_clock>MASKED</runtime_clock>"
           },
           {
             "role": "system",

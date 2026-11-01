@@ -38,6 +38,7 @@ import {
   MOCK_LLM_URL,
   UpstreamScript,
   anchorSkillBlocks,
+  maskRuntimeClock,
   bytesRecord,
   installUpstream,
   normalizeBodyMs,
@@ -191,9 +192,10 @@ async function runAndRecord(o: {
   const logical = parseLogical(run.text);
   const hasStage = logical.frames.some((f) => f.kind === "stage");
   const upstreamCalls = calls.map((c) => {
+    const bodyText = c.body === null ? null : maskRuntimeClock(c.body);
     let bodyJson: unknown = null;
-    try { bodyJson = c.body ? anchorSkillBlocks(JSON.parse(c.body)).payload : null; } catch { /* raw */ }
-    return { url: c.url, method: c.method, headers: Object.fromEntries(Object.entries(c.headers).sort()), bodyText: c.body, bodyJson };
+    try { bodyJson = bodyText ? anchorSkillBlocks(JSON.parse(bodyText)).payload : null; } catch { /* raw */ }
+    return { url: c.url, method: c.method, headers: Object.fromEntries(Object.entries(c.headers).sort()), bodyText, bodyJson };
   });
   writeJsonFixture(o.rel, {
     request: { rawBody: o.rawBody },
@@ -214,7 +216,7 @@ async function runAndRecord(o: {
     comparison: o.comparison,
     harness: "__tests__/rust-golden/web.test.ts",
     env: ENV_PRE,
-    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text.',
+    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests).',
     notes: o.notes,
   });
   return { run, logical, upstreamCalls };
@@ -311,7 +313,12 @@ describe("golden: web-search pipeline", () => {
     const lastUser = payload.messages.filter((m) => m.role === "user").pop();
     expect(lastUser!.content).toBe("what is the latest roadmap news for project nimbus");
     // CONTRACT DISCOVERY: off-by-one injection index -> evidence AFTER the user turn.
-    expect(roles).toEqual(["user", "system"]);
+    // P1 (2026-11-01): the live-clock injection adds one system block ahead of
+    // the evidence block; the contract (evidence directly after the user turn
+    // chain) still holds.
+    expect(roles).toEqual(["user", "system", "system"]);
+    expect(String(payload.messages[1].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(evidenceIdx).toBe(2);
   });
 
   // live browser tier — see note on test 01 for the timeout budget
@@ -385,8 +392,10 @@ describe("golden: web-search pipeline", () => {
     expect(seq).toEqual(["decision_done", "web:gate", "web:planning", "web:searching"]);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(logical.done).toBe(true);
-    const payload = upstreamCalls[0].bodyJson as { messages: unknown[] };
-    expect(payload.messages.length).toBe(1); // just the user turn — no evidence block
+    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] };
+    // P1 (2026-11-01): user turn + the live-clock system block; still NO evidence block.
+    expect(payload.messages.length).toBe(2);
+    expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
   });
 
   // live browser tier — see note on test 01 for the timeout budget

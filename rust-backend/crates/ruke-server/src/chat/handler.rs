@@ -101,6 +101,20 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
         attach::remove_key(p, "browser_session");
     }
 
+    // (2c) P1 clock grounding ⇔ route.ts POST `turnTimezone`: the client's
+    // IANA zone is captured here and STRIPPED before anything else runs
+    // (the compaction passthrough below must never see it, same law as
+    // `browser_session` — the clock block is injected only by the pipeline).
+    let turn_timezone = payload
+        .as_ref()
+        .and_then(|p| p.get("timezone"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(p) = payload.as_mut() {
+        attach::remove_key(p, "timezone");
+    }
+
     // (3)
     let model: String = payload
         .as_ref()
@@ -241,6 +255,7 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         // turn) — the same identity the panel RPC's
                         // turn bookkeeping uses.
                         browser_session.map(|s| (s, turn.turn_id.to_string())),
+                        turn_timezone.clone(),
                         ProgressChannel::new(tx),
                     ));
                     // Dropping this body (client walked away) cancels the
@@ -273,6 +288,7 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     &token,
                     None,
                     &model,
+                    turn_timezone.as_deref(),
                     &span,
                 )
                 .await;

@@ -8,7 +8,7 @@
       "WEB_SEARCH_GATE_DISABLED": "1",
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
     },
-    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText (the clock text itself is pinned by clock unit tests)."
   },
   "request": {
     "rawBody": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"fail hard\"}]}"
@@ -22,7 +22,7 @@
         "authorization": "Bearer golden-key",
         "content-type": "application/json"
       },
-      "bodyText": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"fail hard\"}]}"
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"fail hard\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"}]}"
     }
   ],
   "response": {

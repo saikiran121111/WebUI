@@ -24,6 +24,7 @@
 
 pub mod attach;
 pub mod browser_loop;
+pub mod clock;
 pub mod error;
 pub mod forward;
 pub mod handler;

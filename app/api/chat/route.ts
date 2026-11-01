@@ -10,6 +10,7 @@ import { getDecision } from "../../../lib/decision/client";
 import { beginUserTurn, endUserTurn } from "../../../lib/server/inference-busy";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
+import { buildClockContext } from "../../../lib/chat/clock-context";
 import {
   MODE_FENCE,
   MODE_SKILL,
@@ -442,9 +443,12 @@ async function runTurnPipeline(
      *  consults this (nothing to retrieve: the content is already inline). */
     hasInlineAttachment: boolean;
     model: string;
+    /** P1 clock grounding: the client's IANA zone (captured from the request
+     *  body in POST, already deleted there so it never reaches upstream). */
+    turnTimezone?: string;
   },
 ): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null }> {
-  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model } = opts;
+  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
   let skillBlockBytes = 0;
@@ -588,6 +592,18 @@ async function runTurnPipeline(
     if (inferenceTurnActive) endUserTurn();
   }
 
+  // 7) P1 clock grounding (always on for every model-visible turn; the
+  //    purpose="compact" passthrough never reaches this function): the main
+  //    model has NEVER carried a live clock — RC1's root cause for the
+  //    "what time is it?" refusal/web-search detour. Injected last among the
+  //    system blocks so it sits immediately before the user turn.
+  //    Rust twin: crates/ruke-server/src/chat/clock.rs (+ pipeline inject).
+  injectSystemBefore(
+    payload.messages,
+    lastUserIdx + 1,
+    buildClockContext({ browserTimezone: turnTimezone }),
+  );
+
   // One-line routing log: mode + deciding source + skill actually injected.
   log.info(
     { mode: env.active_mode, by: env.decided_by, skill: usedSkill, skillBytes: skillBlockBytes, model },
@@ -614,6 +630,7 @@ export async function POST(req: NextRequest) {
   let decisionMode: RendererMode = "standard_chat";
   let webCitationMap: Record<string, any> | null = null;
   let searchGateMeta: ResearchMeta | null = null;
+  let turnTimezone: string | undefined;
 
   // Compaction's own call (lib/chat/compact.ts): forward it VERBATIM.
   // Running the per-turn pipeline over it is actively destructive: the decision
@@ -629,6 +646,10 @@ export async function POST(req: NextRequest) {
   // in the RUST route (rustProxy above leaves it in the body). The TS path
   // has no browser engine, but the key must still never reach upstream.
   if (payload) delete payload.browser_session;
+  // P1: the client's IANA timezone feeds the <runtime_clock> block and, like
+  // browser_session, is consumed here — it must never reach the upstream.
+  if (typeof payload?.timezone === "string") turnTimezone = payload.timezone;
+  if (payload) delete payload.timezone;
 
   if (payload?.purpose === "compact") {
     delete payload.purpose; // transport marker: never reaches the upstream
@@ -751,6 +772,7 @@ export async function POST(req: NextRequest) {
                 hasAttachmentRefs,
                 hasInlineAttachment,
                 model,
+                turnTimezone,
               });
               if (meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) {
                 // Web metadata rides the stream now: response headers are
@@ -804,6 +826,7 @@ export async function POST(req: NextRequest) {
         hasAttachmentRefs: turnHasAttachmentRef(payload.messages[lastUserIdx]?.content),
         hasInlineAttachment: turnHasInlineAttachment(payload.messages[lastUserIdx]?.content),
         model,
+        turnTimezone,
       });
       webCitationMap = meta.webCitationMap;
       searchGateMeta = meta.searchGateMeta;

@@ -340,6 +340,42 @@ pub fn assert_response(fixture: &Value, rel: &str, status: u16, headers: &Header
     );
 }
 
+/// P1 (2026-11-01) golden harness: the chat pipeline injects a
+/// `<runtime_clock>` system block whose content carries the LIVE wall-clock
+/// line. Wall-clock text is volatile, so the TS recorder masks the block
+/// content when writing fixtures (`maskRuntimeClock` in
+/// __tests__/rust-golden/support/golden.ts); the replay applies the
+/// IDENTICAL textual mask to its captured body before the byte-identical
+/// comparison. Everything else in the forwarded body stays byte-pinned, and
+/// the clock TEXT itself is pinned by ruke-server's chat/clock.rs unit tests.
+/// Rule: replace each `<runtime_clock>…</runtime_clock>` span (nearest
+/// closing tag) with `<runtime_clock>MASKED</runtime_clock>`; an unterminated
+/// opening tag is left verbatim (the TS regex then matches nothing).
+pub fn mask_runtime_clock(body: &str) -> String {
+    const TAG: &str = "<runtime_clock>";
+    const END: &str = "</runtime_clock>";
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(i) = rest.find(TAG) {
+        out.push_str(&rest[..i + TAG.len()]);
+        let after = &rest[i + TAG.len()..];
+        match after.find(END) {
+            // The closing tag stays in `rest` and is re-emitted by the next
+            // prefix/final copy (`</runtime_clock>` never re-matches TAG).
+            Some(j) => {
+                out.push_str("MASKED");
+                rest = &after[j..];
+            }
+            None => {
+                out.push_str(after);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Assert the recorded upstream request contract. The recorded URL's host is
 /// the harness placeholder (`MOCK_LLM_URL`), so the replay checks the path +
 /// method + init headers + byte-identical body instead.
@@ -484,7 +520,7 @@ async fn upstream_handle(State(inner): State<Arc<Inner>>, req: Request) -> Respo
     let body = axum::body::to_bytes(req.into_body(), 32_000_000)
         .await
         .unwrap_or_default();
-    call.body_text = std::str::from_utf8(&body).ok().map(str::to_string);
+    call.body_text = std::str::from_utf8(&body).ok().map(mask_runtime_clock);
     inner.calls.lock().unwrap().push(call);
 
     let script = inner

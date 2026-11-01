@@ -28,6 +28,14 @@ export interface ChatRequest {
    * streaming-path only.
    */
   browser_session?: string;
+  /**
+   * P1 clock grounding: the browser's IANA zone —
+   * `Intl.DateTimeFormat().resolvedOptions().timeZone`. The chat route uses
+   * it for the per-turn <runtime_clock> block (session-local time for the
+   * user who is asking) and deletes the key before forwarding, like
+   * browser_session — it never reaches upstream.
+   */
+  timezone?: string;
 }
 
 /**

@@ -683,6 +683,10 @@ export function useChat({
           // was open at send time; omitted (undefined) otherwise, and
           // never set on compaction/fence-repair calls (their own paths).
           browser_session: getBrowserSessionRef.current?.(),
+          // P1 clock grounding: the zone the user experiences "now" in.
+          // The route answers time/date questions from the server clock
+          // converted to this zone (never its own machine zone).
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         (ev) => handleEvent(ev, controller),
         controller.signal,

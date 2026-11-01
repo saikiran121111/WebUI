@@ -8,7 +8,7 @@
       "WEB_SEARCH_GATE_DISABLED": "1",
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
     },
-    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path response bodies are stored ms-normalized (raw bytes carry volatile ms digits)."
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path response bodies are stored ms-normalized (raw bytes carry volatile ms digits). P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests)."
   },
   "request": {
     "rawBody": "{}"

@@ -59,7 +59,7 @@ use ruke_websearch::pipeline::{
 use ruke_websearch::search_gate::SearchGateOptions;
 use ruke_websearch::types::{HistoryTurn, SearchGateContext};
 
-use crate::chat::{attach, forward, sse::ProgressChannel};
+use crate::chat::{attach, clock, forward, sse::ProgressChannel};
 use crate::AppState;
 
 /// What the web gate contributes: the `[S1]…[Sn]` citation map and the
@@ -89,6 +89,9 @@ pub async fn run_turn_pipeline(
     token: &CancellationToken,
     mut ch: Option<&mut ProgressChannel>,
     model: &str,
+    // P1 clock grounding: the client's IANA zone captured (and stripped
+    // from the payload) by the handler — ⇔ TS `opts.turnTimezone`.
+    turn_timezone: Option<&str>,
     span: &Span,
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
@@ -372,6 +375,15 @@ pub async fn run_turn_pipeline(
         // `_web_guard` drops here ⇔ the finally.
     }
 
+    // Step 7 (route.ts step 7): P1 clock grounding — always on for every
+    // model-visible turn (the compaction passthrough never runs this
+    // function). Injected LAST among the system blocks so the
+    // <runtime_clock> block sits immediately before the user turn.
+    if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
+        let block = clock::build_clock_block(turn_timezone, chrono::Utc::now());
+        inject_system_before(messages, last_user_idx + 1, block);
+    }
+
     tracing::info!(
         parent: span,
         mode = env.active_mode.as_str(),
@@ -408,6 +420,9 @@ pub async fn pump_progress(
     // through the browser tool loop instead of plain forwarding
     // (Phase 10; handler computed it before stripping the marker).
     browser: Option<(String, String)>,
+    // P1 clock grounding: handler-captured IANA zone (already stripped
+    // from the payload there) — threaded to the pipeline like `browser`.
+    turn_timezone: Option<String>,
     mut ch: ProgressChannel,
 ) {
     let decision_mode = env.active_mode.as_str();
@@ -432,6 +447,7 @@ pub async fn pump_progress(
         &token,
         Some(&mut ch),
         &model,
+        turn_timezone.as_deref(),
         &span,
     )
     .await;

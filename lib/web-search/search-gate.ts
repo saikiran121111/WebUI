@@ -580,7 +580,9 @@ Do NOT search when:
 - debugging follows from code, logs, or attachments the user supplied;
 - the question concerns an established concept, definition, or how-to
   whose answer does not change;
-- the conversation or an attached document already supplies the evidence.
+- the conversation or an attached document already supplies the evidence;
+- the question only needs the current time, date, or day of the week:
+  the request carries a live server clock; answer from the clock.
 
 For genuinely ambiguous middle cases: if the answer could plausibly have
 changed since training, search; otherwise answer without searching.
