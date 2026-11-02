@@ -191,6 +191,11 @@ pub async fn run_web_tool_loop(
     presentation: Option<Value>,
     rich_results: Vec<Value>,
     question: &str,
+    // Task-scope audit (brief #1/#6): the turn's server-owned contract,
+    // folded from the conversation prompts upstream (⇔ TS web-tool-loop.ts
+    // `opts.scope`). The session carries it; model tool arguments can only
+    // ever NARROW it (targets resolving against real SERP evidence).
+    scope: Option<ruke_websearch::task_scope::TaskScope>,
     span: &Span,
     token: &CancellationToken,
     ch: &mut ProgressChannel,
@@ -209,7 +214,7 @@ pub async fn run_web_tool_loop(
             }
         }
     }
-    let mut session = webtools::make_web_tool_session(depth, seed + 1, question);
+    let mut session = webtools::make_web_tool_session(depth, seed + 1, question, scope);
     // The production Extractor construction (⇔ ruke-websearch pipeline's
     // run_web_research): the same shared net/cache/verticals/bridge.
     let extractor = Extractor {

@@ -50,7 +50,7 @@
       "x-decision-mode": "standard_chat"
     },
     "body": {
-      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:gate\",\"detail\":\"Deciding whether a web search is needed...\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:planning\",\"detail\":\"Decomposing into sub-queries...\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:searching\",\"detail\":\"Searching 2 source pool(s)...\",\"total\":2}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\n",
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:gate\",\"detail\":\"Deciding whether a web search is needed...\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:planning\",\"detail\":\"Decomposing into sub-queries...\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:searching\",\"detail\":\"Searching 1 source pool(s)...\",\"total\":1}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\n",
       "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
     }
   },
@@ -81,8 +81,8 @@
       "kind": "stage",
       "obj": {
         "stage": "web:searching",
-        "detail": "Searching 2 source pool(s)...",
-        "total": 2
+        "detail": "Searching 1 source pool(s)...",
+        "total": 1
       }
     },
     {

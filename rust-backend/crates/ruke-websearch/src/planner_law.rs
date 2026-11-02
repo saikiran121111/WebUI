@@ -47,9 +47,8 @@ use chrono::{Datelike, Utc};
 use regex::Regex;
 use serde::Serialize;
 
-use crate::query_planner::{
-    infer_brand_domain, source_class, CoverageReport, PlanOrigin, PlannedQuery,
-};
+use crate::query_planner::{source_class, CoverageReport, PlanOrigin, PlannedQuery};
+use crate::task_scope::{is_enforceable_scope, scope_hosts, TaskScope};
 use crate::types::{
     Depth, EvidencePacket, EvidencePassage, ExtractionKind, Freshness, Intent, RankedResult,
     SearchDecision, SearchOrigin,
@@ -180,30 +179,12 @@ fn re_official_source() -> &'static Regex {
         .expect("static regex")
     })
 }
-fn re_brand_docs() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(
-            r"(?i)(?-u:\b)(?:search|find|check|look\s+up|google)\s+([a-z][a-z0-9-]{2,24})\s+(?:docs?|documentation|official)(?-u:\b)",
-        )
-        .expect("static regex")
-    })
-}
-fn re_brand_docs_rev() -> &'static Regex {
-    static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(
-            r"(?i)(?-u:\b)(?:docs?|documentation)\s+(?:of|for)\s+([a-z][a-z0-9-]{2,24})(?-u:\b)",
-        )
-        .expect("static regex")
-    })
-}
-/// Stop-list so "search the docs" / "check your docs" never fabricate a brand.
-const BRAND_STOPWORDS: [&str; 28] = [
-    "this", "that", "with", "your", "their", "from", "there", "these", "those", "some", "any",
-    "all", "the", "and", "for", "how", "why", "what", "when", "where", "who", "whom", "which",
-    "about", "into", "over", "user", "users",
-];
+// The retired brand-docs paths (re_brand_docs / re_brand_docs_rev /
+// BRAND_STOPWORDS + query_planner::infer_brand_domain) were DELETED by the
+// task-scope audit 2026-11-02 (brief #4): they FABRICATED a <brand>.com from
+// prompt tokens and PREFERRED it ("kubernetes docs" → kubernetes.com).
+// Fabricated domains are banned outright; a docs expectation survives only
+// as the soft source-type class below, never as a domain guess.
 
 fn re_local_intent() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
@@ -295,6 +276,14 @@ pub struct PlannerLaw {
     pub allowed_domains: Vec<String>,
     pub blocked_domains: Vec<String>,
     pub preferred_domains: Vec<String>,
+    /// HARD operational boundary from the server-authoritative task scope
+    /// (brief #5/#6): hosts the task must stay inside — distinct from
+    /// allowed ("only use X", user-written) and preferred (soft bias).
+    /// Populated only when the scope is enforceable AND a target host is
+    /// PSL-validated; research intent and unresolved/ambiguous targets
+    /// contribute nothing. FIELD ORDER IS A SERDE CONTRACT ⇔ TS interface
+    /// key order ⇔ the pinned wire string in the serde test.
+    pub mandatory_hosts: Vec<String>,
     /// Coarse localization phrase from the user's own words, or null.
     pub location: Option<String>,
     /// "pdf" | "github" | "profiles" | "official_docs" | "reviews" |
@@ -356,11 +345,37 @@ fn extract_location(prompt: &str) -> Option<String> {
     Some(name.split(' ').take(3).collect::<Vec<_>>().join(" "))
 }
 
+/// The law's hard boundary from an enforceable scope: validated target
+/// hosts only, normalized, first-seen-order deduped (⇔ TS
+/// `[...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]`).
+fn mandatory_hosts_for(scope: Option<&TaskScope>) -> Vec<String> {
+    match scope {
+        Some(s) if is_enforceable_scope(s) => {
+            let mut out: Vec<String> = Vec::new();
+            for h in scope_hosts(s) {
+                let d = normalize_domain(&h);
+                if !d.is_empty() && !out.contains(&d) {
+                    out.push(d);
+                }
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Derive the deterministic planner law from the user prompt + gate
 /// decision. Gate `queries[].preferred_domains` always merge into the
 /// law's preferred list (model suggested sources are honored as
-/// preference, never as an allow-list).
-pub fn derive_planner_law(user_prompt: &str, decision: &SearchDecision) -> PlannerLaw {
+/// preference, never as an allow-list). An enforceable task scope
+/// contributes its validated hosts to `mandatory_hosts` — a HARD boundary,
+/// never a preference (brief #5).
+pub fn derive_planner_law(
+    user_prompt: &str,
+    decision: &SearchDecision,
+    scope: Option<&TaskScope>,
+) -> PlannerLaw {
+    let mandatory = mandatory_hosts_for(scope);
     let mut allowed: Vec<String> = Vec::new();
     let mut blocked: Vec<String> = Vec::new();
     let mut preferred: Vec<String> = Vec::new();
@@ -401,17 +416,9 @@ pub fn derive_planner_law(user_prompt: &str, decision: &SearchDecision) -> Plann
 
     // Preferred ≠ allowed: an "official sources" demand must never
     // fabricate an allow-list (§11.17) — it only steers the expected
-    // source type below.
-    let brand_caps = re_brand_docs()
-        .captures(user_prompt)
-        .or_else(|| re_brand_docs_rev().captures(user_prompt));
-    if let Some(caps) = brand_caps {
-        let brand = caps[1].to_lowercase();
-        if !BRAND_STOPWORDS.contains(&brand.as_str()) && brand.chars().count() >= 3 {
-            let d = infer_brand_domain(&brand);
-            push_unique(&mut preferred, &d);
-        }
-    }
+    // source type below. (The retired BRAND_DOCS path that fabricated a
+    // <brand>.com preference was deleted by the task-scope audit
+    // 2026-11-02, brief #4 — see the regex-table note above.)
 
     for q in &decision.queries {
         if let Some(ds) = &q.preferred_domains {
@@ -468,10 +475,20 @@ pub fn derive_planner_law(user_prompt: &str, decision: &SearchDecision) -> Plann
         allowed_domains: allowed,
         blocked_domains: blocked,
         preferred_domains: preferred,
+        mandatory_hosts: mandatory,
         location: extract_location(user_prompt),
         expected_source_types: expected,
         budget: budget_for_depth(decision.depth),
     }
+}
+
+/// Mid-run boundary refresh (⇔ TS `applyScopeToLaw`): when the pipeline
+/// resolves an unresolved target from live evidence, the law updates IN
+/// PLACE so the gap/demand waves (which read the law at call time) ride the
+/// new boundary. The TS version mutates the object and returns it for
+/// convenience; Rust takes `&mut` — same observable state.
+pub fn apply_scope_to_law(law: &mut PlannerLaw, scope: Option<&TaskScope>) {
+    law.mandatory_hosts = mandatory_hosts_for(scope);
 }
 
 /* ── plan application (§11.5/§11.17) ─────────────────────────────────── */
@@ -497,14 +514,20 @@ fn plan_covers_domain(plan: &PlannedQuery, domain: &str) -> bool {
         .any(|s| s == d || s.ends_with(&format!(".{d}")) || d.ends_with(&format!(".{s}")))
 }
 
-/// Emit site-scoped companion queries for allowed/preferred domains that
-/// no existing plan already scopes — honoring the existing 4-plan cap and
-/// never repeating a scoped domain. Purely additive: `plan_queries` is
-/// untouched, so existing behavior (and goldens) stay byte-identical.
+/// Emit site-scoped companion queries for mandatory/allowed/preferred
+/// domains that no existing plan already scopes — honoring the existing
+/// 4-plan cap and never repeating a scoped domain. Mandatory scope hosts
+/// get FIRST claim on the capped companion slots (brief #6: a site-bound
+/// task must never lose its target to query budget); `plan_queries`
+/// already emitted origin-`scope` companions for them, so
+/// `plan_covers_domain` skips those — this loop only fills genuine gaps
+/// (late-resolved hosts included). Purely additive: `plan_queries` is
+/// untouched.
 pub fn apply_planner_law(plans: Vec<PlannedQuery>, law: &PlannerLaw) -> Vec<PlannedQuery> {
     let targets: Vec<&String> = law
-        .allowed_domains
+        .mandatory_hosts
         .iter()
+        .chain(law.allowed_domains.iter())
         .chain(law.preferred_domains.iter())
         .collect();
     if targets.is_empty() || plans.is_empty() {
@@ -530,9 +553,19 @@ pub fn apply_planner_law(plans: Vec<PlannedQuery>, law: &PlannerLaw) -> Vec<Plan
     out
 }
 
-/// Hard domain control on merged results (§11.17). Results the USER
-/// directed (origin "user" — pasted URLs) are exempt: the user's own link
-/// is never a casualty of a domain law they wrote for OTHER sources.
+/// Hard domain control on merged results (§11.17). TWO MODES (task-scope
+/// audit 2026-11-02, brief #5/#6/#9):
+/// - NO mandatory boundary → the legacy law: user-directed results (origin
+///   "user" — pasted URLs) are exempt, since the user's own link is never a
+///   casualty of a domain law they wrote for OTHER sources. This order is
+///   preserved byte-for-byte so non-scope runs (and the goldens) stay
+///   identical.
+/// - Mandatory operational scope ACTIVE → blocked still wins, and evidence
+///   is admitted ONLY inside mandatory ∪ allowed. A user-pasted link
+///   survives only when it is itself in scope — the exemption must not
+///   smuggle off-scope evidence into a site-bound task. (Sites the user
+///   AUTHORIZED ride `authorized_hosts` into `allowed_domains` upstream, so
+///   deliberate multisite use still passes.)
 ///
 /// Search-policy correction (2026-11-02): this is the ONLY hard exclusion
 /// mechanism and it is populated only by an EXPLICIT user block or a
@@ -543,29 +576,42 @@ pub fn apply_planner_law(plans: Vec<PlannedQuery>, law: &PlannerLaw) -> Vec<Plan
 /// preferences; the reranking layer decides strength. No duplicate
 /// decision logic.
 pub fn apply_domain_control(results: Vec<RankedResult>, law: &PlannerLaw) -> Vec<RankedResult> {
-    if law.allowed_domains.is_empty() && law.blocked_domains.is_empty() {
+    if law.allowed_domains.is_empty()
+        && law.blocked_domains.is_empty()
+        && law.mandatory_hosts.is_empty()
+    {
         return results;
     }
     results
         .into_iter()
         .filter(|r| {
-            if matches!(r.origin, Some(SearchOrigin::User)) {
-                return true;
-            }
+            // Host resolution runs first in BOTH modes (⇔ TS order; pure
+            // computation, so the legacy arm's observable order is kept).
             let host = if r.domain.is_empty() {
                 host_of(&r.url)
             } else {
                 r.domain.clone()
             };
-            if law.blocked_domains.iter().any(|d| domain_within(&host, d)) {
-                return false;
+            if law.mandatory_hosts.is_empty() {
+                if matches!(r.origin, Some(SearchOrigin::User)) {
+                    return true;
+                }
+                if law.blocked_domains.iter().any(|d| domain_within(&host, d)) {
+                    return false;
+                }
+                if !law.allowed_domains.is_empty()
+                    && !law.allowed_domains.iter().any(|d| domain_within(&host, d))
+                {
+                    return false;
+                }
+                true
+            } else {
+                if law.blocked_domains.iter().any(|d| domain_within(&host, d)) {
+                    return false;
+                }
+                law.mandatory_hosts.iter().any(|d| domain_within(&host, d))
+                    || law.allowed_domains.iter().any(|d| domain_within(&host, d))
             }
-            if !law.allowed_domains.is_empty()
-                && !law.allowed_domains.iter().any(|d| domain_within(&host, d))
-            {
-                return false;
-            }
-            true
         })
         .collect()
 }
@@ -689,8 +735,9 @@ pub fn evaluate_sufficiency(
             .any(|p| p.published_at.as_ref().is_some_and(|s| !s.is_empty()));
 
     let primaries: Vec<&String> = law
-        .allowed_domains
+        .mandatory_hosts
         .iter()
+        .chain(law.allowed_domains.iter())
         .chain(law.preferred_domains.iter())
         .collect();
     let primary_present = primaries.is_empty()
@@ -825,8 +872,9 @@ pub fn build_gap_demand(
     }
     if !sufficiency.primary_present {
         let d = law
-            .allowed_domains
+            .mandatory_hosts
             .first()
+            .or(law.allowed_domains.first())
             .or(law.preferred_domains.first())
             .map(|s| s.as_str())
             .unwrap_or("asked-for source");
@@ -879,11 +927,12 @@ pub fn build_gap_demand(
         ));
     }
     if !sufficiency.primary_present {
-        if let Some(d) = law
-            .allowed_domains
+        let d = law
+            .mandatory_hosts
             .first()
-            .or(law.preferred_domains.first())
-        {
+            .or(law.allowed_domains.first())
+            .or(law.preferred_domains.first());
+        if let Some(d) = d {
             bases.push(format!("{entity} site:{d}"));
         }
     }
@@ -961,6 +1010,7 @@ pub fn build_gap_demand(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task_scope::{SiteTarget, TaskIntent, TargetProvenance, TargetState};
     use crate::types::{Depth, Freshness, Intent, SearchDecision, SearchQuery};
     use serde_json::json;
 
@@ -1013,7 +1063,25 @@ mod tests {
         .unwrap()
     }
     fn empty_law(prompt: &str, decision: &SearchDecision) -> PlannerLaw {
-        derive_planner_law(prompt, decision)
+        derive_planner_law(prompt, decision, None)
+    }
+    /// Task-scope fixture (brief #5): a scope whose ONLY target is already
+    /// PSL-verified. ⇔ TS `scopeWith` (intent is explicit here — Rust has
+    /// no default args; every TS caller uses "operate" semantics).
+    fn scope_with(host: &str, intent: TaskIntent) -> TaskScope {
+        TaskScope {
+            intent,
+            targets: vec![SiteTarget {
+                phrase: host.to_string(),
+                state: TargetState::Resolved,
+                host: host.to_string(),
+                url: String::new(),
+                candidates: vec![],
+                provenance: TargetProvenance::ExplicitDomain,
+            }],
+            excluded_phrases: vec![],
+            authorized_hosts: vec![],
+        }
     }
 
     #[test]
@@ -1073,19 +1141,125 @@ mod tests {
             .any(|e| e == "official_docs"));
     }
 
+    // Audit regression (brief #4, ⇔ TS "docs mention never fabricates a
+    // brand domain"): the retired BRAND_DOCS path preferred
+    // kubernetes.com for this exact prompt. Fabricated domains are now
+    // banned outright — NOTHING may invent a domain that the user never
+    // wrote or that search evidence never validated. The old brand→TLD
+    // hints never protected against a stopword token either; the whole
+    // mechanism is deleted, not patched.
     #[test]
-    fn derive_brand_docs_pattern_prefers_brand_domain() {
+    fn derive_docs_mention_never_fabricates_a_brand_domain() {
         let law = empty_law(
             "search kubernetes docs please",
             &decision_with(Depth::Standard, Freshness::None, vec![]),
         );
-        assert_eq!(law.preferred_domains, ["kubernetes.com"]);
-        // A stopword token must never fabricate a brand domain.
+        assert!(law.preferred_domains.is_empty());
+        assert!(law.mandatory_hosts.is_empty());
         let none = empty_law(
             "search the docs please",
             &decision_with(Depth::Standard, Freshness::None, vec![]),
         );
         assert!(none.preferred_domains.is_empty());
+    }
+
+    // Brief #5: an operational target is a HARD boundary, not a soft
+    // preference — it must never ride `preferred_domains` where a weaker
+    // source could outrank it. ⇔ TS "operational scope makes hosts
+    // mandatory, not preferred".
+    #[test]
+    fn derive_operational_scope_makes_hosts_mandatory_not_preferred() {
+        let std = decision_with(Depth::Standard, Freshness::None, vec![]);
+        let law = derive_planner_law(
+            "order milk on blinkit.com",
+            &std,
+            Some(&scope_with("blinkit.com", TaskIntent::Operate)),
+        );
+        assert_eq!(law.mandatory_hosts, ["blinkit.com"]);
+        assert!(law.preferred_domains.is_empty());
+        assert!(law.allowed_domains.is_empty());
+        // The scope companion keeps its site: operator through the law
+        // layer and carries the host as a preferred engine hint.
+        let out = apply_planner_law(vec![pq("milk")], &law);
+        assert_eq!(out[1].query, "milk site:blinkit.com");
+        assert_eq!(out[1].preferred_domains.as_deref(), Some(&["blinkit.com".to_string()][..]));
+    }
+
+    // Brief #6/#9: with a mandatory boundary active the user-origin
+    // exemption must NOT smuggle off-scope evidence into a site-bound
+    // task, and near-miss fabricated-looking hosts never pass. ⇔ TS
+    // "mandatory scope admits nothing outside, even user-origin results".
+    #[test]
+    fn derive_mandatory_scope_admits_nothing_outside_even_user_origin() {
+        let std = decision_with(Depth::Standard, Freshness::None, vec![]);
+        let law = derive_planner_law(
+            "check prices on blinkit.com",
+            &std,
+            Some(&scope_with("blinkit.com", TaskIntent::Operate)),
+        );
+        let kept = apply_domain_control(
+            vec![
+                rr("https://blinkit.com/p", "blinkit.com", None),
+                rr("https://m.blinkit.com/p", "m.blinkit.com", None),
+                rr("https://blinkitcom.com/p", "blinkitcom.com", None),
+                rr("https://example.com/x", "example.com", None),
+                rr("https://example.com/mine", "example.com", Some("user")),
+            ],
+            &law,
+        );
+        let urls: Vec<String> = kept.iter().map(|r| r.url.clone()).collect();
+        assert_eq!(urls, ["https://blinkit.com/p", "https://m.blinkit.com/p"]);
+    }
+
+    // Brief #4: an UNRESOLVED (unvalidated) phrase is not a boundary —
+    // until evidence PSL-validates it, discovery stays legal; the scope
+    // becomes hard only through resolution, never through guessing. ⇔ TS
+    // "unresolved target leaves discovery legal until validated".
+    #[test]
+    fn derive_unresolved_target_leaves_discovery_legal_until_validated() {
+        let scope = TaskScope {
+            intent: TaskIntent::Operate,
+            targets: vec![SiteTarget {
+                phrase: "flurbs".to_string(),
+                state: TargetState::Unresolved,
+                host: String::new(),
+                url: String::new(),
+                candidates: vec![],
+                provenance: TargetProvenance::NoProvenance,
+            }],
+            excluded_phrases: vec![],
+            authorized_hosts: vec![],
+        };
+        let std = decision_with(Depth::Standard, Freshness::None, vec![]);
+        let law = derive_planner_law("order things on flurbs", &std, Some(&scope));
+        assert!(law.mandatory_hosts.is_empty());
+        let input = vec![rr("https://anything.dev/x", "anything.dev", None)];
+        let urls: Vec<String> = apply_domain_control(input, &law)
+            .iter()
+            .map(|r| r.url.clone())
+            .collect();
+        assert_eq!(urls, ["https://anything.dev/x"]);
+    }
+
+    // Brief #6: mid-run resolution must refresh the law IN PLACE so the
+    // gap/demand waves that read the law at call time ride the new
+    // boundary — ⇔ TS "applyScopeToLaw refreshes the boundary in place".
+    #[test]
+    fn apply_scope_to_law_refreshes_boundary_in_place() {
+        let std = decision_with(Depth::Standard, Freshness::None, vec![]);
+        let mut law = empty_law("order milk on flurbs", &std);
+        assert!(law.mandatory_hosts.is_empty());
+        apply_scope_to_law(&mut law, Some(&scope_with("flurbs.com", TaskIntent::Operate)));
+        assert_eq!(law.mandatory_hosts, ["flurbs.com"]);
+        let kept = apply_domain_control(
+            vec![
+                rr("https://flurbs.com/x", "flurbs.com", None),
+                rr("https://evil.com/x", "evil.com", None),
+            ],
+            &law,
+        );
+        let urls: Vec<String> = kept.iter().map(|r| r.url.clone()).collect();
+        assert_eq!(urls, ["https://flurbs.com/x"]);
     }
 
     #[test]
@@ -1362,7 +1536,11 @@ mod tests {
             serde_json::to_string(&law).unwrap(),
             // "paper" maps through sourceClass to the pdf class — the SAME
             // classMap runs on both sides, so TS yields ["pdf"] too.
-            r#"{"allowedDomains":["arxiv.org"],"blockedDomains":["reddit.com","quora.com"],"preferredDomains":[],"location":null,"expectedSourceTypes":["pdf"],"budget":{"maxQueryWaves":4,"maxPageFetches":10,"maxGapPageFetches":3,"demandWaveQueries":0,"maxPassages":15}}"#
+            // mandatoryHosts sits right after preferredDomains — the Rust
+            // struct declares mandatory_hosts in the same position (serde
+            // order ⇔ declaration order). Empty here: no operational scope
+            // was supplied.
+            r#"{"allowedDomains":["arxiv.org"],"blockedDomains":["reddit.com","quora.com"],"preferredDomains":[],"mandatoryHosts":[],"location":null,"expectedSourceTypes":["pdf"],"budget":{"maxQueryWaves":4,"maxPageFetches":10,"maxGapPageFetches":3,"demandWaveQueries":0,"maxPassages":15}}"#
         );
     }
 }

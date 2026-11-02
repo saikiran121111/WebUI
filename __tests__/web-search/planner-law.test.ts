@@ -7,12 +7,14 @@ import { describe, expect, it } from "vitest";
 import {
   applyDomainControl,
   applyPlannerLaw,
+  applyScopeToLaw,
   buildGapDemand,
   budgetForDepth,
   derivePlannerLaw,
   evaluateSufficiency,
   type SufficiencyReport,
 } from "../../lib/web-search/planner-law";
+import type { TaskScope } from "../../lib/decision/task-scope";
 import type { CoverageReport, PlannedQuery } from "../../lib/web-search/query-planner";
 import type {
   EvidencePacket,
@@ -67,6 +69,15 @@ function ep(sourceId: string, domain: string, text: string): EvidencePassage {
   };
 }
 const emptyLaw = (prompt: string, decision: SearchDecision) => derivePlannerLaw(prompt, decision);
+/** Task-scope fixture (brief #5): a scope whose ONLY target is verified. */
+function scopeWith(host: string, intent: TaskScope["intent"] = "operate"): TaskScope {
+  return {
+    intent,
+    targets: [{ phrase: host, state: "resolved", host, url: "", candidates: [], provenance: "explicit_domain" }],
+    excludedPhrases: [],
+    authorizedHosts: [],
+  };
+}
 
 describe("planner law (⇔ planner_law.rs)", () => {
   it("derive_only_scope_allowed_and_blocked_names", () => {
@@ -106,12 +117,88 @@ describe("planner law (⇔ planner_law.rs)", () => {
     expect(law.expectedSourceTypes).toContain("official_docs");
   });
 
-  it("derive_brand_docs_pattern_prefers_brand_domain", () => {
+  it("docs_mention_never_fabricates_a_brand_domain", () => {
+    // Regression (task-scope audit 2026-11-02, brief #4): the retired
+    // BRAND_DOCS path invented <brand>.com from prompt tokens and
+    // PREFERRED it — "kubernetes docs" used to yield kubernetes.com.
+    // Fabricated domains are banned outright. The docs expectation still
+    // survives as a soft source-type class (sourceClass →
+    // expectedSourceTypes), never as a domain guess.
     const law = emptyLaw("search kubernetes docs please", dec("standard", "none"));
-    expect(law.preferredDomains).toEqual(["kubernetes.com"]);
-    // A stopword token must never fabricate a brand domain.
+    expect(law.preferredDomains).toEqual([]);
+    expect(law.mandatoryHosts).toEqual([]);
     const none = emptyLaw("search the docs please", dec("standard", "none"));
     expect(none.preferredDomains).toEqual([]);
+  });
+
+  it("operational_scope_makes_hosts_mandatory_not_preferred", () => {
+    // Brief #5: "do this in Blinkit"-style operational scope is a HARD
+    // boundary (mandatoryHosts), distinct from allowed ("only use X") and
+    // preferred (soft ranking bias).
+    const std = dec("standard", "none");
+    const law = derivePlannerLaw("order milk on blinkit.com", std, scopeWith("blinkit.com"));
+    expect(law.mandatoryHosts).toEqual(["blinkit.com"]);
+    expect(law.preferredDomains).toEqual([]);
+    expect(law.allowedDomains).toEqual([]);
+    // Site companions ride the mandatory host first in the target list.
+    const out = applyPlannerLaw([pq("milk")], law);
+    expect(out[1].query).toBe("milk site:blinkit.com");
+    expect(out[1].preferredDomains).toEqual(["blinkit.com"]);
+  });
+
+  it("mandatory_scope_admits_nothing_outside_even_user_origin", () => {
+    // Brief #5/#9: with a mandatory operational scope active, the
+    // user-origin exemption must NOT smuggle off-scope evidence into a
+    // site-bound task. Exact host + subdomains pass; lookalikes fail.
+    const std = dec("standard", "none");
+    const law = derivePlannerLaw("check prices on blinkit.com", std, scopeWith("blinkit.com"));
+    const kept = applyDomainControl(
+      [
+        rr("https://blinkit.com/p", "blinkit.com"), // mandatory host
+        rr("https://m.blinkit.com/p", "m.blinkit.com"), // subdomain passes
+        rr("https://blinkitcom.com/p", "blinkitcom.com"), // lookalike NEVER
+        rr("https://example.com/x", "example.com"), // off-scope search hit
+        rr("https://example.com/mine", "example.com", "user"), // user ≠ bypass
+      ],
+      law,
+    ).map((r) => r.url);
+    expect(kept).toEqual(["https://blinkit.com/p", "https://m.blinkit.com/p"]);
+  });
+
+  it("unresolved_target_leaves_discovery_legal_until_validated", () => {
+    // An unresolved target is still an ENFORCEABLE scope (the fallback
+    // path may not broaden it), but domain control has no verified host to
+    // admit yet — the two-mode law keeps discovery byte-identical to the
+    // legacy no-lists path until resolution validates a host.
+    const std = dec("standard", "none");
+    const scope: TaskScope = {
+      intent: "operate",
+      targets: [{ phrase: "flurbs", state: "unresolved", host: "", url: "", candidates: [], provenance: "none" }],
+      excludedPhrases: [],
+      authorizedHosts: [],
+    };
+    const law = derivePlannerLaw("order milk on flurbs", std, scope);
+    expect(law.mandatoryHosts).toEqual([]);
+    const input = [rr("https://anything.dev/x", "anything.dev")];
+    expect(applyDomainControl(input, law)).toEqual(input);
+  });
+
+  it("apply_scope_to_law_refreshes_boundary_in_place", () => {
+    // Mid-run resolution (pipeline): the law object is const-referenced;
+    // refreshing the boundary mutates it so gap/demand waves ride it.
+    const std = dec("standard", "none");
+    const law = emptyLaw("order milk on flurbs", std);
+    expect(law.mandatoryHosts).toEqual([]);
+    applyScopeToLaw(law, scopeWith("flurbs.com"));
+    expect(law.mandatoryHosts).toEqual(["flurbs.com"]);
+    const kept = applyDomainControl(
+      [
+        rr("https://flurbs.com/x", "flurbs.com"),
+        rr("https://evil.com/x", "evil.com"),
+      ],
+      law,
+    ).map((r) => r.url);
+    expect(kept).toEqual(["https://flurbs.com/x"]);
   });
 
   it("derive_merges_gate_preferred_and_block_wins", () => {
@@ -328,8 +415,11 @@ describe("planner law (⇔ planner_law.rs)", () => {
     );
     // "paper" maps through sourceClass to the pdf class — the SAME classMap
     // runs on both sides, so Rust yields ["pdf"] too.
+    // mandatoryHosts sits right after preferredDomains — the Rust struct
+    // declares mandatory_hosts in the same position (serde order ⇔
+    // declaration order). Empty here: no operational scope was supplied.
     expect(JSON.stringify(law)).toBe(
-      '{"allowedDomains":["arxiv.org"],"blockedDomains":["reddit.com","quora.com"],"preferredDomains":[],"location":null,"expectedSourceTypes":["pdf"],"budget":{"maxQueryWaves":4,"maxPageFetches":10,"maxGapPageFetches":3,"demandWaveQueries":0,"maxPassages":15}}',
+      '{"allowedDomains":["arxiv.org"],"blockedDomains":["reddit.com","quora.com"],"preferredDomains":[],"mandatoryHosts":[],"location":null,"expectedSourceTypes":["pdf"],"budget":{"maxQueryWaves":4,"maxPageFetches":10,"maxGapPageFetches":3,"demandWaveQueries":0,"maxPassages":15}}',
     );
   });
 });

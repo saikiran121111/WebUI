@@ -372,6 +372,10 @@ pub enum PipelineStage {
     #[default]
     Gate,
     Planning,
+    /// Task-scope resolution (audit 2026-11-02, brief #4): an unresolved
+    /// explicit target became a PSL-verified host from live search
+    /// evidence. Informational only — the client needs no new UI.
+    Scope,
     Searching,
     Recovery,
     #[serde(rename = "auth_required")]
@@ -734,6 +738,24 @@ pub async fn run_web_research(
         }
     };
 
+    // Task-scope injection (audit 2026-11-02, brief #3/#6; ⇔ TS
+    // `activeScope`): chat callers hand in the conversation-folded scope;
+    // direct pipeline callers (tests, goldens, standalone routes) get a
+    // deterministic derivation from the prompt alone, so TS ⇔ Rust see the
+    // same contract even when the caller supplies none. The gate runs with
+    // the SAME scope injected — its rules fallback may not broaden it
+    // (brief #6).
+    let scope_override: Option<SearchGateContext> = if ctx.scope.is_some() {
+        None
+    } else {
+        let mut c = ctx.clone();
+        c.scope = Some(crate::task_scope::derive_task_scope(&ctx.user_prompt));
+        Some(c)
+    };
+    let ctx: &SearchGateContext = scope_override.as_ref().unwrap_or(ctx);
+    let mut active_scope: crate::task_scope::TaskScope =
+        ctx.scope.clone().expect("scope injected above");
+
     // 1) GATE
     emit(&PipelineProgress::of(
         PipelineStage::Gate,
@@ -761,11 +783,20 @@ pub async fn run_web_research(
     ));
     let t_plan = Instant::now();
     // P4 law layer: derive BEFORE planning so the law can add site-scoped
-    // companions (§11.17). plan_queries itself is byte-identical — the law
-    // only appends, never rewrites (duality §11.22, golden-safe). ⇔ TS.
-    let planner_law = derive_planner_law(&ctx.user_prompt, &gate.decision);
+    // companions (§11.17). Audit 2026-11-02 (brief #3/#4/#5): the law
+    // carries the scope's mandatory boundary and plan_queries appends
+    // targeted site:/discovery companions for it — no fabricated domains,
+    // no brand→TLD guessing. The law only appends, never rewrites
+    // (duality §11.22). ⇔ TS.
+    let mut planner_law =
+        derive_planner_law(&ctx.user_prompt, &gate.decision, Some(&active_scope));
     let planned = apply_planner_law(
-        plan_queries(&ctx.user_prompt, &gate.decision.queries, None),
+        plan_queries(
+            &ctx.user_prompt,
+            &gate.decision.queries,
+            None,
+            Some(&active_scope),
+        ),
         &planner_law,
     );
     // Snapshot of every planned query text for the §11.6 used-query law
@@ -1227,12 +1258,59 @@ pub async fn run_web_research(
         );
     }
 
+    // Task-scope resolution handoff (audit 2026-11-02, brief #4/#6): when
+    // an explicit target is still unresolved, this first merged SERP IS
+    // the bounded discovery evidence. Resolution runs through validated PSL
+    // registrable hosts of REAL result URLs — never a guessed domain. If
+    // any target's state/host changed, the law's mandatory boundary is
+    // refreshed IN PLACE (the gap/demand waves below read the law at call
+    // time, so they ride the updated state). Diagnostics log
+    // phrases/hosts/states only — no query text. ⇔ TS pipeline.ts.
+    if crate::task_scope::is_enforceable_scope(&active_scope)
+        && active_scope
+            .targets
+            .iter()
+            .any(|t| t.state == crate::task_scope::TargetState::Unresolved)
+    {
+        let candidates: Vec<String> = search_results.iter().map(|r| r.url.clone()).collect();
+        let resolved = crate::task_scope::resolve_task_scope(
+            &active_scope,
+            &candidates,
+            8,
+            crate::task_scope::TargetProvenance::ResolvedSearch,
+        );
+        let changed = resolved
+            .targets
+            .iter()
+            .enumerate()
+            .any(|(i, t)| match active_scope.targets.get(i) {
+                None => true,
+                Some(prev) => t.state != prev.state || t.host != prev.host,
+            });
+        if changed {
+            active_scope = resolved;
+            crate::planner_law::apply_scope_to_law(&mut planner_law, Some(&active_scope));
+            emit(&PipelineProgress::of(
+                PipelineStage::Scope,
+                "Target site resolved from search evidence",
+            ));
+            tracing::info!(
+                targets = ?active_scope
+                    .targets
+                    .iter()
+                    .map(|t| (&t.phrase, t.state, &t.host, t.provenance))
+                    .collect::<Vec<_>>(),
+                "task scope resolved from live evidence"
+            );
+        }
+    }
+
     // §11.17: the domain law is global — SERP results that violate it are
     // dropped BEFORE starvation is judged, so an off-law-only SERP surfaces
     // as starved rather than polluting evidence with off-law domains.
-    // No-op when the law has no lists (fixture-inert). User-pasted URLs
-    // (origin "user") are exempt — the user's own link is never a casualty
-    // of a law written about OTHER sources. ⇔ TS pipeline.ts.
+    // Two-mode control (brief #5/#6): with a mandatory boundary active,
+    // admission is inside mandatory ∪ allowed and the user-pasted exemption
+    // no longer smuggles off-scope evidence into a site-bound task. ⇔ TS.
     search_results = apply_domain_control(search_results, &planner_law);
 
     // 8) starved done
@@ -1786,6 +1864,7 @@ mod tests {
             has_attachment_evidence: None,
             current_date: None,
             image_data_urls: None,
+            scope: None,
         }
     }
     fn empty_bundle() -> EvidenceBundle {
@@ -1818,6 +1897,7 @@ mod tests {
                     depth: Depth::Standard,
                     queries: vec![],
                 },
+                None,
             ),
             sufficiency: None,
             gap_demand: None,

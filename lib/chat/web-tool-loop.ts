@@ -54,6 +54,7 @@ import type { StageEvent } from "../types";
 // web_meta frame (OVERWRITE law — a later frame replaces the WHOLE set).
 import type { PresentationPlan } from "../web-search/presentation";
 import type { RichResult } from "../web-search/rich-results";
+import type { TaskScope } from "../decision/task-scope";
 
 const log = childLogger("chat/web-tool-loop");
 
@@ -254,6 +255,10 @@ export interface WebToolLoopOptions {
   webCitationMap: Record<string, any> | null;
   /** Gate summary re- carried on every updated web_meta frame. */
   searchGateMeta: StageEvent["searchGate"] | null;
+  /** Task-scope audit (2026-11-02, brief #1/#6): the server-owned scope
+   *  threaded into the tool session. Tool arguments can never widen it.
+   *  Absent ⇒ no scope enforcement (legacy callers/tests). */
+  scope?: TaskScope | null;
   /** P5 §57: the turn's plan + validated surfaces, re-carried verbatim on
    *  every updated web_meta frame so the OVERWRITE law never drops them. */
   presentation?: PresentationPlan | null;
@@ -350,7 +355,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       const m = /^S(\d+)$/.exec(key);
       if (m) seed = Math.max(seed, parseInt(m[1], 10));
     }
-    const session = makeWebToolSession(depth, seed + 1, fullText);
+    const session = makeWebToolSession(depth, seed + 1, fullText, opts.scope ?? null);
 
     // Guidance block + tool surface (same slot as the skill block).
     if (Array.isArray(payload.messages)) {

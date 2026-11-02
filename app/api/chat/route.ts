@@ -9,6 +9,7 @@ import {
 import { getDecision } from "../../../lib/decision/client";
 import { beginUserTurn, endUserTurn } from "../../../lib/server/inference-busy";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
+import { foldTaskScope, type TaskScope } from "../../../lib/decision/task-scope";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
 import { buildClockContext } from "../../../lib/chat/clock-context";
 import {
@@ -451,7 +452,7 @@ async function runTurnPipeline(
      *  body in POST, already deleted there so it never reaches upstream). */
     turnTimezone?: string;
   },
-): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null; presentation: PresentationPlan | null; richResults: RichResult[] | null }> {
+): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null; presentation: PresentationPlan | null; richResults: RichResult[] | null; turnScope: TaskScope }> {
   const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
@@ -507,6 +508,20 @@ async function runTurnPipeline(
   // surfaces, derived deterministically from the evidence bundle.
   let presentation: PresentationPlan | null = null;
   let richResults: RichResult[] | null = null;
+  // Task-scope contract (audit 2026-11-02, brief #1/#3/#6): fold THIS
+  // conversation's user turns — oldest→newest, current turn last — into the
+  // server-owned operational scope before anything searches. Neither the
+  // gate nor the model's tool arguments can widen it; the pipeline and the
+  // web tool session both consume it. Rust mirror: fold_task_scope in the
+  // chat pipeline (stateless fold over the request's user turns).
+  const turnScope = foldTaskScope([
+    ...(Array.isArray(history)
+      ? history
+          .filter((h) => h.role === "user" && typeof h.content === "string")
+          .map((h) => h.content)
+      : []),
+    fullText,
+  ]);
   const webResearchDisabled = gateDisabledByEnv();
   try {
     if (webResearchDisabled) {
@@ -528,6 +543,7 @@ async function runTurnPipeline(
         // local evidence for the gate even though retrieval skips it.
         hasAttachmentEvidence: hasAttachmentRefs || hasInlineAttachment,
         imageDataUrls: imageParts,
+        scope: turnScope,
       },
       (p) => {
         log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
@@ -624,7 +640,7 @@ async function runTurnPipeline(
     "turn decision",
   );
 
-  return { webCitationMap, searchGateMeta, webDepth, presentation, richResults };
+  return { webCitationMap, searchGateMeta, webDepth, presentation, richResults, turnScope };
 }
 
 export async function POST(req: NextRequest) {
@@ -833,6 +849,7 @@ export async function POST(req: NextRequest) {
                   searchGateMeta: meta.searchGateMeta,
                   presentation: meta.presentation,
                   richResults: meta.richResults,
+                  scope: meta.turnScope,
                   signal: inner.signal,
                   ch,
                 });

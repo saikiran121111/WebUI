@@ -1059,6 +1059,22 @@ pub fn merge_task_scope(prev: Option<&TaskScope>, prompt: &str) -> TaskScope {
     derived
 }
 
+/// Fold the conversation's user turns oldest→newest (current turn last).
+/// The fold is STATELESS by design: the chat routes (TS `foldTaskScope`
+/// in app/api/chat/route.ts, Rust chat pipeline) derive the operational
+/// scope per request from the request's own user turns — no session
+/// store, nothing for model tool arguments to poison.
+pub fn fold_task_scope(user_prompts: &[String]) -> TaskScope {
+    let mut prev: Option<TaskScope> = None;
+    for p in user_prompts {
+        if p.trim().is_empty() {
+            continue;
+        }
+        prev = Some(merge_task_scope(prev.as_ref(), p));
+    }
+    prev.unwrap_or_else(empty_scope)
+}
+
 // ─── Corpus parity tests (the corpus is the contract) ──────────────────────
 
 #[cfg(test)]
@@ -1177,6 +1193,38 @@ mod tests {
         let got = merge_task_scope(None, "now find the price");
         assert_eq!(got.intent, TaskIntent::NoScope);
         assert!(got.targets.is_empty());
+    }
+
+    #[test]
+    fn fold_carries_scope_across_followups() {
+        // Brief #6: a short follow-up must NOT silently drop the scope.
+        let s = fold_task_scope(&[
+            "Order milk on Zepto".to_string(),
+            "what about the delivery fee".to_string(),
+        ]);
+        assert!(!s.targets.is_empty());
+        assert!(s.targets.iter().any(|t| t.phrase.eq_ignore_ascii_case("zepto")));
+    }
+
+    #[test]
+    fn fold_unrelated_fresh_ask_replaces_scope() {
+        // merge_task_scope's replace law holds through the fold: a fresh
+        // non-empty derivation must not leak the old constraint forward.
+        let s = fold_task_scope(&[
+            "Order milk on Zepto".to_string(),
+            "compare amazon.com vs flipkart.com laptops".to_string(),
+        ]);
+        assert!(s.targets.iter().all(|t| !t.phrase.eq_ignore_ascii_case("zepto")));
+        assert!(!s.targets.is_empty());
+    }
+
+    #[test]
+    fn fold_blank_and_empty_prompts_yield_empty_scope() {
+        assert_eq!(fold_task_scope(&[]), empty_scope());
+        assert_eq!(
+            fold_task_scope(&["".to_string(), "   ".to_string()]),
+            empty_scope()
+        );
     }
 
     #[test]

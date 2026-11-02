@@ -735,3 +735,19 @@ export function mergeTaskScope(prev: TaskScope | null, prompt: string): TaskScop
   if (prev && prev.intent !== "none" && isFollowUp(prompt)) return prev;
   return derived;
 }
+
+/**
+ * Fold the conversation's USER turns (oldest → newest, current turn LAST)
+ * into one scope by replaying the same turn-to-turn merge law. Deterministic
+ * and stateless: the chat routes (TS route.ts ⇔ Rust chat pipeline) derive
+ * the turn's scope with this instead of needing a server-side session store.
+ * Mirrors Rust `fold_task_scope`.
+ */
+export function foldTaskScope(userPrompts: string[]): TaskScope {
+  let prev: TaskScope | null = null;
+  for (const p of userPrompts) {
+    if (!p || !p.trim()) continue;
+    prev = mergeTaskScope(prev, p);
+  }
+  return prev ?? { intent: "none", targets: [], excludedPhrases: [], authorizedHosts: [] };
+}

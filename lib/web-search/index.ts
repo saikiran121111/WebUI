@@ -126,9 +126,6 @@ export {
   planQueries,
   evaluateCoverage,
   runGapMetasearch,
-  extractBrandTokens,
-  inferBrandDomain,
-  buildDeepIndexQuery,
   type PlannedQuery,
   type CoverageReport,
 } from "./query-planner";

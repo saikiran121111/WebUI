@@ -28,6 +28,13 @@ import { extractUrl, renumberPackets } from "./extractor";
 import { applySegmentFilter } from "./segment-filter";
 import { isSafeUrlWithDns } from "./ssrf";
 import type { SearchDecision, RankedResult } from "./types";
+import { domainWithin } from "./domain-match";
+import {
+  isEnforceableScope,
+  resolveTaskScope,
+  scopeHosts,
+  type TaskScope,
+} from "../decision/task-scope";
 
 /* ── §11.13 RetrievalFailure taxonomy (⇔ Rust `RetrievalFailure`) ──────── */
 
@@ -155,12 +162,30 @@ export interface WebToolSession {
   nextSource: number;
   /** Focus fallback: the user prompt the tool loop was built for. */
   queryContext: string;
+  /**
+   * Task-scope audit (2026-11-02, brief #1/#6): the server-owned operational
+   * scope for this conversation. The MODEL CANNOT WIDEN IT — tool arguments
+   * never merge into or bypass this contract; it only ever narrows as
+   * targets resolve against real SERP evidence. `null` ⇒ no enforcement
+   * (legacy direct-session callers). Mirrors Rust `WebToolSession.scope`.
+   */
+  scope: TaskScope | null;
+}
+
+/** Hostname of a tool-supplied URL ("" on parse failure — fail closed). */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 export function makeWebToolSession(
   depth: WebToolDepth,
   citationSeed: number,
   queryContext: string,
+  scope: TaskScope | null = null,
 ): WebToolSession {
   return {
     searchSessionId: "ws-" + Math.random().toString(36).slice(2, 10),
@@ -170,6 +195,7 @@ export function makeWebToolSession(
     roundsUsed: 0,
     nextSource: Math.max(1, citationSeed),
     queryContext: queryContext.slice(0, 500),
+    scope,
   };
 }
 
@@ -566,6 +592,37 @@ export async function execWebSearchTool(
     }
   }
 
+  // Task-scope admission (audit 2026-11-02, brief #4/#6/#9): a site-bound
+  // operational scope is enforced on evidence ADMITTED to this session —
+  // off-scope results are dropped with HONEST notices (never silent), and
+  // unresolved targets resolve ONLY through real SERP urls (validated PSL
+  // hosts), never a fabricated domain. The session scope only narrows.
+  // No mandatory hosts (unresolved-only scope) ⇒ discovery stays legal,
+  // matching planner-law's two-mode domain control.
+  if (session.scope && isEnforceableScope(session.scope)) {
+    if (session.scope.targets.some((t) => t.state === "unresolved")) {
+      session.scope = resolveTaskScope(session.scope, merged.map((r) => r.url));
+    }
+    const hosts = scopeHosts(session.scope);
+    if (hosts.length > 0) {
+      const dropped: string[] = [];
+      for (let i = merged.length - 1; i >= 0; i -= 1) {
+        const r = merged[i];
+        const host = hostOf(r.url) || r.domain;
+        if (!hosts.some((h) => domainWithin(host, h))) {
+          dropped.push(host || r.domain || "?");
+          merged.splice(i, 1);
+        }
+      }
+      for (const d of dropped.slice(0, 3)) {
+        notices.push(`off-scope result dropped: ${d} (task scope: ${hosts.join(", ")})`);
+      }
+      if (dropped.length > 3) {
+        notices.push(`(${dropped.length - 3} more off-scope results dropped)`);
+      }
+    }
+  }
+
   const results = merged.slice(0, MAX_RESULTS).map((r) => ({
     url: r.url,
     title: r.title,
@@ -618,9 +675,29 @@ export async function execReadPageTool(
     return budgetExhaustedEnvelope(session, "read_page", "read_page");
   }
   const notices: string[] = [];
-  const keep = urls.slice(0, allowed);
-  if (keep.length < urls.length) {
-    notices.push(`read budget exhausted: ${urls.length - keep.length} URL(s) dropped (remaining ${allowed})`);
+  // Task-scope admission for read_page (brief #6/#8): a read_page argument
+  // can never BROADEN the scope — the model asking for an off-scope URL is
+  // denied BEFORE the fetch with an honest notice, not silently dropped and
+  // not fetched "so the check can run after". Only applies when the scope
+  // has verified hosts (see web_search admission above for the rationale).
+  const sHosts = session.scope && isEnforceableScope(session.scope)
+    ? scopeHosts(session.scope)
+    : [];
+  const admitted = sHosts.length === 0
+    ? urls
+    : urls.filter((u) => sHosts.some((h) => domainWithin(hostOf(u), h)));
+  if (admitted.length < urls.length) {
+    const blocked = urls.filter((u) => !admitted.includes(u));
+    for (const u of blocked.slice(0, 3)) {
+      notices.push(`read blocked: ${hostOf(u) || u} is outside the task scope (${sHosts.join(", ")})`);
+    }
+    if (blocked.length > 3) {
+      notices.push(`(${blocked.length - 3} more off-scope reads blocked)`);
+    }
+  }
+  const keep = admitted.slice(0, allowed);
+  if (keep.length < admitted.length) {
+    notices.push(`read budget exhausted: ${admitted.length - keep.length} URL(s) dropped (remaining ${allowed})`);
   }
   session.readUrlsUsed += keep.length;
 

@@ -32,8 +32,12 @@ use serde_json::{json, Map, Value};
 
 use crate::extractor::{renumber_packets, Extractor};
 use crate::metasearch::{metasearch, normalize_url, SearchPlan};
+use crate::planner_law::domain_within;
 use crate::reranker::apply_segment_filter;
 use crate::ssrf::is_safe_url_with_dns;
+use crate::task_scope::{
+    is_enforceable_scope, resolve_task_scope, scope_hosts, TargetProvenance, TargetState, TaskScope,
+};
 use crate::types::{Depth, Freshness, Intent, RankedResult, SearchOrigin};
 
 /* ── §11.13 RetrievalFailure taxonomy (⇔ TS `RetrievalFailure`) ──────── */
@@ -214,12 +218,29 @@ pub struct WebToolSession {
     pub next_source: usize,
     /// Focus fallback: the user prompt the tool loop was built for.
     pub query_context: String,
+    ///
+    /// Task-scope audit (2026-11-02, brief #1/#6): the server-owned operational
+    /// scope for this conversation. The MODEL CANNOT WIDEN IT — tool arguments
+    /// never merge into or bypass this contract; it only ever narrows as
+    /// targets resolve against real SERP evidence. `None` ⇒ no enforcement
+    /// (legacy direct-session callers). ⇔ TS `WebToolSession.scope`.
+    pub scope: Option<TaskScope>,
+}
+
+/// Hostname of a tool-supplied URL ("" on parse failure — fail closed;
+/// ⇔ TS `hostOf`).
+fn host_of(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+        .unwrap_or_default()
 }
 
 pub fn make_web_tool_session(
     depth: Depth,
     citation_seed: usize,
     query_context: &str,
+    scope: Option<TaskScope>,
 ) -> WebToolSession {
     // Runtime-derived id (no uuid crate in the workspace) — TS uses
     // Math.random; both are opaque correlation ids, never parsed.
@@ -239,6 +260,7 @@ pub fn make_web_tool_session(
         rounds_used: 0,
         next_source: citation_seed.max(1),
         query_context: take_chars(query_context, 500),
+        scope,
     }
 }
 
@@ -759,6 +781,57 @@ pub async fn exec_web_search(
         }
     }
 
+    // Task-scope admission (audit 2026-11-02, brief #4/#6/#9): a site-bound
+    // operational scope is enforced on evidence ADMITTED to this session —
+    // off-scope results are dropped with HONEST notices (never silent), and
+    // unresolved targets resolve ONLY through real SERP urls (validated PSL
+    // hosts), never a fabricated domain. The session scope only narrows.
+    // No mandatory hosts (unresolved-only scope) ⇒ discovery stays legal,
+    // matching planner-law's two-mode domain control. ⇔ TS tools.ts block.
+    if let Some(mut sc) = session.scope.clone().filter(|s| is_enforceable_scope(s)) {
+        if sc.targets.iter().any(|t| t.state == TargetState::Unresolved) {
+            let candidates: Vec<String> = merged.iter().map(|r| r.url.clone()).collect();
+            sc = resolve_task_scope(&sc, &candidates, 8, TargetProvenance::ResolvedSearch);
+        }
+        let hosts = scope_hosts(&sc);
+        session.scope = Some(sc);
+        if !hosts.is_empty() {
+            // Reverse walk ⇔ TS reverse-index splice loop (notice ORDER pinned).
+            let mut dropped: Vec<String> = Vec::new();
+            for i in (0..merged.len()).rev() {
+                let host = {
+                    let h = host_of(&merged[i].url);
+                    if h.is_empty() {
+                        merged[i].domain.clone()
+                    } else {
+                        h
+                    }
+                };
+                if !hosts.iter().any(|h| domain_within(&host, h)) {
+                    dropped.push(if host.is_empty() {
+                        if merged[i].domain.is_empty() {
+                            "?".to_string()
+                        } else {
+                            merged[i].domain.clone()
+                        }
+                    } else {
+                        host
+                    });
+                    merged.remove(i);
+                }
+            }
+            for d in dropped.iter().take(3) {
+                notices.push(format!(
+                    "off-scope result dropped: {d} (task scope: {})",
+                    hosts.join(", ")
+                ));
+            }
+            if dropped.len() > 3 {
+                notices.push(format!("({} more off-scope results dropped)", dropped.len() - 3));
+            }
+        }
+    }
+
     let results: Vec<Value> = merged
         .into_iter()
         .take(MAX_RESULTS)
@@ -856,18 +929,51 @@ pub async fn exec_read_page(
         return budget_exhausted_envelope(session, "read_page");
     }
     let mut notices: Vec<String> = Vec::new();
-    let keep: Vec<String> = urls.into_iter().take(allowed).collect();
-    // Recompute drop count from the filtered input (TS `urls.length` is
-    // already the filtered list).
-    let filtered_in = strings_arg(args, "urls")
-        .into_iter()
-        .map(|u| u.trim().to_string())
-        .filter(|u| is_http_url(u))
-        .count();
-    if keep.len() < filtered_in {
+    // Task-scope admission for read_page (brief #6/#8): a read_page argument
+    // can never BROADEN the scope — the model asking for an off-scope URL is
+    // denied BEFORE the fetch with an honest notice, not silently dropped and
+    // not fetched "so the check can run after". Only applies when the scope
+    // has verified hosts (see web_search admission above for the rationale).
+    let s_hosts = session
+        .scope
+        .as_ref()
+        .filter(|s| is_enforceable_scope(s))
+        .map(scope_hosts)
+        .unwrap_or_default();
+    let admitted: Vec<String> = if s_hosts.is_empty() {
+        urls.clone()
+    } else {
+        urls.iter()
+            .filter(|u| s_hosts.iter().any(|h| domain_within(&host_of(u), h)))
+            .cloned()
+            .collect()
+    };
+    if admitted.len() < urls.len() {
+        let blocked: Vec<&String> = urls
+            .iter()
+            .filter(|u| !admitted.iter().any(|a| a == *u))
+            .collect();
+        for u in blocked.iter().take(3) {
+            let h = host_of(u);
+            notices.push(format!(
+                "read blocked: {} is outside the task scope ({})",
+                if h.is_empty() {
+                    u.as_str()
+                } else {
+                    h.as_str()
+                },
+                s_hosts.join(", ")
+            ));
+        }
+        if blocked.len() > 3 {
+            notices.push(format!("({} more off-scope reads blocked)", blocked.len() - 3));
+        }
+    }
+    let keep: Vec<String> = admitted.iter().take(allowed).cloned().collect();
+    if keep.len() < admitted.len() {
         notices.push(format!(
             "read budget exhausted: {} URL(s) dropped (remaining {})",
-            filtered_in - keep.len(),
+            admitted.len() - keep.len(),
             allowed
         ));
     }
@@ -919,9 +1025,36 @@ mod tests {
     use crate::cache::ScriptedCache;
     use crate::net::ScriptedNet;
     use crate::platform_api::NoVerticals;
+    use crate::task_scope::{SiteTarget, TaskIntent};
 
     fn session(depth: Depth) -> WebToolSession {
-        make_web_tool_session(depth, 1, "what changed today")
+        make_web_tool_session(depth, 1, "what changed today", None)
+    }
+
+    // Task-scope audit fixtures (brief #1/#4/#6): an OPERATE session bound
+    // to one site, either already resolved or still awaiting discovery.
+    fn operate_scope(host: &str, phrase: &str, resolved: bool) -> TaskScope {
+        TaskScope {
+            intent: TaskIntent::Operate,
+            targets: vec![SiteTarget {
+                phrase: phrase.to_string(),
+                state: if resolved {
+                    TargetState::Resolved
+                } else {
+                    TargetState::Unresolved
+                },
+                host: if resolved { host.to_string() } else { String::new() },
+                url: String::new(),
+                candidates: Vec::new(),
+                provenance: if resolved {
+                    TargetProvenance::ExplicitDomain
+                } else {
+                    TargetProvenance::NoProvenance
+                },
+            }],
+            excluded_phrases: Vec::new(),
+            authorized_hosts: Vec::new(),
+        }
     }
 
     // Vectors shared byte-for-byte with __tests__/web-search/web-tools.test.ts.
@@ -1176,6 +1309,179 @@ mod tests {
         assert_eq!(second["error"], json!("budget_exhausted"));
         assert_eq!(second["remainingBudget"]["searches"], json!(0));
         assert_eq!(s.searches_used, 1); // the refused round does NOT charge
+    }
+
+    /// Bing Stage-A RSS feed for the test query: the in-scope item and an
+    /// off-scope item, BOTH carrying query tokens (metasearch's per-plan
+    /// lexical floor drops off-topic captions — see metasearch tests). The
+    /// URL is the exact pool construction (engines::bing_rss doc header ⇔
+    /// `enc_component` ⇒ "%20"); plain `<link>` URLs pass Stage A verbatim
+    /// (pinned by engines::bing_rss_stage_a_parses_items).
+    fn zeta_flurb_serp_net() -> ScriptedNet {
+        let xml = "<rss><channel>\
+            <item><title><![CDATA[Zeta Flurb pricing page]]></title><link>https://scope-ok.com/pricing</link><description><![CDATA[zeta flurb pricing tiers listed on the official page]]></description></item>\
+            <item><title><![CDATA[Zeta Flurb pricing rumor blog]]></title><link>https://evil-off.com/blog</link><description><![CDATA[zeta flurb pricing rumor roundup blog post]]></description></item>\
+            </channel></rss>";
+        ScriptedNet::default().with_url(
+            "https://www.bing.com/search?q=zeta%20flurb%20pricing&format=rss&count=15",
+            crate::net::UrlFetchResult {
+                status: 200,
+                ok: true,
+                text: xml.to_string(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn web_search_scope_admission_drops_off_scope_results() {
+        // Audit regression (brief #4/#6/#9): a site-bound session must never
+        // receive off-scope evidence in its packet; the drop is NOTICE-BEARING
+        // (never silent) and the session contract survives the round intact.
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
+        let net = zeta_flurb_serp_net();
+        let cache = ScriptedCache::default();
+        let ex = extractor(&net, &cache);
+        let mut s = make_web_tool_session(
+            Depth::Standard,
+            1,
+            "order the zeta flurb on scope ok",
+            Some(operate_scope("scope-ok.com", "scope ok", true)),
+        );
+        let mut cites = Vec::new();
+        let out = exec_web_search(
+            &ex,
+            &mut s,
+            &json!({ "queries": ["zeta flurb pricing"], "missing_claims": ["the price"] }),
+            &mut cites,
+        )
+        .await;
+        assert_eq!(out["ok"], json!(true));
+        assert_eq!(
+            out["resultsReturned"],
+            json!(1),
+            "the off-scope SERP result never reaches the model"
+        );
+        assert_eq!(out["results"][0]["url"], json!("https://scope-ok.com/pricing"));
+        let notices: Vec<&str> = out["notices"]
+            .as_array()
+            .map(|a| a.iter().map(|n| n.as_str().unwrap()).collect())
+            .unwrap_or_default();
+        assert!(
+            notices
+                .iter()
+                .any(|n| *n == "off-scope result dropped: evil-off.com (task scope: scope-ok.com)"),
+            "drop must be honest, got {notices:?}"
+        );
+        // The scope only ever narrows: the resolved host survives.
+        assert_eq!(
+            scope_hosts(s.scope.as_ref().unwrap()),
+            vec!["scope-ok.com".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn web_search_scope_resolves_unresolved_target_from_serp_evidence() {
+        // Audit regression (brief #4): an unresolved target resolves ONLY
+        // through real SERP evidence (validated PSL host), and the fresh
+        // host governs ADMITTED results in the SAME round. No candidate ⇒
+        // the target stays unresolved (never a fabricated domain) — pinned
+        // by the task_scope corpus; here the SERP carries the match.
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
+        let net = zeta_flurb_serp_net();
+        let cache = ScriptedCache::default();
+        let ex = extractor(&net, &cache);
+        let mut s = make_web_tool_session(
+            Depth::Standard,
+            1,
+            "order the zeta flurb on scope ok",
+            Some(operate_scope("", "scope ok", false)),
+        );
+        let mut cites = Vec::new();
+        let out = exec_web_search(
+            &ex,
+            &mut s,
+            &json!({ "queries": ["zeta flurb pricing"], "missing_claims": ["the price"] }),
+            &mut cites,
+        )
+        .await;
+        assert_eq!(out["ok"], json!(true));
+        let sc = s.scope.clone().unwrap();
+        let t = &sc.targets[0];
+        assert_eq!(t.state, TargetState::Resolved, "SERP evidence resolved the target");
+        assert_eq!(t.host, "scope-ok.com", "validated registrable host, never a guess");
+        assert_eq!(t.provenance, TargetProvenance::ResolvedSearch);
+        assert_eq!(
+            out["resultsReturned"],
+            json!(1),
+            "same-round admission used the freshly resolved host"
+        );
+        assert_eq!(out["results"][0]["url"], json!("https://scope-ok.com/pricing"));
+    }
+
+    #[tokio::test]
+    async fn read_page_scope_admission_blocks_off_scope_before_fetch() {
+        // Audit regression (brief #6/#8): destination check BEFORE load —
+        // the off-scope URL is refused without ever touching the net ("a
+        // check after an unauthorized page has loaded is insufficient").
+        let page = crate::net::PageResponse {
+            status: 200,
+            ok: true,
+            body: "<html><head><title>Scope Ok Pricing</title></head><body><article>\
+                    <h1>Zeta Flurb Pricing</h1>\
+                    <p>The scope ok pricing page lists every zeta flurb tier with \
+                    monthly and annual options plus the enterprise contact form for \
+                    large deployments according to the published rate card.</p>\
+                    <p>Shipping is calculated at checkout, taxes appear after the \
+                    address entry, and the checkout flow accepts the standard local \
+                    payment methods used across the catalog.</p>\
+                    </article></body></html>"
+                .to_string(),
+            content_type: "text/html".to_string(),
+            elapsed_ms: 10,
+            fingerprint: String::new(),
+            cookies: Vec::new(),
+            resolved_url: "https://scope-ok.com/pricing".to_string(),
+            bot_name: None,
+        };
+        // ONLY the in-scope page is scripted: if the blocked URL reached the
+        // network the assertion on `net.calls` fires, proving pre-fetch denial.
+        let net = ScriptedNet::default().with_page("https://scope-ok.com/pricing", page);
+        let cache = ScriptedCache::default();
+        let ex = extractor(&net, &cache);
+        let mut s = make_web_tool_session(
+            Depth::Standard,
+            1,
+            "order the zeta flurb on scope ok",
+            Some(operate_scope("scope-ok.com", "scope ok", true)),
+        );
+        let mut cites = Vec::new();
+        let out = exec_read_page(
+            &ex,
+            &mut s,
+            &json!({ "urls": ["https://evil-off.com/blog", "https://scope-ok.com/pricing"], "focus": "pricing" }),
+            &mut cites,
+        )
+        .await;
+        assert_eq!(out["ok"], json!(true));
+        assert_eq!(out["pages"].as_array().unwrap().len(), 1);
+        assert_eq!(s.read_urls_used, 1, "blocked reads never charge the budget");
+        let calls = net.calls.lock().unwrap();
+        assert!(
+            !calls.iter().any(|(u, _)| u == "https://evil-off.com/blog"),
+            "off-scope URL was fetched before the check: {calls:?}"
+        );
+        let notices: Vec<&str> = out["notices"]
+            .as_array()
+            .map(|a| a.iter().map(|n| n.as_str().unwrap()).collect())
+            .unwrap_or_default();
+        assert!(
+            notices
+                .iter()
+                .any(|n| *n == "read blocked: evil-off.com is outside the task scope (scope-ok.com)"),
+            "block must be honest, got {notices:?}"
+        );
     }
 
     #[tokio::test]

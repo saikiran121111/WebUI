@@ -658,6 +658,14 @@ pub struct SearchGateContext {
     pub current_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_data_urls: Option<Vec<String>>,
+    /// Task-scope audit (brief #1/#3/#6): the server-authoritative task
+    /// scope for this turn, folded from the conversation's user prompts
+    /// (`task_scope::fold_task_scope`). PRESENT ⇒ the gate and the planner
+    /// must plan INSIDE the scope (target companions, bounded discovery);
+    /// ABSENT ⇒ behavior byte-identical to the pre-audit baseline. Mirrors
+    /// the TS `SearchGateContext.scope`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<crate::task_scope::TaskScope>,
 }
 
 /// `"deterministic" | "main-model" | "rules"` (Stage 0 / main LLM /

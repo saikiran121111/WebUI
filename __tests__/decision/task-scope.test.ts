@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   deriveTaskScope,
+  foldTaskScope,
   mergeTaskScope,
   resolveTarget,
   resolveTaskScope,
@@ -177,6 +178,34 @@ describe("task-scope laws (TS side)", () => {
     const got = mergeTaskScope(null, "now find the price");
     expect(got.intent).toBe("none");
     expect(got.targets).toHaveLength(0);
+  });
+
+  it("fold carries scope across short follow-ups", () => {
+    // ⇔ Rust fold_carries_scope_across_followups (brief #6).
+    const s = foldTaskScope([
+      "Order milk on Zepto",
+      "what about the delivery fee",
+    ]);
+    expect(s.targets.length).toBeGreaterThan(0);
+    expect(s.targets.some((t) => t.phrase.toLowerCase() === "zepto")).toBe(true);
+  });
+
+  it("fold: an unrelated fresh ask REPLACES the old scope", () => {
+    // ⇔ Rust fold_unrelated_fresh_ask_replaces_scope — the merge replace
+    // law holds through the fold; old constraints never leak forward.
+    const s = foldTaskScope([
+      "Order milk on Zepto",
+      "compare amazon.com vs flipkart.com laptops",
+    ]);
+    expect(s.targets.every((t) => t.phrase.toLowerCase() !== "zepto")).toBe(true);
+    expect(s.targets.length).toBeGreaterThan(0);
+  });
+
+  it("fold: empty/blank prompt lists yield the empty scope", () => {
+    // ⇔ Rust fold_blank_and_empty_prompts_yield_empty_scope.
+    const empty: TaskScope = { intent: "none", targets: [], excludedPhrases: [], authorizedHosts: [] };
+    expect(foldTaskScope([])).toEqual(empty);
+    expect(foldTaskScope(["", "   "])).toEqual(empty);
   });
 
   it("scope hosts keep first-seen order and include authorized hosts", () => {

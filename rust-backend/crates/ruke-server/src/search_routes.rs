@@ -76,6 +76,8 @@ pub async fn search_get(State(state): State<AppState>, req: Request) -> Response
         // Universal search pre-gate: None ⇒ real runtime date at gate time.
         current_date: None,
         image_data_urls: None,
+        // Standalone search route: no conversational task scope.
+        scope: None,
     };
     let result = run_web_research(
         &state.http,
@@ -173,6 +175,8 @@ pub async fn search_more_post(State(state): State<AppState>, req: Request) -> Re
         // Universal search pre-gate: None ⇒ real runtime date at gate time.
         current_date: None,
         image_data_urls: None,
+        // Standalone search route: no conversational task scope.
+        scope: None,
     };
     let result = run_web_research(
         &state.http,

@@ -57,6 +57,7 @@ import {
 // The guidance constants live in the LOOP module; import them from there so
 // the probe pins the bytes the loop actually sends (⇔ Rust tools.rs).
 import { WEB_TOOL_GUIDANCE, WEB_TOOL_FINAL_DIRECTIVE } from "@/lib/chat/web-tool-loop";
+import { scopeHosts, type TaskScope } from "@/lib/decision/task-scope";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const TS_TOOLS = path.join(ROOT, "lib", "web-search", "tools.ts");
@@ -472,5 +473,90 @@ describe("execReadPageTool envelope (⇔ rust exec_read_page)", () => {
   it("focus reaches the segment filter verbatim", async () => {
     await execReadPageTool(session(), { urls: ["https://x.example"], focus: "only pricing sections" }, []);
     expect(mocks.applySegmentFilter).toHaveBeenCalledWith([expect.any(Object)], "only pricing sections");
+  });
+});
+
+/* ── task-scope admission (⇔ rust tools.rs scope admission tests) ─────────
+   Audit 2026-11-02, brief #1/#4/#6/#8/#9: a site-bound OPERATE contract is
+   enforced on evidence ADMITTED to the session, before the model sees it and
+   before a read_page URL is fetched. The session contract only ever narrows. */
+
+describe("task-scope admission (⇔ rust scope admission)", () => {
+  function operateScope(host: string, phrase: string, resolved: boolean): TaskScope {
+    return {
+      intent: "operate",
+      targets: [
+        {
+          phrase,
+          state: resolved ? "resolved" : "unresolved",
+          host: resolved ? host : "",
+          url: "",
+          candidates: [],
+          provenance: resolved ? "explicit_domain" : "none",
+        },
+      ],
+      excludedPhrases: [],
+      authorizedHosts: [],
+    };
+  }
+  function scopedSession(resolved: boolean): WebToolSession {
+    return makeWebToolSession(
+      "standard",
+      1,
+      "order the zeta flurb on scope ok",
+      operateScope("scope-ok.com", "scope ok", resolved),
+    );
+  }
+
+  it("web_search drops off-scope results with honest notices; the contract survives", async () => {
+    mocks.metasearch.mockResolvedValue([
+      ranked("https://scope-ok.com/pricing"),
+      ranked("https://evil-off.com/blog"),
+    ]);
+    const s = scopedSession(true);
+    const out = await execWebSearchTool(s, { queries: ["zeta flurb pricing"], missing_claims: ["the price"] }, []);
+    expect(out.ok).toBe(true);
+    expect(out.resultsReturned).toBe(1); // the off-scope SERP result never reaches the model
+    expect((out as any).results[0].url).toBe("https://scope-ok.com/pricing");
+    expect(out.notices).toContain("off-scope result dropped: evil-off.com (task scope: scope-ok.com)");
+    expect(scopeHosts(s.scope!)).toEqual(["scope-ok.com"]); // only ever narrows
+  });
+
+  it("an unresolved target resolves ONLY through real SERP evidence, admitting same-round", async () => {
+    mocks.metasearch.mockResolvedValue([
+      ranked("https://scope-ok.com/pricing"),
+      ranked("https://evil-off.com/blog"),
+    ]);
+    const s = scopedSession(false);
+    const out = await execWebSearchTool(s, { queries: ["zeta flurb pricing"], missing_claims: ["the price"] }, []);
+    expect(out.ok).toBe(true);
+    const t = s.scope!.targets[0];
+    expect(t.state).toBe("resolved");
+    expect(t.host).toBe("scope-ok.com"); // validated PSL host, never a guess
+    expect(t.provenance).toBe("resolved_search");
+    expect(out.resultsReturned).toBe(1); // fresh host governed this same round
+    expect((out as any).results[0].url).toBe("https://scope-ok.com/pricing");
+  });
+
+  it("read_page blocks off-scope URLs BEFORE the fetch, unbilled and notice-bearing", async () => {
+    const evil = "https://evil-off.com/blog";
+    const ok = "https://scope-ok.com/pricing";
+    const s = scopedSession(true);
+    const out = await execReadPageTool(s, { urls: [evil, ok], focus: "pricing" }, []);
+    expect(out.ok).toBe(true);
+    expect((out as any).pages).toHaveLength(1);
+    expect(s.readUrlsUsed).toBe(1); // blocked reads never charge the budget
+    // "a check after an unauthorized page has loaded is insufficient": the
+    // blocked URL must never reach the retrieval seam at all.
+    const fetched = mocks.extractUrl.mock.calls.map((c: any[]) => c[0]?.url);
+    expect(fetched).not.toContain(evil);
+    expect(out.notices).toContain("read blocked: evil-off.com is outside the task scope (scope-ok.com)");
+  });
+
+  it("no scope (null) ⇒ no enforcement: legacy sessions keep pre-audit behavior", async () => {
+    mocks.metasearch.mockResolvedValue([ranked("https://anything.example/1"), ranked("https://other.example/2")]);
+    const out = await execWebSearchTool(session(), { queries: ["alpha beta"], missing_claims: ["fact"] }, []);
+    expect(out.resultsReturned).toBe(2);
+    expect(out.notices ?? []).not.toContainEqual(expect.stringContaining("off-scope"));
   });
 });

@@ -10,13 +10,15 @@
  *   3. Targeted Source Query — `filetype:pdf`, `site:github.com`, or
  *      documentation / review keywords injected when the prompt's
  *      entity vocabulary maps to a known source class.
- *   4. Deep Indexed Brand Query — when the user names a platform or
- *      website in plain text ("blinkit", "myntra", "zepto", "bookmyshow",
- *      "zomato", or ANY brand/platform token), a `site:<brand-domain>`
- *      companion query is generated so search engines pull deep
- *      product/menu/showtime/listing pages directly from their index —
- *      the universal mechanism that makes billion-site reach work
- *      without a per-site adapter.
+ *   4. Task-Scope Query — when the turn carries a server-derived task
+ *      scope (lib/decision/task-scope.ts), the target's VERIFIED host
+ *      gets a `site:<host>` companion so engines pull deep pages from
+ *      their index of the site the user actually named; an UNRESOLVED
+ *      target instead gets a bounded discovery query on its bare phrase
+ *      — never a guessed domain. (Task-scope audit 2026-11-02, brief
+ *      #4: the old brand-token/inferBrandDomain path fabricated
+ *      `site:what.com`, `blinkitcom.com`, and `foo.com` for
+ *      `foo.community`.)
  *
  * After extraction + BM25, the Coverage & Gap Evaluator scores how well
  * the retrieved evidence covers the query's entities. If coverage is
@@ -28,6 +30,7 @@ import type { SearchPlan } from "./metasearch";
 import type { SearchGateContext, SearchDecision } from "./types";
 import { metasearch, stripUrlPlans } from "./metasearch";
 import { tokenize } from "./reranker";
+import type { TaskScope } from "../decision/task-scope";
 
 type GateQuery = SearchDecision["queries"][number];
 
@@ -80,125 +83,39 @@ export function sourceClass(prompt: string): string | null {
   return null;
 }
 
-/* ── brand / platform deep-indexed query (universal, no per-site rules) ─ */
-
 /**
- * Detect a brand / platform / website name mentioned in plain text.
- *
- * Universal heuristic — NO hardcoded brand lists:
- *   1. Any fully-qualified domain token in the prompt (blinkit.com,
- *      myntra.in, ...) — the domain is taken verbatim.
- *   2. Any PascalCase proper noun of 4+ chars that is not a common
- *      English word (Myntra, Zepto, BookMyShow, Zomato, Flipkart,
- *      Nykaa, Ajio, ...) — the brand's own token form is lowercased
- *      and used to infer a domain (`<brand>.com` or `<brand>.in` —
- *      see inferBrandDomain). The search engine's `site:` operator
- *      matches the brand property root regardless of the exact TLD.
- *
- * Common English words are excluded by a small stoplist so "Apple"
- * (the fruit, in a recipe query) does not get force-scoped to
- * apple.com.
+ * Strong entities ONLY: the strict ENTITY_PATTERNS with NO loose
+ * content-word fallback. The loose `tokenize()` words extractEntities
+ * appends are fine for coverage SCORING but poisoned query CONSTRUCTION
+ * (task-scope audit 2026-11-02, brief #4): sentence-initial "What"
+ * became `site:what.com`-class queries, "price" became entities[0] →
+ * `pricing "price"`, and quoting every generic content word produced
+ * over-constrained zero-hit SERPs. Mirrors Rust `strong_entities`.
  */
-const BRAND_COMMON_WORD_EXCLUSIONS = new Set([
-  "the", "this", "that", "with", "from", "have", "will", "does", "were",
-  "http", "https", "www", "html", "http2", "node", "json", "xml", "css",
-  "api", "cli", "url", "dom", "js", "ts", "web", "app", "dev", "utf",
-]);
-
-/**
- * Detect which platform context the prompt carries, so a lowercase
- * token ("blinkit", "myntra") is only treated as a brand when it sits
- * next to a shopping/food/movie/job context word. This is what keeps
- * "zebra" in "count the zebra in the photo" from becoming a
- * `site:zebra.com` query.
- */
-const PLATFORM_CONTEXT_RE =
-  /\b(buy|price|prices|cost|order|ordered?|delivery|deliver|groceries?|grocery|restaur\w*|movie|movies|show|shows|ticket|tickets|book|booking|shop|shopping|product|products|menu|menus?|availability|stock|in stock|out of stock|review|rating|ratings|cuisine|cuisines|venue|venues|events?|concert|match|matches|game|games|leag\w*|job|jobs|hiring|salary|salaries|recruiting|recruit|hire|hiring|apply|vacan\w*|open role|remote|intern\w*|full[- ]time|part[- ]time|placement|openings|listing|listings|deal|deals|discount|discounts|sale|sales|promo|promos?|coupon|coupons|deliverable|shipp\w*|return|returns?|refund|price range|starting at|from \d|₹|rs\.?|pizza|shawarma|burger|burgers|samosa|kebab|chips|biryani|curry|salad|sweets?|dosa|idli|noodles|pasta)\b/i;
-
-export function extractBrandTokens(prompt: string): string[] {
-  const head = prompt.slice(0, 800).toLowerCase();
+function strongEntities(prompt: string): string[] {
   const out: string[] = [];
+  const head = prompt.slice(0, 600);
+  for (const re of ENTITY_PATTERNS) {
+    const m = head.match(re);
+    if (m) out.push(...m.map((s) => s.trim()));
+  }
   const seen = new Set<string>();
-
-  // 1. Explicit domains first — highest precision.
-  const domainRe =
-    /(?:^|[\s(])((?:[a-z0-9-]+\.)+(?:com|in|io|dev|org|net|co|app|ai)(?:\/[^\s)]*)?)/g;
-  let m: RegExpExecArray | null;
-  while ((m = domainRe.exec(head)) !== null && out.length < 3) {
-    const host = m[1].split("/")[0];
-    const root = host.replace(/^(www|m|app|web)\./, "");
-    if (root.length >= 4 && !seen.has(root)) {
-      seen.add(root);
-      out.push(root);
-    }
-  }
-
-  // 2. PascalCase brand tokens in the original prompt ("Myntra",
-  //    "BookMyShow", "Zomato") — lowercased for domain inference.
-  //    Plus lowercase tokens that sit next to a platform-context word
-  //    ("blinkit price", "zomato restaurants").
-  const original = prompt.slice(0, 800);
-  const pascalRe = /\b([A-Z][a-zA-Z]{3,19})\b/g;
-  const ctxRe = /\b([a-z]{4,20})\s+(?:buy|price|prices|cost|order|delivery|deliver|grocer\w*|restaurant\w*|movie\w*|show\w*|ticket\w*|booking\w*|shop\w*|shopping|product\w*|menu\w*|availability|stock|review\w*|rating\w*|cuisine\w*|venue\w*|event\w*|concert\w*|job\w*|hiring|salary\w*|recruiting|remote|openings|listing\w*|deal\w*|discount\w*|sale\w*|promo\w*|coupon\w*|pizza|shawarma|burger\w*|samosa|kebab|chips|biryani|curry|salad|sweets?|dosa|idli|noodles|pasta)/gi;
-  const hasContext = PLATFORM_CONTEXT_RE.test(original);
-
-  for (const match of original.matchAll(pascalRe)) {
-    if (out.length >= 3) break;
-    const token = match[1].toLowerCase();
-    if (BRAND_COMMON_WORD_EXCLUSIONS.has(token)) continue;
-    if (seen.has(token)) continue;
-    seen.add(token);
-    out.push(token);
-  }
-  if (hasContext) {
-    for (const match of original.matchAll(ctxRe)) {
-      if (out.length >= 3) break;
-      const token = match[1].toLowerCase();
-      if (BRAND_COMMON_WORD_EXCLUSIONS.has(token)) continue;
-      if (seen.has(token)) continue;
-      seen.add(token);
-      out.push(token);
-    }
-  }
-  return out;
+  return out
+    .filter((e) => {
+      if (seen.has(e.toLowerCase())) return false;
+      seen.add(e.toLowerCase());
+      return true;
+    })
+    .slice(0, 10);
 }
 
 /**
- * Infer the `<brand>.com` (or `.in` for Indian brands) domain for a
- * plain-text brand token. The inference is schema-agnostic — the
- * search engine's `site:` operator matches the brand property root
- * regardless of the exact TLD, so a single guess per brand is enough.
- *
- * Indian brands (blinkit, zepto, myntra, bookmyshow, zomato, swiggy,
- * flipkart, nykaa, ajio) default to `.in` because that is where their
- * primary India-serving index lives; everything else defaults to `.com`.
+ * Strip the wrapping quote characters a quoted-phrase entity carries
+ * (ENTITY_PATTERNS matches `"…"` WITH the quote characters) so
+ * re-quoting never yields `""…""`.
  */
-const INDIAN_BRAND_HINTS = new Set([
-  "blinkit", "zepto", "myntra", "bookmyshow", "zomato", "swiggy",
-  "flipkart", "nykaa", "ajio", "bigbasket", "dominos", "mcdonalds",
-  "uber", "ola", "paytm", "razorpay",
-]);
-
-export function inferBrandDomain(token: string): string {
-  const clean = token.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (clean.includes(".") || clean.length < 2) return clean;
-  return INDIAN_BRAND_HINTS.has(clean) ? clean + ".in" : clean + ".com";
-}
-
-/**
- * Build the deep-indexed `site:<brand>` companion query for the user's
- * broad query. Returns null when no brand token was detected.
- */
-export function buildDeepIndexQuery(
-  userPrompt: string,
-  broadQuery: string,
-): string | null {
-  const brands = extractBrandTokens(userPrompt);
-  if (brands.length === 0) return null;
-  const domain = inferBrandDomain(brands[0]);
-  // Use the broad query (not the user's raw prompt) so the engine sees
-  // clean keywords + the site: scope.
-  return `${broadQuery} site:${domain}`;
+function stripQuotes(e: string): string {
+  return e.replace(/^["“”']|["“”']$/g, "").trim();
 }
 
 /* ── planner ─────────────────────────────────────────────────────────── */
@@ -219,8 +136,12 @@ export interface PlannedQuery {
   preferredDomains?: string[];
   /** Which planner sub-query produced this (for diagnostics).
    *  "preferred" is emitted by the P4 planner law (planner-law.ts) when
-   *  a domain law (allowed/preferred) needs a site-scoped companion. */
-  origin: "semantic" | "entity" | "targeted" | "gap" | "deep-brand" | "preferred";
+   *  a domain law (allowed/preferred) needs a site-scoped companion.
+   *  "scope" is the task-scope companion (audit 2026-11-02, brief #4):
+   *  a VERIFIED target host's site: query, or a bare-phrase discovery
+   *  query for an unresolved target — it replaced the "deep-brand"
+   *  origin whose domain was a fabricated guess. */
+  origin: "semantic" | "entity" | "targeted" | "gap" | "scope" | "preferred";
   /** Freshness filter carried from the gate decision to the search engine. */
   freshness?: "none" | "day" | "week" | "month" | "year" | "any";
 }
@@ -244,6 +165,23 @@ function mergeEntities(hints: string[], auto: string[]): string[] {
 }
 
 /**
+ * Generic action/descriptor words that must NEVER anchor a quoted
+ * targeted query on their own: a quoted `"price"` or `"order"` returns
+ * junk (the `pricing "price"` regression, brief #4 bug 2). Vision hints
+ * and quoted-phrase entities can surface these, so the targeted-step
+ * base selection skips them and falls back to the keyword gate query.
+ * Mirrored verbatim in Rust (query_planner.rs `GENERIC_WORDS`).
+ */
+const GENERIC_QUERY_WORDS = new Set([
+  "price", "prices", "pricing", "cost", "costs", "book", "booking",
+  "buy", "order", "orders", "search", "find", "check", "look",
+  "latest", "current", "official", "site", "website", "docs",
+  "documentation", "review", "reviews", "news", "near", "nearby",
+  "weather", "delivery", "menu", "product", "products", "ticket",
+  "tickets", "showtime", "showtimes", "profile",
+]);
+
+/**
  * Decompose the user prompt into 2–4 orthogonal sub-queries.
  *
  * The planner is deterministic (no LLM call — the LLM gate has already
@@ -254,11 +192,20 @@ function mergeEntities(hints: string[], auto: string[]): string[] {
  * `entityHints` come from the Vision-to-Search pre-pass when the turn
  * carries an image attachment (Fix 2) — they take precedence over the
  * regex-extracted entities.
+ *
+ * `scope` is the server-derived task scope (lib/decision/task-scope.ts;
+ * audit 2026-11-02, brief #3/#4/#6): a RESOLVED target's verified host
+ * gets a `site:` companion on the broad query, an UNRESOLVED target
+ * gets a bounded discovery query on its bare phrase — never a guessed
+ * domain. Scope plans are inserted right after the first semantic plan
+ * so the `slice(0, 4)` tail-drop can never starve them. The model
+ * never sees or widens this contract. Mirrors Rust `plan_queries`.
  */
 export function planQueries(
   userPrompt: string,
   gateQueries: GateQuery[],
   entityHints?: string[],
+  scope?: TaskScope,
 ): PlannedQuery[] {
   const plans: PlannedQuery[] = [];
 
@@ -286,15 +233,55 @@ export function planQueries(
     });
   }
 
-  const entities = mergeEntities(entityHints ?? [], extractEntities(userPrompt));
+  // 1b. Task-scope queries (audit 2026-11-02, brief #3/#4/#6): the scope
+  // contract — and ONLY the contract — decides what gets a site:
+  // companion. NO brand tokens, NO domain inference, NO brand lists.
+  // A resolved target's verified host rides the broad query; an
+  // unresolved target gets a bounded discovery query on its bare quoted
+  // phrase (discovery to RESOLVE the destination, capped at 2). The
+  // ambiguous state gets nothing here — ambiguity routes to a
+  // clarification upstream in the scope contract.
+  if (scope) {
+    const broad =
+      plans[0]?.query ?? userPrompt.replace(/\s+/g, " ").trim().slice(0, 200);
+    const scopePlans: PlannedQuery[] = [];
+    for (const t of scope.targets) {
+      if (scopePlans.length >= 2) break;
+      if (t.state === "resolved" && t.host) {
+        scopePlans.push({
+          query: `${broad} site:${t.host}`.slice(0, 200),
+          intent: "general",
+          preferredDomains: [t.host],
+          origin: "scope",
+        });
+      } else if (t.state === "unresolved" && t.phrase) {
+        const phrase = stripQuotes(t.phrase);
+        if (phrase) {
+          scopePlans.push({
+            query: `"${phrase}"`.slice(0, 200),
+            intent: "general",
+            origin: "scope",
+          });
+        }
+      }
+    }
+    // Insert right after the first semantic plan: the plan cap drops
+    // from the tail, so scope companions survive the 4-query ceiling.
+    if (scopePlans.length > 0) plans.splice(1, 0, ...scopePlans);
+  }
+
+  const strong = mergeEntities(entityHints ?? [], strongEntities(userPrompt));
   const cls = sourceClass(userPrompt);
 
-  // 2. Exact entity / technical query — quoted entities survive the
-  // search engine's paraphrase. Only fire when we have 2+ real entities.
-  if (entities.length >= 2 && plans.length < 3) {
-    const entQuery = entities
+  // 2. Exact entity / technical query — quoted STRONG entities survive
+  // the search engine's paraphrase. Only fires with 2+ strict-pattern
+  // entities; the loose content words were removed from construction
+  // (quoting them produced over-constrained zero-hit SERPs, brief #4).
+  if (strong.length >= 2 && plans.length < 3) {
+    const entQuery = strong
       .slice(0, 4)
-      .map((e) => (e.length > 3 ? '"' + e + '"' : e))
+      .map((e) => `"${stripQuotes(e)}"`)
+      .filter((q) => q.length > 2)
       .join(" ")
       .slice(0, 200);
     plans.push({
@@ -305,31 +292,49 @@ export function planQueries(
   }
 
   // 3. Targeted source query — operator injection for the detected class.
+  // The anchor is the first STRONG entity that is not a generic action
+  // word (the `pricing "price"` regression, brief #4 bug 2); else the
+  // unquoted keyword gate query; else raw prompt words. Quoting is
+  // decided once here — never per operator branch.
   if (cls && plans.length < 4) {
-    const base = entities.length > 0 ? entities[0] : userPrompt.slice(0, 80);
+    const nonGeneric = strong.find(
+      (e) => !GENERIC_QUERY_WORDS.has(stripQuotes(e).toLowerCase()),
+    );
+    let base: string;
+    let anchor: string;
+    if (nonGeneric) {
+      base = stripQuotes(nonGeneric);
+      anchor = `"${base}"`;
+    } else if (keywordGateQueries.length > 0) {
+      base = keywordGateQueries[0].query;
+      anchor = base;
+    } else {
+      base = userPrompt.replace(/\s+/g, " ").trim().slice(0, 80);
+      anchor = base;
+    }
     let opQuery = "";
     let opIntent: PlannedQuery["intent"] = "general";
     let domains: string[] | undefined;
     switch (cls) {
       case "pdf":
-        opQuery = `filetype:pdf "${base}"`;
+        opQuery = `filetype:pdf ${anchor}`;
         opIntent = "pdf";
         break;
       case "github":
-        opQuery = `site:github.com "${base}"`;
+        opQuery = `site:github.com ${anchor}`;
         opIntent = "github";
         domains = ["github.com"];
         break;
       case "docs":
-        opQuery = `documentation "${base}"`;
+        opQuery = `documentation ${anchor}`;
         opIntent = "docs";
         break;
       case "review":
-        opQuery = `review "${base}"`;
+        opQuery = `review ${anchor}`;
         opIntent = "review";
         break;
       case "pricing":
-        opQuery = `pricing "${base}"`;
+        opQuery = `pricing ${anchor}`;
         opIntent = "pricing";
         break;
       case "linkedin": {
@@ -353,18 +358,18 @@ export function planQueries(
           .replace(/["“”']/g, " ")
           .replace(/\s+/g, " ")
           .trim();
-        const anchor =
+        const personAnchor =
           nameSpan.length >= 3 && /^[a-zÀ-ÿ' .-]+$/i.test(nameSpan)
             ? `"${nameSpan.slice(0, 80)}"`
-            : entities.length >= 2
-              ? `"${entities[0]}" "${entities[1]}"`
-              : `"${base}"`;
-        opQuery = `${anchor} site:in.linkedin.com`;
+            : strong.length >= 2
+              ? `"${stripQuotes(strong[0])}" "${stripQuotes(strong[1])}"`
+              : anchor;
+        opQuery = `${personAnchor} site:in.linkedin.com`;
         opIntent = "general";
         domains = ["linkedin.com"];
         if (plans.length < 4) {
           plans.push({
-            query: `${anchor} site:linkedin.com/in/`,
+            query: `${personAnchor} site:linkedin.com/in/`,
             intent: "general",
             preferredDomains: domains,
             origin: "targeted",
@@ -378,21 +383,12 @@ export function planQueries(
     }
   }
 
-  // 4. Deep indexed brand query (universal, schema-agnostic): when the
-  // user named a platform / website in plain text (blinkit, myntra,
-  // zepto, bookmyshow, zomato, …), a `site:<brand-domain>` companion
-  // is appended to the broad semantic query so the engine pool pulls
-  // deep product/menu/showtime/listing pages straight from the search
-  // engine's index of that site.
-  const broad = plans[0]?.query ?? userPrompt.replace(/\s+/g, " ").trim().slice(0, 200);
-  const deep = buildDeepIndexQuery(userPrompt, broad);
-  if (deep && plans.length < 4 && !plans.some((p) => p.query === deep)) {
-    plans.push({
-      query: deep,
-      intent: "general",
-      origin: "deep-brand",
-    });
-  }
+  // (Step 4 was the deep-brand query — DELETED by the task-scope audit
+  // 2026-11-02, brief #4: extractBrandTokens + inferBrandDomain
+  // fabricated domains — `site:what.com` from a sentence-initial
+  // "What", `blinkitcom.com` from the dot-strip-before-dot-test,
+  // `order.com` for "Zepto", `foo.com` for "foo.community". The
+  // scope step (1b) above replaces it with VERIFIED hosts only.)
 
   return plans.slice(0, 4);
 }

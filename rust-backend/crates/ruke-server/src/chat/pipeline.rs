@@ -82,6 +82,10 @@ pub struct PipelineOutcome {
     /// StageEvent ledger (flat named-type references).
     pub presentation: Option<Value>,
     pub rich_results: Option<Vec<Value>>,
+    /// Task-scope audit (brief #1/#6): the ONE per-turn folded contract the
+    /// gate ctx was built with — carried to the web tool loop so gate and
+    /// session share one scope (⇔ TS route.ts feeding both).
+    pub turn_scope: Option<ruke_websearch::task_scope::TaskScope>,
 }
 
 /// Mirror of `runTurnPipeline`'s Part-4-visible steps. `ch` is the progress
@@ -224,6 +228,22 @@ pub async fn run_turn_pipeline(
         }
     }
 
+    // Task-scope audit (brief #1/#6): ONE fold per turn over the
+    // conversation's USER turns plus the current question, shared by the
+    // gate ctx AND the web tool loop (⇔ TS route.ts: a single
+    // foldTaskScope feeds both runTurnPipeline and runWebToolLoop). The
+    // fold is deterministic, so hoisting it out of the gate block changes
+    // no bytes — it just makes the ONE-contract-per-turn law structural.
+    let scope_prompts: Vec<String> = history
+        .iter()
+        .filter(|h| h.get("role").and_then(Value::as_str) == Some("user"))
+        .filter_map(|h| h.get("content").and_then(Value::as_str))
+        .map(str::to_string)
+        .chain(std::iter::once(question.to_string()))
+        .collect();
+    let turn_scope = ruke_websearch::task_scope::fold_task_scope(&scope_prompts);
+    outcome.turn_scope = Some(turn_scope.clone());
+
     // ---- 6) web-research gate (route.ts:835; PART-8 wired) ----
     // The env short-circuit precedes the slot claim: a disabled gate never
     // touches the inference slot (TS `if (webResearchDisabled) log...
@@ -276,6 +296,10 @@ pub async fn run_turn_pipeline(
                     .to_string(),
             })
             .collect();
+        // Task-scope audit (brief #1/#6): the ONE per-turn fold hoisted
+        // above feeds the gate ctx — the model cannot broaden it via tool
+        // arguments. Mirrors TS route.ts `foldTaskScope([...history user
+        // turns, fullText])`.
         let ctx = SearchGateContext {
             user_prompt: question.to_string(),
             history: Some(history_turns),
@@ -290,6 +314,7 @@ pub async fn run_turn_pipeline(
             // gate uses the real runtime date (never hardcoded).
             current_date: None,
             image_data_urls: Some(image_parts),
+            scope: Some(turn_scope.clone()),
         };
         // Settings are read PER CALL (llmApiUrl/llmApiKey): a settings.json
         // edit lands without a restart (Rule 2.5).
@@ -588,6 +613,10 @@ pub async fn pump_progress(
                 presentation,
                 rich_results,
                 &question,
+                // The SAME fold the gate ctx was built with — one contract
+                // per turn, threaded into the session via the outcome
+                // (brief #6: failure and recovery paths never re-widen it).
+                outcome.turn_scope.take(),
                 &span,
                 &token,
                 &mut ch,
@@ -718,6 +747,7 @@ mod tests {
                 depth: Depth::Standard,
                 queries: vec![],
             },
+            None,
         );
         EvidenceBundle {
             search_gate: SearchGateResult {

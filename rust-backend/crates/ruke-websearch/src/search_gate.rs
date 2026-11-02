@@ -45,6 +45,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::llm_json::apply_thinking_off;
+use crate::task_scope::{is_enforceable_scope, scope_hosts, TargetState};
 use crate::types::{
     Depth, Freshness, GateSource, Intent, SearchDecision, SearchGateContext, SearchGateResult,
     SearchQuery,
@@ -98,6 +99,18 @@ fn utf16_prefix(s: &str, n: usize) -> String {
         u += cu;
     }
     out
+}
+
+/// ⇔ TS `/^["\u{201C}\u{201D}']|["\u{201C}\u{201D}']$/g` removal: strip
+/// leading/trailing straight AND curly quotes (query-planner's private
+/// helper ⇔ this one; the crate keeps per-module JS-string helpers).
+fn strip_quote_edges(s: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new("\\A[\"\u{201C}\u{201D}']|[\"\u{201C}\u{201D}']\\z").expect("static regex")
+    })
+    .replace_all(s, "")
+    .to_string()
 }
 
 /// `/\s+/g → " "` collapse, trim, `.slice(0, 300)` — the normalized-query
@@ -683,6 +696,44 @@ pub fn rules_based_plan(ctx: &SearchGateContext) -> SearchGateResult {
             intent: Intent::General,
             preferred_domains: None,
         });
+    }
+    // Task-scope carry (audit 2026-11-02, brief #6): the emergency
+    // fallback must NEVER broaden the contract. The scope's VERIFIED hosts
+    // ride as preferred_domains on the main query and get site: companions;
+    // an unresolved target gets a bounded quoted discovery query (max 2) —
+    // never an invented domain. ⇔ TS rulesBasedPlan.
+    if let Some(scope) = ctx.scope.as_ref() {
+        if is_enforceable_scope(scope) {
+            let hosts = scope_hosts(scope);
+            if !hosts.is_empty() {
+                let main = queries[0].query.clone();
+                queries[0].preferred_domains = Some(hosts.clone());
+                for h in hosts.iter().take(2) {
+                    queries.push(SearchQuery {
+                        query: utf16_prefix(&format!("{main} site:{h}"), 300),
+                        intent: Intent::General,
+                        preferred_domains: Some(vec![h.clone()]),
+                    });
+                }
+            }
+            let mut discovery = 0usize;
+            for t in &scope.targets {
+                if discovery >= 2 {
+                    break;
+                }
+                if t.state == TargetState::Unresolved && !t.phrase.is_empty() {
+                    let phrase = strip_quote_edges(&t.phrase).trim().to_string();
+                    if !phrase.is_empty() {
+                        discovery += 1;
+                        queries.push(SearchQuery {
+                            query: utf16_prefix(&format!("\"{phrase}\""), 300),
+                            intent: Intent::General,
+                            preferred_domains: None,
+                        });
+                    }
+                }
+            }
+        }
     }
     SearchGateResult {
         decision: SearchDecision {
@@ -1280,6 +1331,7 @@ mod tests {
             has_attachment_evidence: None,
             current_date: None,
             image_data_urls: None,
+            scope: None,
         }
     }
 

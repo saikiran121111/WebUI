@@ -635,6 +635,7 @@ mod tests {
                 depth: Depth::Standard,
                 queries: vec![],
             },
+            None,
         )
     }
 

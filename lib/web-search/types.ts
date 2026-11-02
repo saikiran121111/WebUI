@@ -220,6 +220,15 @@ export interface SearchGateContext {
    * Consumed by the Vision-to-Search entity pre-pass before query planning.
    */
   imageDataUrls?: string[];
+  /**
+   * Task-scope audit (2026-11-02, brief #1/#3/#6): the server-derived
+   * operational scope for this turn (targets, intent, verified hosts).
+   * Produced by foldTaskScope over the conversation's user turns — NEVER
+   * by the model: gate/tool arguments cannot widen this contract.
+   * Absent ⇒ callers derive from the prompt alone. Mirrors the Rust
+   * SearchGateContext `scope` field.
+   */
+  scope?: import("../decision/task-scope").TaskScope;
 }
 
 export interface SearchGateResult {

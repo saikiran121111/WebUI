@@ -34,7 +34,8 @@
  */
 import type { EvidencePacket, EvidencePassage, RankedResult, SearchDecision } from "./types";
 import type { CoverageReport, PlannedQuery } from "./query-planner";
-import { inferBrandDomain, sourceClass } from "./query-planner";
+import { sourceClass } from "./query-planner";
+import { isEnforceableScope, scopeHosts, type TaskScope } from "../decision/task-scope";
 
 /* ── budget (§11.21) ─────────────────────────────────────────────────── */
 
@@ -78,6 +79,18 @@ export interface PlannerLaw {
   allowedDomains: string[];
   blockedDomains: string[];
   preferredDomains: string[];
+  /**
+   * Task-scope audit 2026-11-02 (brief #5/#6): the VERIFIED hosts of a
+   * server-derived TaskScope when it is enforceable. A MANDATORY
+   * operational boundary — distinct from allowedDomains (an "only use
+   * X" preference the USER wrote) and preferredDomains (a ranking
+   * bias). When non-empty, applyDomainControl admits evidence ONLY
+   * inside mandatory ∪ allowed for EVERY origin (brief #9), and
+   * companion-query emission gets first claim on the capped plan slots
+   * (brief #4: scope companions must not die at the plan cap).
+   * Empty ⇒ behavior is byte-identical to the pre-audit baseline.
+   */
+  mandatoryHosts: string[];
   /** Coarse localization phrase from the user's own words, or null. */
   location: string | null;
   /** "pdf" | "github" | "profiles" | "official_docs" | "reviews" |
@@ -110,16 +123,12 @@ const NAME_TO_DOMAIN: Record<string, string> = {
 };
 const OFFICIAL_SOURCE_RE =
   /\bofficial\s+sources?\b|\bonly\s+official\b|\bstick\s+to\s+official\b|\bofficial\s+(?:documentation|docs)\b/i;
-const BRAND_DOCS_RE =
-  /\b(?:search|find|check|look\s+up|google)\s+([a-z][a-z0-9-]{2,24})\s+(?:docs?|documentation|official)\b/i;
-const BRAND_DOCS_REV_RE =
-  /\b(?:docs?|documentation)\s+(?:of|for)\s+([a-z][a-z0-9-]{2,24})\b/i;
-/** Stop-list so "search the docs" / "check your docs" never fabricate a brand. */
-const BRAND_STOPWORDS = new Set([
-  "this", "that", "with", "your", "their", "from", "there", "these", "those",
-  "some", "any", "all", "the", "and", "for", "how", "why", "what", "when",
-  "where", "who", "whom", "which", "about", "into", "over", "user", "users",
-]);
+// (BRAND_DOCS_RE / BRAND_DOCS_REV_RE / BRAND_STOPWORDS deleted by the
+// task-scope audit 2026-11-02, brief #5: they fabricated preferred
+// domains via inferBrandDomain ("search xyz docs" → xyz.com). Docs
+// expectations survive via sourceClass → expectedSourceTypes below;
+// operational/site-bound phrasing reaches the law through the
+// TaskScope's mandatoryHosts instead — see lib/decision/task-scope.ts.)
 
 const LOCAL_INTENT_RE =
   /\b(weather|forecast|temperature|humidity|air\s+quality|aqi|restaurant|cafe|coffee\s+shop|food|delivery|hotel|motel|guesthouse|shop|store|market|mall|nearby|near\s+me|around\s+me|close\s+by|event|concert|meetup|webinar|festival|job|vacancy|hiring|opening|salon|clinic|hospital|dentist|doctor|plumber|electrician|mechanic|gym|tour|travel|flight|train|bus|route|directions|traffic|real\s+estate|rent|rental)s?\b/i;
@@ -166,11 +175,25 @@ function extractLocation(prompt: string): string | null {
  * decision. Gate `queries[].preferred_domains` always merge into the
  * law's preferred list (model suggested sources are honored as
  * preference, never as an allow-list).
+ *
+ * `scope` (task-scope audit, brief #5): when the server-derived task
+ * scope is enforceable, its verified hosts become MANDATORY — a hard
+ * operational boundary kept strictly apart from these soft research
+ * preferences. Optional parameter: existing 2-arg callers keep their
+ * exact behavior (mandatoryHosts = []). Mirrors Rust `derive_law`.
  */
-export function derivePlannerLaw(userPrompt: string, decision: SearchDecision): PlannerLaw {
+export function derivePlannerLaw(
+  userPrompt: string,
+  decision: SearchDecision,
+  scope?: TaskScope,
+): PlannerLaw {
   const allowed: string[] = [];
   const blocked: string[] = [];
   const preferred: string[] = [];
+  const mandatory: string[] =
+    scope && isEnforceableScope(scope)
+      ? [...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]
+      : [];
 
   for (const seg of userPrompt.split(SEGMENT_SPLIT_RE)) {
     const domains = (seg.match(DOMAIN_TOKEN_RE) ?? []).map(normalizeDomain);
@@ -199,12 +222,11 @@ export function derivePlannerLaw(userPrompt: string, decision: SearchDecision): 
 
   // Preferred ≠ allowed: an "official sources" demand must never
   // fabricate an allow-list (§11.17) — it only steers the expected
-  // source type below.
-  const brandM = BRAND_DOCS_RE.exec(userPrompt) ?? BRAND_DOCS_REV_RE.exec(userPrompt);
-  if (brandM) {
-    const brand = brandM[1].toLowerCase();
-    if (!BRAND_STOPWORDS.has(brand) && brand.length >= 3) pushUnique(preferred, inferBrandDomain(brand));
-  }
+  // source type below. The old BRAND_DOCS brand-inference block was
+  // deleted by the task-scope audit (brief #5): it invented domains.
+  // "do this in Blinkit" / "only use Blinkit" now arrive as the
+  // TaskScope's mandatory hosts — derived from the user's words,
+  // resolved only through validated retrieval evidence.
 
   for (const q of decision.queries) {
     for (const d of q.preferred_domains ?? []) pushUnique(preferred, d);
@@ -235,10 +257,28 @@ export function derivePlannerLaw(userPrompt: string, decision: SearchDecision): 
     allowedDomains: allowed,
     blockedDomains: blocked,
     preferredDomains: preferred,
+    mandatoryHosts: mandatory,
     location: extractLocation(userPrompt),
     expectedSourceTypes: expected,
     budget: budgetForDepth(decision.depth),
   };
+}
+
+/**
+ * Attach or REFRESH the mandatory scope hosts on an existing law.
+ * The pipeline derives the law BEFORE the first hop resolves an
+ * unresolved target; once resolveTaskScope verifies the host from
+ * real retrieval evidence, the gap/demand waves that ride this same
+ * law object must enforce it. Mutates and returns the law (the
+ * pipeline holds it as a const reference; in-place refresh keeps
+ * every downstream consumer honest). Mirrors Rust `apply_scope_to_law`.
+ */
+export function applyScopeToLaw(law: PlannerLaw, scope: TaskScope | null | undefined): PlannerLaw {
+  law.mandatoryHosts =
+    scope && isEnforceableScope(scope)
+      ? [...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]
+      : [];
+  return law;
 }
 
 /* ── plan application (§11.5/§11.17) ─────────────────────────────────── */
@@ -264,7 +304,12 @@ function planCoversDomain(plan: PlannedQuery, domain: string): boolean {
  * untouched, so existing behavior (and goldens) stay byte-identical.
  */
 export function applyPlannerLaw(plans: PlannedQuery[], law: PlannerLaw): PlannedQuery[] {
-  const targets = [...law.allowedDomains, ...law.preferredDomains];
+  // Mandatory scope hosts get first claim on the capped companion slots
+  // (brief #4: scope companions must never die at the plan ceiling).
+  // planQueries already emitted the `origin: "scope"` companions for
+  // resolved targets, so planCoversDomain skips them — this loop only
+  // fills genuine gaps (late-resolved hosts included).
+  const targets = [...law.mandatoryHosts, ...law.allowedDomains, ...law.preferredDomains];
   if (targets.length === 0 || plans.length === 0) return plans;
   const out = [...plans];
   const base = out[0].query;
@@ -282,18 +327,45 @@ export function applyPlannerLaw(plans: PlannedQuery[], law: PlannerLaw): Planned
 }
 
 /**
- * Hard domain control on merged results (§11.17). Results the USER
- * directed (origin "user" — pasted URLs) are exempt: the user's own link
- * is never a casualty of a domain law they wrote for OTHER sources.
+ * Hard domain control on merged results (§11.17). Two modes:
+ *  - No mandatory scope (mandatoryHosts empty): baseline behavior —
+ *    results the USER directed (origin "user" — pasted URLs) are exempt
+ *    from the allowed/blocked law, because the user's own link is never
+ *    a casualty of a domain law they wrote for OTHER sources.
+ *  - Mandatory scope armed (task-scope audit, brief #6/#9): the task's
+ *    operational boundary binds EVERY origin. Off-scope evidence must
+ *    never be admitted into a target-labelled answer packet — and a
+ *    user-pasted URL only survives when it is itself inside the scope
+ *    (a user's explicit extra site is already folded into the scope's
+ *    authorizedHosts by deriveTaskScope, so genuine user intent is
+ *    never the casualty here).
  */
 export function applyDomainControl(results: RankedResult[], law: PlannerLaw): RankedResult[] {
-  if (law.allowedDomains.length === 0 && law.blockedDomains.length === 0) return results;
+  if (
+    law.allowedDomains.length === 0 &&
+    law.blockedDomains.length === 0 &&
+    law.mandatoryHosts.length === 0
+  ) {
+    return results;
+  }
   return results.filter((r) => {
-    if (r.origin === "user") return true;
     const host = r.domain || hostOf(r.url);
+    if (law.mandatoryHosts.length === 0) {
+      // Legacy path — order preserved byte-for-byte (user exempt first).
+      if (r.origin === "user") return true;
+      if (law.blockedDomains.some((d) => domainWithin(host, d))) return false;
+      if (law.allowedDomains.length > 0 && !law.allowedDomains.some((d) => domainWithin(host, d))) return false;
+      return true;
+    }
+    // Mandatory mode: blocked first, then the scope admission rule.
     if (law.blockedDomains.some((d) => domainWithin(host, d))) return false;
-    if (law.allowedDomains.length > 0 && !law.allowedDomains.some((d) => domainWithin(host, d))) return false;
-    return true;
+    if (
+      law.mandatoryHosts.some((d) => domainWithin(host, d)) ||
+      law.allowedDomains.some((d) => domainWithin(host, d))
+    ) {
+      return true;
+    }
+    return false;
   });
 }
 
@@ -384,7 +456,7 @@ export function evaluateSufficiency(
   const freshnessBanded = ["day", "week", "month", "year", "realtime"].includes(decision.freshness);
   const freshnessOk = !freshnessBanded || kept.some((p) => Boolean(p.publishedAt));
 
-  const primaries = [...law.allowedDomains, ...law.preferredDomains];
+  const primaries = [...law.mandatoryHosts, ...law.allowedDomains, ...law.preferredDomains];
   const primaryPresent =
     primaries.length === 0 ||
     kept.some((p) => primaries.some((d) => domainWithin(p.domain || hostOf(p.url), d)));
@@ -463,7 +535,7 @@ export function buildGapDemand(
     reasons.push("conflicting values across sources");
   }
   if (!sufficiency.primaryPresent) {
-    missing.push(`primary source (${law.allowedDomains[0] ?? law.preferredDomains[0] ?? "asked-for source"})`);
+    missing.push(`primary source (${law.mandatoryHosts[0] ?? law.allowedDomains[0] ?? law.preferredDomains[0] ?? "asked-for source"})`);
     desired.push("official_docs");
     reasons.push("official/primary source missing");
   }
@@ -488,7 +560,7 @@ export function buildGapDemand(
     bases.push(`${sufficiency.contradictionMetrics[0]} ${entity} official`);
   }
   if (!sufficiency.primaryPresent) {
-    const d = law.allowedDomains[0] ?? law.preferredDomains[0];
+    const d = law.mandatoryHosts[0] ?? law.allowedDomains[0] ?? law.preferredDomains[0];
     if (d) bases.push(`${entity} site:${d}`);
   }
   if (!sufficiency.freshnessOk) bases.push(`${entity} ${year}`);

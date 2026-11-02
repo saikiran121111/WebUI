@@ -39,6 +39,7 @@ import { engineCooldownRemainingMs } from "./engines";
 import {
   applyDomainControl,
   applyPlannerLaw,
+  applyScopeToLaw,
   buildGapDemand,
   derivePlannerLaw,
   evaluateSufficiency,
@@ -46,6 +47,12 @@ import {
   type PlannerLaw,
   type SufficiencyReport,
 } from "./planner-law";
+import {
+  deriveTaskScope,
+  isEnforceableScope,
+  resolveTaskScope,
+  type TaskScope,
+} from "../decision/task-scope";
 import { derivePresentation, type PresentationPlan } from "./presentation";
 import { deriveRichResults, type GeoPoint, type RichResult } from "./rich-results";
 import { fetchPage } from "./net";
@@ -172,6 +179,10 @@ function countRelevantResults(
 export type PipelineStage =
   | "gate"
   | "planning"
+  /** Task-scope resolution (audit 2026-11-02, brief #4): an unresolved
+   *  explicit target became a PSL-verified host from live search evidence.
+   *  Informational only — the client needs no new UI. */
+  | "scope"
   | "searching"
   | "recovery"
   | "gap-search"
@@ -380,9 +391,19 @@ export async function runWebResearch(
     : ceilingSignal;
   const ceilingHit = () => abortSignal.aborted;
 
+  // Task-scope contract (audit 2026-11-02, brief #1/#3/#6): server-derived,
+  // NEVER model-widened. The chat route passes ctx.scope folded over the
+  // conversation's user turns; direct pipeline callers (tests, goldens) get
+  // a deterministic derivation from the prompt alone, so TS ⇔ Rust see the
+  // same contract even when the caller supplies none. The gate below runs
+  // with the SAME scope injected — its rules fallback may not broaden it.
+  let activeScope: TaskScope = ctx.scope ?? deriveTaskScope(ctx.userPrompt);
+
   // ── search gate (Stage 0 hard bypass → main model) ─────────────────
   onProgress?.({ stage: "gate", detail: "Deciding whether a web search is needed..." });
-  const gate = await runSearchGate(ctx);
+  const gate = await runSearchGate(
+    ctx.scope ? ctx : { ...ctx, scope: activeScope },
+  );
   if (!gate.decision.search_required) {
     onProgress?.({ stage: "skipped", detail: "No web search required" });
     return null; // pipeline caller must fall back to main model directly
@@ -395,10 +416,15 @@ export async function runWebResearch(
   // ── query planning (multi-hop decomposer) ────────────────────────────
   onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries..." });
   // P4 law layer: derive BEFORE planning so the law can add site-scoped
-  // companions (§11.17). planQueries itself is byte-identical — the law
-  // only appends, never rewrites (duality §11.22, golden-safe).
-  const plannerLaw = derivePlannerLaw(ctx.userPrompt, gate.decision);
-  const planned = applyPlannerLaw(planQueries(ctx.userPrompt, gate.decision.queries), plannerLaw);
+  // companions (§11.17). Audit 2026-11-02 (brief #3/#4/#5): the law carries
+  // the scope's mandatory boundary and planQueries appends targeted
+  // site:/discovery companions for it — no fabricated domains, no brand→TLD
+  // guessing. The law only appends, never rewrites (duality §11.22).
+  const plannerLaw = derivePlannerLaw(ctx.userPrompt, gate.decision, activeScope);
+  const planned = applyPlannerLaw(
+    planQueries(ctx.userPrompt, gate.decision.queries, undefined, activeScope),
+    plannerLaw,
+  );
   const plans: SearchPlan[] = planned.map((p) => ({
     query: p.query,
     intent: p.intent as SearchPlan["intent"],
@@ -753,12 +779,54 @@ export async function runWebResearch(
     }
   }
 
+  // Task-scope resolution handoff (audit 2026-11-02, brief #4/#6): when an
+  // explicit target is still unresolved, this first merged SERP IS the
+  // bounded discovery evidence. Resolution runs through validated PSL
+  // registrable hosts of real result URLs — never a guessed domain. If any
+  // target's state/host changed, the law's mandatory boundary is refreshed
+  // IN PLACE (plannerLaw is const; the gap/demand waves below read it at
+  // call time, so they ride the updated law). Diagnostics log phrases/hosts
+  // /states only — no query text beyond what is already logged above.
+  if (
+    isEnforceableScope(activeScope) &&
+    activeScope.targets.some((t) => t.state === "unresolved")
+  ) {
+    const resolved = resolveTaskScope(activeScope, searchResults.map((r) => r.url));
+    const changed = resolved.targets.some((t, i) => {
+      const prev = activeScope.targets[i];
+      return !prev || t.state !== prev.state || t.host !== prev.host;
+    });
+    if (changed) {
+      activeScope = resolved;
+      applyScopeToLaw(plannerLaw, activeScope);
+      onProgress?.({
+        stage: "scope",
+        detail: "Target site resolved from search evidence",
+      });
+      log.info(
+        {
+          targets: activeScope.targets.map((t) => ({
+            phrase: t.phrase,
+            state: t.state,
+            host: t.host,
+            provenance: t.provenance,
+          })),
+        },
+        "task scope resolved from live evidence",
+      );
+    }
+  }
+
   // §11.17 domain control (P4): enforce the deterministic allow/block law on
   // the merged SERP BEFORE the starved check, so an honest empty result
   // surfaces as starved rather than polluting evidence with off-law
-  // domains. No-op when the law has no lists (fixture-inert). User-pasted
-  // URLs (origin "user") are exempt — the user's own link is never a
-  // casualty of a law written about OTHER sources.
+  // domains. No-op when the law has no lists (fixture-inert). With no
+  // mandatory hosts, user-pasted URLs (origin "user") are exempt — the
+  // user's own link is never a casualty of a law written about OTHER
+  // sources. With a mandatory operational scope active (brief #5/#9), even
+  // user-origin results must fall inside the mandatory/allowed boundary —
+  // a prompt-adjacent mention can never smuggle off-scope evidence into a
+  // site-bound task.
   searchResults = applyDomainControl(searchResults, plannerLaw);
 
   // A fully starved SERP is only fatal when the prompt carried no

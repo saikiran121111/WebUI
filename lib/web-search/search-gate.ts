@@ -41,6 +41,7 @@ import {
   SearchDecision,
 } from "./types";
 import { detectUrlsAndDomains, detectPromptUrls, type DetectedUrl } from "./url-detector";
+import { isEnforceableScope, scopeHosts } from "../decision/task-scope";
 
 const log = childLogger("web-search/search-gate");
 
@@ -506,6 +507,36 @@ export function rulesBasedPlan(ctx: SearchGateContext): SearchGateResult {
   ];
   for (const u of urls.slice(0, 3)) {
     queries.push({ query: u, intent: "general" });
+  }
+  // Task-scope carry (audit 2026-11-02, brief #6): the emergency fallback
+  // must NEVER broaden the contract. The scope's VERIFIED hosts ride as
+  // preferred_domains on the main query and get site: companions; an
+  // unresolved target gets a bounded quoted discovery query (max 2) —
+  // never an invented domain. Mirrors Rust `rules_based_plan`.
+  const scope = ctx.scope;
+  if (scope && isEnforceableScope(scope)) {
+    const hosts = scopeHosts(scope);
+    if (hosts.length > 0) {
+      queries[0].preferred_domains = hosts;
+      for (const h of hosts.slice(0, 2)) {
+        queries.push({
+          query: `${queries[0].query} site:${h}`.slice(0, 300),
+          intent: "general",
+          preferred_domains: [h],
+        });
+      }
+    }
+    let discovery = 0;
+    for (const t of scope.targets) {
+      if (discovery >= 2) break;
+      if (t.state === "unresolved" && t.phrase) {
+        const phrase = t.phrase.replace(/^["“”']|["“”']$/g, "").trim();
+        if (phrase) {
+          discovery += 1;
+          queries.push({ query: `"${phrase}"`.slice(0, 300), intent: "general" });
+        }
+      }
+    }
   }
   return {
     decision: {
