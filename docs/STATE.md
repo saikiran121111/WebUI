@@ -2523,3 +2523,89 @@ prune stale panel cards with a new `approval_stale` frame. COMMITTED
 - **Regression layers re-green after the change:** ruke-browser lib 170/170; ruke-server lib 106/106 (golden-replay byte contracts intact); `fixture_journeys --ignored` 2/2 (11.78 s); leg-1 trio 11/11.
 - **Docs closed out this session:** plan rows 19–24 → CLOSED with the real evidence (row 26 split note amended to 79/4); `docs/e2e-test-state.md` stale spec-timing line corrected (retries 0, per-test 480 s, stream window 420 s) + new "leg 2 GREEN" section incl. defect #8 post-mortem + housekeeping notes (stray `host:"0.1"` policy rule cosmetic; background-tab screenshot 30 s timeout observed once; conversations-live-chat.spec.ts unverified suspect); `documents/RUKE-IMPLEMENTATION-REPORT.md` §2 partition fixed to 79/4, §6 +defects #6/#7/#8, §8 rewritten with the recorded-green table, §9 limitations updated.
 - **NEXT (rows 28–29, FINAL):** preflight (git clean except ignored/tsbuildinfo; no stale lock; no playwright-cli sessions) ⇒ flip plan row 28–29, commit, then ONE-LINE WARNING immediately followed by `shutdown /s /t 60` (user-mandated last action; destructive — the warning is mandatory).
+
+# SEGMENT — TASK-SCOPE AUDIT: PHASE 1 + PHASE 2 LANDED (2026-11-03) — 8.1–8.8
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Complete RUKE WEB SEARCH P1–P7 (P1–P7.3 closed, ad4f938→…→c7b8da4) AND the
+12-issue task-scope audit fix (docs/task-scope-audit.md). Phase 1 (typed
+task-scope contract, corpus-pinned) = 681c89f. Phase 2 (scope enforced across
+planner/law/gate/pipeline/tools on BOTH engines + ruke-server threading +
+regression batteries) = ff265f6. Phases 3–6 pending, then the final locked
+Playwright fix-rerun loop, P7.5 report, §4 report, confirmed shutdown.
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- P1–P7.3: see prior segments + documents/WEB-SEARCH-P1-P7-* docs. c7b8da4 = launcher teardown fix.
+- Phase 1: lib/decision/task-scope.ts ⇔ crates/ruke-websearch/src/task_scope.rs; corpus
+  rust-backend/fixtures/task-scope/cases.json (32 derive + 8 resolution + 3 merge, BOTH suites replay).
+- Phase 2 ff265f6 (verified green): TS {task-scope, types, query-planner (rewritten),
+  planner-law (mandatoryHosts, two-mode applyDomainControl), search-gate, pipeline (Scope stage +
+  resolution block), tools (scope field + web_search/read_page admissions), web-tool-loop, route.ts
+  (single foldTaskScope)}; Rust ruke-websearch mirrors ALL of the above (query_planner,
+  planner_law, search_gate rules_based_plan scope-carry, pipeline Scope stage + resolution,
+  tools WebToolScope + admissions + host_of, presentation/search_routes law() arity);
+  ruke-server {chat/pipeline.rs: single hoisted fold → PipelineOutcome.turn_scope → ctx.scope +
+  web-loop call .take(); chat/web_loop.rs: 11th param scope}.
+- Goldens 01/03/04 re-recorded (TS-recorded corpus; NO Rust replay of web-search/0*;
+  drift = pool count 2→1 only; determinism re-run proven).
+- Test batteries green: vitest 1067 passed/1 skipped; task-scope 53/53; planner-law 18/18;
+  NEW __tests__/web-search/task-scope-planner.test.ts 7/7; web-tools scope admission 4 new;
+  cargo ruke-websearch 386+5 (3 new admission tests: drop/resolve/read-block); ruke-server
+  109 unit + 6/1/19/2/6 integration; tsc clean; contracts:check OK.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (current)]
+route.ts fold → runSearchPipeline(ctx.scope) → [gate rules_based_plan carries hosts;
+plan_queries(scope) companions; pipeline resolution stage → apply_scope_to_law →
+apply_domain_control mandatory mode] → runWebToolLoop(opts.scope) → makeWebToolSession(scope)
+→ execWebSearchTool admission (+resolve) / execReadPageTool pre-fetch block.
+Rust ⇔: run_turn_pipeline fold → PipelineOutcome.turn_scope → run_web_tool_loop(scope) →
+make_web_tool_session → exec_web_search/exec_read_page admissions. browser_loop::run_tool_loop
+(ruke-server pipeline :572) NOT yet threaded — Phase 4 uses outcome.turn_scope.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- TaskScope wire camelCase {intent snake_case: none|research|site_info|operate|compare_sites,
+  targets[{phrase,state,host,url,candidates,provenance}], excludedPhrases, authorizedHosts};
+  isEnforceableScope = operate|site_info|compare_sites; scopeHosts = resolved hosts + authorizedHosts.
+- resolveTaskScope(scope, candidates, {max=8, provenance:"resolved_search"}): equality >
+  ≥4-char label-containment; 1 eq⇒resolved, >1 eq⇒ambiguous, 0⇒stays unresolved (never a guess).
+- foldTaskScope(userPrompts) ONE per turn (TS route.ts; Rust run_turn_pipeline hoisted, carried
+  on PipelineOutcome.turn_scope). Failure/recovery never re-widens.
+- PlannerLaw.mandatoryHosts (serde key order pinned); applyDomainControl two-mode: mandatory
+  empty ⇒ legacy arm BYTE-IDENTICAL; else blocked-first, admit iff mandatory∪allowed, user
+  origin NOT exempt. derivePlannerLaw(userPrompt, decision, scope?) ⇔ derive_planner_law 3-arg.
+- WebToolSession.scope: model args can only NARROW. Notices: "off-scope result dropped: X
+  (task scope: …)" (reverse-walk order, take 3 + "(N more…)"), "read blocked: X is outside the
+  task scope (…)" pre-fetch, unbilled.
+- SearchGateContext.scope Option<TaskScope> serde default/skip; PipelineStage::Scope ("scope").
+- Env: unchanged. No new deps (url-detector/psl already present).
+
+## [8.5 PLAYWRIGHT / E2E STATE]
+Paused mid final locked loop (runs pw-02…pw-41; green through run 41 then STOPPED by user
+dispute — user was RIGHT, retrieval regressed; root cause fixed by Phases 1–2). Launcher:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-browser-e2e-exclusive.ps1
+-TestFiles tests/<spec>.spec.ts [-Grep '<pattern>'] (lock .ai-coordination/playwright.lock;
+fixture server :3210; dev supervisor :3000 Next + :3101 Rust; Strata :8080). Rows owed after
+Phases 3–6: rerun strengthened Blinkit/Myntra/Zepto, one -Grep each BookMyShow/Zomato/YouTube/
+Maps/LinkedIn/HN/SO/Greenhouse/Gov, web-search-10k ×4 ranges, affected browser specs, NEW
+scope specs. NEVER weaken assertions (tests/universal-websites.spec.ts law).
+
+## [8.6 OPEN BUGS / BLOCKERS]
+None blocking. Audit items 2,3 (Phase 3: panel-visibility routing + pipeline ordering),
+7,8 (Phase 4: ruke-browser task affinity + destination pre-gates), 9–11 (Phase 5: provenance
+separation, browserStore working-tab, omnibox PSL), 12 stays HONEST (502/503 preserved) —
+all TODO by design. Known limitations to report at P7.5: non-ASCII targets; "check my order
+status" mislabels operate; unknowable destination post-check for JS-driven nav; read_page
+pre-fetch host check (redirect limitation).
+
+## [8.7 ACTIVE SKILLS / SCENARIO LOCKS]
+No Tier-1/Tier-2 skill bodies loaded this session (ponytail+graphify behavior always-on via
+CLAUDE.md; no Skill tool invocations). Playwright skills load ONLY at TEST phase.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. Phase 3 (audit #2/#3): app/page.tsx getBrowserSession routing independent of panel visibility
+   (define open/closed/unavailable/non-streaming), pipeline ordering vs browser_loop at
+   ruke-server chat/pipeline.rs:572 (scope now available via outcome.turn_scope), keep 502/503.
+2. Re-green (vitest+tsc+contracts+cargo) then Phase-3 commit.
+3. Phase 4: contract.rs minimal TaskAffinity payload; browser_loop threads turn_scope;
+   authority.rs destination pre-gates BEFORE TabNew/NavigateTabUrl; executor.rs task-tab
+   selection + PSL nav guards; keep saved-permissions vs affinity SEPARATE.
