@@ -15,7 +15,8 @@
  * additive `web:surface_*` stage events. Rust mirror: presentation.rs — the
  * ladder order, vocabulary, and reason strings are byte-parity tested.
  */
-import { domainWithin, type PlannerLaw } from "./planner-law";
+import { domainWithin } from "./domain-match";
+import type { PlannerLaw } from "./planner-law";
 import type { EvidencePacket, RankedResult, SearchDecision } from "./types";
 
 /** Verbatim §55 contract. */

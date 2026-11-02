@@ -1,0 +1,7 @@
+# Golden fixture corpus is byte-compared by __tests__/rust-golden harnesses
+# ("the corpus is the contract"). Pin LF in the working copy regardless of
+# core.autocrlf so checkout round-trips can never rewrite fixture bytes.
+rust-backend/fixtures/**/*.json text eol=lf
+rust-backend/fixtures/**/*.jsonl text eol=lf
+rust-backend/fixtures/**/*.txt text eol=lf
+rust-backend/fixtures/**/*.md text eol=lf

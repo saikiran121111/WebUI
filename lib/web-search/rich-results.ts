@@ -17,7 +17,7 @@
  */
 import { z } from "zod";
 import type { PresentationPlan } from "./presentation";
-import { domainWithin } from "./planner-law";
+import { domainWithin } from "./domain-match";
 import type { EvidencePacket, RankedResult } from "./types";
 
 /** §2 kind vocabulary (order ⇔ rich_results.rs RichKind serde strings). */

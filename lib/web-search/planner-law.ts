@@ -127,20 +127,12 @@ const LOCAL_INTENT_RE =
 const LOCATION_PHRASE_RE =
   /\b(?:near|around|close\s+to|in|from)\s+([A-Z][\p{Ll}'’]{2,24}(?:\s+(?:[a-z]{1,3}|[A-Z][\p{Ll}'’]{2,24})){0,2})/gu;
 
-/** Lowercase + strip `www.` + drop any path — registrable-parent style. */
-export function normalizeDomain(raw: string): string {
-  let d = String(raw ?? "").trim().toLowerCase().split("/")[0];
-  d = d.replace(/^www\./, "");
-  return d;
-}
-
-/** Suffix containment rule (no PSL): host === d or host endsWith ".d". */
-export function domainWithin(host: string, domain: string): boolean {
-  const h = normalizeDomain(host);
-  const d = normalizeDomain(domain);
-  if (!h || !d) return false;
-  return h === d || h.endsWith("." + d);
-}
+// Pure domain helpers moved to ./domain-match (P7 browser-fix 2026-11-02) so
+// client-side importers (rich-results.ts) never drag this module's server-only
+// query-planner/metasearch/net chain (impit native) into the Next bundle.
+// Re-exported here — planner-law's public surface is unchanged.
+import { domainWithin, normalizeDomain } from "./domain-match";
+export { domainWithin, normalizeDomain };
 
 function hostOf(url: string): string {
   try {
