@@ -150,7 +150,13 @@ finally {
     # Stop ONLY what this script started.
     if ($appProc -ne $null) {
         Write-Output "Stopping dev supervisor tree (PID $($appProc.Id)) started by this script"
-        & taskkill.exe /PID $appProc.Id /T /F 2>$null | Out-Null
+        # taskkill writes to stderr when a tree child exits mid-kill; PowerShell
+        # promotes that to a NativeCommandError which, under ErrorActionPreference
+        # 'Stop', aborts this finally block and orphans the lock + fixture server
+        # (observed 2026-11-02). Route taskkill's output through cmd so PowerShell
+        # never sees the stderr line; teardown must never throw.
+        & cmd.exe /c "taskkill /PID $($appProc.Id) /T /F >nul 2>&1"
+        Stop-Process -Id $appProc.Id -Force -ErrorAction SilentlyContinue
     }
     if ($fixtureProc -ne $null) {
         Write-Output "Stopping fixture server (PID $($fixtureProc.Id)) started by this script"
