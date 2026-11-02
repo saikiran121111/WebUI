@@ -21,6 +21,8 @@ import {
 } from "../../../lib/decision/types";
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
+import { runWebToolLoop } from "../../../lib/chat/web-tool-loop";
+import type { WebToolDepth } from "../../../lib/web-search/tools";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
 import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { StageEvent } from "../../../lib/types";
@@ -447,7 +449,7 @@ async function runTurnPipeline(
      *  body in POST, already deleted there so it never reaches upstream). */
     turnTimezone?: string;
   },
-): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null }> {
+): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null }> {
   const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
@@ -498,6 +500,7 @@ async function runTurnPipeline(
   let inferenceTurnActive = false;
   let webCitationMap: Record<string, any> | null = null;
   let searchGateMeta: ResearchMeta | null = null;
+  let webDepth: WebToolDepth | null = null;
   const webResearchDisabled = gateDisabledByEnv();
   try {
     if (webResearchDisabled) {
@@ -568,6 +571,9 @@ async function runTurnPipeline(
           intent: q.intent,
         })),
       };
+      // P2: arm the model-facing web tool loop for this turn
+      // (lib/chat/web-tool-loop.ts ⇔ Rust chat/web_loop.rs).
+      webDepth = researchBundle.searchGate.decision.depth;
       log.info(
         {
           passages: researchBundle.topPassages.length,
@@ -610,7 +616,7 @@ async function runTurnPipeline(
     "turn decision",
   );
 
-  return { webCitationMap, searchGateMeta };
+  return { webCitationMap, searchGateMeta, webDepth };
 }
 
 export async function POST(req: NextRequest) {
@@ -785,13 +791,33 @@ export async function POST(req: NextRequest) {
               }
 
               stripAttachmentRefs(payload.messages);
-              await forwardStreamInto(
-                JSON.stringify(payload),
-                decisionMode,
-                inner.signal,
-                model,
-                ch,
-              );
+              // P2: a gate-produced bundle arms the model-facing web tool
+              // loop (web-tool-loop.ts ⇔ Rust web_loop.rs) — the model gets
+              // the read-only web_search / read_page surface instead of a
+              // plain forward. A client-supplied `tools` array (the Browser
+              // Panel passthrough) is never overwritten: those turns keep
+              // the passthrough exactly as before.
+              if (meta.webDepth && !payload.tools) {
+                await runWebToolLoop({
+                  payload,
+                  lastUserIdx,
+                  fullText,
+                  model,
+                  depth: meta.webDepth,
+                  webCitationMap: meta.webCitationMap,
+                  searchGateMeta: meta.searchGateMeta,
+                  signal: inner.signal,
+                  ch,
+                });
+              } else {
+                await forwardStreamInto(
+                  JSON.stringify(payload),
+                  decisionMode,
+                  inner.signal,
+                  model,
+                  ch,
+                );
+              }
             } catch (err: unknown) {
               log.error(
                 { err: err instanceof Error ? err.message : err },

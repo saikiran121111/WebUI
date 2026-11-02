@@ -47,6 +47,7 @@ import {
   setGoldenEnv,
   writeJsonFixture,
 } from "./support/golden";
+import { WEB_TOOL_GUIDANCE } from "@/lib/chat/web-tool-loop";
 
 setGoldenEnv({ webSearchDisabled: false });
 
@@ -246,7 +247,13 @@ describe("golden: web-search pipeline", () => {
         "freshness week (newsy), depth standard, one keyword query, source 'deterministic', gateMs 0. Pipeline " +
         "streams web:gate -> web:planning -> web:searching -> web:reading(+progress) -> web:reranking -> web:done " +
         "as ruke_stage frames with stage names prefixed 'web:' (the web_meta frame follows web:done and is NOT " +
-        "'web:'-prefixed). One evidence system message is injected at " +
+        "'web:'-prefixed). P2 (2026-11-02): the bundle arms the model-facing web tool " +
+        "loop — WEB_TOOL_GUIDANCE rides as the FIRST system block (skill-slot law: " +
+        "immediately before the last user turn) and payload.tools carries the read-only " +
+        "web_search/read_page surface. The scripted upstream never ends a round with " +
+        "finish_reason 'tool_calls', so the loop still makes exactly ONE upstream call " +
+        "and the single-[DONE] grammar is unchanged. Message chain: guidance, user, " +
+        "runtime_clock, evidence. One evidence system message is injected at " +
         "lastUserIdx+1 (CONTRACT DISCOVERY: with no skill block that index is AFTER the user turn — same " +
         "off-by-one family as the attachments block; recorded, not fixed). The block = ANTI_REFUSAL_DIRECTIVE + " +
         "'\\n\\n' + evidenceBlock() and is pinned VERBATIM: the <evidence> header, the 8 guideline bullets, the " +
@@ -292,7 +299,9 @@ describe("golden: web-search pipeline", () => {
     expect(sg.freshness).toBe("week");
     expect(sg.queries.length).toBeGreaterThanOrEqual(1);
 
-    expect(upstreamCalls.length).toBe(1); // single LLM call: no gate model, no vision pre-pass
+    // single LLM call: no gate model, no vision pre-pass; the tool loop
+    // closed after one answer round (no tool_calls in the script)
+    expect(upstreamCalls.length).toBe(1);
     const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] };
     const roles = payload.messages.map((m) => m.role);
     const evidenceIdx = payload.messages.findIndex(
@@ -312,13 +321,18 @@ describe("golden: web-search pipeline", () => {
     // The user turn itself is never rewritten by the web pipeline.
     const lastUser = payload.messages.filter((m) => m.role === "user").pop();
     expect(lastUser!.content).toBe("what is the latest roadmap news for project nimbus");
-    // CONTRACT DISCOVERY: off-by-one injection index -> evidence AFTER the user turn.
-    // P1 (2026-11-01): the live-clock injection adds one system block ahead of
-    // the evidence block; the contract (evidence directly after the user turn
-    // chain) still holds.
-    expect(roles).toEqual(["user", "system", "system"]);
-    expect(String(payload.messages[1].content).startsWith("<runtime_clock>")).toBe(true);
-    expect(evidenceIdx).toBe(2);
+    // CONTRACT DISCOVERY: off-by-one injection index -> evidence AFTER the user
+    // turn. P1 (2026-11-01): the live-clock injection adds one system block
+    // ahead of the evidence block. P2 (2026-11-02): the bundle arms the web tool
+    // loop — guidance leads the chain (skill slot) and the read-only tool
+    // surface rides the payload; the contract (evidence directly after the user
+    // turn chain) still holds.
+    expect(roles).toEqual(["system", "user", "system", "system"]);
+    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(String(payload.messages[2].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(evidenceIdx).toBe(3);
+    const tools = (upstreamCalls[0].bodyJson as { tools?: { function: { name: string } }[] }).tools;
+    expect(tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
   });
 
   // live browser tier — see note on test 01 for the timeout budget
@@ -358,7 +372,11 @@ describe("golden: web-search pipeline", () => {
         "web:done('No search results returned') — runWebResearch returns a NON-NULL empty bundle. The route " +
         "still injects the EXACT sentinel block 'No web evidence could be retrieved. Proceed with your "
         + "knowledge only.' (no ANTI_REFUSAL preamble — topPassages empty) at lastUserIdx+1, but the empty " +
-        "citation map means NO web_meta frame and NO citation headers. The chat forward + [DONE] are unaffected: " +
+        "citation map means NO web_meta frame and NO citation headers. P2 (2026-11-02): even the starved " +
+        "bundle arms the web tool loop — WEB_TOOL_GUIDANCE leads the message chain (guidance, user, " +
+        "runtime_clock, sentinel) and payload.tools offers web_search/read_page, so the model may retry " +
+        "research itself; the scripted answer round never calls tools, so still exactly ONE upstream call. " +
+        "The chat forward + [DONE] are unaffected: " +
         "a starved search NEVER turns into an error frame.",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
@@ -370,8 +388,12 @@ describe("golden: web-search pipeline", () => {
     expect(seq.some((s) => s === "web:reading" || s === "web:reranking")).toBe(false);
     expect(logical.frames.some((f) => f.kind === "stage" && (f.obj as { stage?: string }).stage === "web_meta")).toBe(false);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: string }[] };
+    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: string }[]; tools?: { function: { name: string } }[] };
     expect(payload.messages.some((m) => m.role === "system" && m.content === "No web evidence could be retrieved. Proceed with your knowledge only.")).toBe(true);
+    // P2: a starved bundle still arms the tool loop — the model can retry.
+    expect(payload.messages.map((m) => m.role)).toEqual(["system", "user", "system", "system"]);
+    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
   });
 
   it("04 search pipeline throws — route catch keeps the chat alive (non-fatal)", async () => {
@@ -415,7 +437,8 @@ describe("golden: web-search pipeline", () => {
         "'who is ... person') with ZERO model calls. CONTRACT DISCOVERY: runVisionEntityPrepass is DEAD " +
         "(zero call sites) — no vision LLM fetch ever happens and planner entityHints stay undefined. The user " +
         "turn passes through to the upstream UNCHANGED (content array + data URL byte-identical), and the " +
-        "evidence/web_meta/citation behavior matches fixture 01's shape (block after user turn, citations map). " +
+        "evidence/web_meta/citation behavior matches fixture 01's shape (P2 chain: guidance, user, " +
+        "runtime_clock, evidence; tool surface injected; citations map). " +
         "Exactly ONE upstream call is made for the whole request.",
       comparison: "structural",
       rawBody: chatBody(content, undefined),
@@ -432,9 +455,12 @@ describe("golden: web-search pipeline", () => {
     const sg = sgFrame!.searchGate as { decidedBy: string };
     expect(sg.decidedBy).toBe("deterministic");
     expect(upstreamCalls.length).toBe(1);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] };
+    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
     const userTurn = payload.messages.find((m) => m.role === "user");
     expect(userTurn!.content).toEqual(content); // parts + data URL untouched
+    // P2: image-intent turns get the same tool-loop treatment as fixture 01.
+    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
     const seq = stages(logical.frames);
     expect(seq[0]).toBe("decision_done");
     expect(seq).toContain("web:gate");

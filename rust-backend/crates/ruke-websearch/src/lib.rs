@@ -57,3 +57,6 @@ pub mod youtube_bridge;
 
 // ── Part-6 integration (chat-pipeline glue; owned by the Part-6 integrator)
 pub mod pipeline;
+
+// ── P2 model-facing web tools (web_search / read_page; ⇔ lib/web-search/tools.ts)
+pub mod tools;

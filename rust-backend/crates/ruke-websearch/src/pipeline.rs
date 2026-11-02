@@ -556,17 +556,13 @@ pub const ANTI_REFUSAL_DIRECTIVE: &str = concat!(
     "LinkedIn/websites. Answer directly using the provided evidence.",
 );
 
-const SEARCH_MORE_STUB: &str = concat!(
-    "\n\nNOTE: there is no search_more tool available in this turn — the ",
-    "pipeline already re-searched on its own when a fact was missing. If a ",
-    "fact is still not in the evidence above, say so plainly; do not invent it.",
-);
-
-/// ⇔ TS `buildMainModelContext` return shape.
+/// ⇔ TS `buildMainModelContext` return shape. P2: the `search_more_stub`
+/// is gone — the model now gets REAL web_search / read_page tools for the
+/// turn (`ruke-server chat/web_loop.rs`), so there is no "no search_more
+/// tool available" apologetic to append.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainModelContext {
     pub system_block: String,
-    pub search_more_stub: String,
 }
 
 pub fn build_main_model_context(bundle: &EvidenceBundle) -> MainModelContext {
@@ -579,7 +575,6 @@ pub fn build_main_model_context(bundle: &EvidenceBundle) -> MainModelContext {
     };
     MainModelContext {
         system_block: format!("{preamble}{block}"),
-        search_more_stub: SEARCH_MORE_STUB.to_string(),
     }
 }
 
@@ -1872,15 +1867,11 @@ mod tests {
     }
 
     #[test]
-    fn build_main_model_context_pins_preamble_and_stub() {
+    fn build_main_model_context_pins_preamble() {
         let c = build_main_model_context(&empty_bundle());
         assert_eq!(
             c.system_block,
             "No web evidence could be retrieved. Proceed with your knowledge only."
-        );
-        assert_eq!(
-            c.search_more_stub,
-            "\n\nNOTE: there is no search_more tool available in this turn — the pipeline already re-searched on its own when a fact was missing. If a fact is still not in the evidence above, say so plainly; do not invent it."
         );
         let mut b = empty_bundle();
         b.top_passages = vec![passage("S1", "https://a.example", "A", "text", 1.0)];

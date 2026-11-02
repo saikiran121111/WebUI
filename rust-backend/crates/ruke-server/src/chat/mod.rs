@@ -32,5 +32,6 @@ pub mod headers;
 pub mod pipeline;
 pub mod scrubber;
 pub mod sse;
+pub mod web_loop;
 
 pub use handler::chat_post;

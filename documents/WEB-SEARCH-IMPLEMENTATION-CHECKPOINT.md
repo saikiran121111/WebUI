@@ -13,7 +13,7 @@ Status board (updated per phase):
 | P1 | Trusted runtime-clock context injection | **CLOSED** (commit ad4f938, golden family re-recorded, verified) |
 | P6 | Safety: SSRF/DNS-rebinding/redirect revalidation, secret scrub, untrusted-data laws, wall law, §19 provenance | **CLOSED** (commit 65ad1d2 — details below) |
 | P3 | Retrieval quality: freshness classes, TTL/RetrievalMode, wiki cap, normalize/dedupe, dynamic segment filtering; preserve structured metadata for P5 | **CLOSED** (this commit — details below) |
-| P2 | Model tools: `web_search`/`read_page`, kill `searchMoreStub`, gap loop, RetrievalFailure taxonomy, budgets, tool/result envelopes | pending |
+| P2 | Model tools: `web_search`/`read_page`, kill `searchMoreStub`, gap loop, RetrievalFailure taxonomy, budgets, tool/result envelopes | **CLOSED** (this commit — details below) |
 | P4 | Planner: query schema/domain semantics/decomposition, evidence sufficiency, bounded Deep, PresentationPlan router | pending |
 | P5 | UI: citations + U1–U13 + full universal rich-results registry (`components/web-results/`, no gradients) | pending |
 | P7 | Deterministic proof suite + before/after benchmarks + ONE final locked Playwright loop + final report | pending |
@@ -184,10 +184,100 @@ structured result metadata is preserved untouched for P5's `RichResult` envelope
 
 ---
 
-## Next-up contract reminders (carried into P2)
-- P2 wiring rides the EXISTING tools passthrough (`client.ts:70` law) — do not invent a new transport. Kill `searchMoreStub` in `pipeline.ts`; replace with the structured gap loop (§11.6). `RetrievalFailure` taxonomy (§11.13): Timeout, DnsFailure, HttpStatus, RateLimited, RobotsDenied, AuthRequired, CaptchaRequired, UnsupportedMime, ContentTooLarge, ParseFailure, UnsafeDestination, Cancelled.
-- P2 tool/result envelopes per the RICH RESULTS ADDENDUM: tool results carry the structured payload (never model-fabricated UI values); `[Structured Page Facts]` passages must survive every pipeline path — the segment filter already exempts them.
-- Fetched-page evidence is ALREADY §11.12-filtered at the two SERP extraction hops; tool-driven page reads (`read_page`) should route through `applySegmentFilter` / `apply_segment_filter` with the same guards.
-- Budgets reuse the P3 retrieval budgets (MAX_TOOL_ROUNDS=20 chat-side; 79/4 partition unchanged); §11.18 direct-URL semantics and §11.14 session tracking land in P2.
+## P2 — Model-facing web research tools (CLOSED 2026-11-02, TS ⇄ Rust in one commit)
+
+**Rich-results addendum honored:** tool/retriever → validated structured envelope → frontend renderer path is
+in place end-to-end; tool results carry ONLY structured retrieval payloads (the model can never fabricate
+prices/ratings/coordinates — the READ/SEARCH envelopes carry exactly what the pipeline validated); one tool
+round buys N pages (read_page batch within one round under the MAX_TOOL_ROUNDS budget).
+
+### Implementation — TypeScript side
+- `lib/web-search/tools.ts` (NEW, 646 lines): §11.13 `RetrievalFailure` taxonomy + `classifyRetrievalFailure`
+  (deterministic needle order unsafe→robots→captcha→rate→auth→size→mime→dns→timeout, then status≥400,
+  then parse_failure default); depth budgets quick{1,6,2}/standard{2,12,4}/deep{4,20,6} rounds/searchCalls/
+  readUrls; session with `[S#]` seed continuation (`Math.max(1, seed)`), `ws-` search-session id, 500-char
+  focus context; byte-locked `WEB_SEARCH_TOOL_DESCRIPTION` / `READ_PAGE_TOOL_DESCRIPTION`;
+  `webToolDefinitions()` (queries 1–4, missing_claims 1–6, desired_source_types enum, freshness incl.
+  "realtime", urls 1–8, timeoutMs [1000,60000], `additionalProperties:false`); `execWebSearchTool`
+  (§11.18: URL-shaped queries route to read_page semantics with an honest notice, never a SERP query;
+  per-query `metasearch([{query,intent,freshness}], 10)`; `normalizeUrl` dedupe keeps the FIRST-SEEN RAW url;
+  snippets capped at 300+"…"; optional same-round page reads); `execReadPageTool` (SSRF guard FIRST —
+  `unsafe_destination` and the extractor is never touched; per-packet `extractUrl` + §11.12
+  `applySegmentFilter` + `[S#]` renumbering; whole-URL budget drops with notices; 20 000-char batch budget
+  deducts WHOLE passages — a page is kept or omitted, never halved; wall outcomes stay STRUCTURAL:
+  auth_required / captcha_required / rate_limited via the §P6 classification, never a bypass);
+  `budgetExhaustedEnvelope` / `invalidArgsEnvelope` are honest, never guesses.
+- `lib/chat/web-tool-loop.ts` (NEW, 499 lines): `runWebToolLoop` — guidance block injected in the skill
+  slot (immediately before the last user turn, `injectSystemBefore`), `payload.tools` armed;
+  `ToolStreamRelay` merges tool-call fragments BY INDEX and swallows a round's `[DONE]` iff that round ended
+  `finish_reason:"tool_calls"` → exactly ONE `[DONE]` per stream, even on misbehaving final rounds
+  (documented deviation at the round cap: tools removed + `WEB_TOOL_FINAL_DIRECTIVE` + ONE forced no-tools
+  round, synthetic `data: [DONE]` if the model calls tools again there); `web:tools` stage with the call
+  census + progress; fresh citation seeds merge into the `[S#]` map and the MERGED map re-rides a `web_meta`
+  frame (the `hooks/useChat` OVERWRITE law); `unknown_tool` / `invalid_arguments` honest tool-message
+  envelopes keep the loop alive; `beginUserTurn`/`endUserTurn` exactly once for the WHOLE loop (Rule 5);
+  think-tag scrubbing identical to the passthrough path.
+- `app/api/chat/route.ts`: the loop arms ONLY when the pipeline produced a bundle (`meta.webDepth`) AND the
+  client sent no `tools` (Browser Panel passthrough law `client.ts:70` untouched); the legacy `stream:false`
+  path keeps the old forward verbatim (fixture 02 pins it).
+- `lib/web-search/pipeline.ts`: `searchMoreStub` KILLED — grep proof: zero `searchMore` references remain in
+  `__tests__/` or `rust-backend/fixtures/`, so NO golden re-record was required for the stub removal itself.
+
+### Implementation — Rust mirror
+- `crates/ruke-websearch/src/tools.rs` (NEW, ~950 lines): byte-locked constants ⇔ TS
+  (`WEB_SEARCH_TOOL_DESCRIPTION:267`, `READ_PAGE_TOOL_DESCRIPTION:269`, `WEB_TOOL_GUIDANCE` concat block
+  :351–361, `WEB_TOOL_FINAL_DIRECTIVE:367`, caps :371–376 — each per-line probe text occurs EXACTLY ONCE per
+  file); `exec_web_search` (:684) / `exec_read_page` (:831) mirror the TS envelopes, budgets, §11.18 routing,
+  dedupe, char-budget whole-passage law, and wall-law classification; `lib.rs` exposes the module.
+- `crates/ruke-server/src/chat/web_loop.rs` (NEW, 425 lines): the same loop shape as `browser_loop.rs` but
+  read-only research; REUSES `ToolStreamRelay` + `tool_content` (visibility widened to `pub(crate)` in
+  `browser_loop.rs`, no second copy); `state.slot.begin_guard()` held for the WHOLE loop (Rule 5);
+  `stream_round` helper shared by normal + forced-final rounds; synthetic `b"data: [DONE]\n\n"` restores
+  the grammar when the misbehaving final round's `[DONE]` was swallowed; citations merged + `web_meta`
+  re-emitted under the OVERWRITE law (contracts `StageEvent` unchanged — no schema change needed).
+- `crates/ruke-server/src/chat/pipeline.rs`: `run_turn_pipeline` returns `web_depth`; `pump_progress` arms
+  the `web_tools` path ⇔ route.ts gate; `mod.rs` wires the module.
+
+### Byte-level findings recorded (do not re-derive)
+- `metasearch` takes a FLAT plan array of one `{query,intent,freshness}` object per call (not double-nested).
+- On the TS side the guidance/directive constants live ONLY in `web-tool-loop.ts` — `web-search/tools.ts`
+  does not re-export them (Rust side: they live in `tools.rs`; the probe compares each file to itself).
+- A successful `read_page` entry carries NO `fetched` key at all; only failed pages carry `fetched:false`.
+- Dedupe keys on the NORMALIZED url but the FIRST-SEEN RAW url (query params and all) rides into the envelope.
+- Golden fixtures 01/03/05 RE-RECORDED this commit: the recorded chain is now
+  `[guidance, user, runtime_clock, evidence|sentinel]` + the `tools` array (bodyJson pins both descriptions +
+  schemas verbatim). Fixture 02 (legacy headers) and 04 (pipeline throws) did NOT drift — the throw path and
+  the legacy path never arm the loop; that non-arming is now itself pinned.
+
+### Verification (real commands, real exits — P2 gate)
+- `npx vitest run __tests__/web-search/web-tools.test.ts __tests__/chat/web-tool-loop.test.ts` → **67/67**
+  (57 + 10, both files NEW this phase).
+- `npx vitest run __tests__/web-search` → 11 files, **181/181 passed** (was 124 at P3 close).
+- `npx vitest run __tests__/chat` → 2 files, **15/15 passed**.
+- `npx vitest run __tests__/rust-golden --no-file-parallelism` → 10 files, **54/54 passed** — run twice;
+  the second pass is the determinism/replay proof for the re-recorded fixtures.
+- `npx tsc --noEmit` → exit 0.
+- `cargo test -p ruke-websearch --manifest-path rust-backend/Cargo.toml` → **331 lib + 5 integration, 0 failed**
+  (tools.rs added 11 lib tests over P3's 320).
+- `cargo test -p ruke-server --manifest-path rust-backend/Cargo.toml` → **109 lib + 6 + 1 + 19 + 2 + 6**
+  integration targets, 0 failed.
+- `cargo clippy -p ruke-server -p ruke-websearch --all-targets` → EXACTLY the locked baseline
+  (6× doc-list-item + 1× map_or in ruke-websearch; ruke-server adds ZERO).
+- `cargo check -p ruke-server --tests` → clean. `cargo fmt` in-set files (tools.rs, web_loop.rs,
+  browser_loop.rs, chat/pipeline.rs, mod.rs, lib.rs, extractor.rs) are fmt-stable; the 16 known out-of-set
+  files reverted.
+- No Playwright executed in P2 (reserved for the final locked P7 loop).
+
+---
+
+## Next-up contract reminders (carried into P4)
+- P4 is the planner half: §11.5 query schema/domain semantics (`preferred_domains` must EXECUTE as `site:`),
+  §11.21/§11.22 decomposition, §11.14 evidence-sufficiency, the bounded Deep gap-matrix loop (the §11.6
+  research-loop half), and the PresentationPlan router. Reuse the P2 session/`[S#]` machinery, do NOT fork
+  a second numbering scheme.
+- The P2 tool loop is now the ONLY streaming web path when a bundle exists: any P4 planner change that
+  alters gate/planner decisions shows up in golden fixtures 01/03/05 — re-record only when the semantic
+  chain genuinely changed, and re-run the corpus twice.
 - Evidence block = 8 bullets; any bullet edit ⇒ TS+Rust byte-identical + fixture re-record in the same commit.
-- P7 warning: rust-golden web fixtures carry live-browser-tier-captured bytes (see P3 findings) — treat upstream content drift as the first suspect for unexplained drift.
+- P7 warning: rust-golden web fixtures carry live-browser-tier-captured bytes (see P3 findings) — treat
+  upstream content drift as the first suspect for unexplained drift.

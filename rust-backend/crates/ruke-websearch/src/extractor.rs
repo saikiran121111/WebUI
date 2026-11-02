@@ -1117,7 +1117,7 @@ impl<'a> Extractor<'a> {
     /// `rank_in_window` (§18): position of `result` in the pipeline's full
     /// read window — drives browser-tier selectivity only; callers with no
     /// window (direct-target hop, golden replays) pass 0.
-    async fn extract_url_capped(
+    pub(crate) async fn extract_url_capped(
         &self,
         result: &RankedResult,
         deadline: Option<std::time::Instant>,

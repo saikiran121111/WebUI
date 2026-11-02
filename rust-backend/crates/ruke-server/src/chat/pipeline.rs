@@ -57,7 +57,7 @@ use ruke_websearch::pipeline::{
     build_main_model_context, run_web_research, EvidenceBundle, PipelineProgress, PipelineStage,
 };
 use ruke_websearch::search_gate::SearchGateOptions;
-use ruke_websearch::types::{HistoryTurn, SearchGateContext};
+use ruke_websearch::types::{Depth, HistoryTurn, SearchGateContext};
 
 use crate::chat::{attach, clock, forward, sse::ProgressChannel};
 use crate::AppState;
@@ -72,6 +72,9 @@ use crate::AppState;
 pub struct PipelineOutcome {
     pub web_citations: Option<CitationMap>,
     pub search_gate: Option<ResearchMeta>,
+    /// P2: the depth the gate chose when it produced a bundle — drives the
+    /// model-facing web tool loop (`chat/web_loop.rs` ⇔ TS web-tool-loop).
+    pub web_depth: Option<Depth>,
 }
 
 /// Mirror of `runTurnPipeline`'s Part-4-visible steps. `ch` is the progress
@@ -360,6 +363,7 @@ pub async fn run_turn_pipeline(
                 }
                 outcome.web_citations = Some(citation_map_from(&bundle));
                 outcome.search_gate = Some(research_meta(&bundle));
+                outcome.web_depth = Some(bundle.search_gate.decision.depth);
                 tracing::info!(
                     parent: span,
                     passages = bundle.top_passages.len() as u64,
@@ -435,7 +439,7 @@ pub async fn pump_progress(
     ch.stage(&ev).await;
 
     let used_for_stage = used_skill.clone();
-    let outcome = run_turn_pipeline(
+    let mut outcome = run_turn_pipeline(
         &mut payload,
         &env,
         used_for_stage.as_deref(),
@@ -481,6 +485,12 @@ pub async fn pump_progress(
     //
     // Browser turns (Phase 10) take the tool-loop path with the SAME
     // stripped payload; non-browser turns are byte-identical to before.
+    // P2: a gate-produced bundle additionally arms the model-facing web
+    // tool loop (web_loop.rs ⇔ TS web-tool-loop.ts) for non-browser turns
+    // that carry no client-supplied `tools` — the browser loop keeps
+    // priority, and a client passthrough `tools` array is never overwritten.
+    let web_tools =
+        browser.is_none() && outcome.web_depth.is_some() && payload.get("tools").is_none();
     match browser {
         Some((session_id, turn_id)) => {
             crate::chat::browser_loop::run_tool_loop(
@@ -493,6 +503,25 @@ pub async fn pump_progress(
                 &mut ch,
                 session_id,
                 turn_id,
+            )
+            .await;
+        }
+        None if web_tools => {
+            let depth = outcome.web_depth.expect("web_tools gate implies a depth");
+            let merged = outcome.web_citations.take().unwrap_or_default();
+            let gate = outcome.search_gate.take();
+            crate::chat::web_loop::run_web_tool_loop(
+                &state,
+                payload,
+                last_user_idx,
+                &model,
+                depth,
+                merged,
+                gate,
+                &question,
+                &span,
+                &token,
+                &mut ch,
             )
             .await;
         }

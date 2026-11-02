@@ -953,14 +953,12 @@ export const ANTI_REFUSAL_DIRECTIVE =
  */
 export function buildMainModelContext(bundle: EvidenceBundle): {
   systemBlock: string;
-  searchMoreStub: string;
 } {
   const block = evidenceBlock(bundle);
   const hasEvidence = bundle.topPassages.length > 0;
   const preamble = hasEvidence ? ANTI_REFUSAL_DIRECTIVE + "\n\n" : "";
-  const stub =
-    `\n\nNOTE: there is no search_more tool available in this turn — the ` +
-    `pipeline already re-searched on its own when a fact was missing. If a ` +
-    `fact is still not in the evidence above, say so plainly; do not invent it.`;
-  return { systemBlock: preamble + block, searchMoreStub: stub };
+  // P2: the searchMoreStub is gone — the model now gets REAL web_search /
+  // read_page tools for the turn (lib/chat/web-tool-loop.ts), so there is
+  // no "no search_more tool available" apologetic to append.
+  return { systemBlock: preamble + block };
 }

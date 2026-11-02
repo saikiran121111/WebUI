@@ -89,16 +89,16 @@ enum Outcome {
 }
 
 #[derive(Default)]
-struct CallAcc {
-    id: String,
-    name: String,
-    arguments: String,
+pub(crate) struct CallAcc {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) arguments: String,
 }
 
 /// Assembles one round's upstream SSE stream: forwards complete frames
 /// verbatim, accumulates assistant text + tool-call fragments, and
 /// decides which `data: [DONE]` frames reach the client.
-struct ToolStreamRelay {
+pub(crate) struct ToolStreamRelay {
     buf: Vec<u8>,
     pub content: String,
     pub calls: BTreeMap<usize, CallAcc>,
@@ -112,7 +112,7 @@ impl Default for ToolStreamRelay {
 }
 
 impl ToolStreamRelay {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             buf: Vec::new(),
             content: String::new(),
@@ -123,7 +123,7 @@ impl ToolStreamRelay {
 
     /// Feed scrubbed upstream bytes; returns the byte pieces that may go
     /// to the client (complete frames minus a swallowed `[DONE]`).
-    fn feed(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
         self.buf.extend_from_slice(bytes);
         let mut out = Vec::new();
         while let Some(pos) = find_frame_end(&self.buf) {
@@ -200,7 +200,7 @@ impl ToolStreamRelay {
 
     /// Flush the unterminated remainder of the stream (servers close
     /// right after the final `[DONE]` with no trailing blank line).
-    fn finish(&mut self, tail: &[u8]) -> Option<Vec<u8>> {
+    pub(crate) fn finish(&mut self, tail: &[u8]) -> Option<Vec<u8>> {
         self.buf.extend_from_slice(tail);
         if self.buf.is_empty() {
             return None;
@@ -243,7 +243,7 @@ fn cull_tool_result(mut result: Value) -> Value {
     result
 }
 
-fn tool_content(result: Value) -> String {
+pub(crate) fn tool_content(result: Value) -> String {
     let mut text = result.to_string();
     if text.len() > MAX_TOOL_RESULT_CHARS {
         let mut cut = MAX_TOOL_RESULT_CHARS;
