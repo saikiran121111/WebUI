@@ -699,9 +699,11 @@ export function useChat({
           stream: true,
           reasoning_effort: curEffort === "off" ? undefined : curEffort,
           tools,
-          // Browser turns (Phase 10): marker ONLY when the Browser Panel
-          // was open at send time; omitted (undefined) otherwise, and
-          // never set on compaction/fence-repair calls (their own paths).
+          // Browser routing law (task-scope audit, brief #2): the marker
+          // rides on EVERY chat send as conversation identity — panel
+          // open/closed never decides activation, and the SERVER decides
+          // the browser loop from the task-scope contract. Still never
+          // set on compaction/fence-repair calls (their own paths).
           browser_session: getBrowserSessionRef.current?.(),
           // P1 clock grounding: the zone the user experiences "now" in.
           // The route answers time/date questions from the server clock

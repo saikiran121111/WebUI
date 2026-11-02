@@ -108,6 +108,18 @@ pub fn is_enforceable_scope(scope: &TaskScope) -> bool {
     )
 }
 
+/// Browser-activation law (brief #2/#3): a chat turn runs the BROWSER tool
+/// loop only for an operational scope. The intent ladder makes `Operate`
+/// structurally imply at least one target, so a browser turn always has a
+/// site-bound destination to resolve before touching the engine. Research,
+/// site-info and compare turns route through the scope-enforced research
+/// path instead. Panel visibility NEVER decides this — the client's
+/// `browser_session` marker is conversation identity only.
+/// ⇔ `routesToBrowserTurn` in `lib/decision/task-scope.ts`.
+pub fn routes_to_browser_turn(scope: &TaskScope) -> bool {
+    scope.intent == TaskIntent::Operate
+}
+
 /// Distinct resolved hosts in scope order (for gate/planner/browser enforcement).
 pub fn scope_hosts(scope: &TaskScope) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -1225,6 +1237,67 @@ mod tests {
             fold_task_scope(&["".to_string(), "   ".to_string()]),
             empty_scope()
         );
+    }
+
+    #[test]
+    fn browser_turn_routing_matrix() {
+        // ⇔ vitest "only operate scopes route to the browser loop".
+        let scoped = |intent: TaskIntent| TaskScope {
+            intent,
+            targets: vec![SiteTarget {
+                phrase: "x.com".into(),
+                state: TargetState::Resolved,
+                host: "x.com".into(),
+                url: "https://x.com".into(),
+                candidates: vec![],
+                provenance: TargetProvenance::ExplicitDomain,
+            }],
+            excluded_phrases: vec![],
+            authorized_hosts: vec![],
+        };
+        assert!(routes_to_browser_turn(&scoped(TaskIntent::Operate)));
+        for intent in [
+            TaskIntent::NoScope,
+            TaskIntent::Research,
+            TaskIntent::SiteInfo,
+            TaskIntent::CompareSites,
+        ] {
+            assert!(!routes_to_browser_turn(&scoped(intent)));
+        }
+        assert!(!routes_to_browser_turn(&empty_scope()));
+    }
+
+    #[test]
+    fn browser_operate_implies_a_target() {
+        // Ladder law relied on by the routing predicate: an Operate scope
+        // always carries ≥1 target, so the browser loop never runs without
+        // a destination to resolve. An operational VERB with NO extractable
+        // site never becomes Operate.
+        let s = derive_task_scope("order milk on Zepto");
+        assert!(routes_to_browser_turn(&s));
+        assert!(!s.targets.is_empty());
+        let n = derive_task_scope("please do it now");
+        assert!(!routes_to_browser_turn(&n));
+        assert!(n.targets.is_empty());
+    }
+
+    #[test]
+    fn acceptance_browser_prompts_route_operate() {
+        // Pins the EXACT prompts from tests/browser-model-acceptance.spec.ts
+        // (FIXTURE_BASE = http://127.0.0.1:3210) so the scope-driven routing
+        // law can never silently drop the browser acceptance journeys out of
+        // the browser loop. ⇔ vitest pins with the identical strings.
+        const PROMPTS: [&str; 3] = [
+            r##"Use the browser tools. A browser tab is already open at http://127.0.0.1:3210/easy. On that SAME tab (do not open new tabs), click the link with CSS selector "#go-arrived", then read the page text and tell me the exact marker text shown in the "#arrived-marker" element."##,
+            r##"Use the browser tools on the already-open tab at http://127.0.0.1:3210/medium (do not open new tabs): type RUKE-MEDIUM-42X into the input with CSS selector "#note-input"; select the option value "business" in the select "#tier-select"; tick the checkbox "#subscribe-box"; check the radio button with CSS selector input[name="plan"][value="annual"]; then click the button "#submit-btn". Finally read the page and list the echoed lines you see."##,
+            r##"Use the browser tools. Step 1: open a NEW tab at http://127.0.0.1:3210/hard/popup. Step 2: on that page click the button with CSS selector "#open-popup" — it opens a popup, which appears as another browser tab. Step 3: list the browser tabs, find the child tab whose URL ends with "/hard/popup-child", and call the "tab_mark_deliverable" tool on that child tab so it is kept. Step 4: read the child page and tell me the marker text shown."##,
+        ];
+        for p in PROMPTS {
+            let s = derive_task_scope(p);
+            assert!(!s.targets.is_empty(), "acceptance prompt lost its site target: {p}");
+            assert_eq!(s.intent, TaskIntent::Operate, "acceptance prompt not operational: {p}");
+            assert!(routes_to_browser_turn(&s), "acceptance prompt must route to the browser loop: {p}");
+        }
     }
 
     #[test]

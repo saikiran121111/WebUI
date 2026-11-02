@@ -106,6 +106,13 @@ pub async fn run_turn_pipeline(
     // P1 clock grounding: the client's IANA zone captured (and stripped
     // from the payload) by the handler — ⇔ TS `opts.turnTimezone`.
     turn_timezone: Option<&str>,
+    // Task-scope audit (brief #2/#3): true when the request carried the
+    // `browser_session` marker (conversation identity — sent on EVERY
+    // chat send, panel visibility irrelevant). Marker + an OPERATE fold
+    // makes this a browser turn, and the general research gate is then
+    // SKIPPED: the browser turn resolves its destination itself
+    // (browser_loop bounded discovery), never behind a blind fan-out.
+    browser_marker: bool,
     span: &Span,
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
@@ -244,11 +251,29 @@ pub async fn run_turn_pipeline(
     let turn_scope = ruke_websearch::task_scope::fold_task_scope(&scope_prompts);
     outcome.turn_scope = Some(turn_scope.clone());
 
+    // Task-scope audit (brief #2/#3) ordering law: the browser marker
+    // (conversation identity) COMBINED with an OPERATE fold makes this a
+    // browser turn — and for a browser turn the general research fan-out
+    // is SKIPPED entirely. An operational turn must resolve its
+    // destination through bounded discovery inside the browser loop,
+    // never by paying for a blind web-research pass against an unknown
+    // site first. Marker turns with any other intent keep the research
+    // path (with the scope enforced through the gate ctx); panel
+    // visibility plays no part anywhere in this law.
+    let browser_turn =
+        browser_marker && ruke_websearch::task_scope::routes_to_browser_turn(&turn_scope);
+
     // ---- 6) web-research gate (route.ts:835; PART-8 wired) ----
     // The env short-circuit precedes the slot claim: a disabled gate never
     // touches the inference slot (TS `if (webResearchDisabled) log...
     // else { beginUserTurn(); try {…} finally { endUserTurn(); } }`).
-    if ruke_websearch::search_gate::gate_disabled_by_env() {
+    if browser_turn {
+        tracing::info!(
+            parent: span,
+            prompt = %js_slice_head(question, 60),
+            "general web research skipped: operational task scope — the browser turn owns the site-bound work"
+        );
+    } else if ruke_websearch::search_gate::gate_disabled_by_env() {
         tracing::info!(
             parent: span,
             prompt = %js_slice_head(question, 60),
@@ -468,9 +493,12 @@ pub async fn pump_progress(
     history: Vec<Value>,
     span: Span,
     token: CancellationToken,
-    // Some((conversation, turn)) on a browser turn: the turn routes
-    // through the browser tool loop instead of plain forwarding
-    // (Phase 10; handler computed it before stripping the marker).
+    // Some((conversation, turn)) whenever the client sent the
+    // `browser_session` marker (conversation identity — presence alone
+    // does NOT route; task-scope audit brief #2). The browser tool loop
+    // runs only when the folded turn scope ALSO derives an OPERATE
+    // intent; every other marker turn takes the research/plain path.
+    // (handler computes this before stripping the marker).
     browser: Option<(String, String)>,
     // P1 clock grounding: handler-captured IANA zone (already stripped
     // from the payload there) — threaded to the pipeline like `browser`.
@@ -500,6 +528,11 @@ pub async fn pump_progress(
         Some(&mut ch),
         &model,
         turn_timezone.as_deref(),
+        // Brief #2: the marker's mere PRESENCE feeds the ordering law
+        // (identity halves of the routing conjunction; the routing
+        // conjunction itself is re-checked at the arms below against the
+        // fold — one fold, one truth).
+        browser.is_some(),
         &span,
     )
     .await;
@@ -571,16 +604,31 @@ pub async fn pump_progress(
     // catch arms do), and `forward_into` performs its own `ch.fail` for
     // every upstream failure — so no synthetic frame is needed here.
     //
-    // Browser turns (Phase 10) take the tool-loop path with the SAME
-    // stripped payload; non-browser turns are byte-identical to before.
+    // Browser-ROUTED turns (marker ∧ Operate scope) take the browser
+    // tool-loop path with the SAME stripped payload; every other turn is
+    // byte-identical to before.
     // P2: a gate-produced bundle additionally arms the model-facing web
-    // tool loop (web_loop.rs ⇔ TS web-tool-loop.ts) for non-browser turns
-    // that carry no client-supplied `tools` — the browser loop keeps
-    // priority, and a client passthrough `tools` array is never overwritten.
+    // tool loop (web_loop.rs ⇔ TS web-tool-loop.ts) for turns that carry
+    // no client-supplied `tools` — a browser-routed turn keeps priority,
+    // and a client passthrough `tools` array is never overwritten.
+    //
+    // Brief #2: the routing conjunction completes HERE against the ONE
+    // fold the pipeline already made — no second derivation anywhere.
+    // The browser loop runs only when marker presence AND an Operate
+    // scope agree; a marker turn with any other intent falls through to
+    // the research/plain path like any other turn (the browser loop no
+    // longer swallows research turns — brief #3), and panel visibility
+    // enters nowhere in this law. `turn_scope` moves into whichever tool
+    // loop runs.
+    let turn_scope = outcome.turn_scope.take();
+    let browser_take = browser.is_some()
+        && turn_scope
+            .as_ref()
+            .is_some_and(|s| ruke_websearch::task_scope::routes_to_browser_turn(s));
     let web_tools =
-        browser.is_none() && outcome.web_depth.is_some() && payload.get("tools").is_none();
+        !browser_take && outcome.web_depth.is_some() && payload.get("tools").is_none();
     match browser {
-        Some((session_id, turn_id)) => {
+        Some((session_id, turn_id)) if browser_take => {
             crate::chat::browser_loop::run_tool_loop(
                 &state,
                 payload,
@@ -591,10 +639,11 @@ pub async fn pump_progress(
                 &mut ch,
                 session_id,
                 turn_id,
+                turn_scope,
             )
             .await;
         }
-        None if web_tools => {
+        _ if web_tools => {
             let depth = outcome.web_depth.expect("web_tools gate implies a depth");
             let merged = outcome.web_citations.take().unwrap_or_default();
             let gate = outcome.search_gate.take();
@@ -613,17 +662,17 @@ pub async fn pump_progress(
                 presentation,
                 rich_results,
                 &question,
-                // The SAME fold the gate ctx was built with — one contract
-                // per turn, threaded into the session via the outcome
-                // (brief #6: failure and recovery paths never re-widen it).
-                outcome.turn_scope.take(),
+                // The SAME fold the gate ctx was built with — one
+                // contract per turn, hoisted once at the arms (brief #6:
+                // failure and recovery paths never re-widen it).
+                turn_scope,
                 &span,
                 &token,
                 &mut ch,
             )
             .await;
         }
-        None => {
+        _ => {
             forward::forward_into(&state, body, decision_mode, &model, &span, &token, &mut ch)
                 .await;
         }

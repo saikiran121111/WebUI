@@ -21,7 +21,6 @@ import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 const BrowserPanel = dynamic(() => import("../components/browser/BrowserPanel"), { ssr: false });
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
-import { getBrowserState } from "../lib/browser-client/browserStore";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
@@ -52,11 +51,15 @@ export default function HomePage() {
     compact, compactState, activeTokenCount,
   } = useChat({
     model: process.env.NEXT_PUBLIC_MODEL_ID ?? "",
-    // Browser Use (Phase 10): tag chat sends with the conversation whose
-    // Browser Panel is OPEN right now (read non-reactively from the
-    // browser store — panel state must never re-render the chat tree).
-    getBrowserSession: () =>
-      getBrowserState().open ? activeIdRef.current ?? "default" : undefined,
+    // Browser Use routing law (task-scope audit, brief #2): the marker
+    // tags EVERY chat send with the conversation identity — panel
+    // open/closed NEVER decides browser activation. The server's
+    // task-scope contract (task_scope::routes_to_browser_turn) decides
+    // whether the turn is operational; when it is, the panel AUTO-OPENS
+    // on the first `browser:preparing` frame (browserStore law). Read
+    // non-reactively (activeIdRef) — panel state must never re-render the
+    // chat tree.
+    getBrowserSession: () => activeIdRef.current ?? "default",
   });
 
   // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.

@@ -84,13 +84,17 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
         .ok()
         .filter(|v| !v.is_null());
 
-    // (2b) Browser Use (Phase 10): the client sets `browser_session` to
-    // the conversation id ONLY while the Browser Panel is open. It is a
-    // transport marker — stripped from the payload before anything
-    // leaves (compaction included), and it selects the browser tool
-    // loop instead of plain forwarding on the progress path. Compaction
-    // never carries it (the TS client only sets it on chat sends, and
-    // the strip below runs before the passthrough either way).
+    // (2b) Browser Use transport marker (task-scope audit, brief #2):
+    // the client sets `browser_session` to the conversation id on EVERY
+    // chat send — presence alone NEVER routes anything (it is identity,
+    // not a switch; panel open/closed plays no part). On the progress
+    // path the browser tool loop runs only when this marker combines
+    // with an OPERATE task-scope fold (`task_scope::routes_to_browser_
+    // turn` — decided in pipeline::pump_progress against the same single
+    // fold the gate ctx uses). Stripped from the payload before anything
+    // leaves (compaction included). Compaction never carries it (the TS
+    // client only sets it on chat sends, and the strip below runs before
+    // the passthrough either way).
     let browser_session = payload
         .as_ref()
         .and_then(|p| p.get("browser_session"))
@@ -289,6 +293,13 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     None,
                     &model,
                     turn_timezone.as_deref(),
+                    // The legacy path has no progress channel and never
+                    // runs the browser tool loop, so it must never skip
+                    // the research gate on a marker — the browser-marker
+                    // arg is only ever true on the progress path where
+                    // the routing law can actually run the loop (brief
+                    // #2/#3).
+                    false,
                     &span,
                 )
                 .await;

@@ -75,6 +75,22 @@ export function isEnforceableScope(scope: TaskScope): boolean {
   return scope.intent === "operate" || scope.intent === "site_info" || scope.intent === "compare_sites";
 }
 
+/**
+ * Browser-activation law (brief #2/#3): a chat turn runs the BROWSER tool
+ * loop only for an operational scope (the intent ladder makes "operate"
+ * structurally imply ≥1 target). Research/site-info/compare turns route
+ * through the scope-enforced research path instead. Panel visibility NEVER
+ * decides activation — the client's `browser_session` marker is conversation
+ * identity only, and the SERVER decides routing from this contract. The TS
+ * side carries no browser engine (route.ts strips the marker); this mirror
+ * exists so the contract stays one law in two languages, pinned by the
+ * shared vitest/Rust matrix tests. ⇔ `routes_to_browser_turn` in
+ * `ruke-websearch/src/task_scope.rs`.
+ */
+export function routesToBrowserTurn(scope: TaskScope): boolean {
+  return scope.intent === "operate";
+}
+
 /** Distinct resolved hosts in scope order (for gate/planner/browser enforcement). */
 export function scopeHosts(scope: TaskScope): string[] {
   const out: string[] = [];

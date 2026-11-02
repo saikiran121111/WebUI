@@ -21,11 +21,13 @@ export interface ChatRequest {
    */
   purpose?: "compact";
   /**
-   * Browser Use (Phase 10) transport marker: the conversation id whose
-   * Browser Panel is open while this send is live. The Rust chat route
-   * uses it to route the turn through the browser tool loop, and strips
-   * it before forwarding — it never reaches upstream. Browser turns are
-   * streaming-path only.
+   * Browser Use transport marker (task-scope audit, brief #2): the
+   * conversation id for EVERY chat send — presence alone does NOT route
+   * the turn. The Rust chat route combines it with the server-owned
+   * task-scope contract (Operate intent ⇒ browser tool loop; anything
+   * else ⇒ the scope-enforced research path or plain forwarding), and
+   * strips it before forwarding — it never reaches upstream. Browser
+   * turns are streaming-path only; compaction/fence-repair never set it.
    */
   browser_session?: string;
   /**

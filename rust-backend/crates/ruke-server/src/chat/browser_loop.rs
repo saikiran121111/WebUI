@@ -1,8 +1,18 @@
 //! browser_loop.rs — the browser tool loop over the shared engine
-//! (Browser Use, Phase 10). When the client sent `browser_session` (the
-//! conversation id, present only while the Browser Panel is open),
-//! `pump_progress` routes the upstream turn here instead of plain
-//! `forward_into`.
+//! (Browser Use). `pump_progress` routes a turn here only when BOTH the
+//! client's `browser_session` marker (conversation identity, sent on
+//! every chat send — panel visibility NEVER decides activation, task-
+//! scope audit brief #2) is present AND the server-owned task-scope fold
+//! derives an OPERATE intent (`ruke_websearch::task_scope::
+//! routes_to_browser_turn`). Marker turns with any other intent —
+//! research, site-info, compare — go through the scope-enforced research
+//! path like any other turn instead of being swallowed by a browser
+//! (brief #3). An operational turn also runs NO general research fan-out
+//! beforehand: the destination is resolved HERE via bounded discovery
+//! over the user's own unresolved target phrases before the first model
+//! round, and the same scope is stated to the model as law
+//! ([`scope_guidance`]); Phase-4 engine gates enforce it at the command
+//! boundary.
 //!
 //! Shape ([adapted] — the reference product's loop is hidden behind its
 //! native binary; this reproduces the OBSERVABLE contract over Ruke's
@@ -46,6 +56,10 @@ use ruke_browser::contract::parse_envelope;
 use ruke_browser::errors::BrowserError;
 use ruke_contracts::stages::StageEvent;
 use ruke_skills::lazy::inject_system_before;
+use ruke_websearch::extractor::Extractor;
+use ruke_websearch::task_scope::{TargetProvenance, TargetState, TaskScope};
+use ruke_websearch::tools as webtools;
+use ruke_websearch::types::Depth;
 
 use crate::chat::{error, scrubber::ThinkScrubber, sse::ProgressChannel};
 use crate::AppState;
@@ -256,9 +270,157 @@ pub(crate) fn tool_content(result: Value) -> String {
     text
 }
 
+/// Human label for a target's evidence path — model-facing prose only
+/// (the serde vocabularies are wire contracts, not prompt copy).
+fn provenance_label(p: TargetProvenance) -> &'static str {
+    match p {
+        TargetProvenance::NoProvenance => "none",
+        TargetProvenance::ExplicitUrl => "the user's own URL",
+        TargetProvenance::ExplicitDomain => "a domain the user typed",
+        TargetProvenance::ResolvedSearch => "verified search evidence",
+        TargetProvenance::ResolvedCache => "verified cached evidence",
+        TargetProvenance::Ambiguous => "an ambiguous name",
+    }
+}
+
+/// The task-scope half of the guidance block, appended to
+/// [`BROWSER_GUIDANCE`] only for enforceable scopes: the server-owned
+/// destinations stated as law (never as suggestions), with the
+/// never-guess and ask-first rules straight from the task-scope
+/// contract. Phase-4 engine gates enforce the SAME scope at the command
+/// boundary — this block is the model-facing half of one law, so the
+/// model is never surprised by a scope refusal it was not told about.
+fn scope_guidance(scope: &TaskScope) -> String {
+    if !ruke_websearch::task_scope::is_enforceable_scope(scope) {
+        return String::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for t in &scope.targets {
+        match t.state {
+            TargetState::Resolved => lines.push(format!(
+                "- Operational destination: {} (evidence: {}). Navigate ONLY this host and its subdomains with these tools.",
+                t.host,
+                provenance_label(t.provenance)
+            )),
+            TargetState::Unresolved => lines.push(format!(
+                "- The destination \"{}\" is NOT resolved: the server attempted bounded discovery and could not pin it to a site. NEVER guess or assume a domain for it — ask the human for the exact site before navigating.",
+                t.phrase
+            )),
+            TargetState::Ambiguous => lines.push(format!(
+                "- \"{}\" is ambiguous (candidates: {}). Ask the human which one they mean BEFORE navigating or acting.",
+                t.phrase,
+                t.candidates.join(", ")
+            )),
+        }
+    }
+    if !scope.authorized_hosts.is_empty() {
+        lines.push(format!(
+            "- The human pre-authorized these additional hosts for required hops (e.g. sign-in or payment): {}. They are the ONLY other hosts you may touch, and only when the task genuinely requires the hop.",
+            scope.authorized_hosts.join(", ")
+        ));
+    }
+    lines.push(
+        "- Navigation outside this scope is refused by the browser engine. If a command refuses because of scope, STOP and report the refusal plainly — never route around the scope."
+            .to_string(),
+    );
+    format!(
+        "Task scope (server-owned, derived from the user's own request; you may narrow it only by RESOLVING a listed destination against real evidence, never by inventing domains):\n{}",
+        lines.join("\n")
+    )
+}
+
+/// The last user turn's text (best-effort: content may be a parts array,
+/// which yields ""). Only feeds the discovery session's query context —
+/// never a tool argument the model could influence.
+fn last_user_text(payload: &Value, last_user_idx: usize) -> String {
+    payload
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|m| m.get(last_user_idx))
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Bounded destination discovery for an operational browser turn
+/// (brief #3 ordering law): resolve the USER'S OWN unresolved target
+/// phrases with at most TWO quoted-phrase `web_search` rounds on a
+/// throwaway Quick session. The result packets are DISCARDED on purpose
+/// — this is resolution evidence for the SCOPE, never content that may
+/// answer the question (so the answer can never be built on a research
+/// pass against a guessed site). Targets resolve only against REAL
+/// retrieval candidates, through the same admission law the web tool
+/// loop applies — never fabricated domains (brief #4). Honors the gate
+/// kill-switch and the turn's cancellation token; adds no new planner
+/// subsystem (brief #3's "bounded discovery only to resolve the
+/// destination").
+async fn bounded_destination_discovery(
+    state: &AppState,
+    token: &CancellationToken,
+    scope: Option<TaskScope>,
+    question: &str,
+    span: &Span,
+) -> Option<TaskScope> {
+    let scope = match scope {
+        Some(s) => s,
+        None => return None,
+    };
+    if ruke_websearch::search_gate::gate_disabled_by_env() {
+        return Some(scope);
+    }
+    let unresolved: Vec<String> = scope
+        .targets
+        .iter()
+        .filter(|t| t.state == TargetState::Unresolved && !t.phrase.trim().is_empty())
+        .map(|t| t.phrase.trim().to_string())
+        .take(2)
+        .collect();
+    if unresolved.is_empty() {
+        return Some(scope);
+    }
+    tracing::info!(
+        parent: span,
+        phrases = %unresolved.join(","),
+        "browser turn: bounded destination discovery before the first model round (brief #3)"
+    );
+    let extractor = Extractor {
+        net: &state.web.net,
+        cache: state.web.cache.as_ref(),
+        verticals: &state.web.verticals,
+        bridge: state.web.bridge.as_ref(),
+    };
+    let mut session =
+        webtools::make_web_tool_session(Depth::Quick, 1, question, Some(scope.clone()));
+    // Fresh citation seeds are DISCARDED — resolution-only provenance.
+    let mut fresh: Vec<webtools::CitationSeed> = Vec::new();
+    for phrase in &unresolved {
+        if token.is_cancelled() {
+            break;
+        }
+        let args = json!({
+            "queries": [format!("\"{phrase}\"")],
+            "missing_claims": [format!("the official website for \"{phrase}\"")],
+            "reason": "resolve the task-scope destination before browser navigation",
+        });
+        let r = webtools::exec_web_search(&extractor, &mut session, &args, &mut fresh).await;
+        tracing::info!(
+            parent: span,
+            phrase = phrase.as_str(),
+            ok = r.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "browser destination discovery round (packets discarded; scope resolution only)"
+        );
+    }
+    // `session.scope` carries only resolutions admitted against REAL
+    // retrieval candidates (tools.rs admission law); if nothing resolved,
+    // the original scope stands unchanged and guidance says "unresolved".
+    Some(session.scope.take().unwrap_or(scope))
+}
+
 /// Emit a `browser:*` stage frame carrying the conversation session so
-/// the panel opens/keeps its active posture (browserStore already
-/// consumes these; Phase-3 seam).
+/// the panel opens (browserStore's `browser:preparing` auto-open law —
+/// activation never depends on the panel being open first, brief #2)
+/// and keeps its active posture.
 async fn stage(ch: &mut ProgressChannel, name: &str, session: &str) {
     let mut ev = StageEvent::new(name);
     ev.session = Some(session.to_string());
@@ -276,6 +438,13 @@ pub async fn run_tool_loop(
     ch: &mut ProgressChannel,
     session_id: String,
     turn_id: String,
+    // Task-scope audit (brief #2/#3): the ONE per-turn fold hoisted at
+    // `pipeline::pump_progress` (the arms already proved it derives
+    // Operate — routing ran `routes_to_browser_turn` on this same fold).
+    // Bounded discovery below may only NARROW it (resolve phrases
+    // against real evidence); the Phase-4 engine gates enforce it at the
+    // command boundary.
+    scope: Option<TaskScope>,
 ) {
     // Slot for the WHOLE loop: taken before the first request, dropped
     // exactly once when this function returns (Rule 5 — the rounds are
@@ -290,14 +459,34 @@ pub async fn run_tool_loop(
     // Drop is the fallback.
     let turn_guard = state.browser.begin_turn(&session_id, &turn_id);
 
-    // Inject the guidance block once, in the skill-block slot (before the
-    // last user message), then the tool surface.
+    // Brief #2: the panel opens HERE (its own auto-open posture on this
+    // frame), never the other way around — the human seeing the panel
+    // first has always been irrelevant to activation, and now the frame
+    // ordering makes that visible too: opening follows routing, routing
+    // never follows opening.
+    stage(ch, "browser:preparing", &session_id).await;
+
+    // Brief #3 ordering law: an operational turn resolves its own
+    // destination before the first model round — the pipeline skipped
+    // the general research fan-out for exactly this turn, and bounded
+    // discovery here resolves ONLY the user's own phrases.
+    let question = last_user_text(&payload, last_user_idx);
+    let scope = bounded_destination_discovery(state, token, scope, &question, span).await;
+
+    // Inject the guidance block once, in the skill-block slot (before
+    // the last user message), then the tool surface. The scope block
+    // rides on the SAME block so the model reads one law, not two.
+    let scope_block = scope.as_ref().map(scope_guidance).unwrap_or_default();
+    let guidance = if scope_block.is_empty() {
+        BROWSER_GUIDANCE.to_string()
+    } else {
+        format!("{BROWSER_GUIDANCE}\n\n{scope_block}")
+    };
     if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
-        inject_system_before(messages, last_user_idx, BROWSER_GUIDANCE.to_string());
+        inject_system_before(messages, last_user_idx, guidance);
     }
     payload["tools"] = ruke_browser::tools::model_tools();
 
-    stage(ch, "browser:preparing", &session_id).await;
     tracing::info!(parent: span, model, session_id = session_id.as_str(), turn_id = turn_id.as_str(), "browser tool loop start");
 
     let url = state.settings.llm_api_url();
