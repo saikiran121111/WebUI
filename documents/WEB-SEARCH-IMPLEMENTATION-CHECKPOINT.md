@@ -14,7 +14,7 @@ Status board (updated per phase):
 | P6 | Safety: SSRF/DNS-rebinding/redirect revalidation, secret scrub, untrusted-data laws, wall law, §19 provenance | **CLOSED** (commit 65ad1d2 — details below) |
 | P3 | Retrieval quality: freshness classes, TTL/RetrievalMode, wiki cap, normalize/dedupe, dynamic segment filtering; preserve structured metadata for P5 | **CLOSED** (this commit — details below) |
 | P2 | Model tools: `web_search`/`read_page`, kill `searchMoreStub`, gap loop, RetrievalFailure taxonomy, budgets, tool/result envelopes | **CLOSED** (this commit — details below) |
-| P4 | Planner: query schema/domain semantics/decomposition, evidence sufficiency, bounded Deep, PresentationPlan router | pending |
+| P4 | Planner: query schema/domain semantics/decomposition, evidence sufficiency, bounded Deep, PresentationPlan router | **CLOSED** (this commit — details below) |
 | P5 | UI: citations + U1–U13 + full universal rich-results registry (`components/web-results/`, no gradients) | pending |
 | P7 | Deterministic proof suite + before/after benchmarks + ONE final locked Playwright loop + final report | pending |
 
@@ -270,14 +270,75 @@ round buys N pages (read_page batch within one round under the MAX_TOOL_ROUNDS b
 
 ---
 
-## Next-up contract reminders (carried into P4)
-- P4 is the planner half: §11.5 query schema/domain semantics (`preferred_domains` must EXECUTE as `site:`),
-  §11.21/§11.22 decomposition, §11.14 evidence-sufficiency, the bounded Deep gap-matrix loop (the §11.6
-  research-loop half), and the PresentationPlan router. Reuse the P2 session/`[S#]` machinery, do NOT fork
-  a second numbering scheme.
-- The P2 tool loop is now the ONLY streaming web path when a bundle exists: any P4 planner change that
-  alters gate/planner decisions shows up in golden fixtures 01/03/05 — re-record only when the semantic
-  chain genuinely changed, and re-run the corpus twice.
-- Evidence block = 8 bullets; any bullet edit ⇒ TS+Rust byte-identical + fixture re-record in the same commit.
-- P7 warning: rust-golden web fixtures carry live-browser-tier-captured bytes (see P3 findings) — treat
-  upstream content drift as the first suspect for unexplained drift.
+---
+
+## P4 — Planner law + presentation router + soft source ranking (CLOSED 2026-11-02, TS ⇄ Rust in one commit)
+
+**Implementation (TypeScript):**
+- NEW `lib/web-search/planner-law.ts`: `derivePlannerLaw` (§11.5/§11.17 — only/block scope phrases,
+  plural-tolerant domain names, `site:` operators, brand-docs preferences, gate `preferred_domains` merge
+  with the block-wins contradiction law, COARSE location only (§11.22 — never IP-derived),
+  `expectedSourceTypes` classMap, `budgetForDepth` §11.21); `applyPlannerLaw` (scoped `site:` companion
+  queries, cover-aware, 4-wave cap, `origin:"preferred"`); `applyDomainControl` (hard allow/block ONLY —
+  user-directed links exempt); `evaluateSufficiency` (§11.14 gates: snippet-only never counts, contradiction
+  metric scan, stopEarly); `buildGapDemand` (§11.6 never-repeat suffix ladder, whole-collision drop ⇒ null,
+  snake_case wire).
+- **Soft source ranking (search-policy correction 2026-11-02):** implemented in the EXISTING ranking layer —
+  `reranker.ts` `sourceAuthorityTier` (primary → specialist → journalism → general → community ladder,
+  suffix rule), `classifySearchIntent` (exp/sci/bkg/cur/none ladder), `authorityMultiplier` (intent-aware,
+  bounded, ALWAYS >0 ⇒ FALLBACK LAW: nothing is ever dropped; Wikipedia de-biased for current/disputed
+  claims, community raised for experiential intent; designated = planner allowed+preferred reads as primary).
+  The prior is ORDER-ONLY (multiplied into `orderKey` — stored `bm25Score` bytes never shift). Reddit/Quora/
+  Wikipedia/forums are NEVER default-blocked; `blockedDomains` is populated ONLY by explicit user/policy
+  demand. Per the architecture redirect: NO parallel planner ranking subsystem — the planner law only
+  expresses intent/permissions; P3-style ranking decides boost/penalize strength.
+- NEW `lib/web-search/presentation.ts`: §55 PresentationPlan router (19-rung primary ladder + layout +
+  reason; deterministic, zero extra LLM calls; §53 no-spam ⇒ `null` for plain factuals). P5 CONSUMES this.
+- `pipeline.ts`: EvidenceBundle carries `plannerLaw`/`sufficiency`/`gapDemand`/`demandWaveFired`;
+  `designatedDomains` plumbed to all three `rerank` hops; wave + gap + deep demand-wave gated by budget.
+- `query-planner.ts`: gate `preferred_domains` EXECUTE as `site:` companions (original query kept).
+
+**Implementation (Rust mirror, same commit):** `ruke-websearch/src/planner_law.rs` (NEW, ⇔ planner-law.ts),
+`src/presentation.rs` (NEW, ⇔ presentation.ts; serde key order ⇔ TS literal order), `reranker.rs`
+(`source_authority_tier`/`classify_search_intent`/`authority_multiplier`, `Neutral` ⇔ `"none"`),
+`pipeline.rs` (`designated_domains` ×3 rerank hops + law/sufficiency/gap wiring), `lib.rs` module decls,
+`ruke-server/src/chat/pipeline.rs` test-helper ripple only.
+
+**Search-policy fixture law:** the `blockedDomains:["reddit.com","quora.com"]` values in the Rust/TS tests
+are FIXTURE INPUTS proving explicit-user-block serialization (the prompts literally say "Don't use reddit or
+quora") — commented on BOTH sides so nobody reads them as default policy. Production auto-injection of
+weak-source blocks was fact-checked: it does NOT exist and must never be added.
+
+**Verification (real runs, exit 0):** `npx vitest run __tests__/web-search __tests__/chat` → **223/223**
+(web-search 208 = 181 + 27 new parity tests in `planner-law.test.ts` 14 + `presentation.test.ts` 9 +
+`source-ranking.test.ts` 4; chat 15); `npx tsc --noEmit` → clean; `cargo test -p ruke-websearch` →
+**358 lib + 5 integration, 0 failed** (69.5s; +27 over P2: 14 planner_law + 4 presentation + 4 reranker +
+5 ripple/helpers); `cargo test -p ruke-server` → all green (109 lib + 6 + 1 + 19 + 2 + 6);
+`cargo clippy -p ruke-server -p ruke-websearch --all-targets` → EXACTLY the locked 7-warning baseline
+(the 2 new needless_borrow hits planner_law.rs drew were fixed at source); `cargo check -p ruke-server
+--tests` clean; `npx vitest run __tests__/rust-golden --no-file-parallelism` → **54/54 run TWICE with
+ZERO fixture drift** (git-clean fixtures — P4's order-only prior + general-tier fixture domains leave the
+recorded corpus byte-identical; NO re-record needed, assertions untouched); fmt crate-scoped, in-set
+FMT-STABLE, the known out-of-set files reverted (`examples/engine_bench.rs` lives under examples/, not
+src/). No Playwright (final locked P7 loop only).
+
+---
+
+## Next-up contract reminders (carried into P5)
+- P5 consumes the P4 outputs: `PresentationPlan` rides the EvidenceBundle → drive
+  `components/web-results/` from it (addendum §55/§56: structured source routing — YouTube→video,
+  geocoded→map, weather→weather, sports→sports, news cluster→grid; never flatten to prose then rebuild
+  client-side). ONE primary surface by default (§53 no-spam).
+- ONE versioned `RichResult` Zod envelope (+ Rust serde mirrors, unknown kinds → generic card); validated
+  RichAction bridge; per-field provenance — community/user-generated labels feed from
+  `sourceAuthorityTier` (P4 exports); one broken widget never destroys the response (§59).
+- FenceRouter UNTOUCHED; rich system lives in NEW parallel `components/web-results/`; do NOT regress
+  existing artifact blocks (ChartBlock, WidgetBlock, MarkdownTable, Mermaid, Code, HTML, Resume/Docx/Xlsx/
+  Pptx, PowerBi, 3D viewers — addendum §66). Heavy surfaces via `next/dynamic` ssr:false.
+- HARD VISUAL LAW: no AI-slop aesthetic, NO gradients in the new system (§76 style regression tests land
+  in P7), motion 120–200ms, prefers-reduced-motion honored.
+- Streaming stays additive: `web:surface_discovered/ready/updated` are NEW StageEvent kinds on top of
+  ruke_stage/web:*/web_meta (P2's tool loop remains the ONLY streaming path; evidence block stays 8
+  bullets — any bullet edit ⇒ byte-identical mirror + re-record in the same commit).
+- P7 warning (still live): rust-golden web fixtures carry live-browser-tier bytes (P3 finding) — suspect
+  upstream content first for unexplained drift; never weaken assertions.

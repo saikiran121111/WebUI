@@ -80,7 +80,9 @@ fn is_js_ws(c: char) -> bool {
 
 fn js_trim(s: &str) -> &str {
     let start = s.find(|c: char| !is_js_ws(c)).unwrap_or(s.len());
-    let end = s.rfind(|c: char| !is_js_ws(c)).map(|i| i + s[i..].chars().next().unwrap().len_utf8());
+    let end = s
+        .rfind(|c: char| !is_js_ws(c))
+        .map(|i| i + s[i..].chars().next().unwrap().len_utf8());
     &s[start..end.unwrap_or(start)]
 }
 
@@ -138,7 +140,9 @@ fn extract_entities(prompt: &str) -> Vec<String> {
 
 /// TS `sourceClass` (69-81) — returns the class label or None. All TS
 /// regexes are non-/u → `\b`/`\w` ASCII (ported `(?-u:)`), `\s` Unicode.
-fn source_class(prompt: &str) -> Option<&'static str> {
+/// P4: `pub` for the planner-law expected-source-type derivation
+/// (planner_law.rs ⇔ planner-law.ts).
+pub fn source_class(prompt: &str) -> Option<&'static str> {
     static PDF: OnceLock<Regex> = OnceLock::new();
     static LINKEDIN: OnceLock<Regex> = OnceLock::new();
     static GITHUB: OnceLock<Regex> = OnceLock::new();
@@ -178,7 +182,8 @@ fn source_class(prompt: &str) -> Option<&'static str> {
     }
     if DOCS
         .get_or_init(|| {
-            Regex::new(r"(?:(?-u:\b)docs?|documentation|manual|guide|reference|readme)").expect("static regex")
+            Regex::new(r"(?:(?-u:\b)docs?|documentation|manual|guide|reference|readme)")
+                .expect("static regex")
         })
         .is_match(&p)
     {
@@ -186,7 +191,8 @@ fn source_class(prompt: &str) -> Option<&'static str> {
     }
     if REVIEW
         .get_or_init(|| {
-            Regex::new(r"(?:(?-u:\b)review|rating|versus|vs(?-u:\b)|comparison|benchmark)").expect("static regex")
+            Regex::new(r"(?:(?-u:\b)review|rating|versus|vs(?-u:\b)|comparison|benchmark)")
+                .expect("static regex")
         })
         .is_match(&p)
     {
@@ -194,7 +200,8 @@ fn source_class(prompt: &str) -> Option<&'static str> {
     }
     if PRICING
         .get_or_init(|| {
-            Regex::new(r"(?:(?-u:\b)pricing|price|cost|plans?|subscription(?-u:\b))").expect("static regex")
+            Regex::new(r"(?:(?-u:\b)pricing|price|cost|plans?|subscription(?-u:\b))")
+                .expect("static regex")
         })
         .is_match(&p)
     {
@@ -207,8 +214,9 @@ fn source_class(prompt: &str) -> Option<&'static str> {
 
 /// TS `BRAND_COMMON_WORD_EXCLUSIONS` (102-106).
 const BRAND_COMMON_WORD_EXCLUSIONS: [&str; 28] = [
-    "the", "this", "that", "with", "from", "have", "will", "does", "were", "http", "https", "www", "html",
-    "http2", "node", "json", "xml", "css", "api", "cli", "url", "dom", "js", "ts", "web", "app", "dev", "utf",
+    "the", "this", "that", "with", "from", "have", "will", "does", "were", "http", "https", "www",
+    "html", "http2", "node", "json", "xml", "css", "api", "cli", "url", "dom", "js", "ts", "web",
+    "app", "dev", "utf",
 ];
 
 /// TS `PLATFORM_CONTEXT_RE` (115-116) — `/i`, no `/u`. The lone `₹`
@@ -248,10 +256,13 @@ pub fn extract_brand_tokens(prompt: &str) -> Vec<String> {
     static RE_DOMAIN: OnceLock<Regex> = OnceLock::new();
     static RE_ROOT: OnceLock<Regex> = OnceLock::new();
     let domain_re = RE_DOMAIN.get_or_init(|| {
-        Regex::new(r"(?:^|[\s(])((?:[a-z0-9-]+\.)+(?:com|in|io|dev|org|net|co|app|ai)(?:/[^\s)]*)?)")
-            .expect("static regex")
+        Regex::new(
+            r"(?:^|[\s(])((?:[a-z0-9-]+\.)+(?:com|in|io|dev|org|net|co|app|ai)(?:/[^\s)]*)?)",
+        )
+        .expect("static regex")
     });
-    let root_re = RE_ROOT.get_or_init(|| Regex::new(r"(?-u:^(?:www|m|app|web)\.)").expect("static regex"));
+    let root_re =
+        RE_ROOT.get_or_init(|| Regex::new(r"(?-u:^(?:www|m|app|web)\.)").expect("static regex"));
     // JS `while ((m = exec()) !== null && out.length < 3)` — exec runs
     // before the guard; observable result equals break-before-next.
     for caps in domain_re.captures_iter(&head) {
@@ -271,8 +282,8 @@ pub fn extract_brand_tokens(prompt: &str) -> Vec<String> {
     let original = js_slice_max(prompt, 800);
     static RE_PASCAL: OnceLock<Regex> = OnceLock::new();
     static RE_CTX: OnceLock<Regex> = OnceLock::new();
-    let pascal_re =
-        RE_PASCAL.get_or_init(|| Regex::new(r"(?-u:\b([A-Z][a-zA-Z]{3,19})\b)").expect("static regex"));
+    let pascal_re = RE_PASCAL
+        .get_or_init(|| Regex::new(r"(?-u:\b([A-Z][a-zA-Z]{3,19})\b)").expect("static regex"));
     // ctxRe has NO trailing \b after the context-word alternation (verbatim).
     let ctx_re = RE_CTX.get_or_init(|| {
         Regex::new(concat!(
@@ -322,8 +333,22 @@ pub fn extract_brand_tokens(prompt: &str) -> Vec<String> {
 
 /// TS `INDIAN_BRAND_HINTS` (176-180).
 const INDIAN_BRAND_HINTS: [&str; 16] = [
-    "blinkit", "zepto", "myntra", "bookmyshow", "zomato", "swiggy", "flipkart", "nykaa", "ajio", "bigbasket",
-    "dominos", "mcdonalds", "uber", "ola", "paytm", "razorpay",
+    "blinkit",
+    "zepto",
+    "myntra",
+    "bookmyshow",
+    "zomato",
+    "swiggy",
+    "flipkart",
+    "nykaa",
+    "ajio",
+    "bigbasket",
+    "dominos",
+    "mcdonalds",
+    "uber",
+    "ola",
+    "paytm",
+    "razorpay",
 ];
 
 /// ⇔ TS `inferBrandDomain` (182-186, exported). The `clean.includes(".")`
@@ -369,6 +394,10 @@ pub enum PlanOrigin {
     Gap,
     #[serde(rename = "deep-brand")]
     DeepBrand,
+    /// P4: emitted by the planner law (`planner_law::apply_planner_law`)
+    /// for site-scoped companions of allowed/preferred domains. Never
+    /// produced by `plan_queries` itself.
+    Preferred,
 }
 
 /// ⇔ TS `PlannedQuery` (206-224). `intent` carries the TS-only labels via
@@ -445,7 +474,10 @@ pub fn plan_queries(
     }
 
     let empty: Vec<String> = Vec::new();
-    let entities = merge_entities(entity_hints.unwrap_or(&empty), &extract_entities(user_prompt));
+    let entities = merge_entities(
+        entity_hints.unwrap_or(&empty),
+        &extract_entities(user_prompt),
+    );
     let cls = source_class(user_prompt);
 
     // 2. Exact entity / technical query (2+ real entities).
@@ -481,7 +513,10 @@ pub fn plan_queries(
     // 3. Targeted source query — operator injection for the class.
     if let Some(cls) = cls {
         if plans.len() < 4 {
-            let base = entities.first().cloned().unwrap_or_else(|| js_slice_max(user_prompt, 80));
+            let base = entities
+                .first()
+                .cloned()
+                .unwrap_or_else(|| js_slice_max(user_prompt, 80));
             let mut op_query = String::new();
             let mut op_intent = Intent::General;
             let mut domains: Option<Vec<String>> = None;
@@ -534,7 +569,9 @@ pub fn plan_queries(
                             })
                             .replace_all(&s, " ");
                         let s = RE_QUOTES
-                            .get_or_init(|| Regex::new("[\"\u{201C}\u{201D}']").expect("static regex"))
+                            .get_or_init(|| {
+                                Regex::new("[\"\u{201C}\u{201D}']").expect("static regex")
+                            })
                             .replace_all(&s, " ");
                         let s = collapse_ws(&s);
                         js_trim(&s).to_string()
@@ -544,7 +581,8 @@ pub fn plan_queries(
                     let anchor = if js_len(&name_span) >= 3
                         && RE_NAME_SPAN
                             .get_or_init(|| {
-                                Regex::new(r"(?i)\A[a-z\u{C0}-\u{FF}' .-]+\z").expect("static regex")
+                                Regex::new(r"(?i)\A[a-z\u{C0}-\u{FF}' .-]+\z")
+                                    .expect("static regex")
                             })
                             .is_match(&name_span)
                     {
@@ -826,8 +864,10 @@ mod tests {
             &[],
             None,
         );
-        let targeted: Vec<&PlannedQuery> =
-            plans.iter().filter(|p| p.origin == PlanOrigin::Targeted).collect();
+        let targeted: Vec<&PlannedQuery> = plans
+            .iter()
+            .filter(|p| p.origin == PlanOrigin::Targeted)
+            .collect();
         assert!(
             targeted
                 .iter()
@@ -835,24 +875,41 @@ mod tests {
             "{plans:?}"
         );
         assert!(
-            targeted.iter().any(|p| p.query.ends_with("site:linkedin.com/in/")),
+            targeted
+                .iter()
+                .any(|p| p.query.ends_with("site:linkedin.com/in/")),
             "{plans:?}"
         );
-        assert!(targeted.iter().all(|p| p.preferred_domains.as_deref() == Some(&["linkedin.com".to_string()][..])));
+        assert!(targeted
+            .iter()
+            .all(|p| p.preferred_domains.as_deref() == Some(&["linkedin.com".to_string()][..])));
     }
 
     #[test]
     fn plan_queries_class_operators_and_cap() {
-        let plans = plan_queries("read the whitepaper on transformers architecture", &[], None);
+        let plans = plan_queries(
+            "read the whitepaper on transformers architecture",
+            &[],
+            None,
+        );
         // sourceClass=pdf ⇒ filetype:pdf targeted plan
-        assert!(plans.iter().any(|p| p.query.starts_with("filetype:pdf \"")), "{plans:?}");
-        assert!(plans.iter().any(|p| p.intent == Intent::Other("pdf".into())));
+        assert!(
+            plans.iter().any(|p| p.query.starts_with("filetype:pdf \"")),
+            "{plans:?}"
+        );
+        assert!(plans
+            .iter()
+            .any(|p| p.intent == Intent::Other("pdf".into())));
         assert!(plans.len() <= 4);
     }
 
     #[test]
     fn entity_query_quotes_long_entities() {
-        let plans = plan_queries("Gandalf Mordor", &[], Some(&["Gandalf".into(), "Mordor".into()]));
+        let plans = plan_queries(
+            "Gandalf Mordor",
+            &[],
+            Some(&["Gandalf".into(), "Mordor".into()]),
+        );
         let ent = plans.iter().find(|p| p.origin == PlanOrigin::Entity);
         assert!(ent.is_some(), "{plans:?}");
         assert_eq!(ent.unwrap().query, "\"Gandalf\" \"Mordor\"");
@@ -866,7 +923,10 @@ mod tests {
         // strips the dots), so 3 entities → coverage 1/3 < 0.5 and the
         // gap search fires even though "cat" substring-hit. gapQuery
         // quotes only the >3-char missing entity ("v1" stays bare).
-        let rep = evaluate_coverage("cat v1.2.3", &["catastrophe 1.2.3 details".into(), "more".into()]);
+        let rep = evaluate_coverage(
+            "cat v1.2.3",
+            &["catastrophe 1.2.3 details".into(), "more".into()],
+        );
         assert!((rep.coverage - 1.0 / 3.0).abs() < 1e-9, "{rep:?}");
         assert_eq!(rep.missing_entities, ["v1.2.3", "v1"]);
         assert!(rep.needs_gap_search, "{rep:?}");

@@ -66,7 +66,7 @@ function extractEntities(prompt: string): string[] {
  * Detect which source class the prompt's vocabulary maps to, so the
  * planner can inject the right operators (filetype:, site:).
  */
-function sourceClass(prompt: string): string | null {
+export function sourceClass(prompt: string): string | null {
   const p = prompt.toLowerCase();
   if (/\bfiletype\s*:\s*pdf\b|\bpaper\b|\bpdf\b|\bwhite ?paper\b/.test(p)) return "pdf";
   // LinkedIn person/profile lookups (the Vision-to-Search pre-pass feeds
@@ -217,8 +217,10 @@ export interface PlannedQuery {
     | "github"
     | "review";
   preferredDomains?: string[];
-  /** Which planner sub-query produced this (for diagnostics). */
-  origin: "semantic" | "entity" | "targeted" | "gap" | "deep-brand";
+  /** Which planner sub-query produced this (for diagnostics).
+   *  "preferred" is emitted by the P4 planner law (planner-law.ts) when
+   *  a domain law (allowed/preferred) needs a site-scoped companion. */
+  origin: "semantic" | "entity" | "targeted" | "gap" | "deep-brand" | "preferred";
   /** Freshness filter carried from the gate decision to the search engine. */
   freshness?: "none" | "day" | "week" | "month" | "year" | "any";
 }

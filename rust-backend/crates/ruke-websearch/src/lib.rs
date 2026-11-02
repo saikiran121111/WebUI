@@ -60,3 +60,8 @@ pub mod pipeline;
 
 // ── P2 model-facing web tools (web_search / read_page; ⇔ lib/web-search/tools.ts)
 pub mod tools;
+
+// ── P4 deterministic planner law + presentation router
+// (⇔ lib/web-search/planner-law.ts / presentation.ts)
+pub mod planner_law;
+pub mod presentation;

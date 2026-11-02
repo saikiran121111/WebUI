@@ -155,6 +155,10 @@ use crate::metasearch::{
     count_lexically_relevant, metasearch, metasearch_with_freshness_recovery, SearchPlan,
 };
 use crate::net::{FetchPageOpts, Net};
+use crate::planner_law::{
+    apply_domain_control, apply_planner_law, build_gap_demand, derive_planner_law,
+    evaluate_sufficiency, GapDemand, PlannerLaw, SufficiencyReport,
+};
 use crate::platform_api::Verticals;
 use crate::query_planner::{evaluate_coverage, plan_queries, run_gap_metasearch};
 use crate::reranker::{apply_segment_filter, rerank};
@@ -441,6 +445,13 @@ pub struct EvidenceBundle {
     #[serde(serialize_with = "crate::types::js_number_ser::serialize")]
     pub coverage: f64,
     pub gap_search_fired: bool,
+    // ── P4 planner law (§11.5/§11.6/§11.14/§11.17/§11.21; ⇔ TS
+    // EvidenceBundle additions). Key order ⇔ TS object literal: these sit
+    // between gapSearchFired and authRequired on BOTH sides.
+    pub planner_law: PlannerLaw,
+    pub sufficiency: Option<SufficiencyReport>,
+    pub gap_demand: Option<GapDemand>,
+    pub demand_wave_fired: bool,
     pub auth_required: Vec<AuthRequiredEntry>,
 }
 
@@ -737,7 +748,18 @@ pub async fn run_web_research(
         "Decomposing into sub-queries...",
     ));
     let t_plan = Instant::now();
-    let planned = plan_queries(&ctx.user_prompt, &gate.decision.queries, None);
+    // P4 law layer: derive BEFORE planning so the law can add site-scoped
+    // companions (§11.17). plan_queries itself is byte-identical — the law
+    // only appends, never rewrites (duality §11.22, golden-safe). ⇔ TS.
+    let planner_law = derive_planner_law(&ctx.user_prompt, &gate.decision);
+    let planned = apply_planner_law(
+        plan_queries(&ctx.user_prompt, &gate.decision.queries, None),
+        &planner_law,
+    );
+    // Snapshot of every planned query text for the §11.6 used-query law
+    // (⇔ TS `planned.map((p) => p.query)`), taken before `into_iter` below
+    // consumes `planned`.
+    let planned_queries_text: Vec<String> = planned.iter().map(|p| p.query.clone()).collect();
     let mut plans: Vec<SearchPlan> = planned
         .into_iter()
         .map(|p| SearchPlan {
@@ -1169,6 +1191,14 @@ pub async fn run_web_research(
         );
     }
 
+    // §11.17: the domain law is global — SERP results that violate it are
+    // dropped BEFORE starvation is judged, so an off-law-only SERP surfaces
+    // as starved rather than polluting evidence with off-law domains.
+    // No-op when the law has no lists (fixture-inert). User-pasted URLs
+    // (origin "user") are exempt — the user's own link is never a casualty
+    // of a law written about OTHER sources. ⇔ TS pipeline.ts.
+    search_results = apply_domain_control(search_results, &planner_law);
+
     // 8) starved done
     if search_results.is_empty() && prompt_packets.is_empty() {
         tracing::info!(
@@ -1187,6 +1217,10 @@ pub async fn run_web_research(
             from_cache,
             coverage: 0.0,
             gap_search_fired: false,
+            planner_law,
+            sufficiency: None,
+            gap_demand: None,
+            demand_wave_fired: false,
             auth_required: Vec::new(),
         }));
     }
@@ -1391,6 +1425,17 @@ pub async fn run_web_research(
     // §22 evidence density over volume: top 15 quality passages, not 30
     // (BM25 ordering already dropped the weak tail; scripted goldens hold
     // 10 passages each, so their bytes are unchanged).
+    // Soft source-authority ranking (search-policy correction 2026-11-02):
+    // the law's allowed/preferred lists EXPRESS the user's source
+    // preference (that's all planner_law does — §P4 division of labor) and
+    // the reranker decides how strongly each tier rides the order key.
+    // Ranking, never exclusion: blocked_domains remains the only hard law.
+    let designated_domains: Vec<String> = planner_law
+        .allowed_domains
+        .iter()
+        .chain(planner_law.preferred_domains.iter())
+        .cloned()
+        .collect();
     let mut top_passages = rerank(
         &packets,
         &ctx.user_prompt,
@@ -1398,6 +1443,7 @@ pub async fn run_web_research(
         15,
         single_url_query,
         gate.decision.freshness.as_str(),
+        &designated_domains,
     );
     tracing::info!(
         passages = top_passages.len(),
@@ -1413,6 +1459,10 @@ pub async fn run_web_research(
         .collect();
     let coverage = evaluate_coverage(&ctx.user_prompt, &passage_texts);
     let mut gap_search_fired = false;
+    // Packets from the existing gap hop. `packets` itself is NEVER
+    // reassigned (pinned contract), so the deep wave below re-merges
+    // through this list instead of mutating it. ⇔ TS secondHopPackets.
+    let mut second_hop_packets: Vec<EvidencePacket> = Vec::new();
     if coverage.needs_gap_search && coverage.gap_query.is_some() {
         let gap_query = coverage.gap_query.clone().unwrap();
         let pct = (coverage.coverage * 100.0).round() as i64;
@@ -1431,7 +1481,11 @@ pub async fn run_web_research(
             "gap search triggered"
         );
         let t_gap = Instant::now();
-        let gap_results = run_gap_metasearch(net, &gap_query).await;
+        // §11.17: the domain law is global — the gap hop obeys it too (a
+        // no-op when no allow/block lists were derived, so goldens ride it
+        // byte-identically).
+        let gap_results =
+            apply_domain_control(run_gap_metasearch(net, &gap_query).await, &planner_law);
         let gap_search_ms = t_gap.elapsed().as_millis() as u64;
         let t_gap_read = Instant::now();
         if !gap_results.is_empty() {
@@ -1451,6 +1505,7 @@ pub async fn run_web_research(
                 &format!("{segment_filter_query} {gap_query}"),
             );
             renumber_packets(&mut gap_packets, next_source_index(&packets));
+            second_hop_packets = gap_packets.clone();
             let all_packets: Vec<EvidencePacket> =
                 packets.iter().cloned().chain(gap_packets).collect();
             let mut gq = q_texts.clone();
@@ -1462,6 +1517,7 @@ pub async fn run_web_research(
                 15,
                 single_url_query,
                 gate.decision.freshness.as_str(),
+                &designated_domains,
             );
             tracing::info!(
                 gap_search_ms,
@@ -1469,6 +1525,109 @@ pub async fn run_web_research(
                 gap_total_ms = t_gap.elapsed().as_millis() as u64,
                 "gap search merged"
             );
+        }
+    }
+
+    // ── P4 deep-research demand wave (§11.6/§11.14/§11.21) ──────────────
+    // Arms ONLY at depth "deep" and ONLY when the §11.14 sufficiency pass
+    // did not stop early. Same primitives as the gap hop above — no second
+    // retrieval engine, no extra LLM call (§11.22). A two-word factual
+    // query never reaches this path: depth stays quick/standard (§11.21).
+    let mut sufficiency: Option<SufficiencyReport> = None;
+    let mut gap_demand: Option<GapDemand> = None;
+    let mut demand_wave_fired = false;
+    if gate.decision.depth == Depth::Deep {
+        let combined: Vec<EvidencePacket> = packets
+            .iter()
+            .cloned()
+            .chain(second_hop_packets.iter().cloned())
+            .collect();
+        let suff = evaluate_sufficiency(
+            &combined,
+            &top_passages,
+            &coverage,
+            &gate.decision,
+            &planner_law,
+        );
+        sufficiency = Some(suff.clone());
+        if !suff.stop_early {
+            let mut used_queries: Vec<String> = Vec::new();
+            used_queries.extend(q_texts.iter().cloned());
+            used_queries.extend(planned_queries_text.iter().cloned());
+            if let Some(gq) = coverage.gap_query.as_ref() {
+                used_queries.push(gq.clone());
+            }
+            if let Some(gd) = build_gap_demand(
+                &ctx.user_prompt,
+                &coverage,
+                &suff,
+                &gate.decision,
+                &planner_law,
+                &used_queries,
+            ) {
+                if !gd.queries.is_empty() {
+                    gap_demand = Some(gd.clone());
+                    demand_wave_fired = true;
+                    // REUSES the existing "gap-search" stage kind (no
+                    // StageEvent contract change in P4) ⇔ TS.
+                    emit(&PipelineProgress {
+                        stage: PipelineStage::GapSearch,
+                        detail: Some(format!("Deep-research wave: {}", gd.reason)),
+                        coverage: Some(coverage.coverage),
+                        ..Default::default()
+                    });
+                    tracing::info!(
+                        queries = gd.queries.len(),
+                        missing = gd.missing_claims.len(),
+                        reason = %gd.reason,
+                        "deep demand wave fired"
+                    );
+                    let mut wave_packets: Vec<EvidencePacket> = Vec::new();
+                    for q in &gd.queries {
+                        let wave_results =
+                            apply_domain_control(run_gap_metasearch(net, q).await, &planner_law);
+                        if wave_results.is_empty() {
+                            continue;
+                        }
+                        let mut fresh = extractor
+                            .extract_all(&wave_results, 3, None, None, 0, None)
+                            .await?;
+                        // §11.12: the wave query joins the filter query (⇔ TS).
+                        apply_segment_filter(&mut fresh, &format!("{segment_filter_query} {q}"));
+                        let pool: Vec<EvidencePacket> = packets
+                            .iter()
+                            .chain(second_hop_packets.iter())
+                            .chain(wave_packets.iter())
+                            .cloned()
+                            .collect();
+                        renumber_packets(&mut fresh, next_source_index(&pool));
+                        wave_packets.extend(fresh);
+                    }
+                    if !wave_packets.is_empty() {
+                        let all_packets: Vec<EvidencePacket> = packets
+                            .iter()
+                            .chain(second_hop_packets.iter())
+                            .chain(wave_packets.iter())
+                            .cloned()
+                            .collect();
+                        let mut rq = q_texts.clone();
+                        if let Some(gq) = coverage.gap_query.as_ref() {
+                            rq.push(gq.clone());
+                        }
+                        rq.extend(gd.queries.iter().cloned());
+                        top_passages = rerank(
+                            &all_packets,
+                            &format!("{} {}", ctx.user_prompt, gd.queries.join(" ")),
+                            &rq,
+                            15,
+                            single_url_query,
+                            gate.decision.freshness.as_str(),
+                            &designated_domains,
+                        );
+                        tracing::info!(passages = top_passages.len(), "demand wave merged");
+                    }
+                }
+            }
         }
     }
 
@@ -1500,6 +1659,10 @@ pub async fn run_web_research(
         from_cache,
         coverage: coverage.coverage,
         gap_search_fired,
+        planner_law,
+        sufficiency,
+        gap_demand,
+        demand_wave_fired,
         auth_required: login_walls
             .iter()
             .map(|p| AuthRequiredEntry {
@@ -1568,6 +1731,21 @@ mod tests {
             from_cache: false,
             coverage: 0.0,
             gap_search_fired: false,
+            // P4: neutral law — empty lists, Standard budget, via the real
+            // derivation on an empty prompt. ⇔ TS test-helper plannerLaw.
+            planner_law: crate::planner_law::derive_planner_law(
+                "",
+                &crate::types::SearchDecision {
+                    search_required: true,
+                    reason: "test".into(),
+                    freshness: Freshness::Any,
+                    depth: Depth::Standard,
+                    queries: vec![],
+                },
+            ),
+            sufficiency: None,
+            gap_demand: None,
+            demand_wave_fired: false,
             auth_required: vec![],
         }
     }

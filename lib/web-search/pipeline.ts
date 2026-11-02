@@ -36,6 +36,16 @@ import {
   type RankedResult,
 } from "./metasearch";
 import { engineCooldownRemainingMs } from "./engines";
+import {
+  applyDomainControl,
+  applyPlannerLaw,
+  buildGapDemand,
+  derivePlannerLaw,
+  evaluateSufficiency,
+  type GapDemand,
+  type PlannerLaw,
+  type SufficiencyReport,
+} from "./planner-law";
 import { fetchPage } from "./net";
 import {
   extractAll,
@@ -202,6 +212,14 @@ export interface EvidenceBundle {
   coverage: number;
   /** True when a 2nd-hop gap search fired. */
   gapSearchFired: boolean;
+  /** P4 deterministic planner law (§11.5/§11.17/§11.21). */
+  plannerLaw: PlannerLaw;
+  /** §11.14 sufficiency report; null when depth != deep (never computed). */
+  sufficiency: SufficiencyReport | null;
+  /** §11.6 gap contract driving the deep demand wave; null when none. */
+  gapDemand: GapDemand | null;
+  /** True when the P4 deep-research demand wave fired. */
+  demandWaveFired: boolean;
   /**
    * URLs whose every extraction tier hit a login wall (LinkedIn 999,
    * X/Instagram auth walls, Workday challenge). Their SERP baselines are
@@ -353,7 +371,11 @@ export async function runWebResearch(
 
   // ── query planning (multi-hop decomposer) ────────────────────────────
   onProgress?.({ stage: "planning", detail: "Decomposing into sub-queries..." });
-  const planned = planQueries(ctx.userPrompt, gate.decision.queries);
+  // P4 law layer: derive BEFORE planning so the law can add site-scoped
+  // companions (§11.17). planQueries itself is byte-identical — the law
+  // only appends, never rewrites (duality §11.22, golden-safe).
+  const plannerLaw = derivePlannerLaw(ctx.userPrompt, gate.decision);
+  const planned = applyPlannerLaw(planQueries(ctx.userPrompt, gate.decision.queries), plannerLaw);
   const plans: SearchPlan[] = planned.map((p) => ({
     query: p.query,
     intent: p.intent as SearchPlan["intent"],
@@ -689,6 +711,14 @@ export async function runWebResearch(
     }
   }
 
+  // §11.17 domain control (P4): enforce the deterministic allow/block law on
+  // the merged SERP BEFORE the starved check, so an honest empty result
+  // surfaces as starved rather than polluting evidence with off-law
+  // domains. No-op when the law has no lists (fixture-inert). User-pasted
+  // URLs (origin "user") are exempt — the user's own link is never a
+  // casualty of a law written about OTHER sources.
+  searchResults = applyDomainControl(searchResults, plannerLaw);
+
   // A fully starved SERP is only fatal when the prompt carried no
   // self-sufficient source (e.g. a YouTube URL whose evidence packets were
   // already built above). Those packets still go through rerank/coverage.
@@ -702,6 +732,10 @@ export async function runWebResearch(
       fromCache,
       coverage: 0,
       gapSearchFired: false,
+      plannerLaw,
+      sufficiency: null,
+      gapDemand: null,
+      demandWaveFired: false,
       authRequired: [],
     };
   }
@@ -849,17 +883,28 @@ export async function runWebResearch(
   // 10 passages each, so their bytes are unchanged).
   onProgress?.({ stage: "reranking", detail: "Reranking with BM25..." });
   const t2 = performance.now();
+  // Soft source-authority ranking (search-policy correction 2026-11-02):
+  // the law's allowed/preferred lists EXPRESS the user's source preference
+  // (that's all the planner law does — §P4 division of labor), and the
+  // reranker decides how strongly each tier rides the order key. Ranking,
+  // never exclusion: blockedDomains remains the only hard exclusion.
+  const designatedDomains = [...plannerLaw.allowedDomains, ...plannerLaw.preferredDomains];
   let topPassages = rerank(packets, ctx.userPrompt, qTexts, 15, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
     // §11.10: the gate's freshness band ranks dated passages by fit to the
     // band (order-only; displayed BM25 bytes never shift).
     freshness: gate.decision.freshness,
+    preferredDomains: designatedDomains,
   });
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
 
   // ── coverage & gap evaluation (the only 2nd hop: find what's missing) ──
   const coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
   let gapSearchFired = false;
+  // Packets from the existing gap hop. `packets` itself is NEVER
+  // reassigned (pinned contract), so the deep wave below re-merges
+  // through this list instead of mutating it.
+  let secondHopPackets: EvidencePacket[] = [];
 
   if (coverage.needsGapSearch && coverage.gapQuery) {
     onProgress?.({
@@ -871,7 +916,10 @@ export async function runWebResearch(
       { coverage: coverage.coverage, missing: coverage.missingEntities, gapQuery: coverage.gapQuery },
       "gap search triggered",
     );
-    const gapResults = await runGapMetasearch(coverage.gapQuery);
+    // §11.17: the domain law is global — the gap hop obeys it too (a
+    // no-op when no allow/block lists were derived, so goldens ride it
+    // byte-identically).
+    const gapResults = applyDomainControl(await runGapMetasearch(coverage.gapQuery), plannerLaw);
     if (gapResults.length > 0) {
       gapSearchFired = true;
       // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
@@ -881,6 +929,7 @@ export async function runWebResearch(
       // so coverage for the missing entities survives the drop rules.
       applySegmentFilter(gapPackets, segmentFilterQuery + " " + coverage.gapQuery);
       renumberPackets(gapPackets, nextSourceIndex(packets));
+      secondHopPackets = gapPackets;
       const allPackets = [...packets, ...gapPackets];
       topPassages = rerank(
         allPackets,
@@ -891,12 +940,81 @@ export async function runWebResearch(
           ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
           // §11.10: same order-only freshness prior on the merged hop.
           freshness: gate.decision.freshness,
+          preferredDomains: designatedDomains,
         },
       );
       log.info(
         { gapResults: gapResults.length, merged: allPackets.length },
         "gap search merged",
       );
+    }
+  }
+
+  // ── P4 deep-research demand wave (§11.6/§11.14/§11.21) ──────────────
+  // Arms ONLY at depth "deep" and ONLY when the §11.14 sufficiency pass
+  // did not stop early. Same primitives as the gap hop above — no second
+  // retrieval engine, no extra LLM call (§11.22). A two-word factual
+  // query never reaches this path: depth stays quick/standard (§11.21).
+  let sufficiency: SufficiencyReport | null = null;
+  let gapDemand: GapDemand | null = null;
+  let demandWaveFired = false;
+  if (gate.decision.depth === "deep") {
+    sufficiency = evaluateSufficiency(
+      [...packets, ...secondHopPackets],
+      topPassages,
+      coverage,
+      gate.decision,
+      plannerLaw,
+    );
+    if (!sufficiency.stopEarly) {
+      const usedQueries = [
+        ...qTexts,
+        ...planned.map((p) => p.query),
+        ...(coverage.gapQuery ? [coverage.gapQuery] : []),
+      ];
+      gapDemand = buildGapDemand(ctx.userPrompt, coverage, sufficiency, gate.decision, plannerLaw, usedQueries);
+      if (gapDemand && gapDemand.queries.length > 0) {
+        demandWaveFired = true;
+        // REUSES the existing "gap-search" stage kind (no StageEvent
+        // contract change in P4) with demand-wave detail text.
+        onProgress?.({
+          stage: "gap-search",
+          detail: `Deep-research wave: ${gapDemand.reason}`,
+          coverage: coverage.coverage,
+        });
+        log.info(
+          { queries: gapDemand.queries, missing: gapDemand.missing_claims },
+          "deep demand wave fired",
+        );
+        const wavePackets: (EvidencePacket & { classification: string })[] = [];
+        for (const q of gapDemand.queries) {
+          const waveResults = applyDomainControl(await runGapMetasearch(q), plannerLaw);
+          if (waveResults.length === 0) continue;
+          const fresh = await extractAll(waveResults, 3);
+          applySegmentFilter(fresh, segmentFilterQuery + " " + q);
+          renumberPackets(fresh, nextSourceIndex([...packets, ...secondHopPackets, ...wavePackets]));
+          wavePackets.push(...fresh);
+        }
+        if (wavePackets.length > 0) {
+          const allPackets = [...packets, ...secondHopPackets, ...wavePackets];
+          topPassages = rerank(
+            allPackets,
+            ctx.userPrompt + " " + gapDemand.queries.join(" "),
+            [...qTexts, ...(coverage.gapQuery ? [coverage.gapQuery] : []), ...gapDemand.queries],
+            15,
+            {
+              ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
+              // §11.10: same order-only freshness prior on the merged hop.
+              freshness: gate.decision.freshness,
+              preferredDomains: designatedDomains,
+            },
+          );
+          log.info(
+            { wavePackets: wavePackets.length, merged: allPackets.length },
+            "demand wave merged",
+          );
+        }
+      }
     }
   }
 
@@ -917,6 +1035,10 @@ export async function runWebResearch(
     fromCache,
     coverage: coverage.coverage,
     gapSearchFired,
+    plannerLaw,
+    sufficiency,
+    gapDemand,
+    demandWaveFired,
     authRequired: loginWalls.map((p) => ({ url: p.url, domain: p.domain, title: p.title })),
   };
 }

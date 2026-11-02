@@ -260,6 +260,153 @@ export function bm25Score(
     .slice(0, topK);
 }
 
+/* ── soft source-authority ranking (search-policy correction 2026-11-02) ──
+ * Ranking, NOT blocking. `blockedDomains` (planner law) stays the ONLY hard
+ * exclusion and is populated only by an EXPLICIT user block or a request-
+ * level policy — never because a source is merely weaker. Weakness is a
+ * ranking problem, so authority lives HERE, in the existing ranking layer:
+ * an ORDER-ONLY multiplier on the order key (the §11.10 freshness-prior
+ * precedent — the STORED/displayed bm25Score never shifts, only the order
+ * moves). Multipliers are bounded and always > 0: nothing is ever dropped
+ * (FALLBACK LAW — when higher tiers carry no matching evidence, community/
+ * tertiary passages win on BM25 alone, and the answer is synthesized with
+ * the confidence the evidence supports).
+ *
+ * Division of labor: P4 (planner law) only EXPRESSS preferences — the
+ * user-directed allow/preferred lists ride in via opts.preferredDomains —
+ * and THIS layer decides how strongly each tier is boosted or penalized,
+ * intent-aware. No parallel planner subsystem.
+ *
+ * Default ladder: official/primary → authoritative specialist → reputable
+ * journalism → normal relevant web → tertiary/community. Intent-aware
+ * overrides: experiential/troubleshooting/recommendation asks PROMOTE
+ * community evidence (Reddit/forums may be the best evidence there);
+ * scientific/current claims DEMOTE community + de-bias Wikipedia (never
+ * banned, never auto-dominant; stable-background asks keep it level).
+ * P5 labels tiers for provenance display via sourceAuthorityTier().
+ */
+export type SourceTier = "primary" | "specialist" | "journalism" | "general" | "community";
+
+// Suffix rule + www/path normalization — intentionally local (5-line
+// helper, ⇔ planner_law.normalize_domain/domain_within) so reranker keeps
+// its dependency-free status: importing planner-law would drag the whole
+// query-planner/metasearch graph into every reranker consumer/test.
+function normDom(d: string): string {
+  let s = String(d ?? "").trim().toLowerCase().split("/")[0];
+  if (s.startsWith("www.")) s = s.slice(4);
+  return s;
+}
+function domWithin(host: string, domain: string): boolean {
+  const h = normDom(host);
+  const d = normDom(domain);
+  return !!h && !!d && (h === d || h.endsWith("." + d));
+}
+
+const SPECIALIST_DOMAINS = [
+  "arxiv.org", "acm.org", "ieee.org", "nature.com", "sciencedirect.com",
+  "springer.com", "wiley.com", "nih.gov", "stackoverflow.com",
+  "stackexchange.com", "github.com", "gitlab.com",
+];
+// Same 14-entry table presentation.ts uses for news-cluster detection.
+const JOURNALISM_DOMAINS = [
+  "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "cnn.com", "nytimes.com",
+  "theguardian.com", "washingtonpost.com", "timesofindia.com", "hindustantimes.com",
+  "ndtv.com", "aljazeera.com", "cnbc.com", "bloomberg.com",
+];
+const COMMUNITY_DOMAINS = [
+  "reddit.com", "quora.com", "medium.com", "dev.to", "blogspot.com", "yelp.com",
+  "trustpilot.com", "discord.com", "4chan.org", "facebook.com", "twitter.com",
+  "x.com", "instagram.com", "tiktok.com", "pinterest.com", "youtube.com",
+  "linkedin.com",
+];
+const WIKIPEDIA_DOMAIN = "wikipedia.org";
+
+/**
+ * Soft tier for ranking (never an exclusion). A user-designated domain
+ * (law allowed/preferred) IS the primary tier — the user's own preference
+ * is honored as ranking bias, at the top of it.
+ */
+export function sourceAuthorityTier(domain: string, designated: string[] = []): SourceTier {
+  const d = normDom(domain);
+  if (!d) return "general";
+  if (designated.some((p) => domWithin(d, p))) return "primary";
+  if (d.endsWith(".gov") || d.endsWith(".mil") || d.includes(".gov.") || d.includes(".mil.")) return "primary";
+  if (d.endsWith(".edu") || d.includes(".ac.") || SPECIALIST_DOMAINS.some((e) => domWithin(d, e))) return "specialist";
+  if (JOURNALISM_DOMAINS.some((e) => domWithin(d, e))) return "journalism";
+  if (COMMUNITY_DOMAINS.some((e) => domWithin(d, e))) return "community";
+  // Wikipedia lands here ON PURPOSE: general tier — never banned, never
+  // auto-dominant (the intent overrides below de-bias it for current or
+  // specific claims; stable background claims keep it level).
+  return "general";
+}
+
+/**
+ * Intent ladder over the USER PROMPT (ASCII \b both sides — Rust mirror
+ * scopes (?-u:\b); no lookaround). FIRST match wins, ladder order fixed:
+ * experiential → scientific → background → current. A banded freshness
+ * decision alone counts as "current".
+ */
+const INTENT_EXP_RE =
+  /\b(?:review|reviews|experience|experiences|opinion|opinions|recommend|recommendation|recommendations|anyone|stories|discuss|discussion|forum|troubleshoot|troubleshooting|fix|fixes|error|errors|issue|issues|bug|bugs|not\s+working|how\s+do\s+i|how\s+can\s+i|strategy|game\s+meta)\b/i;
+const INTENT_SCI_RE =
+  /\b(?:study|studies|research|paper|papers|scientific|science|clinical|trial|trials|journal|doi|peer)\b/i;
+const INTENT_BKG_RE =
+  /\b(?:definition|define|meaning|overview|summary|background|history|explained|introduction|tutorial|what\s+is|what\s+are|who\s+is|who\s+was)\b/i;
+const INTENT_CUR_RE =
+  /\b(?:latest|current|news|today|dispute|disputed|controversy|controversial|argued|argues)\b/i;
+const YEAR_RE = /20\d\d/;
+const FRESHNESS_BANDS = new Set(["day", "week", "month", "year", "realtime"]);
+
+export type SearchIntent = "exp" | "sci" | "bkg" | "cur" | "none";
+
+export function classifySearchIntent(prompt: string, freshness?: string): SearchIntent {
+  if (INTENT_EXP_RE.test(prompt)) return "exp";
+  if (INTENT_SCI_RE.test(prompt)) return "sci";
+  if (INTENT_BKG_RE.test(prompt)) return "bkg";
+  if (INTENT_CUR_RE.test(prompt) || YEAR_RE.test(prompt) || FRESHNESS_BANDS.has(freshness ?? "")) return "cur";
+  return "none";
+}
+
+/**
+ * Bounded, always-positive multipliers applied to the ORDER KEY only
+ * (never to the stored score) — see the section header law. The user's
+ * designated preference always wins the top slot.
+ */
+export function authorityMultiplier(
+  domain: string,
+  intent: SearchIntent,
+  designated: string[] = [],
+): number {
+  if (designated.some((p) => domWithin(domain, p))) return 1.15;
+  const tier = sourceAuthorityTier(domain, designated);
+  switch (tier) {
+    case "primary":
+      return 1.12;
+    case "specialist":
+      return 1.06;
+    case "journalism":
+      return intent === "cur" ? 1.08 : 1.03;
+    case "community":
+      // Lower DEFAULT authority for objective claims; promoted where
+      // community/user experience IS the evidence; level for background.
+      if (intent === "exp") return 1.12;
+      if (intent === "bkg") return 1.0;
+      if (intent === "sci") return 0.8;
+      return 0.92; // neutral / current
+    case "general": {
+      // Wikipedia de-bias (Wikipedia law): demoted for scientific and
+      // current/specific claims, level everywhere else; plain general web
+      // is untouched. This layer NEVER removes a source — best available
+      // evidence wins honestly (fallback law).
+      if (domWithin(domain, WIKIPEDIA_DOMAIN)) {
+        if (intent === "sci") return 0.8;
+        if (intent === "cur") return 0.85;
+      }
+      return 1.0;
+    }
+  }
+}
+
 /* ── public rerank API ─────────────────────────────────────────────────── */
 
 export interface RerankHit {
@@ -286,7 +433,14 @@ export function rerank(
   userPrompt: string,
   gateQueries: string[],
   topN = 30,
-  opts?: { singleDomainUnlimited?: boolean; freshness?: string },
+  opts?: {
+    singleDomainUnlimited?: boolean;
+    freshness?: string;
+    /** Soft source-authority bias (planner law allowed/preferred lists) — see
+     *  the soft-ranking section above:Expresses preference only; the tier
+     *  multipliers below decide strength. Never excludes (fallback law). */
+    preferredDomains?: string[];
+  },
 ): EvidencePassage[] {
   interface ChunkRec {
     chunk: string;
@@ -325,8 +479,14 @@ export function rerank(
   // §11.10: `opts.freshness` adds an ORDER-ONLY prior — tuples become
   // [recIdx, penalized, orderKey]; the STORED/displayed bm25Score stays
   // the undecayed penalized score (evidence bytes "(BM25=…)" never shift).
-  // Exact op order (penalize FIRST, then × fit) is mirrored in the Rust
-  // reranker for IEEE-double parity — change one side, change both.
+  // Soft source-authority (policy correction 2026-11-02) rides the SAME
+  // order key as a third ORDER-ONLY factor — stored bytes unchanged, only
+  // the order moves, nothing is ever dropped (fallback law).
+  // Exact op order (penalize FIRST, then × fit, then × authority mult) is
+  // mirrored in the Rust reranker for IEEE-double parity — change one
+  // side, change both.
+  const designated = opts?.preferredDomains ?? [];
+  const intent = classifySearchIntent(userPrompt, opts?.freshness);
   const hits: Array<[number, number, number]> = rawHits
     .map(([recIdx, rawScore]) => {
       const rec = recs[recIdx];
@@ -334,7 +494,9 @@ export function rerank(
       const penalty = junkPenalty(rec.chunk);
       const penalized = rawScore * (1 - 0.8 * penalty);
       const orderKey =
-        penalized * freshnessFit(rec.packet.publishedAt, opts?.freshness);
+        penalized *
+        freshnessFit(rec.packet.publishedAt, opts?.freshness) *
+        authorityMultiplier(rec.packet.domain, intent, designated);
       return [recIdx, penalized, orderKey] as [number, number, number];
     })
     .filter(([, s]) => s > 0)

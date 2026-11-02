@@ -637,6 +637,19 @@ mod tests {
     };
 
     fn bundle_with(packets: Vec<EvidencePacket>) -> EvidenceBundle {
+        // P4 additions: neutral planner law (empty lists; Standard budget)
+        // via the real derivation on an empty prompt; no sufficiency/gap
+        // state — these tests exercise stage wiring, not the law.
+        let planner_law = ruke_websearch::planner_law::derive_planner_law(
+            "",
+            &SearchDecision {
+                search_required: true,
+                reason: "r".into(),
+                freshness: Freshness::Any,
+                depth: Depth::Standard,
+                queries: vec![],
+            },
+        );
         EvidenceBundle {
             search_gate: SearchGateResult {
                 decision: SearchDecision {
@@ -666,6 +679,10 @@ mod tests {
             from_cache: false,
             coverage: 0.0,
             gap_search_fired: false,
+            planner_law,
+            sufficiency: None,
+            gap_demand: None,
+            demand_wave_fired: false,
             auth_required: vec![],
         }
     }

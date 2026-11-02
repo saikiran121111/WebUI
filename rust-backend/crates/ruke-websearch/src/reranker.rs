@@ -478,6 +478,265 @@ pub fn bm25_score(idx: &Bm25Index, query: &str, top_k: usize) -> Vec<(usize, f64
     out
 }
 
+/* ── soft source-authority ranking (search-policy correction 2026-11-02) ──
+ * ⇔ TS `lib/web-search/reranker.ts` soft-ranking section. Ranking, NOT
+ * blocking: `blocked_domains` (planner_law) stays the ONLY hard exclusion
+ * and is populated only by an EXPLICIT user block or a request-level
+ * policy — never because a source is merely weaker. Weakness is a RANKING
+ * problem, handled HERE in the existing ranking layer as an ORDER-ONLY
+ * multiplier on the order key (the §11.10 freshness-prior precedent —
+ * stored bm25_score never shifts, only the order moves). Multipliers are
+ * bounded and always > 0: nothing is ever dropped (FALLBACK LAW — when
+ * higher tiers carry no matching evidence, community/tertiary passages
+ * win on BM25 alone and the answer rides the evidence that exists).
+ * Division of labor: P4 (planner_law) only EXPRESSES preferences — the
+ * user-directed allow/preferred lists ride in via `preferred_domains` —
+ * and THIS layer decides how strongly each tier is boosted or penalized,
+ * intent-aware. No parallel planner subsystem.
+ *
+ * Default ladder: official/primary → authoritative specialist → reputable
+ * journalism → normal relevant web → tertiary/community. Intent overrides:
+ * experiential/troubleshooting/recommendation asks PROMOTE community
+ * evidence (it may be the best evidence there); scientific/current claims
+ * DEMOTE community and de-bias Wikipedia (never banned, never
+ * auto-dominant; stable-background asks keep it level).
+ */
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceTier {
+    Primary,
+    Specialist,
+    Journalism,
+    General,
+    Community,
+}
+
+/// Intent ladder classification (`Neutral` ⇔ TS `"none"` — `None` would
+/// collide with `Option`; the ladder order stays Exp → Sci → Bkg → Cur).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchIntent {
+    Exp,
+    Sci,
+    Bkg,
+    Cur,
+    Neutral,
+}
+
+// Suffix rule + www/path normalization — intentionally local (⇔ TS
+// normDom/domWithin; semantics ⇔ planner_law::normalize_domain /
+// domain_within) so this module keeps zero websearch-internal imports.
+fn norm_dom(d: &str) -> String {
+    let mut s = d.trim().to_lowercase();
+    if let Some((head, _)) = s.split_once('/') {
+        s = head.to_owned();
+    }
+    if let Some(rest) = s.strip_prefix("www.") {
+        s = rest.to_owned();
+    }
+    s
+}
+fn dom_within(host: &str, domain: &str) -> bool {
+    let h = norm_dom(host);
+    let d = norm_dom(domain);
+    !h.is_empty() && !d.is_empty() && (h == d || h.ends_with(&format!(".{d}")))
+}
+
+const SPECIALIST_DOMAINS: &[&str] = &[
+    "arxiv.org",
+    "acm.org",
+    "ieee.org",
+    "nature.com",
+    "sciencedirect.com",
+    "springer.com",
+    "wiley.com",
+    "nih.gov",
+    "stackoverflow.com",
+    "stackexchange.com",
+    "github.com",
+    "gitlab.com",
+];
+// Same 14-entry table presentation.rs uses for news-cluster detection.
+const JOURNALISM_DOMAINS: &[&str] = &[
+    "reuters.com",
+    "apnews.com",
+    "bbc.com",
+    "bbc.co.uk",
+    "cnn.com",
+    "nytimes.com",
+    "theguardian.com",
+    "washingtonpost.com",
+    "timesofindia.com",
+    "hindustantimes.com",
+    "ndtv.com",
+    "aljazeera.com",
+    "cnbc.com",
+    "bloomberg.com",
+];
+const COMMUNITY_DOMAINS: &[&str] = &[
+    "reddit.com",
+    "quora.com",
+    "medium.com",
+    "dev.to",
+    "blogspot.com",
+    "yelp.com",
+    "trustpilot.com",
+    "discord.com",
+    "4chan.org",
+    "facebook.com",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "tiktok.com",
+    "pinterest.com",
+    "youtube.com",
+    "linkedin.com",
+];
+const WIKIPEDIA_DOMAIN: &str = "wikipedia.org";
+
+/// Soft tier for ranking (never an exclusion). A user-designated domain
+/// (law allowed/preferred) IS the primary tier — the user's own preference
+/// is honored as ranking bias, at the top of it. ⇔ TS sourceAuthorityTier.
+pub fn source_authority_tier(domain: &str, designated: &[String]) -> SourceTier {
+    let d = norm_dom(domain);
+    if d.is_empty() {
+        return SourceTier::General;
+    }
+    if designated.iter().any(|p| dom_within(&d, p)) {
+        return SourceTier::Primary;
+    }
+    if d.ends_with(".gov") || d.ends_with(".mil") || d.contains(".gov.") || d.contains(".mil.") {
+        return SourceTier::Primary;
+    }
+    if d.ends_with(".edu")
+        || d.contains(".ac.")
+        || SPECIALIST_DOMAINS.iter().any(|e| dom_within(&d, e))
+    {
+        return SourceTier::Specialist;
+    }
+    if JOURNALISM_DOMAINS.iter().any(|e| dom_within(&d, e)) {
+        return SourceTier::Journalism;
+    }
+    if COMMUNITY_DOMAINS.iter().any(|e| dom_within(&d, e)) {
+        return SourceTier::Community;
+    }
+    // Wikipedia lands here ON PURPOSE: general tier — never banned, never
+    // auto-dominant (the intent overrides below de-bias it for current or
+    // specific claims; stable background claims keep it level).
+    SourceTier::General
+}
+
+// ASCII-law boundaries: `(?-u:\b)` matches JS's ASCII \b exactly; plain
+// `\s` inside the alternations stays Unicode (JS \s is Unicode too — the
+// planner_law idiom this mirrors). No lookaround anywhere.
+fn intent_exp_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?-u:\b)(?:review|reviews|experience|experiences|opinion|opinions|recommend|recommendation|recommendations|anyone|stories|discuss|discussion|forum|troubleshoot|troubleshooting|fix|fixes|error|errors|issue|issues|bug|bugs|not\s+working|how\s+do\s+i|how\s+can\s+i|strategy|game\s+meta)(?-u:\b)",
+        )
+        .expect("static regex")
+    })
+}
+fn intent_sci_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?-u:\b)(?:study|studies|research|paper|papers|scientific|science|clinical|trial|trials|journal|doi|peer)(?-u:\b)",
+        )
+        .expect("static regex")
+    })
+}
+fn intent_bkg_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?-u:\b)(?:definition|define|meaning|overview|summary|background|history|explained|introduction|tutorial|what\s+is|what\s+are|who\s+is|who\s+was)(?-u:\b)",
+        )
+        .expect("static regex")
+    })
+}
+fn intent_cur_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?-u:\b)(?:latest|current|news|today|dispute|disputed|controversy|controversial|argued|argues)(?-u:\b)",
+        )
+        .expect("static regex")
+    })
+}
+fn year_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r"(?-u:20[0-9]{2})").expect("static regex"))
+}
+
+/// FIRST match wins on the fixed ladder Exp → Sci → Bkg → Cur; a banded
+/// freshness decision alone counts as "current" (⇔ TS
+/// classifySearchIntent; freshness "any"/"" ⇔ TS undefined → un-banded).
+pub fn classify_search_intent(prompt: &str, freshness: &str) -> SearchIntent {
+    if intent_exp_re().is_match(prompt) {
+        return SearchIntent::Exp;
+    }
+    if intent_sci_re().is_match(prompt) {
+        return SearchIntent::Sci;
+    }
+    if intent_bkg_re().is_match(prompt) {
+        return SearchIntent::Bkg;
+    }
+    if intent_cur_re().is_match(prompt)
+        || year_re().is_match(prompt)
+        || matches!(freshness, "day" | "week" | "month" | "year" | "realtime")
+    {
+        return SearchIntent::Cur;
+    }
+    SearchIntent::Neutral
+}
+
+/// Bounded, always-positive multipliers applied to the ORDER KEY only
+/// (never to the stored score) — see the section-header law. The user's
+/// designated preference always wins the top slot. ⇔ TS
+/// authorityMultiplier; decimal literals are identical on both sides so
+/// both parse to the same IEEE-754 doubles.
+pub fn authority_multiplier(domain: &str, intent: SearchIntent, designated: &[String]) -> f64 {
+    if designated.iter().any(|p| dom_within(domain, p)) {
+        return 1.15;
+    }
+    match source_authority_tier(domain, designated) {
+        SourceTier::Primary => 1.12,
+        SourceTier::Specialist => 1.06,
+        SourceTier::Journalism => {
+            if intent == SearchIntent::Cur {
+                1.08
+            } else {
+                1.03
+            }
+        }
+        SourceTier::Community => {
+            // Lower DEFAULT authority for objective claims; promoted where
+            // community/user experience IS the evidence; level for
+            // background.
+            match intent {
+                SearchIntent::Exp => 1.12,
+                SearchIntent::Bkg => 1.0,
+                SearchIntent::Sci => 0.8,
+                _ => 0.92, // Neutral / Cur
+            }
+        }
+        SourceTier::General => {
+            // Wikipedia de-bias (Wikipedia law): demoted for scientific and
+            // current/specific claims, level everywhere else; plain general
+            // web is untouched. This layer NEVER removes a source — best
+            // available evidence wins honestly (fallback law).
+            if dom_within(domain, WIKIPEDIA_DOMAIN) {
+                match intent {
+                    SearchIntent::Sci => return 0.8,
+                    SearchIntent::Cur => return 0.85,
+                    _ => {}
+                }
+            }
+            1.0
+        }
+    }
+}
+
 /* ── public rerank API ─────────────────────────────────────────────────── */
 
 /// ⇔ TS exported `RerankHit` — never constructed in TS, kept for surface
@@ -493,6 +752,9 @@ pub struct RerankHit {
 /// `single_domain_unlimited` ⇔ `opts?.singleDomainUnlimited ?? false`;
 /// `freshness` ⇔ `opts?.freshness` (§11.10 order-only prior; TS leaves it
 /// undefined sometimes — callers pass "any" for that neutral case).
+/// `preferred_domains` ⇔ `opts?.preferredDomains` — the planner law's
+/// allowed+preferred lists EXPRESS the user's source preference; the
+/// soft-ranking section above owns the strength. Never excludes.
 #[allow(clippy::too_many_arguments)]
 pub fn rerank(
     packets: &[EvidencePacket],
@@ -501,6 +763,7 @@ pub fn rerank(
     top_n: usize,
     single_domain_unlimited: bool,
     freshness: &str,
+    preferred_domains: &[String],
 ) -> Vec<EvidencePassage> {
     let mut recs: Vec<(String, usize)> = Vec::new(); // (chunk, packetIdx)
     for (pi, packet) in packets.iter().enumerate() {
@@ -537,9 +800,14 @@ pub fn rerank(
     // §11.10: `freshness` adds an ORDER-ONLY prior — tuples become
     // (rec_idx, penalized, order_key); the STORED/displayed bm25_score
     // stays the undecayed penalized score (evidence bytes "(BM25=…)"
-    // never shift). Exact op order (penalize FIRST, then × fit) mirrors
-    // the TS reranker for IEEE-double parity — change one side, change both.
+    // never shift). Soft source-authority (policy correction 2026-11-02)
+    // rides the SAME order key as a third ORDER-ONLY factor — stored bytes
+    // unchanged, only the order moves, nothing is ever dropped (fallback
+    // law). Exact op order (penalize FIRST, then × fit, then × authority
+    // mult) mirrors the TS reranker for IEEE-double parity — change one
+    // side, change both.
     let rerank_now_ms = chrono::Utc::now().timestamp_millis();
+    let intent = classify_search_intent(user_prompt, freshness);
     let mut hits: Vec<(usize, f64, f64)> = raw_hits
         .into_iter()
         .map(|(rec_idx, raw)| match recs.get(rec_idx) {
@@ -551,7 +819,8 @@ pub fn rerank(
                     Some(freshness),
                     rerank_now_ms,
                 );
-                (rec_idx, penalized, penalized * fit)
+                let mult = authority_multiplier(&packets[*pi].domain, intent, preferred_domains);
+                (rec_idx, penalized, penalized * fit * mult)
             }
             None => (rec_idx, raw, raw),
         })
@@ -965,7 +1234,7 @@ mod tests {
         let pkts = [packet("s1", "a.com", &texts)];
         let gq = vec!["quantum computing".to_string()];
 
-        let capped = rerank(&pkts, "quantum computing", &gq, 30, false, "any");
+        let capped = rerank(&pkts, "quantum computing", &gq, 30, false, "any", &[]);
         let real = capped
             .iter()
             .filter(|p| !p.passage_text.starts_with("[Context] "))
@@ -984,7 +1253,7 @@ mod tests {
             assert_eq!(p.bm25_score, (p.bm25_score * 1000.0).round() / 1000.0);
         }
 
-        let free = rerank(&pkts, "quantum computing", &gq, 30, true, "any");
+        let free = rerank(&pkts, "quantum computing", &gq, 30, true, "any", &[]);
         assert_eq!(
             free.iter()
                 .filter(|p| !p.passage_text.starts_with("[Context] "))
@@ -1003,7 +1272,7 @@ mod tests {
     fn rerank_empty_pool_falls_back_to_raw_passages() {
         let tiny = "tiny".repeat(3); // <40 ⇒ no chunks
         let pkts = [packet("s1", "a.com", &[tiny.as_str()])];
-        let out = rerank(&pkts, "anything", &[], 30, false, "any");
+        let out = rerank(&pkts, "anything", &[], 30, false, "any", &[]);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].passage_text, "tinytinytiny");
     }
@@ -1088,5 +1357,279 @@ mod tests {
         // stop-word-only query ⇒ inert
         apply_segment_filter(&mut pkts, "what is the");
         assert_eq!(pkts[0].passages[0].passage_text, drop_output());
+    }
+
+    /* ── soft source-authority ranking (search-policy correction
+    2026-11-02) — ⇔ TS __tests__/web-search/source-ranking.test.ts:
+    identical prompts, tiers and expectations; change one side, change
+    both in the same commit. ───────────────────────────────────────── */
+
+    fn designated(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn source_tier_ladder_and_suffix_rule() {
+        assert_eq!(
+            source_authority_tier("whitehouse.gov", &[]),
+            SourceTier::Primary
+        );
+        assert_eq!(
+            source_authority_tier("defense.mil", &[]),
+            SourceTier::Primary
+        );
+        assert_eq!(
+            source_authority_tier("mit.edu", &[]),
+            SourceTier::Specialist
+        );
+        assert_eq!(
+            source_authority_tier("www.cam.ac.uk", &[]),
+            SourceTier::Specialist,
+            "international academic (.ac.) rule"
+        );
+        assert_eq!(
+            source_authority_tier("arxiv.org", &[]),
+            SourceTier::Specialist
+        );
+        assert_eq!(
+            source_authority_tier("docs.github.com", &[]),
+            SourceTier::Specialist,
+            "suffix rule"
+        );
+        assert_eq!(
+            source_authority_tier("reuters.com", &[]),
+            SourceTier::Journalism
+        );
+        assert_eq!(
+            source_authority_tier("www.bbc.co.uk", &[]),
+            SourceTier::Journalism
+        );
+        assert_eq!(
+            source_authority_tier("reddit.com", &[]),
+            SourceTier::Community
+        );
+        assert_eq!(
+            source_authority_tier("old.reddit.com", &[]),
+            SourceTier::Community,
+            "community is SOFT-labeled — never excluded"
+        );
+        assert_eq!(
+            source_authority_tier("en.wikipedia.org", &[]),
+            SourceTier::General,
+            "Wikipedia law: general tier, never banned, never auto-dominant"
+        );
+        assert_eq!(
+            source_authority_tier("example.com", &[]),
+            SourceTier::General
+        );
+        // A user-designated domain (planner-law allowed/preferred lists —
+        // P4 EXPRESSes the preference) rides at the top of this ladder.
+        assert_eq!(
+            source_authority_tier("example.com", &designated(&["example.com"])),
+            SourceTier::Primary
+        );
+        assert_eq!(
+            source_authority_tier("de.wikipedia.org", &designated(&["wikipedia.org"])),
+            SourceTier::Primary,
+            "user-directed wikipedia outranks the soft prior"
+        );
+    }
+
+    #[test]
+    fn intent_ladder_first_match_wins() {
+        assert_eq!(
+            classify_search_intent("how do i fix this borrow error", "any"),
+            SearchIntent::Exp
+        );
+        assert_eq!(
+            classify_search_intent("study on the history of the transistor", "any"),
+            SearchIntent::Sci,
+            "study outranks history — ladder order is the contract"
+        );
+        assert_eq!(
+            classify_search_intent("what is a closure definition", "any"),
+            SearchIntent::Bkg
+        );
+        assert_eq!(
+            classify_search_intent("latest gdp numbers", "any"),
+            SearchIntent::Cur
+        );
+        assert_eq!(
+            classify_search_intent("gdp numbers 2024", "any"),
+            SearchIntent::Cur,
+            "bare year ⇒ current"
+        );
+        assert_eq!(
+            classify_search_intent("gdp numbers", "week"),
+            SearchIntent::Cur,
+            "the gate's freshness band alone counts as current"
+        );
+        assert_eq!(
+            classify_search_intent("rust async runtime", "any"),
+            SearchIntent::Neutral
+        );
+        assert_eq!(
+            classify_search_intent("rust metadata handling", "any"),
+            SearchIntent::Neutral,
+            "bare \"meta\" inside a word must not fire the experiential rung"
+        );
+    }
+
+    #[test]
+    fn authority_multiplier_is_intent_aware_and_never_zero() {
+        // Community: lower DEFAULT on objective claims, promoted where
+        // experience IS the evidence, level for background.
+        assert_eq!(
+            authority_multiplier("reddit.com", SearchIntent::Neutral, &[]),
+            0.92
+        );
+        assert_eq!(
+            authority_multiplier("reddit.com", SearchIntent::Exp, &[]),
+            1.12
+        );
+        assert_eq!(
+            authority_multiplier("reddit.com", SearchIntent::Sci, &[]),
+            0.8
+        );
+        assert_eq!(
+            authority_multiplier("reddit.com", SearchIntent::Bkg, &[]),
+            1.0
+        );
+        // Wikipedia law: NEVER banned — de-biased only from scientific and
+        // current domination; level everywhere else.
+        assert_eq!(
+            authority_multiplier("en.wikipedia.org", SearchIntent::Neutral, &[]),
+            1.0
+        );
+        assert_eq!(
+            authority_multiplier("en.wikipedia.org", SearchIntent::Exp, &[]),
+            1.0
+        );
+        assert_eq!(
+            authority_multiplier("en.wikipedia.org", SearchIntent::Sci, &[]),
+            0.8
+        );
+        assert_eq!(
+            authority_multiplier("en.wikipedia.org", SearchIntent::Cur, &[]),
+            0.85
+        );
+        // Plain general web is untouched by the intent rungs.
+        assert_eq!(
+            authority_multiplier("example.com", SearchIntent::Sci, &[]),
+            1.0
+        );
+        // Journalism edges up only for current claims.
+        assert_eq!(
+            authority_multiplier("reuters.com", SearchIntent::Neutral, &[]),
+            1.03
+        );
+        assert_eq!(
+            authority_multiplier("reuters.com", SearchIntent::Cur, &[]),
+            1.08
+        );
+        // The user's designated preference always wins the top slot — even
+        // over the wikipedia de-bias.
+        assert_eq!(
+            authority_multiplier(
+                "en.wikipedia.org",
+                SearchIntent::Sci,
+                &designated(&["wikipedia.org"])
+            ),
+            1.15
+        );
+        // FALLBACK LAW: no multiplier is ever 0 or negative ⇒ nothing is
+        // ever dropped — weak sources stay usable when they are the only
+        // evidence.
+        for d in [
+            "reddit.com",
+            "en.wikipedia.org",
+            "arxiv.org",
+            "reuters.com",
+            "whitehouse.gov",
+            "example.com",
+        ] {
+            for i in [
+                SearchIntent::Exp,
+                SearchIntent::Sci,
+                SearchIntent::Bkg,
+                SearchIntent::Cur,
+                SearchIntent::Neutral,
+            ] {
+                assert!(authority_multiplier(d, i, &[]) > 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn soft_ranking_moves_order_never_drops_evidence() {
+        // Identical chunk text ⇒ identical BM25 + junk penalty ⇒ ONLY the
+        // authority prior can move the order (and it is order-only).
+        let text = "the nimbus drone ships with a 40 minute battery";
+        let pkts = vec![
+            packet("s1", "reddit.com", &[text]),
+            packet("s2", "arxiv.org", &[text]),
+        ];
+        let neutral = rerank(&pkts, "nimbus drone battery", &[], 15, false, "any", &[]);
+        assert_eq!(
+            neutral.len(),
+            2,
+            "fallback law: weak tiers are NEVER dropped"
+        );
+        assert_eq!(
+            neutral[0].domain, "arxiv.org",
+            "specialist rides above community by default"
+        );
+        assert_eq!(
+            neutral[0].bm25_score, neutral[1].bm25_score,
+            "ORDER-ONLY prior: stored bm25 bytes never shift"
+        );
+        let exp = rerank(
+            &pkts,
+            "anyone have real world experience with nimbus drone battery",
+            &[],
+            15,
+            false,
+            "any",
+            &[],
+        );
+        assert_eq!(
+            exp[0].domain, "reddit.com",
+            "community is promoted when experience IS the evidence (intent-aware)"
+        );
+        // Wikipedia de-bias on current claims — and the loser SURVIVES.
+        let wiki_pkts = vec![
+            packet("s1", "en.wikipedia.org", &[text]),
+            packet("s2", "example.com", &[text]),
+        ];
+        let cur = rerank(
+            &wiki_pkts,
+            "latest nimbus drone battery numbers",
+            &[],
+            15,
+            false,
+            "any",
+            &[],
+        );
+        assert_eq!(
+            cur.len(),
+            2,
+            "de-bias NEVER removes — best available evidence rides"
+        );
+        assert_eq!(
+            cur[0].domain, "example.com",
+            "wikipedia is not auto-dominant for current/specific claims"
+        );
+        // User-directed wikipedia (planner-law preference) outranks the
+        // soft prior — P4 expresses, this layer obeys.
+        let pref = rerank(
+            &wiki_pkts,
+            "latest nimbus drone battery numbers",
+            &[],
+            15,
+            false,
+            "any",
+            &designated(&["wikipedia.org"]),
+        );
+        assert_eq!(pref[0].domain, "en.wikipedia.org");
     }
 }
