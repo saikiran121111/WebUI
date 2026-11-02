@@ -9,9 +9,11 @@
 //! §53 no-spam law — "Who invented the telephone?" gets an answer, not a
 //! card).
 //!
-//! P4 scope: this module is INERT (no call sites yet). P5 consumes it via
-//! the additive `web:surface_*` stage events and builds the RichResult
-//! envelope from the chosen primary. The ladder order, vocabulary, and
+//! P5 WIRING: the pipeline calls `derive_presentation` at bundle assembly
+//! and stores the plan on `EvidenceBundle.presentation`; the rich-result
+//! producer builds the RichResult envelope from the chosen primary and
+//! streams it via the additive `web:surface_*` stage events. The ladder
+//! order, vocabulary, and
 //! reason strings are byte-parity with TS (incl. quirk preservation:
 //! `reserv\b`/`vacanc\b` never fire inside "reservation"/"vacancy" on
 //! EITHER side — the same behavior both languages is the law; stems like
@@ -28,7 +30,8 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::planner_law::domain_within;
+use crate::planner_law::{domain_within, PlannerLaw};
+use crate::types::{EvidencePacket, Intent, RankedResult, SearchQuery};
 
 /// Verbatim §55 primary vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -402,6 +405,71 @@ pub fn plan_presentation(input: &PresentationInput) -> Option<PresentationPlan> 
     None
 }
 
+/// YouTube domain law — structured hop domains and short links alike.
+const YOUTUBE_DOMAINS: [&str; 2] = ["youtube.com", "youtu.be"];
+
+/// TS gate intents are canonical lowercase strings; the Rust Intent enum
+/// mirrors the exact same labels ("general".."forum"). `Other(s)` is the
+/// hand-built escape hatch — lowercased verbatim, never title-cased.
+fn intent_label(intent: &Intent) -> String {
+    match intent {
+        Intent::General => "general",
+        Intent::News => "news",
+        Intent::Docs => "docs",
+        Intent::Code => "code",
+        Intent::Academic => "academic",
+        Intent::Forum => "forum",
+        Intent::Other(s) => return s.to_lowercase(),
+    }
+    .to_string()
+}
+
+/// P5 WIRING — computes the §55 signals from pipeline state and runs the
+/// router. `has_geo_evidence` is passed by the caller because coordinates
+/// exist ONLY while the Maps companion hop decodes them (§11 law:
+/// validated provider data, never prose). Domain law ⇔ TS
+/// derivePresentation: ranked results first, then packets, first-seen
+/// wins, empties skipped, capped at 5.
+pub fn derive_presentation(
+    user_prompt: &str,
+    planner_law: &PlannerLaw,
+    gate_queries: &[SearchQuery],
+    search_results: &[RankedResult],
+    packets: &[EvidencePacket],
+    has_geo_evidence: bool,
+) -> Option<PresentationPlan> {
+    let mut top_domains: Vec<String> = Vec::new();
+    for d in search_results
+        .iter()
+        .map(|r| r.domain.as_str())
+        .chain(packets.iter().map(|p| p.domain.as_str()))
+    {
+        if d.is_empty() || top_domains.iter().any(|seen| seen == d) {
+            continue;
+        }
+        top_domains.push(d.to_string());
+        if top_domains.len() == 5 {
+            break;
+        }
+    }
+    let has_youtube_video = packets.iter().any(|p| {
+        YOUTUBE_DOMAINS
+            .iter()
+            .any(|y| domain_within(p.domain.as_str(), y))
+    });
+    plan_presentation(&PresentationInput {
+        user_prompt: user_prompt.to_string(),
+        location: planner_law.location.clone(),
+        has_geo_evidence,
+        has_youtube_video,
+        intents: gate_queries
+            .iter()
+            .map(|q| intent_label(&q.intent))
+            .collect(),
+        top_domains,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,5 +592,130 @@ mod tests {
         };
         let j2 = serde_json::to_string(&plan_presentation(&geo).unwrap()).unwrap();
         assert!(j2.contains(r#""layout":"map_split""#));
+    }
+
+    // ── derive_presentation (⇔ presentation.test.ts derivePresentation) ──
+    use crate::planner_law::derive_planner_law;
+    use crate::types::{Depth, Freshness, SearchDecision};
+    use serde_json::json;
+
+    fn rr(url: &str, domain: &str) -> RankedResult {
+        serde_json::from_value(json!({
+            "url": url, "canonical": url, "title": "t", "snippet": "s",
+            "engine": "e", "domain": domain, "rrf": 1.0,
+            "engines": ["e"], "engineRanks": {}
+        }))
+        .unwrap()
+    }
+
+    fn pk(source_id: &str, domain: &str) -> EvidencePacket {
+        serde_json::from_value(json!({
+            "sourceId": source_id, "url": format!("https://{domain}/x"), "title": "T",
+            "domain": domain, "extraction": "direct", "passages": [],
+            "classification": "SUCCESS_OK"
+        }))
+        .unwrap()
+    }
+
+    fn gq(query: &str, intent: Intent) -> SearchQuery {
+        SearchQuery {
+            query: query.to_string(),
+            intent,
+            preferred_domains: None,
+        }
+    }
+
+    fn law(prompt: &str) -> PlannerLaw {
+        derive_planner_law(
+            prompt,
+            &SearchDecision {
+                search_required: true,
+                reason: String::new(),
+                freshness: Freshness::None,
+                depth: Depth::Standard,
+                queries: vec![],
+            },
+        )
+    }
+
+    #[test]
+    fn derive_video_from_youtube_results() {
+        let rs = vec![
+            rr("https://www.youtube.com/watch?v=x", "youtube.com"),
+            rr("https://youtu.be/y", "youtu.be"),
+        ];
+        let prompt = "how does a combustion engine work";
+        let plan = derive_presentation(prompt, &law(prompt), &[], &rs, &[], false).unwrap();
+        assert_eq!(plan.primary, PresentationPrimary::Video);
+        assert_eq!(plan.layout, PresentationLayout::Carousel);
+        assert_eq!(plan.reason, "video results in evidence");
+    }
+
+    #[test]
+    fn derive_youtube_packet_sets_has_youtube_video() {
+        let rs = vec![rr("https://example.com/a", "example.com")];
+        let ps = vec![pk("s1", "youtu.be")];
+        let prompt = "who invented the telephone";
+        let plan = derive_presentation(prompt, &law(prompt), &[], &rs, &ps, false).unwrap();
+        assert_eq!(plan.primary, PresentationPrimary::Video);
+    }
+
+    #[test]
+    fn derive_domains_dedupe_first_seen() {
+        let rs = vec![
+            rr("https://reuters.com/1", "reuters.com"),
+            rr("https://reuters.com/2", "reuters.com"),
+            rr("https://example.com/3", "example.com"),
+        ];
+        // Deduped top = [reuters, example] → ONE news hit → §53 null.
+        // Without first-seen dedupe, two reuters rows would fake a cluster.
+        let prompt = "what happened at the summit";
+        assert_eq!(
+            derive_presentation(prompt, &law(prompt), &[], &rs, &[], false),
+            None
+        );
+    }
+
+    #[test]
+    fn derive_top_domains_cap_is_five() {
+        let mut rs = Vec::new();
+        for d in [
+            "x.com",
+            "y.com",
+            "z.com",
+            "w.com",
+            "v.com",
+            "reuters.com",
+            "cnn.com",
+        ] {
+            rs.push(rr(&format!("https://{d}/1"), d));
+        }
+        // The cap keeps the top five at x/y/z/w/v; reuters+cnn (positions
+        // 6–7) never reach the news rung, so §53 returns plain text.
+        let prompt = "what happened at the summit";
+        assert_eq!(
+            derive_presentation(prompt, &law(prompt), &[], &rs, &[], false),
+            None
+        );
+    }
+
+    #[test]
+    fn derive_gate_intent_and_geo_signals() {
+        let prompt = "what happened at the summit";
+        let qs = vec![gq("q one", Intent::News)];
+        let plan = derive_presentation(prompt, &law(prompt), &qs, &[], &[], false).unwrap();
+        assert_eq!(plan.primary, PresentationPrimary::News);
+        assert_eq!(plan.reason, "news intent");
+
+        let telephone = "who invented the telephone";
+        let geo = derive_presentation(telephone, &law(telephone), &[], &[], &[], true).unwrap();
+        assert_eq!(geo.primary, PresentationPrimary::Map);
+        assert_eq!(geo.reason, "geocoded search evidence");
+
+        let loc = "best restaurants near New York City";
+        let plan = derive_presentation(loc, &law(loc), &[], &[], &[], false).unwrap();
+        assert_eq!(plan.primary, PresentationPrimary::Map);
+        assert_eq!(plan.layout, PresentationLayout::MapSplit);
+        assert_eq!(plan.reason, "coarse location \"New York City\"");
     }
 }

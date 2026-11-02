@@ -15,7 +15,7 @@ Status board (updated per phase):
 | P3 | Retrieval quality: freshness classes, TTL/RetrievalMode, wiki cap, normalize/dedupe, dynamic segment filtering; preserve structured metadata for P5 | **CLOSED** (this commit — details below) |
 | P2 | Model tools: `web_search`/`read_page`, kill `searchMoreStub`, gap loop, RetrievalFailure taxonomy, budgets, tool/result envelopes | **CLOSED** (this commit — details below) |
 | P4 | Planner: query schema/domain semantics/decomposition, evidence sufficiency, bounded Deep, PresentationPlan router | **CLOSED** (this commit — details below) |
-| P5 | UI: citations + U1–U13 + full universal rich-results registry (`components/web-results/`, no gradients) | pending |
+| P5 | UI: citations + U1–U13 + full universal rich-results registry (`components/web-results/`, no gradients) | **CLOSED** (this commit — details below) |
 | P7 | Deterministic proof suite + before/after benchmarks + ONE final locked Playwright loop + final report | pending |
 
 ---
@@ -324,21 +324,77 @@ src/). No Playwright (final locked P7 loop only).
 
 ---
 
-## Next-up contract reminders (carried into P5)
-- P5 consumes the P4 outputs: `PresentationPlan` rides the EvidenceBundle → drive
-  `components/web-results/` from it (addendum §55/§56: structured source routing — YouTube→video,
-  geocoded→map, weather→weather, sports→sports, news cluster→grid; never flatten to prose then rebuild
-  client-side). ONE primary surface by default (§53 no-spam).
-- ONE versioned `RichResult` Zod envelope (+ Rust serde mirrors, unknown kinds → generic card); validated
-  RichAction bridge; per-field provenance — community/user-generated labels feed from
-  `sourceAuthorityTier` (P4 exports); one broken widget never destroys the response (§59).
-- FenceRouter UNTOUCHED; rich system lives in NEW parallel `components/web-results/`; do NOT regress
-  existing artifact blocks (ChartBlock, WidgetBlock, MarkdownTable, Mermaid, Code, HTML, Resume/Docx/Xlsx/
-  Pptx, PowerBi, 3D viewers — addendum §66). Heavy surfaces via `next/dynamic` ssr:false.
-- HARD VISUAL LAW: no AI-slop aesthetic, NO gradients in the new system (§76 style regression tests land
-  in P7), motion 120–200ms, prefers-reduced-motion honored.
-- Streaming stays additive: `web:surface_discovered/ready/updated` are NEW StageEvent kinds on top of
-  ruke_stage/web:*/web_meta (P2's tool loop remains the ONLY streaming path; evidence block stays 8
-  bullets — any bullet edit ⇒ byte-identical mirror + re-record in the same commit).
-- P7 warning (still live): rust-golden web fixtures carry live-browser-tier bytes (P3 finding) — suspect
-  upstream content first for unexplained drift; never weaken assertions.
+## P5 — Transport + producer + universal rich-results UI (CLOSED 2026-11-02, TS ⇄ Rust in one commit)
+
+**Implementation (transport, TS ⇄ Rust):**
+- StageEvent extended (declaration-key-order law): `presentation?`, `richResults?`, `surfaceId?`,
+  `surfaceKind?`, `surfaceRevision?` (lib/types.ts ⇔ stages.rs; manifest regenerated via
+  `contracts:check` byte gate). `richResults` is `Vec<Value>`/`unknown[]` passthrough — envelope shape is
+  pinned by the producer, not the stage schema; unknown wire keys stay omitted via skip-none.
+- ALL FOUR emission sites updated: TS route.ts progress path (condition widened: citations OR surfaces;
+  `web_meta` carries presentation+richResults; per-surface `web:surface_discovered` then
+  `web:surface_ready` rev 1), TS web-tool-loop.ts merged-map re-emit (OVERWRITE law; the loop mints NO
+  surfaces — `web:surface_updated` is reserved), Rust chat/pipeline.rs widened block + frame loop +
+  PipelineOutcome carries presentation/rich_results, Rust web_loop.rs re-emit parity.
+- `hooks/useChat.ts` web_meta handler RE-RUNS `sanitizeRichResult` client-side (defense-in-depth §60)
+  before storing on the message.
+- Known documented limitation: the legacy non-stream path (`X-Web-Citations`/`X-Search-Gate` headers)
+  does not carry richResults — streaming is the P2+ path.
+
+**Implementation (producer + protocol, TS ⇄ Rust):**
+- NEW `lib/web-search/rich-results.ts` ⇔ `ruke-websearch/src/rich_results.rs`: the ONE universal
+  `RichResult` envelope (§2, EXACTLY 29 kinds; Zod `.strict()` ⇔ serde + explicit validate fn),
+  `sanitizeRichResult` walker (64 KB payload cap, 8-depth/4000-node ceiling, `isSafeHttpUrl` —
+  http(s)-only/no-creds/no-localhost/no-IPv6-literal/no-onion/≤2048, URLISH-key drop law, EMBED_HOSTS
+  allowlist (youtube-nocookie + openstreetmap), `__proto__`/`constructor`/`prototype` strip, coord pair
+  law re-emitting lat/lng LAST, action union validation ≤12 actions else whole-envelope drop,
+  unknown kind → generic card BEFORE version check), `deriveRichResults` (plan-null ⇒ []; video via
+  YouTube-id extraction, map from validated GeoPoints only (§11), news cluster by journalism domains,
+  entity from Wikipedia packet; §53 — a weather plan on non-weather evidence yields NOTHING, the model
+  never fabricates a widget §3). GeoPoint provider plumbing in pipeline.ts ⇔ pipeline.rs maps hop
+  (P5 pins; clippy-clean `if let (Some(lat), Some(lng))`).
+- Byte parity is pinned in BOTH languages: identical exact-JSON-string assertions (video/map/news/entity
+  envelopes, sanitizer drop vectors, action tokens with integral-float ⇔ `js_number_ser` `75.0`→`75`).
+
+**Implementation (UI platform — `components/web-results/`, 16 files, NEW parallel system; FenceRouter
+UNTOUCHED):** RichResultRenderer (primary-surface law §54, secondary chips, overlay hosts, ctx provider,
+lazy style import) + RichResultRegistry (all 29 kinds → generic fallback) + RichResultFrame/Actions/
+ErrorBoundary (§59 one broken widget never kills the response — "Couldn’t load interactive view." +
+Open source) + primitives (Card/Carousel/Grid/Gallery/Table/Chart-svg/Map-placeholder/Media/Timeline/
+Metric/Skeleton-pulse-no-gradient/Error) + surfaces (CitationPill/Preview preserving the existing DOM
+contract, SourcesPanel domain-grouped U5, media incl. §7 YouTube nocookie-only-on-play, §9 native-video
+dispatch fix (a videoId/YouTube-host payload routes to YouTubeResult — caught by the new suite), geo
+map-placeholder-until-visible + OSM attribution, info, commerce, data incl. flashcards/quiz/simulation/
+app with NO script injection) + ResultOverlays (§52 Esc/Tab-trap/focus-restore, §6 lightbox credit).
+`styles/web-results.css` (tokens only, ZERO gradients §45/§76, 160 ms fades, prefers-reduced-motion).
+Wiring: ChatMessage `RichResultsBlock` + `SourcesFooter`; MarkdownRenderer citation pill via
+CitationPill; citations.ts export. `vitest.config.ts`: test-only `esbuild.jsx:"automatic"`.
+
+**Verification (real runs, exit 0):** `npx tsc --noEmit` clean; `npm run contracts:check` OK;
+`npx vitest run __tests__/web-search __tests__/chat` → **269/269** (NEW `rich-results.test.ts` **41**:
+§74 surface renderers via renderToString, §75 reject matrix, §76 gradient/neon scans of
+styles/web-results.css + every web-results source (comment-stripped), §77 a11y contracts, §53/§54/§59
+laws, both-language byte pins); golden corpus re-recorded for the documented live-content drift
+(P3/P7 hazard materialized: upstream content shifted the passage corpus, BM25 11.01→11.40; web_meta
+bytes UNCHANGED — fixtures legitimately omit presentation/richResults, skip-none) then
+`npx vitest run __tests__/rust-golden --no-file-parallelism` → **54/54**; `cargo test -p ruke-websearch
+-p ruke-contracts -p ruke-server` → ALL GREEN (websearch 368 lib + 5, contracts 9+6 incl. manifest_drift
+P5 optionals, server 109+6+1+19+2+6); clippy back to the EXACT locked 7-warning baseline (the 2 new
+unwrap hits drawn by P5 pipeline.rs were fixed at source); fmt crate-scoped with the known out-of-set
+revert list. No Playwright (final locked P7 loop only — §79 scenarios ride it).
+
+---
+
+## Next-up contract reminders (carried into P7)
+- §74–§77 deterministic proofs are ALREADY GREEN via `rich-results.test.ts` (41); P7 adds the §103
+  earlier-phase reruns + BEFORE/AFTER benchmarks (§11.26; BEFORE baseline = build **7f3b957**).
+- The ONE final locked Playwright loop: lock `.ai-coordination/playwright.lock` (create before, clear in
+  `finally`), foreground, one spec per call, NOTHING else until it fully terminates; real command from
+  package.json/Playwright config (NO `test:e2e` script); §79 rich-UI scenarios use fixture-driven
+  surfaces — unavailable third-party endpoints are documented environmental limits, never assertion
+  weakening.
+- Golden drift protocol: suspect live upstream content first (P3 finding CONFIRMED live this cycle);
+  re-record = `rm` fixture + rerun (writeJsonFixture refuses edits); never weaken assertions.
+- Final deliverable: `documents/WEB-SEARCH-P1-P7-FINAL-REPORT.md` (branch+HEAD, per-phase implementation,
+  REAL test counts, before/after benchmarks, Playwright commands + real exit codes, gate audit incl.
+  soft-ranking policy compliance). Then the shutdown step — CONFIRM with the user first.

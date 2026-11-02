@@ -46,6 +46,8 @@ import {
   type PlannerLaw,
   type SufficiencyReport,
 } from "./planner-law";
+import { derivePresentation, type PresentationPlan } from "./presentation";
+import { deriveRichResults, type GeoPoint, type RichResult } from "./rich-results";
 import { fetchPage } from "./net";
 import {
   extractAll,
@@ -220,6 +222,27 @@ export interface EvidenceBundle {
   gapDemand: GapDemand | null;
   /** True when the P4 deep-research demand wave fired. */
   demandWaveFired: boolean;
+  /**
+   * P5 §55 presentation router (§55–§56 addendum): the ONE primary surface
+   * the rich-result producer builds, or null for plain text (§53 no-spam).
+   * Computed deterministically by derivePresentation() at bundle assembly —
+   * never an extra LLM call. Key order ⇔ pipeline.rs EvidenceBundle.
+   */
+  presentation: PresentationPlan | null;
+  /**
+   * P5 §11/§56 validated geo evidence gathered by the Maps companion hop:
+   * coordinates come ONLY from validated provider data, never prose.
+   * Empty when the hop decoded no lat/lng. Key order ⇔ pipeline.rs
+   * EvidenceBundle `geo_points`.
+   */
+  geoPoints: GeoPoint[];
+  /**
+   * P5 rich-result surfaces (addendum §2/§3): derived deterministically
+   * from this bundle by deriveRichResults() — protocol-validated,
+   * server-produced, NEVER model-authored. Rides web_meta as
+   * `richResults`. ⇔ rich_results (rich_results.rs).
+   */
+  richResults: RichResult[];
   /**
    * URLs whose every extraction tier hit a login wall (LinkedIn 999,
    * X/Instagram auth walls, Workday challenge). Their SERP baselines are
@@ -428,13 +451,32 @@ export async function runWebResearch(
   // @lat,lng are decoded (Nominatim reverse-geocodes bare coordinates), the
   // decode becomes an evidence packet, and the decoded place gets a
   // companion metasearch query so the SERP corroborates it.
+  // §55 presentation signal: true iff the hop decoded coordinates — the
+  // ONLY sanctioned geo evidence (validated provider data, never prose).
+  let geoEvidence = false;
+  const geoPoints: GeoPoint[] = [];
   for (const u of promptUrls) {
     if (ceilingHit()) break;
     if (!isGoogleMapsUrl(u)) continue;
     try {
       const ev = await getGoogleMapsEvidence(u);
       if (!ev) continue;
-      promptPackets.push(mapsEvidencePacket(ev));
+      const mp = mapsEvidencePacket(ev);
+      promptPackets.push(mp);
+      if (ev.lat != null && ev.lng != null) {
+        geoEvidence = true;
+        // P5 §11 law: these are the chat-visible map pins — provider data
+        // only; the map surface renders exclusively from this list.
+        geoPoints.push({
+          id: `pin${geoPoints.length + 1}`,
+          lat: ev.lat,
+          lng: ev.lng,
+          ...(ev.place ? { label: ev.place } : {}),
+          ...(ev.address ? { address: ev.address } : {}),
+          ...(ev.resolvedUrl ? { url: ev.resolvedUrl } : {}),
+          sourceRef: mp.sourceId,
+        });
+      }
       const cq = mapsCompanionQuery(ev);
       if (cq && !plans.some((p) => p.query === cq)) {
         plans.push({
@@ -724,6 +766,20 @@ export async function runWebResearch(
   // already built above). Those packets still go through rerank/coverage.
   if (searchResults.length === 0 && promptPackets.length === 0) {
     onProgress?.({ stage: "done", detail: "No search results returned" });
+    const presentation = derivePresentation(
+      ctx.userPrompt,
+      plannerLaw,
+      gate.decision.queries,
+      searchResults,
+      promptPackets,
+      geoEvidence,
+    );
+    const richResults = deriveRichResults({
+      plan: presentation,
+      results: searchResults,
+      packets: promptPackets,
+      geoPoints,
+    });
     return {
       searchGate: gate,
       searchResults: [],
@@ -736,6 +792,9 @@ export async function runWebResearch(
       sufficiency: null,
       gapDemand: null,
       demandWaveFired: false,
+      presentation,
+      geoPoints,
+      richResults,
       authRequired: [],
     };
   }
@@ -1027,6 +1086,20 @@ export async function runWebResearch(
     coverage: coverage.coverage,
   });
 
+  const presentation = derivePresentation(
+    ctx.userPrompt,
+    plannerLaw,
+    gate.decision.queries,
+    searchResults,
+    packets,
+    geoEvidence,
+  );
+  const richResults = deriveRichResults({
+    plan: presentation,
+    results: searchResults,
+    packets,
+    geoPoints,
+  });
   return {
     searchGate: gate,
     searchResults,
@@ -1039,6 +1112,9 @@ export async function runWebResearch(
     sufficiency,
     gapDemand,
     demandWaveFired,
+    presentation,
+    geoPoints,
+    richResults,
     authRequired: loginWalls.map((p) => ({ url: p.url, domain: p.domain, title: p.title })),
   };
 }

@@ -26,6 +26,7 @@ import {
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
 import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
+import { sanitizeRichResult, type RichResult } from "../lib/web-search/rich-results";
 import {
   computeBaselines,
   TurnProgressTracker,
@@ -416,11 +417,30 @@ export function useChat({
       if (ev.stage.stage === "web_meta") {
         const id = assistantIdRef.current;
         const gateMeta = ev.stage.searchGate ?? ev.stage.researchLfm;
-        if (id && (ev.stage.webCitations || gateMeta)) {
+        // P5 rich-results transport: the frame carries the PresentationPlan
+        // and the full validated surface set (OVERWRITE law — every re-emit
+        // ships the FULL set, never a delta). The frame also fires with a
+        // surfaces-only payload (no citation packets, e.g. news items from
+        // ranked results alone), so the store condition covers all four
+        // payloads. Defense in depth (§60): the client re-runs the canonical
+        // sanitizer on every envelope even though the server already
+        // sanitized — tamper/old-server drift drops a surface gracefully,
+        // never the response (one broken widget law, §59).
+        const rawSurfaces: unknown[] | null = Array.isArray(ev.stage.richResults)
+          ? (ev.stage.richResults as unknown[])
+          : null;
+        const surfaces: RichResult[] | null = rawSurfaces
+          ? rawSurfaces
+              .map(sanitizeRichResult)
+              .filter((r): r is RichResult => r !== null)
+          : null;
+        if (id && (ev.stage.webCitations || gateMeta || surfaces || ev.stage.presentation)) {
           setMessages(prev => prev.map(m => m.id === id ? {
             ...m,
             ...(ev.stage.webCitations ? { webCitations: ev.stage.webCitations } : {}),
             ...(gateMeta ? { searchGate: gateMeta } : {}),
+            ...(ev.stage.presentation ? { presentation: ev.stage.presentation } : {}),
+            ...(surfaces && surfaces.length > 0 ? { richResults: surfaces } : {}),
           } : m));
         }
       }

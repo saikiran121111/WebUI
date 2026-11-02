@@ -9,12 +9,14 @@
  * §53 no-spam law — "Who invented the telephone?" gets an answer, not a
  * card).
  *
- * P4 scope: this module is INERT (no call sites yet). P5 consumes it via
- * the additive `web:surface_*` stage events and builds the RichResult
- * envelope from the chosen primary. Rust mirror: presentation.rs — the
+ * P5 WIRING: the pipeline calls derivePresentation() at bundle assembly and
+ * stores the plan on EvidenceBundle.presentation; the rich-result producer
+ * builds the envelope from the chosen primary and streams it via the
+ * additive `web:surface_*` stage events. Rust mirror: presentation.rs — the
  * ladder order, vocabulary, and reason strings are byte-parity tested.
  */
-import { domainWithin } from "./planner-law";
+import { domainWithin, type PlannerLaw } from "./planner-law";
+import type { EvidencePacket, RankedResult, SearchDecision } from "./types";
 
 /** Verbatim §55 contract. */
 export interface PresentationPlan {
@@ -118,4 +120,41 @@ export function planPresentation(input: PresentationInput): PresentationPlan | n
 
   // §53: no rich signal → plain text. Never decorate a plain answer.
   return null;
+}
+
+/** YouTube domain law — structured hop domains and short links alike. */
+const YOUTUBE_DOMAINS = ["youtube.com", "youtu.be"];
+
+/**
+ * P5 WIRING — computes the §55 signals from pipeline state and runs the
+ * router. `hasGeoEvidence` is passed in because coordinates exist ONLY
+ * while the Maps companion hop decodes them (§11 law: coordinates come
+ * from validated provider data, never inferred from prose). Domain law:
+ * ranked results first, then packets, first-seen wins, empties skipped,
+ * capped at 5. ⇔ presentation.rs derive_presentation (same vectors).
+ */
+export function derivePresentation(
+  userPrompt: string,
+  plannerLaw: PlannerLaw,
+  gateQueries: SearchDecision["queries"],
+  searchResults: RankedResult[],
+  packets: EvidencePacket[],
+  hasGeoEvidence: boolean,
+): PresentationPlan | null {
+  const seen = new Set<string>();
+  const topDomains: string[] = [];
+  for (const d of [...searchResults.map((r) => r.domain), ...packets.map((p) => p.domain)]) {
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    topDomains.push(d);
+    if (topDomains.length === 5) break;
+  }
+  return planPresentation({
+    userPrompt,
+    location: plannerLaw.location,
+    hasGeoEvidence,
+    hasYouTubeVideo: packets.some((p) => YOUTUBE_DOMAINS.some((y) => domainWithin(p.domain, y))),
+    intents: gateQueries.map((q) => q.intent.toLowerCase()),
+    topDomains,
+  });
 }

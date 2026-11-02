@@ -184,6 +184,12 @@ pub async fn run_web_tool_loop(
     depth: Depth,
     mut merged: CitationMap,
     search_gate: Option<ResearchMeta>,
+    // P5 (§57 ⇔ TS WebToolLoopOptions.presentation/richResults): the turn's
+    // plan + validated surfaces, re-carried verbatim on every updated
+    // web_meta frame so the OVERWRITE law never drops them. The loop mints
+    // no new surfaces — no `web:surface_*` frames here (parity with TS).
+    presentation: Option<Value>,
+    rich_results: Vec<Value>,
     question: &str,
     span: &Span,
     token: &CancellationToken,
@@ -372,6 +378,13 @@ pub async fn run_web_tool_loop(
                 let mut ev = StageEvent::new("web_meta");
                 ev.web_citations = Some(merged.clone());
                 ev.search_gate = search_gate.clone();
+                // P5: the OVERWRITE law demands the FULL set each time —
+                // plan and surfaces ride along (empty set serializes absent
+                // ⇔ the TS length>0 gate).
+                ev.presentation = presentation.clone();
+                if !rich_results.is_empty() {
+                    ev.rich_results = Some(rich_results.clone());
+                }
                 ch.stage(&ev).await;
             }
             // Next round re-serializes `payload` with the extended

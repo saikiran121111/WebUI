@@ -160,8 +160,10 @@ use crate::planner_law::{
     evaluate_sufficiency, GapDemand, PlannerLaw, SufficiencyReport,
 };
 use crate::platform_api::Verticals;
+use crate::presentation::{derive_presentation, PresentationPlan};
 use crate::query_planner::{evaluate_coverage, plan_queries, run_gap_metasearch};
 use crate::reranker::{apply_segment_filter, rerank};
+use crate::rich_results::{derive_rich_results, GeoPoint, RichResult, RichResultSource};
 use crate::search_gate::{run_search_gate, SearchGateOptions};
 use crate::types::{
     engine_rank_value, retrieval_mode_for_freshness, to_value, Depth, EvidencePacket,
@@ -452,6 +454,16 @@ pub struct EvidenceBundle {
     pub sufficiency: Option<SufficiencyReport>,
     pub gap_demand: Option<GapDemand>,
     pub demand_wave_fired: bool,
+    // P5 (§55–§56): presentation router output for the rich-result
+    // producer; key order ⇔ TS EvidenceBundle (still between
+    // demandWaveFired and authRequired on BOTH sides).
+    pub presentation: Option<PresentationPlan>,
+    // P5 (Addendum §11/§56): validated geo points from the Google Maps hop
+    // (the ONLY sanctioned coordinate source) + the protocol-validated rich
+    // results produced from this bundle's evidence. Key order ⇔ TS
+    // EvidenceBundle (presentation → geoPoints → richResults → authRequired).
+    pub geo_points: Vec<GeoPoint>,
+    pub rich_results: Vec<RichResult>,
     pub auth_required: Vec<AuthRequiredEntry>,
 }
 
@@ -814,6 +826,14 @@ pub async fn run_web_research(
     }
 
     // 4) prompt-URL Google Maps hop.
+    // §55 presentation signal: true iff the hop decoded coordinates —
+    // the ONLY sanctioned geo evidence (validated provider data, never
+    // prose inference). ⇔ TS pipeline.ts geoEvidence.
+    let mut geo_evidence = false;
+    // P5 (Addendum §11/§12): validated map pins harvested from the hop —
+    // coordinates ONLY ever come from this provider, never prose inference.
+    // ⇔ TS pipeline.ts geoPoints capture.
+    let mut geo_points: Vec<GeoPoint> = Vec::new();
     for d in &prompt_domains {
         if hit() {
             break;
@@ -825,7 +845,23 @@ pub async fn run_web_research(
         let Some(ev) = get_google_maps_evidence(net, u).await else {
             continue;
         };
-        prompt_packets.push(maps_evidence_packet(&ev));
+        let mp = maps_evidence_packet(&ev);
+        let maps_sid = mp.source_id.clone();
+        prompt_packets.push(mp);
+        if let (Some(lat), Some(lng)) = (ev.lat, ev.lng) {
+            geo_evidence = true;
+            // P5 §11/§12: hop coordinates become map pins (empty provider
+            // strings serialize as absent ⇔ TS spread-omit of "").
+            geo_points.push(GeoPoint {
+                id: format!("pin{}", geo_points.len() + 1),
+                lat,
+                lng,
+                label: (!ev.place.is_empty()).then(|| ev.place.clone()),
+                address: (!ev.address.is_empty()).then(|| ev.address.clone()),
+                url: (!ev.resolved_url.is_empty()).then(|| ev.resolved_url.clone()),
+                source_ref: Some(maps_sid),
+            });
+        }
         if let Some(cq) = maps_companion_query(&ev) {
             if !plans.iter().any(|p| p.query == cq) {
                 plans.push(SearchPlan {
@@ -1209,6 +1245,23 @@ pub async fn run_web_research(
             PipelineStage::Done,
             "No search results returned",
         ));
+        // §55: computed BEFORE the move-heavy bundle literal.
+        let presentation = derive_presentation(
+            &ctx.user_prompt,
+            &planner_law,
+            &gate.decision.queries,
+            &search_results,
+            &prompt_packets,
+            geo_evidence,
+        );
+        // P5 §56: surfaces ONLY from validated evidence — starved inputs are
+        // empty, so the derive honestly yields nothing. ⇔ TS starved site.
+        let rich_results = derive_rich_results(&RichResultSource {
+            plan: presentation.as_ref(),
+            results: &search_results,
+            packets: &prompt_packets,
+            geo_points: &geo_points,
+        });
         return Ok(Some(EvidenceBundle {
             search_gate: gate,
             search_results: Vec::new(),
@@ -1221,6 +1274,9 @@ pub async fn run_web_research(
             sufficiency: None,
             gap_demand: None,
             demand_wave_fired: false,
+            presentation,
+            geo_points,
+            rich_results,
             auth_required: Vec::new(),
         }));
     }
@@ -1651,6 +1707,23 @@ pub async fn run_web_research(
         coverage: Some(coverage.coverage),
         ..Default::default()
     });
+    // §55: computed BEFORE the move-heavy bundle literal (⇔ starved site).
+    let presentation = derive_presentation(
+        &ctx.user_prompt,
+        &planner_law,
+        &gate.decision.queries,
+        &search_results,
+        &packets,
+        geo_evidence,
+    );
+    // P5 §56: the validated surface set for this turn's evidence. ⇔ TS
+    // final return site.
+    let rich_results = derive_rich_results(&RichResultSource {
+        plan: presentation.as_ref(),
+        results: &search_results,
+        packets: &packets,
+        geo_points: &geo_points,
+    });
     Ok(Some(EvidenceBundle {
         search_gate: gate,
         search_results,
@@ -1663,6 +1736,9 @@ pub async fn run_web_research(
         sufficiency,
         gap_demand,
         demand_wave_fired,
+        presentation,
+        geo_points,
+        rich_results,
         auth_required: login_walls
             .iter()
             .map(|p| AuthRequiredEntry {
@@ -1746,6 +1822,9 @@ mod tests {
             sufficiency: None,
             gap_demand: None,
             demand_wave_fired: false,
+            presentation: None,
+            geo_points: vec![],
+            rich_results: vec![],
             auth_required: vec![],
         }
     }

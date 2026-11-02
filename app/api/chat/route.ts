@@ -23,6 +23,8 @@ import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/p
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { runWebToolLoop } from "../../../lib/chat/web-tool-loop";
 import type { WebToolDepth } from "../../../lib/web-search/tools";
+import type { PresentationPlan } from "../../../lib/web-search/presentation";
+import type { RichResult } from "../../../lib/web-search/rich-results";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
 import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { StageEvent } from "../../../lib/types";
@@ -449,7 +451,7 @@ async function runTurnPipeline(
      *  body in POST, already deleted there so it never reaches upstream). */
     turnTimezone?: string;
   },
-): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null }> {
+): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null; presentation: PresentationPlan | null; richResults: RichResult[] | null }> {
   const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
@@ -501,6 +503,10 @@ async function runTurnPipeline(
   let webCitationMap: Record<string, any> | null = null;
   let searchGateMeta: ResearchMeta | null = null;
   let webDepth: WebToolDepth | null = null;
+  // P5 (Addendum §55/§57): the turn's presentation plan + validated rich
+  // surfaces, derived deterministically from the evidence bundle.
+  let presentation: PresentationPlan | null = null;
+  let richResults: RichResult[] | null = null;
   const webResearchDisabled = gateDisabledByEnv();
   try {
     if (webResearchDisabled) {
@@ -574,6 +580,8 @@ async function runTurnPipeline(
       // P2: arm the model-facing web tool loop for this turn
       // (lib/chat/web-tool-loop.ts ⇔ Rust chat/web_loop.rs).
       webDepth = researchBundle.searchGate.decision.depth;
+      presentation = researchBundle.presentation ?? null;
+      richResults = researchBundle.richResults.length > 0 ? researchBundle.richResults : null;
       log.info(
         {
           passages: researchBundle.topPassages.length,
@@ -616,7 +624,7 @@ async function runTurnPipeline(
     "turn decision",
   );
 
-  return { webCitationMap, searchGateMeta, webDepth };
+  return { webCitationMap, searchGateMeta, webDepth, presentation, richResults };
 }
 
 export async function POST(req: NextRequest) {
@@ -780,14 +788,31 @@ export async function POST(req: NextRequest) {
                 model,
                 turnTimezone,
               });
-              if (meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) {
+              // P5 (§57): the frame also fires when the turn minted rich
+              // surfaces but no citation packets (e.g. news items from
+              // ranked results alone) — surfaces must still reach the UI.
+              const surfaces = meta.richResults ?? [];
+              if ((meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) || surfaces.length > 0) {
                 // Web metadata rides the stream now: response headers are
                 // written before start(), when the gate has not run yet.
                 ch.stage({
                   stage: "web_meta",
-                  webCitations: meta.webCitationMap as StageEvent["webCitations"],
+                  webCitations: (meta.webCitationMap ?? undefined) as StageEvent["webCitations"],
                   searchGate: meta.searchGateMeta ?? undefined,
+                  presentation: meta.presentation ?? undefined,
+                  richResults: surfaces.length > 0 ? surfaces : undefined,
                 });
+                // §58 per-surface lifecycle frames: the frame payload is
+                // ONLY id/kind/revision — the envelope itself rides once
+                // on web_meta, never repeated per frame. Surfaces derive
+                // server-side before any model byte, so discovered→ready
+                // arrive back-to-back; `web:surface_updated` remains the
+                // reserved path for mid-turn revisions (none minted yet —
+                // the P2 tool loop does not regenerate surfaces).
+                for (const rr of surfaces) {
+                  ch.stage({ stage: "web:surface_discovered", surfaceId: rr.id, surfaceKind: rr.kind, surfaceRevision: 1 });
+                  ch.stage({ stage: "web:surface_ready", surfaceId: rr.id, surfaceKind: rr.kind, surfaceRevision: 1 });
+                }
               }
 
               stripAttachmentRefs(payload.messages);
@@ -806,6 +831,8 @@ export async function POST(req: NextRequest) {
                   depth: meta.webDepth,
                   webCitationMap: meta.webCitationMap,
                   searchGateMeta: meta.searchGateMeta,
+                  presentation: meta.presentation,
+                  richResults: meta.richResults,
                   signal: inner.signal,
                   ch,
                 });

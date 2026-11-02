@@ -50,6 +50,10 @@ import {
   type WebToolDepth,
 } from "../web-search/tools";
 import type { StageEvent } from "../types";
+// P5 (Addendum §57): the turn's surface set re-carried on every updated
+// web_meta frame (OVERWRITE law — a later frame replaces the WHOLE set).
+import type { PresentationPlan } from "../web-search/presentation";
+import type { RichResult } from "../web-search/rich-results";
 
 const log = childLogger("chat/web-tool-loop");
 
@@ -250,6 +254,10 @@ export interface WebToolLoopOptions {
   webCitationMap: Record<string, any> | null;
   /** Gate summary re- carried on every updated web_meta frame. */
   searchGateMeta: StageEvent["searchGate"] | null;
+  /** P5 §57: the turn's plan + validated surfaces, re-carried verbatim on
+   *  every updated web_meta frame so the OVERWRITE law never drops them. */
+  presentation?: PresentationPlan | null;
+  richResults?: RichResult[] | null;
   signal?: AbortSignal;
   ch: WebProgressChannel;
 }
@@ -461,6 +469,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
           stage: "web_meta",
           webCitations: merged as StageEvent["webCitations"],
           searchGate: opts.searchGateMeta ?? undefined,
+          // P5: the OVERWRITE law demands the FULL set each time — plan and
+          // surfaces ride along; the loop itself mints no new surfaces.
+          presentation: opts.presentation ?? undefined,
+          richResults: opts.richResults && opts.richResults.length > 0 ? opts.richResults : undefined,
         });
       }
       // Next round re-serializes `payload` with the extended messages;

@@ -6,6 +6,8 @@ import { cn } from "../lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ProcessingStatus from "./ProcessingStatus";
 import { copyText } from "../lib/render/clipboard";
+import { RichResultsBlock } from "./web-results/RichResultRenderer";
+import { SourcesFooter } from "./web-results/SourcesPanel";
 import type { Message } from "../lib/types";
 
 // A user message pasted longer than this starts collapsed to a few lines —
@@ -94,6 +96,12 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
       : undefined),
     [message.webCitations],
   );
+
+  // P5 rich-results surfaces (§57–§59): validated on BOTH servers and again
+  // client-side in useChat; the surfaces render UNDER the prose answer —
+  // they never replace it (§54), and they render as soon as the surface
+  // frames arrive, even mid-stream.
+  const richSurfaces = message.richResults?.length ? message.richResults : undefined;
 
   // ── User message ──────────────────────────────────────────────────────
   if (isUser) {
@@ -267,6 +275,18 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
         </div>
       )}
 
+      {/* P5 rich-result surfaces (parallel to FenceRouter per §4 — artifacts
+          stay in markdown fences; retrieved web surfaces ride web_meta). */}
+      {richSurfaces && (
+        <div className="mt-3">
+          <RichResultsBlock
+            surfaces={richSurfaces}
+            citationMap={citationMap}
+            onFollowUp={onSend}
+          />
+        </div>
+      )}
+
       {/* Streaming cursor */}
       {state === "streaming" && content && (
         <span className="inline-block w-[2px] h-4 ml-0.5 bg-white/80 animate-pulse" />
@@ -290,6 +310,9 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
                   ? <><AlertCircle className="w-3 h-3 text-white/60" /><span className="text-white/60 text-xs">Failed</span></>
                   : <><Copy className="w-3 h-3" /><span className="text-xs">Copy</span></>}
             </button>
+          )}
+          {citationMap && (
+            <SourcesFooter citationMap={citationMap} content={content} />
           )}
         </div>
       )}

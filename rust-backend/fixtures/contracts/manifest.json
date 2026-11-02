@@ -261,6 +261,31 @@
         ]
       },
       {
+        "name": "presentation",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "richResults",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "surfaceId",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "surfaceKind",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "surfaceRevision",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
         "name": "researchLfm",
         "present": "optional-omit-when-absent",
         "nullable": false,

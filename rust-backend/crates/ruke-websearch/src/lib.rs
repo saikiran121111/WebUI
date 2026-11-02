@@ -65,3 +65,6 @@ pub mod tools;
 // (⇔ lib/web-search/planner-law.ts / presentation.ts)
 pub mod planner_law;
 pub mod presentation;
+
+// ── P5 rich-result protocol (⇔ lib/web-search/rich-results.ts)
+pub mod rich_results;

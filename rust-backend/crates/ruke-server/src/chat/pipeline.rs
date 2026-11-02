@@ -75,6 +75,13 @@ pub struct PipelineOutcome {
     /// P2: the depth the gate chose when it produced a bundle — drives the
     /// model-facing web tool loop (`chat/web_loop.rs` ⇔ TS web-tool-loop).
     pub web_depth: Option<Depth>,
+    /// P5 (Addendum §55/§57 ⇔ TS runTurnPipeline's `presentation`/
+    /// `richResults`): the turn's plan + validated surfaces as wire Values.
+    /// `rich_results` is only `Some` when NON-empty ⇔ the TS
+    /// `length > 0 ? rr : null` gate; `Value` passthrough mirrors the
+    /// StageEvent ledger (flat named-type references).
+    pub presentation: Option<Value>,
+    pub rich_results: Option<Vec<Value>>,
 }
 
 /// Mirror of `runTurnPipeline`'s Part-4-visible steps. `ch` is the progress
@@ -364,6 +371,22 @@ pub async fn run_turn_pipeline(
                 outcome.web_citations = Some(citation_map_from(&bundle));
                 outcome.search_gate = Some(research_meta(&bundle));
                 outcome.web_depth = Some(bundle.search_gate.decision.depth);
+                // P5 §55/§57: plan + validated surfaces travel as wire
+                // Values (flat named-type ledger ⇔ lib/types.ts StageEvent);
+                // empty surface set stays absent ⇔ the TS length>0 gate.
+                outcome.presentation = bundle
+                    .presentation
+                    .as_ref()
+                    .and_then(|p| serde_json::to_value(p).ok());
+                if !bundle.rich_results.is_empty() {
+                    outcome.rich_results = Some(
+                        bundle
+                            .rich_results
+                            .iter()
+                            .filter_map(|r| serde_json::to_value(r).ok())
+                            .collect(),
+                    );
+                }
                 tracing::info!(
                     parent: span,
                     passages = bundle.top_passages.len() as u64,
@@ -461,12 +484,52 @@ pub async fn pump_progress(
     // `searchGate: searchGateMeta ?? undefined` (skip-if-none matches).
     // With the corpus env (gate disabled) the outcome stays None-pair and
     // the recorded golden bytes carry no such frame, exactly as before.
-    if let Some(cits) = &outcome.web_citations {
-        if !cits.is_empty() {
-            let mut ev = StageEvent::new("web_meta");
-            ev.web_citations = Some(cits.clone());
-            ev.search_gate = outcome.search_gate.clone();
-            ch.stage(&ev).await;
+    // P5 (§57): the frame also fires when the turn minted rich surfaces
+    // but no citation packets (e.g. news items from ranked results alone) —
+    // surfaces must still reach the UI. webCitations parity ⇔ TS `??`:
+    // no-bundle (None) omits the key; a bundle with zero packets (Some(
+    // empty)) serializes `{}` exactly like TS's truthy empty object.
+    let surfaces: Vec<Value> = outcome.rich_results.clone().unwrap_or_default();
+    let has_citations = outcome
+        .web_citations
+        .as_ref()
+        .is_some_and(|c| !c.is_empty());
+    if has_citations || !surfaces.is_empty() {
+        let mut ev = StageEvent::new("web_meta");
+        ev.web_citations = outcome.web_citations.clone();
+        ev.search_gate = outcome.search_gate.clone();
+        ev.presentation = outcome.presentation.clone();
+        if !surfaces.is_empty() {
+            ev.rich_results = Some(surfaces.clone());
+        }
+        ch.stage(&ev).await;
+        // §58 per-surface lifecycle frames: the frame payload is ONLY
+        // id/kind/revision — the envelope itself rode once on web_meta,
+        // never repeated per frame. Surfaces derive server-side before any
+        // model byte, so discovered→ready arrive back-to-back;
+        // `web:surface_updated` is the reserved mid-turn revision path
+        // (none minted yet — the P2 tool loop does not regenerate).
+        for rr in &surfaces {
+            let sid = rr
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let kind = rr
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let mut d = StageEvent::new("web:surface_discovered");
+            d.surface_id = Some(sid.clone());
+            d.surface_kind = Some(kind.clone());
+            d.surface_revision = Some(1);
+            ch.stage(&d).await;
+            let mut r = StageEvent::new("web:surface_ready");
+            r.surface_id = Some(sid);
+            r.surface_kind = Some(kind);
+            r.surface_revision = Some(1);
+            ch.stage(&r).await;
         }
     }
 
@@ -510,6 +573,10 @@ pub async fn pump_progress(
             let depth = outcome.web_depth.expect("web_tools gate implies a depth");
             let merged = outcome.web_citations.take().unwrap_or_default();
             let gate = outcome.search_gate.take();
+            // P5 §57: the surface set continues through the loop's re-emits
+            // (OVERWRITE law — every updated web_meta carries the full set).
+            let presentation = outcome.presentation.take();
+            let rich_results = outcome.rich_results.take().unwrap_or_default();
             crate::chat::web_loop::run_web_tool_loop(
                 &state,
                 payload,
@@ -518,6 +585,8 @@ pub async fn pump_progress(
                 depth,
                 merged,
                 gate,
+                presentation,
+                rich_results,
                 &question,
                 &span,
                 &token,
@@ -683,6 +752,9 @@ mod tests {
             sufficiency: None,
             gap_demand: None,
             demand_wave_fired: false,
+            presentation: None,
+            geo_points: vec![],
+            rich_results: vec![],
             auth_required: vec![],
         }
     }
