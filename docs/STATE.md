@@ -2531,8 +2531,10 @@ Complete RUKE WEB SEARCH P1–P7 (P1–P7.3 closed, ad4f938→…→c7b8da4) AND
 12-issue task-scope audit fix (docs/task-scope-audit.md). Phase 1 (typed
 task-scope contract, corpus-pinned) = 681c89f. Phase 2 (scope enforced across
 planner/law/gate/pipeline/tools on BOTH engines + ruke-server threading +
-regression batteries) = ff265f6. Phases 3–6 pending, then the final locked
-Playwright fix-rerun loop, P7.5 report, §4 report, confirmed shutdown.
+regression batteries) = ff265f6. Phase 3 (scope-driven browser activation +
+destination discovery + research ordering, TS ⇔ Rust) = 5a83a67. Phases 4–6
+pending, then the final locked Playwright fix-rerun loop, P7.5 report, §4
+report, confirmed shutdown.
 
 ## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
 - P1–P7.3: see prior segments + documents/WEB-SEARCH-P1-P7-* docs. c7b8da4 = launcher teardown fix.
@@ -2552,6 +2554,18 @@ Playwright fix-rerun loop, P7.5 report, §4 report, confirmed shutdown.
   NEW __tests__/web-search/task-scope-planner.test.ts 7/7; web-tools scope admission 4 new;
   cargo ruke-websearch 386+5 (3 new admission tests: drop/resolve/read-block); ruke-server
   109 unit + 6/1/19/2/6 integration; tsc clean; contracts:check OK.
+- Phase 3 5a83a67 (verified green — vitest 1070/1skip, task-scope 56/56, tsc 0, contracts OK,
+  cargo websearch 389+5, ruke-server 109 + 6/1/19/2/6 unchanged ⇒ goldens byte-safe):
+  routing law = marker (EVERY send, identity; app/page.tsx getBrowserSession always returns
+  activeIdRef.current ?? "default") ∧ routes_to_browser_turn(scope) (intent==operate — new law
+  in BOTH contract files, closed matrix + ladder proof + the 3 EXACT acceptance-spec prompts
+  pinned in BOTH suites); pipeline: browser_marker param, gate SKIPPED for browser turns
+  (honest log), arms re-check ONE hoisted fold (marker+non-operate ⇒ research path, never
+  swallowed), handler legacy passes false; browser_loop: scope param, panel-open frame BEFORE
+  discovery (opening follows routing), bounded_destination_discovery (≤2 quoted-phrase
+  exec_web_search on throwaway Quick session, packets DISCARDED, admission-law resolution only,
+  honors WEB_SEARCH_GATE_DISABLED + token), scope_guidance law block appended to
+  BROWSER_GUIDANCE (resolved/unresolved/ambiguous/authorized-hosts/never-route-around).
 
 ## [8.3 GRAPHIFY DEPENDENCY MAP (current)]
 route.ts fold → runSearchPipeline(ctx.scope) → [gate rules_based_plan carries hosts;
@@ -2560,7 +2574,9 @@ apply_domain_control mandatory mode] → runWebToolLoop(opts.scope) → makeWebT
 → execWebSearchTool admission (+resolve) / execReadPageTool pre-fetch block.
 Rust ⇔: run_turn_pipeline fold → PipelineOutcome.turn_scope → run_web_tool_loop(scope) →
 make_web_tool_session → exec_web_search/exec_read_page admissions. browser_loop::run_tool_loop
-(ruke-server pipeline :572) NOT yet threaded — Phase 4 uses outcome.turn_scope.
+NOW receives the hoisted turn_scope (pipeline arms ⇒ run_tool_loop last param); discovery may
+only narrow it. Phase 4 threads that scope INTO the ruke-browser engine (task affinity +
+destination pre-gates) — the scope object is already at the loop boundary for that.
 
 ## [8.4 IMMUTABLE CODE CONTRACTS]
 - TaskScope wire camelCase {intent snake_case: none|research|site_info|operate|compare_sites,
@@ -2577,7 +2593,12 @@ make_web_tool_session → exec_web_search/exec_read_page admissions. browser_loo
   (task scope: …)" (reverse-walk order, take 3 + "(N more…)"), "read blocked: X is outside the
   task scope (…)" pre-fetch, unbilled.
 - SearchGateContext.scope Option<TaskScope> serde default/skip; PipelineStage::Scope ("scope").
-- Env: unchanged. No new deps (url-detector/psl already present).
+- Routing law (Phase 3, BOTH languages): routes_to_browser_turn/routesToBrowserTurn ⇔
+  intent==operate; browser tool loop ⇔ browser_session marker ∧ that predicate; panel
+  visibility NEVER an input. Marker present on every chat send (identity only); compaction/
+  fence-repair never carry it; legacy (stream:false) path always passes marker=false.
+- run_tool_loop(…, session_id, turn_id, scope: Option<TaskScope>) — scope travels to the loop;
+  discovery narrows only. Env: unchanged. No new deps (url-detector/psl already present).
 
 ## [8.5 PLAYWRIGHT / E2E STATE]
 Paused mid final locked loop (runs pw-02…pw-41; green through run 41 then STOPPED by user
@@ -2590,10 +2611,11 @@ Maps/LinkedIn/HN/SO/Greenhouse/Gov, web-search-10k ×4 ranges, affected browser 
 scope specs. NEVER weaken assertions (tests/universal-websites.spec.ts law).
 
 ## [8.6 OPEN BUGS / BLOCKERS]
-None blocking. Audit items 2,3 (Phase 3: panel-visibility routing + pipeline ordering),
-7,8 (Phase 4: ruke-browser task affinity + destination pre-gates), 9–11 (Phase 5: provenance
-separation, browserStore working-tab, omnibox PSL), 12 stays HONEST (502/503 preserved) —
-all TODO by design. Known limitations to report at P7.5: non-ASCII targets; "check my order
+None blocking. Audit items 2,3 CLOSED by 5a83a67 (routing conjunction + ordering law).
+Remaining TODO by design: 7,8 (Phase 4: ruke-browser task affinity + destination pre-gates
+BEFORE TabNew/NavigateTabUrl — authority.rs gate_for currently inspects the CURRENT tab URL),
+9–11 (Phase 5: provenance separation, browserStore working-tab, omnibox PSL), 12 stays HONEST
+(502/503 preserved). Known limitations to report at P7.5: non-ASCII targets; "check my order
 status" mislabels operate; unknowable destination post-check for JS-driven nav; read_page
 pre-fetch host check (redirect limitation).
 
@@ -2602,10 +2624,14 @@ No Tier-1/Tier-2 skill bodies loaded this session (ponytail+graphify behavior al
 CLAUDE.md; no Skill tool invocations). Playwright skills load ONLY at TEST phase.
 
 ## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
-1. Phase 3 (audit #2/#3): app/page.tsx getBrowserSession routing independent of panel visibility
-   (define open/closed/unavailable/non-streaming), pipeline ordering vs browser_loop at
-   ruke-server chat/pipeline.rs:572 (scope now available via outcome.turn_scope), keep 502/503.
-2. Re-green (vitest+tsc+contracts+cargo) then Phase-3 commit.
-3. Phase 4: contract.rs minimal TaskAffinity payload; browser_loop threads turn_scope;
-   authority.rs destination pre-gates BEFORE TabNew/NavigateTabUrl; executor.rs task-tab
-   selection + PSL nav guards; keep saved-permissions vs affinity SEPARATE.
+1. Phase 4 recon (audit #7/#8): read ruke-browser contract.rs command vocab + BrowserRuntime::
+   command path, authority.rs gate_for/apply_gate (source-URL bug), executor.rs TabNew/Navigate
+   TabUrl, session.rs turn bookkeeping — design the minimal TaskAffinity payload (PSL match,
+   no new deps; ruke-browser already has url+psl).
+2. Phase 4 impl: register the turn's scope at the engine boundary (begin_turn or command
+   envelope), destination pre-gates BEFORE TabNew/NavigateTabUrl/form submits/popup claims,
+   PSL exact-host/subdomain guard, saved-permissions vs affinity SEPARATE checks, narrow
+   per-hop auth/payment authorization (never blanket), preserve human control; deterministic
+   regression tests both sides.
+3. Re-green + Phase-4 commit, then Phase 5 (browser:working_tab session+turn-qualified,
+   browserStore human-pin, omnibox PSL→URL-else-search, metasearch provenance separation).
