@@ -1,0 +1,431 @@
+{
+  "_comment": [
+    "TASK-SCOPE PARITY CORPUS — 'the corpus is the contract'.",
+    "Consumed by BOTH: vitest __tests__/decision/task-scope.test.ts",
+    "(lib/decision/task-scope.ts) and ruke-websearch/src/task_scope.rs",
+    "(#[cfg(test)] include_str!). Expected values are exact-match: field",
+    "order, target order (span start ascending), and vocabulary.",
+    "Vocabulary law: derivation is deterministic — explicit URLs/domains",
+    "via the PSL detector, or bare names bound by operational/source",
+    "prepositions in the user's own words. NEVER a domain guess: no brand",
+    "tables, no TLD invention, no PascalCase brand heuristics.",
+    "Fixtures are ASCII-only (char-offset parity); non-ASCII targets are",
+    "a documented limitation.",
+    "Enums: intent = none|research|site_info|operate|compare_sites;",
+    "state = unresolved|resolved|ambiguous;",
+    "provenance = none|explicit_url|explicit_domain|resolved_search|resolved_cache|ambiguous."
+  ],
+  "cases": [
+    {
+      "name": "operate-lowercase-site",
+      "prompt": "Order milk on Zepto",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "operate-lowercase-blinkit",
+      "prompt": "buy milk on blinkit",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "operate-generic-verb-in",
+      "prompt": "do this in Blinkit",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "Blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "no-fabricated-site-what-com",
+      "prompt": "What is the price of kingfisher beer 650ml on the official site?",
+      "intent": "research",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "site-info-price-cue",
+      "prompt": "what's the price of milk on blinkit",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "compare-verb-two-names",
+      "prompt": "compare blinkit and zepto for milk prices",
+      "intent": "compare_sites",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" },
+        { "phrase": "zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "compare-vs-two-names",
+      "prompt": "blinkit vs zepto, which is cheaper for weekly groceries?",
+      "intent": "compare_sites",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" },
+        { "phrase": "zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "only-domain-explicit",
+      "prompt": "only use blinkit.com",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "blinkit.com", "state": "resolved", "host": "blinkit.com", "url": "https://blinkit.com", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "only-bare-name",
+      "prompt": "only order from Zepto",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "exclusion-no-target",
+      "prompt": "don't use reddit for this",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": ["reddit"],
+      "authorizedHosts": []
+    },
+    {
+      "name": "source-preference-bare-domain",
+      "prompt": "search for laptop deals on amazon.in",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "amazon.in", "state": "resolved", "host": "amazon.in", "url": "https://amazon.in", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "explicit-url-full",
+      "prompt": "https://www.zepto.com/brand/kingfisher price",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "https://www.zepto.com/brand/kingfisher", "state": "resolved", "host": "zepto.com", "url": "https://www.zepto.com/brand/kingfisher", "candidates": [], "provenance": "explicit_url" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "explicit-subdomain-host-registrable",
+      "prompt": "read the docs at docs.example.dev for setup",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "docs.example.dev", "state": "resolved", "host": "example.dev", "url": "https://docs.example.dev", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "geographic-np-no-verb-no-scope",
+      "prompt": "the weather in mumbai today",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "incidental-reported-speech",
+      "prompt": "I read on reddit that blinkit raised its fees, is that true?",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "multiword-name",
+      "prompt": "order groceries from big basket",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "big basket", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "multiword-restaurant",
+      "prompt": "book a table on tabia restaurant",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "tabia restaurant", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "and-continuation-verb-reject",
+      "prompt": "order from dmart and pay with phonepe",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "dmart", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "authorized-host-not-a-target",
+      "prompt": "you can use paytm.com to pay on the blinkit order",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": ["paytm.com"]
+    },
+    {
+      "name": "product-brand-not-a-target",
+      "prompt": "price of kingfisher beer 650ml at zepto",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "and-continuation-two-sites",
+      "prompt": "buy iphone 15 on amazon and flipkart",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "amazon", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" },
+        { "phrase": "flipkart", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "order-noun-makes-operate",
+      "prompt": "check my order status on blinkit",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "superlative-no-scope-no-brand-guess",
+      "prompt": "look for the cheapest laptop online",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "add-to-cart-operate",
+      "prompt": "how do I add milk to cart on blinkit",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "incidental-mention-platform-past-tense",
+      "prompt": "I saw a tweet about Flipkart on Twitter",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "compare-explicit-domains",
+      "prompt": "compare blinkit.com and zepto.com side by side",
+      "intent": "compare_sites",
+      "targets": [
+        { "phrase": "blinkit.com", "state": "resolved", "host": "blinkit.com", "url": "https://blinkit.com", "candidates": [], "provenance": "explicit_domain" },
+        { "phrase": "zepto.com", "state": "resolved", "host": "zepto.com", "url": "https://zepto.com", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "without-exclusion-plus-target",
+      "prompt": "without using swiggy, order groceries on blinkit",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": ["swiggy"],
+      "authorizedHosts": []
+    },
+    {
+      "name": "watch-on-netflix-site-info",
+      "prompt": "what are some good movies to watch on netflix?",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "netflix", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "research-soft-topic-only",
+      "prompt": "research zepto's business model",
+      "intent": "research",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "trailing-app-token-stripped",
+      "prompt": "buy Milk on Blinkit App",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "Blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "explicit-url-shortlink-host",
+      "prompt": "open https://forms.gle/abc123 and fill it",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "https://forms.gle/abc123", "state": "resolved", "host": "forms.gle", "url": "https://forms.gle/abc123", "candidates": [], "provenance": "explicit_url" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "tool-brand-mention-not-scope",
+      "prompt": "translate this page from google translate",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    }
+  ],
+  "resolutions": [
+    {
+      "name": "equality-beats-containment",
+      "phrase": "blinkit",
+      "max": 8,
+      "candidates": ["https://blinkit.com/prn/sku/160", "https://blinkitpricing.info/app", "https://instacart.com"],
+      "expect": { "phrase": "blinkit", "state": "resolved", "host": "blinkit.com", "url": "", "candidates": [], "provenance": "resolved_search" }
+    },
+    {
+      "name": "three-equal-hosts-ambiguous",
+      "phrase": "kingfisher",
+      "max": 8,
+      "candidates": ["https://kingfisher.com/x", "https://kingfisher.beer/y", "https://kingfisher.co.uk/z"],
+      "expect": { "phrase": "kingfisher", "state": "ambiguous", "host": "", "url": "", "candidates": ["kingfisher.beer", "kingfisher.co.uk", "kingfisher.com"], "provenance": "ambiguous" }
+    },
+    {
+      "name": "multiword-normalized-equality",
+      "phrase": "big basket",
+      "max": 8,
+      "candidates": ["https://bigbasket.com/in"],
+      "expect": { "phrase": "big basket", "state": "resolved", "host": "bigbasket.com", "url": "", "candidates": [], "provenance": "resolved_search" }
+    },
+    {
+      "name": "label-prefix-of-phrase",
+      "phrase": "tabia restaurant",
+      "max": 8,
+      "candidates": ["https://tabia.com/menu", "https://unrelated.org"],
+      "expect": { "phrase": "tabia restaurant", "state": "resolved", "host": "tabia.com", "url": "", "candidates": [], "provenance": "resolved_search" }
+    },
+    {
+      "name": "equality-first-ranked-wins",
+      "phrase": "zepto",
+      "max": 8,
+      "candidates": ["https://zepto.com", "https://zeptocares.com"],
+      "expect": { "phrase": "zepto", "state": "resolved", "host": "zepto.com", "url": "", "candidates": [], "provenance": "resolved_search" }
+    },
+    {
+      "name": "label-prefix-single-match",
+      "phrase": "acme foods",
+      "max": 8,
+      "candidates": ["https://acme.io", "https://example.com"],
+      "expect": { "phrase": "acme foods", "state": "resolved", "host": "acme.io", "url": "", "candidates": [], "provenance": "resolved_search" }
+    },
+    {
+      "name": "no-match-stays-unresolved",
+      "phrase": "milkman",
+      "max": 8,
+      "candidates": ["https://dmart.com", "https://jio.com"],
+      "expect": { "phrase": "milkman", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+    },
+    {
+      "name": "geographic-first-equality-in-rank-order",
+      "phrase": "mumbai",
+      "max": 8,
+      "candidates": ["https://mumbai.in", "https://mumbaimirror.com", "https://mumbaipolicetraffic.in"],
+      "expect": { "phrase": "mumbai", "state": "resolved", "host": "mumbai.in", "url": "", "candidates": [], "provenance": "resolved_search" }
+    }
+  ],
+  "merges": [
+    {
+      "name": "followup-inherits-previous-scope",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "now find the price",
+      "expect": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
+    },
+    {
+      "name": "target-change-replaces-scope",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "now do the same on blinkit",
+      "expect": {
+        "intent": "operate",
+        "targets": [{ "phrase": "blinkit", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
+    },
+    {
+      "name": "unrelated-research-drops-scope",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "what is the capital of France",
+      "expect": { "intent": "research", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
+    }
+  ]
+}

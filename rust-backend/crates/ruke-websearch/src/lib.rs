@@ -68,3 +68,7 @@ pub mod presentation;
 
 // ── P5 rich-result protocol (⇔ lib/web-search/rich-results.ts)
 pub mod rich_results;
+
+// ── P8 task-scope contract (⇔ lib/decision/task-scope.ts; parity corpus
+//    rust-backend/fixtures/task-scope/cases.json — "the corpus is the contract")
+pub mod task_scope;
