@@ -14,6 +14,13 @@
  *     semantic-scholar/IMDb — all return [] deterministically).
  *   - @/lib/web-search/engines: the general-web SERP pool is scripted;
  *     deduplicateQueries / engineCooldownRemainingMs stay REAL.
+ *   - @/lib/web-search/agentBrowser: the extractor's stealth-Chromium
+ *     browser tier is scripted (P7 hermeticity fix 2026-11-02). Before it,
+ *     SERP URL #5 (old.reddit.com — a REAL live domain with no Tier-1 page)
+ *     escalated to a LIVE Chromium session every run, and the live site's
+ *     oscillating state (login-wall ARIA snapshot vs. Chromium error page)
+ *     silently re-pinned the golden bytes — the "long-standing environmental
+ *     flake" the old 30000ms timeout comment documented.
  *
  * CONTRACT DISCOVERIES pinned here (recorded, NOT fixed — §8):
  *   - runVisionEntityPrepass (lib/web-search/vision-prepass.ts) has ZERO call
@@ -108,9 +115,57 @@ const PAGES: Record<string, { status: number; body: string }> = {
     status: 200,
     body: "<html><head><title>Roadmap thread</title></head><body><article><h1>Roadmap thread</h1><p>Community megathread on the Project Nimbus roadmap 2026. Maintainers confirmed sync engine in March 2026 and offline mode in Q2 2026; nothing is committed beyond 2026.</p></article></body></html>",
   },
-  // No entry for /old-announcement => fetchPage returns null => the packet
-  // keeps its SERP-snippet baseline passage but classifies FAIL_NETWORK_OR_CRASH.
+  // No Tier-1 entry for /old-announcement (SERP URL #4) => fetchPage status 0;
+  // the scripted browser tier below misses it too, and the Jina/wayback tail
+  // runs through the net mock (fetchPage/fetchUrl scripted misses), so the
+  // packet keeps its SERP-snippet baseline passage but classifies
+  // FAIL_NETWORK_OR_CRASH.
 };
+
+// Scripted stealth-Chromium renders (the extractor's browser tier,
+// lib/web-search/agentBrowser.ts — see the header seams list). SERP URL #5
+// is the only render: it has no Tier-1 page and the cascade ALWAYS escalates
+// a blocked/empty Tier 1 to the browser tier, so this scripted thread body
+// pins its SUCCESS_BROWSER bytes forever instead of depending on
+// old.reddit.com's live state. Hand-written community-thread prose consistent
+// with the scripted SERP snippet and the roadmap fiction.
+const RENDERED: Record<string, {
+  url: string; finalUrl: string; title: string; status: number | null; bodyText: string;
+  ariaSnapshot: string; jsonLd: unknown[]; meta: Record<string, string>; windowState: Record<string, string>; ok: boolean;
+}> = {
+  "https://old.reddit.com/r/projectnimbus/comments/golden1": {
+    url: "https://old.reddit.com/r/projectnimbus/comments/golden1",
+    finalUrl: "https://old.reddit.com/r/projectnimbus/comments/golden1",
+    title: "Project Nimbus discussion",
+    status: 200,
+    bodyText:
+      "Anyone following the latest Project Nimbus roadmap news? The maintainers published the 2026 roadmap: the sync engine ships in March 2026, offline mode lands in Q2 2026, and a public beta of the Nimbus API gateway opens in July 2026. Top comment: nothing is committed beyond 2026, and the mobile clients close out Q4 2026.",
+    ariaSnapshot: "",
+    jsonLd: [],
+    meta: {},
+    windowState: {},
+    ok: true,
+  },
+};
+
+vi.mock("@/lib/web-search/agentBrowser", () => ({
+  // The ONLY live-network seam left in the golden corpus lives here; every
+  // other extractor tier runs REAL against the scripted net/engines mocks.
+  // A miss below is deterministic: the cascade falls through to the
+  // already-scripted Jina/wayback tail and ends snippet-only. Returning
+  // null for a pool context keeps media-captions (NOT on this chain) loudly
+  // failing should a future regression ever pull it into the goldens.
+  browserPoolDisabled: () => false,
+  acquirePoolContext: async () => null,
+  releasePoolContext: () => {},
+  closeBrowserPool: async () => {},
+  extractPageInOnePass: async (url: string) =>
+    RENDERED[url] ?? {
+      url, finalUrl: url, title: "", status: 0, bodyText: "", ariaSnapshot: "",
+      jsonLd: [], meta: {}, windowState: {}, ok: false,
+      error: "golden: browser tier scripted miss",
+    },
+}));
 
 vi.mock("@/lib/web-search/net", async () => {
   const { isSafeUrl } = await import("@/lib/web-search/ssrf");
@@ -141,7 +196,8 @@ vi.mock("@/lib/web-search/net", async () => {
 // Scripted general-web SERP consumed by metasearch through the engines mock.
 // Titles/snippets carry the prompt's core tokens so the lexical relevance
 // floor keeps them; engine names pin the RRF weights (1.2 general indexers,
-// 1.0 reddit). URL #4 deliberately has NO scripted page (snippet-only path).
+// 1.0 reddit). URL #4 deliberately has NO scripted page (snippet-only path);
+// URL #5 has no Tier-1 page but a scripted RENDERED entry (SUCCESS_BROWSER).
 const SERP: {
   title: string; url: string; snippet: string; engine: string; rank: number; publishedDate?: string;
 }[] = [
@@ -168,7 +224,7 @@ const ENV_PRE = {
   WEB_SEARCH_GATE_DISABLED: "unset",
   WEB_SEARCH_LFM_DISABLED: "unset",
   settings_llm_override: MOCK_LLM_URL,
-  web_mock_boundary: "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP)",
+  web_mock_boundary: "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP), agentBrowser(scripted browser tier: golden1 rendered, every other URL misses)",
 };
 
 function chatBody(text: unknown, stream: boolean | undefined): string {
@@ -233,11 +289,11 @@ describe("golden: web-search pipeline", () => {
     HARNESS.mode = "normal";
   });
 
-  // The extractor's browser tier runs LIVE stealth Chromium here, and the
-  // pipeline's progressive read batches (§11) read page 5 in a second wave
-  // after the first four. The 5000ms vitest default sat right on that live
-  // tier's cliff (long-standing environmental flake); 30000ms is a real-time
-  // budget only — every byte comparison still runs and still fails hangs.
+  // FULLY HERMETIC since the P7 browser-tier fix (2026-11-02): the old
+  // live-stealth-Chromium cliff (the documented long-standing flake) is gone
+  // — see the agentBrowser entry in the header seams list. The 30000ms is
+  // now only slow-machine headroom for the §11 progressive read batches;
+  // every byte comparison still runs and still fails hangs.
   it("01 search success — progress path (stages, evidence block, web_meta)", { timeout: 30000 }, async () => {
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/01-search-success-progress.json",
@@ -268,10 +324,12 @@ describe("golden: web-search pipeline", () => {
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       notes:
         "Mock boundary: cache always-miss; net scripted (fetchUrl=null kills local verticals); engines SERP " +
-        "scripted. Everything else (gate/planner/metasearch RRF+floor/extractor/BM25/coverage) runs REAL and " +
-        "deterministic. The 4th SERP result has no scripted page -> its packet keeps only the SERP-snippet " +
-        "baseline passage (FAIL_NETWORK_OR_CRASH classification) yet still gets cited. Vision pre-pass NEVER " +
-        "runs (runVisionEntityPrepass has zero call sites — dead module).",
+        "scripted, agentBrowser browser tier scripted. Everything else (gate/planner/metasearch " +
+        "RRF+floor/extractor/BM25/coverage) runs REAL and deterministic. The 4th SERP result has no Tier-1 " +
+        "page and misses the scripted browser tier + Jina/wayback tail -> its packet keeps only the " +
+        "SERP-snippet baseline passage (FAIL_NETWORK_OR_CRASH classification) yet still gets cited. The 5th " +
+        "SERP result (reddit URL) has no Tier-1 page but a scripted browser-tier render -> SUCCESS_BROWSER. " +
+        "Vision pre-pass NEVER runs (runVisionEntityPrepass has zero call sites — dead module).",
     });
     expect(run.status).toBe(200);
     const seq = stages(logical.frames);
@@ -335,7 +393,7 @@ describe("golden: web-search pipeline", () => {
     expect(tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
   });
 
-  // live browser tier — see note on test 01 for the timeout budget
+  // browser tier scripted (P7) — headroom budget, see note on test 01
   it("02 search success — legacy path headers (X-Web-Citations / X-Search-Gate)", { timeout: 30000 }, async () => {
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/02-search-success-legacy-headers.json",
@@ -420,7 +478,7 @@ describe("golden: web-search pipeline", () => {
     expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
   });
 
-  // live browser tier — see note on test 01 for the timeout budget
+  // browser tier scripted (P7) — headroom budget, see note on test 01
   it("05 image attachment — Stage-0 image-intent gate, vision pre-pass DEAD, parts passthrough", { timeout: 30000 }, async () => {
     const text = "who is this person";
     const imgUrl = "data:image/jpeg;base64,Z29sZGVuLWltYWdlLWJ5dGVz";

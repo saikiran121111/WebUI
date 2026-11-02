@@ -8,7 +8,7 @@
       "WEB_SEARCH_GATE_DISABLED": "unset",
       "WEB_SEARCH_LFM_DISABLED": "unset",
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions",
-      "web_mock_boundary": "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP)"
+      "web_mock_boundary": "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP), agentBrowser(scripted browser tier: golden1 rendered, every other URL misses)"
     },
     "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests)."
   },
