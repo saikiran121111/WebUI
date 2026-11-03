@@ -120,12 +120,9 @@ pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
             slot,
             Arc::new(UnconfiguredTitleModel),
         )),
-        web: Arc::new(ruke_server::WebRuntime {
-            net: ruke_websearch::net::RealNet,
-            cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
-            verticals: ruke_websearch::platform_api::RealVerticals,
-            bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
-        }),
+        // No loopback bridge in integration tests: research/discovery
+        // short-circuit honestly (never touch the network).
+        next_search: None,
         // Shape parity again: BrowserRuntime is lazy (boots nothing), and
         // replay never issues a browser command — its root is the temp dir
         // so no profile dir is ever created beside the real repo.

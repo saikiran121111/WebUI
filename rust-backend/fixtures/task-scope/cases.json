@@ -2,13 +2,17 @@
   "_comment": [
     "TASK-SCOPE PARITY CORPUS — 'the corpus is the contract'.",
     "Consumed by BOTH: vitest __tests__/decision/task-scope.test.ts",
-    "(lib/decision/task-scope.ts) and ruke-websearch/src/task_scope.rs",
+    "(lib/decision/task-scope.ts) and ruke-server/src/task_scope.rs",
     "(#[cfg(test)] include_str!). Expected values are exact-match: field",
     "order, target order (span start ascending), and vocabulary.",
     "Vocabulary law: derivation is deterministic — explicit URLs/domains",
     "via the PSL detector, or bare names bound by operational/source",
-    "prepositions in the user's own words. NEVER a domain guess: no brand",
-    "tables, no TLD invention, no PascalCase brand heuristics.",
+    "prepositions in the user's own words, or bound as the direct object of",
+    "a site-taking verb (open/search/use/visit/…). NEVER a domain guess: no",
+    "brand tables, no TLD invention, no PascalCase brand heuristics.",
+    "Identity law (2026-11-03 audit #5): candidate resolution is normalized-",
+    "label EQUALITY only. Prefix/resemblance (zeptodiscounts.com for Zepto)",
+    "NEVER resolves — PSL validity is not ownership evidence.",
     "Fixtures are ASCII-only (char-offset parity); non-ASCII targets are",
     "a documented limitation.",
     "Enums: intent = none|research|site_info|operate|compare_sites;",
@@ -323,6 +327,46 @@
       "targets": [],
       "excludedPhrases": [],
       "authorizedHosts": []
+    },
+    {
+      "name": "long-product-desc-preposition-target",
+      "prompt": "Find Samsung Galaxy S24 Ultra 256 GB Titanium Gray on Amazon.",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "Amazon", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "open-direct-object-site",
+      "prompt": "Open Zepto",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "search-direct-object-for-entity",
+      "prompt": "Search Amazon for milk",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "Amazon", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "click-login-button-operate",
+      "prompt": "Click the login button on example.com",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "example.com", "state": "resolved", "host": "example.com", "url": "https://example.com", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
     }
   ],
   "resolutions": [
@@ -348,11 +392,11 @@
       "expect": { "phrase": "big basket", "state": "resolved", "host": "bigbasket.com", "url": "", "candidates": [], "provenance": "resolved_search" }
     },
     {
-      "name": "label-prefix-of-phrase",
+      "name": "label-prefix-of-phrase-never-resolves",
       "phrase": "tabia restaurant",
       "max": 8,
       "candidates": ["https://tabia.com/menu", "https://unrelated.org"],
-      "expect": { "phrase": "tabia restaurant", "state": "resolved", "host": "tabia.com", "url": "", "candidates": [], "provenance": "resolved_search" }
+      "expect": { "phrase": "tabia restaurant", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
     },
     {
       "name": "equality-first-ranked-wins",
@@ -362,11 +406,18 @@
       "expect": { "phrase": "zepto", "state": "resolved", "host": "zepto.com", "url": "", "candidates": [], "provenance": "resolved_search" }
     },
     {
-      "name": "label-prefix-single-match",
+      "name": "label-prefix-single-match-never-resolves",
       "phrase": "acme foods",
       "max": 8,
       "candidates": ["https://acme.io", "https://example.com"],
-      "expect": { "phrase": "acme foods", "state": "resolved", "host": "acme.io", "url": "", "candidates": [], "provenance": "resolved_search" }
+      "expect": { "phrase": "acme foods", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
+    },
+    {
+      "name": "lookalike-prefix-not-identity",
+      "phrase": "zepto",
+      "max": 8,
+      "candidates": ["https://zeptodiscounts.com/deals"],
+      "expect": { "phrase": "zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }
     },
     {
       "name": "no-match-stays-unresolved",
@@ -426,6 +477,33 @@
       },
       "prompt": "what is the capital of France",
       "expect": { "intent": "research", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
+    },
+    {
+      "name": "followup-question-keeps-destination",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "What is its rating?",
+      "expect": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
+    },
+    {
+      "name": "topic-change-resets-scope",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "Write a short poem",
+      "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
     }
   ]
 }

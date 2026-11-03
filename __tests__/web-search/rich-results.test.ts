@@ -3,8 +3,9 @@
  *
  * Deterministic: NO browser, NO local model — fixture RichResult payloads
  * straight into the producer/sanitizer/renderers. The four producer pins
- * below are BYTE-IDENTICAL to the Rust parity pins in
- * rust-backend/crates/ruke-websearch/src/rich_results.rs (TS ⇔ Rust).
+ * below were BYTE-IDENTICAL to the Rust parity pins in
+ * rust-backend/crates/ruke-websearch/src/rich_results.rs — that mirror was
+ * removed in the 2026-11-03 TS rollback; these pins are the sole owner.
  */
 import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";

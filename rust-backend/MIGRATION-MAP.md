@@ -1,5 +1,10 @@
 # Rust Backend Migration Map — Phase 0 Inventory (frozen 2026-10-26)
 
+> **HISTORICAL (marked 2026-11-03):** Part 8's `crates/ruke-websearch` has been
+> removed — web-search ownership rolled back to TypeScript
+> (`handover/2026-11-03-ts-rollback/RESTORATION-MANIFEST.md`). Sections naming
+> ruke-websearch as live describe the migration-era state.
+
 Generated from the actual working tree on branch `develop` @ 791faed.
 **Do not start Part 1 until every open decision point in §9 is resolved.**
 

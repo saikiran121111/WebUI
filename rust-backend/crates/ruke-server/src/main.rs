@@ -12,10 +12,10 @@ use std::sync::Arc;
 
 use ruke_core::{config, settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
 use ruke_server::{
-    build_router, init_tracing,
+    build_router, chat, init_tracing,
     persistence::ConversationStore,
     titles::{generate::HttpTitleModel, queue::TitleQueue},
-    AppState, WebRuntime,
+    AppState,
 };
 
 #[tokio::main]
@@ -51,59 +51,6 @@ async fn main() {
         },
     };
     let conversations = Arc::new(ConversationStore::new(conversations_dir));
-
-    // Part 8: the web-research runtime, mirroring the TS module
-    // singletons — the SQLite search cache lives under the project root
-    // (same DB the TS pipeline uses; the purge sweep is idempotent and
-    // started once here). The Tier-3b browser-read bridge is wired ONLY
-    // when the supervisor exported both env vars; otherwise
-    // NoBrowserBridge, and page reads degrade exactly like the TS path
-    // with no Playwright pool. Rule 17: log the boolean outcome, never
-    // the secret.
-    let web_cache = Arc::new(ruke_websearch::cache::SqliteSearchCache::new(&root));
-    ruke_websearch::cache::start_purge_sweep(web_cache.clone());
-    let bridge: Arc<dyn ruke_websearch::browser_bridge::BrowserBridge> =
-        match ruke_websearch::browser_bridge::HttpBrowserBridge::from_env() {
-            Some(b) => {
-                tracing::info!("Tier-3b browser-read bridge configured (Next-hosted RPC seam)");
-                Arc::new(b)
-            }
-            None => {
-                tracing::info!(
-                    "Tier-3b browser-read bridge not configured: page reads degrade \
-                     like the TS no-Playwright path"
-                );
-                Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge)
-            }
-        };
-    // The InnerTube seam (youtube.rs header): the Next-hosted evidence RPC
-    // carries info/transcript/comments, where the transcript tier rides
-    // the universal browser caption engine. Same env pair as the browser
-    // bridge; unset ⇒ NoInnerTube (oEmbed-only, TS source-3 behavior).
-    // Rule 17: log the boolean, never the secret.
-    let innertube: Arc<dyn ruke_websearch::youtube::InnerTubeClient> =
-        match ruke_websearch::youtube_bridge::HttpInnerTube::from_env() {
-            Some(c) => {
-                tracing::info!(
-                    "InnerTube evidence bridge configured (Next-hosted RPC + caption capture)"
-                );
-                Arc::new(c)
-            }
-            None => {
-                tracing::info!(
-                    "InnerTube evidence bridge not configured: YouTube evidence stays \
-                     oEmbed-only"
-                );
-                Arc::new(ruke_websearch::youtube::NoInnerTube)
-            }
-        };
-    ruke_websearch::youtube::set_default_inner_tube(innertube);
-    let web = Arc::new(WebRuntime {
-        net: ruke_websearch::net::RealNet,
-        cache: web_cache,
-        verticals: ruke_websearch::platform_api::RealVerticals,
-        bridge,
-    });
 
     // Browser Use (Phase 2): the long-lived browser runtime. Lazy — this
     // boots NOTHING; the first browser command launches the bundled
@@ -150,8 +97,28 @@ async fn main() {
                 settings,
             }),
         )),
-        // Part 8: shared web runtime (chat seam + search pair).
-        web,
+        // TS-ownership rollback (2026-11-03): web research and the web
+        // tool loop are owned by TypeScript. Rust drives the Next-owned
+        // internal services over the SAME supervisor-generated bridge
+        // env pair as the browser hop and the embedder. Unset ⇒ research
+        // and discovery skip honestly (turns proceed without web
+        // evidence); there is no Rust-side search fallback. Rule 17:
+        // log the boolean, never the secret.
+        next_search: match chat::next_search::NextSearchBridge::from_env() {
+            Some(b) => {
+                tracing::info!(
+                    "web-research bridge configured (Next-owned TS search via loopback RPC)"
+                );
+                Some(b)
+            }
+            None => {
+                tracing::info!(
+                    "web-research bridge not configured: chat research and web tools \
+                     degrade honestly (turns proceed without web evidence)"
+                );
+                None
+            }
+        },
         browser: browser.clone(),
     };
 

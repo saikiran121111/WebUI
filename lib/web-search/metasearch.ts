@@ -30,6 +30,7 @@ export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
 import { scrubQuerySecrets } from "./ssrf";
 import { freshnessFit, isTimeScopedFreshness } from "./freshness";
+import { registrableHost } from "../decision/task-scope";
 import {
   googleSearch,
   bingNewsRssSearch,
@@ -668,15 +669,23 @@ function capForEngine(engine: string): number {
 /**
  * Per-searchOne wall-clock cap: a single plan's general-web pool call
  * must not block the metasearch for more than this many milliseconds.
- * The general pool (6 engines) can take 18s+ when DDG's 3 stages all
- * time out (12s html + 6s lite). This cap fires at 10s and fuses
- * whatever has settled so far, letting the metasearch quorum logic
- * complete in time. Verticals (dev/news) are awaited separately with
- * their own short internal timeouts and are NOT capped — they are
- * high-signal, low-latency, and the cap only protects against the
- * general pool's slowest engine (DDG).
+ * The pool is now PRIORITY-SEQUENTIAL (Google → Brave → the rest, per
+ * the 2026-11-04 engine priority law), so a fully-dead chain pays the
+ * Google attempt cap + the Brave attempt cap + the staggered fallback
+ * pool before returning. This cap fires at 40s and fuses whatever has
+ * settled so far, letting the metasearch quorum logic complete in time.
+ * The 2026-11-04 engine priority law makes the cap need to fit the
+ * WORST priority chain, not the old flat parallel pool: a Google
+ * browser-SERP attempt burns up to GOOGLE_ATTEMPT_CAP_MS (20s) before
+ * Brave (12s) is even asked, and the fallback pool only runs after
+ * both failed. A healthy Google answer still lands in ~10-15s.
+ * Verticals (dev/news) are awaited separately with their own short
+ * internal timeouts and are NOT capped — they are high-signal,
+ * low-latency, and the cap only protects against pathological engine
+ * cascades (e.g. DDG's 3-stage 12s+6s stall after both priority
+ * engines failed).
  */
-const SEARCH_ONE_CAP_MS = 10_000;
+const SEARCH_ONE_CAP_MS = 40_000;
 
 async function searchOne(
   query: string,
@@ -802,11 +811,105 @@ function engineWeight(engine: string, intent: Intent): number {
   return 1.2;
 }
 
+/**
+ * Hostname↔query-token affinity boost (FINAL-MIGRATION-REPORT §7.1
+ * proposal, never landed; user instruction 2026-11-04: "zepto should
+ * search zepto... nothing hard coded, it should be universal").
+ *
+ * For a query like "zepto", zeptonow.com carries the brand token in
+ * its own label while news/encyclopedia coverage does not — yet with
+ * NO task-scope target (bare brand queries form none) the preferred-
+ * boost and designated tier never arm. This is the universal net:
+ *
+ *   token ∈ query  ∧  registrable-label FIRST segment starts with the
+ *   token  →  boost, scaled by the token's RARITY across the fused
+ *   pool (fraction of distinct registrable domains whose first label
+ *   segment starts with the token). The df-gate substitutes for any
+ *   brand/stopword table: a word that heads many unrelated domains
+ *   gets high df and no boost; a brand word heads almost only the
+ *   brand's own domains.
+ *
+ * Laws kept: FIRST segment only (media-amazon.com leads with "media"
+ * — it is not "amazon"); tokens shorter than 5 chars are too weak a
+ * brand signal; a generic-word exclusion set (mirrors query-planner's
+ * GENERIC_QUERY_WORDS — function/action words, NEVER brand names);
+ * ORDER-ONLY capped multiplier (never admits, never drops) — the
+ * designated/preferred lanes remain the strong signals.
+ */
+const AFFINITY_DF_CEIL = 0.4;
+const AFFINITY_MAX = 0.6; // multiplier cap: ≤ ×1.6
+
+const AFFINITY_EXCLUDED_WORDS = new Set([
+  // generic action/descriptor words (query-planner GENERIC_QUERY_WORDS
+  // parity + a few retrieval-common generics). NOT a brand list — no
+  // site, domain, or TLD appears here.
+  "price", "prices", "pricing", "cost", "costs", "book", "booking",
+  "buy", "order", "orders", "search", "find", "check", "look",
+  "latest", "current", "official", "site", "website", "docs",
+  "documentation", "review", "reviews", "news", "near", "nearby",
+  "weather", "delivery", "menu", "product", "products", "ticket",
+  "tickets", "showtime", "showtimes", "profile", "best", "top",
+  "shop", "shops", "store", "stores", "deal", "deals", "online",
+]);
+
+function applyHostTokenAffinity(results: RankedResult[], queries: string[]): void {
+  if (results.length === 0 || queries.length === 0) return;
+  const qTokens = new Set<string>();
+  for (const q of queries) {
+    for (const raw of String(q ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+      if (raw.length >= 5 && !AFFINITY_EXCLUDED_WORDS.has(raw)) qTokens.add(raw);
+    }
+  }
+  if (qTokens.size === 0) return;
+
+  // registrable domain + FIRST label segment per result
+  const leads = new Map<RankedResult, { reg: string; lead: string }>();
+  const distinctDomains = new Set<string>();
+  for (const r of results) {
+    const reg = registrableHost(r.domain) ?? r.domain;
+    distinctDomains.add(reg);
+    const label = (reg.split(".")[0] ?? "").toLowerCase();
+    const lead = (label.split(/[-_]/)[0] ?? "").replace(/[^\p{L}\p{N}]/gu, "");
+    if (lead) leads.set(r, { reg, lead });
+  }
+  const total = distinctDomains.size || 1;
+
+  // token → distinct domains whose lead starts with it
+  const dfMap = new Map<string, Set<string>>();
+  const matched = new Map<RankedResult, string[]>();
+  for (const [r, { reg, lead }] of leads) {
+    const tokens: string[] = [];
+    for (const t of qTokens) {
+      if (lead.startsWith(t)) tokens.push(t);
+    }
+    if (tokens.length === 0) continue;
+    matched.set(r, tokens);
+    for (const t of tokens) {
+      const set = dfMap.get(t) ?? new Set<string>();
+      set.add(reg);
+      dfMap.set(t, set);
+    }
+  }
+  if (matched.size === 0) return;
+
+  for (const [r, tokens] of matched) {
+    let rarest = 1;
+    for (const t of tokens) {
+      const df = (dfMap.get(t)?.size ?? 0) / total;
+      if (df < rarest) rarest = df;
+    }
+    if (rarest <= AFFINITY_DF_CEIL) {
+      r.rrf *= 1 + AFFINITY_MAX * (1 - rarest);
+    }
+  }
+}
+
 export function reciprocalRankFuse(
   rawResults: RawSearchResult[],
   preferredDomains?: string[],
   intent: Intent = "general",
   freshness?: string,
+  affinityQueries?: string[],
 ): RankedResult[] {
   // key = normalized URL, value = best raw + per-engine rank map
   const byUrl = new Map<
@@ -877,6 +980,11 @@ export function reciprocalRankFuse(
       origin: "search",
     });
   }
+
+  // Host↔query-token affinity boost (see applyHostTokenAffinity). Order
+  // only, applied after freshness — bare brand queries with no scope
+  // target still land the brand's own site first.
+  applyHostTokenAffinity(out, affinityQueries ?? []);
 
   out.sort((a, b) => b.rrf - a.rrf);
   return out;
@@ -1042,7 +1150,7 @@ export async function metasearch(
   const flat = settled.filter((r): r is RawSearchResult[] => r !== null).flat();
   const preferred = effectivePlans.flatMap((p) => p.preferredDomains ?? []);
   const intent = effectivePlans[0]?.intent ?? "general";
-  const ranked = reciprocalRankFuse(flat, preferred, intent, freshness);
+  const ranked = reciprocalRankFuse(flat, preferred, intent, freshness, effectivePlans.map((p) => p.query));
 
   // ── Per-result relevance floor (the junk-source filter) ─────────────────
   // Vertical sources (Wikipedia/HN/arXiv/StackExchange) are lexically gated
@@ -1229,7 +1337,8 @@ export async function urlSearchFallback(
 
 /**
  * Audit #9 (provenance law, exact-identical ⇔ `SEARCH_INDEX_PROVENANCE_LAW`
- * in `rust-backend/crates/ruke-websearch/src/metasearch.rs`): the extraction
+ * in the retired Rust mirror (ruke-websearch/src/metasearch.rs, removed
+ * 2026-11-03)): the extraction
  * pool's synthesized evidence must always declare what it IS — search-index
  * listings, never a live read — so no packet from the pool can be presented
  * as if a browser visit produced it.

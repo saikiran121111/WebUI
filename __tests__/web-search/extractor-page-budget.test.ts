@@ -1,14 +1,14 @@
 /**
- * APPROVED PART-10 PARITY DEVIATION — §11.3 per-page extraction budget
- * (MIGRATION-MAP). Mirrors the Rust unit tests in
- * ruke-websearch/src/extractor.rs
+ * PART-10 EXTRACTION-BUDGET PINS (historical parity origin) — §11.3
+ * per-page extraction budget (MIGRATION-MAP). Mirrors the Rust unit tests
+ * that lived in ruke-websearch/src/extractor.rs (crate removed 2026-11-03;
+ * these TS pins are now the sole owner)
  * (page_budget_abandons_slow_page_into_snippet_fallback /
  *  timeout_fallback_packet_shape_mirrors_terminal_fallback).
  *
- * The behavioral slow-net proof lives on the Rust side (the epoch that
- * ships); here we pin the TS oracle's fallback shape so both epochs fold a
- * budget-exhausted page into the SAME terminal packet — the only new
- * artifact in either epoch is the "PAGE_BUDGET_TIMEOUT" classification,
+ * The Rust-side behavioral slow-net proof went away with the crate; here we
+ * pin the TS fallback shape so a budget-exhausted page folds into the SAME
+ * terminal packet — the only new artifact is the "PAGE_BUDGET_TIMEOUT" classification,
  * which never appears in golden fixtures because replays are in-process and
  * the timer cannot fire there.
  */

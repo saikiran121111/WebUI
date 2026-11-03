@@ -22,10 +22,10 @@
  *  - `firstUnsafeRedirectHop`: per-redirect-chain revalidation helper;
  *  - `scrubQuerySecrets`: deterministic outbound-query secret strip (§14).
  *
- * RUST MIRROR: rust-backend/crates/ruke-websearch/src/ssrf.rs must stay
- * behavior-identical. Test vectors are deliberately shared between the two
- * suites; changing one side's pins requires changing the other's in the
- * same commit.
+ * SOLE OWNER (TS-ownership rollback 2026-11-03): the Rust mirror
+ * (crates/ruke-websearch/src/ssrf.rs) was removed. The test vectors were
+ * deliberately shared between the two suites; these pins are now the
+ * SSRF contract by themselves — do not weaken them.
  */
 
 /* The legacy prefix regex, kept VERBATIM (do not "fix" its over-blocks —

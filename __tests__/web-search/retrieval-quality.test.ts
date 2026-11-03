@@ -362,20 +362,14 @@ describe("segment filter shared vectors (⇔ rust reranker.rs)", () => {
   });
 });
 
-/* ── cross-language gate-prompt byte parity ─────────────────────────────── */
+/* ── gate-prompt byte pins (TS sole owner since the 2026-11-03 rollback) ── */
 
-describe("gate prompt TS ⇔ Rust byte parity", () => {
+describe("gate prompt byte pins (TS sole owner since the 2026-11-03 rollback)", () => {
   const TS_GATE = path.join(process.cwd(), "lib", "web-search", "search-gate.ts");
-  const RS_GATE = path.join(
-    process.cwd(),
-    "rust-backend",
-    "crates",
-    "ruke-websearch",
-    "src",
-    "search_gate.rs",
-  );
 
-  // The exact bytes shared by both gate prompts (§11.10 enum + guidance).
+  // The exact gate-prompt bytes (§11.10 enum + guidance). The Rust mirror
+  // (crates/ruke-websearch/src/search_gate.rs) was removed with the crate;
+  // these probes keep the prompt shape pinned on the sole owner.
   const PROBES: string[] = [
     '"freshness": "none"|"day"|"week"|"month"|"year"|"realtime"|"any",',
     [
@@ -388,29 +382,23 @@ describe("gate prompt TS ⇔ Rust byte parity", () => {
 
   for (const probe of PROBES) {
     const label = probe.slice(0, 48);
-    it(`both gate sources contain the realtime probe exactly once: ${label}…`, () => {
-      for (const file of [TS_GATE, RS_GATE]) {
-        // CRLF-normalize: parity is about the prompt TEXT bytes; the checkout
-        // line-ending policy applies uniformly to both files, so this keeps
-        // the lock robust across checkouts while still failing any real
-        // one-sided prompt edit.
-        const src = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
-        const occurrences = src.split(probe).length - 1;
-        expect(
-          occurrences,
-          `${path.basename(file)} must contain the probe exactly once (found ${occurrences})`,
-        ).toBe(1);
-      }
+    it(`the gate source contains the realtime probe exactly once: ${label}…`, () => {
+      // CRLF-normalize: the pins are about the prompt TEXT bytes regardless
+      // of the checkout line-ending policy.
+      const src = fs.readFileSync(TS_GATE, "utf8").replace(/\r\n/g, "\n");
+      const occurrences = src.split(probe).length - 1;
+      expect(
+        occurrences,
+        `${path.basename(TS_GATE)} must contain the probe exactly once (found ${occurrences})`,
+      ).toBe(1);
     });
   }
 
-  it("neither gate source still carries the pre-realtime enum line", () => {
+  it("the gate source no longer carries the pre-realtime enum line", () => {
     const stale = '"freshness": "none"|"day"|"week"|"month"|"year"|"any",';
-    for (const file of [TS_GATE, RS_GATE]) {
-      const src = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
-      expect(src, `${path.basename(file)} still has the stale enum line`).not.toContain(
-        stale,
-      );
-    }
+    const src = fs.readFileSync(TS_GATE, "utf8").replace(/\r\n/g, "\n");
+    expect(src, `${path.basename(TS_GATE)} still has the stale enum line`).not.toContain(
+      stale,
+    );
   });
 });

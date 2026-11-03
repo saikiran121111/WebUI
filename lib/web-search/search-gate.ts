@@ -42,6 +42,7 @@ import {
 } from "./types";
 import { detectUrlsAndDomains, detectPromptUrls, type DetectedUrl } from "./url-detector";
 import { isEnforceableScope, scopeHosts } from "../decision/task-scope";
+import { localContextLine } from "./local-context";
 
 const log = childLogger("web-search/search-gate");
 
@@ -665,7 +666,9 @@ function buildMainGateMessages(ctx: SearchGateContext): { role: string; content:
   const msgs: { role: string; content: string }[] = [
     {
       role: "system",
-      content: `Current date: ${date} (year ${date.slice(0, 4)}).\n${MAIN_GATE_SYSTEM_PROMPT}`,
+      content:
+        `Current date: ${date} (year ${date.slice(0, 4)}).\n` +
+        `${localContextLine()}\n${MAIN_GATE_SYSTEM_PROMPT}`,
     },
   ];
   if (ctx.history?.length) {

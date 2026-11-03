@@ -35,8 +35,8 @@ fn insert(h: &mut HeaderMap, name: HeaderName, value: &str) {
 
 /// `encodeURIComponent`: the unreserved set `A-Za-z0-9-_.!~*'()` passes
 /// through; every other UTF-8 byte becomes `%XX` (uppercase hex). Same
-/// implementation the ruke-websearch port uses for the search-route pair,
-/// so header values and fixture comparisons stay byte-identical. (TS's
+/// implementation the retired ruke-websearch port used for the search-route
+/// pair, so header values and fixture comparisons stay byte-identical. (TS's
 /// lone-surrogate TypeError is unreachable here: a Rust `String` cannot
 /// carry unpaired surrogates, and `JSON.stringify` escapes any surrogate
 /// pair member that could reach the encoder into ASCII `\uXXXX`.)

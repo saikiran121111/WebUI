@@ -1,12 +1,11 @@
 /**
  * §11.10 freshness-fit helpers — pure, deterministic, model-free.
  *
- * Rust mirror: `is_time_scoped_freshness` + `freshness_fit` in
- * `rust-backend/crates/ruke-websearch/src/types.rs` (same bands, same
- * multipliers, same operation order — IEEE double parity). The test
- * vectors in `__tests__/web-search/retrieval-quality.test.ts` are shared
- * byte-for-byte with the Rust inline suite; change one side, change both
- * in the same commit.
+ * SOLE OWNER (TS-ownership rollback 2026-11-03): the Rust mirror of
+ * `is_time_scoped_freshness` + `freshness_fit` (ruke-websearch/src/types.rs,
+ * removed) shared these bands, multipliers and operation order — IEEE
+ * double parity. The test vectors in
+ * `__tests__/web-search/retrieval-quality.test.ts` keep pinning them.
  *
  * Law: a time-scoped run (day/week/month/year/realtime) ranks
  * correctly-dated PRIMARY content above undated content when the date

@@ -23,10 +23,10 @@
  *   - nothing droppable       ⇒ the ORIGINAL bytes are returned verbatim
  *     (no CRLF/blank-line rewrite when nothing changes).
  *
- * Rust twin: `filter_passage_segments` / `apply_segment_filter` in
- * `rust-backend/crates/ruke-websearch/src/reranker.rs` — vector-for-vector
- * (pinned in `__tests__/web-search/retrieval-quality.test.ts` and the Rust
- * inline suite; change one side, change both in the same commit).
+ * SOLE OWNER (TS-ownership rollback 2026-11-03): the Rust twin
+ * `filter_passage_segments` / `apply_segment_filter` (reranker.rs,
+ * removed) shared these vectors; they stay pinned in
+ * `__tests__/web-search/retrieval-quality.test.ts`.
  */
 import type { EvidencePacket } from "./types";
 import { junkPenalty, tokenize } from "./reranker";

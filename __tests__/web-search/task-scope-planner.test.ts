@@ -1,9 +1,9 @@
 /**
  * Task-scope planner regressions (audit 2026-11-02, brief #3/#4/#6).
  *
- * SHARED VECTORS with the Rust inline counterparts in
- * `rust-backend/crates/ruke-websearch/src/query_planner.rs` (same scenario,
- * same expected plans — change one side, change both):
+ * HISTORICAL SHARED VECTORS with the Rust inline counterparts that lived in
+ * `rust-backend/crates/ruke-websearch/src/query_planner.rs` (crate removed
+ * 2026-11-03; these TS regressions are the sole owner):
  *   no-fabrication .......... rust `planner_never_fabricates_domains_from_prompt`
  *   resolved site: companion  rust `plan_queries_scope_resolved_host_gets_site_companion`
  *   unresolved discovery .... rust `plan_queries_scope_unresolved_bare_phrase_discovery`

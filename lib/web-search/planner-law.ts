@@ -24,9 +24,14 @@
  * Privacy law (§11.17/§11.22): `location` is only a coarse phrase lifted
  * from the user's own words — never a precise IP, coordinates, or derived
  * geolocation. Nothing here sends account data to providers; the location
- * only rides into derived queries.
+ * only rides into derived queries. AMENDED 2026-11-04 (user instruction):
+ * when a LOCAL-intent query names no place, the law may fall back to the
+ * system's own coarse country name (OS locale region) — this is a local
+ * app, the machine IS the user's location authority; still country-level
+ * only, never coordinates.
  *
- * Rust mirror: crates/ruke-websearch/src/planner_law.rs. Regex parity
+ * Historical Rust mirror (removed with the crate, 2026-11-03 TS rollback):
+ * planner_law.rs. Regex parity
  * notes: patterns here avoid lookaround; the location regexes use
  * Unicode word/letter semantics on BOTH sides (JS /u flag ⇔ Rust default
  * Unicode mode) — a deliberate divergence from the ASCII-`\b` legacy
@@ -35,7 +40,8 @@
 import type { EvidencePacket, EvidencePassage, RankedResult, SearchDecision } from "./types";
 import type { CoverageReport, PlannedQuery } from "./query-planner";
 import { sourceClass } from "./query-planner";
-import { isEnforceableScope, scopeHosts, type TaskScope } from "../decision/task-scope";
+import { isEnforceableScope, registrableHost, scopeHosts, type TaskScope } from "../decision/task-scope";
+import { systemRegionName } from "./local-context";
 
 /* ── budget (§11.21) ─────────────────────────────────────────────────── */
 
@@ -171,6 +177,19 @@ function extractLocation(prompt: string): string | null {
 }
 
 /**
+ * System-derived coarse location (user instruction 2026-11-04): a
+ * LOCAL-intent query that names no place ("restaurants near me",
+ * "delivery") uses this machine's own country — a local app's system
+ * locale IS the user's location context, and it is now also sent to
+ * the model so it can interpret the answer. Coarse-only law unchanged:
+ * one country name, never coordinates, never a street.
+ */
+function systemLocationFallback(prompt: string): string | null {
+  if (!LOCAL_INTENT_RE.test(prompt)) return null;
+  return systemRegionName();
+}
+
+/**
  * Derive the deterministic planner law from the user prompt + gate
  * decision. Gate `queries[].preferred_domains` always merge into the
  * law's preferred list (model suggested sources are honored as
@@ -258,7 +277,7 @@ export function derivePlannerLaw(
     blockedDomains: blocked,
     preferredDomains: preferred,
     mandatoryHosts: mandatory,
-    location: extractLocation(userPrompt),
+    location: extractLocation(userPrompt) ?? systemLocationFallback(userPrompt),
     expectedSourceTypes: expected,
     budget: budgetForDepth(decision.depth),
   };
@@ -279,6 +298,102 @@ export function applyScopeToLaw(law: PlannerLaw, scope: TaskScope | null | undef
       ? [...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]
       : [];
   return law;
+}
+
+/* ── corroborated destination verification (audit 2026-11-03 items 3/5;
+ * live symptom 2026-11-04: "zepto should search zepto") ────────────────
+ *
+ * The TaskScope law resolves destinations by EQUALITY ONLY: the
+ * normalized brand must equal the registrable label. That law is NOT
+ * touched here — brand≠domain identities (Zepto → zeptonow.com) must
+ * never resolve on string similarity alone, because resemblance is
+ * not identity (zeptodiscounts.com is not Zepto).
+ *
+ * But the live SERP carries identity evidence a bare URL cannot show:
+ * when a result's TITLE opens with the brand phrase as its leading
+ * words AND the domain's registrable label belongs to the brand's own
+ * word family (the label starts with the brand phrase), the site is
+ * speaking for itself — that IS the destination, verified by evidence
+ * rather than invented. Both signals are required:
+ *   - title-leading only (timesofindia.com's "Zepto expands…") =
+ *     third-party COVERAGE, never a destination;
+ *   - label-prefix only (zeptodiscounts.com with any other title) =
+ *     resemblance, never identity;
+ *   - ≥2 distinct label families both self-claiming the brand =
+ *     genuine ambiguity — nothing is verified (a squatter loudly
+ *     titling itself "Zepto…" earns exactly that ambiguity).
+ * Hosts within ONE label family (zeptonow.com + zeptonow.in) agree on
+ * identity: the most-corroborated registrable host of the single
+ * family is verified.
+ *
+ * A verified destination joins plannerLaw.preferredDomains: the site:
+ * companion wave, the fusion preferred-boost, and the reranker's
+ * user-designated authority tier all ride it (ORDER, never an
+ * admission wall — mandatoryHosts remains the user's explicit-scope
+ * boundary alone). Universal by construction: no brand table, no TLD
+ * guessing, no website list — evidence comes only from the SERP the
+ * engines already returned. */
+export interface DestinationEvidenceRow {
+  url: string;
+  title?: string;
+}
+
+const normIdentity = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/** True when the title OPENS with the phrase at a word boundary
+ *  (leading quotes/brackets/ellipsis stripped; unicode-safe boundary
+ *  because JS `\b` is ASCII-only). */
+function titleLeadsPhrase(title: string, phrase: string): boolean {
+  const core = title.replace(/^[\s"'“”‘’(\[\]…]+/, "");
+  if (!core) return false;
+  const esc = phrase
+    .trim()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
+  if (!esc) return false;
+  try {
+    return new RegExp(`^${esc}(?![\\p{L}\\p{N}])`, "iu").test(core);
+  } catch {
+    return false;
+  }
+}
+
+export function corroborateDestinations(
+  scope: TaskScope,
+  rows: DestinationEvidenceRow[],
+): { phrase: string; host: string }[] {
+  const out: { phrase: string; host: string }[] = [];
+  for (const t of scope.targets) {
+    if (t.state !== "unresolved" || !t.phrase) continue;
+    const pn = normIdentity(t.phrase);
+    if (!pn) continue;
+    // label family → (registrable host → corroborating-row count)
+    const families = new Map<string, Map<string, number>>();
+    for (const row of rows) {
+      const host = registrableHost(String(row.url ?? "").trim());
+      if (!host) continue;
+      const label = host.split(".")[0] ?? "";
+      const ln = normIdentity(label);
+      if (!ln || !ln.startsWith(pn)) continue;
+      if (!titleLeadsPhrase(String(row.title ?? ""), t.phrase)) continue;
+      const fam = families.get(ln) ?? new Map<string, number>();
+      fam.set(host, (fam.get(host) ?? 0) + 1);
+      families.set(ln, fam);
+    }
+    // zero families = no evidence; two+ families = honest ambiguity —
+    // in both cases NOTHING is verified (the target stays unresolved).
+    if (families.size !== 1) continue;
+    let best = "";
+    let bestCount = -1;
+    for (const [host, count] of [...families.values()][0]) {
+      if (count > bestCount) {
+        best = host;
+        bestCount = count;
+      }
+    }
+    if (best) out.push({ phrase: t.phrase, host: best });
+  }
+  return out;
 }
 
 /* ── plan application (§11.5/§11.17) ─────────────────────────────────── */

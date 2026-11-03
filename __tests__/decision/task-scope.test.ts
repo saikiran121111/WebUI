@@ -2,7 +2,7 @@
  * Task-scope parity harness (task-scope audit 2026-11-02, brief items #1/#3/#4/#5/#6).
  *
  * "The corpus is the contract": this vitest suite and the Rust `#[cfg(test)]`
- * tests in `rust-backend/crates/ruke-websearch/src/task_scope.rs` both replay
+ * tests in `rust-backend/crates/ruke-server/src/task_scope.rs` both replay
  * the SAME fixture file — `rust-backend/fixtures/task-scope/cases.json`.
  * Either side drifting without the other fails its suite. No brand lists, no
  * TLD guessing, no fabricated domains — the corpus pins exactly that.
@@ -79,7 +79,7 @@ const scopeShape = (s: TaskScope) => ({
   authorizedHosts: s.authorizedHosts,
 });
 
-describe("task-scope corpus (parity with ruke-websearch task_scope.rs)", () => {
+describe("task-scope corpus (parity with ruke-server task_scope.rs)", () => {
   it("corpus is present and substantial", () => {
     expect(CORPUS.cases.length).toBeGreaterThanOrEqual(30);
     expect(CORPUS.resolutions.length).toBeGreaterThanOrEqual(5);

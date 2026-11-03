@@ -1,14 +1,16 @@
 /**
  * P2 model-facing web tools — SHARED VECTOR SUITE (lib/web-search/tools.ts).
  *
- * Every vector table here mirrors the Rust inline counterpart in
- * `rust-backend/crates/ruke-websearch/src/tools.rs`; change one side,
- * change both in the same commit:
- *   failure classifier vectors .. rust tools.rs `classify_retrieval_failure_vectors`
- *   budget table ................ rust tools.rs `budget_table_pins`
- *   definition bounds ........... rust tools.rs `model_tools_shape_pins`
- *   byte probes ................. direct comparison of BOTH source files
- *                                 (descriptions + guidance ⇔ web-tool-loop.ts)
+ * TS is the sole owner of everything pinned here (TS-ownership rollback
+ * 2026-11-03): the Rust counterpart `crates/ruke-websearch/src/tools.rs`
+ * was removed. What stays cross-language is the guidance/directive byte
+ * parity against the Rust transport's fallback consts in
+ * `crates/ruke-server/src/chat/web_loop.rs` — the Rust loop may inline
+ * those bytes if the create-RPC omits them, so they must stay identical:
+ *   failure classifier vectors .. TS-only classifier table
+ *   budget table ................ TS-only budget pins
+ *   definition bounds ........... TS-only model-tools shape
+ *   byte probes ................. web-tool-loop.ts ⇔ ruke-server web_loop.rs
  * The exec tests run against mocked retrieval seams (metasearch/extractor/
  * ssrf/segment-filter) so the ENVELOPE CONTRACT — structured failures,
  * budget accounting, [S#] numbering, §11.18 URL routing — is what gets
@@ -62,7 +64,7 @@ import { scopeHosts, type TaskScope } from "@/lib/decision/task-scope";
 const ROOT = path.resolve(__dirname, "..", "..");
 const TS_TOOLS = path.join(ROOT, "lib", "web-search", "tools.ts");
 const TS_LOOP = path.join(ROOT, "lib", "chat", "web-tool-loop.ts");
-const RUST_TOOLS = path.join(ROOT, "rust-backend", "crates", "ruke-websearch", "src", "tools.rs");
+const RUST_LOOP = path.join(ROOT, "rust-backend", "crates", "ruke-server", "src", "chat", "web_loop.rs");
 
 function readSrc(file: string): string {
   // CRLF-normalize: parity is about the TEXT bytes; the checkout line-ending
@@ -161,7 +163,7 @@ describe("webToolDefinitions shape (⇔ rust model_tools)", () => {
     expect(defs.map((d) => d.function.name)).toEqual(["web_search", "read_page"]);
 
     const ws = defs[0].function.parameters as Record<string, any>;
-  const rp = defs[1].function.parameters as Record<string, any>;
+    const rp = defs[1].function.parameters as Record<string, any>;
     expect(ws.required).toEqual(["queries", "missing_claims"]);
     expect(ws.additionalProperties).toBe(false);
     expect([ws.properties.queries.minItems, ws.properties.queries.maxItems]).toEqual([1, 4]);
@@ -175,32 +177,28 @@ describe("webToolDefinitions shape (⇔ rust model_tools)", () => {
   });
 });
 
-/* ── cross-language byte probes (the one-sided-edit tripwire) ──────────── */
-
-describe("prompt/description byte parity: TS ⇔ Rust source files", () => {
-  it("tool descriptions appear exactly once in tools.ts AND tools.rs", () => {
+describe("prompt/description byte pins (TS sole owner; guidance / directive ⇔ Rust transport fallback)", () => {
+  it("tool descriptions appear exactly once in tools.ts", () => {
     for (const text of [WEB_SEARCH_TOOL_DESCRIPTION, READ_PAGE_TOOL_DESCRIPTION]) {
       expectOnceIn(TS_TOOLS, text, "tool description");
-      expectOnceIn(RUST_TOOLS, text, "tool description");
     }
   });
 
-  it("every guidance line appears exactly once in web-tool-loop.ts AND tools.rs", () => {
+  it("every guidance line appears exactly once in web-tool-loop.ts AND web_loop.rs", () => {
     for (const line of WEB_TOOL_GUIDANCE.split("\n")) {
       expectOnceIn(TS_LOOP, line, "guidance line");
-      expectOnceIn(RUST_TOOLS, line, "guidance line");
+      expectOnceIn(RUST_LOOP, line, "guidance line");
     }
   });
 
-  it("the final directive appears exactly once in web-tool-loop.ts AND tools.rs", () => {
+  it("the final directive appears exactly once in web-tool-loop.ts AND web_loop.rs", () => {
     expectOnceIn(TS_LOOP, WEB_TOOL_FINAL_DIRECTIVE, "final directive");
-    expectOnceIn(RUST_TOOLS, WEB_TOOL_FINAL_DIRECTIVE, "final directive");
+    expectOnceIn(RUST_LOOP, WEB_TOOL_FINAL_DIRECTIVE, "final directive");
   });
 
-  it("shared parameter descriptions appear once on both sides", () => {
+  it("queries param description appears exactly once in tools.ts", () => {
     const probe = "new keyword-form searches (3-6 keywords each); never repeat a query already run this turn";
     expectOnceIn(TS_TOOLS, probe, "queries param description");
-    expectOnceIn(RUST_TOOLS, probe, "queries param description");
   });
 });
 

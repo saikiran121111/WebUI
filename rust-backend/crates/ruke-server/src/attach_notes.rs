@@ -148,12 +148,7 @@ mod tests {
                 slot,
                 Arc::new(crate::titles::generate::UnconfiguredTitleModel),
             )),
-            web: Arc::new(crate::WebRuntime {
-                net: ruke_websearch::net::RealNet,
-                cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
-                verticals: ruke_websearch::platform_api::RealVerticals,
-                bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
-            }),
+            next_search: None,
             browser: Arc::new(ruke_browser::engine::BrowserRuntime::new(
                 tmp.path().to_path_buf(),
             )),

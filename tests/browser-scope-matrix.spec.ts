@@ -25,13 +25,14 @@
 // ambiguous / incidental / negations / preference-vs-restriction /
 // target-change merge → task-scope corpus 56/56 BOTH languages
 // (rust-backend/fixtures/task-scope/cases.json); gate failure / zero results
-// / bot blocks / wall classification → ruke-websearch tools classification
-// tests + web-search-10k suite; form fills / popups / iframe / dialogs /
+// / bot blocks / wall classification → TS web-search tools classification
+// tests + web-search-10k suite (sole owners since the 2026-11-03 rollback); form fills / popups / iframe / dialogs /
 // uploads → tests/browser-easy|medium|hard.spec.ts +
 // ruke-browser/tests/fixture_journeys.rs; CDP-evaluate/WebMCP escape +
 // destination pre-gates + affinity one-shot semantics → ruke-browser unit +
 // integration batteries (177); fallback provenance tagging →
-// ruke-websearch slug_triangulation tests ⇔ TS mirrors; working-tab
+// slug_triangulation tests (historical ruke-websearch origin; the TS
+// mirrors are sole owners since the 2026-11-03 rollback); working-tab
 // follow/pin law + omnibox PSL law → __tests__/browser-store.test.ts +
 // __tests__/browser-client.test.ts pins.
 //

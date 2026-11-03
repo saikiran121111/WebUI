@@ -1,7 +1,8 @@
 /**
  * APPROVED PART-10 PARITY DEVIATION — UNIVERSAL deterministic search
  * pre-gate + runtime date-aware freshness awareness.
- * Mirrors the Rust unit tests in ruke-websearch/src/search_gate.rs
+ * Mirrors the Rust unit tests that lived in ruke-websearch/src/search_gate.rs
+ * (crate removed 2026-11-03; these pins are now the sole owner)
  * (bypass_freshness_forces_search / bypass_local_task_forces_no_search /
  *  bypass_local_task_escapes_on_external_intent /
  *  ambiguous_prompts_reach_the_model_gate / gate_messages_carry_the_current_date /

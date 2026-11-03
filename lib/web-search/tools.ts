@@ -1,13 +1,14 @@
 /**
  * tools.ts — P2 model-facing web tools: `web_search` + `read_page`.
  *
- * Rust twin: `rust-backend/crates/ruke-websearch/src/tools.rs`. Tool
- * descriptions, the guidance/directive constants, the failure taxonomy,
- * the budget table, and the result envelopes are ⇔-locked with the Rust
- * side (byte probes pin the shared string constants; mirrored vector
- * tests pin the classifier and the tables). The loop that calls these
- * executors lives in `lib/chat/web-tool-loop.ts` ⇔ `ruke-server`'s
- * `chat/web_loop.rs`.
+ * SOLE OWNER (TS-ownership rollback 2026-11-03): the Rust twin
+ * `crates/ruke-websearch/src/tools.rs` was removed. Tool descriptions,
+ * the guidance/directive constants, the failure taxonomy, the budget
+ * table, and the result envelopes live only here; the Rust chat transport
+ * serves them through the TS create-RPC and keeps the guidance/directive
+ * bytes ONLY as fallback consts (`ruke-server`'s `chat/web_loop.rs`). The
+ * loop that calls these executors lives in `lib/chat/web-tool-loop.ts`
+ * (TS turns) and in the Rust transport `chat/web_loop.rs` (Rust turns).
  *
  * Design laws (RICH RESULTS ADDENDUM + §11.6/§11.13/§11.14/§11.18):
  * - Tool results are VALIDATED STRUCTURED DATA flowing on the

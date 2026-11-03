@@ -169,65 +169,467 @@ const PREPS: &[&str] = &["on", "from", "in", "at", "via", "through"];
 // Operational verbs: things done AT/THROUGH a website. "get/got" deliberately
 // absent (false-positive magnet). "open" is both operational and source-ish.
 const OP_VERBS: &[&str] = &[
-    "buy", "buys", "buying", "purchased", "purchases", "purchasing", "purchase", "ordered", "orders",
-    "ordering", "order", "booked", "books", "booking", "book", "reserved", "reserves", "reserving",
-    "reserve", "rented", "rents", "renting", "rent", "subscribed", "subscribes", "subscribing",
-    "subscribe", "paid", "pays", "paying", "pay", "checkout", "add", "adds", "adding", "added",
-    "deliver", "delivers", "delivered", "ship", "ships", "shipped", "shipping", "apply", "applies",
-    "applying", "applied", "renew", "renews", "renewing", "upgrade", "upgrades", "upgrading", "use",
-    "uses", "using", "used", "grab", "signup", "register", "registers", "do", "does", "did", "done",
-    "doing", "open", "opens", "opening",
+    "buy",
+    "buys",
+    "buying",
+    "purchased",
+    "purchases",
+    "purchasing",
+    "purchase",
+    "ordered",
+    "orders",
+    "ordering",
+    "order",
+    "booked",
+    "books",
+    "booking",
+    "book",
+    "reserved",
+    "reserves",
+    "reserving",
+    "reserve",
+    "rented",
+    "rents",
+    "renting",
+    "rent",
+    "subscribed",
+    "subscribes",
+    "subscribing",
+    "subscribe",
+    "paid",
+    "pays",
+    "paying",
+    "pay",
+    "checkout",
+    "add",
+    "adds",
+    "adding",
+    "added",
+    "deliver",
+    "delivers",
+    "delivered",
+    "ship",
+    "ships",
+    "shipped",
+    "shipping",
+    "apply",
+    "applies",
+    "applying",
+    "applied",
+    "renew",
+    "renews",
+    "renewing",
+    "upgrade",
+    "upgrades",
+    "upgrading",
+    "use",
+    "uses",
+    "using",
+    "used",
+    "grab",
+    "signup",
+    "register",
+    "registers",
+    "do",
+    "does",
+    "did",
+    "done",
+    "doing",
+    "open",
+    "opens",
+    "opening",
+    // UI-action verbs (2026-11-03 audit #2): "Click the login button on
+    // example.com" must be OPERATE (browser routing accepts only operate),
+    // so the click/tap/scroll/select/submit/fill family belongs in the
+    // operational vocabulary. "type" deliberately absent (common noun magnet).
+    "click",
+    "clicks",
+    "clicked",
+    "clicking",
+    "tap",
+    "taps",
+    "tapped",
+    "tapping",
+    "scroll",
+    "scrolls",
+    "scrolling",
+    "select",
+    "selects",
+    "selecting",
+    "submit",
+    "submits",
+    "submitting",
+    "fill",
+    "fills",
+    "filling",
 ];
 
+// Direct-object site-taking verbs (2026-11-03 audit #2): "Open Zepto",
+// "Search Amazon for milk" — the verb's OBJECT is the destination itself.
+// "buy/order/find" deliberately absent: their objects are entities, not
+// sites ("Buy iPhone" must never scope iPhone as a website).
+const DO_SITE_VERBS: &[&str] = &[
+    "open",
+    "opens",
+    "opening",
+    "visit",
+    "visits",
+    "visiting",
+    "browse",
+    "browses",
+    "browsing",
+    "search",
+    "searches",
+    "searched",
+    "searching",
+    "lookup",
+    "lookups",
+    "use",
+    "uses",
+    "using",
+    "used",
+    "navigate",
+    "navigates",
+    "navigating",
+    "access",
+    "accesses",
+    "accessing",
+    "launch",
+    "launches",
+    "launching",
+];
+
+// Scaffold words that can never be a direct-object site ("Open the login
+// page", "Open my account" ⇒ nothing, not a "login"/"account" website).
+const DO_SCAFFOLD: &[&str] = &[
+    "login",
+    "logins",
+    "signin",
+    "button",
+    "buttons",
+    "link",
+    "links",
+    "tab",
+    "tabs",
+    "form",
+    "forms",
+    "menu",
+    "menus",
+    "setting",
+    "settings",
+    "search",
+    "bar",
+    "screen",
+    "window",
+    "dashboard",
+    "account",
+    "page",
+    "pages",
+    "app",
+    "apps",
+    "site",
+    "website",
+];
+
+// Coordinating conjunctions END the Pass-3 backward scan: an eligible verb
+// from a different coordinated instruction must not license this NP.
+const CONJ_STOPS: &[&str] = &["and", "or", "but", "then", "nor"];
+
 const FIND_VERBS: &[&str] = &[
-    "find", "finds", "finding", "search", "searches", "searched", "searching", "check", "checks",
-    "checked", "checking", "read", "reads", "see", "sees", "show", "shows", "showing", "browse",
-    "browses", "browsing", "explore", "explores", "exploring", "look", "looks", "looking", "lookup",
-    "lookups", "track", "tracks", "tracking", "visit", "visits", "visiting", "open", "opens",
-    "opening", "review", "reviews", "reviewed", "rate", "rates", "rated", "watch", "watches",
+    "find",
+    "finds",
+    "finding",
+    "search",
+    "searches",
+    "searched",
+    "searching",
+    "check",
+    "checks",
+    "checked",
+    "checking",
+    "read",
+    "reads",
+    "see",
+    "sees",
+    "show",
+    "shows",
+    "showing",
+    "browse",
+    "browses",
+    "browsing",
+    "explore",
+    "explores",
+    "exploring",
+    "look",
+    "looks",
+    "looking",
+    "lookup",
+    "lookups",
+    "track",
+    "tracks",
+    "tracking",
+    "visit",
+    "visits",
+    "visiting",
+    "open",
+    "opens",
+    "opening",
+    "review",
+    "reviews",
+    "reviewed",
+    "rate",
+    "rates",
+    "rated",
+    "watch",
+    "watches",
     "watching",
 ];
 
 const CUE_NOUNS: &[&str] = &[
-    "price", "prices", "cost", "costs", "rate", "rates", "pricing", "menu", "menus", "stock",
-    "availability", "review", "reviews", "rating", "ratings", "deal", "deals", "offer", "offers",
-    "discount", "discounts", "coupon", "coupons", "delivery", "shipping", "listing", "listings",
-    "status", "catalog", "catalogue", "invoice", "receipt", "balance", "order", "orders", "cart",
-    "checkout", "subscription",
+    "price",
+    "prices",
+    "cost",
+    "costs",
+    "rate",
+    "rates",
+    "pricing",
+    "menu",
+    "menus",
+    "stock",
+    "availability",
+    "review",
+    "reviews",
+    "rating",
+    "ratings",
+    "deal",
+    "deals",
+    "offer",
+    "offers",
+    "discount",
+    "discounts",
+    "coupon",
+    "coupons",
+    "delivery",
+    "shipping",
+    "listing",
+    "listings",
+    "status",
+    "catalog",
+    "catalogue",
+    "invoice",
+    "receipt",
+    "balance",
+    "order",
+    "orders",
+    "cart",
+    "checkout",
+    "subscription",
 ];
 
 const COMPARE_WORDS: &[&str] = &[
-    "compare", "compares", "compared", "comparison", "comparing", "vs", "versus",
+    "compare",
+    "compares",
+    "compared",
+    "comparison",
+    "comparing",
+    "vs",
+    "versus",
 ];
-const COMPARE_ADJ: &[&str] = &[
-    "better", "worse", "cheaper", "costlier", "faster", "slower",
-];
+const COMPARE_ADJ: &[&str] = &["better", "worse", "cheaper", "costlier", "faster", "slower"];
 
 // Generic sentence-scaffold words. A noun phrase that STARTS with one of
 // these is never a site name — this (plus the detector-only path) is what
 // retired the `site:what.com` bug: sentence-initial "What" can no longer
 // become a "brand".
 const GENERIC_FIRST: &[&str] = &[
-    "what", "when", "where", "why", "how", "who", "whom", "whose", "which", "whether",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+    "who",
+    "whom",
+    "whose",
+    "which",
+    "whether",
     // protocol words are sentence scaffolding, never site names ("https" as
     // an NP head would otherwise fabricate the phrase "https www.x.com").
-    "http", "https", "www", "the", "a", "an", "some", "any", "no", "not", "this", "that", "these",
-    "those", "it", "its", "i", "you", "he", "she", "we", "they", "them", "me", "my", "your", "his",
-    "her", "our", "their", "every", "each", "both", "either", "neither", "all", "most", "more",
-    "less", "few", "many", "several", "one", "two", "three", "another", "other", "others", "such",
-    "own", "best", "better", "top", "cheapest", "cheap", "expensive", "official", "online", "new",
-    "latest", "same", "nearby", "local", "recent", "current", "general", "store", "stores", "shop",
-    "shops", "market", "markets", "mall", "malls", "website", "websites", "site", "sites", "app",
-    "apps", "platform", "platforms", "portal", "portals", "page", "pages", "internet", "web",
-    "home", "house", "office", "offices", "city", "town", "country", "state", "district", "area",
-    "region", "place", "near", "nearest", "different", "order", "orders", "cart", "checkout",
-    "milk", "beer", "wine", "water", "bread", "egg", "eggs", "coffee", "tea", "juice", "soda",
-    "snack", "snacks", "grocery", "groceries", "vegetable", "vegetables", "fruit", "fruits", "food",
-    "meal", "meals", "ticket", "tickets", "seat", "seats", "table", "tables", "room", "rooms",
-    "hotel", "hotels", "flight", "flights", "cab", "cabs", "car", "cars", "bike", "bikes",
-    "scooter", "job", "jobs", "movie", "movies", "song", "songs", "book", "books", "gift", "gifts",
-    "flower", "flowers", "medicine", "medicines", "pill", "pills", "phone", "phones", "laptop",
-    "laptops", "shoe", "shoes", "shirt", "shirts", "dress", "dresses", "saree", "kurta",
+    "http",
+    "https",
+    "www",
+    "the",
+    "a",
+    "an",
+    "some",
+    "any",
+    "no",
+    "not",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "i",
+    "you",
+    "he",
+    "she",
+    "we",
+    "they",
+    "them",
+    "me",
+    "my",
+    "your",
+    "his",
+    "her",
+    "our",
+    "their",
+    "every",
+    "each",
+    "both",
+    "either",
+    "neither",
+    "all",
+    "most",
+    "more",
+    "less",
+    "few",
+    "many",
+    "several",
+    "one",
+    "two",
+    "three",
+    "another",
+    "other",
+    "others",
+    "such",
+    "own",
+    "best",
+    "better",
+    "top",
+    "cheapest",
+    "cheap",
+    "expensive",
+    "official",
+    "online",
+    "new",
+    "latest",
+    "same",
+    "nearby",
+    "local",
+    "recent",
+    "current",
+    "general",
+    "store",
+    "stores",
+    "shop",
+    "shops",
+    "market",
+    "markets",
+    "mall",
+    "malls",
+    "website",
+    "websites",
+    "site",
+    "sites",
+    "app",
+    "apps",
+    "platform",
+    "platforms",
+    "portal",
+    "portals",
+    "page",
+    "pages",
+    "internet",
+    "web",
+    "home",
+    "house",
+    "office",
+    "offices",
+    "city",
+    "town",
+    "country",
+    "state",
+    "district",
+    "area",
+    "region",
+    "place",
+    "near",
+    "nearest",
+    "different",
+    "order",
+    "orders",
+    "cart",
+    "checkout",
+    "milk",
+    "beer",
+    "wine",
+    "water",
+    "bread",
+    "egg",
+    "eggs",
+    "coffee",
+    "tea",
+    "juice",
+    "soda",
+    "snack",
+    "snacks",
+    "grocery",
+    "groceries",
+    "vegetable",
+    "vegetables",
+    "fruit",
+    "fruits",
+    "food",
+    "meal",
+    "meals",
+    "ticket",
+    "tickets",
+    "seat",
+    "seats",
+    "table",
+    "tables",
+    "room",
+    "rooms",
+    "hotel",
+    "hotels",
+    "flight",
+    "flights",
+    "cab",
+    "cabs",
+    "car",
+    "cars",
+    "bike",
+    "bikes",
+    "scooter",
+    "job",
+    "jobs",
+    "movie",
+    "movies",
+    "song",
+    "songs",
+    "book",
+    "books",
+    "gift",
+    "gifts",
+    "flower",
+    "flowers",
+    "medicine",
+    "medicines",
+    "pill",
+    "pills",
+    "phone",
+    "phones",
+    "laptop",
+    "laptops",
+    "shoe",
+    "shoes",
+    "shirt",
+    "shirts",
+    "dress",
+    "dresses",
+    "saree",
+    "kurta",
 ];
 
 // NP terminators (function words).
@@ -241,9 +643,9 @@ const STOP_TOKENS: &[&str] = &[
 
 // Words stripped from the END of a noun phrase ("Blinkit App" → "Blinkit").
 const TRAILING_STRIP: &[&str] = &[
-    "app", "website", "site", "platform", "portal", "online", "order", "orders", "cart", "checkout",
-    "page", "pages", "account", "delivery", "now", "today", "here", "there", "quickly", "pls",
-    "please", "side",
+    "app", "website", "site", "platform", "portal", "online", "order", "orders", "cart",
+    "checkout", "page", "pages", "account", "delivery", "now", "today", "here", "there", "quickly",
+    "pls", "please", "side",
 ];
 
 const ARTICLES: &[&str] = &["the", "a", "an"];
@@ -253,17 +655,67 @@ const POST_NP_REJECT: &[&str] = &["that", "which", "who", "was", "were"];
 
 const ONLY_LEAD: &[&str] = &["only", "just", "strictly"];
 const ONLY_VERB: &[&str] = &[
-    "use", "uses", "using", "used", "from", "on", "via", "through", "search", "searches",
-    "searched", "searching", "check", "checks", "checking", "browse", "browses", "browsing",
-    "order", "orders", "ordering", "buy", "buys", "buying",
+    "use",
+    "uses",
+    "using",
+    "used",
+    "from",
+    "on",
+    "via",
+    "through",
+    "search",
+    "searches",
+    "searched",
+    "searching",
+    "check",
+    "checks",
+    "checking",
+    "browse",
+    "browses",
+    "browsing",
+    "order",
+    "orders",
+    "ordering",
+    "buy",
+    "buys",
+    "buying",
 ];
 const EXCL_LEAD: &[&str] = &[
-    "don't", "dont", "never", "avoid", "avoided", "avoiding", "without", "exclude", "excluding",
+    "don't",
+    "dont",
+    "never",
+    "avoid",
+    "avoided",
+    "avoiding",
+    "without",
+    "exclude",
+    "excluding",
 ];
 const EXCL_VERB: &[&str] = &[
-    "use", "using", "uses", "used", "from", "on", "via", "through", "search", "searching",
-    "searched", "check", "checking", "browse", "browsing", "order", "ordering", "order", "buy",
-    "buying", "see", "seeing", "show", "showing",
+    "use",
+    "using",
+    "uses",
+    "used",
+    "from",
+    "on",
+    "via",
+    "through",
+    "search",
+    "searching",
+    "searched",
+    "check",
+    "checking",
+    "browse",
+    "browsing",
+    "order",
+    "ordering",
+    "order",
+    "buy",
+    "buying",
+    "see",
+    "seeing",
+    "show",
+    "showing",
 ];
 const AUTH_LEAD1: &[&str] = &["allowed", "permitted"];
 const AUTH_VERB: &[&str] = &[
@@ -271,7 +723,14 @@ const AUTH_VERB: &[&str] = &[
 ];
 
 const RESEARCH_CUE_WORDS: &[&str] = &[
-    "search", "searches", "searching", "research", "latest", "current", "recent", "news",
+    "search",
+    "searches",
+    "searching",
+    "research",
+    "latest",
+    "current",
+    "recent",
+    "news",
     "explain",
 ];
 const INTERROG: &[&str] = &["who", "what", "when", "where", "why", "how", "which"];
@@ -279,8 +738,8 @@ const COPULAS: &[&str] = &[
     "is", "was", "are", "were", "will", "would", "can", "could", "does", "did", "has", "have",
 ];
 const FOLLOW_CUES: &[&str] = &[
-    "it", "them", "this", "that", "same", "again", "too", "also", "then", "now", "but", "and",
-    "here", "there",
+    "it", "its", "them", "this", "that", "same", "again", "too", "also", "then", "now", "but",
+    "and", "here", "there",
 ];
 
 fn in_list(list: &[&str], w: &str) -> bool {
@@ -343,7 +802,7 @@ struct Np {
     words: Vec<String>,
     first_tok: usize,
     last_tok: usize, // inclusive
-    next: usize,    // first token index after the NP
+    next: usize,     // first token index after the NP
 }
 
 /// Collect a noun phrase starting at token `i`. Terminates on stop words,
@@ -486,8 +945,10 @@ struct MutableTarget {
     phrase: String,
     span_start: usize, // prompt byte offsets (for sort + overlap)
     span_end: usize,
-    // (first_tok/last_tok live on `Np` — the token indices are only needed
-    // at creation/consumption time, never after.)
+    // Token index of the NP head (usize::MAX for detector-promoted targets).
+    // Needed by the Pass-3b clause gate: a verb whose clause already
+    // produced a token target has an ENTITY object, not a site.
+    first_tok: usize,
     state: TargetState,
     host: String,
     url: String,
@@ -515,6 +976,7 @@ fn push_target(
         phrase: np.words.join(" "),
         span_start: toks[np.first_tok].start,
         span_end: toks[np.last_tok].end,
+        first_tok: np.first_tok,
         state: TargetState::Unresolved,
         host: String::new(),
         url: String::new(),
@@ -537,12 +999,7 @@ fn overlaps_target(targets: &[MutableTarget], ss: usize, se: usize) -> bool {
     targets.iter().any(|t| ss < t.span_end && se > t.span_start)
 }
 
-fn overlaps_consumed(
-    toks: &[Tok],
-    consumed: &HashSet<usize>,
-    ss: usize,
-    se: usize,
-) -> bool {
+fn overlaps_consumed(toks: &[Tok], consumed: &HashSet<usize>, ss: usize, se: usize) -> bool {
     toks.iter()
         .enumerate()
         .any(|(i, t)| consumed.contains(&i) && ss < t.end && se > t.start)
@@ -560,6 +1017,7 @@ fn promoted_target(d: &Det, prov: TargetProvenance) -> MutableTarget {
         phrase: d.raw.clone(),
         span_start: d.span_start,
         span_end: d.span_end,
+        first_tok: usize::MAX, // detector span, not a token NP
         state: TargetState::Resolved,
         host: det_host(d),
         url: d.url.clone(),
@@ -569,7 +1027,10 @@ fn promoted_target(d: &Det, prov: TargetProvenance) -> MutableTarget {
 }
 
 fn eligible_word(w: &str) -> bool {
-    in_list(OP_VERBS, w) || in_list(FIND_VERBS, w) || in_list(CUE_NOUNS, w) || in_list(COMPARE_WORDS, w)
+    in_list(OP_VERBS, w)
+        || in_list(FIND_VERBS, w)
+        || in_list(CUE_NOUNS, w)
+        || in_list(COMPARE_WORDS, w)
 }
 
 /// Derive the TaskScope for ONE user prompt. Pure, deterministic,
@@ -754,7 +1215,8 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
                     while jn < n && in_list(CMP_SKIP, &toks[jn].clean) {
                         jn += 1;
                     }
-                    if let Some(b) = collect_np(prompt, &toks, &boundary, jn, Some(CMP_STOPS), true) {
+                    if let Some(b) = collect_np(prompt, &toks, &boundary, jn, Some(CMP_STOPS), true)
+                    {
                         push_target(&mut targets, &mut consumed, n, &toks, &b);
                     }
                 }
@@ -768,21 +1230,22 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
         if !in_list(PREPS, &toks[p].clean) || consumed.contains(&p) || boundary[p] {
             continue;
         }
-        // Window: scan back ≤8 tokens, stopping at the clause boundary — an
-        // eligible word from a PREVIOUS clause must not license this NP.
-        let lo = p.saturating_sub(8);
+        // Scan back to the clause start — no fixed token cap (2026-11-03
+        // audit #2: the old 8-token window lost "Amazon" in "Find Samsung
+        // Galaxy S24 Ultra 256 GB Titanium Gray on Amazon.", where the
+        // eligible verb sits past an arbitrarily long entity NP). The scan
+        // stops at the clause boundary (a previous clause must not license
+        // this NP) and at a coordinating conjunction (a verb from another
+        // coordinated instruction must not license it either).
         let mut eligible = false;
         let mut j = p;
         while j > 0 {
             j -= 1;
-            if boundary[j] {
+            if boundary[j] || in_list(CONJ_STOPS, &toks[j].clean) {
                 break;
             }
             if eligible_word(&toks[j].clean) {
                 eligible = true;
-                break;
-            }
-            if j == lo {
                 break;
             }
         }
@@ -796,7 +1259,65 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
             push_target(&mut targets, &mut consumed, n, &toks, &np);
             // "amazon and flipkart" → a SECOND target (not one phrase).
             if np.next < n && (toks[np.next].clean == "and" || toks[np.next].clean == "or") {
-                if let Some(two) = guarded_single(prompt, &toks, &boundary, np.next as i64 + 1, None)
+                if let Some(two) =
+                    guarded_single(prompt, &toks, &boundary, np.next as i64 + 1, None)
+                {
+                    if !consumed.contains(&two.first_tok) {
+                        push_target(&mut targets, &mut consumed, n, &toks, &two);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Pass 3b: direct-object destinations ("Open Zepto", "Search Amazon
+    // for milk") ────────────────────────────────────────────────────────────
+    // A site-taking verb whose OBJECT is the destination itself (2026-11-03
+    // audit #2: these forms produced no target at all). Gated three ways so
+    // an entity object never masquerades as a site: (1) if this clause
+    // already produced a token target, the verb's object was the entity —
+    // the site was licensed by a preposition ("Find <product> on Amazon");
+    // (2) the NP must be a SINGLE word after trailing-token stripping
+    // (multiword objects like "a new tab" are not site names); (3) the word
+    // must not be UI scaffold ("Open the login page" ⇒ nothing, not a
+    // "login" website). Detector spans still merge in Pass 4, so domain
+    // objects ("use reddit.com") resolve to explicit hosts through the
+    // normal funnel.
+    for v in 0..n {
+        if consumed.contains(&v) || boundary[v] || !in_list(DO_SITE_VERBS, &toks[v].clean) {
+            continue;
+        }
+        // A verb sitting right after a preposition/article is being used as
+        // a NOUN at that position ("in the select tier-select" — HTML
+        // <select>), not commanding an object. Skip it.
+        if v > 0 && (in_list(PREPS, &toks[v - 1].clean) || in_list(ARTICLES, &toks[v - 1].clean)) {
+            continue;
+        }
+        let mut clause_end = n;
+        for b in v + 1..n {
+            if boundary[b] {
+                clause_end = b;
+                break;
+            }
+        }
+        if targets
+            .iter()
+            .any(|t| t.first_tok > v && t.first_tok < clause_end)
+        {
+            continue;
+        }
+        if let Some(np) = collect_np(prompt, &toks, &boundary, v + 1, None, true) {
+            if np.words.len() != 1 || consumed.contains(&np.first_tok) {
+                continue;
+            }
+            let w = np.words[0].to_lowercase();
+            if in_list(DO_SCAFFOLD, &w) {
+                continue;
+            }
+            push_target(&mut targets, &mut consumed, n, &toks, &np);
+            if np.next < n && (toks[np.next].clean == "and" || toks[np.next].clean == "or") {
+                if let Some(two) =
+                    guarded_single(prompt, &toks, &boundary, np.next as i64 + 1, None)
                 {
                     if !consumed.contains(&two.first_tok) {
                         push_target(&mut targets, &mut consumed, n, &toks, &two);
@@ -837,11 +1358,14 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
         if overlaps_consumed(&toks, &consumed, d.span_start, d.span_end) {
             continue;
         }
-        let bare_untied = dets.iter().filter(|o| {
-            !o.has_scheme
-                && !overlaps_target(&targets, o.span_start, o.span_end)
-                && !overlaps_consumed(&toks, &consumed, o.span_start, o.span_end)
-        }).count();
+        let bare_untied = dets
+            .iter()
+            .filter(|o| {
+                !o.has_scheme
+                    && !overlaps_target(&targets, o.span_start, o.span_end)
+                    && !overlaps_consumed(&toks, &consumed, o.span_start, o.span_end)
+            })
+            .count();
         if compare_cue || bare_untied == 1 {
             targets.push(promoted_target(d, TargetProvenance::ExplicitDomain));
         }
@@ -952,10 +1476,12 @@ fn capped_sorted(mut hosts: Vec<String>, max: usize) -> Vec<String> {
 }
 
 /// Resolve ONE unresolved target against ranked candidate URLs/hosts.
-/// Law: an EQUALITY match (normalized phrase === registrable label) outranks
-/// containment; several distinct equality hosts ⇒ ambiguous (clarification
-/// territory, brief #4); zero matches leaves the target unresolved — the
-/// system never guesses a domain.
+/// Law (2026-11-03 audit #5): identity is EQUALITY ONLY — the normalized
+/// phrase must equal the registrable label. Prefix/containment resemblance
+/// NEVER resolves: zeptodiscounts.com is not Zepto, and PSL validity plus
+/// string similarity is not identity evidence. Several distinct equality
+/// hosts ⇒ ambiguous (clarification territory, brief #4); zero matches
+/// leaves the target unresolved — the system never guesses a domain.
 pub fn resolve_target(
     t: &SiteTarget,
     candidates: &[String],
@@ -971,7 +1497,6 @@ pub fn resolve_target(
     }
 
     let mut eq_hosts: Vec<String> = Vec::new();
-    let mut con_hosts: Vec<String> = Vec::new();
     for c_raw in candidates {
         let Some(host) = candidate_host(c_raw) else {
             continue;
@@ -981,16 +1506,8 @@ pub fn resolve_target(
         if ln.is_empty() {
             continue;
         }
-        let eq = ln == pn;
-        let con = !eq
-            && ((ln.starts_with(&pn) && pn.chars().count() >= 4)
-                || (pn.starts_with(&ln) && ln.chars().count() >= 4));
-        if eq {
-            if !eq_hosts.contains(&host) {
-                eq_hosts.push(host);
-            }
-        } else if con && !con_hosts.contains(&host) {
-            con_hosts.push(host);
+        if ln == pn && !eq_hosts.contains(&host) {
+            eq_hosts.push(host);
         }
     }
 
@@ -1007,22 +1524,6 @@ pub fn resolve_target(
         r.state = TargetState::Ambiguous;
         r.host = String::new();
         r.candidates = capped_sorted(eq_hosts, max);
-        r.provenance = TargetProvenance::Ambiguous;
-        return r;
-    }
-    if con_hosts.len() == 1 {
-        let mut r = t.clone();
-        r.state = TargetState::Resolved;
-        r.host = con_hosts.remove(0);
-        r.candidates = Vec::new();
-        r.provenance = provenance;
-        return r;
-    }
-    if con_hosts.len() > 1 {
-        let mut r = t.clone();
-        r.state = TargetState::Ambiguous;
-        r.host = String::new();
-        r.candidates = capped_sorted(con_hosts, max);
         r.provenance = TargetProvenance::Ambiguous;
         return r;
     }
@@ -1046,26 +1547,78 @@ pub fn resolve_task_scope(
 
 // ─── Turn-to-turn continuity (brief #6: follow-ups must not lose scope) ────
 
+/// Two-tier continuation law (2026-11-03 audit #5: "every short request
+/// counted as continuation" carried a prior purchase into "Write a short
+/// poem"). Tier 1: an ANAPHORIC cue (it/them/this/same/again/…) marks a
+/// follow-up anywhere in the turn. Tier 2: a bare elliptical FRAGMENT — at
+/// most six tokens and OPENING with an interrogative, preposition, article,
+/// or "only" — continues only when it carries no intent of its own. A full
+/// request with its own verb ("Write a short poem") is never a follow-up.
 pub fn is_follow_up(prompt: &str) -> bool {
     let toks = tokenize(prompt);
-    if toks.len() <= 6 {
+    if toks.is_empty() {
+        return false;
+    }
+    if toks.iter().any(|t| in_list(FOLLOW_CUES, &t.clean)) {
         return true;
     }
-    toks.iter().any(|t| in_list(FOLLOW_CUES, &t.clean))
+    if toks.len() > 6 {
+        return false;
+    }
+    let head = toks[0].clean.as_str();
+    is_interrog(head) || in_list(PREPS, head) || in_list(ARTICLES, head) || in_list(ONLY_LEAD, head)
+}
+
+fn union_lists(a: &[String], b: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for x in a.iter().chain(b.iter()) {
+        if !out.contains(x) {
+            out.push(x.clone());
+        }
+    }
+    out
 }
 
 /// Merge the previous turn's scope with this turn's derivation.
-/// A fresh non-empty derivation REPLACES (target changes / unrelated ask
-/// must not leak the old constraint); an empty derivation on a follow-up
-/// INHERITS (recovery and short follow-ups must not silently broaden scope).
+/// 1. A fresh derivation with DESTINATIONS replaces (explicit target change
+///    wins outright).
+/// 2. An intent-only turn (intent, no destinations): on an anaphoric
+///    follow-up, KEEP the previous destinations — the research-cue heuristic
+///    must not erase an operate destination ("What is its rating?" keeps
+///    Zepto) — while the turn's own restrictions/authorizations merge in.
+///    Non-anaphoric intent turns stand alone.
+/// 3. A derivation with neither intent nor destinations inherits the previous
+///    scope on a genuine follow-up; otherwise the topic changed and the
+///    scope RESETS.
 pub fn merge_task_scope(prev: Option<&TaskScope>, prompt: &str) -> TaskScope {
     let derived = derive_task_scope(prompt);
-    if !derived.targets.is_empty() || derived.intent != TaskIntent::NoScope {
+    if !derived.targets.is_empty() {
         return derived;
     }
+    let toks = tokenize(prompt);
+    let anaphoric = toks.iter().any(|t| in_list(FOLLOW_CUES, &t.clean));
     if let Some(p) = prev {
-        if p.intent != TaskIntent::NoScope && is_follow_up(prompt) {
-            return p.clone();
+        if p.intent != TaskIntent::NoScope {
+            if derived.intent != TaskIntent::NoScope {
+                if anaphoric {
+                    let intent = if derived.intent == TaskIntent::Research {
+                        p.intent
+                    } else {
+                        derived.intent
+                    };
+                    let mut r = p.clone();
+                    r.intent = intent;
+                    r.excluded_phrases =
+                        union_lists(&p.excluded_phrases, &derived.excluded_phrases);
+                    r.authorized_hosts =
+                        union_lists(&p.authorized_hosts, &derived.authorized_hosts);
+                    return r;
+                }
+                return derived;
+            }
+            if is_follow_up(prompt) {
+                return p.clone();
+            }
         }
     }
     derived
@@ -1194,8 +1747,14 @@ mod tests {
 
     #[test]
     fn registrable_host_psl_parity() {
-        assert_eq!(registrable_host("https://www.zepto.com/x").as_deref(), Some("zepto.com"));
-        assert_eq!(registrable_host("docs.example.dev").as_deref(), Some("example.dev"));
+        assert_eq!(
+            registrable_host("https://www.zepto.com/x").as_deref(),
+            Some("zepto.com")
+        );
+        assert_eq!(
+            registrable_host("docs.example.dev").as_deref(),
+            Some("example.dev")
+        );
         assert_eq!(registrable_host(""), None);
         assert_eq!(registrable_host("http://localhost:3000/x").as_deref(), None);
     }
@@ -1215,7 +1774,10 @@ mod tests {
             "what about the delivery fee".to_string(),
         ]);
         assert!(!s.targets.is_empty());
-        assert!(s.targets.iter().any(|t| t.phrase.eq_ignore_ascii_case("zepto")));
+        assert!(s
+            .targets
+            .iter()
+            .any(|t| t.phrase.eq_ignore_ascii_case("zepto")));
     }
 
     #[test]
@@ -1226,7 +1788,10 @@ mod tests {
             "Order milk on Zepto".to_string(),
             "compare amazon.com vs flipkart.com laptops".to_string(),
         ]);
-        assert!(s.targets.iter().all(|t| !t.phrase.eq_ignore_ascii_case("zepto")));
+        assert!(s
+            .targets
+            .iter()
+            .all(|t| !t.phrase.eq_ignore_ascii_case("zepto")));
         assert!(!s.targets.is_empty());
     }
 
@@ -1294,9 +1859,19 @@ mod tests {
         ];
         for p in PROMPTS {
             let s = derive_task_scope(p);
-            assert!(!s.targets.is_empty(), "acceptance prompt lost its site target: {p}");
-            assert_eq!(s.intent, TaskIntent::Operate, "acceptance prompt not operational: {p}");
-            assert!(routes_to_browser_turn(&s), "acceptance prompt must route to the browser loop: {p}");
+            assert!(
+                !s.targets.is_empty(),
+                "acceptance prompt lost its site target: {p}"
+            );
+            assert_eq!(
+                s.intent,
+                TaskIntent::Operate,
+                "acceptance prompt not operational: {p}"
+            );
+            assert!(
+                routes_to_browser_turn(&s),
+                "acceptance prompt must route to the browser loop: {p}"
+            );
         }
     }
 

@@ -58,20 +58,15 @@ fn re_url() -> &'static Regex {
 fn re_www() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)(?-u:\bwww\.[\w-]+(?:\.[\w-]+)+)(?:/[^\s"'<>\[\]]*)?"#,
-        )
-        .unwrap()
+        Regex::new(r#"(?i)(?-u:\bwww\.[\w-]+(?:\.[\w-]+)+)(?:/[^\s"'<>\[\]]*)?"#).unwrap()
     })
 }
 
 fn re_bare() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)(?-u:\b((?:[a-z0-9][a-z0-9-]*\.){1,6}[a-z]{2,24}))(/[^\s"'<>\[\]]*)?"#,
-        )
-        .unwrap()
+        Regex::new(r#"(?i)(?-u:\b((?:[a-z0-9][a-z0-9-]*\.){1,6}[a-z]{2,24}))(/[^\s"'<>\[\]]*)?"#)
+            .unwrap()
     })
 }
 
@@ -216,7 +211,10 @@ pub fn detect_urls_and_domains(prompt: &str, exclude_file_tokens: bool) -> Vec<D
 /// Convenience: just the normalized https:// URLs. Empty when nothing
 /// detected.
 pub fn detect_prompt_urls(prompt: &str) -> Vec<String> {
-    detect_urls_and_domains(prompt, true).into_iter().map(|d| d.url).collect()
+    detect_urls_and_domains(prompt, true)
+        .into_iter()
+        .map(|d| d.url)
+        .collect()
 }
 
 #[cfg(test)]
@@ -257,7 +255,10 @@ mod tests {
 
     #[test]
     fn detects_wildcard_suffix_subdomains() {
-        let out = detect_urls_and_domains("my deploy lives on my-site.vercel.app and repo.github.io", true);
+        let out = detect_urls_and_domains(
+            "my deploy lives on my-site.vercel.app and repo.github.io",
+            true,
+        );
         let domains: Vec<&str> = out.iter().map(|d| d.domain.as_str()).collect();
         assert!(domains.contains(&"my-site.vercel.app"), "{domains:?}");
         assert!(domains.contains(&"repo.github.io"), "{domains:?}");
@@ -272,7 +273,10 @@ mod tests {
         let urls: Vec<&str> = out.iter().map(|d| d.url.as_str()).collect();
         assert!(urls.contains(&"https://skiran.dev/projects"), "{urls:?}");
         // bare repeat of an already-detected host is skipped
-        assert_eq!(urls.iter().filter(|u| **u == "https://skiran.dev").count(), 0);
+        assert_eq!(
+            urls.iter().filter(|u| **u == "https://skiran.dev").count(),
+            0
+        );
         assert!(urls.contains(&"https://www.example.co.uk"), "{urls:?}");
     }
 
@@ -293,20 +297,33 @@ mod tests {
 
     #[test]
     fn guard_exempts_scheme_and_www_prefixed_file_urls() {
-        let urls = detect_prompt_urls("fetch https://example.com/app.ts and www.example.com/index.html");
-        assert!(urls.iter().any(|u| u.starts_with("https://example.com/app.ts")), "{urls:?}");
-        assert!(urls.iter().any(|u| u.starts_with("https://www.example.com/index.html")), "{urls:?}");
+        let urls =
+            detect_prompt_urls("fetch https://example.com/app.ts and www.example.com/index.html");
+        assert!(
+            urls.iter()
+                .any(|u| u.starts_with("https://example.com/app.ts")),
+            "{urls:?}"
+        );
+        assert!(
+            urls.iter()
+                .any(|u| u.starts_with("https://www.example.com/index.html")),
+            "{urls:?}"
+        );
     }
 
     #[test]
     fn skips_version_numbers_and_short_dotted_noise() {
-        let out = detect_urls_and_domains("v1.2.3 of the v2.11.0 release, e.g. this, i.e. that", true);
+        let out =
+            detect_urls_and_domains("v1.2.3 of the v2.11.0 release, e.g. this, i.e. that", true);
         assert!(out.is_empty(), "{out:?}");
     }
 
     #[test]
     fn no_false_positive_on_ordinary_prose() {
-        let out = detect_urls_and_domains("tell me about recursion in plain English, no web needed", true);
+        let out = detect_urls_and_domains(
+            "tell me about recursion in plain English, no web needed",
+            true,
+        );
         assert!(out.is_empty(), "{out:?}");
     }
 

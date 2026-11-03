@@ -7,7 +7,6 @@ members = [
     "crates/ruke-skills",
     "crates/ruke-decision",
     "crates/ruke-attach",
-    "crates/ruke-websearch",
     "crates/ruke-browser",
 ]
 
@@ -26,7 +25,6 @@ ruke-attach = { path = "crates/ruke-attach" }
 # Part 6 (web search): parity port of lib/web-search. W0 owns the shared
 # dependency set for this crate — later Part-6 agents must NOT edit the
 # root manifest; crate-local needs already covered here.
-ruke-websearch = { path = "crates/ruke-websearch" }
 # Browser Use engine (RUKE-IMPLEMENTATION-PLAN): Rust-controlled Chromium
 # over CDP-over-WebSocket. tokio-tungstenite: loopback ws:// only (CDP
 # endpoint is 127.0.0.1), so TLS features stay off.

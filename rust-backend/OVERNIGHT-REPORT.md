@@ -1,5 +1,10 @@
 # RUKE Next.js→Rust Migration — Overnight Run Report (Parts 6–8)
 
+> **HISTORICAL (marked 2026-11-03):** This is the migration-era run report.
+> Part 8's Rust web-search (`crates/ruke-websearch`) has since been REMOVED —
+> ownership rolled back to TypeScript on 2026-11-03
+> (`handover/2026-11-03-ts-rollback/RESTORATION-MANIFEST.md`).
+
 Run date: 2026-10-27 (evening → overnight). Unattended run per the user brief: Parts 6→7→8 executed
 sequentially, each gated (tests → docs → commit); NO Playwright at any point; STOP before Part 9.
 

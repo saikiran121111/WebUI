@@ -28,9 +28,11 @@ function wreqLoad(): Promise<typeof import("wreq-js")> {
   if (!_wreqReady) _wreqReady = import("wreq-js").catch(() => (null as any));
   return _wreqReady;
 }
-async function wreqFetch(
+// Exported for the pinned wreq-API regression test (net-wreq.test.ts); the
+// cascade reaches it only via Pass C, which no hermetic cascade fixture can force.
+export async function wreqFetch(
   url: string,
-  opts: { method?: "GET" | "POST"; headers?: Record<string, string>; timeoutMs?: number },
+  opts: { method?: "GET" | "POST"; headers?: Record<string, string>; timeoutMs?: number } = {},
 ): Promise<{ status: number; ok: boolean; body: string; contentType: string; url: string } | null> {
   try {
     const wreq = await wreqLoad();
@@ -38,8 +40,12 @@ async function wreqFetch(
     const method: "GET" | "POST" = opts.method ?? "GET";
     const res = await (method === "POST" ? wreq.post : wreq.get)(url, {
       headers: opts.headers ?? {},
-      timeout: (opts.timeoutMs ?? 30_000) / 1000, // wreq takes seconds
-      emulate: "chrome",
+      // RESTORED-BUGFIX (rollback manifest §A.1): wreq-js 3.2.0 takes
+      // timeout in MILLISECONDS and names the client option `browser`.
+      // The historical code passed seconds under `emulate` (hidden by the
+      // `as any`): a 120 ms local response timed out with timeout:30.
+      timeout: opts.timeoutMs ?? 30_000,
+      browser: "chrome",
     } as any);
     const body: string = await res.text();
     return {
@@ -763,7 +769,7 @@ export async function fetchPage(
 ): Promise<PageResponse | null> {
   // DNS-aware entry guard (§P6): a public hostname whose A/AAAA records
   // resolve to a private address (DNS rebinding) is rejected before any
-  // pass runs. Rust mirrors this with a std ToSocketAddrs pre-check.
+  // pass runs.
   if (!(await isSafeUrlWithDns(url))) return null;
 
   const t0 = performance.now();
@@ -819,8 +825,7 @@ export async function fetchPage(
       const isBlock = BLOCK_STATUSES.includes(status);
 
       // impit follows redirects internally — revalidate the URL it ACTUALLY
-      // landed on (Rust mirror: reqwest Policy::custom per-hop + res.url()
-      // recheck). An unsafe landing is a dead pass, never a body.
+      // landed on. An unsafe landing is a dead pass, never a body.
       const finalUrl = String((res as any)?.url ?? url);
       if (!isSafeUrl(finalUrl)) {
         if (gotResp) return gotResp;

@@ -29,7 +29,7 @@ use tower::ServiceExt; // oneshot
 const SECRET: &str = "ui-routes-test-secret";
 
 fn secret_header() -> HeaderName {
-    HeaderName::from_static(ruke_websearch::browser_bridge::SECRET_HEADER)
+    HeaderName::from_static(ruke_server::ipc::SECRET_HEADER)
 }
 
 async fn body_json(res: axum::http::Response<Body>) -> Value {
@@ -108,7 +108,7 @@ async fn raw_handshake(
 
 #[tokio::test]
 async fn panel_ticket_and_socket_admission() {
-    std::env::set_var(ruke_websearch::browser_bridge::ENV_SECRET, SECRET);
+    std::env::set_var(ruke_server::ipc::ENV_SECRET, SECRET);
     let (state, _tmp) = common::test_state(None);
     // Same AppState ⇒ same Arc<BrowserRuntime> ⇒ the oneshot ticket hop
     // and the served socket share one ticket store.

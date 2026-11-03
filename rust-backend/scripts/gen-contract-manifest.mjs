@@ -10,8 +10,8 @@
  *   - lib/server/settings.ts  SettingsShape interface
  * The `headers`, `sseFrames` and `rpc` ledgers are the single canonical copy
  * of the wire facts that exist only as string literals in handler code; the
- * Rust tests (`crates/ruke-contracts/tests/manifest_drift.rs`,
- * `crates/ruke-websearch/tests/manifest_drift.rs`) and the vitest suite
+ * Rust test (`crates/ruke-contracts/tests/manifest_drift.rs`; the
+ * ruke-websearch binder was removed with the crate, 2026-11-03) and the vitest suite
  * (`__tests__/rust-golden/contract-manifest.test.ts`) both bind their side's
  * actual code to this manifest — change a spelling on either side and that
  * side's test fails until both sides and the manifest move together.
@@ -47,7 +47,7 @@ const settingsFields = extractInterface(read("lib/server/settings.ts"), "interfa
 // ── Canonical cross-language ledger (see header comment) ──────────────────
 const manifest = {
   $schema: "ruke-contract-manifest/v1",
-  note: "GENERATED — do not edit by hand. Regenerate with `npm run contracts:generate`; drift gate: `npm run contracts:check`. Rust binders: crates/ruke-contracts/tests/manifest_drift.rs, crates/ruke-websearch/tests/manifest_drift.rs. TS binder: __tests__/rust-golden/contract-manifest.test.ts.",
+  note: "GENERATED — do not edit by hand. Regenerate with `npm run contracts:generate`; drift gate: `npm run contracts:check`. Rust binder: crates/ruke-contracts/tests/manifest_drift.rs. TS binder: __tests__/rust-golden/contract-manifest.test.ts.",
   decisionModes: {
     order: [...RENDERER_MODES],
     skill: Object.fromEntries(RENDERER_MODES.map((m) => [m, MODE_SKILL[m]])),
@@ -104,36 +104,26 @@ const manifest = {
       rustProjectRoot: "RUKE_PROJECT_ROOT",
       serverBinOverride: "RUKE_SERVER_BIN",
     },
-    browserRead: {
-      path: "/api/internal/browser-read",
+    webResearch: {
+      path: "/api/internal/web-research",
       method: "POST",
-      requestFields: ["url", "timeoutMs"],
-      timeoutDefaultMs: 40000,
-      clientDeadlineSlackMs: 20000,
-      deadlineRule: "Rust client request timeout = timeoutMs (default 40000) + 20000 slack (browser_bridge.rs deadline_ms); the Next leg owns nav/response-size budgets",
-      errors: { unauthorized: "unauthorized", malformedBody: "Malformed JSON body", urlRequired: "url required" },
-      responseFields: [
-        "url", "finalUrl", "title", "status", "bodyText", "ariaSnapshot",
-        "jsonLd", "meta", "windowState", "ok", "error",
-      ],
-      responseFieldsSource:
-        "producer: extractPageInOnePass in lib/web-search/extractor.ts; consumer: OnePassExtraction in crates/ruke-websearch/src/browser_bridge.rs (camelCase, deny_unknown_fields, every non-url field #[serde(default)], error omitted-on-success on both sides)",
+      requestFields: ["prompt", "history", "hasImageAttachment", "hasAttachmentEvidence", "imageDataUrls", "scope"],
+      replyKind: "application/x-ndjson",
+      errors: { unauthorized: "Unauthorized", malformedBody: "Malformed JSON body", promptRequired: "prompt is required" },
+      terminalStatuses: ["bundle", "no_bundle", "error"],
+      frameRule:
+        'zero or more {"type":"progress",...} frames then exactly one {"type":"result",...} terminal frame; the Rust bridge (crates/ruke-server/src/chat/next_search.rs RESEARCH_PATH) relays progress frames as web:<kebab-stage> SSE frames and consumes the result frame in chat/pipeline.rs',
+      producers: "runWebResearch / buildMainModelContext in lib/web-search/pipeline.ts",
     },
-    youtubeEvidence: {
-      path: "/api/internal/youtube-evidence",
+    webTools: {
+      path: "/api/internal/web-tools",
       method: "POST",
-      requestFields: ["videoId"],
-      deadlineMs: 90000,
-      deadlineRule: "const RPC_DEADLINE_MS in crates/ruke-websearch/src/youtube_bridge.rs, compile-time-guarded to the 70000..120000 band",
-      errors: { unauthorized: "unauthorized", malformedBody: "Malformed JSON body", videoIdRequired: "videoId required (11-char id)" },
-      responseFields: ["videoId", "info", "transcript", "comments", "captionSource"],
-    },
-    mediaTranscript: {
-      path: "/api/internal/media-transcript",
-      method: "POST",
-      requestFields: ["url"],
-      errors: { unauthorized: "unauthorized", malformedBody: "Malformed JSON body", urlRequired: "url required" },
-      responseFields: ["ok", "url", "transcript"],
+      requestFields: ["action"],
+      actions: ["create", "exec", "discover", "close"],
+      errors: { unauthorized: "Unauthorized", malformedBody: "Malformed JSON body" },
+      envelopeRule:
+        "each reply is the model-facing tool envelope (ok/result, or ok:false + error + detail); Rust relays web_search/read_page envelopes to the model verbatim (chat/web_loop.rs); chat/browser_loop.rs consumes discover; the bridge const is TOOLS_PATH in chat/next_search.rs",
+      producers: "handleWebToolsRpc in lib/server/web-tools-rpc.ts over lib/web-search/tools.ts",
     },
   },
   proxyFailureContract: {

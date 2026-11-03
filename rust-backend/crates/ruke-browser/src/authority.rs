@@ -123,7 +123,7 @@ impl Decision {
 }
 
 /// Registrable domain for a URL string (the `psl::domain_str` precedent
-/// from `ruke-websearch::url_detector`): `sub.example.co.uk` keys on
+/// from `ruke_server::url_detector`, moved there 2026-11-03): `sub.example.co.uk` keys on
 /// `example.co.uk`. Unknown suffixes and single-label hosts (e.g.
 /// `localhost`) fall back to the full host so local dev fixtures still
 /// get stable policy rows.

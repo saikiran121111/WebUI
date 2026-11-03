@@ -96,8 +96,10 @@ function innertube(): Promise<any> {
 
 /* ── evidence sources ─────────────────────────────────────────────────── */
 
-/** Exported for the internal youtube-evidence RPC route (Rust bridge). */
-export async function getInfo(videoId: string): Promise<any | null> {
+/** InnerTube metadata: web session first, then the ANDROID client fallback
+ *  (different consent surface). Consumed by getYouTubeEvidence below; the
+ *  Rust youtube-evidence RPC consumer was removed 2026-11-03. */
+async function getInfo(videoId: string): Promise<any | null> {
   // Web session (cached).
   try {
     const it = await innertube();

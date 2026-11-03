@@ -4,8 +4,10 @@
 //! which wraps `embedOne` from `lib/server/attachindex/embed.ts`. The
 //! model itself STAYS Node-owned (extraction and index BUILD already ran
 //! it in-process; the migration keeps ONNX embedding in Node); only the
-//! chat-time QUERY vector now crosses the hop, exactly like Tier-3b
-//! shipped the Playwright pool behind `/api/internal/browser-read`.
+//! chat-time QUERY vector now crosses the hop — the same authenticated
+//! loopback pattern the retired Tier-3b seam used for the Playwright pool
+//! behind `/api/internal/browser-read` (route removed with the Rust
+//! web-search rollback, 2026-11-03).
 //!
 //! Why the seam had to close: with [`crate::UnavailableEmbedder`] in
 //! production, cosine slots all tie at 0.0, stable-sort seeds the top cos
@@ -69,7 +71,8 @@ impl HttpQueryEmbedder {
     /// [`crate::UnavailableEmbedder`] (documented degradation).
     /// NOTE: deliberately NO from_env unit test — process env is global
     /// state and cargo tests run in parallel (same precedent as
-    /// `ruke-websearch::youtube_bridge::HttpInnerTube::from_env`).
+    /// `ruke_server::chat::next_search::NextSearchBridge::from_env`; the
+    /// earlier InnerTube precedent lived in the removed ruke-websearch crate).
     pub fn from_env() -> Option<HttpQueryEmbedder> {
         let base = std::env::var(ENV_BASE_URL).ok()?;
         let secret = std::env::var(ENV_SECRET).ok()?;

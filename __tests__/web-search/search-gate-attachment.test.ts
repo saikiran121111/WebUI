@@ -1,6 +1,7 @@
 /**
  * APPROVED PART-10 PARITY DEVIATION — attachment-aware search gate.
- * Mirrors the Rust unit tests in ruke-websearch/src/search_gate.rs
+ * Mirrors the Rust unit tests that lived in ruke-websearch/src/search_gate.rs
+ * (crate removed 2026-11-03; these pins are now the sole owner)
  * (bypass_attachment_evidence_forces_no_search /
  *  bypass_attachment_escape_hatch_never_suppresses).
  *

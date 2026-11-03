@@ -19,17 +19,22 @@
 //!   skills — mounted under the Rust-only `/api/ruke/*` namespace for the
 //!   same reason: the plain paths stay Next-owned until the Part 8
 //!   cutover, and the guard test below pins that.
-//! - Part 8 (cutover support): the chat web-research seam is LIVE — the
-//!   pipeline now runs the full `ruke-websearch` gate/retrieval flow and
-//!   wires the `web:<stage>` frames, the `web_meta` frame, and the
-//!   citation/gate header pair exactly like `app/api/chat/route.ts`. The
-//!   search pair and the decision route join the namespace (`GET
-//!   /api/ruke/search`, `POST /api/ruke/search-more`, `POST
-//!   /api/ruke/decision`); the production cutover is env-gated inside the
-//!   Next routes (`scripts/dev-supervisor.mjs` exports
-//!   `RUKE_RUST_BACKEND=1`; unset ⇒ the TS handler runs verbatim), so the
-//!   plain paths still stay Next-owned ON THIS SERVER and the guard test
-//!   below keeps pinning that.
+//! - Part 8 (cutover support; amended by the 2026-11-03 TS-ownership
+//!   rollback): the chat web-research seam is LIVE but TS-OWNED — the
+//!   pipeline drives the Next-owned research/tool services over the
+//!   loopback bridge ([`chat::next_search`]) and wires the `web:<stage>`
+//!   frames, the `web_meta` frame, and the citation/gate header pair
+//!   exactly like `app/api/chat/route.ts`. ALL web search (gate,
+//!   retrieval, extraction, citations, tool sessions) executes in the
+//!   Node process even under RUKE_RUST_BACKEND=1; the retired
+//!   `/api/ruke/search` + `/api/ruke/search-more` pair is GONE (the Next
+//!   search routes no longer proxy to Rust at all). The decision route
+//!   joins the namespace (`POST /api/ruke/decision`); the production
+//!   cutover is env-gated inside the Next routes
+//!   (`scripts/dev-supervisor.mjs` exports `RUKE_RUST_BACKEND=1`; unset
+//!   ⇒ the TS handler runs verbatim), so the plain paths still stay
+//!   Next-owned ON THIS SERVER and the guard test below keeps pinning
+//!   that.
 //!
 //! Rule 17 observability: all logs go through `tracing` with explicit
 //! fields. Never log: API keys / Authorization headers, settings.json
@@ -52,26 +57,15 @@ pub mod browser_routes;
 pub mod chat;
 pub mod conversations_routes;
 pub mod decision_routes;
+pub mod ipc;
 pub mod model_stats;
 pub mod persistence;
-pub mod search_routes;
 pub mod settings_routes;
 pub mod skills_install;
 pub mod skills_routes;
+pub mod task_scope;
 pub mod titles;
-
-/// Part 8: the web-research runtime (`ruke-websearch`), shared by the
-/// chat seam and the search pair. Mirrors the TS module singletons: the
-/// real `Net`, the SQLite search cache, the platform verticals, and the
-/// Tier-3b browser-read bridge (`NoBrowserBridge` when the supervisor
-/// did not wire a Next-hosted hop — page reads then degrade exactly like
-/// the TS path with no Playwright pool).
-pub struct WebRuntime {
-    pub net: ruke_websearch::net::RealNet,
-    pub cache: Arc<ruke_websearch::cache::SqliteSearchCache>,
-    pub verticals: ruke_websearch::platform_api::RealVerticals,
-    pub bridge: Arc<dyn ruke_websearch::browser_bridge::BrowserBridge>,
-}
+pub mod url_detector;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -99,8 +93,13 @@ pub struct AppState {
     /// (`titles::queue`), coalescing per-conversation jobs onto the
     /// shared inference slot.
     pub titles: Arc<titles::queue::TitleQueue>,
-    /// Part 8: the web-research runtime (chat seam + search pair).
-    pub web: Arc<WebRuntime>,
+    /// TS-ownership rollback (2026-11-03): loopback client to the
+    /// Next-owned web research / web-tool services ([`chat::next_search`]).
+    /// Unset (the bridge env pair absent) ⇒ research and destination
+    /// discovery honestly degrade — turns proceed without web evidence,
+    /// tool rounds receive explicit error envelopes. There is NO
+    /// Rust-side search fallback.
+    pub next_search: Option<chat::next_search::NextSearchBridge>,
     /// Browser Use (Phase 2): the long-lived browser runtime — one shared
     /// Chromium launched lazily on the first browser command. Tests only
     /// construct it (lazy = nothing launches; short-circuit routes never
@@ -157,15 +156,11 @@ pub fn build_router(state: AppState) -> Router {
             "/api/ruke/skills/{skillName}/scenario",
             patch(skills_routes::scenario_patch),
         )
-        // Part 8: the search pair + decision route under the same
-        // Rust-only namespace. Next proxies its plain paths here ONLY
-        // when the supervisor exports RUKE_RUST_BACKEND=1; the plain
-        // paths stay Next-owned on this server (guard test below).
-        .route("/api/ruke/search", get(search_routes::search_get))
-        .route(
-            "/api/ruke/search-more",
-            post(search_routes::search_more_post),
-        )
+        // Part 8: the decision route under the Rust-only namespace. The
+        // retired search pair is GONE (2026-11-03 TS-ownership rollback:
+        // web search runs exclusively in the Node process; the Next
+        // routes no longer proxy to this server). Plain paths stay
+        // Next-owned on this server (guard test below).
         .route("/api/ruke/decision", post(decision_routes::decision_post))
         // Browser Use (Phase 2): the command RPC for the browser panel /
         // tool loop. Errors ride the wire contract with HTTP 200; only
@@ -247,12 +242,9 @@ mod tests {
                 slot,
                 Arc::new(titles::generate::UnconfiguredTitleModel),
             )),
-            web: Arc::new(WebRuntime {
-                net: ruke_websearch::net::RealNet,
-                cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
-                verticals: ruke_websearch::platform_api::RealVerticals,
-                bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
-            }),
+            // No loopback bridge in unit tests: research/discovery
+            // short-circuit honestly (never touch the network).
+            next_search: None,
             // Lazy by construction: no Chromium launches unless a real
             // browser command reaches the engine (rooted in the temp dir,
             // never the repo).
@@ -270,7 +262,7 @@ mod tests {
     // other routes.)
     #[tokio::test]
     async fn browser_command_bad_envelope_answers_on_the_wire() {
-        std::env::set_var(ruke_websearch::browser_bridge::ENV_SECRET, "");
+        std::env::set_var(crate::ipc::ENV_SECRET, "");
         let (s, _t) = state();
         let resp = build_router(s)
             .oneshot(
@@ -294,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn browser_command_unknown_kind_short_circuits_before_the_engine() {
-        std::env::set_var(ruke_websearch::browser_bridge::ENV_SECRET, "");
+        std::env::set_var(crate::ipc::ENV_SECRET, "");
         let (s, _t) = state();
         let resp = build_router(s)
             .oneshot(
@@ -501,59 +493,5 @@ mod tests {
             );
         }
         assert_eq!(v["stripped_prompt"], json!("make me a chart of sales"));
-    }
-
-    /// Part 8: the search pair's short-circuit contracts — paths that
-    /// answer before any network IO (no-q, malformed, empty queries).
-    #[tokio::test]
-    async fn search_routes_short_circuit_contracts() {
-        let (s, _t) = state();
-        let router = build_router(s);
-
-        // TS `if (!query) return { results: [] }` — an empty `?q=` is
-        // falsy in JS, so both URIs take the same early return.
-        for uri in ["/api/ruke/search", "/api/ruke/search?q="] {
-            let resp = router
-                .clone()
-                .oneshot(
-                    http::Request::builder()
-                        .uri(uri)
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(resp.status(), StatusCode::OK, "{uri}");
-            let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
-                .await
-                .unwrap();
-            assert_eq!(&bytes[..], br#"{"results":[]}"#, "{uri}");
-        }
-
-        let cases: [(&str, &[u8]); 2] = [
-            ("{oops", br#"{"error":"Malformed JSON body"}"#.as_slice()),
-            (
-                r#"{"queries":[]}"#,
-                br#"{"error":"queries array is required (1-3 string entries)"}"#.as_slice(),
-            ),
-        ];
-        for (body, want) in cases {
-            let resp = router
-                .clone()
-                .oneshot(
-                    http::Request::builder()
-                        .method(http::Method::POST)
-                        .uri("/api/ruke/search-more")
-                        .body(axum::body::Body::from(body))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{body}");
-            let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
-                .await
-                .unwrap();
-            assert_eq!(&bytes[..], want, "{body}");
-        }
     }
 }

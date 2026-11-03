@@ -3,9 +3,10 @@
  * guard, outbound-query secret scrub, the untrusted-data law bullets in the
  * evidence block, and §19 provenance stamping at the metasearch fuse.
  *
- * These vectors are DELIBERATELY SHARED with the Rust suite
- * (rust-backend/crates/ruke-websearch/src/ssrf.rs inline tests). Changing a
- * pin here requires changing the mirror in the same commit.
+ * These vectors were DELIBERATELY SHARED with the Rust suite
+ * (rust-backend/crates/ruke-websearch/src/ssrf.rs inline tests, removed
+ * 2026-11-03). These pins are now the SSRF contract by themselves —
+ * do not weaken them.
  */
 import { describe, it, expect } from "vitest";
 import {

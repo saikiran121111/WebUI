@@ -11,9 +11,10 @@
  * `sanitizeRichResult()` before it crosses to the client — safe-URL
  * validation, embed allowlist, coordinate/NaN rejection, payload size
  * cap, and action whitelisting. Unknown kinds fall back to a generic
- * card, never a crash (§2). Rust mirror: crates/ruke-websearch/src/
- * rich_results.rs — same vocabulary, same walker law, same producer,
- * pinned byte-for-byte by the parity tests on both sides.
+ * card, never a crash (§2). The Rust mirror (crates/ruke-websearch/src/
+ * rich_results.rs) was removed in the 2026-11-03 TS rollback — it kept
+ * the same vocabulary, walker law and producer; the TS tests pin those
+ * bytes here as the single owner.
  */
 import { z } from "zod";
 import type { PresentationPlan } from "./presentation";

@@ -41,8 +41,10 @@ import {
   applyPlannerLaw,
   applyScopeToLaw,
   buildGapDemand,
+  corroborateDestinations,
   derivePlannerLaw,
   evaluateSufficiency,
+  normalizeDomain,
   type GapDemand,
   type PlannerLaw,
   type SufficiencyReport,
@@ -815,6 +817,32 @@ export async function runWebResearch(
         "task scope resolved from live evidence",
       );
     }
+
+    // Corroborated destination verification (audit items 3/5, live
+    // symptom 2026-11-04): equality-only URL resolution can never see a
+    // brand≠domain identity (Zepto/zeptonow.com). The law's own state
+    // stays untouched (similarity is not identity); instead the SERP's
+    // title evidence VERIFIES the destination for RETRIEVAL only —
+    // joining preferredDomains (site: companion wave + fusion boost +
+    // designated authority tier). Ordering, never an admission wall.
+    const verified = corroborateDestinations(
+      activeScope,
+      searchResults.map((r) => ({ url: r.url, title: r.title })),
+    );
+    if (verified.length > 0) {
+      for (const v of verified) {
+        const d = normalizeDomain(v.host);
+        if (d && !plannerLaw.preferredDomains.includes(d)) plannerLaw.preferredDomains.push(d);
+      }
+      onProgress?.({
+        stage: "scope",
+        detail: "Target site verified from title evidence",
+      });
+      log.info(
+        { destinations: verified.map((v) => ({ phrase: v.phrase, host: v.host })) },
+        "destination verified from corroborated SERP identity evidence",
+      );
+    }
   }
 
   // §11.17 domain control (P4): enforce the deterministic allow/block law on
@@ -1015,7 +1043,16 @@ export async function runWebResearch(
   // (that's all the planner law does — §P4 division of labor), and the
   // reranker decides how strongly each tier rides the order key. Ranking,
   // never exclusion: blockedDomains remains the only hard exclusion.
-  const designatedDomains = [...plannerLaw.allowedDomains, ...plannerLaw.preferredDomains];
+  // Mandatory scope hosts are NAMED by the user's own request — the most
+  // strongly designated source class that exists (audit item 4 closure,
+  // 2026-11-04: a resolved scope host was landing in the "general"
+  // authority tier INSIDE its own mandatory evidence pool and losing to
+  // news coverage there). Designation is order-only in the reranker.
+  const designatedDomains = [
+    ...plannerLaw.allowedDomains,
+    ...plannerLaw.preferredDomains,
+    ...plannerLaw.mandatoryHosts,
+  ];
   let topPassages = rerank(packets, ctx.userPrompt, qTexts, 15, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
     // §11.10: the gate's freshness band ranks dated passages by fit to the

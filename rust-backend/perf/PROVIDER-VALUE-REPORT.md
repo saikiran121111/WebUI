@@ -1,5 +1,11 @@
 # Provider Value Report — engine benchmark BEFORE optimization
 
+> **HISTORICAL (marked 2026-11-03):** The benchmark binary no longer exists —
+> `ruke-websearch` was removed when web-search ownership rolled back to
+> TypeScript on 2026-11-03. The engine pool now lives in
+> `lib/web-search/engines.ts`; the provider-behaviour measurements below stay
+> valid as historical data.
+
 Run: `cargo run -p ruke-websearch --example engine_bench` (2026-10-29, this dev box's residential IP).
 Raw data: `perf/engine-bench-20261029.csv` (row per engine×query), stdout summary in `perf/engine-bench-run.log`, lib traces interleaved in run.log (`engine outcome`, `search_one:`, `metasearch cycle complete`).
 

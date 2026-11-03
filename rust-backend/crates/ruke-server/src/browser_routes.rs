@@ -6,7 +6,7 @@
 //!
 //! Auth model: the supervisor-generated process-local bridge secret,
 //! reusing the exact constants as every other internal loopback hop
-//! (`ruke_websearch::browser_bridge::{SECRET_HEADER, ENV_SECRET}`).
+//! (`crate::ipc::{SECRET_HEADER, ENV_SECRET}`).
 //! Env unset ⇒ the header check is skipped — this server binds loopback
 //! only (main.rs), which is the same protection stance as its other
 //! routes; the secret is what *adds* the check when the supervisor
@@ -73,7 +73,7 @@ fn bridge_ok(headers: &HeaderMap) -> bool {
     };
     let presented = headers
         .get(HeaderName::from_static(
-            ruke_websearch::browser_bridge::SECRET_HEADER,
+            crate::ipc::SECRET_HEADER,
         ))
         .and_then(|v| v.to_str().ok());
     if presented != Some(expected.as_str()) {
@@ -96,7 +96,7 @@ fn unauthorized() -> Response {
 /// Some(secret configured) / None(dev mode: loopback bind is the guard).
 /// Never log the value — Rule 17.
 fn bridge_secret() -> Option<String> {
-    std::env::var(ruke_websearch::browser_bridge::ENV_SECRET)
+    std::env::var(crate::ipc::ENV_SECRET)
         .ok()
         .filter(|s| !s.is_empty())
 }

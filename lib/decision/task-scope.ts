@@ -9,7 +9,7 @@
  * widen it (the only way a bare-name host is filled in is resolveTaskScope()
  * over ranked retrieval candidates the server already fetched).
  *
- * TS ⇔ Rust parity: ruke-websearch/src/task_scope.rs implements the same
+ * TS ⇔ Rust parity: ruke-server/src/task_scope.rs implements the same
  * tokenizer, word lists, passes, and resolution law; the shared corpus
  * rust-backend/fixtures/task-scope/cases.json pins both ("the corpus is the
  * contract" — same policy as the golden harnesses). Fixtures are ASCII-only;
@@ -92,7 +92,7 @@ export function isEnforceableScope(scope: TaskScope): boolean {
  * side carries no browser engine (route.ts strips the marker); this mirror
  * exists so the contract stays one law in two languages, pinned by the
  * shared vitest/Rust matrix tests. ⇔ `routes_to_browser_turn` in
- * `ruke-websearch/src/task_scope.rs`.
+ * `ruke-server/src/task_scope.rs`.
  */
 export function routesToBrowserTurn(scope: TaskScope): boolean {
   return scope.intent === "operate";
@@ -142,7 +142,39 @@ const OP_VERBS = new Set([
   "renew", "renews", "renewing", "upgrade", "upgrades", "upgrading",
   "use", "uses", "using", "used", "grab", "signup", "register", "registers",
   "do", "does", "did", "done", "doing", "open", "opens", "opening",
+  // UI-action verbs (2026-11-03 audit #2): "Click the login button on
+  // example.com" must be OPERATE (browser routing accepts only operate),
+  // so the click/tap/scroll/select/submit/fill family belongs in the
+  // operational vocabulary. "type" deliberately absent (common noun magnet).
+  "click", "clicks", "clicked", "clicking", "tap", "taps", "tapped", "tapping",
+  "scroll", "scrolls", "scrolling", "select", "selects", "selecting",
+  "submit", "submits", "submitting", "fill", "fills", "filling",
 ]);
+
+// Direct-object site-taking verbs (2026-11-03 audit #2): "Open Zepto",
+// "Search Amazon for milk" — the verb's OBJECT is the destination itself.
+// "buy/order/find" deliberately absent: their objects are entities, not
+// sites ("Buy iPhone" must never scope iPhone as a website).
+const DO_SITE_VERBS = new Set([
+  "open", "opens", "opening", "visit", "visits", "visiting", "browse",
+  "browses", "browsing", "search", "searches", "searched", "searching",
+  "lookup", "lookups", "use", "uses", "using", "used", "navigate",
+  "navigates", "navigating", "access", "accesses", "accessing", "launch",
+  "launches", "launching",
+]);
+
+// Scaffold words that can never be a direct-object site ("Open the login
+// page", "Open my account" ⇒ nothing, not a "login"/"account" website).
+const DO_SCAFFOLD = new Set([
+  "login", "logins", "signin", "button", "buttons", "link", "links", "tab",
+  "tabs", "form", "forms", "menu", "menus", "setting", "settings", "search",
+  "bar", "screen", "window", "dashboard", "account", "page", "pages", "app",
+  "apps", "site", "website",
+]);
+
+// Coordinating conjunctions END the Pass-3 backward scan: an eligible verb
+// from a different coordinated instruction must not license this NP.
+const CONJ_STOPS = new Set(["and", "or", "but", "then", "nor"]);
 
 const FIND_VERBS = new Set([
   "find", "finds", "finding", "search", "searches", "searched", "searching",
@@ -236,7 +268,7 @@ const AUTH_VERB = new Set(["use", "visit", "open", "check", "go", "login", "sign
 const RESEARCH_CUE_WORDS = new Set(["search", "searches", "searching", "research", "latest", "current", "recent", "news", "explain"]);
 const INTERROG = ["who", "what", "when", "where", "why", "how", "which"];
 const COPULAS = new Set(["is", "was", "are", "were", "will", "would", "can", "could", "does", "did", "has", "have"]);
-const FOLLOW_CUES = new Set(["it", "them", "this", "that", "same", "again", "too", "also", "then", "now", "but", "and", "here", "there"]);
+const FOLLOW_CUES = new Set(["it", "its", "them", "this", "that", "same", "again", "too", "also", "then", "now", "but", "and", "here", "there"]);
 
 // ─── Tokenizer (shared law with task_scope.rs) ─────────────────────────────
 // Punctuation never forms a token on its own; "." stays INSIDE tokens
@@ -523,13 +555,16 @@ export function deriveTaskScope(prompt: string): TaskScope {
     OP_VERBS.has(w) || FIND_VERBS.has(w) || CUE_NOUNS.has(w) || COMPARE_WORDS.has(w);
   for (let p = 0; p < n; p++) {
     if (!PREPS.has(toks[p].clean) || consumed.has(p) || boundary[p]) continue;
-    // Window: up to 8 tokens back (or clause start) must hold an
-    // operational/source/cue/compare word — no verb cue, no scope.
-    // Window: scan back ≤8 tokens, stopping at the clause boundary — an
-    // eligible word from a PREVIOUS clause must not license this NP.
+    // Scan back to the clause start — no fixed token cap (2026-11-03 audit
+    // #2: the old 8-token window lost "Amazon" in "Find Samsung Galaxy S24
+    // Ultra 256 GB Titanium Gray on Amazon.", where the eligible verb sits
+    // past an arbitrarily long entity NP). The scan stops at the clause
+    // boundary (a previous clause must not license this NP) and at a
+    // coordinating conjunction (a verb from another coordinated
+    // instruction must not license it either).
     let eligible = false;
-    for (let j = p - 1; j >= Math.max(0, p - 8); j--) {
-      if (boundary[j]) break;
+    for (let j = p - 1; j >= 0; j--) {
+      if (boundary[j] || CONJ_STOPS.has(toks[j].clean)) break;
       if (eligibleWord(toks[j].clean)) {
         eligible = true;
         break;
@@ -541,6 +576,42 @@ export function deriveTaskScope(prompt: string): TaskScope {
     if (consumed.has(np.firstTok)) continue;
     pushTarget(np);
     // "amazon and flipkart" → a SECOND target (not one phrase).
+    if (np.next < n && (toks[np.next].clean === "and" || toks[np.next].clean === "or")) {
+      const two = guardedSingle(prompt, toks, boundary, np.next + 1);
+      if (two && !consumed.has(two.firstTok)) pushTarget(two);
+    }
+  }
+
+  // ── Pass 3b: direct-object destinations ("Open Zepto", "Search Amazon
+  // for milk") ────────────────────────────────────────────────────────────
+  // A site-taking verb whose OBJECT is the destination itself (2026-11-03
+  // audit #2: these forms produced no target at all). Gated three ways so an
+  // entity object never masquerades as a site: (1) if this clause already
+  // produced a token target, the verb's object was the entity — the site was
+  // licensed by a preposition ("Find <product> on Amazon"); (2) the NP must
+  // be a SINGLE word after trailing-token stripping (multiword objects like
+  // "a new tab" are not site names); (3) the word must not be UI scaffold
+  // ("Open the login page" ⇒ nothing, not a "login" website). Detector spans
+  // still merge in Pass 4, so domain objects ("use reddit.com") resolve to
+  // explicit hosts through the normal funnel.
+  for (let v = 0; v < n; v++) {
+    if (consumed.has(v) || boundary[v] || !DO_SITE_VERBS.has(toks[v].clean)) continue;
+    // A verb sitting right after a preposition/article is being used as a
+    // NOUN at that position ("in the select tier-select" — HTML <select>),
+    // not commanding an object. Skip it.
+    if (v > 0 && (PREPS.has(toks[v - 1].clean) || ARTICLES.has(toks[v - 1].clean))) continue;
+    let clauseEnd = n;
+    for (let b = v + 1; b < n; b++) {
+      if (boundary[b]) {
+        clauseEnd = b;
+        break;
+      }
+    }
+    if (targets.some((t) => t.firstTok > v && t.firstTok < clauseEnd)) continue;
+    const np = collectNp(prompt, toks, boundary, v + 1);
+    if (!np || np.words.length !== 1 || consumed.has(np.firstTok)) continue;
+    if (DO_SCAFFOLD.has(np.words[0].toLowerCase())) continue;
+    pushTarget(np);
     if (np.next < n && (toks[np.next].clean === "and" || toks[np.next].clean === "or")) {
       const two = guardedSingle(prompt, toks, boundary, np.next + 1);
       if (two && !consumed.has(two.firstTok)) pushTarget(two);
@@ -670,10 +741,12 @@ const candidateHost = (c: string): string | null => registrableHost(c.trim());
 
 /**
  * Resolve ONE unresolved target against ranked candidate URLs/hosts.
- * Law: an EQUALITY match (normalized phrase === registrable label) outranks
- * containment; several distinct equality hosts ⇒ ambiguous (clarification
- * territory, brief #4); zero matches leaves the target unresolved — the
- * system never guesses a domain.
+ * Law (2026-11-03 audit #5): identity is EQUALITY ONLY — the normalized
+ * phrase must equal the registrable label. Prefix/containment resemblance
+ * NEVER resolves: zeptodiscounts.com is not Zepto, and PSL validity plus
+ * string similarity is not identity evidence. Several distinct equality
+ * hosts ⇒ ambiguous (clarification territory, brief #4); zero matches
+ * leaves the target unresolved — the system never guesses a domain.
  */
 export function resolveTarget(
   t: SiteTarget,
@@ -686,19 +759,13 @@ export function resolveTarget(
   if (!pn) return t;
 
   const eqHosts: string[] = [];
-  const conHosts: string[] = [];
   for (const cRaw of candidates) {
     const host = candidateHost(cRaw);
     if (!host) continue;
     const label = host.split(".")[0] ?? "";
     const ln = norm(label);
     if (!ln) continue;
-    const eq = ln === pn;
-    const con =
-      !eq &&
-      ((ln.startsWith(pn) && pn.length >= 4) || (pn.startsWith(ln) && ln.length >= 4));
-    if (eq && !eqHosts.includes(host)) eqHosts.push(host);
-    else if (con && !conHosts.includes(host)) conHosts.push(host);
+    if (ln === pn && !eqHosts.includes(host)) eqHosts.push(host);
   }
 
   if (eqHosts.length === 1) {
@@ -710,18 +777,6 @@ export function resolveTarget(
       state: "ambiguous",
       host: "",
       candidates: eqHosts.slice().sort().slice(0, Math.max(1, max)),
-      provenance: "ambiguous",
-    };
-  }
-  if (conHosts.length === 1) {
-    return { ...t, state: "resolved", host: conHosts[0], candidates: [], provenance };
-  }
-  if (conHosts.length > 1) {
-    return {
-      ...t,
-      state: "ambiguous",
-      host: "",
-      candidates: conHosts.slice().sort().slice(0, Math.max(1, max)),
       provenance: "ambiguous",
     };
   }
@@ -740,22 +795,59 @@ export function resolveTaskScope(
 
 // ─── Turn-to-turn continuity (brief #6: follow-ups must not lose scope) ───
 
+/**
+ * Two-tier continuation law (2026-11-03 audit #5: "every short request
+ * counted as continuation" carried a prior purchase into "Write a short
+ * poem"). Tier 1: an ANAPHORIC cue (it/them/this/same/again/…) marks a
+ * follow-up anywhere in the turn. Tier 2: a bare elliptical FRAGMENT — at
+ * most six tokens and OPENING with an interrogative, preposition, article,
+ * or "only" — continues only when it carries no intent of its own. A full
+ * request with its own verb ("Write a short poem") is never a follow-up.
+ */
 export function isFollowUp(prompt: string): boolean {
   const toks = tokenize(prompt);
-  if (toks.length <= 6) return true;
-  return toks.some((t) => FOLLOW_CUES.has(t.clean));
+  if (toks.length === 0) return false;
+  if (toks.some((t) => FOLLOW_CUES.has(t.clean))) return true;
+  if (toks.length > 6) return false;
+  const head = toks[0].clean;
+  return (
+    isInterrog(head) || PREPS.has(head) || ARTICLES.has(head) || ONLY_LEAD.has(head)
+  );
 }
 
 /**
  * Merge the previous turn's scope with this turn's derivation.
- * A fresh non-empty derivation REPLACES (target changes / unrelated ask
- * must not leak the old constraint); an empty derivation on a follow-up
- * INHERITS (recovery and short follow-ups must not silently broaden scope).
+ * 1. A fresh derivation with DESTINATIONS replaces (explicit target change
+ *    wins outright).
+ * 2. An intent-only turn (intent, no destinations): on an anaphoric
+ *    follow-up, KEEP the previous destinations — the research-cue heuristic
+ *    must not erase an operate destination ("What is its rating?" keeps
+ *    Zepto) — while the turn's own restrictions/authorizations merge in.
+ *    Non-anaphoric intent turns stand alone.
+ * 3. A derivation with neither intent nor destinations inherits the previous
+ *    scope on a genuine follow-up; otherwise the topic changed and the
+ *    scope RESETS.
+ * Mirrors Rust `merge_task_scope`.
  */
 export function mergeTaskScope(prev: TaskScope | null, prompt: string): TaskScope {
   const derived = deriveTaskScope(prompt);
-  if (derived.targets.length > 0 || derived.intent !== "none") return derived;
-  if (prev && prev.intent !== "none" && isFollowUp(prompt)) return prev;
+  if (derived.targets.length > 0) return derived;
+  const toks = tokenize(prompt);
+  const anaphoric = toks.some((t) => FOLLOW_CUES.has(t.clean));
+  if (prev && prev.intent !== "none") {
+    if (derived.intent !== "none") {
+      if (anaphoric) {
+        return {
+          intent: derived.intent === "research" ? prev.intent : derived.intent,
+          targets: prev.targets,
+          excludedPhrases: [...new Set([...prev.excludedPhrases, ...derived.excludedPhrases])],
+          authorizedHosts: [...new Set([...prev.authorizedHosts, ...derived.authorizedHosts])],
+        };
+      }
+      return derived;
+    }
+    if (isFollowUp(prompt)) return prev;
+  }
   return derived;
 }
 

@@ -1,5 +1,11 @@
 # RUKE Final Migration Report — Parts 9 & 10 (Next.js → Rust backend)
 
+> **HISTORICAL (marked 2026-11-03):** Part 8's Rust web-search
+> (`crates/ruke-websearch`) has since been REMOVED — web-search ownership
+> rolled back to TypeScript (`handover/2026-11-03-ts-rollback/RESTORATION-MANIFEST.md`).
+> Sections naming ruke-websearch or the browser-read/youtube-evidence/
+> media-transcript RPC routes as live describe the migration-era state.
+
 Date: 2026-10-29 (final verification wave). Branch: `develop`. All numbers below are
 measured from real runs with real exit codes — no theoretical or extrapolated claims (Rule 15).
 

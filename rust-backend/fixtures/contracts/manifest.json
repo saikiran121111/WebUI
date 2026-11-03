@@ -1,6 +1,6 @@
 {
   "$schema": "ruke-contract-manifest/v1",
-  "note": "GENERATED — do not edit by hand. Regenerate with `npm run contracts:generate`; drift gate: `npm run contracts:check`. Rust binders: crates/ruke-contracts/tests/manifest_drift.rs, crates/ruke-websearch/tests/manifest_drift.rs. TS binder: __tests__/rust-golden/contract-manifest.test.ts.",
+  "note": "GENERATED — do not edit by hand. Regenerate with `npm run contracts:generate`; drift gate: `npm run contracts:check`. Rust binder: crates/ruke-contracts/tests/manifest_drift.rs. TS binder: __tests__/rust-golden/contract-manifest.test.ts.",
   "decisionModes": {
     "order": [
       "excel",
@@ -415,73 +415,49 @@
       "rustProjectRoot": "RUKE_PROJECT_ROOT",
       "serverBinOverride": "RUKE_SERVER_BIN"
     },
-    "browserRead": {
-      "path": "/api/internal/browser-read",
+    "webResearch": {
+      "path": "/api/internal/web-research",
       "method": "POST",
       "requestFields": [
-        "url",
-        "timeoutMs"
+        "prompt",
+        "history",
+        "hasImageAttachment",
+        "hasAttachmentEvidence",
+        "imageDataUrls",
+        "scope"
       ],
-      "timeoutDefaultMs": 40000,
-      "clientDeadlineSlackMs": 20000,
-      "deadlineRule": "Rust client request timeout = timeoutMs (default 40000) + 20000 slack (browser_bridge.rs deadline_ms); the Next leg owns nav/response-size budgets",
+      "replyKind": "application/x-ndjson",
       "errors": {
-        "unauthorized": "unauthorized",
+        "unauthorized": "Unauthorized",
         "malformedBody": "Malformed JSON body",
-        "urlRequired": "url required"
+        "promptRequired": "prompt is required"
       },
-      "responseFields": [
-        "url",
-        "finalUrl",
-        "title",
-        "status",
-        "bodyText",
-        "ariaSnapshot",
-        "jsonLd",
-        "meta",
-        "windowState",
-        "ok",
+      "terminalStatuses": [
+        "bundle",
+        "no_bundle",
         "error"
       ],
-      "responseFieldsSource": "producer: extractPageInOnePass in lib/web-search/extractor.ts; consumer: OnePassExtraction in crates/ruke-websearch/src/browser_bridge.rs (camelCase, deny_unknown_fields, every non-url field #[serde(default)], error omitted-on-success on both sides)"
+      "frameRule": "zero or more {\"type\":\"progress\",...} frames then exactly one {\"type\":\"result\",...} terminal frame; the Rust bridge (crates/ruke-server/src/chat/next_search.rs RESEARCH_PATH) relays progress frames as web:<kebab-stage> SSE frames and consumes the result frame in chat/pipeline.rs",
+      "producers": "runWebResearch / buildMainModelContext in lib/web-search/pipeline.ts"
     },
-    "youtubeEvidence": {
-      "path": "/api/internal/youtube-evidence",
+    "webTools": {
+      "path": "/api/internal/web-tools",
       "method": "POST",
       "requestFields": [
-        "videoId"
+        "action"
       ],
-      "deadlineMs": 90000,
-      "deadlineRule": "const RPC_DEADLINE_MS in crates/ruke-websearch/src/youtube_bridge.rs, compile-time-guarded to the 70000..120000 band",
-      "errors": {
-        "unauthorized": "unauthorized",
-        "malformedBody": "Malformed JSON body",
-        "videoIdRequired": "videoId required (11-char id)"
-      },
-      "responseFields": [
-        "videoId",
-        "info",
-        "transcript",
-        "comments",
-        "captionSource"
-      ]
-    },
-    "mediaTranscript": {
-      "path": "/api/internal/media-transcript",
-      "method": "POST",
-      "requestFields": [
-        "url"
+      "actions": [
+        "create",
+        "exec",
+        "discover",
+        "close"
       ],
       "errors": {
-        "unauthorized": "unauthorized",
-        "malformedBody": "Malformed JSON body",
-        "urlRequired": "url required"
+        "unauthorized": "Unauthorized",
+        "malformedBody": "Malformed JSON body"
       },
-      "responseFields": [
-        "ok",
-        "url",
-        "transcript"
-      ]
+      "envelopeRule": "each reply is the model-facing tool envelope (ok/result, or ok:false + error + detail); Rust relays web_search/read_page envelopes to the model verbatim (chat/web_loop.rs); chat/browser_loop.rs consumes discover; the bridge const is TOOLS_PATH in chat/next_search.rs",
+      "producers": "handleWebToolsRpc in lib/server/web-tools-rpc.ts over lib/web-search/tools.ts"
     }
   },
   "proxyFailureContract": {

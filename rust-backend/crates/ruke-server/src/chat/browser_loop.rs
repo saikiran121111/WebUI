@@ -3,7 +3,7 @@
 //! client's `browser_session` marker (conversation identity, sent on
 //! every chat send — panel visibility NEVER decides activation, task-
 //! scope audit brief #2) is present AND the server-owned task-scope fold
-//! derives an OPERATE intent (`ruke_websearch::task_scope::
+//! derives an OPERATE intent (`crate::task_scope::
 //! routes_to_browser_turn`). Marker turns with any other intent —
 //! research, site-info, compare — go through the scope-enforced research
 //! path like any other turn instead of being swallowed by a browser
@@ -56,12 +56,11 @@ use ruke_browser::contract::parse_envelope;
 use ruke_browser::errors::BrowserError;
 use ruke_contracts::stages::StageEvent;
 use ruke_skills::lazy::inject_system_before;
-use ruke_websearch::extractor::Extractor;
-use ruke_websearch::task_scope::{TargetProvenance, TargetState, TaskScope};
-use ruke_websearch::tools as webtools;
-use ruke_websearch::types::Depth;
+use crate::task_scope::{TargetProvenance, TargetState, TaskScope};
 
-use crate::chat::{error, scrubber::ThinkScrubber, sse::ProgressChannel};
+use crate::chat::{
+    error, next_search, scrubber::ThinkScrubber, sse::ProgressChannel,
+};
 use crate::AppState;
 
 /// Hard cap on model↔engine rounds per chat turn [adapted — bounds a
@@ -291,7 +290,7 @@ fn provenance_label(p: TargetProvenance) -> &'static str {
 /// boundary — this block is the model-facing half of one law, so the
 /// model is never surprised by a scope refusal it was not told about.
 fn scope_guidance(scope: &TaskScope) -> String {
-    if !ruke_websearch::task_scope::is_enforceable_scope(scope) {
+    if !crate::task_scope::is_enforceable_scope(scope) {
         return String::new();
     }
     let mut lines: Vec<String> = Vec::new();
@@ -355,6 +354,15 @@ fn last_user_text(payload: &Value, last_user_idx: usize) -> String {
 /// kill-switch and the turn's cancellation token; adds no new planner
 /// subsystem (brief #3's "bounded discovery only to resolve the
 /// destination").
+///
+/// TS-OWNERSHIP ROLLBACK (2026-11-03): the discovery search runs in the
+/// Next process (`lib/server/web-tools-rpc.ts` action "discover" — the
+/// throwaway Quick session, the phrase queries, the gate kill-switch and
+/// the admission law all live there). Rust folds only the unresolved-
+/// phrase pre-filter below and adopts the scope the TS service returns;
+/// every failure path (no bridge, cancelled, RPC error, malformed
+/// response) leaves the scope EXACTLY as folded — unresolved targets
+/// remain unresolved, never a fabricated resolution.
 async fn bounded_destination_discovery(
     state: &AppState,
     token: &CancellationToken,
@@ -366,9 +374,6 @@ async fn bounded_destination_discovery(
         Some(s) => s,
         None => return None,
     };
-    if ruke_websearch::search_gate::gate_disabled_by_env() {
-        return Some(scope);
-    }
     let unresolved: Vec<String> = scope
         .targets
         .iter()
@@ -384,37 +389,57 @@ async fn bounded_destination_discovery(
         phrases = %unresolved.join(","),
         "browser turn: bounded destination discovery before the first model round (brief #3)"
     );
-    let extractor = Extractor {
-        net: &state.web.net,
-        cache: state.web.cache.as_ref(),
-        verticals: &state.web.verticals,
-        bridge: state.web.bridge.as_ref(),
-    };
-    let mut session =
-        webtools::make_web_tool_session(Depth::Quick, 1, question, Some(scope.clone()));
-    // Fresh citation seeds are DISCARDED — resolution-only provenance.
-    let mut fresh: Vec<webtools::CitationSeed> = Vec::new();
-    for phrase in &unresolved {
-        if token.is_cancelled() {
-            break;
+    let bridge = match state.next_search.as_ref() {
+        Some(b) => b,
+        None => {
+            tracing::warn!(
+                parent: span,
+                "destination discovery skipped: no research bridge configured — the scope \
+                 stays exactly as folded (unresolved targets remain unresolved)"
+            );
+            return Some(scope);
         }
-        let args = json!({
-            "queries": [format!("\"{phrase}\"")],
-            "missing_claims": [format!("the official website for \"{phrase}\"")],
-            "reason": "resolve the task-scope destination before browser navigation",
-        });
-        let r = webtools::exec_web_search(&extractor, &mut session, &args, &mut fresh).await;
-        tracing::info!(
-            parent: span,
-            phrase = phrase.as_str(),
-            ok = r.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
-            "browser destination discovery round (packets discarded; scope resolution only)"
-        );
+    };
+    let body = json!({
+        "action": "discover",
+        "scope": serde_json::to_value(&scope).unwrap_or(Value::Null),
+        "question": question,
+    });
+    let raced = tokio::select! {
+        biased;
+        _ = token.cancelled() => None,
+        r = bridge.post_json(next_search::TOOLS_PATH, &body) => Some(r),
+    };
+    match raced {
+        None => {
+            tracing::warn!(
+                parent: span,
+                "destination discovery cancelled with the turn — the scope stays exactly \
+                 as folded"
+            );
+            Some(scope)
+        }
+        Some(Ok(v)) => {
+            // The TS session carries only resolutions admitted against
+            // REAL retrieval candidates; a malformed frame falls back to
+            // the folded scope rather than guessing.
+            let updated = v
+                .get("scope")
+                .cloned()
+                .and_then(|s| serde_json::from_value::<TaskScope>(s).ok())
+                .unwrap_or(scope);
+            Some(updated)
+        }
+        Some(Err(err)) => {
+            tracing::warn!(
+                parent: span,
+                err = %err,
+                "destination discovery failed: the scope stays exactly as folded \
+                 (unresolved targets remain unresolved)"
+            );
+            Some(scope)
+        }
     }
-    // `session.scope` carries only resolutions admitted against REAL
-    // retrieval candidates (tools.rs admission law); if nothing resolved,
-    // the original scope stands unchanged and guidance says "unresolved".
-    Some(session.scope.take().unwrap_or(scope))
 }
 
 /// Emit a `browser:*` stage frame carrying the conversation session so
@@ -529,9 +554,9 @@ pub async fn run_tool_loop(
     // the guard's Drop inside `begin_turn`'s machinery.
     let affinity = scope
         .as_ref()
-        .filter(|s| ruke_websearch::task_scope::is_enforceable_scope(s))
+        .filter(|s| crate::task_scope::is_enforceable_scope(s))
         .map(|s| ruke_browser::authority::TurnAffinity {
-            hosts: ruke_websearch::task_scope::scope_hosts(s),
+            hosts: crate::task_scope::scope_hosts(s),
         });
     state
         .browser
