@@ -28,6 +28,12 @@ export const DEVLOG_INFO = "DEVLOG-INFO-6031";
 export const DEVLOG_ERROR = "DEVLOG-ERROR-6032";
 export const UPLOAD_MARKER = "UPLOAD-MARKER-3C8E";
 export const UPLOAD_FILENAME = "upload-src.txt";
+// Task-scope matrix pages (server.mjs additions; consumers: ONLY
+// tests/browser-scope-matrix.spec.ts — no Rust-side journey uses them).
+export const SCOPE_ZEETA = "SCOPE-ZEETA-3F01";
+export const SCOPE_ZEETA_CHECKOUT = "SCOPE-ZEETA-CHECKOUT-8B12";
+export const SCOPE_LOQAL = "SCOPE-LOQAL-55D9";
+export const SCOPE_QUIPQORT = "SCOPE-QUIPQORT-77E4";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
