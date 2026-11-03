@@ -2524,7 +2524,7 @@ prune stale panel cards with a new `approval_stale` frame. COMMITTED
 - **Docs closed out this session:** plan rows 19–24 → CLOSED with the real evidence (row 26 split note amended to 79/4); `docs/e2e-test-state.md` stale spec-timing line corrected (retries 0, per-test 480 s, stream window 420 s) + new "leg 2 GREEN" section incl. defect #8 post-mortem + housekeeping notes (stray `host:"0.1"` policy rule cosmetic; background-tab screenshot 30 s timeout observed once; conversations-live-chat.spec.ts unverified suspect); `documents/RUKE-IMPLEMENTATION-REPORT.md` §2 partition fixed to 79/4, §6 +defects #6/#7/#8, §8 rewritten with the recorded-green table, §9 limitations updated.
 - **NEXT (rows 28–29, FINAL):** preflight (git clean except ignored/tsbuildinfo; no stale lock; no playwright-cli sessions) ⇒ flip plan row 28–29, commit, then ONE-LINE WARNING immediately followed by `shutdown /s /t 60` (user-mandated last action; destructive — the warning is mandatory).
 
-# SEGMENT — TASK-SCOPE AUDIT: PHASE 1 + PHASE 2 LANDED (2026-11-03) — 8.1–8.8
+# SEGMENT — TASK-SCOPE AUDIT: PHASES 1–4 LANDED (2026-11-03) — 8.1–8.8
 
 ## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
 Complete RUKE WEB SEARCH P1–P7 (P1–P7.3 closed, ad4f938→…→c7b8da4) AND the
@@ -2532,9 +2532,10 @@ Complete RUKE WEB SEARCH P1–P7 (P1–P7.3 closed, ad4f938→…→c7b8da4) AND
 task-scope contract, corpus-pinned) = 681c89f. Phase 2 (scope enforced across
 planner/law/gate/pipeline/tools on BOTH engines + ruke-server threading +
 regression batteries) = ff265f6. Phase 3 (scope-driven browser activation +
-destination discovery + research ordering, TS ⇔ Rust) = 5a83a67. Phases 4–6
-pending, then the final locked Playwright fix-rerun loop, P7.5 report, §4
-report, confirmed shutdown.
+destination discovery + research ordering, TS ⇔ Rust) = 5a83a67. Phase 4
+(audit #7/#8: turn task affinity + destination pre-gates in the browser
+engine) = c59d742. Phases 5–6 pending, then the final locked Playwright
+fix-rerun loop, P7.5 report, §4 report, confirmed shutdown.
 
 ## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
 - P1–P7.3: see prior segments + documents/WEB-SEARCH-P1-P7-* docs. c7b8da4 = launcher teardown fix.
@@ -2566,6 +2567,24 @@ report, confirmed shutdown.
   exec_web_search on throwaway Quick session, packets DISCARDED, admission-law resolution only,
   honors WEB_SEARCH_GATE_DISABLED + token), scope_guidance law block appended to
   BROWSER_GUIDANCE (resolved/unresolved/ambiguous/authorized-hosts/never-route-around).
+- Phase 4 c59d742 (verified green — ruke-browser 177 (+7 NEW), ruke-server 109 +
+  6/1/19/2/6/0 UNCHANGED ⇒ goldens byte-safe, websearch 389+5, vitest 1070/1skip,
+  tsc 0, contracts OK): authority.rs + TurnAffinity/AFFINITY_FACET("task_scope")/
+  host_in_scope (exact-or-literal-subdomain)/apply_gate_url (facet gate keyed on the
+  destination registrable host)/check_task_affinity (off-scope hop parks ONE card
+  naming the exact dest; no-panel/expiry ⇒ typed refusals)/affinity_answer (nothing
+  persists — accept AND always_allow one-shot, block/decline no standing deny);
+  engine.rs + turn_affinity map (set_turn_affinity pub; begin_turn clears stale,
+  fire_turn_cancel/cancel_all unwind — lives exactly with the cancellation token);
+  executor.rs + known_destination() pre-gate: affinity FIRST, then NavigateTabUrl
+  apply_gate_url; TabNew urls checked when present (refusal precedes any Chromium
+  launch); back/forward/reload + in-page nav keep the honest source-tab post-landing
+  gate (documented limitation); IP literals key affinity on the bare address (PSL
+  would reduce 127.0.0.1 to label soup; server scope hosts carry the literal — the
+  AuthorityStore's existing "0.1" IP quirk was left untouched on purpose);
+  browser_loop.rs registers affinity from the FINAL post-discovery enforceable scope
+  via scope_hosts() (non-enforceable ⇒ None); BrowserCards.tsx: task_scope facet
+  label + per-hop cards hide Always-allow/Block (verified no vitest pins existed).
 
 ## [8.3 GRAPHIFY DEPENDENCY MAP (current)]
 route.ts fold → runSearchPipeline(ctx.scope) → [gate rules_based_plan carries hosts;
@@ -2575,8 +2594,10 @@ apply_domain_control mandatory mode] → runWebToolLoop(opts.scope) → makeWebT
 Rust ⇔: run_turn_pipeline fold → PipelineOutcome.turn_scope → run_web_tool_loop(scope) →
 make_web_tool_session → exec_web_search/exec_read_page admissions. browser_loop::run_tool_loop
 NOW receives the hoisted turn_scope (pipeline arms ⇒ run_tool_loop last param); discovery may
-only narrow it. Phase 4 threads that scope INTO the ruke-browser engine (task affinity +
-destination pre-gates) — the scope object is already at the loop boundary for that.
+only narrow it. Phase 4 (LANDED c59d742): run_tool_loop after discovery →
+browser.set_turn_affinity(session,turn,TurnAffinity{scope_hosts}) → executor preamble
+known_destination → authority::check_task_affinity → gate_for loop (NavigateTabUrl ⇒
+apply_gate_url) → arm. Callers of begin_turn/end_turn unaffected (affinity rides them).
 
 ## [8.4 IMMUTABLE CODE CONTRACTS]
 - TaskScope wire camelCase {intent snake_case: none|research|site_info|operate|compare_sites,
@@ -2599,6 +2620,16 @@ destination pre-gates) — the scope object is already at the loop boundary for 
   fence-repair never carry it; legacy (stream:false) path always passes marker=false.
 - run_tool_loop(…, session_id, turn_id, scope: Option<TaskScope>) — scope travels to the loop;
   discovery narrows only. Env: unchanged. No new deps (url-detector/psl already present).
+- Phase-4 engine law (c59d742, in force): BrowserRuntime.turn_affinity: Mutex<HashMap<TurnKey,
+  TurnAffinity{hosts}>> — server-registered ONLY via pub set_turn_affinity, never persisted,
+  unwound by begin_turn (stale clear)/end_turn/guard-Drop/cancel_all; AFFINITY_FACET
+  "task_scope" is an approval-card facet STRING, never a Facet enum, never AuthorityStore;
+  known_destination covers ONLY NavigateTabUrl(tab,url) + TabNew(Some(non-blank url),"");
+  pre-gate order = affinity → destination facet gate; one-hop auth never persists (TS hides
+  Always-allow/Block on task_scope cards; Rust treats any such answer one-shot); host_in_scope
+  = exact OR dest ends_with ".{scope}" (case-insensitive, no reverse arm); affinity keys IPs
+  literal, facet store keeps its existing keying. Separate-checks law: affinity never reads
+  nor writes AuthorityStore, and vice versa.
 
 ## [8.5 PLAYWRIGHT / E2E STATE]
 Paused mid final locked loop (runs pw-02…pw-41; green through run 41 then STOPPED by user
@@ -2611,27 +2642,39 @@ Maps/LinkedIn/HN/SO/Greenhouse/Gov, web-search-10k ×4 ranges, affected browser 
 scope specs. NEVER weaken assertions (tests/universal-websites.spec.ts law).
 
 ## [8.6 OPEN BUGS / BLOCKERS]
-None blocking. Audit items 2,3 CLOSED by 5a83a67 (routing conjunction + ordering law).
-Remaining TODO by design: 7,8 (Phase 4: ruke-browser task affinity + destination pre-gates
-BEFORE TabNew/NavigateTabUrl — authority.rs gate_for currently inspects the CURRENT tab URL),
-9–11 (Phase 5: provenance separation, browserStore working-tab, omnibox PSL), 12 stays HONEST
-(502/503 preserved). Known limitations to report at P7.5: non-ASCII targets; "check my order
-status" mislabels operate; unknowable destination post-check for JS-driven nav; read_page
-pre-fetch host check (redirect limitation).
+None blocking. Audit items 2,3 CLOSED by 5a83a67; 7,8 CLOSED by c59d742 (task affinity +
+destination pre-gates; facet gate for NavigateTabUrl now keys the DESTINATION before load).
+Remaining TODO by design: 9–11 (Phase 5: metasearch extraction-pool provenance separation,
+browserStore working-tab follow via browser:working_tab stage events (session+turn qualified,
+human click = manual pin), omnibox normalizeOmniboxUrl PSL law), 12 stays HONEST (502/503
+preserved). Known limitations to report at P7.5: non-ASCII targets; "check my order status"
+mislabels operate; unknowable destination post-check for back/forward/reload + JS-driven nav
++ form submits (source-tab gate stays, honestly post-landing); read_page pre-fetch host check
+(redirect limitation); AuthorityStore IP-host keying quirk untouched (affinity keys literal).
 
 ## [8.7 ACTIVE SKILLS / SCENARIO LOCKS]
 No Tier-1/Tier-2 skill bodies loaded this session (ponytail+graphify behavior always-on via
 CLAUDE.md; no Skill tool invocations). Playwright skills load ONLY at TEST phase.
 
 ## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
-1. Phase 4 recon (audit #7/#8): read ruke-browser contract.rs command vocab + BrowserRuntime::
-   command path, authority.rs gate_for/apply_gate (source-URL bug), executor.rs TabNew/Navigate
-   TabUrl, session.rs turn bookkeeping — design the minimal TaskAffinity payload (PSL match,
-   no new deps; ruke-browser already has url+psl).
-2. Phase 4 impl: register the turn's scope at the engine boundary (begin_turn or command
-   envelope), destination pre-gates BEFORE TabNew/NavigateTabUrl/form submits/popup claims,
-   PSL exact-host/subdomain guard, saved-permissions vs affinity SEPARATE checks, narrow
-   per-hop auth/payment authorization (never blanket), preserve human control; deterministic
-   regression tests both sides.
-3. Re-green + Phase-4 commit, then Phase 5 (browser:working_tab session+turn-qualified,
-   browserStore human-pin, omnibox PSL→URL-else-search, metasearch provenance separation).
+1. Phase 5 recon (audits #9/#10/#11): ruke-websearch metasearch.rs slug_triangulation +
+   packet stamping (every packet carries its SOURCE identity; extraction-pool fetches must
+   NEVER be presented as browser visits — different surface from agentBrowser.ts research
+   pool, rules apply to BOTH without conflating); hooks/browserStore.ts setTabs (~:135, keeps
+   previous selection ⇒ emit browser:working_tab stage events session+turn-qualified from the
+   Rust side where the engine picks the working tab, store follows it, explicit human click =
+   manual pin); components/browser omnibox normalizeOmniboxUrl (~:185 blind https:// prepend ⇒
+   PSL-detectable registrable domain ⇒ URL, else ⇒ search) — mirror the TS/agentBrowser
+   surface too.
+2. Phase 5 impl + deterministic tests (TS vitest + Rust inline/corpus where contract-shared);
+   re-green to §3 baseline counts (+new only: vitest 1070|1skip, task-scope 56/56, tsc 0,
+   contracts OK, cargo websearch 389+5, server 109+6/1/19/2/6/0, ruke-browser 177); commit
+   (trailer) + STATE.md sync.
+3. Phase 6: deterministic regression per reproduced audit bug + E2E matrix plan (arbitrary
+   FIXTURE names, mocked discovery, multi-origin, capitalization/multiword/uncommon-TLD/
+   explicit-URL/ambiguous/incidental/negation/preference-vs-restriction/authorized-hop/
+   background-tab/follow-up-change/gate-failure/zero-results/bot-block/redirect/popup/form/
+   history/CDP-escape/destination-denial/fallback-provenance/panel-open-vs-closed/working-tab
+   assertions on attempted+landed URLs & source identities, NOT model prose; Rust/TS parity)
+   ⇒ commit + sync ⇒ THEN the ONE final locked Playwright loop at pw-42 (handover §8 list;
+   NEVER weaken), closeout report, §4 report, CONFIRM shutdown.
