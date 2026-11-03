@@ -365,11 +365,36 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
 
     // Search law: a bare query phrase is NOT an address ⇒ no navigation; the
     // text lands in the composer (RUKE web-search gate; the human sends).
-    await bar.fill("quibble zork mctest phrase");
+    // Event-level capture localizes WHERE the hand-off breaks if it does:
+    // (a) no event at all ⇒ panel submitOmnibox dispatch is broken;
+    // (b) event fired, composer empty ⇒ ChatInput consumer is broken.
+    // The capture is a passive listener on the same channel ChatInput uses.
+    await page.evaluate(() => {
+      const w = window as unknown as { __omniHandoff?: unknown[] };
+      w.__omniHandoff = [];
+      document.addEventListener(
+        "ruke:open-annotation",
+        (ev) => w.__omniHandoff!.push((ev as CustomEvent).detail),
+      );
+    });
+    const PHRASE = "quibble zork mctest phrase";
+    await bar.fill(PHRASE);
     await bar.press("Enter");
     await sleep(1500);
     expect(await tabUrl(e2e, tab), "a search phrase was treated as an address").toBe(`${FIXTURE_BASE}/scope/loqal`);
-    await expect(page.getByLabel("Message Ruke")).toHaveValue(/quibble zork mctest phrase/);
+    const evidence = await page.evaluate(() => ({
+      events: (window as unknown as { __omniHandoff?: unknown[] }).__omniHandoff ?? [],
+      bar: (document.querySelector('[aria-label="Address bar"]') as HTMLInputElement | null)?.value ?? null,
+    }));
+    expect(
+      evidence.events,
+      `panel dispatched no composer hand-off for a search phrase (address bar then held: ${JSON.stringify(evidence.bar)})`,
+    ).toHaveLength(1);
+    expect(
+      (evidence.events[0] as { text?: string }).text,
+      "hand-off detail carries the wrong text",
+    ).toContain(PHRASE);
+    await expect(page.getByLabel("Message Ruke")).toHaveValue(new RegExp(PHRASE));
 
     // History: Back on the panel restores the previous in-tab entry (human
     // turn identity — the honest source-tab post-landing path).
