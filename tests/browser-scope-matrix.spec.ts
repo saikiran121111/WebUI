@@ -194,8 +194,18 @@ async function answerScopeCard(page: Page, button: "Accept" | "Decline"): Promis
   await group.getByRole("button", { name: button }).click();
 }
 
-const MARK_KEEP =
-  ` Then call the "tab_mark_deliverable" tool on EVERY tab you opened or used so they survive turn cleanup. `;
+  // pw-57 lesson (turn-cleanup law, session.rs end_turn): per turn ONLY two
+  // tabs are protected from cleanup — ONE deliverable + ONE handoff, each
+  // slot latest-call-wins. "Mark EVERY tab" instructions silently overwrite
+  // the slot and get the earlier tab reaped (the product is correct; the
+  // prompt must respect the two-slot law). Tabs from EARLIER turns are
+  // already protected by their own turn's marks — re-marking them in a later
+  // turn steals that turn's slot from a tab that actually needs it.
+  const MARK_KEEP =
+    ` If this turn created new tabs, protect at most two of them from turn cleanup: ` +
+    `call "tab_mark_deliverable" on the most important one and, if you created a second, "tab_mark_handoff" on it — ` +
+    `call each of those tools at most once THIS turn, and NEVER mark a tab that an earlier turn opened ` +
+    `(earlier-turn tabs already survive on their own turn's marks). `;
 
 test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked invocation)", () => {
   test.describe.configure({ mode: "serial", retries: 0 });
@@ -243,8 +253,9 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     `The page has a link with CSS selector "#partner-site" pointing to a partner site; make the browser visit ` +
     `the exact address written in that link's href attribute — use the browser navigation/address tool with that ` +
     `address (do NOT click the link). Then read the "#scope-marker" element on the partner page. ` +
-    `Call tab_mark_deliverable on every tab you opened. If a tool call is refused, stop that step and say so — ` +
-    `do NOT retry it or use another address.`;
+    `Finally, protect your tabs from turn cleanup with the two-slot law: "tab_mark_deliverable" on exactly one tab ` +
+    `you opened this turn and, if you opened a second tab this turn, "tab_mark_handoff" on it (call each at most once). ` +
+    `If a tool call is refused, stop that step and say so — do NOT retry it or use another address.`;
 
   test("DENIAL: off-scope hop (localhost vs 127.0.0.1) parks a task_scope card BEFORE load; Decline blocks it", async ({ page, request }) => {
     const e2e = await arm(page, request);
