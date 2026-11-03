@@ -42,6 +42,19 @@ async function sendPrompt(page: import("@playwright/test").Page, text: string): 
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill(text);
   const send = page.getByTestId("send-button");
+  /* Hydration race (Zepto flake, 2026-11-04): networkidle does NOT mean
+     React has attached its onChange — a fill that lands pre-hydration
+     leaves the text in the DOM while component state stays empty, so the
+     hero composer (send gated on hasContent) never mounts the button and
+     no re-render ever syncs the two. The SSR-visible composer makes the
+     classic "wait for a visible element" hydration check useless.
+     Self-heal: if the button doesn't appear quickly, re-fill — by then
+     hydration is settled and React sees the text. */
+  try {
+    await expect(send).toBeVisible({ timeout: 3000 });
+  } catch {
+    await input.fill(text);
+  }
   await expect(send).toBeEnabled({ timeout: 15000 });
   await send.click();
   await page
