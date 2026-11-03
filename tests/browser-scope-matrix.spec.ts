@@ -226,15 +226,30 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     void tab;
   });
 
+  // pw-52 lesson (scope-folding semantics): foldTaskScope folds EVERY URL
+  // the USER names into the turn's targets, so a prompt naming both hosts
+  // makes the hop IN SCOPE and no card can park — the premise was never
+  // manufactured. The off-scope destination must therefore come from PAGE
+  // content (untrusted data never widens scope — the model cannot broaden
+  // the contract through tool arguments): the fixture's #partner-site link
+  // carries the localhost address, and the prompt only instructs following
+  // it. The model reaches it through navigate/tab-new (destinations known
+  // in advance per executor.rs `known_destination`), so the task_scope
+  // card must park BEFORE the page loads. A click-initiated hop is NOT
+  // destination-pre-gated by design (documented engine limitation) — hence
+  // the explicit "navigation command, not a click" instruction.
+  const HOP_PROMPT =
+    `Use the browser tools. Open a NEW tab at ${FIXTURE_BASE}/scope/zeeta and read it. ` +
+    `The page has a link with CSS selector "#partner-site" pointing to a partner site; make the browser visit ` +
+    `the exact address written in that link's href attribute — use the browser navigation/address tool with that ` +
+    `address (do NOT click the link). Then read the "#scope-marker" element on the partner page. ` +
+    `Call tab_mark_deliverable on every tab you opened. If a tool call is refused, stop that step and say so — ` +
+    `do NOT retry it or use another address.`;
+
   test("DENIAL: off-scope hop (localhost vs 127.0.0.1) parks a task_scope card BEFORE load; Decline blocks it", async ({ page, request }) => {
     const e2e = await arm(page, request);
 
-    await sendPrompt(
-      page,
-      `Use the browser tools. Step 1: open a NEW tab at ${FIXTURE_BASE}/scope/zeeta. Step 2: open ANOTHER NEW tab at ` +
-        `${OTHER_ORIGIN}/scope/loqal and read its "#scope-marker" element. Step 3: call tab_mark_deliverable on every ` +
-        `tab you opened. If a tool call is refused, stop that step and say so — do NOT retry it or use another address.`,
-    );
+    await sendPrompt(page, HOP_PROMPT);
     await answerScopeCard(page, "Decline");
     await waitTurnEnd(page);
 
@@ -250,15 +265,10 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
   test("HOP: explicit human Accept authorizes ONE off-scope hop; marker lands; card was the only blocker", async ({ page, request }) => {
     const e2e = await arm(page, request);
 
-    await sendPrompt(
-      page,
-      `Use the browser tools. Step 1: open a NEW tab at ${FIXTURE_BASE}/scope/zeeta. Step 2: open ANOTHER NEW tab at ` +
-        `${OTHER_ORIGIN}/scope/loqal and read its "#scope-marker" element. Step 3: call tab_mark_deliverable on every ` +
-        `tab you opened. If a tool call is refused, stop that step and say so — do NOT retry it or use another address.`,
-    );
-    // localhost access is pre-armed never_ask — the card that parks is ONLY
-    // the task-scope affinity card (separate checks law), and Accept here is
-    // a one-hop authorization.
+    await sendPrompt(page, HOP_PROMPT);
+    // localhost access is pre-armed never_ask — the destination passes the
+    // saved-permission gate and is still held by the task_scope card alone
+    // (separate checks law), so Accept here authorizes exactly this hop.
     await answerScopeCard(page, "Accept");
     await waitTurnEnd(page);
 
