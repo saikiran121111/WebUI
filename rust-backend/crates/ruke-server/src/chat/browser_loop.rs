@@ -473,6 +473,27 @@ pub async fn run_tool_loop(
     let question = last_user_text(&payload, last_user_idx);
     let scope = bounded_destination_discovery(state, token, scope, &question, span).await;
 
+    // Task-scope audit #7: register the turn's AFFINITY from the FINAL
+    // resolved scope (post-discovery: discovery may only narrow it) so
+    // the engine enforces it against every navigation DESTINATION
+    // before the page loads — an off-scope hop parks a one-shot human
+    // authorization naming the exact destination, never a blanket
+    // grant, never a persisted one, and never touching the saved-
+    // permission store (affinity and saved permissions stay separate
+    // checks). A non-enforceable scope registers nothing: affinity can
+    // only narrow what the server promised, never invent enforcement
+    // for a scope it never resolved. The unwinding rides `end_turn` /
+    // the guard's Drop inside `begin_turn`'s machinery.
+    let affinity = scope
+        .as_ref()
+        .filter(|s| ruke_websearch::task_scope::is_enforceable_scope(s))
+        .map(|s| ruke_browser::authority::TurnAffinity {
+            hosts: ruke_websearch::task_scope::scope_hosts(s),
+        });
+    state
+        .browser
+        .set_turn_affinity(&session_id, &turn_id, affinity);
+
     // Inject the guidance block once, in the skill-block slot (before
     // the last user message), then the tool surface. The scope block
     // rides on the SAME block so the model reads one law, not two.

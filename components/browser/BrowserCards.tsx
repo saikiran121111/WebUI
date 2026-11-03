@@ -37,6 +37,11 @@ const FACET_LABELS: Record<string, string> = {
   // Phase 13: history + clear-data are gated by the global ("*")
   // History rule; the card's origin arrives as "all sites".
   history: "read your browsing history",
+  // Task-scope audit #7: a hop OUTSIDE the turn's server-owned site
+  // scope. Not a saved-permission facet — this authorization covers
+  // exactly this one navigation, so the card below deliberately
+  // offers no Always-allow and no Block: there is nothing to keep.
+  task_scope: "visit a site outside this task's scope",
 };
 
 /** One-line human sentence for a parked approval, from the engine's
@@ -65,19 +70,28 @@ export function ApprovalCards({
           </div>
           <p className="bp-card-text">{approvalSentence(c)}</p>
           {c.url && <p className="bp-card-url">{c.url}</p>}
+          {/* Task-scope hops are per-navigation authorizations: the
+              engine treats every answer here as one-shot and never
+              persists any of them, so Always-allow and Block (which
+              stand for saved rules on every other card) are hidden —
+              accepting one would promise more than the engine does. */}
           <div className="bp-card-actions">
             <button className="bp-btn bp-btn-primary" onClick={() => onAnswer(c.id, "accept")}>
               Accept
             </button>
-            <button className="bp-btn" onClick={() => onAnswer(c.id, "always_allow")}>
-              Always allow
-            </button>
+            {c.facet !== "task_scope" && (
+              <button className="bp-btn" onClick={() => onAnswer(c.id, "always_allow")}>
+                Always allow
+              </button>
+            )}
             <button className="bp-btn" onClick={() => onAnswer(c.id, "decline")}>
               Decline
             </button>
-            <button className="bp-btn bp-btn-danger" onClick={() => onAnswer(c.id, "block")}>
-              Block
-            </button>
+            {c.facet !== "task_scope" && (
+              <button className="bp-btn bp-btn-danger" onClick={() => onAnswer(c.id, "block")}>
+                Block
+              </button>
+            )}
           </div>
         </div>
       ))}

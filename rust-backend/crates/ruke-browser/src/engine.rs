@@ -90,6 +90,13 @@ pub struct BrowserRuntime {
     pub(crate) turn_cancels: Mutex<HashMap<TurnKey, CancellationToken>>,
     /// Per-turn command counts for `MAX_COMMANDS_PER_TURN` (Phase 11).
     pub(crate) turn_command_counts: Mutex<HashMap<TurnKey, u32>>,
+    /// Task-scope audit #7: the sites each turn's task is about,
+    /// registered by the SERVER at the turn boundary (`set_turn_affinity`)
+    /// and unwound with the turn — never persisted, never resolved
+    /// here. The authority gates read it for navigations; the
+    /// AuthorityStore (saved permissions) is a deliberately separate
+    /// check, so neither map is ever consulted by the other's path.
+    pub(crate) turn_affinity: Mutex<HashMap<TurnKey, crate::authority::TurnAffinity>>,
     /// Site-submission evidence (Phase 14): origin → ISO-8601 stamp of
     /// the last `2xx Document` response the engine OBSERVED on a
     /// registered tab's session (`Network.responseReceived`). Fed by
@@ -134,6 +141,7 @@ impl BrowserRuntime {
             approvals: Arc::new(crate::authority::ApprovalRegistry::new()),
             turn_cancels: Mutex::new(HashMap::new()),
             turn_command_counts: Mutex::new(HashMap::new()),
+            turn_affinity: Mutex::new(HashMap::new()),
             submission_verified: Arc::new(Mutex::new(HashMap::new())),
             dev_logs: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -282,6 +290,9 @@ impl BrowserRuntime {
             stale.cancel();
         }
         self.turn_command_counts.lock().insert(key.clone(), 0);
+        // A re-begin on a live key must not inherit the stale turn's
+        // affinity; the server re-registers for the new turn.
+        self.turn_affinity.lock().remove(&key);
         BrowserTurnGuard {
             runtime: self.clone(),
             key,
@@ -294,12 +305,38 @@ impl BrowserRuntime {
         self.turn_cancels.lock().get(key).cloned()
     }
 
+    /// Task-scope audit #7: register (or with `None`, clear) the sites
+    /// THIS turn's task is about. The server — the only code that owns
+    /// and resolves a scope — calls this at the turn boundary; the
+    /// engine never parses a scope and never persists this
+    /// registration. An off-scope navigation then parks a one-shot
+    /// human authorization naming the exact destination (`authority::
+    /// check_task_affinity`); with no registration (or no hosts) there
+    /// is nothing to enforce, and affinity never reads or writes the
+    /// saved-permission store — the separate-checks law.
+    pub fn set_turn_affinity(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        affinity: Option<crate::authority::TurnAffinity>,
+    ) {
+        let key = (session_id.to_string(), turn_id.to_string());
+        match affinity {
+            Some(affinity) => {
+                self.turn_affinity.lock().insert(key, affinity);
+            }
+            None => {
+                self.turn_affinity.lock().remove(&key);
+            }
+        }
+    }
+
     /// Fire and unregister ONE turn's cancellation, in order: the token
     /// first (parked waits wake and fail closed), then that turn's
     /// parked cards — each pruned with an `approval_stale` frame so the
     /// panel removes the card instead of surfacing a too-late click as
-    /// an error — then its command budget. Idempotent: reached from
-    /// both `end_turn` and the guard's Drop.
+    /// an error — then its command budget and task affinity.
+    /// Idempotent: reached from both `end_turn` and the guard's Drop.
     fn fire_turn_cancel(&self, key: &TurnKey) {
         if let Some(token) = self.turn_cancels.lock().remove(key) {
             token.cancel();
@@ -308,6 +345,7 @@ impl BrowserRuntime {
             self.ui.event(json!({ "type": "approval_stale", "id": id }));
         }
         self.turn_command_counts.lock().remove(key);
+        self.turn_affinity.lock().remove(key);
     }
 
     /// Host death / shutdown: every turn's token fires at once.
@@ -317,6 +355,7 @@ impl BrowserRuntime {
             token.cancel();
         }
         self.turn_command_counts.lock().clear();
+        self.turn_affinity.lock().clear();
     }
 
     /// Turn end: release claims and run turn cleanup — close the tabs the
@@ -1517,6 +1556,34 @@ mod tests {
             .resolve(&keep_id, &json!({"decision": "accept"})));
         assert!(keep_rx.await.is_ok());
         assert!(!rt.turn_command_counts.lock().contains_key(&mine));
+    }
+
+    #[tokio::test]
+    async fn turn_affinity_lives_and_dies_with_its_turn() {
+        use crate::authority::TurnAffinity;
+        let (_dir, rt) = runtime();
+        let key = ("s".to_string(), "7".to_string());
+        let _g7 = rt.begin_turn("s", "7");
+        rt.set_turn_affinity(
+            "s",
+            "7",
+            Some(TurnAffinity {
+                hosts: vec!["example.com".to_string()],
+            }),
+        );
+        assert!(rt.turn_affinity.lock().contains_key(&key));
+        // A same-key re-begin clears the stale registration before the
+        // new turn's server code re-registers.
+        let _g7b = rt.begin_turn("s", "7");
+        assert!(!rt.turn_affinity.lock().contains_key(&key));
+        rt.set_turn_affinity("s", "7", Some(TurnAffinity::default()));
+        assert!(rt.turn_affinity.lock().contains_key(&key));
+        // The explicit turn end unwinds it with everything else…
+        rt.end_turn("s", "7").await;
+        assert!(!rt.turn_affinity.lock().contains_key(&key));
+        // …`None` clears idempotently, and the map stays empty.
+        rt.set_turn_affinity("s", "7", None);
+        assert!(rt.turn_affinity.lock().is_empty());
     }
 
     #[tokio::test]

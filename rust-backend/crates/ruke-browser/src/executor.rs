@@ -115,6 +115,28 @@ impl BrowserRuntime {
                 });
             }
         }
+        // Task-scope audit #7/#8 — destination pre-gates. A facet gate
+        // keyed on the SOURCE tab's current url checks the page that
+        // has ALREADY loaded, which is too late for a navigation the
+        // model is about to perform: for destinations knowable in
+        // advance, both checks now consult the DESTINATION before its
+        // page is ever touched, in this order —
+        //   1. turn task affinity (audit #7): an off-scope hop parks
+        //      one card naming the exact destination; accept
+        //      authorizes THIS action only (never persisted, never
+        //      blanket), decline/timeout/no-panel is a typed refusal;
+        //   2. the saved-permission facet gate keyed on the
+        //      destination's registrable host (`apply_gate_url`,
+        //      audit #8 — "a check after an unauthorized page has
+        //      loaded is insufficient").
+        // Commands whose destination is NOT knowable in advance (back/
+        // forward/reload, in-page clicks and JS navigations) keep the
+        // source-tab gate below: an honest post-landing check, kept
+        // separate from pre-gating by `known_destination`, and
+        // reported as a limitation rather than papered over.
+        if let Some((card_tab, dest)) = known_destination(cmd) {
+            self.check_task_affinity(key, card_tab, dest).await?;
+        }
         // Phase-9 authority facets (the recovered `acquireAuthority()`
         // preamble): observe/act/uploads/downloads/full-CDP each consult
         // the per-origin rule store — a saved deny refuses, always-ask
@@ -123,8 +145,20 @@ impl BrowserRuntime {
         // one who grants.
         if let Some((tab_id, gates)) = crate::authority::gate_for(cmd) {
             for gate in gates {
-                self.apply_gate(key, &tab_id, gate.facet, gate.label)
-                    .await?;
+                match cmd {
+                    // `navigate_tab_url` is the only FACET-gated
+                    // command with a destination known in advance:
+                    // gate the origin ABOUT to load, not the one
+                    // already loaded (audit #8).
+                    Command::NavigateTabUrl(p) => {
+                        self.apply_gate_url(key, &tab_id, &p.url, gate.facet, gate.label)
+                            .await?;
+                    }
+                    _ => {
+                        self.apply_gate(key, &tab_id, gate.facet, gate.label)
+                            .await?;
+                    }
+                }
             }
         }
         match cmd {
@@ -1917,6 +1951,26 @@ impl BrowserRuntime {
             Some("absent") => Ok(false),
             _ => Err(format!("clear dialog probe returned {v}")),
         }
+    }
+}
+
+/// The (card tab, destination) pair for commands whose navigation
+/// target is knowable BEFORE the command runs — the only commands the
+/// task-scope pre-gates (affinity + destination facet gate, audit
+/// #7/#8) can police in advance. `tab_new` parks its card on no tab in
+/// particular (it creates one); a blank/absent url carries no host to
+/// scope-check. Back/forward/reload and every in-page navigation keep
+/// the source-tab gate: their destination is only knowable after the
+/// page acts, so the check there is honestly post-landing.
+pub(crate) fn known_destination(cmd: &Command) -> Option<(&str, &str)> {
+    match cmd {
+        Command::NavigateTabUrl(p) => Some((&p.tab_id, &p.url)),
+        Command::TabNew(p) => p
+            .url
+            .as_deref()
+            .filter(|u| *u != "about:blank")
+            .map(|u| ("", u)),
+        _ => None,
     }
 }
 

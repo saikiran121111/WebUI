@@ -430,6 +430,48 @@ impl BrowserRuntime {
     }
 }
 
+// ── turn task affinity (task-scope audit #7) ─────────────────────────
+
+/// The sites THIS turn's task is about, registered with the engine by
+/// the SERVER at the turn boundary — ruke-server owns and resolves the
+/// scope; this crate never parses one. Affinity answers "is this turn
+/// about this site"; the AuthorityStore answers "may Ruke use this
+/// site, always". The two checks are deliberately separate (the audit
+/// law): a saved never-ask never buys an off-scope hop, and an
+/// accepted hop never writes a saved permission. The registration
+/// lives exactly as long as the turn's cancellation token and is
+/// NEVER persisted to disk.
+#[derive(Clone, Debug, Default)]
+pub struct TurnAffinity {
+    /// Lowercase hosts in first-seen scope order: PSL registrable
+    /// hosts with a literal-host fallback for hosts the PSL cannot
+    /// reduce (IPs, `localhost`). Ports never participate — both
+    /// sides key on the bare host, matching how facet policy rows are
+    /// keyed.
+    pub hosts: Vec<String>,
+}
+
+/// The approval-card `facet` value an off-scope hop carries. It is
+/// NOT a `Facet`: it must never read or write the persisted per-origin
+/// rule store (separate-checks law). The Panel's card grammar for it
+/// is one-shot — Accept authorizes exactly this hop.
+pub const AFFINITY_FACET: &str = "task_scope";
+
+/// Is a destination's host key covered by one scope host? Exact match,
+/// or the destination is a subdomain of a scope host that stayed
+/// literal — the wildcard-suffix family (`*.vercel.app`-style) and
+/// IP/localhost hosts, where no PSL collapse happens on either side.
+/// Ordinary subdomains already collapse to the same registrable host,
+/// so the exact arm covers them. Narrowing only: a scope host DEEPER
+/// than the destination authorizes nothing (the server resolves scope
+/// hosts at registrable level, so this only bites hand-authored
+/// scopes, and the honest answer there is to ask, not to widen).
+pub(crate) fn host_in_scope(dest: &str, scope_host: &str) -> bool {
+    let dest = dest.trim().to_lowercase();
+    let scope = scope_host.trim().to_lowercase();
+    !scope.is_empty() && (dest == scope || dest.ends_with(&format!(".{scope}")))
+}
+
 // ── the gate itself ────────────────────────────────────────────────────
 
 /// One gate request: which facet, and the human-readable action label
@@ -478,6 +520,47 @@ impl BrowserRuntime {
             label,
             tab_id,
             (json!(origin_of(&parsed)), json!(url)),
+        )
+        .await
+    }
+
+    /// Task-scope audit #8: the facet gate keyed on the DESTINATION
+    /// url instead of the tab's current one. For navigations whose
+    /// target is known ahead of time, the saved rule for the origin
+    /// ABOUT TO LOAD is consulted before that origin's page ever
+    /// loads — keying the source tab meant a saved deny on the
+    /// destination could be preceded by a full visit to the denied
+    /// site. Commands with no knowable-in-advance destination keep
+    /// `apply_gate` (an honest post-landing check).
+    pub(crate) async fn apply_gate_url(
+        &self,
+        key: &TurnKey,
+        tab_id: &str,
+        dest_url: &str,
+        facet: Facet,
+        label: &str,
+    ) -> Result<(), BrowserError> {
+        if key.1 == HUMAN_TURN_ID {
+            return Ok(());
+        }
+        let parsed = Url::parse(dest_url).map_err(|_| BrowserError::InvalidUrl {
+            url: dest_url.to_string(),
+        })?;
+        // Non-web schemes carry no host to key policy on; the
+        // navigation floor (`check_navigable`) rejects them, and its
+        // error is the honest one.
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Ok(());
+        }
+        let host = registrable_host(dest_url)
+            .unwrap_or_else(|| parsed.host_str().unwrap_or_default().to_string());
+        self.gate_on_host(
+            key,
+            &host,
+            facet,
+            label,
+            tab_id,
+            (json!(origin_of(&parsed)), json!(dest_url)),
         )
         .await
     }
@@ -589,6 +672,120 @@ impl BrowserRuntime {
                 }
             }
         }
+    }
+
+    /// Task-scope audit #7: enforce the turn's registered affinity
+    /// against a navigation DESTINATION before the page is touched. An
+    /// off-scope hop is never a silent deny and never a blanket grant:
+    /// exactly one card parks naming the exact destination, and an
+    /// accept authorizes THIS action only — nothing persists, the next
+    /// hop asks again, and the AuthorityStore is never consulted or
+    /// written (saved permissions are a separate check by law). No
+    /// affinity registered ⇒ no check: a scope the server never
+    /// promised this turn cannot invent enforcement out of nothing.
+    pub(crate) async fn check_task_affinity(
+        &self,
+        key: &TurnKey,
+        tab_id: &str,
+        dest_url: &str,
+    ) -> Result<(), BrowserError> {
+        if key.1 == HUMAN_TURN_ID {
+            return Ok(()); // the human owns their browser; the gates police the model
+        }
+        let registered = self.turn_affinity.lock().get(key).cloned();
+        let Some(affinity) = registered else {
+            return Ok(()); // no scope registered for this turn
+        };
+        if affinity.hosts.is_empty() {
+            return Ok(()); // an unresolved scope has nothing to enforce
+        }
+        let Ok(parsed) = Url::parse(dest_url) else {
+            return Ok(()); // `check_navigable` owns the malformed-url floor
+        };
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Ok(()); // no host to scope-check; the floor rejects non-web schemes
+        }
+        // Registrable collapse everywhere EXCEPT IP literals: the PSL
+        // has no notion of an address and would reduce `127.0.0.1` to
+        // label soup, while the server's scope hosts carry IPs as bare
+        // literals (its own PSL floor returns None there) — so the
+        // two sides agree on the address as written.
+        let dest = match parsed.host() {
+            Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_)) => {
+                parsed.host_str().unwrap_or_default().to_string()
+            }
+            _ => registrable_host(dest_url)
+                .unwrap_or_else(|| parsed.host_str().unwrap_or_default().to_string()),
+        };
+        if affinity.hosts.iter().any(|h| host_in_scope(&dest, h)) {
+            return Ok(());
+        }
+        if !self.ui.has_clients() {
+            return Err(BrowserError::CapabilityBlocked {
+                reason: format!(
+                    "{dest_url} is outside this task's site scope, and no Browser Panel \
+                     is connected to authorize the hop (open the panel and try again)"
+                ),
+            });
+        }
+        let (id, rx) = self.approvals.register(tab_id, key);
+        self.ui.event(json!({
+            "type": "approval_request",
+            "id": id,
+            "action": format!("visit {dest_url}"),
+            "facet": AFFINITY_FACET,
+            "origin": origin_of(&parsed),
+            "url": dest_url,
+            "tab_id": tab_id,
+        }));
+        match self.park_approval(key, &id, rx, APPROVAL_TIMEOUT).await {
+            Parked::Expired => Err(BrowserError::CapabilityBlocked {
+                reason: format!(
+                    "visiting {dest_url} (outside this task's site scope) timed out after \
+                     {}s waiting for your authorization",
+                    APPROVAL_TIMEOUT.as_secs()
+                ),
+            }),
+            Parked::SenderClosed => Err(BrowserError::CapabilityBlocked {
+                reason: format!(
+                    "visiting {dest_url} (outside this task's site scope) was cancelled: \
+                     the tab or panel closed before a decision"
+                ),
+            }),
+            Parked::Cancelled => Err(BrowserError::CapabilityBlocked {
+                reason: format!(
+                    "visiting {dest_url} (outside this task's site scope) was cancelled: \
+                     the agent turn ended before a Browser Panel decision arrived"
+                ),
+            }),
+            Parked::Answer(answer) => {
+                affinity_answer(dest_url, answer.get("decision").and_then(Value::as_str))
+            }
+        }
+    }
+}
+
+/// The answer grammar for an off-scope hop card (task-scope audit #7).
+/// `accept` and `always_allow` both authorize THIS navigation and
+/// nothing else: an off-scope authorization is never persisted, and
+/// writing a facet rule here would be a blanket grant wearing a saved
+/// permission's clothes — so no answer touches the AuthorityStore,
+/// not even `block` (whose refusal is about this hop; standing rules
+/// are the facet gate's domain, where the Panel offers Block). The
+/// Panel hides Always-allow/Block on these cards; treating them as
+/// one-shot keeps the engine honest if such an answer ever arrives.
+fn affinity_answer(dest: &str, decision: Option<&str>) -> Result<(), BrowserError> {
+    match decision {
+        Some("accept") | Some("always_allow") => Ok(()),
+        Some("block" | "decline") => Err(BrowserError::CapabilityBlocked {
+            reason: format!(
+                "The user declined visiting {dest}: it is outside this task's site scope."
+            ),
+        }),
+        other => Err(BrowserError::PayloadInvalid {
+            command: "browser_ui_approval".into(),
+            reason: format!("unrecognized approval decision {other:?}"),
+        }),
     }
 }
 
@@ -955,6 +1152,299 @@ mod tests {
             Some("localhost")
         );
         assert_eq!(registrable_host("about:blank").as_deref(), None);
+    }
+
+    // ── task-scope audit #7/#8: affinity + destination-keyed gates ──
+
+    #[test]
+    fn host_in_scope_matches_exact_literal_and_subdomain_hops() {
+        assert!(host_in_scope("example.com", "example.com"));
+        // Subdomains of a scope host that stayed literal (wildcard-
+        // suffix sites keep their full host on both sides).
+        assert!(host_in_scope(
+            "app.my-site.vercel.app",
+            "my-site.vercel.app"
+        ));
+        // …and never wider: a scope host one label DEEPER than the
+        // destination authorizes nothing, and suffix look-alikes fail.
+        assert!(!host_in_scope("example.com", "shop.example.com"));
+        assert!(!host_in_scope("notexample.com", "example.com"));
+        assert!(!host_in_scope("evil.test", "example.com"));
+        // IP literals carry no PSL floor: exact literal match, and
+        // hosts arrive port-stripped from both sides.
+        assert!(host_in_scope("127.0.0.1", "127.0.0.1"));
+        // Case-insensitive by law.
+        assert!(host_in_scope("EXAMPLE.COM", "example.com"));
+    }
+
+    #[test]
+    fn affinity_answer_is_one_shot_and_never_persists() {
+        // accept/always_allow authorize THIS hop only — a saved
+        // permission is a different check entirely (separate-checks
+        // law), so no affinity-card answer can ever write one.
+        for d in ["accept", "always_allow"] {
+            assert!(affinity_answer("https://hop.test/x", Some(d)).is_ok());
+        }
+        for d in ["block", "decline"] {
+            let e = affinity_answer("https://hop.test/x", Some(d)).unwrap_err();
+            assert!(matches!(&e, BrowserError::CapabilityBlocked { reason }
+                if reason.contains("outside this task's site scope")));
+        }
+        assert!(matches!(
+            affinity_answer("https://hop.test/x", Some("yes")),
+            Err(BrowserError::PayloadInvalid { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn check_task_affinity_matrix_no_panel_human_and_expiry_ladder() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = BrowserRuntime::new(dir.path().to_path_buf());
+        let key = ("s".to_string(), "t7".to_string());
+        rt.set_turn_affinity(
+            "s",
+            "t7",
+            Some(TurnAffinity {
+                hosts: vec![
+                    "zepto.com".into(),
+                    "127.0.0.1".into(),
+                    "my-site.vercel.app".into(),
+                ],
+            }),
+        );
+        // In-scope destinations pass: registrable collapse, IP literal
+        // with a port, a subdomain of a literal scope host, and the
+        // no-host floor (about:blank) that `check_navigable` owns.
+        for url in [
+            "https://www.zepto.com/cart",
+            "http://127.0.0.1:3210/easy",
+            "https://app.my-site.vercel.app/x",
+            "about:blank",
+        ] {
+            assert!(
+                rt.check_task_affinity(&key, "t1", url).await.is_ok(),
+                "{url} must stay in scope"
+            );
+        }
+        // Off-scope with NO panel connected ⇒ a typed refusal naming
+        // the exact destination — never silent, never blanket.
+        let e = rt
+            .check_task_affinity(&key, "t1", "https://blinkit.com/x")
+            .await
+            .unwrap_err();
+        assert!(matches!(&e, BrowserError::CapabilityBlocked { reason }
+            if reason.contains("outside this task's site scope")
+                && reason.contains("https://blinkit.com/x")));
+        // Human turns skip (the gates police the model); turns with no
+        // registered affinity skip (nothing was ever promised to them).
+        let human = ("s".to_string(), HUMAN_TURN_ID.to_string());
+        assert!(rt
+            .check_task_affinity(&human, "t1", "https://blinkit.com/x")
+            .await
+            .is_ok());
+        let unregistered = ("s".to_string(), "t8".to_string());
+        assert!(rt
+            .check_task_affinity(&unregistered, "t1", "https://blinkit.com/x")
+            .await
+            .is_ok());
+        // end_turn unwinds the registration with the rest of the turn…
+        rt.end_turn("s", "t7").await;
+        assert!(rt
+            .check_task_affinity(&key, "t1", "https://blinkit.com/x")
+            .await
+            .is_ok());
+        // …and affinity NEVER consulted or wrote the saved-permission
+        // store (separate-checks law): every host is still default.
+        for host in ["zepto.com", "blinkit.com"] {
+            assert_eq!(
+                rt.authority.decision(host, Facet::Access),
+                Decision::AlwaysAsk
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn destination_gate_keys_the_destination_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = BrowserRuntime::new(dir.path().to_path_buf());
+        let key = ("s".to_string(), "t".to_string());
+        rt.authority
+            .set("example.com", Facet::Access, Decision::Deny);
+        rt.authority
+            .set("example.org", Facet::Access, Decision::NeverAsk);
+        // A saved DENY on the DESTINATION origin refuses before the
+        // denied page ever loads (audit #8 — the source-tab gate could
+        // not catch this until after the visit had already happened)…
+        let e = rt
+            .apply_gate_url(
+                &key,
+                "t1",
+                "https://checkout.example.com/pay",
+                Facet::Access,
+                "act in the page",
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(&e, BrowserError::CapabilityBlocked { reason }
+            if reason.contains("denies access")));
+        // …while a saved NEVER-ASK on the destination origin proceeds.
+        assert!(rt
+            .apply_gate_url(
+                &key,
+                "t1",
+                "https://news.example.org/x",
+                Facet::Access,
+                "act in the page"
+            )
+            .await
+            .is_ok());
+        // The navigation floor stays the floor: an unparseable url is
+        // the command's typed error, not the gate's to invent.
+        assert!(matches!(
+            rt.apply_gate_url(&key, "t1", "not a url", Facet::Access, "act in the page")
+                .await,
+            Err(BrowserError::InvalidUrl { .. })
+        ));
+        // Human turns still skip every gate.
+        let human = ("s".to_string(), HUMAN_TURN_ID.to_string());
+        assert!(rt
+            .apply_gate_url(
+                &human,
+                "t1",
+                "https://checkout.example.com/pay",
+                Facet::Access,
+                "act in the page"
+            )
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn navigate_runs_affinity_then_destination_gate_before_the_arm() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = BrowserRuntime::new(dir.path().to_path_buf());
+        let key = ("s".to_string(), "t".to_string());
+        rt.set_turn_affinity(
+            "s",
+            "t",
+            Some(TurnAffinity {
+                hosts: vec!["zepto.com".into()],
+            }),
+        );
+        rt.authority
+            .set("example.com", Facet::Access, Decision::Deny);
+        let nav = |url: &str| {
+            Command::NavigateTabUrl(crate::schemas::NavigateUrlPayload {
+                browser_id: "default".into(),
+                tab_id: "t9".into(),
+                url: url.into(),
+            })
+        };
+        // Affinity fires FIRST: the scope-hop refusal, not the saved-
+        // permission one. The destination page was never loaded — that
+        // is the whole point of a pre-gate (audit #8's "a check after
+        // an unauthorized page has loaded is insufficient").
+        let e = rt
+            .execute(&key, &nav("https://shop.example.com/"))
+            .await
+            .unwrap_err();
+        assert!(matches!(&e, BrowserError::CapabilityBlocked { reason }
+            if reason.contains("outside this task's site scope")));
+        // In scope now: the facet gate answers keyed on the
+        // DESTINATION origin — tab "t9" does not exist at all, so the
+        // old source-tab `apply_gate` could only have said
+        // ContextUnavailable, never "denies access".
+        rt.set_turn_affinity(
+            "s",
+            "t",
+            Some(TurnAffinity {
+                hosts: vec!["example.com".into()],
+            }),
+        );
+        let e = rt
+            .execute(&key, &nav("https://shop.example.com/"))
+            .await
+            .unwrap_err();
+        assert!(matches!(&e, BrowserError::CapabilityBlocked { reason }
+            if reason.contains("denies access")));
+        // `tab_new` with an explicit off-scope url is pre-checked too:
+        // tab lifecycle carries no facet gate by design, but the hop
+        // is still the model's doing, so affinity applies.
+        let e = rt
+            .execute(
+                &key,
+                &Command::TabNew(crate::schemas::TabNewPayload {
+                    browser_id: "default".into(),
+                    url: Some("https://blinkit.com/x".into()),
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(&e, BrowserError::CapabilityBlocked { reason }
+            if reason.contains("outside this task's site scope")));
+    }
+
+    #[test]
+    fn known_destination_covers_only_pre_knowable_navigations() {
+        use crate::contract::Command;
+        use crate::executor::known_destination;
+        use crate::schemas::{NavigateUrlPayload, TabNewPayload, TabTarget};
+        let nav_cmd = Command::NavigateTabUrl(NavigateUrlPayload {
+            browser_id: "default".into(),
+            tab_id: "t1".into(),
+            url: "https://x.example/".into(),
+        });
+        assert_eq!(
+            known_destination(&nav_cmd),
+            Some(("t1", "https://x.example/"))
+        );
+        // A blank new tab has no host to scope-check…
+        assert_eq!(
+            known_destination(&Command::TabNew(TabNewPayload {
+                browser_id: "default".into(),
+                url: None,
+            })),
+            None
+        );
+        assert_eq!(
+            known_destination(&Command::TabNew(TabNewPayload {
+                browser_id: "default".into(),
+                url: Some("about:blank".into()),
+            })),
+            None
+        );
+        // …but an explicit one does.
+        assert_eq!(
+            known_destination(&Command::TabNew(TabNewPayload {
+                browser_id: "default".into(),
+                url: Some("https://x.example/".into()),
+            })),
+            Some(("", "https://x.example/"))
+        );
+        // Back/forward/reload destinations are not knowable in advance:
+        // they keep the source-tab gate (documented post-landing check).
+        assert_eq!(
+            known_destination(&Command::NavigateTabBack(TabTarget {
+                browser_id: "default".into(),
+                tab_id: "t1".into(),
+            })),
+            None
+        );
+        assert_eq!(
+            known_destination(&Command::NavigateTabReload(TabTarget {
+                browser_id: "default".into(),
+                tab_id: "t1".into(),
+            })),
+            None
+        );
+        // Not a navigation at all.
+        assert_eq!(
+            known_destination(&Command::TabClose(TabTarget {
+                browser_id: "default".into(),
+                tab_id: "t1".into(),
+            })),
+            None
+        );
     }
 
     #[test]
