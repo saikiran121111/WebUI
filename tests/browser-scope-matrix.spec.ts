@@ -436,8 +436,13 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     await expect(page.getByLabel("Message Ruke")).toHaveValue(new RegExp(PHRASE));
 
     // History: Back on the panel restores the previous in-tab entry (human
-    // turn identity — the honest source-tab post-landing path).
-    await page.getByLabel("Back").click();
+    // turn identity — the honest source-tab post-landing path). Scoped to
+    // the panel + exact name: the app TopBar also exposes a "Go back"
+    // button whose label substring-matches a bare getByLabel("Back").
+    await page
+      .getByRole("complementary", { name: "Browser panel" })
+      .getByRole("button", { name: "Back", exact: true })
+      .click();
     await until(async () => (await tabUrl(e2e, tab)).endsWith("/easy"), 20_000, "history Back navigation");
 
     // Leave the composer unsent (zero model traffic in this journey).
