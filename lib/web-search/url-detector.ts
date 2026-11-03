@@ -13,7 +13,10 @@
  * known local file/code extension unless the token is prefixed with
  * http(s):// or www.
  */
-import tldts from "tldts";
+// Named import ONLY: `tldts` has no default export in browser ESM builds
+// (see the named-import law comment in lib/decision/task-scope.ts — the
+// default-import crash the Phase-6 E2E matrix caught applies here too).
+import { parse as tldtsParse } from "tldts";
 
 /**
  * File/code extensions that must never be mistaken for TLDs.
@@ -112,7 +115,7 @@ export function detectUrlsAndDomains(
     if (/^v?\d+\./.test(host)) continue; // version number
     if (host.endsWith(".e.g") || host.endsWith(".i.e")) continue;
 
-    const parsed = tldts.parse(host);
+    const parsed = tldtsParse(host);
     // tldts: domain = registrable domain (public suffix + one label),
     // publicSuffix = TLD or multi-part suffix. "skiran.dev" -> domain
     // "skiran.dev" / suffix "dev". "lite.ego.app" -> domain "ego.app" /

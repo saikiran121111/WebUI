@@ -32,7 +32,14 @@
  *    preferences stay in the existing reranker layer (brief #5), this is
  *    NOT another planner subsystem.
  */
-import tldts from "tldts";
+// NAMED-IMPORT LAW (pw-48, 2026-11-03): the `tldts` package exports NO
+// default in its browser ESM build — `import tldts from "tldts"` worked
+// under Node's CJS interop but left `tldts` undefined in the client
+// bundle, so every in-browser registrableHost call threw
+// "Cannot read properties of undefined (reading 'parse')" (the omnibox
+// search-phrase crash the Phase-6 matrix caught). Named imports resolve
+// in BOTH runtimes; never switch these back to a default import.
+import { parse as tldtsParse } from "tldts";
 import { detectUrlsAndDomains } from "../web-search/url-detector";
 
 // ─── Public contract ────────────────────────────────────────────────────────
@@ -116,7 +123,7 @@ export function registrableHost(input: string): string | null {
   }
   host = host.toLowerCase();
   if (!host) return null;
-  return tldts.parse(host).domain ?? null;
+  return tldtsParse(host).domain ?? null;
 }
 
 // ─── Word lists (pure language vocabulary — NO brands, NO TLD hints) ───────
