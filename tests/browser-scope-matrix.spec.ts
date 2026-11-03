@@ -81,6 +81,48 @@ async function tabBySuffix(e2e: BrowserE2E, suffix: string) {
   return (await e2e.listTabs()).find((t) => (t.url ?? "").endsWith(suffix));
 }
 
+/** Sweep ALL journey debris before a journey starts and after it ends.
+ *  The engine launches Chromium on a PERSISTENT profile (host.rs
+ *  `--user-data-dir`), and session-restored tabs from earlier runs attach
+ *  as USER tabs (engine.rs startup-tab law) — including deliverable-marked
+ *  model tabs from previous journeys. Those pollute the panel (a restored
+ *  tab can hold the panel selection and steal an omnibox navigation), so
+ *  every journey owns a clean tab set. Swept: both fixture origin
+ *  spellings (closeFixtureTabs only knows the FIXTURE_BASE literal) and
+ *  blank/error leftovers (Chromium's initial page, chrome-error:// from
+ *  prior failures). One spare blank tab is left alive when it's the last
+ *  tab standing — closing Chromium's final tab can kill the window the
+ *  CDP connection rides on. */
+async function sweepTabs(e2e: BrowserE2E): Promise<void> {
+  const tabs = await e2e.listTabs().catch(() => []);
+  const junk = tabs.filter((t) => {
+    if (typeof t.tab_id !== "string") return false;
+    const url = t.url ?? "";
+    return (
+      url.startsWith(FIXTURE_BASE) ||
+      url.startsWith(OTHER_ORIGIN) ||
+      url === "" ||
+      url === "about:blank" ||
+      url.startsWith("chrome://") ||
+      url.startsWith("chrome-error://")
+    );
+  });
+  if (junk.length === tabs.length && tabs.length > 0) {
+    // Keep one tab alive (prefer a blank one) so the browser never dies
+    // mid-suite; it is re-swept next round once other tabs exist.
+    const spare = junk.find((t) => !(t.url ?? "").startsWith("http"));
+    if (spare) {
+      await Promise.all(
+        junk.filter((t) => t.tab_id !== spare.tab_id).map((t) => e2e.command("tab_close", { tab_id: t.tab_id }).catch(() => {})),
+      );
+      return;
+    }
+  }
+  for (const t of junk) {
+    await e2e.command("tab_close", { tab_id: t.tab_id }).catch(() => {});
+  }
+}
+
 /** Saved-permission pre-arming for BOTH origins. Pre-arming localhost's
  *  access facet while the scope is 127.0.0.1-only is deliberate: the
  *  task_scope affinity card must STILL park (saved permissions and task
@@ -106,7 +148,13 @@ async function arm(page: Page, request: APIRequestContext, openPanel = true): Pr
     }
     await expect(panel).toBeVisible({ timeout: 10_000 });
   }
-  return new BrowserE2E(request, SESSION);
+  const e2e = new BrowserE2E(request, SESSION);
+  // Journey start = clean slate: session-restored tabs from earlier runs
+  // (persistent profile) must not hold the panel selection or count as
+  // journey state (e.g. a stale deliverable-marked localhost tab would
+  // false-fail the DENIAL row's "nothing landed off-scope" assertion).
+  await sweepTabs(e2e);
+  return e2e;
 }
 
 async function sendPrompt(page: Page, text: string): Promise<void> {
@@ -155,15 +203,9 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
   test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 
   test.afterEach(async ({ request }) => {
-    // Sweep BOTH origin spellings (the shared closeFixtureTabs only knows the
-    // FIXTURE_BASE literal; the localhost:3210 tabs are this spec's doing).
-    const e2e = new BrowserE2E(request, SESSION);
-    for (const t of await e2e.listTabs().catch(() => [])) {
-      const url = t.url ?? "";
-      if (typeof t.tab_id === "string" && (url.startsWith(FIXTURE_BASE) || url.startsWith(OTHER_ORIGIN))) {
-        await e2e.command("tab_close", { tab_id: t.tab_id }).catch(() => {});
-      }
-    }
+    // Sweep journey debris (both origin spellings + blank/error restored
+    // tabs — see sweepTabs for the persistent-profile session-restore law).
+    await sweepTabs(new BrowserE2E(request, SESSION));
   });
 
   test("ROUTING: panel CLOSED — operate intent + session marker still route to the browser turn", async ({ page, request }) => {
@@ -300,8 +342,21 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     const tab = await e2e.newTab();
     await e2e.navigate(tab, "/easy");
 
+    // The RPC does NOT move the panel selection — tab_new/tab navigation on
+    // the "ui" identity leave the selected tab whatever it already was
+    // (possibly a session-restored tab). Pin OUR tab in the panel first:
+    // click it by its real page title, exactly what the human does.
+    await page.getByRole("tab", { name: /Fixture Easy/ }).first().click();
+    await expect(
+      page.getByRole("tab", { selected: true }),
+      "panel selection did not follow the tab we clicked",
+    ).toContainText(/Fixture Easy/i);
+
     // Address law: `127.0.0.1:3210/...` (IP literal + port) is an address ⇒
-    // the selected tab navigates. Landed URL asserted over the RPC, not DOM.
+    // the selected tab navigates, and the scheme fix (Phase-6 catch:
+    // unschemed IP/port ⇒ http://, never https:// — plain-HTTP origins die
+    // on SSL otherwise) must carry it. Landed URL asserted over the RPC,
+    // not DOM.
     const bar = page.getByLabel("Address bar");
     await bar.fill(`127.0.0.1:3210/scope/loqal`);
     await bar.press("Enter");

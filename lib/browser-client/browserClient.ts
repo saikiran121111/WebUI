@@ -224,14 +224,19 @@ export function normalizeOmniboxUrl(raw: string): string {
   const lower = host.toLowerCase();
   // Loopback/any IP literal: the PSL has no registrable domain for IPs
   // (tldts would reduce 127.0.0.1 to "0.1"), and nobody searches an IP.
+  // Scheme choice follows the browsers' discriminator (caught live by the
+  // Phase-6 matrix, 2026-11-03: https:// to a plain-HTTP loopback origin
+  // dies as net::ERR_SSL_PROTOCOL_ERROR): IP literals, bracketed hosts,
+  // and `localhost` are dev/loopback services ⇒ `http://`.
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(lower) || lower.startsWith("[") || lower === "localhost") {
-    return `https://${url}`;
+    return `http://${url}`;
   }
+  // Explicit numeric port BEFORE the registrable check, matching Chrome/
+  // Firefox: an explicit port is a structural address signal, and scheme
+  // upgrades are a default-port guess only — `example.com:8080` and
+  // single-label dev hosts (`myhost:3101`) both get `http://`.
+  if (/^\d+$/.test(port)) return `http://${url}`;
   if (registrableHost(lower)) return `https://${url}`;
-  // Explicit numeric port ⇒ structural address authority for names the
-  // PSL cannot resolve (single-label dev hosts like `myhost:3101`;
-  // dotted names like `ruke.local` already resolved by the host rule).
-  if (/^\d+$/.test(port)) return `https://${url}`;
   return ""; // not an address — the caller searches instead
 }
 

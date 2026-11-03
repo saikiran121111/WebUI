@@ -252,23 +252,27 @@ describe("normalizeOmniboxUrl", () => {
     expect(normalizeOmniboxUrl("coffee")).toBe("");
   });
 
-  it("IP literals and localhost are addresses (no PSL for them)", () => {
-    expect(normalizeOmniboxUrl("127.0.0.1:3210/easy")).toBe("https://127.0.0.1:3210/easy");
-    expect(normalizeOmniboxUrl("192.168.1.1")).toBe("https://192.168.1.1");
-    expect(normalizeOmniboxUrl("localhost:3000")).toBe("https://localhost:3000");
-    expect(normalizeOmniboxUrl("localhost")).toBe("https://localhost");
-    expect(normalizeOmniboxUrl("[::1]:8080")).toBe("https://[::1]:8080");
+  it("IP literals and localhost are addresses (no PSL for them) — and get http://", () => {
+    // Scheme law (Phase-6 matrix, 2026-11-03): loopback/IP/bracketed hosts
+    // are dev services; https:// to a plain-HTTP origin dies as
+    // net::ERR_SSL_PROTOCOL_ERROR, so the omnibox prefixes http:// —
+    // exactly what Chrome/Firefox do for these forms.
+    expect(normalizeOmniboxUrl("127.0.0.1:3210/easy")).toBe("http://127.0.0.1:3210/easy");
+    expect(normalizeOmniboxUrl("192.168.1.1")).toBe("http://192.168.1.1");
+    expect(normalizeOmniboxUrl("localhost:3000")).toBe("http://localhost:3000");
+    expect(normalizeOmniboxUrl("localhost")).toBe("http://localhost");
+    expect(normalizeOmniboxUrl("[::1]:8080")).toBe("http://[::1]:8080");
   });
 
-  it("an explicit numeric port is a structural address even off-PSL", () => {
-    // The port fallback covers hosts NO public suffix can resolve, e.g.
+  it("an explicit numeric port is a structural address — checked before the PSL rule", () => {
+    // The port signal covers hosts NO public suffix can resolve, e.g.
     // single-label dev/fixture authorities (`myhost:3101`): the numeric
-    // port is the address signal — not a brand rule.
-    expect(normalizeOmniboxUrl("myhost:3101")).toBe("https://myhost:3101");
-    // `ruke.local` IS registrable to tldts (verified 2026-11-03), so the
-    // fixture dev URL passes on the host rule before the port fallback;
-    // pinned here because it's the authority actually in use.
-    expect(normalizeOmniboxUrl("ruke.local:3101")).toBe("https://ruke.local:3101");
+    // port is the address signal — not a brand rule. It is also the
+    // scheme discriminator: scheme upgrades are a default-port guess, so
+    // ANY explicit port ⇒ http:// (Chrome/Firefox law), registrable or not.
+    expect(normalizeOmniboxUrl("myhost:3101")).toBe("http://myhost:3101");
+    expect(normalizeOmniboxUrl("ruke.local:3101")).toBe("http://ruke.local:3101");
+    expect(normalizeOmniboxUrl("example.com:8080")).toBe("http://example.com:8080");
   });
 
   it("userinfo strips credentials before the host check", () => {
