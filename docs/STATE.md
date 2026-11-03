@@ -2524,7 +2524,7 @@ prune stale panel cards with a new `approval_stale` frame. COMMITTED
 - **Docs closed out this session:** plan rows 19–24 → CLOSED with the real evidence (row 26 split note amended to 79/4); `docs/e2e-test-state.md` stale spec-timing line corrected (retries 0, per-test 480 s, stream window 420 s) + new "leg 2 GREEN" section incl. defect #8 post-mortem + housekeeping notes (stray `host:"0.1"` policy rule cosmetic; background-tab screenshot 30 s timeout observed once; conversations-live-chat.spec.ts unverified suspect); `documents/RUKE-IMPLEMENTATION-REPORT.md` §2 partition fixed to 79/4, §6 +defects #6/#7/#8, §8 rewritten with the recorded-green table, §9 limitations updated.
 - **NEXT (rows 28–29, FINAL):** preflight (git clean except ignored/tsbuildinfo; no stale lock; no playwright-cli sessions) ⇒ flip plan row 28–29, commit, then ONE-LINE WARNING immediately followed by `shutdown /s /t 60` (user-mandated last action; destructive — the warning is mandatory).
 
-# SEGMENT — TASK-SCOPE AUDIT: PHASES 1–5 LANDED (2026-11-03) — 8.1–8.8
+# SEGMENT — TASK-SCOPE AUDIT: PHASES 1–6 LANDED (2026-11-03) — 8.1–8.8
 
 ## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
 Complete RUKE WEB SEARCH P1–P7 (P1–P7.3 closed, ad4f938→…→c7b8da4) AND the
@@ -2536,8 +2536,10 @@ destination discovery + research ordering, TS ⇔ Rust) = 5a83a67. Phase 4
 (audit #7/#8: turn task affinity + destination pre-gates in the browser
 engine) = c59d742. Phase 5 (audit #9/#10/#11: index provenance,
 browser:working_tab follow/pin law, omnibox PSL law) = ff385ea.
-Phase 6 pending, then the final locked Playwright fix-rerun loop
-(resume at pw-42), P7.5 report, §4 report, confirmed shutdown.
+Phase 6 (E2E scope matrix spec + fixture sites + marker contract) = fb51b29 —
+its Playwright execution is part of the final loop, NOT run standalone.
+Now: the final locked Playwright fix-rerun loop (resume at pw-42), then
+P7.5 report, §4 report, confirmed shutdown.
 
 ## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
 - P1–P7.3: see prior segments + documents/WEB-SEARCH-P1-P7-* docs. c7b8da4 = launcher teardown fix.
@@ -2614,6 +2616,41 @@ Phase 6 pending, then the final locked Playwright fix-rerun loop
   ⇒ address; explicit numeric port ⇒ address (single-label `myhost:3101`); else "" ⇒
   panel routes the text to the composer via dispatchRukeOpenAnnotation (RUKE web-search
   gate; NO hardcoded engine; human sends). No Rust mirror needed (TS-only UI surface).
+- Phase 6 fb51b29 (verified: NEW spec compiles under tsc 0; vitest 1088/1skip UNCHANGED —
+  helpers change is additive exports only; NO Playwright run yet — the spec executes ONLY
+  in the final locked loop): NEW tests/browser-scope-matrix.spec.ts — 7 serial journeys,
+  retries 0, 480 s, model journeys mirror browser-model-acceptance (sendPrompt fill+Enter,
+  Stop-button stream-end, MARK_KEEP deliverable law): (1) ROUTING panel CLOSED — operate
+  intent + session marker still reach the engine; (2) DENIAL — off-scope hop to
+  http://localhost:3210 while scope is 127.0.0.1:3210: BOTH hosts' access facets PRE-ARMED
+  never_ask yet the task_scope card still parks BEFORE load (separate-checks law), human
+  Decline mid-stream ⇒ NO tab ever lands on the second origin, in-scope tab intact;
+  (3) HOP — human Accept one-shots the hop, SCOPE_LOQAL marker lands on the localhost tab;
+  (4) WORKING TAB — human-pre-opened /easy background tab untouched, in-page #to-checkout
+  click lands checkout marker, exactly one role=tab selected=true following the engine;
+  (5) FOLLOW-UP — turn 2 explicit new target lands, turn 1's zeeta tab undisturbed;
+  (6) REDIRECT — in-origin /scope/redirect 302 asserts the LANDED url /scope/zeeta +
+  marker; (7) OMNIBOX (zero model traffic) — Address bar `127.0.0.1:3210/scope/loqal`
+  navigates (landed url over RPC), `quibble zork mctest phrase`+Enter ⇒ NO navigation +
+  composer carries the text (never sent), Back restores /easy.
+  Fixture sites (Zeeta Mart / Loqal Coffee / Quipqort Emporium — arbitrary names, zero
+  production knowledge; routes /scope/zeeta, /scope/zeeta/checkout, /scope/loqal,
+  /scope/quipqort, /scope/redirect 302) live in tests/fixtures/browser/server.mjs which is
+  GITIGNORED (.gitignore:12 "tests/fixtures/") — the fixture server is uncommitted local
+  infrastructure by project policy (every existing browser spec already relies on it);
+  the committed SCOPE_* marker constants in tests/browser-e2e-helpers.ts are the portable
+  contract; a fresh checkout must recreate the routes. Multi-origin trick: affinity keys
+  hosts literally, 127.0.0.1 vs localhost are DISTINCT scope hosts on ONE fixture server.
+  afterEach sweeps BOTH origin prefixes (closeFixtureTabs only knows FIXTURE_BASE).
+  Remaining matrix rows are pinned DETERMINISTICALLY elsewhere (mapping in the spec header):
+  capitalization/multiword/uncommon-TLD/explicit-URL/ambiguous/incidental/negation/
+  preference-vs-restriction/target-change-merge → task-scope corpus 56/56 BOTH languages;
+  CDP-escape/pre-gates/affinity one-shot → ruke-browser 177; forms/popups/dialogs/uploads
+  → browser-easy|medium|hard.spec.ts + fixture_journeys.rs; gate-failure/zero-results/
+  bot-blocks → websearch classification tests + web-search-10k; fallback provenance →
+  slug_triangulation ⇔ TS mirrors; working-tab + omnibox UI laws → browser-store/
+  browser-client vitest pins. The omnibox host:port fix's deterministic regression = those
+  existing vitest blocks (kept, per plan).
 
 ## [8.3 GRAPHIFY DEPENDENCY MAP (current)]
 route.ts fold → runSearchPipeline(ctx.scope) → [gate rules_based_plan carries hosts;
@@ -2692,6 +2729,11 @@ fixture server :3210; dev supervisor :3000 Next + :3101 Rust; Strata :8080). Row
 Phases 3–6: rerun strengthened Blinkit/Myntra/Zepto, one -Grep each BookMyShow/Zomato/YouTube/
 Maps/LinkedIn/HN/SO/Greenhouse/Gov, web-search-10k ×4 ranges, affected browser specs, NEW
 scope specs. NEVER weaken assertions (tests/universal-websites.spec.ts law).
+NEW Phase-6 rows (tests/browser-scope-matrix.spec.ts, ONE -Grep per journey, PATIENCE RULE
+one attempt each): 'ROUTING:' / 'DENIAL:' / 'HOP:' / 'WORKING TAB:' / 'FOLLOW-UP:' /
+'REDIRECT:' / 'OMNIBOX' (OMNIBOX touches no model; the other six are model-driven). The
+fixture server (:3210) must carry the /scope/* routes — gitignored local infra, already
+armed on this machine.
 
 ## [8.6 OPEN BUGS / BLOCKERS]
 None blocking. Audit items 2,3 CLOSED by 5a83a67; 7,8 CLOSED by c59d742 (task affinity +
@@ -2714,20 +2756,16 @@ No Tier-1/Tier-2 skill bodies loaded this session (ponytail+graphify behavior al
 CLAUDE.md; no Skill tool invocations). Playwright skills load ONLY at TEST phase.
 
 ## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
-1. NOW — Phase 6: deterministic regression per reproduced audit bug (the omnibox
-   `host:port` scheme-swallow fixed in ff385ea is pinned by its vitest blocks — keep) +
-   E2E matrix PLAN (arbitrary FIXTURE names, mocked discovery, multi-origin,
-   capitalization/multiword/uncommon-TLD/explicit-URL/ambiguous/incidental/negation/
-   preference-vs-restriction/authorized-hop/background-tab/follow-up-change/gate-failure/
-   zero-results/bot-block/redirect/popup/form/history/CDP-escape/destination-denial/
-   fallback-provenance/panel-open-vs-closed/working-tab; assert attempted+landed URLs &
-   source identities, NOT model prose; Rust/TS parity) — commit + STATE sync after.
-2. THEN the ONE final locked Playwright fix-rerun loop starting at pw-42 (handover §8 list:
+1. NOW — the ONE final locked Playwright fix-rerun loop starting at pw-42 (handover §8 list:
    strengthened Blinkit/Myntra/Zepto reruns, one -Grep each BookMyShow/Zomato/YouTube/Maps/
    LinkedIn/HN/SO/Greenhouse/Gov, web-search-10k ×4 ranges, browser-model-acceptance.spec.ts
-   arm() as-is; lock .ai-coordination/playwright.lock, foreground, one spec per call,
+   arm() as-is, PLUS the NEW Phase-6 matrix rows — tests/browser-scope-matrix.spec.ts,
+   one -Grep per journey: ROUTING:/DENIAL:/HOP:/WORKING TAB:/FOLLOW-UP:/REDIRECT:/OMNIBOX
+   (see 8.5); lock .ai-coordination/playwright.lock, foreground, one spec per call,
    NEVER weaken strengthened journeys; fix-rerun loop only on real failures).
-3. Closeout: documents/WEB-SEARCH-P1-P7-FINAL-REPORT.md (per-phase commits, REAL counts,
-   honest limitations incl. the 8.6 list) + STATE.md final sync + CLAUDE.md §4 completion
-   report ⇒ CONFIRM with user, then shutdown.exe /s /t 180 /c "Ruke web-search P1-P7
-   implementation and verification complete" as the LAST action.
+2. THEN closeout: documents/WEB-SEARCH-P1-P7-FINAL-REPORT.md (per-phase commits, REAL
+   counts, honest limitations incl. the 8.6 list + "matrix rows pinned deterministically
+   rather than in-browser, mapping in the spec header" + "fixture server is gitignored
+   local infra") + STATE.md final sync + CLAUDE.md §4 completion report.
+3. LAST action: CONFIRM with the user, then shutdown.exe /s /t 180 /c "Ruke web-search
+   P1-P7 implementation and verification complete" (abortable via shutdown /a).
