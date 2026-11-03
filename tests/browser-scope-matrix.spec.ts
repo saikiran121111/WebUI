@@ -282,9 +282,12 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     const e2e = await arm(page, request);
     // Human-owned background tab (turn "ui" identity — survives turn cleanup):
     // the engine must never steer or disturb it.
+    // pw-55 lesson: /easy is the journey LANDING page — the EASY_ARRIVED
+    // marker lives only on /easy/arrived (its link target). The background
+    // tab sits on that terminal page, where an exact marker probe works.
     const bg = await e2e.newTab();
-    await e2e.navigate(bg, "/easy");
-    expect(await e2e.innerText(bg, "body")).toContain(EASY_ARRIVED.slice(0, 4) || "EASY");
+    await e2e.navigate(bg, "/easy/arrived");
+    expect(await e2e.innerText(bg, "#arrived-marker")).toBe(EASY_ARRIVED);
 
     await runTurn(
       page,
@@ -297,8 +300,10 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     const work = await tabBySuffix(e2e, "/scope/zeeta/checkout");
     expect(work?.tab_id, "working tab never reached checkout").toBeTruthy();
     expect(await e2e.innerText(work!.tab_id as string, "#scope-marker")).toBe(SCOPE_ZEETA_CHECKOUT);
-    // Background tab state:
-    expect(await tabUrl(e2e, bg), "background tab was moved").toBe(`${FIXTURE_BASE}/easy`);
+    // Background tab state: same URL AND same live marker — the engine
+    // never steered or re-rendered it off its arrived page.
+    expect(await tabUrl(e2e, bg), "background tab was moved").toBe(`${FIXTURE_BASE}/easy/arrived`);
+    expect(await e2e.innerText(bg, "#arrived-marker"), "background tab content was disturbed").toBe(EASY_ARRIVED);
     // Displayed working tab: the panel's selected tab follows the engine
     // (browser:working_tab frames; no human pin in this journey).
     const selected = page.getByRole("tab", { selected: true });
