@@ -226,6 +226,58 @@ describe("normalizeOmniboxUrl", () => {
     expect(normalizeOmniboxUrl("file:///C:/x.html")).toBe("file:///C:/x.html");
     expect(normalizeOmniboxUrl("   ")).toBe("");
   });
+
+  // Task-scope audit #11: "PSL-detectable registrable domain ⇒ URL;
+  // otherwise ⇒ search". The function returns "" for the search case —
+  // the panel routes "" to the composer's web search. No brand lists:
+  // tldts makes the call, so a brand and a common word behave alike.
+  it("a PSL registrable domain is an address", () => {
+    expect(normalizeOmniboxUrl("blinkit.com")).toBe("https://blinkit.com");
+    // Uncommon-but-real gTLD: recognized by the public suffix list, not
+    // by a hardcoded TLD preference.
+    expect(normalizeOmniboxUrl("foo.community")).toBe("https://foo.community");
+    // PSL wildcard rule: ANY dotted token reads as a host (verified
+    // against tldts, 2026-11-03) — the same call every browser makes, so
+    // an unknown TLD is still an address, not a search.
+    expect(normalizeOmniboxUrl("not.a.host.zzz")).toBe("https://not.a.host.zzz");
+    // Path/query/fragment ride through untouched.
+    expect(normalizeOmniboxUrl("example.com/a?b=c#d")).toBe("https://example.com/a?b=c#d");
+  });
+
+  it("a bare word the PSL cannot resolve is a search, not a guessed URL", () => {
+    // These look host-ish but have no registrable domain — the old law
+    // blindly prepended https:// and sent the human to a dead host.
+    expect(normalizeOmniboxUrl("zepto")).toBe("");
+    expect(normalizeOmniboxUrl("my cat photos")).toBe("");
+    expect(normalizeOmniboxUrl("coffee")).toBe("");
+  });
+
+  it("IP literals and localhost are addresses (no PSL for them)", () => {
+    expect(normalizeOmniboxUrl("127.0.0.1:3210/easy")).toBe("https://127.0.0.1:3210/easy");
+    expect(normalizeOmniboxUrl("192.168.1.1")).toBe("https://192.168.1.1");
+    expect(normalizeOmniboxUrl("localhost:3000")).toBe("https://localhost:3000");
+    expect(normalizeOmniboxUrl("localhost")).toBe("https://localhost");
+    expect(normalizeOmniboxUrl("[::1]:8080")).toBe("https://[::1]:8080");
+  });
+
+  it("an explicit numeric port is a structural address even off-PSL", () => {
+    // The port fallback covers hosts NO public suffix can resolve, e.g.
+    // single-label dev/fixture authorities (`myhost:3101`): the numeric
+    // port is the address signal — not a brand rule.
+    expect(normalizeOmniboxUrl("myhost:3101")).toBe("https://myhost:3101");
+    // `ruke.local` IS registrable to tldts (verified 2026-11-03), so the
+    // fixture dev URL passes on the host rule before the port fallback;
+    // pinned here because it's the authority actually in use.
+    expect(normalizeOmniboxUrl("ruke.local:3101")).toBe("https://ruke.local:3101");
+  });
+
+  it("userinfo strips credentials before the host check", () => {
+    // Credentials ride through; the decision reads the host after the "@".
+    expect(normalizeOmniboxUrl("me@example.com")).toBe("https://me@example.com");
+    // An "@" inside a search phrase cannot make the remainder a host: a
+    // space can never be part of one, so the PSL resolves nothing.
+    expect(normalizeOmniboxUrl("review@ my order notes")).toBe("");
+  });
 });
 
 /* ── Phase 9: card answers, auth-field selection, policy RPC ─────────── */

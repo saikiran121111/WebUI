@@ -85,6 +85,15 @@ pub struct StageEvent {
     pub surface_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_revision: Option<u64>,
+    /// Task-scope audit #10: `browser:working_tab` frames only — the chat
+    /// turn the frame belongs to and the engine tab the model is working
+    /// on. The frame is SESSION + TURN + TAB qualified so a delayed or
+    /// cross-session frame can never steer a newer turn's panel. Display
+    /// metadata only: never a permission, never an authority input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
 }
 
 impl StageEvent {
@@ -107,6 +116,8 @@ impl StageEvent {
             surface_id: None,
             surface_kind: None,
             surface_revision: None,
+            turn: None,
+            tab_id: None,
         }
     }
 }

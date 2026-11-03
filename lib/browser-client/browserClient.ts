@@ -36,6 +36,10 @@
  */
 
 import type { AnnotationAnchor } from "./annotationPrompt";
+// Task-scope audit #11: the omnibox address law needs a public-suffix
+// lookup, and `lib/decision/task-scope.ts` is the ONLY PSL/url-detector-
+// capable home in the TS side — this file must not grow its own.
+import { registrableHost } from "../decision/task-scope";
 
 export const BROWSER_ID = "default";
 /** Stable panel turn id — see the header note on tab operability. */
@@ -178,15 +182,57 @@ export async function fetchWsTicket(): Promise<WsTicket> {
 }
 
 /**
- * Omnibox URL policy: a bare host gets `https://`; anything already
- * carrying a scheme passes through untouched (we never silently rewrite
- * http/WS URLs a user typed deliberately).
+ * Omnibox address law (task-scope audit #11): an input that already
+ * carries a scheme passes through untouched (we never silently rewrite
+ * http/WS URLs a user typed deliberately); otherwise the input is an
+ * address ONLY IF it reads as one — PSL-detectable registrable domain,
+ * IP literal, `localhost`, or an explicit `host:port` authority — and
+ * gets `https://` prepended. Anything else returns `""`, which the panel
+ * routes to SEARCH (the chat composer's web-search gate), never to a
+ * guessed URL. No brand lists, no preferred TLDs: tldts decides, so the
+ * law works for `zepto` and `blinkit.com` alike.
+ *
+ * The `host:port` exception is structural, not brand-based: a colon +
+ * digits before the path is an address signal no public domain carries,
+ * and it keeps loopback/dev authorities (the EASY fixture on :3210)
+ * working. `""` is the honest "not an address" answer, not a silent
+ * `https://` guess.
  */
 export function normalizeOmniboxUrl(raw: string): string {
   const url = raw.trim();
   if (!url) return "";
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return url;
-  return `https://${url}`;
+  // Scheme pass-through, with the omnibox discriminator every browser
+  // uses: a scheme-shaped token immediately followed by DIGITS
+  // (`localhost:3000`, `myhost:3101` — the port signal) or by
+  // whitespace (`brand: plain words` — a search phrase) is host-ish or
+  // search-ish, NOT a scheme; only then do the address rules below get
+  // their turn. `http://…`, `mailto:…`, `file:///…` pass untouched.
+  const schemeColon = url.indexOf(":");
+  if (schemeColon > 0 && /^[a-zA-Z][a-zA-Z0-9+.-]*$/.test(url.slice(0, schemeColon))) {
+    const tail = url.slice(schemeColon + 1);
+    if (!/^\d+([/?#]|$)/.test(tail) && !/^\s/.test(tail)) return url;
+  }
+  // The authority is everything up to the first path/query/fragment char.
+  const authority = url.split(/[/?#]/)[0];
+  // user@host forms: credentials are never a host — strip them.
+  const hostPort = authority.replace(/^.*@/, "");
+  if (!hostPort) return "";
+  const colon = hostPort.lastIndexOf(":");
+  const host = colon >= 0 ? hostPort.slice(0, colon) : hostPort;
+  const port = colon >= 0 ? hostPort.slice(colon + 1) : "";
+  if (!host) return "";
+  const lower = host.toLowerCase();
+  // Loopback/any IP literal: the PSL has no registrable domain for IPs
+  // (tldts would reduce 127.0.0.1 to "0.1"), and nobody searches an IP.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(lower) || lower.startsWith("[") || lower === "localhost") {
+    return `https://${url}`;
+  }
+  if (registrableHost(lower)) return `https://${url}`;
+  // Explicit numeric port ⇒ structural address authority for names the
+  // PSL cannot resolve (single-label dev hosts like `myhost:3101`;
+  // dotted names like `ruke.local` already resolved by the host rule).
+  if (/^\d+$/.test(port)) return `https://${url}`;
+  return ""; // not an address — the caller searches instead
 }
 
 /* ── input event builders (payloads match UiHub `input_dispatch`) ───────── */

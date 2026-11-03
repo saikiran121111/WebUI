@@ -412,7 +412,10 @@ export function useChat({
       // Panel store (open/active/idle). The progress tracker still sees
       // the frame below — we do not swallow stage events.
       if (typeof ev.stage.stage === "string" && ev.stage.stage.startsWith("browser:")) {
-        handleBrowserStage(ev.stage.stage, ev.stage.session);
+        // Audit #10: working_tab frames carry the SESSION+TURN+TAB
+        // qualifiers too (wire `tabId`/`turn` ⇔ Rust `tab_id`/`turn`); the
+        // store refuses cross-session and stale-turn frames with them.
+        handleBrowserStage(ev.stage.stage, ev.stage.session, ev.stage.tabId, ev.stage.turn);
       }
       if (ev.stage.stage === "web_meta") {
         const id = assistantIdRef.current;

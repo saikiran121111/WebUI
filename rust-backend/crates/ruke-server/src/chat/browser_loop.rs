@@ -427,6 +427,49 @@ async fn stage(ch: &mut ProgressChannel, name: &str, session: &str) {
     ch.stage(&ev).await;
 }
 
+/// Task-scope audit #10: the working-tab frame. SESSION + TURN + TAB
+/// qualified so the Browser Panel store can refuse frames from another
+/// conversation or a stale turn. This is display metadata only: it never
+/// grants anything, and the engine's authority gates never read it.
+async fn stage_working_tab(ch: &mut ProgressChannel, session: &str, turn: &str, tab: &str) {
+    let mut ev = StageEvent::new("browser:working_tab");
+    ev.session = Some(session.to_string());
+    ev.turn = Some(turn.to_string());
+    ev.tab_id = Some(tab.to_string());
+    ch.stage(&ev).await;
+}
+
+/// Audit #10: the tab a tool command works on, read from the
+/// SERVER-OWNED envelope args (best-effort display metadata — never a
+/// permission, and the model never sees this read). `tab_new` has no
+/// tab yet (the command creates it — the id arrives through
+/// `created_tab_id` from the result), and `tab_close` names a tab it is
+/// about to destroy, so following it would point the panel at a corpse;
+/// both report through other paths (the tabs broadcast + the store's
+/// fallback), never through this frame.
+fn working_tab_of(name: &str, args: &Value) -> Option<String> {
+    if name == "tab_new" || name == "tab_close" {
+        return None;
+    }
+    args.get("tab_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
+/// Audit #10: the engine-created tab id from a successful `tab_new`
+/// result (the creation failed ⇒ no follow, honestly).
+fn created_tab_id(result: &Value) -> Option<String> {
+    if result.get("error_code").is_some() {
+        return None;
+    }
+    result
+        .get("tab_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_tool_loop(
     state: &AppState,
@@ -512,6 +555,12 @@ pub async fn run_tool_loop(
 
     let url = state.settings.llm_api_url();
     let started = Instant::now();
+    // Audit #10: the engine tab this TURN is working on (never carried
+    // across turns). Frames are emitted only when this changes, so the
+    // panel follows without frame spam; the store independently refuses
+    // stale-turn and cross-session frames, so a lost or late frame can
+    // never steer a newer turn.
+    let mut last_working_tab: Option<String> = None;
     let outcome = 'outer: {
         for round in 0..MAX_TOOL_ROUNDS {
             if token.is_cancelled() {
@@ -673,6 +722,20 @@ pub async fn run_tool_loop(
                 let mut args = args;
                 args["browser_id"] = json!(ruke_browser::engine::BROWSER_ID);
 
+                // Audit #10: announce the tab this command works on
+                // BEFORE dispatch so the panel follows ahead of the
+                // action landing (a post-landing announcement would show
+                // the panel staring at the old tab mid-action). Read
+                // from the SERVER-owned envelope args only — display
+                // metadata, never an authority input, and the model
+                // never sees this read back.
+                if let Some(tab) = working_tab_of(name.as_str(), &args) {
+                    if last_working_tab.as_deref() != Some(tab.as_str()) {
+                        last_working_tab = Some(tab.clone());
+                        stage_working_tab(ch, &session_id, &turn_id, &tab).await;
+                    }
+                }
+
                 let envelope = json!({
                     "commandType": name,
                     "session_id": session_id,
@@ -700,6 +763,15 @@ pub async fn run_tool_loop(
                     },
                     Err(err) => err.to_wire(),
                 };
+                // Audit #10: `tab_new` announces its tab AFTER dispatch
+                // — the tab does not exist until creation succeeds, and
+                // a failed creation announces nothing (honesty law).
+                if let Some(created) = created_tab_id(&result) {
+                    if last_working_tab.as_deref() != Some(created.as_str()) {
+                        last_working_tab = Some(created.clone());
+                        stage_working_tab(ch, &session_id, &turn_id, &created).await;
+                    }
+                }
                 let msg = result
                     .get("message")
                     .and_then(Value::as_str)
@@ -751,6 +823,46 @@ mod tests {
 
     fn frame(s: &str) -> Vec<u8> {
         format!("data: {s}\n\n").into_bytes()
+    }
+
+    // ── Audit #10: working-tab frames are pure reads of server-owned
+    // data; the panel follows, authority never does. ────────────────────
+
+    /// Ordinary commands announce the tab they carry; the tab-lifecycle
+    /// commands never announce through this path (tab_new creates its id
+    /// — see `created_tab_id`; tab_close names the tab it is destroying).
+    #[test]
+    fn working_tab_reads_server_owned_args_only() {
+        assert_eq!(
+            working_tab_of("navigate_tab_url", &json!({"tab_id": "t1"})).as_deref(),
+            Some("t1")
+        );
+        assert_eq!(
+            working_tab_of("tab_new", &json!({"url": "https://x.test"})),
+            None
+        );
+        assert_eq!(working_tab_of("tab_close", &json!({"tab_id": "t1"})), None);
+        assert_eq!(working_tab_of("read_page", &json!({})), None);
+        assert_eq!(working_tab_of("read_page", &json!({"tab_id": ""})), None);
+        assert_eq!(working_tab_of("read_page", &json!({"tab_id": 7})), None);
+    }
+
+    /// A successful tab_new follows its created tab; a failed creation
+    /// announces nothing (honesty law), and a non-string/empty id is
+    /// never a follow target.
+    #[test]
+    fn created_tab_id_follows_success_and_stays_silent_on_failure() {
+        assert_eq!(
+            created_tab_id(&json!({"tab_id": "t2"})).as_deref(),
+            Some("t2")
+        );
+        assert_eq!(
+            created_tab_id(&json!({"error_code": "engine_unavailable", "tab_id": "t2"})),
+            None,
+            "a failed creation must not be announced as a followed tab"
+        );
+        assert_eq!(created_tab_id(&json!({"tab_id": ""})), None);
+        assert_eq!(created_tab_id(&json!({})), None);
     }
 
     /// A round ending in tool_calls swallows its [DONE]; the model's

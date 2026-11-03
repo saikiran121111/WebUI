@@ -53,7 +53,7 @@ import {
   extractDocumentSync,
 } from "./universal-extractor";
 import { normalizeBody, detectCharset } from "./charset-normalizer";
-import { urlSearchFallback, slugTriangulation } from "./metasearch";
+import { urlSearchFallback, slugTriangulation, triangulatedPassageProvenance } from "./metasearch";
 import { extractPageInOnePass } from "./agentBrowser";
 import {
   walkGenericJsonForEntities,
@@ -1321,7 +1321,12 @@ export async function extractUrl(
               title: best.title || result.title,
               domain: best.domain || result.domain,
               publishedAt: best.publishedDate,
-              passageText: cleaned,
+              // Audit #9: the passage is filed under the TARGET url (that
+              // is what the packet is about), but its text came from a
+              // third-party listing at `best.url`. The marker names the
+              // real source so fallback evidence can never be presented
+              // as a live read of the target. ⇔ Rust extractor Tier 6b.
+              passageText: `${triangulatedPassageProvenance(best.url)}\n${cleaned}`,
               bm25Score: 0,
             });
             return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };

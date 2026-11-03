@@ -286,6 +286,16 @@
         "nullable": false
       },
       {
+        "name": "turn",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "tabId",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
         "name": "researchLfm",
         "present": "optional-omit-when-absent",
         "nullable": false,

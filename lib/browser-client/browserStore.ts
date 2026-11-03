@@ -62,6 +62,19 @@ export interface BrowserState {
   /** human-facing session name (engine `session_name` frame); null
    *  until the model or a later view names the session. */
   sessionName: string | null;
+  /* ── Task-scope audit #10: working-tab follow ─────────────────────────── */
+  /** the tab the model is working on, from SESSION+TURN+TAB-qualified
+   *  `browser:working_tab` frames; null until this turn announces one */
+  workingTab: string | null;
+  /** the turn that announcement belongs to — frames from any other turn
+   *  are stale and refused, so a delayed SSE frame can never steer a
+   *  newer turn's panel */
+  workingTurn: string | null;
+  /** an explicit human tab click is a MANUAL PIN: it survives the
+   *  working-tab follow until the session or turn changes (which
+   *  clears it), so the panel never yanks the selection out from under
+   *  the human's own click */
+  manualPin: boolean;
 }
 
 /** One parked annotation card (Phase 12). */
@@ -90,6 +103,9 @@ const EMPTY: BrowserState = {
   annotations: [],
   webmcp: {},
   sessionName: null,
+  workingTab: null,
+  workingTurn: null,
+  manualPin: false,
 };
 
 let state: BrowserState = EMPTY;
@@ -134,7 +150,22 @@ export function setConnected(connected: boolean): void {
 /** Replace the tab listing and keep `selected` honest. */
 export function setTabs(tabs: BrowserTab[]): void {
   const still = state.selected && tabs.some((t) => t.tab_id === state.selected);
-  const selected = still ? state.selected : tabs.length ? tabs[0].tab_id : null;
+  // Audit #10: absent a manual pin, the panel follows the engine's
+  // working tab when the freshly-listed tabs contain it (this is what
+  // makes a newly-opened target visible: the panel previously kept the
+  // old selection forever). If the working tab is gone or the human
+  // pinned one, fall back to the classic still-alive/first-tab law.
+  const followWorking =
+    !state.manualPin &&
+    !!state.workingTab &&
+    tabs.some((t) => t.tab_id === state.workingTab);
+  const selected = followWorking
+    ? state.workingTab
+    : still
+      ? state.selected
+      : tabs.length
+        ? tabs[0].tab_id
+        : null;
   // Prune frames for tabs that no longer exist.
   let frames = state.frames;
   if (Object.keys(frames).some((id) => !tabs.some((t) => t.tab_id === id))) {
@@ -184,8 +215,13 @@ export function mergeTab(tab: BrowserTab): void {
   );
 }
 
+/** HUMAN selection (tab strip click, or the id from the human's own
+ *  `tab_new`). Audit #10: an explicit click is a manual pin — the
+ *  working-tab follow never overrides it until the session/turn
+ *  boundary clears the pin, so the panel follows the engine only while
+ *  the human is not actively choosing. */
 export function selectTab(tabId: string): void {
-  if (state.selected !== tabId) set({ selected: tabId });
+  set({ selected: tabId, manualPin: true });
 }
 
 /** Latest frame wins per tab; the panel renders the selected tab's. */
@@ -275,17 +311,70 @@ export function setSessionName(name: string | null): void {
  * land honestly when they arrive). Unknown sub-stages are ignored — the
  * progress tracker still sees every frame (we do not swallow the event).
  */
-export function handleBrowserStage(stage: string, session?: string): void {
+export function handleBrowserStage(
+  stage: string,
+  session?: string,
+  tabId?: string,
+  turn?: string,
+): void {
+  const sessionChanged = !!session && session !== state.conversation;
   switch (stage) {
     case "browser:preparing":
+      // A NEW turn starts here (the loop's first frame): working-tab
+      // tracking resets with it, and a manual pin from a previous turn
+      // stops protecting — the pin law is "until the session/turn
+      // changes", and this IS that boundary.
+      set({
+        open: true,
+        agentActive: true,
+        conversation: session ?? state.conversation,
+        workingTab: null,
+        workingTurn: null,
+        manualPin: false,
+      });
+      break;
     case "browser:acting":
-      set({ open: true, agentActive: true, conversation: session ?? state.conversation });
+      set({
+        open: true,
+        agentActive: true,
+        conversation: session ?? state.conversation,
+        // Mid-turn acting frames never reset follow state; only a
+        // session swap does (same boundary law).
+        ...(sessionChanged
+          ? { workingTab: null, workingTurn: null, manualPin: false }
+          : {}),
+      });
       break;
     case "browser:handoff":
     case "browser:done":
       set({ agentActive: false, conversation: session ?? state.conversation });
       break;
+    case "browser:working_tab": {
+      // Audit #10. The frame is SESSION + TURN + TAB qualified precisely
+      // so a delayed or cross-session frame can never steer a different
+      // conversation's or turn's panel.
+      if (!tabId) break;
+      if (session && state.conversation && session !== state.conversation) break;
+      if (state.workingTurn !== null && turn !== undefined && turn !== state.workingTurn)
+        break; // stale: a different turn's frame — refuse, honestly
+      set({
+        workingTab: tabId,
+        workingTurn: turn ?? state.workingTurn,
+        conversation: session ?? state.conversation,
+        // The human's manual pin outranks the engine's follow; the
+        // tracking state still updates so setTabs follows once the pin
+        // lifts at the next session/turn boundary.
+        ...(state.manualPin ? {} : { selected: tabId }),
+      });
+      break;
+    }
     default:
       break;
   }
+}
+
+/** vitest-only: return the module singleton to EMPTY (the store is a
+ *  module-global; without this, suites leak state into each other). */
+export function resetBrowserStoreForTests(): void {
+  state = EMPTY;
 }

@@ -404,10 +404,20 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
 
   const submitOmnibox = useCallback(() => {
     closeSuggest();
-    const url = normalizeOmniboxUrl(omni);
-    if (!url || !selected) return;
-    gotoUrl(url);
-  }, [omni, closeSuggest, gotoUrl]);
+    const q = omni.trim();
+    if (!q) return;
+    // Audit #11: address ⇒ navigate; anything else ⇒ SEARCH. The search
+    // hand-off rides the panel→composer channel (ChatInput prepends and
+    // the HUMAN sends): RUKE's own web-search gate serves the query —
+    // no search engine is hardcoded here, and no URL is guessed.
+    const url = normalizeOmniboxUrl(q);
+    if (url) {
+      if (!selected) return;
+      gotoUrl(url);
+      return;
+    }
+    dispatchRukeOpenAnnotation({ text: q, tab_id: selected ?? "" });
+  }, [omni, closeSuggest, gotoUrl, selected]);
 
   // Clear browsing data: two-step arm (no native confirm() — it is
   // untestable and jarring). Destructive but human-initiated, so it
@@ -898,8 +908,16 @@ export default function BrowserPanel({ sessionId }: { sessionId: string }) {
                   aria-label="Open first page"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      const url = normalizeOmniboxUrl((e.target as HTMLInputElement).value);
-                      if (url) { (e.target as HTMLInputElement).value = ""; openTab(url); }
+                      const q = (e.target as HTMLInputElement).value.trim();
+                      if (!q) return;
+                      // Same audit-#11 law as the live omnibox: address ⇒
+                      // new tab; anything else ⇒ search hand-off (there is
+                      // no tab yet, hence the empty tab_id — the composer
+                      // only ever reads `text`).
+                      const url = normalizeOmniboxUrl(q);
+                      (e.target as HTMLInputElement).value = "";
+                      if (url) openTab(url);
+                      else dispatchRukeOpenAnnotation({ text: q, tab_id: "" });
                     }
                   }}
                 />

@@ -2111,6 +2111,21 @@ pub async fn url_search_fallback(
 
 /* ── slugTriangulation ──────────────────────────────────────────────────── */
 
+/// Audit #9 (provenance law, exact-identical ⇔ `SEARCH_INDEX_PROVENANCE_LAW`
+/// in `lib/web-search/metasearch.ts`): the extraction pool's synthesized
+/// evidence must always declare what it IS — search-index listings, never
+/// a live read — so no packet from the pool can be presented as if a
+/// browser visit produced it.
+pub const SEARCH_INDEX_PROVENANCE_LAW: &str = "This block is SEARCH-INDEX evidence from third-party result listings - it is NOT a live read of the target page and no browser visit produced it.";
+
+/// Audit #9: the per-passage marker when a Tier 6b fallback passage
+/// carries text captured from a THIRD-PARTY listing (`source_url`) while
+/// being filed under the target URL. Exact-identical ⇔
+/// `triangulatedPassageProvenance` in `lib/web-search/extractor.ts`.
+pub fn triangulated_passage_provenance(source_url: &str) -> String {
+    format!("[Evidence provenance: the passage text below was captured from a SEARCH-INDEX listing at {source_url} during metasearch - it is NOT a live read of the target page and no browser visit produced it.]")
+}
+
 /// TS `slugTriangulation(targetUrl, title?)` — Tier 6 synthesized-evidence
 /// block. `""` when nothing useful is found.
 pub async fn slug_triangulation(net: &dyn Net, target_url: &str, title: Option<&str>) -> String {
@@ -2159,39 +2174,51 @@ pub async fn slug_triangulation(net: &dyn Net, target_url: &str, title: Option<&
         search_one(net, &broad_query, &Intent::General, None, None),
     );
 
-    let mut seen: HashSet<String> = HashSet::new();
-    let all: Vec<RawSearchResult> = site_results
+    // Audit #9 (provenance separation): every evidence line carries the
+    // query FAMILY that produced it — a `site:` index listing vs an
+    // off-site index listing — so a block assembled from search-pool
+    // results can never read as a live read of the target page. The
+    // dedupe keeps the TS-order quirk (the seen set also swallows
+    // duplicates dropped by the snippet/title floor).
+    let mut all: Vec<(RawSearchResult, &'static str)> = site_results
         .into_iter()
-        .chain(broad_results)
-        .filter(|r| {
-            // normalizeUrl catch → false (raw passthrough in the Rust port;
-            // seen-add still happens for dropped duplicates — TS order kept).
-            let norm = normalize_url(&r.url);
-            if seen.contains(&norm) {
-                return false;
-            }
-            seen.insert(norm);
-            js_len(&r.snippet) >= 20 || js_len(&r.title) >= 20
-        })
+        .map(|r| (r, "site index"))
+        .chain(broad_results.into_iter().map(|r| (r, "off-site index")))
         .collect();
+    let mut seen: HashSet<String> = HashSet::new();
+    all.retain(|(r, _)| {
+        // normalizeUrl catch → false (raw passthrough in the Rust port;
+        // seen-add still happens for dropped duplicates — TS order kept).
+        let norm = normalize_url(&r.url);
+        if seen.contains(&norm) {
+            return false;
+        }
+        seen.insert(norm);
+        js_len(&r.snippet) >= 20 || js_len(&r.title) >= 20
+    });
     if all.is_empty() {
         return String::new();
     }
 
     let mut lines: Vec<String> = vec![format!("[Synthesized Web Index Evidence] for {target_url}")];
+    // Exact-identical string ⇔ `SEARCH_INDEX_PROVENANCE_LAW` in
+    // lib/web-search/metasearch.ts. Plain ASCII on purpose: this is
+    // model-facing evidence text and must survive byte-for-byte on both
+    // sides of the parity contract.
+    lines.push(SEARCH_INDEX_PROVENANCE_LAW.to_string());
     if let Some(t) = title {
         if !t.is_empty() {
             lines.push(format!("Page title (from metasearch): {t}"));
         }
     }
 
-    for r in all.iter().take(8) {
+    for (r, family) in all.iter().take(8) {
         let t = if r.title.is_empty() {
             "(untitled)"
         } else {
             r.title.as_str()
         };
-        lines.push(format!("- [{}] {}", r.engine, t));
+        lines.push(format!("- [{} | {}] {}", r.engine, family, t));
         lines.push(format!("  URL: {}", r.url));
         if !r.snippet.is_empty() {
             lines.push(format!("  Snippet: {}", js_slice_max(&r.snippet, 400)));
@@ -3065,13 +3092,64 @@ mod tests {
         assert!(
             out.starts_with("[Synthesized Web Index Evidence] for https://example.com/foo-bar/baz")
         );
+        // Audit #9: the block declares its own provenance up front, and
+        // every surviving line names its query family (the dedupe keeps
+        // the SITE pass copy — that is what the tag must then say).
+        assert!(out.starts_with(&format!(
+            "[Synthesized Web Index Evidence] for https://example.com/foo-bar/baz\n{SEARCH_INDEX_PROVENANCE_LAW}"
+        )));
+        assert!(out.contains(SEARCH_INDEX_PROVENANCE_LAW));
         assert!(out.contains("Page title (from metasearch): My Target Title"));
         assert_eq!(out.matches("- [").count(), 1); // normalizeUrl dedupe across passes
+        assert!(out.contains("- [wikipedia | site index] Foo bar baz page"));
         assert!(out.contains("  URL: https://en.wikipedia.org/wiki/Foo_bar_baz_page"));
         assert!(out.contains("  Snippet: An example snippet"));
         let calls = net.calls.lock().expect("lock");
         assert!(calls.iter().any(|(u, _)| u == &wiki_url(site_q)));
         assert!(calls.iter().any(|(u, _)| u == &wiki_url(broad_q)));
+    }
+
+    /// Audit #9: when both query families contribute distinct results,
+    /// EVERY evidence line carries its family tag — the block mixes the
+    /// two pools but never hides which line came from which, so a
+    /// search-pool packet can't masquerade as a live target read.
+    #[tokio::test]
+    async fn slug_triangulation_tags_every_line_with_its_query_family() {
+        let _g = crate::engines::engine_test_lock().lock().await;
+        crate::engines::reset_engine_state_for_tests();
+        let target = "https://example.com/foo-bar/baz";
+        let site_q = "site:example.com \"foo bar\" \"baz\"";
+        let broad_q = "\"example\" foo bar baz";
+        let net = ScriptedNet::default()
+            .with_url(
+                &wiki_url(site_q),
+                ok_body(
+                    json!({ "query": { "search": [
+                        { "title": "Foo bar site listing",
+                          "snippet": "A site-scoped listing snippet longer than twenty characters" }
+                    ] } })
+                    .to_string(),
+                ),
+            )
+            .with_url(
+                &wiki_url(broad_q),
+                ok_body(
+                    json!({ "query": { "search": [
+                        { "title": "Foo bar off-site listing",
+                          "snippet": "An off-site listing snippet longer than twenty characters here" }
+                    ] } })
+                    .to_string(),
+                ),
+            );
+        let out = slug_triangulation(&net, target, None).await;
+        assert!(out.starts_with(&format!(
+            "[Synthesized Web Index Evidence] for https://example.com/foo-bar/baz\n{SEARCH_INDEX_PROVENANCE_LAW}"
+        )));
+        assert_eq!(out.matches("- [").count(), 2);
+        assert!(out.contains("- [wikipedia | site index] Foo bar site listing"));
+        assert!(out.contains("- [wikipedia | off-site index] Foo bar off-site listing"));
+        // No title given ⇒ no title line; the law line is line 2 either way.
+        assert!(!out.contains("Page title (from metasearch)"));
     }
 
     #[tokio::test]

@@ -231,6 +231,10 @@ fn stage_event_citation_gate_field_ledgers() {
     ev.surface_id = Some("rich:x".into());
     ev.surface_kind = Some("generic".into());
     ev.surface_revision = Some(1);
+    // Task-scope audit #10: `browser:working_tab` carriers. Optional
+    // fields must be populated to join the key-ORDER comparison.
+    ev.turn = Some("turn-1".into());
+    ev.tab_id = Some("tab-9".into());
     let keys = top_level_keys(&serde_json::to_string(&ev).unwrap());
     assert_eq!(keys, rust_expected, "StageEvent key order/casing vs TS ledger");
 

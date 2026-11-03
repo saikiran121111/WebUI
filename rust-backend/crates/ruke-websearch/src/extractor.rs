@@ -91,7 +91,7 @@ use crate::browser_bridge::BrowserBridge;
 use crate::cache::{CacheError, PageTier, SearchCache};
 use crate::charset_normalizer::{detect_charset, normalize_body};
 use crate::hydration_unpacker::{unpack_hydration, walk_generic_json_for_entities, WalkerOptions};
-use crate::metasearch::{slug_triangulation, url_search_fallback};
+use crate::metasearch::{slug_triangulation, triangulated_passage_provenance, url_search_fallback};
 use crate::net::{BrowserFingerprint, FetchPageOpts, Net, UrlFetchOpts, PAGE_LIMIT_BYTES};
 use crate::platform_api::{platform_adapter, Verticals};
 use crate::schema_extract::{schema_extract, schema_extract_from_blocks};
@@ -1441,7 +1441,17 @@ impl<'a> Extractor<'a> {
                                 best.domain.clone()
                             },
                             published_at: best.published_date.clone(),
-                            passage_text: cleaned,
+                            // Audit #9: the passage is filed under the
+                            // TARGET url (that is what the packet is about),
+                            // but its text came from a third-party listing
+                            // at `best.url`. The marker names the real
+                            // source so fallback evidence can never be
+                            // presented as a live read of the target.
+                            passage_text: format!(
+                                "{}\n{}",
+                                triangulated_passage_provenance(&best.url),
+                                cleaned
+                            ),
                             bm25_score: 0.0,
                         });
                         packet.classification = Some("SUCCESS_SNIPPET_FALLBACK".to_string());

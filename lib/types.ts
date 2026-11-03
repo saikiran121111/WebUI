@@ -332,6 +332,14 @@ export interface StageEvent {
   surfaceId?: string;
   surfaceKind?: string;
   surfaceRevision?: number;
+  /**
+   * Task-scope audit #10: `browser:working_tab` frames only — the chat
+   * turn the frame belongs to (⇔ stages.rs `turn`) and the engine tab the
+   * model is working on (⇔ stages.rs `tab_id`). Session + turn + tab
+   * qualified display metadata: never a permission.
+   */
+  turn?: string;
+  tabId?: string;
   /** @deprecated pre-rename spelling (2026-10-23); read as a fallback. */
   researchLfm?: {
     depth: string;

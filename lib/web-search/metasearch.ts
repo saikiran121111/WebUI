@@ -1228,6 +1228,26 @@ export async function urlSearchFallback(
 }
 
 /**
+ * Audit #9 (provenance law, exact-identical ⇔ `SEARCH_INDEX_PROVENANCE_LAW`
+ * in `rust-backend/crates/ruke-websearch/src/metasearch.rs`): the extraction
+ * pool's synthesized evidence must always declare what it IS — search-index
+ * listings, never a live read — so no packet from the pool can be presented
+ * as if a browser visit produced it.
+ */
+export const SEARCH_INDEX_PROVENANCE_LAW =
+  "This block is SEARCH-INDEX evidence from third-party result listings - it is NOT a live read of the target page and no browser visit produced it.";
+
+/**
+ * Audit #9: the per-passage marker when a Tier 6b fallback passage carries
+ * text captured from a THIRD-PARTY listing (`sourceUrl`) while being filed
+ * under the target URL. Exact-identical ⇔ `triangulated_passage_provenance`
+ * in the Rust metasearch crate.
+ */
+export function triangulatedPassageProvenance(sourceUrl: string): string {
+  return `[Evidence provenance: the passage text below was captured from a SEARCH-INDEX listing at ${sourceUrl} during metasearch - it is NOT a live read of the target page and no browser visit produced it.]`;
+}
+
+/**
  * Tier 6 — deep URL-slug metasearch triangulation.
  *
  * The guaranteed zero-block fallback: when Tiers 1–5 (direct, browser
@@ -1243,6 +1263,9 @@ export async function urlSearchFallback(
  *     → site:airbnb.com "12345"  +  "airbnb" "rooms" "12345"
  *   https://github.com/nicksix/fd
  *     → site:github.com "nicksix" "fd"
+ *
+ * Audit #9: every line names its query family and the block carries
+ * `SEARCH_INDEX_PROVENANCE_LAW` — the pool never poses as a live read.
  *
  * Returns a markdown synthesis string ("" when nothing useful found).
  */
@@ -1273,8 +1296,15 @@ export async function slugTriangulation(
     searchOne(broadQuery, "general"),
   ]);
 
+  // Audit #9 (provenance separation): every evidence line carries the
+  // query FAMILY that produced it — a `site:` index listing vs an
+  // off-site index listing — so a block assembled from search-pool
+  // results can never read as a live read of the target page.
   const seen = new Set<string>();
-  const all = [...siteResults, ...broadResults].filter((r) => {
+  const all = [
+    ...siteResults.map((r) => [r, "site index"] as const),
+    ...broadResults.map((r) => [r, "off-site index"] as const),
+  ].filter(([r]) => {
     let norm = "";
     try { norm = normalizeUrl(r.url); } catch { return false; }
     if (seen.has(norm)) return false;
@@ -1286,12 +1316,13 @@ export async function slugTriangulation(
 
   const lines: string[] = [
     "[Synthesized Web Index Evidence] for " + targetUrl,
+    SEARCH_INDEX_PROVENANCE_LAW,
     title ? "Page title (from metasearch): " + title : "",
     "",
   ].filter(Boolean);
 
-  for (const r of all.slice(0, 8)) {
-    lines.push(`- [${r.engine}] ${r.title || "(untitled)"}`);
+  for (const [r, family] of all.slice(0, 8)) {
+    lines.push(`- [${r.engine} | ${family}] ${r.title || "(untitled)"}`);
     lines.push(`  URL: ${r.url}`);
     if (r.snippet?.length) lines.push(`  Snippet: ${r.snippet.slice(0, 400)}`);
     lines.push("");
