@@ -2769,3 +2769,50 @@ CLAUDE.md; no Skill tool invocations). Playwright skills load ONLY at TEST phase
    local infra") + STATE.md final sync + CLAUDE.md §4 completion report.
 3. LAST action: CONFIRM with the user, then shutdown.exe /s /t 180 /c "Ruke web-search
    P1-P7 implementation and verification complete" (abortable via shutdown /a).
+
+---
+# SESSION SNAPSHOT 2026-11-03b (regression-audit pivot; supersedes 8.x sections above where they conflict; cumulative locks from above remain valid)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+User directive (see handover/2026-11-03-regression-audit.md for the FULL VERBATIM 10-item spec): fix
+named-site/product-search + interactive-browser regressions at head 14f44ca BEFORE adding features.
+P1–P7.3 closeout (final report, §4 report, shutdown) DEFERRED until audit fixes verify. Phase = CODE R1
+(intent/target/scope law parity TS<->Rust) about to start after investigation.
+
+## [8.2 LOCKED COMPLETED TASKS]
+- Everything in prior session blocks stays locked (P1–P6, tldts named-import law 83eb985, omnibox scheme law 256bc04, OMNIBOX row green pw-50).
+- 76fb9fa test(e2e): DENIAL/HOP manufacture off-scope hop from PAGE content (#partner-site anchor on fixture /scope/zeeta; user-named URLs all fold into scope — pw-52 law). Green pw-53/pw-61/pw-62.
+- cb706be test(e2e): WORKING TAB bg tab parks on /easy/arrived (EASY_ARRIVED marker lives only there; /easy is the landing page). Green pw-56/pw-63.
+- 14f44ca test(e2e): MARK_KEEP/HOP_PROMPT respect the TWO-SLOT turn-cleanup law. Green pw-58 FOLLOW-UP, pw-59 REDIRECT, pw-60 ROUTING.
+- Fixture (gitignored server.mjs): /scope/zeeta now has <a id="partner-site" href="http://localhost:3210/scope/loqal">. NOT a marker-contract member.
+- Universal rows green: Blinkit pw-65, Myntra pw-66, Zepto pw-67, BookMyShow pw-68, Zomato pw-69, YouTube pw-70, Maps pw-71, LinkedIn pw-72, HackerNews pw-73, StackOverflow pw-74 (real specs: tests/universal-websites.spec.ts, tests/web-search-10k.spec.ts — NO browser- prefix).
+
+## [8.3 GRAPHIFY DEPENDENCY MAP]
+- tests/browser-scope-matrix.spec.ts + tests/fixtures/browser/server.mjs: matrix journeys (locked, do not re-read).
+- AUDIT TARGETS (upcoming): lib/decision/task-scope.ts (deriveTaskScope ~L372) <-> rust task_scope.rs (~L577); lib/web-search/planner-law.ts (L185 derivePlannerLaw, L343 admission) <-> planner_law.rs; lib/web-search/query-planner.ts (L204) + pipeline.ts (L782) <-> ruke-websearch pipeline.rs (L1261); ruke-websearch net.rs (transport item #1); extractor.ts (L995) + Rust mirror; ruke-browser executor.rs known_destination (L1965 area, READ) + engine.rs lifecycle (~L866) + authority.rs check_task_affinity (L686, READ); ProcessingStatus.tsx status text.
+- session.rs end_turn (READ): per-turn cleanup keeps ONLY latest deliverable + latest handoff; earlier-turn tabs never candidates.
+
+## [8.4 IMMUTABLE CONTRACTS (additions since last sync)]
+- TWO-SLOT TURN CLEANUP LAW: per turn, end_turn closes every created tab except deliverable (latest mark) and handoff (latest mark). Prompts must mark at most one of each, never re-mark earlier-turn tabs.
+- SCOPE-FOLDING LAW: every URL named in user words folds into turn targets; off-scope hop premises must be manufactured from page content only.
+- PRE-GATE COVERAGE (current, to be EXTENDED by audit item #7): known_destination pre-gates only navigate_tab_url + URL-bearing tab_new; clicks/back/forward/reload/JS = source-tab gate only (documented limitation in executor.rs comment).
+- Omnibox scheme law + tldts NAMED-IMPORT LAW unchanged (see prior block).
+- Fixture marker contract + gitignored-server rule unchanged.
+
+## [8.5 E2E VERIFICATION STATE]
+- Playwright loop numbering: next run = pw-76 (monotonic). Final loop after audit fixes resumes: Greenhouse, Government portal, 10k ranges 0-24/25-49/50-74/75-99 (WEB_SEARCH_10K_RANGE env prefix), acceptance EASY/MEDIUM/HARD, NEW bare-name-discovery journeys, fix-rerun loop only between runs.
+- Launcher: scripts/run-browser-e2e-exclusive.ps1 -TestFiles <file> -Grep <single-token> (spaces in -Grep break arg quoting through -File; use single tokens like 'Greenhouse'). Logs $TEMP/pw-NN-*.log. pw-64 was an invalid invocation (wrong filename + quoted space grep).
+- Topology: Strata :8080 (model), fixture :3210 + Next :3000 + Rust :3101 launcher-managed.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- pw-75 ✗ universal Greenhouse: assistant reply never reached "complete" in 180000ms — suspected planner/retrieval pathology (audit items 1-3). Re-verify in final loop.
+- Live-user finding: web searches return irrelevant evidence; model narrates mismatch — root causes = audit items 2/3/4 (target extraction loses "on Amazon"; bare-name path emits broad + name-only discovery; empty-host admission admits lookalikes).
+- 10 audit items in handover/2026-11-03-regression-audit.md = the full open-bug list.
+
+## [8.7 ACTIVE SKILLS]
+- None Tier-2 loaded. Tier-1: superpowers:using-superpowers (auto session hook only). Playwright skills deferred to final loop.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. Read audit-cited regions: task-scope.ts deriveTaskScope, task_scope.rs mirror, planner-law.ts L150-360, query-planner.ts planQueries.
+2. Design R1 scope/intent law fix (typed contract parity TS<->Rust), with corpus tests first (task-scope corpus 56/56 must extend, not break).
+3. Implement R1 (items #2/#5 intent+follow-up laws) → vitest + cargo test -p ruke-websearch -p ruke-browser → commit.
