@@ -269,11 +269,18 @@ async function collectYouTubeEvidence(
   // fetches are anti-abuse-token gated now (200-with-empty-body), so the
   // universal browser caption engine (lib/web-search/media-captions.ts —
   // the watch URL is assembled HERE, in the YouTube vertical, not in the
-  // universal engine) is the fallback tier. Gate mirrors the Rust side:
-  // transcript is only attempted when info exists.
+  // universal engine) is the fallback tier.
+  // (audit 2026-11-04) The browser tier used to be gated on `info` existing
+  // ("gate mirrors the Rust side" — no longer true; retrieval is TS-owned).
+  // getBrowserTranscript only needs the watch URL: an InnerTube metadata
+  // blockout must not also kill a fully retrievable caption track. The
+  // .catch keeps a throwing caption probe from taking the already-
+  // assembled metadata down with it.
   const transcriptInnerTube = info ? await transcriptFromInfo(info) : "";
   const transcript =
-    transcriptInnerTube || (info ? await getBrowserTranscript(`https://www.youtube.com/watch?v=${videoId}`) : "");
+    transcriptInnerTube ||
+    (await
+      getBrowserTranscript(`https://www.youtube.com/watch?v=${videoId}`).catch(() => ""));
   const comments = info ? await topComments(info) : [];
 
   const chapters = chaptersFromDescription(description);
@@ -306,12 +313,12 @@ async function collectYouTubeEvidence(
   } else if (comments.length > 0) {
     parts.push(
       "### Transcript",
-      "(No caption track available — metadata, description and top community comments below are the full retrievable content for this video.)",
+      "(No caption track available, and this system does not run speech-to-text over video audio — metadata, description and top community comments below are the full retrievable content for this video.)",
     );
   } else {
     parts.push(
       "### Transcript",
-      "(No caption track and no comments available for this video — the description + metadata above are the full retrievable content.)",
+      "(No caption track and no comments available for this video, and this system does not run speech-to-text over video audio — the description + metadata above are the full retrievable content.)",
     );
   }
   if (comments.length > 0) {

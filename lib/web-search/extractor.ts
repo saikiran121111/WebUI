@@ -28,6 +28,8 @@
  * Every URL is classified into one of the report categories:
  *   SUCCESS_DIRECT, SUCCESS_ADAPTER, SUCCESS_METADATA,
  *   SUCCESS_JINA_FALLBACK, SUCCESS_WAYBACK, SUCCESS_SNIPPET_FALLBACK,
+ *   SUCCESS_BROWSER, SUCCESS_REDIRECTED (fetch succeeded but landed on a
+ *   different registrable site — packet URL/domain carry the final site),
  *   FAIL_SILENT_BOT_BLOCK, FAIL_SILENT_LOGIN_WALL,
  *   FAIL_EMPTY_JS_SHELL, FAIL_NETWORK_OR_CRASH
  *
@@ -51,9 +53,11 @@ import {
   structuralExtractAsync,
   detectMode,
   extractDocumentSync,
+  extractPdfBytes,
 } from "./universal-extractor";
 import { normalizeBody, detectCharset } from "./charset-normalizer";
 import { urlSearchFallback, slugTriangulation, triangulatedPassageProvenance } from "./metasearch";
+import { registrableHost } from "../decision/task-scope";
 import { extractPageInOnePass } from "./agentBrowser";
 import {
   walkGenericJsonForEntities,
@@ -168,8 +172,11 @@ const BLOCK_SIGNATURES: {
       head.includes("challenge-platform") ||
       head.includes("cf-turnstile") ||
       head.includes("__cf_chl") ||
-      head.includes("Just a moment") ||
-      head.includes("Checking your browser") ||
+      // (audit 2026-11-04) `head` is lower-cased by detectBlock — the old
+      // capitalized literals could never match ("Just a moment" vs "just a
+      // moment"): a dead signature on Cloudflare's most common wall string.
+      head.includes("just a moment") ||
+      head.includes("checking your browser") ||
       (status === 503 && head.includes("cf-ray")),
   },
   // Akamai Bot Manager
@@ -283,8 +290,11 @@ function detectBlock(
 function detectBlockInText(text: string): BlockVerdict {
   const lower = text.slice(0, 2000).toLowerCase();
 
-  // Silent Cloudflare "Just a moment" that survived the DOM pass
-  if (lower.includes("just a moment")) {
+  // Silent Cloudflare "Just a moment" that survived the DOM pass.
+  // (audit 2026-11-04) head-window only: residue sits at the very start of
+  // recovered text; the old 2 KB scan flagged legitimate articles that
+  // merely mention the phrase mid-prose.
+  if (lower.slice(0, 300).includes("just a moment") || lower.slice(0, 300).includes("checking your browser")) {
     return { blocked: true, reason: "Cloudflare challenge text survived extraction" };
   }
   // Login wall
@@ -297,9 +307,14 @@ function detectBlockInText(text: string): BlockVerdict {
   for (const re of loginWallPatterns) {
     if (re.test(lower)) return { blocked: true, reason: "Login wall text in extraction" };
   }
-  // CAPTCHA
+  // CAPTCHA — (audit 2026-11-04) a bare mention in article PROSE is not a
+  // wall: challenge residue sits at the very start of recovered text, so
+  // the bare keyword is checked in the head window only. Quoted wall
+  // strings ("verify you are human") stay page-wide — they don't appear
+  // in editorial content.
+  const head300 = lower.slice(0, 300);
   if (
-    lower.includes("captcha") ||
+    head300.includes("captcha") ||
     lower.includes("verify you are human") ||
     lower.includes("i'm not a robot")
   ) {
@@ -374,6 +389,12 @@ interface TierOutput {
   /** Block detector verdict (kind=null when not blocked). */
   blocked: boolean;
   blockedReason: string;
+  /**
+   * Final URL after engine-followed redirects, ONLY when it differs from
+   * the requested URL (audit item 8, 2026-11-04: provenance must ride
+   * with the body — net.ts already reports it on every multi-pass path).
+   */
+  resolvedUrl?: string;
   /** Which structural mode was used (for the stress-test report). */
   mode?: string;
   /** Number of markdown tables preserved (portfolio / SaaS signal). */
@@ -415,28 +436,79 @@ async function extractDirect(
 
   // Normalize the body's charset before anything else — this is what
   // keeps Shift_JIS / GB18030 / EUC-KR / Windows-1252 pages readable
-  // instead of garbled. (No-op for UTF-8, the common case: net.ts's
-  // readBounded already decoded it, so we only re-decode when the
-  // content-type names a non-UTF-8 charset.)
-  const bytes = new TextEncoder().encode(page.body);
+  // instead of garbled.
+  // (audit 2026-11-04) The old code RE-ENCODED the already-decoded string
+  // (TextEncoder) — for a Pass-B page the UTF-8 decode had already eaten
+  // every non-UTF-8 byte (U+FFFD), so detectCharset sniffed a corpse and
+  // normalizeBody re-mangled correct Pass-A text. net.ts now hands over
+  // the TRUE decompressed bytes (rawBytes); detection + re-decode run on
+  // them, and the re-encode fallback survives only on the string-only
+  // wreq pass.
+  const bytes = page.rawBytes ?? new TextEncoder().encode(page.body);
   const charset = detectCharset(page.contentType, bytes);
   const html =
     charset === "utf-8" ? page.body : normalizeBody(bytes, page.contentType);
 
   if (!page.ok || page.body.length < 200) {
+    // (audit 2026-11-04) HTTP status carries access-control semantics the
+    // old blanket blocked:false threw away: a 401 that survived the
+    // cascade reported SUCCESS_SNIPPET_FALLBACK (a SUCCESS label) instead
+    // of an auth-required failure, and 401 skipped the browser-rescue
+    // gate entirely. Auth statuses → login-wall kind; WAF statuses →
+    // bot-block kind; plain 404/5xx stay unblocked misses.
+    const authStatus = page.status === 401 || page.status === 407;
+    const wafStatus =
+      page.status === 403 || page.status === 405 ||
+      page.status === 429 || page.status === 202;
     return {
       tier: "crash",
       markdown: "",
       status: page.status,
-      blocked: false,
-      blockedReason: "HTTP " + page.status + " (non-200 or empty body)",
+      blocked: authStatus || wafStatus,
+      blockedReason: authStatus
+        ? "HTTP " + page.status + " authorization required"
+        : "HTTP " + page.status +
+          (wafStatus ? " (WAF/bot status)" : " (non-200 or empty body)"),
     };
   }
 
   // Non-HTML response: hand it to the structural extractor's document
-  // mode (CSV/JSON/Markdown sync; PDF via the raw slice — Jina Tier 2
-  // handles PDF rendering when it matters).
+  // mode (CSV/JSON/Markdown sync; PDF via unpdf).
+  // (audit 2026-11-04) PDFs used to hit the sync placeholder and return
+  // the literal string "(PDF requires structuralExtractAsync)" AS
+  // EVIDENCE (≥100 chars — it sailed the gate and reached the model).
+  // This function is async, so run the real unpdf pass HERE, on the true
+  // retained bytes (gov PDFs are the classic broken-cert + PDF combo, so
+  // the tlsTolerantGet path also carries rawBytes).
   if (!/text\/html|application\/xhtml/i.test(page.contentType)) {
+    if (
+      /application\/pdf/i.test(page.contentType) ||
+      (page.rawBytes !== undefined && /\.pdf(\?|#|$)/i.test(url))
+    ) {
+      const pdfMd = await extractPdfBytes(
+        page.rawBytes ?? new TextEncoder().encode(page.body),
+      );
+      if (!pdfMd.startsWith("(PDF text extraction failed")) {
+        return {
+          tier: "metadata",
+          markdown: pdfMd,
+          status: page.status,
+          blocked: false,
+          blockedReason: "",
+          mode: "document",
+          ...(page.resolvedUrl && page.resolvedUrl !== url
+            ? { resolvedUrl: page.resolvedUrl }
+            : {}),
+        };
+      }
+      return {
+        tier: "crash",
+        markdown: "",
+        status: page.status,
+        blocked: false,
+        blockedReason: "PDF text extraction failed (unpdf could not parse)",
+      };
+    }
     const md = extractDocumentSync(page.body, page.contentType, url);
     if (md.length >= 100) {
       return {
@@ -446,6 +518,9 @@ async function extractDirect(
         blocked: false,
         blockedReason: "",
         mode: "document",
+        ...(page.resolvedUrl && page.resolvedUrl !== url
+          ? { resolvedUrl: page.resolvedUrl }
+          : {}),
       };
     }
     return {
@@ -556,6 +631,9 @@ async function extractDirect(
     status: page.status,
     blocked: false,
     blockedReason: "",
+    ...(page.resolvedUrl && page.resolvedUrl !== url
+      ? { resolvedUrl: page.resolvedUrl }
+      : {}),
     mode: det.mode,
     tableCount,
     codeBlockCount,
@@ -591,13 +669,44 @@ function serpBaselinePassage(result: RankedResult): EvidencePacket["passages"][n
     title: result.title,
     domain: result.domain,
     publishedAt: result.publishedDate,
+    // (audit 2026-11-04) The old header predicted failure ("the page
+    // itself was blocked or empty") even though this passage is pushed
+    // BEFORE the tier cascade runs — in a SUCCESS_DIRECT packet it was a
+    // false claim sitting next to the real extraction. The provenance
+    // statement below is true whatever the cascade later decides: this
+    // text is the engine's index entry, never the page's retrieved body.
     passageText:
-      "[SERP snippet baseline — the page itself was blocked or empty. " +
-      "The following is the search engine's own indexed title + snippet, " +
-      "guaranteed evidence even when every direct connection fails.]\n" +
+      "[Search-engine index entry — title + snippet as the search engine " +
+      "indexed them. Snippet-level evidence about the page, not the page's " +
+      "own retrieved content; verify against the retrieved passages from " +
+      "this URL before quoting specifics.]\n" +
       snippet.slice(0, 2000),
     bm25Score: 0,
   };
+}
+
+/**
+ * Cross-site landing check (audit item 8, 2026-11-04): did the fetch
+ * engine end up serving content from a DIFFERENT registrable site than
+ * the requested URL? (A shop URL bouncing to an affiliate/ad landing, a
+ * regional mirror, a country redirect to a different site.) registrableHost
+ * is public-suffix aware (tldts) — co.in / com.au second levels compare
+ * correctly — and same-site hops (http→https, apex→www) never fire it.
+ */
+function crossedRegistrableBoundary(requested: string, resolved?: string): boolean {
+  if (!resolved) return false;
+  const a = registrableHost(requested);
+  const b = registrableHost(resolved);
+  return !!a && !!b && a !== b;
+}
+
+/** Passage header naming the site that actually served redirect-landed text. */
+function redirectedProvenanceHeader(requested: string, resolved: string): string {
+  return (
+    "[Redirect provenance: " + requested + " now resolves to " + resolved +
+    ". The text below was served by that final site, not the originally " +
+    "requested URL — cite it as " + resolved + ".]\n"
+  );
 }
 
 /**
@@ -681,7 +790,7 @@ export function timeoutFallbackPacket(
  */
 async function extractBrowser(
   result: RankedResult,
-): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string } | null> {
+): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string; finalUrl?: string } | null> {
   try {
     const r = await extractPageInOnePass(result.canonical, { timeoutMs: 45_000 });
     if (!r.ok) {
@@ -750,7 +859,7 @@ async function extractBrowser(
     if (markdown.length < 60) {
       return { markdown, status: r.status, blocked: false, blockedReason: "browser returned little content" };
     }
-    return { markdown, status: r.status ?? 200, blocked: false, blockedReason: "" };
+    return { markdown, status: r.status ?? 200, blocked: false, blockedReason: "", finalUrl: r.finalUrl };
   } catch (e: any) {
     return {
       markdown: "",
@@ -820,6 +929,9 @@ async function extractLinkPreview(
     status: page.status,
     blocked: false,
     blockedReason: "",
+    ...(page.resolvedUrl && page.resolvedUrl !== url
+      ? { resolvedUrl: page.resolvedUrl }
+      : {}),
     mode: structOut.mode,
     tableCount: structOut.tableCount,
     codeBlockCount: structOut.codeBlockCount,
@@ -864,11 +976,15 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
     { timeoutMs: WAYBACK_TIMEOUT_MS },
   );
   let snapshotUrl: string | null = null;
+  let snapshotTs = ""; // (audit 2026-11-04) snapshots must SELF-DECLARE their age
   if (availRes && availRes.ok) {
     try {
       const data: any = JSON.parse(availRes.text);
       const snap = data?.archived_snapshots?.closest?.url;
-      if (snap) snapshotUrl = snap;
+      if (snap) {
+        snapshotUrl = snap;
+        snapshotTs = String(data?.archived_snapshots?.closest?.timestamp ?? "");
+      }
     } catch {
       /* malformed */
     }
@@ -887,6 +1003,7 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
         const row = rows.find((r) => r?.[2]?.startsWith("200"));
         if (row?.[0] && row?.[1]) {
           snapshotUrl = "https://web.archive.org/web/" + row[1] + "/" + row[0];
+          snapshotTs = String(row[1]);
         }
       } catch {
         /* malformed */
@@ -903,9 +1020,12 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
   const structOut = await structuralExtractAsync(page.body, page.contentType, snapshotUrl);
   const md = structOut.markdown;
   if (md.length < 100) return null;
+  const tsNote = /^\d{8}/.test(snapshotTs)
+    ? `captured ${snapshotTs.slice(0, 4)}-${snapshotTs.slice(4, 6)}-${snapshotTs.slice(6, 8)} — HISTORIC content, verify against live sources before quoting as current`
+    : "capture date unknown — HISTORIC content, verify against live sources before quoting as current";
   return {
     tier: "wayback",
-    markdown: "## Wayback Machine snapshot of " + url + "\n" + md,
+    markdown: `## Wayback Machine snapshot of ${url} (${tsNote})\n` + md,
     status: page.status,
     blocked: false,
     blockedReason: "",
@@ -1000,6 +1120,11 @@ export async function extractUrl(
   /** §18: position of `result` in the pipeline's full read window —
       drives browser-tier selectivity only; callers with no window pass 0. */
   rankInWindow = 0,
+  /** §11.11 page-layer mirror (2026-11-04 audit fix): on a live_required
+      turn the SQLite PAGE cache is skipped just like the query cache —
+      a "price today / latest" answer must never cite a 5h-old cached
+      body. Cache WRITES still happen (fresh evidence replenishes it). */
+  liveRequired = false,
 ): Promise<EvidencePacket & { classification: string }> {
   const url = result.canonical;
   // Set whenever a capped tier expired; drives the tail branch.
@@ -1025,8 +1150,9 @@ export async function extractUrl(
       packet.extraction = "snippet-only";
     }
 
-    // Tier 0: SQLite cache hit
-  const cached = getCachedPage(url);
+    // Tier 0: SQLite cache hit (skipped entirely on live_required turns —
+  // the §11.11 freshness law at the page layer, 2026-11-04 audit fix).
+  const cached = liveRequired ? null : getCachedPage(url);
   if (cached && cached.extracted.length >= 200) {
     const cachedTier = cached.tier as string;
     packet.extraction =
@@ -1049,8 +1175,10 @@ export async function extractUrl(
         ? "SUCCESS_JINA_FALLBACK"
         : cachedTier === "adapter"
           ? "SUCCESS_ADAPTER"
-          : cachedTier === "wayback"
-            ? "SUCCESS_WAYBACK"
+          : cachedTier === "browser"
+            ? "SUCCESS_BROWSER"
+            : cachedTier === "wayback"
+              ? "SUCCESS_WAYBACK"
             : cachedTier === "metadata"
               ? "SUCCESS_METADATA"
               : "SUCCESS_DIRECT";
@@ -1097,18 +1225,31 @@ export async function extractUrl(
       : directRaw;
 
   if (directOut && !directOut.blocked && directOut.markdown.length >= 200) {
+    // (audit item 8, 2026-11-04) A redirect that crossed registrable
+    // domains served ANOTHER site's content. The packet must carry the
+    // final URL/domain as truth (citations, provenance header) and must
+    // not claim SUCCESS_DIRECT of the requested shop. Cross-domain bodies
+    // are never cached under the requested URL — a later cache hit would
+    // relabel them plain SUCCESS_DIRECT and launder the provenance away.
+    const crossed = crossedRegistrableBoundary(url, directOut.resolvedUrl);
+    const finalUrl = crossed ? directOut.resolvedUrl as string : url;
+    const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+    if (crossed) {
+      packet.url = finalUrl;
+      packet.domain = finalDomain;
+    }
     packet.extraction = "direct";
     packet.passages.push({
       sourceId: "",
-      url,
+      url: finalUrl,
       title: result.title,
-      domain: result.domain,
+      domain: finalDomain,
       publishedAt: result.publishedDate,
-      passageText: directOut.markdown,
+      passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + directOut.markdown : directOut.markdown,
       bm25Score: 0,
     });
-    putCachedPage(url, directOut.markdown, "direct");
-    return { ...packet, classification: "SUCCESS_DIRECT" };
+    if (!crossed) putCachedPage(url, directOut.markdown, "direct");
+    return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
   }
 
   // If Tier 1 produced only metadata (product JSON-LD, hydration state,
@@ -1120,18 +1261,28 @@ export async function extractUrl(
     directOut.tier === "metadata" &&
     directOut.markdown.length >= 100
   ) {
+    // Audit item 8: same cross-domain truth rule as the direct-success
+    // branch — metadata harvested off a landing on another registrable
+    // site is that site's metadata, not the requested URL's.
+    const crossed = crossedRegistrableBoundary(url, directOut.resolvedUrl);
+    const finalUrl = crossed ? directOut.resolvedUrl as string : url;
+    const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+    if (crossed) {
+      packet.url = finalUrl;
+      packet.domain = finalDomain;
+    }
     packet.extraction = "direct";
     packet.passages.push({
       sourceId: "",
-      url,
+      url: finalUrl,
       title: result.title,
-      domain: result.domain,
+      domain: finalDomain,
       publishedAt: result.publishedDate,
-      passageText: directOut.markdown,
+      passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + directOut.markdown : directOut.markdown,
       bm25Score: 0,
     });
-    putCachedPage(url, directOut.markdown, "metadata");
-    return { ...packet, classification: "SUCCESS_METADATA" };
+    if (!crossed) putCachedPage(url, directOut.markdown, "metadata");
+    return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_METADATA" };
   }
 
   // Tier 2: social link-preview crawler bypass — fires when Tier 1 was
@@ -1151,18 +1302,26 @@ export async function extractUrl(
     if (lpRaw === DEADLINE_EXPIRED) budgetHit = true;
     linkPreviewOut = lpRaw === DEADLINE_EXPIRED ? null : lpRaw;
     if (linkPreviewOut && linkPreviewOut.markdown.length >= 200) {
+      // Audit item 8: bots get redirected too — carry the landing truth.
+      const crossed = crossedRegistrableBoundary(url, linkPreviewOut.resolvedUrl);
+      const finalUrl = crossed ? linkPreviewOut.resolvedUrl as string : url;
+      const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+      if (crossed) {
+        packet.url = finalUrl;
+        packet.domain = finalDomain;
+      }
       packet.extraction = "direct";
       packet.passages.push({
         sourceId: "",
-        url,
+        url: finalUrl,
         title: result.title,
-        domain: result.domain,
+        domain: finalDomain,
         publishedAt: result.publishedDate,
-        passageText: linkPreviewOut.markdown,
+        passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + linkPreviewOut.markdown : linkPreviewOut.markdown,
         bm25Score: 0,
       });
-      putCachedPage(url, linkPreviewOut.markdown, "direct");
-      return { ...packet, classification: "SUCCESS_DIRECT" };
+      if (!crossed) putCachedPage(url, linkPreviewOut.markdown, "direct");
+      return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
     }
   }
 
@@ -1192,18 +1351,27 @@ export async function extractUrl(
   ) {
     const browserOut = await extractBrowser(result);
     if (browserOut && browserOut.markdown.length >= 200 && !browserOut.blocked) {
+      // Audit item 8: the browser tier already prints the final URL in
+      // its markdown; the packet/citation layer must agree with it.
+      const crossed = crossedRegistrableBoundary(url, browserOut.finalUrl);
+      const finalUrl = crossed ? browserOut.finalUrl as string : url;
+      const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+      if (crossed) {
+        packet.url = finalUrl;
+        packet.domain = finalDomain;
+      }
       packet.extraction = "direct";
       packet.passages.push({
         sourceId: "",
-        url,
+        url: finalUrl,
         title: result.title,
-        domain: result.domain,
+        domain: finalDomain,
         publishedAt: result.publishedDate,
-        passageText: browserOut.markdown,
+        passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + browserOut.markdown : browserOut.markdown,
         bm25Score: 0,
       });
-      putCachedPage(url, browserOut.markdown, "browser");
-      return { ...packet, classification: "SUCCESS_BROWSER" };
+      if (!crossed) putCachedPage(url, browserOut.markdown, "browser");
+      return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_BROWSER" };
     }
   }
 
@@ -1241,7 +1409,9 @@ export async function extractUrl(
     (directOut.blocked ||
       directOut.status === 0 ||
       (directOut.markdown.length < 100 && directOut.tier === "crash"));
-  if (tier1Failed) {
+  // (audit 2026-11-04) an ARCHIVED snapshot can never answer a live_required
+  // question (price/score/status) — skip the wayback tier entirely there.
+  if (tier1Failed && !liveRequired) {
     const waybackRaw = await withDeadline(deadline, extractWayback(url));
     if (waybackRaw === DEADLINE_EXPIRED) budgetHit = true;
     const waybackOut = waybackRaw === DEADLINE_EXPIRED ? null : waybackRaw;
@@ -1438,9 +1608,10 @@ async function extractUrlWithBudget(
   result: RankedResult,
   budgetMs: number,
   rankInWindow = 0,
+  liveRequired = false,
 ): Promise<EvidencePacket & { classification: string }> {
   const deadline = Date.now() + budgetMs;
-  const work = extractUrl(result, deadline, rankInWindow);
+  const work = extractUrl(result, deadline, rankInWindow, liveRequired);
   const guard = work.catch(() => undefined); // absorb a post-budget rejection
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -1487,6 +1658,9 @@ export async function extractAll(
       Upgrade path if abandoned fetches ever start costing bandwidth:
       thread an AbortController through limit()/extractUrlWithBudget. */
   stopWhen?: (packet: EvidencePacket & { classification: string }) => boolean,
+  /** §11.11 page-layer freshness law (2026-11-04 audit fix): true ⇒ skip
+      the SQLite page cache for every page in this wave. */
+  liveRequired = false,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
   const settled: Array<(EvidencePacket & { classification: string }) | undefined> =
@@ -1495,7 +1669,7 @@ export async function extractAll(
   let stopped = false;
   let signalStop: () => void = () => {};
   const stopGate = new Promise<void>((resolve) => { signalStop = resolve; });
-  const tasks = top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i)).then((p) => {
+  const tasks = top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i, liveRequired)).then((p) => {
     if (stopped) return undefined; // abandoned page — Rust cancels these instead
     settled[i] = p;
     donePages++;

@@ -172,6 +172,30 @@ function fmt(label: string, value: string): string {
   return value ? label + ": " + value : "";
 }
 
+/**
+ * (audit 2026-11-04) Place/PostalAddress flattening. schema.org nests the
+ * mailing address: jobLocation is a Place whose `address` is a
+ * PostalAddress {streetAddress, addressLocality, addressRegion, postalCode,
+ * addressCountry}. The generic v() only recognizes name/value/telephone/
+ * text, so every nested PostalAddress came out "" — job locations were
+ * silently lost. (LinkedIn/Greenhouse-style JSON-LD ships exactly this.)
+ */
+function addressLine(x: any): string {
+  if (!x || typeof x !== "object") return v(x);
+  if (x.name != null) return v(x.name);
+  const parts = [
+    x.streetAddress,
+    x.addressLocality,
+    x.addressRegion,
+    x.addressContiguousRegion,
+    x.postalCode,
+    x.addressCountry,
+  ]
+    .map((p) => v(p))
+    .filter(Boolean);
+  return parts.join(", ");
+}
+
 function section(header: string, lines: (string | "")[]): string {
   const body = lines.filter(Boolean);
   return body.length ? header + "\n" + body.join("\n") : "";
@@ -186,11 +210,25 @@ function formatSchemaItem(item: any): string {
     case "JobPosting":
       return section("## Job Posting: " + (v(item.title) || v(item.name) || "posting"), [
         fmt("Company", v(item.hiringOrganization)),
-        fmt("Location", v(item.jobLocation?.address) || v(item.jobLocation)),
+        fmt(
+          "Location",
+          addressLine(item.jobLocation?.address) || addressLine(item.jobLocation) || v(item.jobLocation),
+        ),
         fmt("Employment type", v(item.employmentType)),
         fmt("Posted", v(item.datePosted)),
         fmt("Valid through", v(item.validThrough)),
-        fmt("Direct apply", v(item.apply)),
+        // (audit 2026-11-04) The canonical schema.org property is
+        // `directApply` (URL or boolean); `apply`/`url` are site-local
+        // spellings — read the standard one first, keep the others as
+        // fallbacks so postings that only ship `url` still get a line.
+        fmt(
+          "Direct apply",
+          typeof item.directApply === "string"
+            ? v(item.directApply)
+            : item.directApply === true
+            ? "yes"
+            : v(item.apply) || v(item.url),
+        ),
         v(item.description)
           ? "Description: " + v(item.description).replace(/\s+/g, " ").slice(0, 800)
           : "",

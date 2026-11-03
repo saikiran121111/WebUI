@@ -505,6 +505,38 @@ function invalidArgsEnvelope(session: WebToolSession, tool: string, detail: stri
   };
 }
 
+/**
+ * Task-scope + read-budget admission for fetched URLs (2026-11-04 audit
+ * fix): web_search URL-shaped queries used to bypass BOTH checks that
+ * read_page enforces — the scope gate ran nowhere and readUrlsUsed was
+ * incremented past the cap. One chokepoint, both callers. Returns the URLs
+ * actually admitted (budget consumed is recorded here, never by callers).
+ */
+function admitReadUrls(session: WebToolSession, urls: string[], notices: string[]): string[] {
+  const allowed = Math.max(0, session.budget.maxReadUrls - session.readUrlsUsed);
+  const sHosts = session.scope && isEnforceableScope(session.scope)
+    ? scopeHosts(session.scope)
+    : [];
+  const admitted = sHosts.length === 0
+    ? urls
+    : urls.filter((u) => sHosts.some((h) => domainWithin(hostOf(u), h)));
+  if (admitted.length < urls.length) {
+    const blocked = urls.filter((u) => !admitted.includes(u));
+    for (const u of blocked.slice(0, 3)) {
+      notices.push(`read blocked: ${hostOf(u) || u} is outside the task scope (${sHosts.join(", ")})`);
+    }
+    if (blocked.length > 3) {
+      notices.push(`(${blocked.length - 3} more off-scope reads blocked)`);
+    }
+  }
+  const keep = admitted.slice(0, allowed);
+  if (keep.length < admitted.length) {
+    notices.push(`read budget exhausted: ${admitted.length - keep.length} URL(s) dropped (remaining ${allowed})`);
+  }
+  session.readUrlsUsed += keep.length;
+  return keep;
+}
+
 /* ── web_search executor ───────────────────────────────────────────────── */
 
 function mapIntent(raw: unknown): SearchDecision["queries"][number]["intent"] {
@@ -644,12 +676,17 @@ export async function execWebSearchTool(
     remainingBudget: remainingBudget(session),
   };
   if (readUrls.length > 0) {
-    session.readUrlsUsed += readUrls.length;
-    const batch = await readUrlBatch(session, readUrls, focus, Date.now() + 20000);
-    out.pages = batch.pages;
-    batch.failures.forEach((f) => failures.push(f));
-    batch.citations.forEach((c) => citations.push(c));
-    if (batch.omittedCount > 0) notices.push(`${batch.omittedCount} page(s) omitted: read_page char budget spent`);
+    // §11.18 + audit 2026-11-04: url-shaped queries go through the SAME
+    // admission law as read_page (scope gate + read budget), never a
+    // no-check fast path.
+    const keep = admitReadUrls(session, readUrls, notices);
+    if (keep.length > 0) {
+      const batch = await readUrlBatch(session, keep, focus, Date.now() + 20000);
+      out.pages = batch.pages;
+      batch.failures.forEach((f) => failures.push(f));
+      batch.citations.forEach((c) => citations.push(c));
+      if (batch.omittedCount > 0) notices.push(`${batch.omittedCount} page(s) omitted: read_page char budget spent`);
+    }
   }
   if (failures.length > 0) out.failures = failures;
   if (notices.length > 0) out.notices = notices;
@@ -677,30 +714,10 @@ export async function execReadPageTool(
   }
   const notices: string[] = [];
   // Task-scope admission for read_page (brief #6/#8): a read_page argument
-  // can never BROADEN the scope — the model asking for an off-scope URL is
-  // denied BEFORE the fetch with an honest notice, not silently dropped and
-  // not fetched "so the check can run after". Only applies when the scope
-  // has verified hosts (see web_search admission above for the rationale).
-  const sHosts = session.scope && isEnforceableScope(session.scope)
-    ? scopeHosts(session.scope)
-    : [];
-  const admitted = sHosts.length === 0
-    ? urls
-    : urls.filter((u) => sHosts.some((h) => domainWithin(hostOf(u), h)));
-  if (admitted.length < urls.length) {
-    const blocked = urls.filter((u) => !admitted.includes(u));
-    for (const u of blocked.slice(0, 3)) {
-      notices.push(`read blocked: ${hostOf(u) || u} is outside the task scope (${sHosts.join(", ")})`);
-    }
-    if (blocked.length > 3) {
-      notices.push(`(${blocked.length - 3} more off-scope reads blocked)`);
-    }
-  }
-  const keep = admitted.slice(0, allowed);
-  if (keep.length < admitted.length) {
-    notices.push(`read budget exhausted: ${admitted.length - keep.length} URL(s) dropped (remaining ${allowed})`);
-  }
-  session.readUrlsUsed += keep.length;
+  // can never BROADEN the scope — an off-scope URL is denied BEFORE the
+  // fetch with an honest notice. Shared chokepoint with web_search's
+  // url-shaped queries (admitReadUrls) — budget consumption recorded there.
+  const keep = admitReadUrls(session, urls, notices);
 
   const focus = typeof args.focus === "string" && args.focus.trim() !== "" ? args.focus.trim() : "";
   const rawTimeout = typeof args.timeoutMs === "number" ? args.timeoutMs : 20000;

@@ -60,8 +60,22 @@ async function getFingerprintSuite() {
   }
   if (!_fpGenerator || !_fpInjector) return null;
   try {
-    const fp = _fpGenerator.getFingerprint();
-    return { fp, injector: _fpInjector };
+    // (audit 2026-11-04) The pool binary is Chromium, so only Chrome-family
+    // fingerprints are self-consistent here: a Safari/Firefox suite would
+    // pin a non-Chromium UA onto a context that still sends the sec-ch-ua
+    // quartet + spoofed navigator.userAgentData — a Safari persona filled
+    // with Chromium hints, the exact inconsistent identity WAFs flag.
+    // Bounded retries; no consistent hit falls back to the static Chrome
+    // persona (USER_AGENT/SEC_CH_UA), which is engine-consistent.
+    for (let i = 0; i < 4; i++) {
+      const fp = _fpGenerator.getFingerprint();
+      const ua = String(fp?.headers?.["user-agent"] ?? "");
+      const uaCh = Object.keys(fp?.headers ?? {}).some((k) =>
+        k.toLowerCase().startsWith("sec-ch-ua"),
+      );
+      if (/Chrome\/\d/.test(ua) && uaCh) return { fp, injector: _fpInjector };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -141,6 +155,30 @@ const CHALLENGE_MARKER_RE =
  *  WAF/anti-bot interstitial rather than the page's real content? */
 export function challengeMarkersPresent(bodyText: string): boolean {
   return CHALLENGE_MARKER_RE.test(bodyText);
+}
+
+/* Generic credential-wall marker families (structural, site-agnostic —
+ * no domains hardcoded). A page whose SHORT rendered text is dominated by
+ * two distinct credential-wall families is a login/MFA/paywall gate, not
+ * content. Long-form pages are never flagged, so an article that merely
+ * links "Sign in" in its nav is content. */
+const AUTH_WALL_FAMILIES: RegExp[] = [
+  /\b(sign ?in|log ?in)\b/i,
+  /\b(sign ?up|create (an )?account|register)\b/i,
+  /\b(password|passcode)\b/i,
+  /\b(verify|one[- ]?time|otp|mfa)\b/i,
+  /\b(subscribe|members[- ]only|premium|paywall)\b/i,
+];
+
+/** Pure predicate (vector-tested): WAF interstitial OR generic credential
+ *  wall in the rendered text — the final admission gate's detector. */
+export function authWallOrInterstitialText(bodyText: string): boolean {
+  const norm = (bodyText ?? "").replace(/\s+/g, " ").trim();
+  if (challengeMarkersPresent(norm)) return true;
+  // Long-form rendered text is content, even if it links to a sign-in.
+  if (norm.length === 0 || norm.length >= 4_000) return false;
+  const hits = AUTH_WALL_FAMILIES.filter((re) => re.test(norm)).length;
+  return hits >= 2;
 }
 const ACQUIRE_TIMEOUT_MS = 60_000;
 
@@ -424,9 +462,16 @@ async function ensurePool(): Promise<void> {
         pool.contexts.push(ctx);
       }
     })();
-    pool.launching.finally?.(() => {
-      pool.launching = null;
-    });
+    // (audit 2026-11-04) The old bare .finally() chain was a floating
+    // promise: when launch rejected, the derived chain rejected with no
+    // handler → unhandledRejection (dev-server crash). The .catch keeps
+    // the bookkeeping chain inert; the original rejection still surfaces
+    // through `await pool.launching` below for the real caller.
+    void pool.launching
+      .catch(() => {})
+      .finally(() => {
+        pool.launching = null;
+      });
   }
   await pool.launching;
 }
@@ -604,7 +649,17 @@ export async function readGoogleSerp(
 ): Promise<{ url: string; title: string; snippet: string }[]> {
   if (browserPoolDisabled()) return [];
   const ctx = await acquireContext();
-  const page: Page = await ctx.newPage();
+  // (audit 2026-11-04) newPage() used to sit OUTSIDE the try/finally that
+  // frees the context: a throw here (crashed context, Chromium tab-limit)
+  // left the ctx pinned in pool.inUse forever — permanently shrinking the
+  // pool by one slot per failure.
+  let page: Page;
+  try {
+    page = await ctx.newPage();
+  } catch {
+    freeContext(ctx);
+    return [];
+  }
   try {
     const res = await page
       .goto(
@@ -688,8 +743,12 @@ export async function readGoogleSerp(
       const queue = toResolve.slice();
       const tR = Date.now();
       const worker = async (): Promise<void> => {
-        const rp: Page = await ctx.newPage();
+        // Same newPage-inside-try law: a tab-creation failure here must
+        // not reject Promise.all mid-drain (the outer finally still frees
+        // the ctx; the worker just exits and the siblings keep working).
+        let rp: Page | null = null;
         try {
+          rp = await ctx.newPage();
           for (;;) {
             if (Date.now() - tR > 12_000) return; // one wall for all workers
             const r = queue.shift();
@@ -702,8 +761,10 @@ export async function readGoogleSerp(
               /* redirect refused / timed out — honest skip for this row */
             }
           }
+        } catch {
+          /* tab creation failed — exit honestly; sibling workers keep draining */
         } finally {
-          await rp.close().catch(() => {});
+          if (rp) await rp.close().catch(() => {});
         }
       };
       await Promise.all([worker(), worker(), worker()]);
@@ -814,12 +875,7 @@ export async function extractUrlBrowser(
     };
   }
   const ctx = await acquireContext();
-  const page: Page = await ctx.newPage();
-  /* Universal caption probe (no domains — see lib/web-search/captionProbe):
-     collect the player's own caption-track responses from the very first
-     request; the probe itself only runs later when a <video> rendered. */
   const capStore: CaptionCaptureStore = { bodies: [] };
-  attachCaptionListener(page, capStore);
   const out: PageExtraction = {
     ok: false,
     url,
@@ -831,6 +887,20 @@ export async function extractUrlBrowser(
     meta: {},
     windowState: {},
   };
+  // (audit 2026-11-04) newPage() was outside the try/finally that frees the
+  // context — a throw there leaked the pool slot forever.
+  let page: Page;
+  try {
+    page = await ctx.newPage();
+  } catch {
+    freeContext(ctx);
+    out.error = "browser pool: could not open a tab on this context";
+    return out;
+  }
+  /* Universal caption probe (no domains — see lib/web-search/captionProbe):
+     collect the player's own caption-track responses from the very first
+     request; the probe itself only runs later when a <video> rendered. */
+  attachCaptionListener(page, capStore);
   try {
     // Fast-load: abort analytics/media/websockets for the initial load.
     // The handler reads `wafChallengeActive` at request time, so a
@@ -871,9 +941,15 @@ export async function extractUrlBrowser(
          The challenge page sets a cookie via challenge.js; a reload
          with all resources allowed lets the challenge complete.
        - HTTP 403/429/503 can also carry a JS challenge (Cloudflare).
+       - HTTP 405 is the AWS WAF CAPTCHA variant (per AWS docs). Routing
+         it through this branch does NOT bypass it: it only classifies
+         the response, waits passively, and — when the CAPTCHA interstitial
+         remains — ends in the honest wall outcome below. We never solve,
+         click or route around a CAPTCHA; we only stop mistaking its
+         status for an ordinary page.
        The status-code check is site-agnostic: any site whose WAF returns
        these codes gets the same reload + extended-settle treatment. */
-    if (status === 202 || status === 403 || status === 429 || status === 503) {
+    if (status === 202 || status === 403 || status === 429 || status === 503 || status === 405) {
       wafChallengeActive = true;
       log.info({ url, status }, "WAF challenge detected — reloading with full resource allow");
       try {
@@ -1067,8 +1143,23 @@ export async function extractUrlBrowser(
       .catch(() => ({}) as Record<string, string>);
 
     out.ok = out.bodyText.length > 0 || out.jsonLd.length > 0 || Object.keys(out.windowState).length > 0;
-    if (!out.ok && (status === 403 || status === 429 || status === 503)) {
+    if (!out.ok && (status === 403 || status === 429 || status === 503 || status === 405)) {
       out.error = "browser HTTP " + status + " (likely WAF challenge)";
+    }
+    /* Final admission gate (2026-11-04 audit fix): content PRESENCE is not
+       content VALIDITY. A WAF interstitial or a login wall can render
+       under HTTP 200 with more than 300 chars, so the settle loop's early
+       exit never sees it — validate the extracted text before it becomes
+       model-facing evidence or gets cached. Mirrors the direct tier's
+       detectBlockInText law, which the browser tier used to skip. Passive
+       detection only — we never interact with a challenge or credential
+       wall; we report it honestly and let the extractor cascade on. */
+    if (out.ok && authWallOrInterstitialText(out.bodyText)) {
+      out.ok = false;
+      out.error =
+        "rendered page is a challenge/auth interstitial (HTTP " +
+        status +
+        ") — reported as a wall, not content";
     }
 
     // ARIA semantic snapshot (the "C++ semantic snapshot" from the spec):

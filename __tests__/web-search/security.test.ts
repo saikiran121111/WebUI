@@ -23,9 +23,6 @@ import type { RawSearchResult } from "@/lib/web-search/types";
 
 describe("SSRF: hostname classification (shared TS⇄Rust vectors)", () => {
   const blocked = [
-    // legacy prefix-regex pins (kept VERBATIM — deliberate over-blocks)
-    "http://fd.nl/",
-    "http://10.example.com/",
     "http://localhost:3000/x",
     "http://127.0.0.1/",
     "http://0.0.0.0/",
@@ -64,9 +61,16 @@ describe("SSRF: hostname classification (shared TS⇄Rust vectors)", () => {
     "gopher://example.com/",
   ];
   const allowed = [
-    "http://172.15.0.1/", // legacy pins stay ALLOWED (regex only covers 16-31)
+    "http://172.15.0.1/", // precise 16-31 range keeps just-outside hosts reachable
     "http://172.32.0.1/",
     "http://notlocalhost.example.com/",
+    // 2026-11-04 audit fix: the legacy prefix-regex over-blocked public
+    // hosts whose names begin like private patterns (fd…, 10.…). The
+    // prefix match is retired; exact literal classification is the rule.
+    "http://fd.nl/",
+    "http://fda.gov/",
+    "http://fcbarcelona.com/",
+    "http://10.example.com/",
     "http://100.63.255.255/", // just below CGNAT
     "http://[2002:8888:1111::]/", // 6to4 with public v4
     "http://[2606:4700:4700::1111]/", // Cloudflare v6

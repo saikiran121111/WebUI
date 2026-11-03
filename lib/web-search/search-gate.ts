@@ -443,13 +443,21 @@ export function deterministicHardBypass(
     queries.push({ query: p.replace(/\s+/g, " ").trim().slice(0, 300), intent: "general" });
   }
 
-  const isNewsy = /\b(latest|current|today|20(?:2[4-9])|who\s+won|price|jobs|hiring)\b/i.test(p);
+  // (audit 2026-11-04) A price query hard-routed to "week" here while the
+  // planner-law rules path called the same turn "day" — two deterministic
+  // tiers disagreeing made the freshness ladder unpredictable, and "week"
+  // is the wrong tier for facts that change by the hour. Realtime tier is
+  // lexical, not brand-scoped: continuously-changing facts (prices, stock
+  // levels, weather, scores, open-now, availability, delivery ETAs).
+  const isRealtime =
+    /\b(price|prices|pricing|cost|costs|how much|in stock|stock|shares?|weather|temperature|forecast|score|scores|standings?|open now|available|availability|eta|delivery)\b/i.test(p);
+  const isNewsy = /\b(latest|current|today|20(?:2[4-9])|who\s+won|jobs|hiring)\b/i.test(p);
   return {
     hit,
     decision: {
       search_required: true,
       reason: "deterministic_url_or_intent",
-      freshness: isNewsy ? "week" : "any",
+      freshness: isRealtime ? "realtime" : isNewsy ? "week" : "any",
       depth: hit.detected.length > 0 ? "deep" : "standard",
       queries,
     },
@@ -499,6 +507,11 @@ export function rulesBasedPlan(ctx: SearchGateContext): SearchGateResult {
   const p = ctx.userPrompt.trim();
   const hasTimeSignal = /latest|recent|new|current|today|this (week|month|year|quarter)/i.test(p);
   const hasVersion = /\bv?\d+\.\d+|version \d+/i.test(p);
+  // (audit 2026-11-04) Same lexical realtime tier as deterministicHardBypass
+  // — the two deterministic paths must never disagree on the same turn
+  // (the audit caught "week" vs "day" for one price query).
+  const isRealtime =
+    /\b(price|prices|pricing|cost|costs|how much|in stock|stock|shares?|weather|temperature|forecast|score|scores|standings?|open now|available|availability|eta|delivery)\b/i.test(p);
   const urls = extractPromptUrls(p);
   const queries: SearchDecision["queries"] = [
     {
@@ -547,7 +560,13 @@ export function rulesBasedPlan(ctx: SearchGateContext): SearchGateResult {
       // live-facts answer.
       search_required: true,
       reason: "rule-based search-by-default plan (main model unreachable)",
-      freshness: hasTimeSignal ? "day" : hasVersion ? "month" : "any",
+      freshness: isRealtime
+        ? "realtime"
+        : hasTimeSignal
+        ? "day"
+        : hasVersion
+        ? "month"
+        : "any",
       depth: "standard",
       queries,
     },

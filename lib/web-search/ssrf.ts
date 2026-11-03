@@ -2,10 +2,11 @@
  * SSRF guard — the single source of truth for "may we fetch this URL?".
  * Shared by net.ts, agentBrowser.ts, engines.ts, metasearch.ts, media-captions.
  *
- * HARDENED 2026-11-02 (web-search P6 safety). The original guard was a
- * hostname-PREFIX regex only. That regex is kept VERBATIM — its deliberate
- * over-blocks (`fd.nl`, `10.example.com`) and its misses (`172.15.0.1`
- * allowed) stay pinned by tests on both TS and Rust. Added on top:
+ * HARDENED 2026-11-02 (web-search P6 safety); PREFIX REGEX RETIRED
+ * 2026-11-04 (audit fix) — the legacy hostname-PREFIX match over-blocked
+ * public hosts (`fd.nl`, `fda.gov`, `10.example.com`); hosts are now
+ * classified by the exact IPv4/IPv6 literal parsers below, with the
+ * precise 16–31 range keeping `172.15.0.1`/`172.32.0.1` allowed. Added on top:
  *  - bracketed IPv6 parsing: `::`, `::1`, ULA fc00::/7 `(g0&0xfe00)==0xfc00`,
  *    link-local fe80::/10 `(g0&0xffc0)==0xfe80`, multicast ff00::/8, and
  *    embedded-IPv4 forms (IPv4-mapped `::ffff:…` incl. hex groups,
@@ -28,11 +29,15 @@
  * SSRF contract by themselves — do not weaken them.
  */
 
-/* The legacy prefix regex, kept VERBATIM (do not "fix" its over-blocks —
-   parity pins: https://fd.nl and https://10.example.com are blocked;
-   http://172.15.0.1 / http://172.32.0.1 are allowed). */
-const PRIVATE_HOST_RE =
-  /^(localhost|0\.0\.0\.0|127\.|10\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1|fc|fd)/i;
+/* Replaced 2026-11-04 (audit fix). The legacy guard prefix-MATCHED this
+   pattern against DNS NAMES, so public sites were "private": fd.nl and
+   fda.gov (fd), fcbarcelona.com (fc), 10.example.com (10.). That was only
+   ever kept for parity with the Rust mirror (crates/ruke-websearch), which
+   was removed on 2026-11-03 — the pins are obsolete and the defect is
+   user-visible. Real IP literals are classified by the exact parsers
+   below (privateIPv4Octets / parseIPv6Groups), which is the correct rule;
+   172.15.0.1 / 172.32.0.1 stay allowed via the precise 16–31 range. */
+const PRIVATE_HOST_RE = /^localhost$/i;
 
 /* Reserved / non-routable name suffixes (new, both engines). Note the
    leading-dot requirement: bare `localhost` stays blocked via the legacy

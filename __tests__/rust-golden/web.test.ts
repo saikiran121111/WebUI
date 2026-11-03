@@ -369,7 +369,11 @@ describe("golden: web-search pipeline", () => {
     const evidenceBlock = payload.messages[evidenceIdx].content as string;
     // ANTI_REFUSAL_DIRECTIVE is prepended whenever the bundle has passages,
     // so the block NEVER starts with "<evidence>" (buildMainModelContext).
-    expect(evidenceBlock.includes("CRITICAL: The server has ALREADY opened")).toBe(true);
+    // (audit 2026-11-04) the directive was rewritten to honest evidence-
+    // level wording ("IMPORTANT: Before this turn the server attempted live
+    // web retrieval…" ⇔ pipeline.ts ANTI_REFUSAL_DIRECTIVE); stale pin
+    // refreshed to the CURRENT constant's lead-in — pin verbatim again.
+    expect(evidenceBlock.includes("IMPORTANT: Before this turn the server attempted live web retrieval")).toBe(true);
     expect(evidenceBlock.indexOf("<evidence>")).toBeLessThan(evidenceBlock.indexOf("</evidence>"));
     // LAYOUT QUIRK: </evidence> closes the GUIDELINE header only; the [S#]
     // source lines + quoted excerpts are appended AFTER the closing tag.

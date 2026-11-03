@@ -335,27 +335,59 @@ export async function readBounded(
   body: ReadableStream<Uint8Array> | any,
   limitBytes: number = PAGE_LIMIT_BYTES,
   isGzip = false,
+  /** (audit 2026-11-04) Optional out-sink: the FINAL decompressed bytes
+   * are handed back here before the lossy UTF-8 decode, so binary/foreign-
+   * charset callers (PDF, Shift_JIS) can work on the true bytes instead of
+   * a destroyed string. Existing string callers pass nothing — unchanged. */
+  sink?: { bytes?: Uint8Array },
 ): Promise<string> {
   const reader = body?.getReader?.();
   if (!reader) {
     // Non-WebStream body (Buffer / string fallback).
     const buf: Buffer = await body;
     if (isGzip) {
-      return gunzipSync(buf.subarray(0, limitBytes)).toString("utf8");
+      // Decode exactly ONCE: content-encoding describes the WIRE encoding,
+      // not the state of the bytes in hand — clients differ in whether they
+      // already transparently decoded (impit decodes but echoes the header;
+      // raw paths do not). A gunzip failure therefore means "already
+      // decoded", not "corrupt": keep the bytes (2026-11-04 audit fix —
+      // the old throw-into-empty-string contract erased every gzip body).
+      try {
+        const dz = gunzipSync(buf.subarray(0, limitBytes));
+        if (sink) sink.bytes = dz;
+        return dz.toString("utf8");
+      } catch {
+        const raw = buf.subarray(0, limitBytes);
+        if (sink) sink.bytes = raw;
+        return raw.toString("utf8");
+      }
     }
-    return buf.subarray(0, limitBytes).toString("utf8");
+    const raw = buf.subarray(0, limitBytes);
+    if (sink) sink.bytes = raw;
+    return raw.toString("utf8");
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    total += value.byteLength;
-    if (total > limitBytes) {
+    const room = limitBytes - total;
+    // Bounded PREFIX (2026-11-04 audit fix): the overflowing chunk used
+    // to inflate `total` without being copied, so the concatenation buffer
+    // was allocated larger than the copied bytes — synthetic NUL padding
+    // at the end of every capped body. Slice to the cap instead.
+    if (room <= 0) {
       reader.cancel().catch(() => {}); // stop the socket, free the rest
       break;
     }
+    if (value.byteLength > room) {
+      chunks.push(value.subarray(0, room));
+      total += room;
+      reader.cancel().catch(() => {});
+      break;
+    }
     chunks.push(value);
+    total += value.byteLength;
   }
   if (chunks.length === 0) return "";
   // Concatenate — avoids a full-Array copy through Array.from, which
@@ -366,12 +398,19 @@ export async function readBounded(
     out.set(c, off);
     off += c.byteLength;
   }
-  // Transparently decompress gzip-encoded responses (StackExchange,
-  // Reddit JSON APIs, etc.). The Impit TLS client does NOT auto-decode
-  // content-encoding — it passes the raw bytes through.
+  // Decompress at most once — see the Buffer path above for the decode-
+  // exactly-once law (header describes the wire, not these bytes).
   if (isGzip) {
-    return gunzipSync(out).toString("utf8");
+    try {
+      const dz = gunzipSync(out);
+      if (sink) sink.bytes = dz;
+      return dz.toString("utf8");
+    } catch {
+      if (sink) sink.bytes = out;
+      return new TextDecoder("utf-8").decode(out);
+    }
   }
+  if (sink) sink.bytes = out;
   return new TextDecoder("utf-8").decode(out);
 }
 
@@ -386,7 +425,11 @@ let _gotPromise: Promise<any> | null = null;
 async function gotModule(): Promise<any> {
   if (!_gotPromise) {
     _gotPromise = import("got-scraping")
-      .then((m: any) => m?.default ?? m)
+      // got-scraping v4.2.2 has NO default export (verified against the
+      // installed package). The old `m.default ?? m` returned the module
+      // NAMESPACE, and every got(...) call below threw "got is not a
+      // function" — Pass A had been silently dead (2026-11-04 audit fix).
+      .then((m: any) => m?.gotScraping ?? null)
       .catch(() => null);
   }
   const mod = await _gotPromise;
@@ -423,12 +466,15 @@ async function gotPageFetch(
         ...realisticHeaders(cookieVal ? { cookie: cookieVal } : {}),
         ...(opts.headers ?? {}),
       },
-      // got-scraping v4 REQUIRES the proxy option to be present — pass
-      // false so it never picks up unexpected system proxy env vars.
-      proxy: false,
       throwHttpErrors: false,
       maxRedirects: 10,
-      retry: 0,
+      // got v14 option grammar (native-verified against the installed
+      // got-scraping 4.2.2): retry takes {limit:0}, beforeRedirect lives
+      // under hooks, and the v14-era top-level forms used here before made
+      // EVERY got-scraping call throw ERR_INVALID_OPTIONS / TypeError.
+      // No `proxy` option: v14 rejects `proxy: false`, and got-scraping
+      // does not auto-pick system proxies anyway.
+      retry: { limit: 0 },
       decompress: true,
       timeout: { request: timeoutMs },
       // SSRF (§P6): refuse every redirect TARGET before it is followed —
@@ -436,9 +482,35 @@ async function gotPageFetch(
       // SSRF pivot. The throw rejects the got request; the catch below
       // turns it into null so Pass B/C run their own entry + final-URL
       // checks instead of silently following the hop.
-      beforeRedirect: (redirectOptions: any) => {
-        const next = String(redirectOptions?.url ?? "");
-        if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+      hooks: {
+        beforeRedirect: [
+          // got v14 signature: (redirectOptions, initOptions, response).
+          (redirectOptions: any, _init: any, response: any) => {
+            const next = String(redirectOptions?.url ?? "");
+            if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+            // (audit item 4, 2026-11-04) got follows the chain itself but
+            // carries NO cookies across hops: a site that issues a session
+            // cookie on hop 1 and verifies it on hop 2 saw a cookieless
+            // hop 2 → a false "WAF block". Absorb the hop's Set-Cookie
+            // into the shared jar and seed the next hop's Cookie header.
+            const sc = response?.headers?.["set-cookie"];
+            const hopCookies: string[] = Array.isArray(sc)
+              ? sc.map(String)
+              : sc
+                ? [String(sc)]
+                : [];
+            const from = String(response?.url ?? url);
+            if (hopCookies.length > 0 && from) jar.absorb(from, hopCookies);
+            if (next) {
+              const carry = jar.cookieFor(next);
+              if (carry)
+                redirectOptions.headers = {
+                  ...(redirectOptions.headers ?? {}),
+                  cookie: carry,
+                };
+            }
+          },
+        ],
       },
     } as any);
 
@@ -481,6 +553,10 @@ async function gotPageFetch(
       fingerprint: "chrome",
       cookies: rawCookies,
       resolvedUrl,
+      // got always keeps rawBody for non-streamed responses — Buffer IS a
+      // Uint8Array, so this retains the reference (zero copy) and PDF/
+      // charset callers get the true bytes.
+      ...(res.rawBody ? { rawBytes: res.rawBody as Uint8Array } : {}),
     };
   } catch (err: unknown) {
     if (isCertError(err)) {
@@ -508,16 +584,20 @@ async function gotUrlFetch(
       method: opts.method ?? "GET",
       headers,
       ...(opts.body !== undefined ? { body: opts.body } : {}),
-      proxy: false,
       throwHttpErrors: false,
       maxRedirects: 10,
-      retry: 0,
+      // got v14 option grammar — see gotPageFetch for the law note.
+      retry: { limit: 0 },
       decompress: true,
       timeout: { request: opts.timeoutMs ?? 40_000 },
       // SSRF: refuse unsafe redirect targets (mirrors gotPageFetch).
-      beforeRedirect: (redirectOptions: any) => {
-        const next = String(redirectOptions?.url ?? "");
-        if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+      hooks: {
+        beforeRedirect: [
+          (redirectOptions: any) => {
+            const next = String(redirectOptions?.url ?? "");
+            if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+          },
+        ],
       },
     } as any);
     const status: number = res.statusCode ?? 0;
@@ -552,6 +632,24 @@ export interface PageResponse {
    * pipeline can extract the RESOLVED page, not the redirect stub.
    */
   resolvedUrl: string;
+  /**
+   * (audit 2026-11-04) Set when the bytes arrived through the gov TLS
+   * tolerance path (rejectUnauthorized:false): the chain could not be
+   * verified, so downstream layers must not present this content as
+   * authenticated. Surfaced, never silent.
+   */
+  insecureTls?: boolean;
+  /**
+   * (audit 2026-11-04) The ORIGINAL decompressed bytes whenever the fetch
+   * path held them (got always exposes rawBody; the readBounded sink
+   * retains the rest). Decoding PDF bytes to a string and re-encoding
+   * destroys the file (invalid UTF-8 → U+FFFD), so unpdf could never
+   * parse a PDF that traveled only as `body`; and charset detection must
+   * sniff the TRUE bytes, not a UTF-8 re-encode of an already-mangled
+   * string. Absent only where no bytes survive (wreq Pass C hands back
+   * strings) — callers keep the old lossy fallback there.
+   */
+  rawBytes?: Uint8Array;
 }
 
 /**
@@ -704,15 +802,30 @@ async function tlsTolerantGet(
               } catch {
                 /* keep the raw bytes */
               }
+              // (audit 2026-11-04) Unverified-chain reads are loud, not
+              // silent: flag the response and log host+status only (never
+              // URLs with query secrets, never cookie material).
+              try {
+                // eslint-disable-next-line no-console
+                console.warn(
+                  `[web-search/net] TLS-unverified read (broken cert chain, cert verification disabled for this one retry): ${new URL(u).host} status=${status}`,
+                );
+              } catch {
+                /* unparseable URL — skip the log, still finish */
+              }
+              const contentType = String(res.headers["content-type"] ?? "");
               finish({
                 status,
                 ok: status >= 200 && status < 400,
                 body: buf.toString("utf8"),
-                contentType: String(res.headers["content-type"] ?? ""),
+                contentType,
                 elapsedMs: Math.round(performance.now() - t0),
                 fingerprint: "chrome",
                 cookies: [],
                 resolvedUrl: u,
+                insecureTls: true,
+                // Node Buffer view over the collected bytes — zero copy.
+                rawBytes: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
               });
             });
             res.on("error", () => finish(null));
@@ -790,6 +903,17 @@ export async function fetchPage(
   }
 
   // ── Pass B: impit TLS-impersonation rotation ────────────────────────────
+  // shortcut: impit follows redirects INSIDE its Rust stack with no
+  // per-hop hook, so mid-chain cookies there ride only impit's own
+  // handling (reseeded next attempt from this jar); Pass C (wreq-js)
+  // likewise returns strings only — no rawBytes. Add a per-hop walker
+  // only if a cookie-gated-redirect site is proven to need it
+  // (audit item 4, 2026-11-04 — got's hops now carry cookies via the
+  // beforeRedirect jar hook).
+  // Fattest blocked/errored impit+got body handed to Pass C on the terminal
+  // attempt (2026-11-04 audit fix — Pass C used to be unreachable because
+  // every Pass B branch returned).
+  let impitBest: PageResponse | null = null;
   for (let attempt = 0; attempt < (opts.retryOnBlock === false ? 1 : fpOrder.length); attempt++) {
     const fp = fpOrder[attempt];
     const cookieVal = jar.cookieFor(url);
@@ -813,13 +937,17 @@ export async function fetchPage(
       // re-sends the session cookie the site just issued.
       if (rawCookies.length > 0) jar.absorb(url, rawCookies);
 
-      const body = await readBounded((res as any).body, limitBytes).catch(
-        () => "",
-      );
       const contentType = String(
         (res.headers as any)?.get?.("content-type") ??
           (res.headers as any)?.["content-type"] ??
           "",
+      );
+      // (audit 2026-11-04) Retain the true bytes through the read — a PDF
+      // or foreign-charset body mangled by readBounded's UTF-8 decode is
+      // unrecoverable downstream.
+      const sink: { bytes?: Uint8Array } = {};
+      const body = await readBounded((res as any).body, limitBytes, false, sink).catch(
+        () => "",
       );
       const elapsedMs = Math.round(performance.now() - t0);
       const isBlock = BLOCK_STATUSES.includes(status);
@@ -851,12 +979,16 @@ export async function fetchPage(
           fingerprint: fp,
           cookies: rawCookies,
           resolvedUrl: finalUrl,
+          ...(sink.bytes ? { rawBytes: sink.bytes } : {}),
         };
-        // Both passes blocked → the fatter body wins.
-        if ((isBlock || status === 0) && gotResp && gotResp.body.length > body.length) {
-          return gotResp;
-        }
-        return resp;
+        if (!isBlock && status !== 0) return resp; // clean content — original contract
+        // Terminal attempt AND still blocked: do NOT return yet (2026-11-04
+        // audit fix). Keep the fattest blocked body and break to Pass C so
+        // the wreq-js TLS stack gets its own turn — this branch previously
+        // always returned, which made Pass C dead code.
+        impitBest = gotResp && gotResp.body.length > resp.body.length ? gotResp : resp;
+        if (opts.retryOnBlock === false) return impitBest;
+        break;
       }
       // Block status: fall through to the next fingerprint in the rotation.
     } catch (err: unknown) {
@@ -868,32 +1000,37 @@ export async function fetchPage(
         const tolerant = await tlsTolerantGet(url, opts.timeoutMs ?? defaultTimeout);
         if (tolerant) return tolerant;
       }
-      // Timeout / network error: if we've tried all fingerprints, surface
-      // null; otherwise the next attempt uses a different fingerprint.
+      // Timeout / network error: the next attempt uses a different
+      // fingerprint; on the last attempt hand the pass to Pass C (wreq-js,
+      // independent Rust TLS stack) instead of returning (2026-11-04 audit
+      // fix — same dead-code defect as the success branch).
       if (attempt === fpOrder.length - 1) {
-        if (gotResp) return gotResp;
-        return {
-          status: 0,
-          ok: false,
-          body: "",
-          contentType: "",
-          elapsedMs: Math.round(performance.now() - t0),
-          fingerprint: fp,
-          cookies: [],
-          resolvedUrl: "",
-        };
+        if (opts.retryOnBlock === false) {
+          if (gotResp) return gotResp;
+          return {
+            status: 0,
+            ok: false,
+            body: "",
+            contentType: "",
+            elapsedMs: Math.round(performance.now() - t0),
+            fingerprint: fp,
+            cookies: [],
+            resolvedUrl: "",
+          };
+        }
+        impitBest = gotResp;
+        break;
       }
     }
   }
   /* Pass C — wreq-js (Rust TLS, different JA3 signature than impit).
-     Fires only when ALL three impit fingerprints also hit block.  The
-     two TLS stacks have different handshake fingerprints, so a site that
-     trips impit's Chrome emulation may accept wreq-js's emulation. */
-  const impitAllBlocked = gotResp?.status
-    ? BLOCK_STATUSES.includes(gotResp.status) || gotResp.status === 0
-    : true;
-  if (impitAllBlocked && opts.retryOnBlock !== false) {
-    const elapsedW = Math.round(performance.now() - t0);
+     Reached whenever Pass B terminated blocked/errored (2026-11-04 audit
+     fix: the loop now BREAKS here instead of always returning, making this
+     pass genuinely reachable — the "403 under impit, 200 under wreq"
+     counterexample works).  The two TLS stacks have different handshake
+     fingerprints, so a site that trips impit's Chrome emulation may
+     accept wreq-js's emulation. */
+  if (opts.retryOnBlock !== false) {
     const wr = await wreqFetch(url, {
       method: opts.method ?? "GET",
       headers: opts.headers,
@@ -902,7 +1039,7 @@ export async function fetchPage(
     // SSRF: wreq-js follows redirects inside its Rust stack — recheck the
     // final URL it reports; unsafe ⇒ treat the pass as failed.
     if (wr && !isSafeUrl(wr.url ?? url)) {
-      return gotResp;
+      return impitBest;
     }
     if (wr && wr.status > 0 && !BLOCK_STATUSES.includes(wr.status)) {
       return {
@@ -913,26 +1050,29 @@ export async function fetchPage(
         elapsedMs: Math.round(performance.now() - t0),
         fingerprint: "wreq-chrome",
         cookies: [],
-        resolvedUrl: url,
+        resolvedUrl: wr.url ?? url,
       };
     }
-    /* wreq also blocked — surface whichever body is bigger so the
-       extractor's detectBlock has the most signal.  PageResponse shape
+    /* wreq also blocked (or failed) — surface whichever body is bigger so
+       the extractor's detectBlock has the most signal.  PageResponse shape
        requires the full interface — spread wr onto it explicitly. */
-    if (wr && gotResp && wr.body.length > gotResp.body.length) {
-      return {
-        status: wr.status,
-        ok: wr.ok,
-        body: wr.body,
-        contentType: wr.contentType,
-        elapsedMs: Math.round(performance.now() - t0),
-        fingerprint: "wreq-chrome",
-        cookies: [],
-        resolvedUrl: url,
-      };
+    const wrResp: PageResponse | null = wr
+      ? {
+          status: wr.status,
+          ok: wr.ok,
+          body: wr.body,
+          contentType: wr.contentType,
+          elapsedMs: Math.round(performance.now() - t0),
+          fingerprint: "wreq-chrome",
+          cookies: [],
+          resolvedUrl: wr.url ?? url,
+        }
+      : null;
+    if (wrResp && (!impitBest || wrResp.body.length > impitBest.body.length)) {
+      return wrResp;
     }
   }
-  return gotResp; // unreachable in the happy path — the loop above always returns
+  return impitBest;
 }
 
 /** Quick read of a JSON-ish endpoint (algolia, arxiv, reddit, ...). */

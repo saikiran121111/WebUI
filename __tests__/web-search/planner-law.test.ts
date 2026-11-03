@@ -281,9 +281,19 @@ describe("planner law (⇔ planner_law.rs)", () => {
       pk("s2", "b.com", "direct"),
       pk("s3", "z.com", "snippet-only"), // §11.14: never counts
     ];
+    // (audit 2026-11-04 law update) The old gate failed ANY undated
+    // passage set; the tightened law instead fails passages DATED OUTSIDE
+    // the band (absence of a date is not proof of staleness). This vector
+    // now keeps the intent honest: every kept passage is dated 2019, far
+    // outside the "week" lookback, so freshness MUST fail on dated-but-
+    // stale evidence rather than on a missing date.
+    const stale = (sourceId: string, domain: string, text: string): EvidencePassage => ({
+      ...ep(sourceId, domain, text),
+      publishedAt: "2019-01-01",
+    });
     const passages = [
-      ep("s1", "a.com", "The price is 10.50 dollars"),
-      ep("s2", "b.com", "The price jumped to 12.00"),
+      stale("s1", "a.com", "The price is 10.50 dollars"),
+      stale("s2", "b.com", "The price jumped to 12.00"),
       ep("s3", "z.com", "The price is 9.99"), // filtered out with its source
     ];
     const coverage: CoverageReport = {

@@ -99,6 +99,12 @@ const EVIDENCE_GOOD_TARGET = 6;
 const EVIDENCE_DOMAIN_MIN = 3;
 const GOOD_MIN_PASSAGE_CHARS = 400;
 
+// Stage-0 direct-hop deadline (audit item 11, 2026-11-04): fetch allows
+// ~45s per URL and the browser rescue can chain behind it, so 90s gives
+// one fetch + one rescue attempt of headroom before the SERP pool takes
+// over. Direct targets are best-effort — SERP still covers the domain.
+const DIRECT_TARGET_CAP_MS = 90_000;
+
 // "Good" = real page content — clean extraction (no classification label,
 // the fixture shape) OR any SUCCESS_* channel that actually fetched the
 // page — with substance behind it. SUCCESS_SNIPPET_FALLBACK is excluded
@@ -535,10 +541,14 @@ export async function runWebResearch(
   // §11.11: freshness "realtime" maps to live_required — such a run NEVER
   // consults the query cache; every realtime decision hits the live engine
   // pool. (Rust mirror: `retrieval_mode_for_freshness(...) == LiveRequired`.)
-  const cached =
-    retrievalModeForFreshness(gate.decision.freshness) === "live_required"
-      ? null
-      : getCachedQuery(plans);
+  // §11.11 law: a live_required turn replays NO cache — neither the query
+  // cache (here) nor the SQLite page cache (extractAll's liveRequired arg,
+  // threaded to every extraction wave below). 2026-11-04 audit fix closed
+  // the page-cache half; a "price today / latest X" answer must be built
+  // from live evidence only.
+  const liveRequired =
+    retrievalModeForFreshness(gate.decision.freshness) === "live_required";
+  const cached = liveRequired ? null : getCachedQuery(plans);
   if (cached) {
     fromCache = true;
     searchResults = cached.results;
@@ -598,12 +608,31 @@ export async function runWebResearch(
       return ready;
     })();
 
+    // (audit item 11, 2026-11-04) directFut had NO wall-clock deadline:
+    // extractUrl can chain fetch → browser rescue → wayback, and the whole
+    // turn (metasearch capped at 45s) blocked on it indefinitely — an
+    // unbounded direct hop attached to a bounded SERP hop. The direct
+    // targets are best-effort garnish (the SERP pool still covers the
+    // domain), so a capped race degrades to "no direct results" rather
+    // than a stalled research turn.
+    const directDeadline = new Promise<RankedResult[]>((res) => {
+      const t = setTimeout(() => {
+        log.warn({ capMs: DIRECT_TARGET_CAP_MS }, "stage-0 direct hop hit its deadline — proceeding with the SERP pool");
+        res([]);
+      }, DIRECT_TARGET_CAP_MS);
+      t.unref?.();
+      directFut.then((r) => {
+        clearTimeout(t);
+        res(r);
+      });
+    });
+
     const [{ results: fused, freshnessRecoveryUsed }, directResults] = await Promise.all([
       metasearchWithFreshnessRecovery(
         plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
         20,
       ),
-      directFut,
+      directDeadline,
     ]);
     // Merge: direct targets first, then SERP results (dedup by canonical).
     if (directResults.length > 0) {
@@ -963,6 +992,7 @@ export async function runWebResearch(
         // §18 browser-attempt rank gate sees window ranks.
         prev,
         stopWhen,
+        liveRequired,
       );
       // §11.12: drop off-query / boilerplate segments before the pool joins
       // rerank (⇔ Rust `apply_segment_filter(&mut b, &segment_filter_query)`).
@@ -1088,7 +1118,7 @@ export async function runWebResearch(
       gapSearchFired = true;
       // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
       // fresh pages, not 5 (mirrors Rust).
-      const gapPackets = await extractAll(gapResults, 3);
+      const gapPackets = await extractAll(gapResults, 3, undefined, undefined, undefined, undefined, liveRequired);
       // §11.12 gap-hop half (⇔ Rust): the gap query joins the filter query
       // so coverage for the missing entities survives the drop rules.
       applySegmentFilter(gapPackets, segmentFilterQuery + " " + coverage.gapQuery);
@@ -1154,7 +1184,7 @@ export async function runWebResearch(
         for (const q of gapDemand.queries) {
           const waveResults = applyDomainControl(await runGapMetasearch(q), plannerLaw);
           if (waveResults.length === 0) continue;
-          const fresh = await extractAll(waveResults, 3);
+          const fresh = await extractAll(waveResults, 3, undefined, undefined, undefined, undefined, liveRequired);
           applySegmentFilter(fresh, segmentFilterQuery + " " + q);
           renumberPackets(fresh, nextSourceIndex([...packets, ...secondHopPackets, ...wavePackets]));
           wavePackets.push(...fresh);
@@ -1235,14 +1265,26 @@ export async function runWebResearch(
  * external links") was the last leak that let a perfectly-working
  * extraction engine look broken to the user.
  */
+// (audit 2026-11-04) Truthful rewrite. The old text asserted the server
+// "has ALREADY opened… extracted transcripts… read screenshots… rendered
+// live pages" — on snippet-only or blocked outcomes that was a false
+// statement that pushed the model to answer AS IF pages had been fully
+// read. The retrieval HAS been attempted; the evidence block states, per
+// URL, exactly what was recovered and at what level. Refusal-to-use-the-
+// evidence is still banned (the Part 7 fix stands); fabricated claims of
+// personally opening/reading pages are now banned too.
 export const ANTI_REFUSAL_DIRECTIVE =
-  "CRITICAL: The server has ALREADY opened the user's URLs, resolved " +
-  "short-links/redirects, extracted YouTube transcripts, read attached " +
-  "screenshots, and rendered live pages via our in-house Playwright page " +
-  "pool. " +
-  "All live data is in the web context below. NEVER say you cannot watch " +
-  "YouTube videos, cannot open Google Maps links, or cannot browse " +
-  "LinkedIn/websites. Answer directly using the provided evidence.";
+  "IMPORTANT: Before this turn the server attempted live web retrieval for " +
+  "this request. The web context below states exactly what was recovered " +
+  "and at what level: full page extractions, rendered-browser content, " +
+  "search-engine index snippets, or honest access failures. Use the " +
+  "highest evidence level available for each URL. NEVER refuse to answer " +
+  "on the grounds that you 'cannot browse the web, open links, or watch " +
+  "videos' — retrieval has already been attempted on your behalf. Equally, " +
+  "never claim to have opened, read, or viewed a page yourself: report " +
+  "only what the evidence block actually contains, and when a URL's " +
+  "evidence is snippet-level or blocked, say so plainly instead of " +
+  "presenting it as fully verified.";
 
 /**
  * Build the system-prompt block to inject into the main LLM call.

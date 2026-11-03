@@ -20,7 +20,10 @@ export const SearchDecisionSchema = z
   })
   // search_required=true needs ≥1 query; a no-search verdict is allowed to
   // carry an empty queries array (the pipeline never reads it on that path).
-  .refine((d) => d.search_required || d.queries.length > 0, {
+  // (2026-11-04 audit fix: the predicate was inverted — it rejected the
+  // valid false+empty case and accepted the invalid true+empty one; the
+  // Compat schema below always had this right.)
+  .refine((d) => !d.search_required || d.queries.length > 0, {
     message: "search_required=true requires at least one query",
   });
 
@@ -179,6 +182,8 @@ export interface EvidencePacket {
    * One of the canonical categories:
    *   SUCCESS_DIRECT, SUCCESS_ADAPTER, SUCCESS_METADATA,
    *   SUCCESS_JINA_FALLBACK, SUCCESS_SNIPPET_FALLBACK,
+   *   SUCCESS_BROWSER, SUCCESS_REDIRECTED (landed on a different
+   *   registrable site; url/domain carry the final site),
    *   FAIL_SILENT_BOT_BLOCK, FAIL_SILENT_LOGIN_WALL,
    *   FAIL_EMPTY_JS_SHELL, FAIL_NETWORK_OR_CRASH
    * Absent on packets that pre-date the stress-test upgrade.

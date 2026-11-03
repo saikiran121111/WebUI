@@ -33,7 +33,9 @@ describe("§11.3 page-budget fallback packet (TS oracle mirror)", () => {
     expect(p.classification).toBe("PAGE_BUDGET_TIMEOUT");
     expect(p.extraction).toBe("snippet-only");
     expect(p.passages).toHaveLength(1);
-    expect(p.passages[0].passageText.startsWith("[SERP snippet baseline")).toBe(true);
+    // (audit 2026-11-04) honest baseline header — the old one predicted
+    // failure before the cascade even ran; stale pin updated to truth.
+    expect(p.passages[0].passageText.startsWith("[Search-engine index entry")).toBe(true);
     expect(p.url).toBe("https://e/x");
   });
 

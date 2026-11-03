@@ -50,7 +50,13 @@ interface StoredSession {
   lastTouched: number;
 }
 const SESSION_TTL_MS = 30 * 60 * 1000;
-const sessions = new Map<string, StoredSession>();
+// Pinned to globalThis (2026-11-04 audit fix): Next dev hot-reload
+// re-evaluates this module on any file edit, which used to wipe the Map
+// MID-TURN and surface a false "session_expired" envelope to the model —
+// the live-turn session_expired was reload amnesia, not the 30-min TTL.
+const g = globalThis as unknown as { __webuiWebToolsSessions?: Map<string, StoredSession> };
+const sessions: Map<string, StoredSession> =
+  (g.__webuiWebToolsSessions ??= new Map<string, StoredSession>());
 
 function sweep(now: number) {
   for (const [id, entry] of sessions) {
@@ -58,13 +64,34 @@ function sweep(now: number) {
   }
 }
 
+// (audit 2026-11-04) DTO hardening: the old check accepted ANY object with
+// a string `intent` and ANY array `targets` — [null] or targets whose host
+// was a number sailed through and crashed (or corrupted) the scope
+// enforcement layer downstream. Validate against the actual TaskScope
+// contract in lib/decision/task-scope.ts; anything malformed degrades to
+// "no scope" (the honest miss), never to a half-trusted scope.
+const SCOPE_INTENTS = new Set(["none", "research", "site_info", "operate", "compare_sites"]);
+const TARGET_STATES = new Set(["unresolved", "resolved", "ambiguous"]);
+const TARGET_PROVENANCE = new Set([
+  "none", "explicit_url", "explicit_domain", "resolved_search", "resolved_cache", "ambiguous",
+]);
+function stringArray(v: unknown): boolean {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
 function validScope(v: unknown): v is TaskScope {
-  return (
-    !!v &&
-    typeof v === "object" &&
-    typeof (v as TaskScope).intent === "string" &&
-    Array.isArray((v as TaskScope).targets)
-  );
+  if (!v || typeof v !== "object") return false;
+  const s = v as TaskScope;
+  if (!SCOPE_INTENTS.has(s.intent)) return false;
+  if (!Array.isArray(s.targets)) return false;
+  for (const t of s.targets) {
+    if (!t || typeof t !== "object") return false;
+    if (typeof t.phrase !== "string") return false;
+    if (!TARGET_STATES.has(t.state)) return false;
+    if (typeof t.host !== "string" || typeof t.url !== "string") return false;
+    if (!stringArray(t.candidates)) return false;
+    if (!TARGET_PROVENANCE.has(t.provenance)) return false;
+  }
+  return stringArray(s.excludedPhrases) && stringArray(s.authorizedHosts);
 }
 
 export async function handleWebToolsRpc(
@@ -106,6 +133,28 @@ export async function handleWebToolsRpc(
     const id = typeof body.sessionId === "string" ? body.sessionId : "";
     const entry = sessions.get(id);
     const tool = typeof body.tool === "string" ? body.tool : "";
+    // Cancellation (2026-11-04 audit fix): req.signal is threaded from
+    // app/api/internal/web-tools/route.ts but was never consulted, so a
+    // stopped Rust turn kept burning browser + inference for the full tool
+    // call. shortcut: only pre-dispatch cancellation is honored — the
+    // primitives in lib/web-search/tools.ts carry no AbortSignal; upgrade
+    // path is threading the signal into exec*Tool if mid-call cancellation
+    // ever matters. In-flight calls stay bounded by the pipeline's own
+    // per-request deadlines.
+    if (signal?.aborted) {
+      return {
+        status: 200,
+        json: {
+          envelope: {
+            ok: false,
+            tool,
+            error: "cancelled",
+            detail: "the turn was stopped before this tool ran",
+          },
+          citations: [],
+        },
+      };
+    }
     if (!entry) {
       // Honest degradation: the loop grammar keeps going, the model is told.
       return {

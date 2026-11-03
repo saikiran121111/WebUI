@@ -90,6 +90,17 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      // (audit item 11, 2026-11-04) Already-aborted guard: if Rust hung
+      // up before the stream even started, do not spin up a full research
+      // run whose output nobody will read.
+      if (ctrl.signal.aborted) {
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+        return;
+      }
       const write = (frame: unknown) => {
         try {
           controller.enqueue(encoder.encode(JSON.stringify(frame) + "\n"));
@@ -167,6 +178,14 @@ export async function POST(req: NextRequest) {
             /* already closed/cancelled */
           }
         });
+    },
+    // (audit item 11, 2026-11-04) The consumer (Rust transport) CANCELLING
+    // the response body must cancel the source too: without this hook a
+    // client that vanished between progress frames left runWebResearch
+    // burning engines/browser slots for nobody. enqueue failures already
+    // abort; stream cancellation now does too.
+    cancel() {
+      ctrl.abort();
     },
   });
 

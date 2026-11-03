@@ -127,11 +127,15 @@ export function chunkMarkdown(md: string, target = 2000, overlap = 300): Chunk[]
       continue;
     }
     if (buf.length + p.length + 2 > target) {
-      flush(pos);
-      // carry overlap tail into the next chunk
+      // (audit 2026-11-04) flush() CLEARS buf, and the overlap tail used
+      // to be read from buf AFTER the flush — always "" — so the promised
+      // 300-char chunk overlap never actually overlapped, and facts
+      // spanning a chunk boundary lost their context on one side. Capture
+      // the tail before flushing; startIndex backtracks over it.
       const tail = buf.slice(-overlap);
-      buf = tail + "\n" + p;
-      bufStart = pos + (tail.length ? 2 : 0);
+      flush(pos);
+      buf = tail ? tail + "\n" + p : p;
+      bufStart = Math.max(0, pos - tail.length);
     } else {
       buf = buf ? buf + "\n" + p : p;
     }
@@ -152,9 +156,18 @@ const STOPWORDS = new Set(
 );
 
 export function tokenize(text: string): string[] {
+  // (audit 2026-11-04) The old [^a-z0-9] class ERASED every non-Latin
+  // character — Devanagari, Tamil, CJK, Cyrillic all became separators, so
+  // a Hindi or Japanese query/answer pair shared zero tokens and BM25
+  // scored 0 on real matches. \p{L}\p{N}\p{M} keeps every script's letters,
+  // numbers and COMBINING MARKS (the test caught \p{L}\p{N} alone splitting
+  // इडली on the matra ी — Mc marks are neither L nor N); ASCII behavior is
+  // byte-identical to before.
+  // shortcut: no CJK word segmentation — single Han chars drop below the
+  // length>1 filter; upgrade if CJK retrieval demand is proven.
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
     .split(" ")
     .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
@@ -461,7 +474,15 @@ export function rerank(
     }
   }
   if (recs.length === 0) {
-    return packets.flatMap((p) => p.passages).slice(0, topN);
+    // (audit 2026-11-04) When the up-front junk filter rejects EVERY
+    // chunk, the old fallback flat-mapped the raw passages — resurrecting
+    // precisely the login-wall/cookie-banner boilerplate it had just
+    // judged pure junk, unpenalized, into the model's evidence block.
+    // The fallback law protects content whose scoring merely MISSED (the
+    // hits.length===0 branch below: a query-term miss is not boilerplate)
+    // — it must not undo a deliberate junk verdict. All chunks junk → no
+    // honest passages exist for this call.
+    return [];
   }
 
   // Build the BM25 index over all chunks

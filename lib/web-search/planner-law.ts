@@ -548,6 +548,27 @@ function detectContradictions(passages: { sourceId: string; passageText: string 
 }
 
 /**
+ * Freshness-band lookback (2026-11-04 audit fix). A dated passage only
+ * satisfies a band ask ("latest", "this week") when its publication falls
+ * inside a deliberately generous window — a page re-dated on update can
+ * legitimately sit just outside the nominal band. An unparseable date
+ * passes: absence of a parseable date is not proof of staleness.
+ */
+const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
+  realtime: 2,
+  day: 3,
+  week: 10,
+  month: 45,
+  year: 400,
+};
+function publishedAtWithinBand(publishedAt: string, freshness: string): boolean {
+  const t = Date.parse(publishedAt);
+  if (!Number.isFinite(t)) return true;
+  const days = FRESHNESS_LOOKBACK_DAYS[freshness] ?? 400;
+  return Date.now() - t <= days * 86_400_000;
+}
+
+/**
  * §11.14 claim-level pass, reconstructed deterministically from the
  * evidence already in hand — no extra LLM call. Every check maps to a
  * line in the sufficiency checklist; `stopEarly` is true only when the
@@ -569,9 +590,22 @@ export function evaluateSufficiency(
   const keyClaimsSupported = coverage.coverage >= 0.6;
 
   const freshnessBanded = ["day", "week", "month", "year", "realtime"].includes(decision.freshness);
-  const freshnessOk = !freshnessBanded || kept.some((p) => Boolean(p.publishedAt));
+  // Tightened 2026-11-04 (audit): ANY publication date used to satisfy a
+  // "latest/today" ask — one 2019-dated passage declared a stale packet
+  // sufficient. An UNDATED passage stays admissible (absence of a date is
+  // not proof of staleness, and requiring dates would starve most pages),
+  // but if every dated passage predates the requested band, sufficiency
+  // fails and the loop keeps searching.
+  const freshnessOk =
+    !freshnessBanded ||
+    kept.some((p) => !p.publishedAt || publishedAtWithinBand(p.publishedAt, decision.freshness));
 
-  const primaries = [...law.mandatoryHosts, ...law.allowedDomains, ...law.preferredDomains];
+  // Primary evidence = what the USER (or the armed task scope) named.
+  // preferredDomains is an evidence-corroborated INFERENCE and by design
+  // an ordering boost only (see corroborateDestinations) — a lookalike
+  // that merely earned corroboration must never satisfy the "primary
+  // present" gate (2026-11-04 audit fix).
+  const primaries = [...law.mandatoryHosts, ...law.allowedDomains];
   const primaryPresent =
     primaries.length === 0 ||
     kept.some((p) => primaries.some((d) => domainWithin(p.domain || hostOf(p.url), d)));

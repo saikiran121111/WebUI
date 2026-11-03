@@ -169,8 +169,12 @@ export function hash(s: string): string {
 /* ── query cache ───────────────────────────────────────────────────────── */
 
 export function queryCacheKey(plans: SearchPlan[]): string {
+  // (audit 2026-11-04) freshness is part of the KEY: the engine applies
+  // time filters per freshness tier, so "zepto bread price" as realtime
+  // and as "any" produce DIFFERENT SERPs with different TTLs. Query-only
+  // keys let a 5-hour "any" row answer a realtime run — freshness leak.
   const normalized = plans
-    .map((p) => p.query.toLowerCase().trim())
+    .map((p) => `${p.query.toLowerCase().trim()}|${p.freshness ?? "any"}`)
     .sort()
     .join("|");
   return hash(normalized);
@@ -246,14 +250,24 @@ export function getCachedPage(url: string): {
 } | null {
   maybePurge();
   const key = hash(url);
-  const row = db()
-    .prepare(
-      `SELECT extracted, tier, expires_at FROM page_cache
-       WHERE url_hash = ? AND expires_at > ?`,
-    )
-    .get(key, Date.now()) as
+  // (audit 2026-11-04) A cache READ failure (SQLITE_BUSY from a concurrent
+  // writer, corrupt row) must degrade to a miss, never reject the whole
+  // extraction call — a cache is an optimization, not a dependency.
+  let row:
     | { extracted: string; tier: string; expires_at: number }
     | undefined;
+  try {
+    row = db()
+      .prepare(
+        `SELECT extracted, tier, expires_at FROM page_cache
+         WHERE url_hash = ? AND expires_at > ?`,
+      )
+      .get(key, Date.now()) as
+      | { extracted: string; tier: string; expires_at: number }
+      | undefined;
+  } catch {
+    return null;
+  }
   if (!row) return null;
   return { extracted: row.extracted, tier: row.tier };
 }

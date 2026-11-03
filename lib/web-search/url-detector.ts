@@ -65,7 +65,12 @@ export function detectUrlsAndDomains(
   const { excludeFileTokens = true } = opts;
 
   const out: DetectedUrl[] = [];
-  const seen = new Set<string>();
+  // 2026-11-04 audit fix: pass-1 URLs dedupe by FULL URL (origin+path+query)
+  // — the hostname-only key dropped every second product link on the same
+  // site. seenHost keeps the cross-pass suppression (a bare domain token
+  // does not re-detect a host already surfaced with a full URL).
+  const seenUrl = new Set<string>();
+  const seenHost = new Set<string>();
 
   // Trailing sentence punctuation is not part of a URL path.
   const stripTail = (t: string) => t.replace(/[.,;:!?)\]}'"`]+$/, "");
@@ -79,9 +84,10 @@ export function detectUrlsAndDomains(
       const u = new URL(raw);
       const host = u.hostname.toLowerCase();
       if (host.length < 4) continue; // skip localhost, IP-like short names
-      const key = host;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const key = u.origin + u.pathname + u.search; // path/query case preserved
+      if (seenUrl.has(key)) continue;
+      seenUrl.add(key);
+      seenHost.add(host);
       out.push({ raw, url: raw, domain: host, hasScheme: true });
     } catch {
       /* malformed URL token — skip */
@@ -92,10 +98,14 @@ export function detectUrlsAndDomains(
   const wwwRe = /\bwww\.[\w-]+(?:\.[\w-]+)+(?:\/[^\s"'<>[\]]*)?/gi;
   while ((m = wwwRe.exec(prompt)) !== null) {
     const raw = stripTail(m[0]);
-    const host = raw.slice(4).split("/")[0].toLowerCase();
-    if (seen.has(host)) continue;
-    seen.add(host);
-    out.push({ raw, url: "https://" + raw.toLowerCase(), domain: host, hasScheme: false });
+    const slash = raw.indexOf("/");
+    const hostPart = slash === -1 ? raw : raw.slice(0, slash);
+    const pathPart = slash === -1 ? "" : raw.slice(slash);
+    const host = hostPart.slice(4).toLowerCase();
+    if (seenHost.has(host)) continue;
+    seenHost.add(host);
+    // Host lowercased, path/query case preserved (case-sensitive product paths).
+    out.push({ raw, url: "https://" + hostPart.toLowerCase() + pathPart, domain: host, hasScheme: false });
   }
 
   // Pass 3: bare domain tokens (skiran.dev, lite.ego.app, rbi.org.in),
@@ -107,7 +117,7 @@ export function detectUrlsAndDomains(
     const path = stripTail(m[2] ?? "");
 
     // Skip tokens already found in pass 1/2.
-    if (seen.has(host)) continue;
+    if (seenHost.has(host)) continue;
 
     // Skip tokens that look like file paths or dotted identifiers that
     // are not domains: "v1.2.3", "e.g.", "i.e."
@@ -134,7 +144,7 @@ export function detectUrlsAndDomains(
     // this guard is load-bearing for "main.rs").
     if (excludeFileTokens && FILE_EXTENSIONS.has(pubSuffix)) continue;
 
-    seen.add(host);
+    seenHost.add(host);
     out.push({
       raw: host + path,
       url: "https://" + host + path,

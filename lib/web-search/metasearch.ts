@@ -924,7 +924,9 @@ export function reciprocalRankFuse(
     } catch {
       continue;
     }
-    if (!norm || !isSafeUrl(norm)) continue;
+    // 2026-11-04 audit fix: BOTH forms must be safe — `r.url` is the URL
+    // actually fetched downstream, `norm` is only the dedupe key.
+    if (!norm || !isSafeUrl(r.url) || !isSafeUrl(norm)) continue;
 
     const entry = byUrl.get(norm);
     if (!entry) {
@@ -970,7 +972,11 @@ export function reciprocalRankFuse(
 
     out.push({
       ...result,
-      url: canonical,
+      // 2026-11-04 audit fix: `url` = the URL as the engine gave it (fetch
+      // semantics: case-sensitive paths, ref params and amp-only shapes
+      // survive); `canonical` = dedupe key only (m./amp collapse, tracking
+      // strip). Normalizing the FETCH url used to silently rewrite requests.
+      url: result.url,
       canonical,
       domain,
       rrf: score,
@@ -1124,24 +1130,29 @@ export async function metasearch(
   }).catch(() => {});
 
   // Race-able signal: resolves when either (a) all plans settle, or
-  // (b) the 6s grace timer fires after quorum is met, or (c) the 15s
-  // hard-cap fires as a deadlock safety net.
+  // (b) the 6s grace timer fires after quorum is met, or (c) the hard-cap
+  // fires as a deadlock safety net.
   const graceSignal = new Promise<void>((resolve) => {
     graceResolve = resolve;
-    // 15s absolute hard-cap: if quorum is never met (all engines return
-    // 0 results) AND all plans are slow, this fires to prevent hanging
-    // indefinitely. The pipeline ceiling in pipeline.ts (240s) would
-    // otherwise bound us, but 15s is a tighter, cleaner cap.
+    // Absolute hard-cap: if quorum is never met (all engines return 0
+    // results) AND all plans are slow, this fires to prevent hanging
+    // indefinitely. It MUST NOT undercut the engine priority law: a
+    // single plan may legally spend up to SEARCH_ONE_CAP_MS (40s) on its
+    // Google→Brave→legacy chain (Google's browser-SERP tier alone may
+    // use its 20s attempt budget). A 15s cap used to fuse OUT a legal
+    // slow Google SERP attempt, silently demoting Google below the
+    // staggered legacy pool — the exact inversion the priority law
+    // forbids (2026-11-04 audit fix).
     setTimeout(() => {
       if (!graceFired) {
         graceFired = true;
-        log.info("15s hard-cap fired — bounding metasearch wall-clock");
+        log.info("metasearch hard-cap fired — bounding wall-clock");
         if (graceResolve) {
           graceResolve();
           graceResolve = null;
         }
       }
-    }, 15_000);
+    }, 45_000); // SEARCH_ONE_CAP_MS (40s) + 5s fuse grace — see law note above
   });
 
   // Await the signal. Once it fires, fuse whatever has settled.
@@ -1234,9 +1245,14 @@ export async function metasearchWithFreshnessRecovery(
   maxResults = 20,
 ): Promise<{ results: RankedResult[]; freshnessRecoveryUsed: boolean }> {
   const anyPlan = plans.every((p) => !p.freshness || p.freshness === "any");
+  // (audit 2026-11-04) realtime facts (prices, scores, status) must NEVER
+  // be silently answered from undated pages — the "any" recovery exists to
+  // unstarve time-FILTERED evergreen queries, not to launder stale data
+  // into a live_required run. A realtime miss stays an honest miss.
+  const realtimePlan = plans.some((p) => p.freshness === "realtime");
   const firstPass = await metasearch(plans, maxResults);
 
-  if (!anyPlan && firstPass.length < 5) {
+  if (!anyPlan && !realtimePlan && firstPass.length < 5) {
     log.info(
       { initial: firstPass.length, freshness: plans[0]?.freshness },
       "freshness filter returned <5 results — re-running with freshness='any'",
