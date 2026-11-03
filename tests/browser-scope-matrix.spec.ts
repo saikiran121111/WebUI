@@ -352,6 +352,50 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
       "panel selection did not follow the tab we clicked",
     ).toContainText(/Fixture Easy/i);
 
+    // Hand-off capture, installed BEFORE the first Enter so the address
+    // step is ALSO asserted (a URL must never leak into the composer).
+    // Event-level capture localizes any hand-off break: (a) no event ⇒
+    // panel submitOmnibox dispatch is broken; (b) event + empty composer ⇒
+    // ChatInput consumer is broken. A self-dispatched LIVENESS PROBE on
+    // the same channel proves the capture listener is alive before the
+    // panel's silence can be blamed on the panel. page.on("pageerror")
+    // traps silent throws in the panel's keydown path (a thrown handler
+    // would look identical to "not dispatched" otherwise).
+    const pageErrors: string[] = [];
+    page.on("pageerror", (err) => pageErrors.push(`${err.name}: ${err.message}`));
+    const PROBE = "__omni_liveness_probe__";
+    await page.evaluate((probe) => {
+      const w = window as unknown as { __omniHandoff?: { text?: string }[] };
+      w.__omniHandoff = [];
+      document.addEventListener(
+        "ruke:open-annotation",
+        (ev) => w.__omniHandoff!.push(((ev as CustomEvent).detail ?? {}) as { text?: string }),
+      );
+      document.dispatchEvent(
+        new CustomEvent("ruke:open-annotation", { detail: { text: probe } }),
+      );
+    }, PROBE);
+    const handoffs = async () =>
+      (
+        await page.evaluate(
+          () => (window as unknown as { __omniHandoff?: { text?: string }[] }).__omniHandoff ?? [],
+        )
+      ).filter((d) => d.text !== PROBE);
+    // Liveness: the probe itself must have been captured (and ChatInput's
+    // real consumer prepends it — clear the composer again afterwards).
+    await expect
+      .poll(
+        async () =>
+          (
+            await page.evaluate(
+              () => (window as unknown as { __omniHandoff?: { text?: string }[] }).__omniHandoff ?? [],
+            )
+          ).some((d) => d.text === PROBE),
+        { message: "hand-off capture listener never saw its own probe event" },
+      )
+      .toBe(true);
+    await page.getByLabel("Message Ruke").fill("");
+
     // Address law: `127.0.0.1:3210/...` (IP literal + port) is an address ⇒
     // the selected tab navigates, and the scheme fix (Phase-6 catch:
     // unschemed IP/port ⇒ http://, never https:// — plain-HTTP origins die
@@ -362,38 +406,33 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     await bar.press("Enter");
     await until(async () => (await tabUrl(e2e, tab)).endsWith("/scope/loqal"), 20_000, "omnibox address navigation");
     expect(await e2e.innerText(tab, "#scope-marker")).toBe(SCOPE_LOQAL);
+    expect(
+      await handoffs(),
+      `address submission leaked a composer hand-off (page errors: ${JSON.stringify(pageErrors)})`,
+    ).toEqual([]);
 
-    // Search law: a bare query phrase is NOT an address ⇒ no navigation; the
-    // text lands in the composer (RUKE web-search gate; the human sends).
-    // Event-level capture localizes WHERE the hand-off breaks if it does:
-    // (a) no event at all ⇒ panel submitOmnibox dispatch is broken;
-    // (b) event fired, composer empty ⇒ ChatInput consumer is broken.
-    // The capture is a passive listener on the same channel ChatInput uses.
-    await page.evaluate(() => {
-      const w = window as unknown as { __omniHandoff?: unknown[] };
-      w.__omniHandoff = [];
-      document.addEventListener(
-        "ruke:open-annotation",
-        (ev) => w.__omniHandoff!.push((ev as CustomEvent).detail),
-      );
-    });
+    // Search law: a bare query phrase is NOT an address ⇒ no navigation;
+    // the text hands off to the composer exactly once (RUKE web-search
+    // gate; the human sends).
     const PHRASE = "quibble zork mctest phrase";
     await bar.fill(PHRASE);
     await bar.press("Enter");
     await sleep(1500);
     expect(await tabUrl(e2e, tab), "a search phrase was treated as an address").toBe(`${FIXTURE_BASE}/scope/loqal`);
     const evidence = await page.evaluate(() => ({
-      events: (window as unknown as { __omniHandoff?: unknown[] }).__omniHandoff ?? [],
       bar: (document.querySelector('[aria-label="Address bar"]') as HTMLInputElement | null)?.value ?? null,
     }));
+    const evs = await handoffs();
     expect(
-      evidence.events,
-      `panel dispatched no composer hand-off for a search phrase (address bar then held: ${JSON.stringify(evidence.bar)})`,
+      evs,
+      `panel dispatched no composer hand-off for a search phrase (address bar then held: ` +
+        `${JSON.stringify(evidence.bar)}; page errors: ${JSON.stringify(pageErrors)})`,
     ).toHaveLength(1);
     expect(
-      (evidence.events[0] as { text?: string }).text,
+      (evs[0] as { text?: string }).text,
       "hand-off detail carries the wrong text",
     ).toContain(PHRASE);
+    expect(pageErrors, "uncaught page errors during the omnibox journey").toEqual([]);
     await expect(page.getByLabel("Message Ruke")).toHaveValue(new RegExp(PHRASE));
 
     // History: Back on the panel restores the previous in-tab entry (human
