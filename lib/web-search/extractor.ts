@@ -413,6 +413,14 @@ interface TierOutput {
    * with the body — net.ts already reports it on every multi-pass path).
    */
   resolvedUrl?: string;
+  /**
+   * (brief §12) The read rode net.ts's single TLS-retry path where cert
+   * verification was explicitly disabled (broken chain). The body was
+   * fetched, but it must never masquerade as a verified read: extractUrl
+   * prepends a TLS provenance note to the evidence and refuses to cache
+   * the body under an unverified row.
+   */
+  insecureTls?: boolean;
   /** Which structural mode was used (for the stress-test report). */
   mode?: string;
   /** Number of markdown tables preserved (portfolio / SaaS signal). */
@@ -517,6 +525,7 @@ async function extractDirect(
           ...(page.resolvedUrl && page.resolvedUrl !== url
             ? { resolvedUrl: page.resolvedUrl }
             : {}),
+          ...(page.insecureTls ? { insecureTls: true } : {}),
         };
       }
       return {
@@ -539,6 +548,7 @@ async function extractDirect(
         ...(page.resolvedUrl && page.resolvedUrl !== url
           ? { resolvedUrl: page.resolvedUrl }
           : {}),
+        ...(page.insecureTls ? { insecureTls: true } : {}),
       };
     }
     return {
@@ -652,6 +662,7 @@ async function extractDirect(
     ...(page.resolvedUrl && page.resolvedUrl !== url
       ? { resolvedUrl: page.resolvedUrl }
       : {}),
+    ...(page.insecureTls ? { insecureTls: true } : {}),
     mode: det.mode,
     tableCount,
     codeBlockCount,
@@ -727,6 +738,20 @@ function redirectedProvenanceHeader(requested: string, resolved: string): string
     "requested URL — cite it as " + resolved + ".]\n"
   );
 }
+
+/**
+ * (brief §12) TLS provenance for the net.ts broken-chain retry
+ * (net.ts warns "[web-search/net] TLS-unverified read" for exactly this
+ * case). An unverified read must never masquerade as an official verified
+ * read, so the note rides the passage text next to the redirect header —
+ * the model sees it, and the tier classification never claims otherwise.
+ */
+const TLS_UNVERIFIED_NOTE =
+  "[TLS provenance: this page's TLS certificate chain failed verification; " +
+  "certificate checking was explicitly disabled for one retry to read it. " +
+  "The content below is TLS-UNVERIFIED and could be an interception rather " +
+  "than the authentic site's response — never present it as a verified " +
+  "official read.]\n";
 
 /**
  * Bundle-level SERP-baseline guarantee: results OUTSIDE the extractor's
@@ -958,6 +983,7 @@ async function extractLinkPreview(
     ...(page.resolvedUrl && page.resolvedUrl !== url
       ? { resolvedUrl: page.resolvedUrl }
       : {}),
+    ...(page.insecureTls ? { insecureTls: true } : {}),
     mode: structOut.mode,
     tableCount: structOut.tableCount,
     codeBlockCount: structOut.codeBlockCount,
@@ -1276,10 +1302,15 @@ export async function extractUrl(
       title: result.title,
       domain: finalDomain,
       publishedAt: result.publishedDate,
-      passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + directOut.markdown : directOut.markdown,
+      passageText:
+        (crossed ? redirectedProvenanceHeader(url, finalUrl) : "") +
+        (directOut.insecureTls ? TLS_UNVERIFIED_NOTE : "") +
+        directOut.markdown,
       bm25Score: 0,
     });
-    if (!crossed) putCachedPage(url, directOut.markdown, "direct");
+    // §12: a TLS-unverified body is never cached — the cache row carries
+    // no note, so a replay would silently launder it into a verified read.
+    if (!crossed && !directOut.insecureTls) putCachedPage(url, directOut.markdown, "direct");
     return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
   }
 
@@ -1309,10 +1340,13 @@ export async function extractUrl(
       title: result.title,
       domain: finalDomain,
       publishedAt: result.publishedDate,
-      passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + directOut.markdown : directOut.markdown,
+      passageText:
+        (crossed ? redirectedProvenanceHeader(url, finalUrl) : "") +
+        (directOut.insecureTls ? TLS_UNVERIFIED_NOTE : "") +
+        directOut.markdown,
       bm25Score: 0,
     });
-    if (!crossed) putCachedPage(url, directOut.markdown, "metadata");
+    if (!crossed && !directOut.insecureTls) putCachedPage(url, directOut.markdown, "metadata");
     return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_METADATA" };
   }
 
@@ -1348,10 +1382,13 @@ export async function extractUrl(
         title: result.title,
         domain: finalDomain,
         publishedAt: result.publishedDate,
-        passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + linkPreviewOut.markdown : linkPreviewOut.markdown,
+        passageText:
+          (crossed ? redirectedProvenanceHeader(url, finalUrl) : "") +
+          (linkPreviewOut.insecureTls ? TLS_UNVERIFIED_NOTE : "") +
+          linkPreviewOut.markdown,
         bm25Score: 0,
       });
-      if (!crossed) putCachedPage(url, linkPreviewOut.markdown, "direct");
+      if (!crossed && !linkPreviewOut.insecureTls) putCachedPage(url, linkPreviewOut.markdown, "direct");
       return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
     }
   }

@@ -749,6 +749,16 @@ export async function readGoogleSerp(
         let rp: Page | null = null;
         try {
           rp = await ctx.newPage();
+          /* (brief §12) Same hop gate on the redirect-resolution tabs:
+             the href is a google.com/goto token, but the chain it
+             follows is page-controlled data — refuse any hop to a
+             private address; the per-row catch below skips the row
+             honestly, exactly like a refused/timed-out chain already did. */
+          await rp.route("**/*", (r) =>
+            isSafeUrl(r.request().url())
+              ? r.continue().catch(() => {})
+              : r.abort("blockedbyclient").catch(() => {}),
+          );
           for (;;) {
             if (Date.now() - tR > 12_000) return; // one wall for all workers
             const r = queue.shift();
@@ -842,6 +852,48 @@ export async function readGoogleSerp(
  * HTTP-tier: a JS-only SPA that returns an empty shell to a raw fetch
  * still produces full data here because the page actually executed.
  */
+/** Ad/analytics families (generic patterns — no site names). */
+const AD_BLOCK_RE =
+  /doubleclick|google-analytics|googletagmanager|adsystem|ad\.|pixel|facebook\.com\/tr\//i;
+
+/**
+ * Page-route decision law (exported for regression vectors; the Playwright
+ * wiring below is a one-line call).
+ *
+ * (brief §12) The SSRF line is the security gate: the entry check on
+ * extractUrlBrowser only vets the FIRST URL, and Playwright re-fires the
+ * route handler for every navigation redirect AND every subresource —
+ * so an on-page iframe/fetch or a redirect hop aimed at a link-local or
+ * private address is refused here before it ever leaves the machine.
+ * It runs FIRST, before even the WAF-challenge allowance: a challenge is
+ * that host's decision about a PUBLIC page, never a license to dial
+ * internal addresses.
+ * shortcut: literal host/IP law only (same law as the got hop chain in
+ * net.ts); the DNS-aware upgrade belongs to the caller's pre-navigation
+ * gate (isSafeUrlWithDns in tools.ts), never relaxed here.
+ */
+export function routeDecision(
+  url: string,
+  resourceType: string,
+  wafChallengeActive: boolean,
+): "ssrf-abort" | "ad-abort" | "fastload-abort" | "continue" {
+  if (!isSafeUrl(url)) return "ssrf-abort";
+  if (AD_BLOCK_RE.test(url)) return "ad-abort";
+  if (wafChallengeActive) {
+    /* WAF challenge: every other resource (images, fonts, media) must
+       load so the challenge JS can complete and issue its session
+       cookie. */
+    return "continue";
+  }
+  if (resourceType === "media" || resourceType === "websocket" || resourceType === "font") {
+    return "fastload-abort";
+  }
+  /* Images: allow through — WAF challenge pages embed image-based
+     fingerprints, and grocery SPAs ship product thumbnails in JSON.
+     The fast-load budget is already met by domcontentloaded + settle. */
+  return "continue";
+}
+
 export async function extractUrlBrowser(
   url: string,
   opts: { timeoutMs?: number } = {},
@@ -907,23 +959,15 @@ export async function extractUrlBrowser(
     // post-goto flag flip changes behaviour for subsequent requests.
     let wafChallengeActive = false;
     await page.route("**/*", (route) => {
-      const u = route.request().url();
-      if (/doubleclick|google-analytics|googletagmanager|adsystem|ad\.|pixel|facebook\.com\/tr\//i.test(u)) {
-        return route.abort().catch(() => {});
-      }
-      if (wafChallengeActive) {
-        /* WAF challenge: every resource (images, fonts, media) must load
-           so the challenge JS can complete and issue the session cookie. */
-        return route.continue();
-      }
-      const rt = route.request().resourceType();
-      if (rt === "media" || rt === "websocket" || rt === "font") {
-        return route.abort().catch(() => {});
-      }
-      /* Images: allow through — WAF challenge pages embed image-based
-         fingerprints, and grocery SPAs ship product thumbnails in JSON.
-         The fast-load budget is already met by domcontentloaded + settle. */
-      return route.continue();
+      const d = routeDecision(
+        route.request().url(),
+        route.request().resourceType(),
+        wafChallengeActive,
+      );
+      if (d === "continue") return route.continue();
+      return route
+        .abort(d === "ssrf-abort" ? "blockedbyclient" : undefined)
+        .catch(() => {});
     });
 
     let status: number | null = null;
@@ -1037,6 +1081,14 @@ export async function extractUrlBrowser(
     }
 
     out.finalUrl = page.url();
+    if (out.finalUrl && !isSafeUrl(out.finalUrl)) {
+      /* Defense in depth behind the route gate: if anything still
+         committed to an unsafe final address (service worker, CDP-level
+         path), no page content is extracted at all — the refusal is the
+         outcome, not the body. */
+      out.error = "unsafe final URL after navigation — read refused";
+      return out;
+    }
     out.title = await page.title().catch(() => "");
 
     // JSON-LD: pull raw script blocks and parse locally (linkedom would
