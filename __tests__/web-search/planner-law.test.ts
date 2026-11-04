@@ -8,6 +8,7 @@ import {
   applyDomainControl,
   applyPlannerLaw,
   applyScopeToLaw,
+  applyScopeToPackets,
   buildGapDemand,
   budgetForDepth,
   derivePlannerLaw,
@@ -199,6 +200,39 @@ describe("planner law (⇔ planner_law.rs)", () => {
       law,
     ).map((r) => r.url);
     expect(kept).toEqual(["https://flurbs.com/x"]);
+  });
+
+  it("apply_scope_to_packets_admits_final_origins_not_the_boundary", () => {
+    // §7 post-extraction recheck: SERP admission already happened; a FETCH
+    // that crossed a registrable boundary must pass the same wall with its
+    // FINAL origin. SUCCESS packets outside the boundary drop (redirect
+    // laundering); FAIL packets stay — a wall is an honest state, not
+    // off-site content.
+    const law = emptyLaw("order milk on flurbs", dec("standard", "none"));
+    applyScopeToLaw(law, scopeWith("flurbs.com"));
+    const wall: EvidencePacket = {
+      ...pk("S3", "squatter.net", "direct"),
+      url: "https://squatter.net/login",
+      classification: "FAIL_SILENT_LOGIN_WALL",
+    };
+    const kept = applyScopeToPackets(
+      [
+        pk("S1", "flurbs.com", "direct"), // mandatory host
+        pk("S2", "m.flurbs.com", "direct"), // subdomain passes
+        pk("S4", "flurbscom.com", "direct"), // lookalike NEVER
+        wall, // off-scope but honest — KEPT
+      ],
+      law,
+    );
+    expect(kept.map((p) => p.sourceId)).toEqual(["S1", "S2", "S3"]);
+  });
+
+  it("apply_scope_to_packets_noops_identity_without_a_mandatory_boundary", () => {
+    // Unscoped runs and goldens ride this byte-identically: with no armed
+    // boundary the SAME array reference comes back, not a copy.
+    const law = emptyLaw("order milk on flurbs", dec("standard", "none"));
+    const input = [pk("S1", "anything.dev", "direct"), pk("S2", "evil.com", "snippet-only")];
+    expect(applyScopeToPackets(input, law)).toBe(input);
   });
 
   it("derive_merges_gate_preferred_and_block_wins", () => {

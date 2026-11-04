@@ -310,29 +310,44 @@ export function applyScopeToLaw(law: PlannerLaw, scope: TaskScope | null | undef
  * not identity (zeptodiscounts.com is not Zepto).
  *
  * But the live SERP carries identity evidence a bare URL cannot show:
- * when a result's TITLE opens with the brand phrase as its leading
- * words AND the domain's registrable label belongs to the brand's own
- * word family (the label starts with the brand phrase), the site is
- * speaking for itself — that IS the destination, verified by evidence
- * rather than invented. Both signals are required:
+ * a result whose TITLE opens with the brand phrase as its leading words
+ * AND whose registrable label belongs to the brand's own word family
+ * (the label starts with the brand phrase) is the site speaking for
+ * itself. A <title>, though, is SELF-DECLARED — any squatter can title
+ * itself "Brand …" — so the self-claim is a floor, never the whole
+ * proof (§7 credibility law, 2026-11-04):
  *   - title-leading only (timesofindia.com's "Zepto expands…") =
  *     third-party COVERAGE, never a destination;
  *   - label-prefix only (zeptodiscounts.com with any other title) =
  *     resemblance, never identity;
+ *   - a PADDED label standing ALONE (examplemartdiscounts.com titled
+ *     "ExampleMart Discounts") = STILL resemblance: a lone
+ *     self-declaration corroborates nothing. It verifies only when TWO
+ *     distinct registrable hosts of the SAME padded family both
+ *     self-claim (zeptonow.com + zeptonow.in) — mutual corroboration
+ *     is evidence; a lone lookalike earns the honest unresolved state;
+ *   - the EXACT brand label (examplemart.com titled "ExampleMart …")
+ *     verifies on its own self-claim: a squatter cannot register the
+ *     brand's exact domain, so exact label + leading title is as close
+ *     to speaking-for-itself as a SERP can ever show;
  *   - ≥2 distinct label families both self-claiming the brand =
  *     genuine ambiguity — nothing is verified (a squatter loudly
  *     titling itself "Zepto…" earns exactly that ambiguity).
- * Hosts within ONE label family (zeptonow.com + zeptonow.in) agree on
- * identity: the most-corroborated registrable host of the single
- * family is verified.
+ * Hosts within ONE corroborated family agree on identity: the
+ * most-corroborated registrable host of that family is verified.
  *
- * A verified destination joins plannerLaw.preferredDomains: the site:
- * companion wave, the fusion preferred-boost, and the reranker's
- * user-designated authority tier all ride it (ORDER, never an
- * admission wall — mandatoryHosts remains the user's explicit-scope
- * boundary alone). Universal by construction: no brand table, no TLD
- * guessing, no website list — evidence comes only from the SERP the
- * engines already returned. */
+ * A verified destination joins plannerLaw.preferredDomains (the site:
+ * companion wave, the fusion preferred-boost, the reranker's
+ * user-designated authority tier — ORDER). For an ENFORCEABLE intent it
+ * goes further (§7 propagation, 2026-11-04): task-scope's
+ * applyVerifiedDestinations RESOLVES the target to the verified host,
+ * and applyScopeToLaw folds it into mandatoryHosts — the admission wall
+ * then holds a site-specific answer (price/stock/rating) INSIDE the
+ * verified site, and unverifiable targets stay honestly unresolved
+ * (discovery legal, but no false verification). Research intent stays
+ * ordering-only: research is never scope-enforced. Universal by
+ * construction: no brand table, no TLD guessing, no website list —
+ * evidence comes only from the SERP the engines already returned. */
 export interface DestinationEvidenceRow {
   url: string;
   title?: string;
@@ -383,6 +398,15 @@ export function corroborateDestinations(
     // zero families = no evidence; two+ families = honest ambiguity —
     // in both cases NOTHING is verified (the target stays unresolved).
     if (families.size !== 1) continue;
+    const [famLabel, fam] = [...families.entries()][0];
+    // §7 credibility: a lone self-claiming PADDED label is the squatter
+    // shape (anyone can title-pad a lookalike); it verifies only through
+    // mutual corroboration — 2+ distinct registrable hosts of the same
+    // family. The exact brand label cannot be squatted, so a lone
+    // exact-label self-claim stands on its own.
+    // shortcut: a colluding squatter network across 2+ TLDs could still
+    // earn this; registry/WHOIS identity is the upgrade, out of scope.
+    if (famLabel !== pn && fam.size < 2) continue;
     let best = "";
     let bestCount = -1;
     for (const [host, count] of [...families.values()][0]) {
@@ -481,6 +505,31 @@ export function applyDomainControl(results: RankedResult[], law: PlannerLaw): Ra
       return true;
     }
     return false;
+  });
+}
+
+/**
+ * §7 final-origin admission recheck for EVIDENCE PACKETS (2026-11-04).
+ * applyDomainControl lawed the SERP BEFORE extraction; a fetch can then
+ * cross a registrable boundary and land a packet's CONTENT off the
+ * boundary while it still carries the on-scope citation's identity.
+ * With a mandatory scope armed, every SUCCESS packet's FINAL origin
+ * must fall inside the same boundary the pre-extraction law drew —
+ * otherwise the redirect laundered off-site content past the wall.
+ * FAIL packets stay: an auth wall/outage/999 is an honest state, not
+ * off-site content. No-op with no armed boundary, so unscoped runs and
+ * goldens ride it byte-identically.
+ */
+export function applyScopeToPackets<T extends EvidencePacket>(packets: T[], law: PlannerLaw): T[] {
+  if (law.mandatoryHosts.length === 0) return packets;
+  return packets.filter((p) => {
+    const cls = p.classification ?? "";
+    if (!cls.startsWith("SUCCESS")) return true;
+    const host = p.domain || hostOf(p.url);
+    return (
+      law.mandatoryHosts.some((d) => domainWithin(host, d)) ||
+      law.allowedDomains.some((d) => domainWithin(host, d))
+    );
   });
 }
 

@@ -41,6 +41,7 @@ import {
   applyDomainControl,
   applyPlannerLaw,
   applyScopeToLaw,
+  applyScopeToPackets,
   buildGapDemand,
   corroborateDestinations,
   derivePlannerLaw,
@@ -51,6 +52,7 @@ import {
   type SufficiencyReport,
 } from "./planner-law";
 import {
+  applyVerifiedDestinations,
   deriveTaskScope,
   isEnforceableScope,
   resolveTaskScope,
@@ -849,17 +851,33 @@ export async function runWebResearch(
     }
 
     // Corroborated destination verification (audit items 3/5, live
-    // symptom 2026-11-04): equality-only URL resolution can never see a
-    // brand≠domain identity (Zepto/zeptonow.com). The law's own state
-    // stays untouched (similarity is not identity); instead the SERP's
-    // title evidence VERIFIES the destination for RETRIEVAL only —
-    // joining preferredDomains (site: companion wave + fusion boost +
-    // designated authority tier). Ordering, never an admission wall.
+    // symptom 2026-11-04; §7 tightening 2026-11-04): equality-only URL
+    // resolution can never see a brand≠domain identity (Zepto/
+    // zeptonow.com). corroborateDestinations demands CREDIBLE identity
+    // evidence — exact brand label, or a padded family corroborated by
+    // 2+ distinct hosts; a lone title-padded lookalike stays honest-
+    // unresolved (resemblance is not identity). When credible, the
+    // verified destination joins preferredDomains (site: companion wave
+    // + fusion boost + designated authority tier) AND, for an
+    // ENFORCEABLE intent, resolves the target into the mandatory
+    // boundary (applyVerifiedDestinations + in-place applyScopeToLaw):
+    // the applyDomainControl wall below and the gap/demand waves then
+    // hold a site-specific answer INSIDE the verified site. Research
+    // intent is never scope-enforced — ordering-only, as always.
     const verified = corroborateDestinations(
       activeScope,
       searchResults.map((r) => ({ url: r.url, title: r.title })),
     );
     if (verified.length > 0) {
+      const promoted = applyVerifiedDestinations(activeScope, verified);
+      if (promoted !== activeScope) {
+        activeScope = promoted;
+        applyScopeToLaw(plannerLaw, activeScope);
+        log.info(
+          { destinations: verified.map((v) => ({ phrase: v.phrase, host: v.host })) },
+          "verified destination folded into the mandatory task-scope boundary",
+        );
+      }
       for (const v of verified) {
         const d = normalizeDomain(v.host);
         if (d && !plannerLaw.preferredDomains.includes(d)) plannerLaw.preferredDomains.push(d);
@@ -1060,6 +1078,21 @@ export async function runWebResearch(
     renumberPackets(extraBaselines, nextSourceIndex(packets));
     packets = [...packets, ...extraBaselines];
     log.info({ baselinePackets: extraBaselines.length }, "out-of-window SERP baselines merged");
+  }
+
+  // §7 final-origin admission recheck: the SERP was domain-lawed BEFORE
+  // extraction, but a fetch may cross a registrable boundary and land a
+  // packet's content OFF the mandatory boundary while it still carries
+  // the on-scope citation's identity. Recheck the FINAL origin of every
+  // SUCCESS packet against the same wall (applyScopeToPackets; no-op
+  // with no armed boundary, so unscoped runs ride it byte-identically).
+  const scopeAdmitted = applyScopeToPackets(packets, plannerLaw);
+  if (scopeAdmitted.length !== packets.length) {
+    log.info(
+      { dropped: packets.length - scopeAdmitted.length },
+      "cross-boundary redirect packets dropped by the task-scope admission law",
+    );
+    packets = scopeAdmitted;
   }
 
   const qTexts = gate.decision.queries.map((q) => q.query);

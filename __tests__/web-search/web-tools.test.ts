@@ -551,6 +551,68 @@ describe("task-scope admission (⇔ rust scope admission)", () => {
     expect(out.notices).toContain("read blocked: evil-off.com is outside the task scope (scope-ok.com)");
   });
 
+  it("§7: an on-scope read that 302s OFF the scope fails honestly — no laundering", async () => {
+    // admitReadUrls lawed the REQUESTED URL; the redirect must not smuggle
+    // the landing site's content into a site-bound answer. The failure
+    // names the landing site; no citation is minted for unread content.
+    const s = scopedSession(true);
+    mocks.extractUrl.mockImplementation(async () =>
+      packet({
+        url: "https://deals-squatter.example/hotdeals",
+        domain: "deals-squatter.example",
+        classification: "SUCCESS_REDIRECTED",
+      }),
+    );
+    const cites: CitationSeed[] = [];
+    const out = await execReadPageTool(s, { urls: ["https://scope-ok.com/pricing"] }, cites);
+    const f = (out.failures as any[])[0];
+    expect(f.url).toBe("https://scope-ok.com/pricing");
+    expect(f.failure).toBe("off_scope_redirect");
+    expect(f.detail).toContain("https://deals-squatter.example/hotdeals");
+    expect(f.detail).toContain("outside the task scope (scope-ok.com)");
+    expect((out.pages as any[])[0]).toEqual({
+      url: "https://scope-ok.com/pricing",
+      fetched: false,
+      redirectedTo: "https://deals-squatter.example/hotdeals",
+    });
+    expect(cites).toEqual([]);
+  });
+
+  it("§7: an in-scope redirect is KEPT and the entry carries the final origin", async () => {
+    const s = scopedSession(true);
+    mocks.extractUrl.mockImplementation(async (r: any) =>
+      packet({
+        url: "https://shop.scope-ok.com/pricing",
+        domain: "shop.scope-ok.com",
+        classification: "SUCCESS_REDIRECTED",
+      }),
+    );
+    const cites: CitationSeed[] = [];
+    const out = await execReadPageTool(s, { urls: ["https://scope-ok.com/pricing"] }, cites);
+    expect(out.failures).toBeUndefined();
+    const page = (out.pages as any[])[0];
+    expect(page.passages).toEqual(["hello world passage"]); // in-scope content KEPT
+    expect(page.classification).toBe("SUCCESS_REDIRECTED");
+    expect(page.redirectedTo).toBe("https://shop.scope-ok.com/pricing");
+    expect(cites[0].url).toBe("https://shop.scope-ok.com/pricing"); // citation rides the FINAL URL
+  });
+
+  it("§7: with no armed scope, a crossing redirect stays KEPT but honest", async () => {
+    const s = session();
+    mocks.extractUrl.mockImplementation(async () =>
+      packet({
+        url: "https://moved.example/final",
+        domain: "moved.example",
+        classification: "SUCCESS_REDIRECTED",
+      }),
+    );
+    const out = await execReadPageTool(s, { urls: ["https://example.com/a"] }, []);
+    expect(out.failures).toBeUndefined();
+    const page = (out.pages as any[])[0];
+    expect(page.passages).toEqual(["hello world passage"]);
+    expect(page.redirectedTo).toBe("https://moved.example/final");
+  });
+
   it("no scope (null) ⇒ no enforcement: legacy sessions keep pre-audit behavior", async () => {
     mocks.metasearch.mockResolvedValue([ranked("https://anything.example/1"), ranked("https://other.example/2")]);
     const out = await execWebSearchTool(session(), { queries: ["alpha beta"], missing_claims: ["fact"] }, []);

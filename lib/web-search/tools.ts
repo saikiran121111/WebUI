@@ -60,7 +60,12 @@ export type RetrievalFailure =
   | "content_too_large"
   | "parse_failure"
   | "unsafe_destination"
-  | "cancelled";
+  | "cancelled"
+  // TS-only §7 addition (no legacy §11.13/Rust counterpart): an
+  // in-scope URL that 302s to a site OUTSIDE the task scope — the read
+  // is honestly refused rather than laundering off-site content past
+  // the scope wall (§7 final-origin admission recheck).
+  | "off_scope_redirect";
 
 export interface RetrievalFailureEntry {
   url?: string;
@@ -384,6 +389,33 @@ async function readOneUrl(
     renumberPackets([packet], session.nextSource);
     session.nextSource += 1;
     const classification = (packet as { classification?: string }).classification ?? "";
+    // §7 final-origin recheck: an on-scope URL can 302 ACROSS a
+    // registrable boundary and serve content from a site the scope law
+    // would never admit. admitReadUrls checked the REQUESTED URL; the
+    // FINAL primary document must pass the same wall, or the redirect
+    // launders off-site content into a site-bound answer. With an armed
+    // scope the read fails honestly, naming the landing site; with no
+    // boundary the page is kept and the entry carries the final origin
+    // truthfully (redirectedTo) — the passages already name the site
+    // that served them.
+    const redirected = classification === "SUCCESS_REDIRECTED" && packet.url !== url;
+    if (redirected) {
+      const sHosts =
+        session.scope && isEnforceableScope(session.scope) ? scopeHosts(session.scope) : [];
+      if (sHosts.length > 0 && !sHosts.some((h) => domainWithin(hostOf(packet.url), h))) {
+        return {
+          entry: { url, fetched: false, redirectedTo: packet.url },
+          citation: null,
+          failure: {
+            url,
+            failure: "off_scope_redirect",
+            detail:
+              `${url} now resolves to ${packet.url}, outside the task scope (${sHosts.join(", ")}) — ` +
+              "content from the landing site was not read",
+          },
+        };
+      }
+    }
     const blocks: string[] = [];
     for (const p of packet.passages) {
       const t = p.passageText;
@@ -434,6 +466,7 @@ async function readOneUrl(
         url,
         title: packet.title || domain,
         domain: packet.domain,
+        ...(redirected ? { redirectedTo: packet.url } : {}),
         ...(packet.publishedAt !== undefined ? { publishedDate: packet.publishedAt } : {}),
         extraction: packet.extraction,
         ...(classification ? { classification } : {}),

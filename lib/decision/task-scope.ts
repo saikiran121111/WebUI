@@ -793,6 +793,45 @@ export function resolveTaskScope(
   return { ...scope, targets: scope.targets.map((t) => resolveTarget(t, candidates, max, prov)) };
 }
 
+/**
+ * §7 propagation law (2026-11-04): a destination verified by CREDIBLE
+ * SERP identity evidence (planner-law's corroborateDestinations — exact
+ * brand label, or a padded family corroborated by 2+ distinct hosts;
+ * never a lone title-padded lookalike) is more than an ordering hint
+ * for an ENFORCEABLE task. The named-site target RESOLVES to that host
+ * (provenance resolved_search), so scopeHosts/applyScopeToLaw fold it
+ * into the mandatory boundary — a site-specific answer (price, stock,
+ * rating) then stays inside the verified site, and a target that never
+ * verifies stays honestly unresolved instead. Research intent is never
+ * scope-enforced (isEnforceableScope), so its verified destination
+ * keeps riding preferredDomains ordering only. Already-resolved and
+ * ambiguous targets are never re-decided here (same law as
+ * corroborateDestinations' own skip). Returns the SAME object when
+ * nothing changes, so callers can cheaply detect a boundary refresh.
+ */
+export function applyVerifiedDestinations(
+  scope: TaskScope,
+  verified: { phrase: string; host: string }[],
+): TaskScope {
+  if (!isEnforceableScope(scope) || verified.length === 0) return scope;
+  const byPhrase = new Map(verified.map((v) => [v.phrase, v.host]));
+  let changed = false;
+  const targets = scope.targets.map((t) => {
+    const host = byPhrase.get(t.phrase);
+    if (t.state !== "unresolved" || !host) return t;
+    changed = true;
+    return {
+      ...t,
+      state: "resolved" as TargetState,
+      host,
+      url: t.url,
+      candidates: t.candidates,
+      provenance: "resolved_search" as TargetProvenance,
+    };
+  });
+  return changed ? { ...scope, targets } : scope;
+}
+
 // ─── Turn-to-turn continuity (brief #6: follow-ups must not lose scope) ───
 
 /**

@@ -19,7 +19,11 @@ import { describe, expect, it, vi } from "vitest";
 import { corroborateDestinations, derivePlannerLaw } from "../../lib/web-search/planner-law";
 import { reciprocalRankFuse } from "../../lib/web-search/metasearch";
 import { localContextLine, systemRegionName } from "../../lib/web-search/local-context";
-import type { TaskScope } from "../../lib/decision/task-scope";
+import {
+  applyVerifiedDestinations,
+  scopeHosts,
+  type TaskScope,
+} from "../../lib/decision/task-scope";
 import type { RawSearchResult, SearchDecision } from "../../lib/web-search/types";
 
 function unresolvedScope(phrase: string): TaskScope {
@@ -73,6 +77,44 @@ describe("corroborated destination verification (audit items 3/5)", () => {
     expect(v).toEqual([]);
   });
 
+  it("§7 credibility: a LONE padded-label self-claim verifies nothing", () => {
+    // Anyone can title-pad a lookalike domain ("Zepto Discounts"); one
+    // self-claiming padded host is exactly the squatter shape. Without a
+    // second distinct in-family host to corroborate, the target stays
+    // honestly unresolved — no promotion, no boundary.
+    expect(
+      corroborateDestinations(unresolvedScope("zepto"), [
+        row("https://zeptodiscounts.com/", "Zepto Discounts - Save 50% on Groceries"),
+      ]),
+    ).toEqual([]);
+    expect(
+      corroborateDestinations(unresolvedScope("examplemart"), [
+        row("https://examplemartdiscounts.com/", "ExampleMart Discounts"),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("§7 credibility: the EXACT brand label self-claims alone (unsquattable)", () => {
+    // examplemart.com is the label itself, not a padded lookalike — the
+    // title self-claim stands on its own, no second host required.
+    expect(
+      corroborateDestinations(unresolvedScope("examplemart"), [
+        row("https://examplemart.com/deals", "ExampleMart - Official Deals Page"),
+      ]),
+    ).toEqual([{ phrase: "examplemart", host: "examplemart.com" }]);
+  });
+
+  it("§7 credibility: a padded family corroborated by 2+ hosts verifies", () => {
+    // zeptonow.com + zeptonow.in (padded family, distinct registrable
+    // hosts) is real multi-site identity — mirrors the first vector above.
+    expect(
+      corroborateDestinations(unresolvedScope("examplemart"), [
+        row("https://examplemartnow.com/", "ExampleMart - Groceries in Minutes"),
+        row("https://examplemartnow.in/", "ExampleMart | Quick Delivery"),
+      ]),
+    ).toEqual([{ phrase: "examplemart", host: "examplemartnow.com" }]);
+  });
+
   it("multi-word brand verifies through the spaced title boundary", () => {
     const v = corroborateDestinations(unresolvedScope("the north face"), [
       row("https://www.thenorthface.com/en-in", "The North Face® Official Site | India"),
@@ -90,6 +132,48 @@ describe("corroborated destination verification (audit items 3/5)", () => {
       authorizedHosts: [],
     };
     expect(corroborateDestinations(scope, [row("https://amazon.in/dp/1", "Amazon.in: Buy Online")])).toEqual([]);
+  });
+});
+
+/* ── §7 propagation: verified destination → ENFORCEABLE boundary ──────── */
+
+describe("applyVerifiedDestinations folds credibility into the scope law", () => {
+  it("a credible verified host resolves the target and arms the boundary", () => {
+    const scope = unresolvedScope("zepto");
+    const out = applyVerifiedDestinations(scope, [{ phrase: "zepto", host: "zeptonow.com" }]);
+    expect(out).not.toBe(scope);
+    expect(out.targets[0]).toEqual({
+      phrase: "zepto",
+      state: "resolved",
+      host: "zeptonow.com",
+      url: "",
+      candidates: [],
+      provenance: "resolved_search",
+    });
+    expect(scopeHosts(out)).toEqual(["zeptonow.com"]); // applyScopeToLaw will arm this
+    expect(scope.targets[0].state).toBe("unresolved"); // input scope untouched
+  });
+
+  it("research intent is NEVER promoted (scope law stays ordering-only)", () => {
+    const scope: TaskScope = {
+      intent: "research",
+      targets: [{ phrase: "zepto", state: "unresolved", host: "", url: "", candidates: [], provenance: "none" }],
+      excludedPhrases: [],
+      authorizedHosts: [],
+    };
+    expect(applyVerifiedDestinations(scope, [{ phrase: "zepto", host: "zeptonow.com" }])).toBe(scope);
+  });
+
+  it("an already-resolved target is never re-decided by search evidence", () => {
+    const scope: TaskScope = {
+      intent: "operate",
+      targets: [
+        { phrase: "amazon.in", state: "resolved", host: "amazon.in", url: "", candidates: [], provenance: "explicit_domain" },
+      ],
+      excludedPhrases: [],
+      authorizedHosts: [],
+    };
+    expect(applyVerifiedDestinations(scope, [{ phrase: "amazon.in", host: "hijacked.example" }])).toBe(scope);
   });
 });
 
