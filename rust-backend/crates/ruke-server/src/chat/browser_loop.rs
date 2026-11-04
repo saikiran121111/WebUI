@@ -408,7 +408,9 @@ async fn bounded_destination_discovery(
     let raced = tokio::select! {
         biased;
         _ = token.cancelled() => None,
-        r = bridge.post_json(next_search::TOOLS_PATH, &body) => Some(r),
+        // Discovery runs live SERPs — minutes are legitimate, so the
+        // header wait stays unbounded but token-raced inside send_checked.
+        r = bridge.post_json(next_search::TOOLS_PATH, &body, token, None) => Some(r),
     };
     match raced {
         None => {

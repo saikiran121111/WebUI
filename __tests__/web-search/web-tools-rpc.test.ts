@@ -146,6 +146,54 @@ describe("web-tools RPC (Rust chat-loop bridge)", () => {
     expect((res.json as any).envelope.error).toBe("session_expired");
   });
 
+  it("§10: cancellation is honored pre-dispatch, never retracted for completed calls", async () => {
+    const created = (
+      await handleWebToolsRpc({ action: "create", depth: "quick", question: "q" })
+    ).json as any;
+    const ac = new AbortController();
+    // Deferred semantics (documented shortcut at the web-tools-rpc exec
+    // handler): a call that already dispatched runs to completion — an
+    // abort issued after it cannot retract an envelope already returned.
+    const during = await handleWebToolsRpc(
+      {
+        action: "exec",
+        sessionId: created.sessionId,
+        tool: "web_search",
+        argsRaw: "nope",
+        roundsUsed: 1,
+      },
+      ac.signal,
+    );
+    expect((during.json as any).envelope.error).toBe("invalid_arguments");
+    ac.abort(); // the turn stops BETWEEN tool calls
+    const after = await handleWebToolsRpc(
+      {
+        action: "exec",
+        sessionId: created.sessionId,
+        tool: "web_search",
+        argsRaw: '{"query":"anything"}',
+      },
+      ac.signal,
+    );
+    const env = (after.json as any).envelope;
+    expect(env).toMatchObject({
+      ok: false,
+      tool: "web_search",
+      error: "cancelled",
+      detail: "the turn was stopped before this tool ran",
+    });
+    // Never dispatched ⇒ no budget payload, no citations.
+    expect(env.remainingBudget).toBeUndefined();
+    expect((after.json as any).citations).toEqual([]);
+    // The cancelled check precedes the session lookup — a stopped turn is
+    // told "cancelled", never "session_expired", even for a vanished id.
+    const gone = await handleWebToolsRpc(
+      { action: "exec", sessionId: "ws-gone", tool: "web_search", argsRaw: "{}" },
+      ac.signal,
+    );
+    expect((gone.json as any).envelope.error).toBe("cancelled");
+  });
+
   it("close removes the session", async () => {
     const created = (
       await handleWebToolsRpc({ action: "create", depth: "quick", question: "q" })

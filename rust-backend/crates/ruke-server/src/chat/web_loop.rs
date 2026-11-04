@@ -222,7 +222,9 @@ async fn tools_rpc(
     tokio::select! {
         biased;
         _ = token.cancelled() => Err(BridgeError::Cancelled),
-        r = bridge.post_json(next_search::TOOLS_PATH, body) => r,
+        // exec/create legitimately stream JSON minutes after the request;
+        // no header budget, but send_checked races the token internally.
+        r = bridge.post_json(next_search::TOOLS_PATH, body, token, None) => r,
     }
 }
 
@@ -306,6 +308,10 @@ pub async fn run_web_tool_loop(
                     .map(|m| m.freshness.clone())
                     .unwrap_or_else(|| "any".to_string()),
             }),
+            // §10: create is bounded in-memory work on the TS side — a
+            // header wait past the budget is a wedged Next, not real work.
+            token,
+            Some(next_search::RESEARCH_HEADER_BUDGET),
         )
         .await
     {
@@ -582,7 +588,12 @@ pub async fn run_web_tool_loop(
     // loop already stopped, so this is not raced — it must not hang the
     // turn: any error is just a log.
     let _ = bridge
-        .post_json(next_search::TOOLS_PATH, &json!({"action": "close", "sessionId": session_id}))
+        .post_json(
+            next_search::TOOLS_PATH,
+            &json!({"action": "close", "sessionId": session_id}),
+            token,
+            Some(next_search::CLOSE_HEADER_BUDGET),
+        )
         .await;
 
     match outcome {

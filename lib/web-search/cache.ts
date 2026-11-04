@@ -139,7 +139,23 @@ function maybePurge(): void {
   const now = Date.now();
   if (now - _lastPurgeCheck < 60_000) return;
   _lastPurgeCheck = now;
-  purgeExpiredCache();
+  // (brief §10) The purge rides on the hot read/write path, so a BUSY/corrupt
+  // DB here must NOT escape into the caller's retrieval: degrade silently-ish
+  // and let the wrapped read/write decide miss-vs-no-write.
+  try {
+    purgeExpiredCache();
+  } catch (err) {
+    cacheDiag("purge", err);
+  }
+}
+
+/** Shared degrade diagnostic (brief §10: cache is an optimization, never a dependency). */
+function cacheDiag(what: string, err: unknown): void {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[web-search/cache] ${what} failed — cache degrades (user data untouched):`,
+    err instanceof Error ? err.message : String(err),
+  );
 }
 
 /**
@@ -159,7 +175,11 @@ export function startPurgeSweep(): void {
   }, PURGE_SWEEP_INTERVAL_MS);
   timer.unref(); // don't keep the event loop alive
   // Purge immediately on startup (handles the "closed app, reopened 6h later" case)
-  purgeExpiredCache();
+  try {
+    purgeExpiredCache();
+  } catch (err) {
+    cacheDiag("startup purge", err);
+  }
 }
 
 export function hash(s: string): string {
@@ -196,14 +216,24 @@ export function getCachedQuery(
 ): { results: RankedResult[]; freshness: string } | null {
   maybePurge();
   const key = queryCacheKey(plans);
-  const row = db()
-    .prepare(
-      `SELECT results_json, freshness, expires_at FROM query_cache
-       WHERE query_hash = ? AND expires_at > ?`,
-    )
-    .get(key, Date.now()) as
+  // (brief §10) A cache READ outage (BUSY, corrupt file, open failure)
+  // degrades to a MISS — retrieval continues against the live engines.
+  let row:
     | { results_json: string; freshness: string; expires_at: number }
     | undefined;
+  try {
+    row = db()
+      .prepare(
+        `SELECT results_json, freshness, expires_at FROM query_cache
+         WHERE query_hash = ? AND expires_at > ?`,
+      )
+      .get(key, Date.now()) as
+      | { results_json: string; freshness: string; expires_at: number }
+      | undefined;
+  } catch (err) {
+    cacheDiag("query read", err);
+    return null;
+  }
   if (!row) return null;
   try {
     const results = JSON.parse(row.results_json) as RankedResult[];
@@ -228,29 +258,35 @@ export function putCachedQuery(
   if (results.length === 0) return;
   const key = queryCacheKey(plans);
   const now = Date.now();
-  db()
-    .prepare(
-      `INSERT INTO query_cache (query_hash, freshness, plan_json, results_json, hits, created_at, expires_at)
-       VALUES (?, ?, ?, ?, 0, ?, ?)
-       ON CONFLICT(query_hash) DO UPDATE SET
-         freshness = excluded.freshness,
-         results_json = excluded.results_json,
-         created_at = excluded.created_at,
-         expires_at = excluded.expires_at,
-         hits = query_cache.hits + 1`,
-    )
-    .run(
-      key,
-      freshness,
-      JSON.stringify(plans),
-      JSON.stringify(results),
-      now,
-      now + (freshness === "realtime"
-        ? Math.min(CACHE_TTL_MS, REALTIME_QUERY_TTL_MS)
-        : freshness === "day" || freshness === "week"
-        ? Math.min(CACHE_TTL_MS, FRESH_QUERY_TTL_MS)
-        : CACHE_TTL_MS),
-    );
+  // (brief §10) A cache WRITE outage degrades to no-write: the run's
+  // results still cross to the caller; only future reuse is lost.
+  try {
+    db()
+      .prepare(
+        `INSERT INTO query_cache (query_hash, freshness, plan_json, results_json, hits, created_at, expires_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?)
+         ON CONFLICT(query_hash) DO UPDATE SET
+           freshness = excluded.freshness,
+           results_json = excluded.results_json,
+           created_at = excluded.created_at,
+           expires_at = excluded.expires_at,
+           hits = query_cache.hits + 1`,
+      )
+      .run(
+        key,
+        freshness,
+        JSON.stringify(plans),
+        JSON.stringify(results),
+        now,
+        now + (freshness === "realtime"
+          ? Math.min(CACHE_TTL_MS, REALTIME_QUERY_TTL_MS)
+          : freshness === "day" || freshness === "week"
+          ? Math.min(CACHE_TTL_MS, FRESH_QUERY_TTL_MS)
+          : CACHE_TTL_MS),
+      );
+  } catch (err) {
+    cacheDiag("query write", err);
+  }
 }
 
 /* ── page cache ──────────────────────────────────────────────────────── */
@@ -303,24 +339,29 @@ export function putCachedPage(
 
   maybePurge();
   const now = Date.now();
-  db()
-    .prepare(
-      `INSERT INTO page_cache (url_hash, url, extracted, tier, cached_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(url_hash) DO UPDATE SET
-         extracted = excluded.extracted,
-         tier = excluded.tier,
-         cached_at = excluded.cached_at,
-         expires_at = excluded.expires_at`,
-    )
-    .run(
-      hash(url),
-      url,
-      extracted, // full text — no truncation
-      tier,
-      now,
-      now + CACHE_TTL_MS,
-    );
+  // (brief §10) A cache WRITE outage degrades to no-write (see putCachedQuery).
+  try {
+    db()
+      .prepare(
+        `INSERT INTO page_cache (url_hash, url, extracted, tier, cached_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(url_hash) DO UPDATE SET
+           extracted = excluded.extracted,
+           tier = excluded.tier,
+           cached_at = excluded.cached_at,
+           expires_at = excluded.expires_at`,
+      )
+      .run(
+        hash(url),
+        url,
+        extracted, // full text — no truncation
+        tier,
+        now,
+        now + CACHE_TTL_MS,
+      );
+  } catch (err) {
+    cacheDiag("page write", err);
+  }
 }
 
 /** Close the DB handle (used by tests / process exit). */

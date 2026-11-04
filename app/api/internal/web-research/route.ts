@@ -98,6 +98,12 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const ctrl = new AbortController();
   req.signal.addEventListener("abort", () => ctrl.abort());
+  // (brief §10) addEventListener never replays an abort that ALREADY
+  // happened: if Rust hung up before this handler installed, the abort
+  // event is lost and the start() guard below would see a live signal.
+  // Mirror the current state instead — the guard then closes the stream
+  // without ever starting a research run.
+  if (req.signal.aborted) ctrl.abort();
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
