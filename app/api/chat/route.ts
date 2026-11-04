@@ -301,7 +301,7 @@ async function forwardStreamInto(
  * decides to search, and flip SearchGateContext.hasImageAttachment so the
  * Stage 0 image+lookup-intent bypass can fire.
  */
-function turnImageParts(content: unknown): string[] {
+export function turnImageParts(content: unknown): string[] {
   if (!Array.isArray(content)) return [];
   const out: string[] = [];
   for (const part of content) {
@@ -309,6 +309,26 @@ function turnImageParts(content: unknown): string[] {
     if (typeof u === "string" && u.startsWith("data:")) out.push(u);
   }
   return out;
+}
+
+/**
+ * Brief §3 law: the REAL position of the current user turn at read time.
+ * `lastUserIdx` is computed at turn entry, but step 4 (decision-engine skill
+ * block) and step 5 (attachment evidence) each inject a SYSTEM block BEFORE
+ * that turn and shift it off the index — a raw `messages[lastUserIdx]` read
+ * after them landed on the injected SYSTEM block and silently dropped the
+ * turn's image parts (gate flag + vision pre-pass inputs). Recomputing is
+ * exact regardless of how many injections ran: only injected SYSTEM blocks
+ * can sit at or after `lastUserIdx` (it was the LAST user turn, so nothing
+ * real exists between it and the shifted position).
+ * Rust mirror: resolve_turn_index (chat/pipeline.rs). Pinned by the golden
+ * §3 request-shape test and the Rust unit test.
+ */
+export function resolveTurnIndex(messages: unknown, lastUserIdx: number): number {
+  const arr = Array.isArray(messages) ? messages : [];
+  let i = lastUserIdx;
+  while (i < arr.length && (arr[i] as any)?.role === "system") i += 1;
+  return i;
 }
 
 /** Does this turn carry an internal attachment_ref (indexed-document turn)? */
@@ -535,7 +555,11 @@ async function runTurnPipeline(
     } else {
     beginUserTurn();
     inferenceTurnActive = true;
-    const imageParts = turnImageParts(payload.messages?.[lastUserIdx]?.content);
+    // Brief §3: recompute where the turn REALLY sits — the step-4 skill and
+    // step-5 evidence injections may have shifted it off lastUserIdx (the raw
+    // read landed on the injected SYSTEM block and dropped the images).
+    const turnIdx = resolveTurnIndex(payload.messages, lastUserIdx);
+    const imageParts = turnImageParts(payload.messages?.[turnIdx]?.content);
     researchBundle = await runWebResearch(
       {
         userPrompt: fullText,

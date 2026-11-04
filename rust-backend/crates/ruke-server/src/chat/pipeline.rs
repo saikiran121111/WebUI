@@ -307,27 +307,27 @@ pub async fn run_turn_pipeline(
         // whole research window stays inside the guard.
         let _web_guard = state.slot.clone().begin_guard();
 
-        // `imageParts` indexes the RAW `lastUserIdx` AFTER the skill and
-        // retrieval injections above — on injected turns that slot holds a
-        // SYSTEM message (no image parts). The TS oracle reads
-        // `payload.messages[lastUserIdx]?.content` at exactly this point;
-        // reproduced verbatim (module docs).
-        let image_parts: Vec<String> = payload
+        // Brief §3 law: the current user turn may have SHIFTED off
+        // `last_user_idx` — step 4 (decision skill) and step 5 (attachment
+        // retrieval) each inject a SYSTEM block before it. The raw read used
+        // to land on that SYSTEM block and silently drop the turn's image
+        // parts; recompute the real position first (⇔ TS `resolveTurnIndex`).
+        let turn_idx = payload
             .get("messages")
             .and_then(Value::as_array)
-            .and_then(|m| m.get(last_user_idx))
-            .map(|m| turn_image_parts(m.get("content")))
-            .unwrap_or_default();
+            .map(|m| resolve_turn_index(m, last_user_idx))
+            .unwrap_or(last_user_idx);
+        let turn_content = payload
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|m| m.get(turn_idx))
+            .and_then(|m| m.get("content"));
+        let image_parts: Vec<String> = turn_image_parts(turn_content);
         // §11.2 follow-up: the gate's attachment-evidence flag is the TS
         // oracle's `hasAttachmentRefs || hasInlineAttachment` — unindexed
         // attachments inline their content (no ref) but the turn STILL
         // carries local evidence. Retrieval above stays ref-keyed.
-        let inline_attachment = payload
-            .get("messages")
-            .and_then(Value::as_array)
-            .and_then(|m| m.get(last_user_idx))
-            .map(|m| turn_has_inline_attachment(m.get("content")))
-            .unwrap_or(false);
+        let inline_attachment = turn_has_inline_attachment(turn_content);
         let history_json: Vec<Value> = history
             .iter()
             .filter_map(|h| {
@@ -744,6 +744,24 @@ pub async fn pump_progress(
 
 /* ── web-gate helpers (⇔ the inline TS blocks in route.ts step 6) ─────── */
 
+/// Brief §3 law ⇔ TS `resolveTurnIndex`: the REAL position of the current
+/// user turn at read time. `last_user_idx` is computed at turn entry, but
+/// the step-4 skill block and the step-5 retrieval evidence each inject a
+/// SYSTEM block BEFORE that turn and shift it — a raw read after them lands
+/// on the injected SYSTEM message. Only injected SYSTEM blocks can sit at
+/// or after `last_user_idx` (it was the LAST user turn), so skipping the
+/// contiguous SYSTEM run starting exactly there is exact for 0, 1, or 2
+/// injections.
+pub(crate) fn resolve_turn_index(messages: &[Value], last_user_idx: usize) -> usize {
+    let mut i = last_user_idx;
+    while i < messages.len()
+        && messages[i].get("role").and_then(Value::as_str) == Some("system")
+    {
+        i += 1;
+    }
+    i
+}
+
 /// `imageParts`: array content parts that are `image_url` parts whose
 /// `imageUrl.url` is a `data:` URL (TS `typeof u === "string" &&
 /// u.startsWith("data:")`). Non-array content ⇒ `[]`.
@@ -812,6 +830,61 @@ mod tests {
         // String content and missing content are BOTH `[]` (TS `?.`).
         assert!(turn_image_parts(Some(&serde_json::json!("s"))).is_empty());
         assert!(turn_image_parts(None).is_empty());
+    }
+
+    /// Brief §3 law, real request shape: the step-4 skill block and the
+    /// step-5 evidence block are injected BEFORE the current user turn
+    /// (exactly like `inject_system_before(messages, last_user_idx, …)` at
+    /// the step-4 site and the retrieval site). The RAW index read — the
+    /// pre-fix behavior — lands on a SYSTEM block and drops the turn's
+    /// images; `resolve_turn_index` must find the shifted user turn.
+    #[test]
+    fn current_turn_image_parts_survive_skill_and_evidence_injections() {
+        let image_turn = serde_json::json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "Attached file: notes.txt\nwho is this person?" },
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA" } },
+            ],
+        });
+        let last = 2usize;
+        let mut messages: Vec<Value> = vec![
+            serde_json::json!({ "role": "user", "content": "hi" }),
+            serde_json::json!({ "role": "assistant", "content": "yo" }),
+            image_turn.clone(),
+        ];
+
+        // No injections: the index is already the user turn.
+        assert_eq!(resolve_turn_index(&messages, last), last);
+
+        // Step 4 (skill) at `last`, step 5 (evidence) at `last + 1` — the
+        // user turn lands at last + 2.
+        inject_system_before(&mut messages, last, "<core_skill>…".to_string());
+        inject_system_before(&mut messages, last + 1, "<attachment_evidence>…".to_string());
+        // The DEFECT the fix kills: the raw slot is now a SYSTEM block.
+        assert!(
+            turn_image_parts(messages.get(last).and_then(|m| m.get("content"))).is_empty(),
+            "raw last_user_idx read must be the injected SYSTEM block"
+        );
+        let idx = resolve_turn_index(&messages, last);
+        assert_eq!(idx, last + 2);
+        assert_eq!(messages[idx].get("role").and_then(Value::as_str), Some("user"));
+        let content = messages[idx].get("content");
+        assert_eq!(turn_image_parts(content), vec!["data:image/png;base64,AAA"]);
+        assert!(turn_has_inline_attachment(content));
+
+        // Only the skill injection (no evidence): single shift.
+        let mut one: Vec<Value> = vec![
+            serde_json::json!({ "role": "user", "content": "hi" }),
+            serde_json::json!({ "role": "assistant", "content": "yo" }),
+            image_turn,
+        ];
+        inject_system_before(&mut one, last, "<core_skill>…".to_string());
+        assert_eq!(resolve_turn_index(&one, last), last + 1);
+        assert_eq!(
+            turn_image_parts(one[last + 1].get("content")),
+            vec!["data:image/png;base64,AAA"]
+        );
     }
 
     // The citation-map / research_meta / stage-label parity tests retired

@@ -55,6 +55,7 @@ import {
   writeJsonFixture,
 } from "./support/golden";
 import { WEB_TOOL_GUIDANCE } from "@/lib/chat/web-tool-loop";
+import { injectSystemBefore } from "@/lib/skills/lazy";
 
 setGoldenEnv({ webSearchDisabled: false });
 
@@ -612,5 +613,56 @@ describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffi
     expect(payload.tools).toBeUndefined();
     // And no answer-content fabrication: the scripted answer streams through.
     expect(run.text).toContain("search answer");
+  });
+});
+
+describe("golden: current-turn image capture survives injections (brief §3)", () => {
+  it("07 skill + evidence injections never drop the turn's image parts", async () => {
+    // ⇔ the Rust unit test current_turn_image_parts_survive_skill_and_evidence_injections.
+    // Real injections via the REAL injectSystemBefore (lib/skills/lazy) —
+    // step 4 (decision skill) injects AT lastUserIdx and step 5 (attachment
+    // evidence) at lastUserIdx + 1, each shifting the user turn down. The
+    // pre-fix raw read `messages[lastUserIdx]` then landed on the injected
+    // SYSTEM block: hasImageAttachment flipped false, imageDataUrls went
+    // empty, and the image+lookup-intent gate bypass died silently.
+    const { resolveTurnIndex, turnImageParts } = await import("@/app/api/chat/route");
+    const imageTurn = {
+      role: "user",
+      content: [
+        { type: "text", text: "Attached file: notes.txt\nwho is this person?" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAA" } },
+      ],
+    };
+    const lastUserIdx = 2;
+    const messages: any[] = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "yo" },
+      imageTurn,
+    ];
+
+    // No injections: the entry index already IS the user turn.
+    expect(resolveTurnIndex(messages, lastUserIdx)).toBe(lastUserIdx);
+
+    // Step 4 at lastUserIdx, step 5 at lastUserIdx + 1 → user shift +2.
+    injectSystemBefore(messages, lastUserIdx, "<core_skill>…");
+    injectSystemBefore(messages, lastUserIdx + 1, "<attachment_evidence>…");
+    // The defect this fix kills: the RAW slot is now a SYSTEM block with
+    // zero image parts — proving the test would have caught the old bug.
+    expect(messages[lastUserIdx].role).toBe("system");
+    expect(turnImageParts(messages[lastUserIdx]?.content)).toEqual([]);
+    const idx = resolveTurnIndex(messages, lastUserIdx);
+    expect(idx).toBe(lastUserIdx + 2);
+    expect(messages[idx].role).toBe("user");
+    expect(turnImageParts(messages[idx]?.content)).toEqual(["data:image/png;base64,AAA"]);
+
+    // Skill injection alone (no evidence): single shift.
+    const one: any[] = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "yo" },
+      imageTurn,
+    ];
+    injectSystemBefore(one, lastUserIdx, "<core_skill>…");
+    expect(resolveTurnIndex(one, lastUserIdx)).toBe(lastUserIdx + 1);
+    expect(turnImageParts(one[lastUserIdx + 1]?.content)).toEqual(["data:image/png;base64,AAA"]);
   });
 });
