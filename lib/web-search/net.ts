@@ -64,6 +64,7 @@ export async function wreqFetch(
 }
 import { gunzipSync, brotliDecompressSync } from "node:zlib";
 import https from "node:https";
+import { parse as tldtsParse } from "tldts";
 import { isSafeUrl, isSafeUrlWithDns, firstUnsafeRedirectHop } from "./ssrf";
 
 export { isSafeUrl };
@@ -331,6 +332,26 @@ export { PAGE_LIMIT_BYTES, PDF_LIMIT_BYTES };
  * If the response is gzip-encoded (Content-Encoding: gzip), the bytes
  * are transparently decompressed before returning the string.
  */
+/**
+ * Decode-once law helper (§8 audit 2026-11-04): Content-Encoding describes
+ * the WIRE, not the bytes in hand — clients differ in whether they already
+ * transparently decoded (impit decodes but echoes the header; raw paths do
+ * not), so a gunzip failure normally means "already decoded": keep the
+ * bytes. But bytes that CARRY the gzip magic and still fail to decode are
+ * genuinely corrupt/truncated — string consumers get a clean failure ("" →
+ * parse/network classification) instead of mojibake, while byte consumers
+ * still receive the truncated truth.
+ */
+function gunzipOrKeep(buf: Buffer, limitBytes: number): { bytes: Buffer; text: string } {
+  const capped = buf.subarray(0, limitBytes);
+  try {
+    const dz = gunzipSync(capped).subarray(0, limitBytes); // cap AFTER decompression too (gzip bomb)
+    return { bytes: dz, text: dz.toString("utf8") };
+  } catch {
+    const gzMagic = capped[0] === 0x1f && capped[1] === 0x8b;
+    return { bytes: capped, text: gzMagic ? "" : capped.toString("utf8") };
+  }
+}
 export async function readBounded(
   body: ReadableStream<Uint8Array> | any,
   limitBytes: number = PAGE_LIMIT_BYTES,
@@ -346,21 +367,9 @@ export async function readBounded(
     // Non-WebStream body (Buffer / string fallback).
     const buf: Buffer = await body;
     if (isGzip) {
-      // Decode exactly ONCE: content-encoding describes the WIRE encoding,
-      // not the state of the bytes in hand — clients differ in whether they
-      // already transparently decoded (impit decodes but echoes the header;
-      // raw paths do not). A gunzip failure therefore means "already
-      // decoded", not "corrupt": keep the bytes (2026-11-04 audit fix —
-      // the old throw-into-empty-string contract erased every gzip body).
-      try {
-        const dz = gunzipSync(buf.subarray(0, limitBytes));
-        if (sink) sink.bytes = dz;
-        return dz.toString("utf8");
-      } catch {
-        const raw = buf.subarray(0, limitBytes);
-        if (sink) sink.bytes = raw;
-        return raw.toString("utf8");
-      }
+      const r = gunzipOrKeep(buf, limitBytes);
+      if (sink) sink.bytes = r.bytes;
+      return r.text;
     }
     const raw = buf.subarray(0, limitBytes);
     if (sink) sink.bytes = raw;
@@ -398,17 +407,18 @@ export async function readBounded(
     out.set(c, off);
     off += c.byteLength;
   }
-  // Decompress at most once — see the Buffer path above for the decode-
-  // exactly-once law (header describes the wire, not these bytes).
+  // Decompress at most once — see gunzipOrKeep for the decode-exactly-once
+  // law (header describes the wire, not these bytes) and the corrupt-gzip
+  // distinction (§8: magic present + decode failure = corrupt, never
+  // mojibake; the truncation-at-wire-cap case lands here).
+  // shortcut: a gzip body larger than the wire cap files as corrupt rather
+  // than a salvaged decompressed prefix — the 50MB PAGE cap makes a real
+  // page crossing the cap vanishingly rare; add prefix salvage only if one
+  // ever does.
   if (isGzip) {
-    try {
-      const dz = gunzipSync(out);
-      if (sink) sink.bytes = dz;
-      return dz.toString("utf8");
-    } catch {
-      if (sink) sink.bytes = out;
-      return new TextDecoder("utf-8").decode(out);
-    }
+    const r = gunzipOrKeep(Buffer.from(out.buffer, out.byteOffset, out.byteLength), limitBytes);
+    if (sink) sink.bytes = r.bytes;
+    return r.text;
   }
   if (sink) sink.bytes = out;
   return new TextDecoder("utf-8").decode(out);
@@ -460,7 +470,19 @@ async function gotPageFetch(
   try {
     const got = await gotModule();
     const cookieVal = jar.cookieFor(url);
-    const res = await got(url, {
+    // Every redirect target, in order, recorded only after the hook vetted
+    // it — drives resolvedUrl and the final-chain SSRF recheck without
+    // depending on any given got version's response bookkeeping.
+    const hops: string[] = [];
+    // STREAM MODE (§8 audit 2026-11-04): buffered mode retained the FULL
+    // response before any cap ran, so limitBytes only ever truncated the
+    // string — rawBytes kept every wire byte (limitBytes:32 → 5,000 bytes
+    // retained, the brief's repro) and an oversized body peaked in RAM
+    // first. The stream is now consumed UNDER the cap (cap during
+    // consumption), and decompress:true makes the capped chunks the TRUE
+    // decompressed bytes for PDF/charset callers (capped again after
+    // decompression at the concat).
+    const stream: any = got.stream(url, {
       method: opts.method ?? "GET",
       headers: {
         ...realisticHeaders(cookieVal ? { cookie: cookieVal } : {}),
@@ -469,38 +491,43 @@ async function gotPageFetch(
       throwHttpErrors: false,
       maxRedirects: 10,
       // got v14 option grammar (native-verified against the installed
-      // got-scraping 4.2.2): retry takes {limit:0}, beforeRedirect lives
-      // under hooks, and the v14-era top-level forms used here before made
-      // EVERY got-scraping call throw ERR_INVALID_OPTIONS / TypeError.
-      // No `proxy` option: v14 rejects `proxy: false`, and got-scraping
-      // does not auto-pick system proxies anyway.
+      // got-scraping 4.2.2 / got 14.6.6): retry takes {limit:0},
+      // beforeRedirect lives under hooks, and the v14-era top-level forms
+      // used here before made EVERY got-scraping call throw
+      // ERR_INVALID_OPTIONS / TypeError. No `proxy` option: v14 rejects
+      // `proxy: false`, and got-scraping does not auto-pick system
+      // proxies anyway.
       retry: { limit: 0 },
       decompress: true,
       timeout: { request: timeoutMs },
       // SSRF (§P6): refuse every redirect TARGET before it is followed —
       // a public URL 302-ing to http://169.254.169.254/ is the classic
-      // SSRF pivot. The throw rejects the got request; the catch below
-      // turns it into null so Pass B/C run their own entry + final-URL
-      // checks instead of silently following the hop.
+      // SSRF pivot. The throw kills the stream; the catch below turns it
+      // into null so Pass B/C run their own entry + final-URL checks
+      // instead of silently following the hop.
       hooks: {
         beforeRedirect: [
-          // got v14 signature: (redirectOptions, initOptions, response).
-          (redirectOptions: any, _init: any, response: any) => {
+          // ARITY PINNED TO THE INSTALLED PACKAGE (§8): got 14.6.6 calls
+          // `hook(updatedOptions, typedResponse)` — TWO arguments
+          // (node_modules/got/dist/source/core/index.js:702). The earlier
+          // three-parameter form (redirectOptions, _init, response) pushed
+          // the Response into _init and left `response` undefined, so a
+          // hop's Set-Cookie was NEVER absorbed — the brief's controlled
+          // 302 repro returned NO_COOKIE. got implements no cookie store
+          // of its own and DELETES the Cookie header on cross-origin
+          // hops, so this hook is the only thing that keeps a session
+          // cookie alive through a chain.
+          (redirectOptions: any, response: any) => {
             const next = String(redirectOptions?.url ?? "");
             if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
-            // (audit item 4, 2026-11-04) got follows the chain itself but
-            // carries NO cookies across hops: a site that issues a session
-            // cookie on hop 1 and verifies it on hop 2 saw a cookieless
-            // hop 2 → a false "WAF block". Absorb the hop's Set-Cookie
-            // into the shared jar and seed the next hop's Cookie header.
+            hops.push(next);
             const sc = response?.headers?.["set-cookie"];
             const hopCookies: string[] = Array.isArray(sc)
               ? sc.map(String)
               : sc
                 ? [String(sc)]
                 : [];
-            const from = String(response?.url ?? url);
-            if (hopCookies.length > 0 && from) jar.absorb(from, hopCookies);
+            if (hopCookies.length > 0) jar.absorb(String(response?.url ?? url), hopCookies);
             if (next) {
               const carry = jar.cookieFor(next);
               if (carry)
@@ -513,35 +540,60 @@ async function gotPageFetch(
         ],
       },
     } as any);
+    // got.stream leaves the WRITABLE half open when no body option is set,
+    // so a POST would hang forever waiting on its own request end (§8
+    // POST-303 repro). End it immediately — an explicitly empty body.
+    if ((opts.method ?? "GET") === "POST") stream.end();
+    // A late error after our own early destroy (cap hit / cancel) is
+    // expected noise; live errors still surface through for-await.
+    stream.on("error", () => {});
+    let finalRes: any = null;
+    stream.on("response", (r: any) => {
+      finalRes = r;
+    });
 
-    const status: number = res.statusCode ?? 0;
-    const setCookieHeader = res.headers?.["set-cookie"];
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const c of stream) {
+      const b: Buffer = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      const room = limitBytes - total;
+      if (room <= 0) break;
+      chunks.push(b.length > room ? b.subarray(0, room) : b);
+      total += Math.min(b.length, room);
+      if (total >= limitBytes) {
+        stream.destroy(); // stop the socket — the rest never enters RAM
+        break;
+      }
+    }
+    const wireBytes: Buffer = Buffer.concat(chunks);
+
+    const status: number = Number(finalRes?.statusCode ?? 0);
+    const contentType = String(finalRes?.headers?.["content-type"] ?? "");
+    const setCookieHeader = finalRes?.headers?.["set-cookie"];
     const rawCookies: string[] = Array.isArray(setCookieHeader)
       ? setCookieHeader.map(String)
       : setCookieHeader
         ? [String(setCookieHeader)]
         : [];
-    if (rawCookies.length > 0) jar.absorb(url, rawCookies);
 
-    const contentType = String(res.headers?.["content-type"] ?? "");
-    // Text-ish payloads use got's decompressed body; everything else
-    // keeps the raw-bytes path identical to the readBounded behavior.
-    const isText = /text\/|html|json|xml|javascript/i.test(contentType);
-    let body = isText
-      ? String(res.body ?? "")
-      : (res.rawBody ?? Buffer.alloc(0)).toString("utf8");
-    if (body.length > limitBytes) body = body.slice(0, limitBytes);
-
-    const redirects: string[] = Array.isArray(res.redirectUrls)
-      ? res.redirectUrls.map(String)
-      : [];
     const resolvedUrl =
-      redirects.length > 0 ? redirects[redirects.length - 1] : String(res.url ?? url);
+      hops.length > 0 ? hops[hops.length - 1] : String(finalRes?.url ?? url);
+    // The FINAL hop's cookies belong to the FINAL host. The old code
+    // absorbed them under the ENTRY url, pinning them to the wrong jar
+    // key on any chain that changed hosts.
+    if (rawCookies.length > 0) jar.absorb(resolvedUrl, rawCookies);
+
+    // Body and rawBytes are the SAME capped decompressed bytes — byte-
+    // accurate (the old char-slice could retain up to 4x the byte cap on
+    // multibyte text; rawBytes was capped not at all). Text/binary never
+    // diverged in meaning here: got already decompressed the stream, so
+    // both old branches described one utf-8 render of one buffer.
+    const body = wireBytes.toString("utf8");
 
     // SSRF belt-and-braces: even if a got version skipped beforeRedirect,
     // a chain that touched or landed on a private host never yields a
     // response body here.
-    if (firstUnsafeRedirectHop(redirects) !== null) return null;
+    if (firstUnsafeRedirectHop(hops) !== null) return null;
     if (resolvedUrl && !isSafeUrl(resolvedUrl)) return null;
 
     return {
@@ -553,10 +605,12 @@ async function gotPageFetch(
       fingerprint: "chrome",
       cookies: rawCookies,
       resolvedUrl,
-      // got always keeps rawBody for non-streamed responses — Buffer IS a
-      // Uint8Array, so this retains the reference (zero copy) and PDF/
-      // charset callers get the true bytes.
-      ...(res.rawBody ? { rawBytes: res.rawBody as Uint8Array } : {}),
+      // Capped decompressed bytes (Buffer view, zero copy) — PDF/charset
+      // callers get the true bytes, bounded by limitBytes like everything
+      // else on this path.
+      ...(wireBytes.length > 0
+        ? { rawBytes: new Uint8Array(wireBytes.buffer, wireBytes.byteOffset, wireBytes.byteLength) }
+        : {}),
     };
   } catch (err: unknown) {
     if (isCertError(err)) {
@@ -606,7 +660,14 @@ async function gotUrlFetch(
     if (!isSafeUrl(String(res.url ?? url))) return null;
     let text = String(res.body ?? "");
     const cap = opts.limitBytes ?? 50 * 1024 * 1024;
-    if (text.length > cap) text = text.slice(0, cap);
+    // Byte-accurate cap (§8): the old char-slice kept up to 4x the byte
+    // cap on multibyte text. shortcut: this JSON-endpoint path stays
+    // buffered (caps after decompression); the during-consumption cap
+    // lives in the streaming paths (gotPageFetch / readBounded) — switch
+    // here only if a JSON feed is ever proven large enough to matter.
+    if (Buffer.byteLength(text, "utf8") > cap) {
+      text = Buffer.from(text, "utf8").subarray(0, cap).toString("utf8");
+    }
     return { status, ok: status >= 200 && status < 300, text };
   } catch {
     return null;
@@ -641,8 +702,9 @@ export interface PageResponse {
   insecureTls?: boolean;
   /**
    * (audit 2026-11-04) The ORIGINAL decompressed bytes whenever the fetch
-   * path held them (got always exposes rawBody; the readBounded sink
-   * retains the rest). Decoding PDF bytes to a string and re-encoding
+   * path held them (got's stream path caps them during consumption; the
+   * readBounded sink retains the rest). Decoding PDF bytes to a string and
+   * re-encoding
    * destroys the file (invalid UTF-8 → U+FFFD), so unpdf could never
    * parse a PDF that traveled only as `body`; and charset detection must
    * sniff the TRUE bytes, not a UTF-8 re-encode of an already-mangled
@@ -670,52 +732,134 @@ export interface CookieJar {
 }
 
 export function newCookieJar(): CookieJar {
-  // host -> "k=v; k2=v2" (single concatenated string per host)
-  const store = new Map<string, string>();
+  // (§8 audit 2026-11-04) Attribute-aware RFC-6265-lite jar. The old store
+  // keyed by EXACT host and kept only name/value: Domain=-scoped cookies
+  // died on host transitions inside a chain (www → bare), Path-scoped
+  // account cookies rode to unrelated paths (cross-account leakage inside
+  // one redirect chain), a hostile Domain= grant was accepted verbatim,
+  // and expired cookies were replayed. Entries now carry domain/path/
+  // secure attributes, Domain= grants are confined to the setting host's
+  // REGISTRABLE domain (tldts — a public-suffix or cross-site grant is
+  // refused), Max-Age/Expires past values delete, and Secure cookies are
+  // withheld from http: URLs. shortcut: no per-entry expiry timers — the
+  // jar lives for ONE fetchPage call, so time-based expiry inside a
+  // single fetch is noise; re-evaluate only if the jar ever goes
+  // cross-request (it must not: that is the cross-account boundary).
+  interface JarEntry {
+    name: string;
+    value: string;
+    domain: string;
+    hostOnly: boolean;
+    path: string;
+    secure: boolean;
+  }
+  const store: JarEntry[] = [];
 
-  function hostOf(u: string): string {
+  function parseUrl(u: string): URL | null {
     try {
-      return new URL(u).hostname;
+      return new URL(u);
     } catch {
-      return "";
+      return null;
     }
+  }
+
+  function registrable(host: string): string {
+    return tldtsParse(host.toLowerCase()).domain ?? host.toLowerCase();
+  }
+
+  // RFC 6265 §5.1.4 default-path: everything up to (not including) the
+  // last "/", or "/" when the path has no directory segment.
+  function defaultPath(pathname: string): string {
+    const i = pathname.lastIndexOf("/");
+    return i <= 0 ? "/" : pathname.slice(0, i);
+  }
+
+  function pathMatch(cookiePath: string, requestPath: string): boolean {
+    if (cookiePath === "/") return true;
+    if (requestPath === cookiePath) return true;
+    return requestPath.startsWith(cookiePath.endsWith("/") ? cookiePath : cookiePath + "/");
+  }
+
+  function domainMatches(e: JarEntry, host: string): boolean {
+    if (e.hostOnly) return host === e.domain;
+    return host === e.domain || host.endsWith("." + e.domain);
   }
 
   return {
     cookieFor(url: string): string | null {
-      const host = hostOf(url);
-      const val = store.get(host);
-      return val && val.length > 0 ? val : null;
+      const u = parseUrl(url);
+      if (!u) return null;
+      const host = u.hostname;
+      const pathname = u.pathname || "/";
+      const secureCtx = u.protocol === "https:";
+      const matched = store.filter(
+        (e) => (!e.secure || secureCtx) && domainMatches(e, host) && pathMatch(e.path, pathname),
+      );
+      if (matched.length === 0) return null;
+      // Cookie header order (RFC 6265 §5.4): most specific path first;
+      // stable (insertion order) inside equal paths.
+      matched.sort((a, b) => b.path.length - a.path.length);
+      return matched.map((e) => `${e.name}=${e.value}`).join("; ");
     },
     absorb(url: string, setCookie: string[] | string): void {
-      const host = hostOf(url);
-      if (!host) return;
+      const u = parseUrl(url);
+      if (!u || !u.hostname) return;
+      const host = u.hostname;
+      const pathname = u.pathname || "/";
       const pairs = Array.isArray(setCookie) ? setCookie : [setCookie];
-      let current = store.get(host) ?? "";
       for (const sc of pairs) {
-        // Set-Cookie: name=value; Path=/; Expires=...
-        const firstSemi = sc.indexOf(";");
-        const pair = (firstSemi > 0 ? sc.slice(0, firstSemi) : sc).trim();
+        // Set-Cookie: name=value; Path=/; Domain=...; Max-Age=...; Secure
+        const parts = String(sc).split(";");
+        const pair = parts[0].trim();
         const eq = pair.indexOf("=");
         if (eq <= 0) continue;
         const name = pair.slice(0, eq).trim();
         const value = pair.slice(eq + 1).trim();
-        // Empty value = deletion
-        if (value === "") {
-          current = current
-            .split("; ")
-            .filter((s) => !s.startsWith(name + "="))
-            .join("; ");
-          continue;
+        let domain = host;
+        let hostOnly = true;
+        let path = defaultPath(pathname);
+        let secure = false;
+        // Empty value = deletion (RFC-legal); past expiry = deletion too.
+        let remove = value === "";
+        for (const attrRaw of parts.slice(1)) {
+          const s = attrRaw.trim();
+          const ae = s.indexOf("=");
+          const an = (ae > 0 ? s.slice(0, ae) : s).trim().toLowerCase();
+          const av = ae > 0 ? s.slice(ae + 1).trim() : "";
+          if (an === "domain") {
+            const d = av.replace(/^\./, "").toLowerCase();
+            if (!d) continue;
+            // The grant must be a suffix of the setting host AND stay
+            // inside its registrable domain — otherwise this cookie could
+            // ride to a public suffix ("Domain=.co") or to an unrelated
+            // site: that is the cross-account leakage boundary.
+            if (host !== d && !host.endsWith("." + d)) continue;
+            if (registrable(host) !== registrable(d)) continue;
+            domain = d;
+            hostOnly = false;
+          } else if (an === "path") {
+            if (!av.startsWith("/")) continue; // invalid attribute value
+            if (!pathMatch(av, pathname)) continue; // RFC: set-path must match the request path
+            path = av;
+          } else if (an === "secure") {
+            secure = true; // valueless flag attr (HttpOnly is JS-facing only — never a send filter)
+          } else if (an === "max-age") {
+            const n = Number(av);
+            if (Number.isFinite(n) && n <= 0) remove = true;
+          } else if (an === "expires") {
+            const t = Date.parse(av);
+            if (!Number.isNaN(t) && t <= Date.now()) remove = true;
+          }
         }
-        // Replace existing same-name cookie
-        current = current
-          .split("; ")
-          .filter((s) => s.split("=")[0] !== name)
-          .join("; ");
-        current = current ? current + "; " + name + "=" + value : name + "=" + value;
+        // Replace/delete the exact (name, domain, path) triple; same name
+        // under different scopes legitimately coexists.
+        const idx = store.findIndex(
+          (e) => e.name === name && e.domain === domain && e.path === path,
+        );
+        if (idx >= 0) store.splice(idx, 1);
+        if (remove) continue;
+        store.push({ name, value, domain, hostOnly, path, secure });
       }
-      store.set(host, current);
     },
   };
 }
@@ -789,18 +933,28 @@ async function tlsTolerantGet(
             const chunks: Buffer[] = [];
             let total = 0;
             res.on("data", (c: Buffer) => {
-              if (total >= limitBytes) return;
-              chunks.push(c);
-              total += c.length;
+              // Bounded PREFIX during consumption (§8): slice to the cap
+              // instead of pushing whole chunks past it.
+              const room = limitBytes - total;
+              if (room <= 0) return;
+              chunks.push(c.length > room ? c.subarray(0, room) : c);
+              total += Math.min(c.length, room);
             });
             res.on("end", () => {
-              let buf = Buffer.concat(chunks);
+              let buf: Buffer = Buffer.concat(chunks);
               const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
-              try {
-                if (enc.includes("gzip")) buf = gunzipSync(buf);
-                else if (enc.includes("br")) buf = brotliDecompressSync(buf);
-              } catch {
-                /* keep the raw bytes */
+              let bodyText: string;
+              if (enc.includes("gzip")) {
+                const r = gunzipOrKeep(buf, limitBytes);
+                buf = r.bytes;
+                bodyText = r.text; // corrupt gzip ⇒ clean "", never mojibake
+              } else {
+                try {
+                  if (enc.includes("br")) buf = brotliDecompressSync(buf);
+                } catch {
+                  /* keep the raw bytes — br has no magic to distinguish corruption; shortcut: upgrade only if a br-corrupt gov page shows up */
+                }
+                bodyText = buf.toString("utf8");
               }
               // (audit 2026-11-04) Unverified-chain reads are loud, not
               // silent: flag the response and log host+status only (never
@@ -817,7 +971,7 @@ async function tlsTolerantGet(
               finish({
                 status,
                 ok: status >= 200 && status < 400,
-                body: buf.toString("utf8"),
+                body: bodyText,
                 contentType,
                 elapsedMs: Math.round(performance.now() - t0),
                 fingerprint: "chrome",
@@ -932,10 +1086,12 @@ export async function fetchPage(
       const status: number = res.status;
       const rawCookies: string[] =
         Array.from((res.headers as any)?.getSetCookie?.() ?? []) as string[];
+      const impitFinalUrl = String((res as any)?.url ?? url);
 
-      // Absorb cookies so a subsequent retry (or a same-call follow-up)
-      // re-sends the session cookie the site just issued.
-      if (rawCookies.length > 0) jar.absorb(url, rawCookies);
+      // Absorb cookies under the FINAL host so a subsequent retry (or a
+      // same-call follow-up) re-sends the session cookie the site just
+      // issued — never under the entry URL of a chain that changed hosts.
+      if (rawCookies.length > 0) jar.absorb(impitFinalUrl, rawCookies);
 
       const contentType = String(
         (res.headers as any)?.get?.("content-type") ??
@@ -954,7 +1110,7 @@ export async function fetchPage(
 
       // impit follows redirects internally — revalidate the URL it ACTUALLY
       // landed on. An unsafe landing is a dead pass, never a body.
-      const finalUrl = String((res as any)?.url ?? url);
+      const finalUrl = impitFinalUrl;
       if (!isSafeUrl(finalUrl)) {
         if (gotResp) return gotResp;
         return {
@@ -1178,11 +1334,16 @@ export async function fetchWithLinkPreviewBots(
     // Chrome profile (the bot's UA is what the WAF whitelist matches).
     const fp: BrowserFingerprint = "chrome";
     try {
+      // §8 gap fix: this jar used to ABSORB but never RESEED — a session
+      // cookie earned under bot 1 was never replayed for bot 2 (mirrors
+      // the Pass B reseed in fetchPage).
+      const lpCarry = jar.cookieFor(url);
       const res = await tlsClient(fp).fetch(url, {
         method: "GET",
         headers: {
           "User-Agent": bot.userAgent,
           ...bot.headers,
+          ...(lpCarry ? { Cookie: lpCarry } : {}),
         },
         timeout,
       } as any);
@@ -1193,7 +1354,8 @@ export async function fetchWithLinkPreviewBots(
       if (!isSafeUrl(lpFinalUrl)) continue;
       const rawCookies: string[] =
         Array.from((res.headers as any)?.getSetCookie?.() ?? []) as string[];
-      if (rawCookies.length > 0) jar.absorb(url, rawCookies);
+      // Absorb under the FINAL host impit actually landed on.
+      if (rawCookies.length > 0) jar.absorb(lpFinalUrl, rawCookies);
 
       const ok = status >= 200 && status < 400;
       if (!ok) continue; // blocked or server error — try the next bot
