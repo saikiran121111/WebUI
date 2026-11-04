@@ -42,7 +42,14 @@ const ATOMIC_BLOCK_RE =
   /```[\s\S]*?```(?:\n|(?=$))|^\|.*\|(?:\n\|.*\|)*|^\[Structured Page Facts\][\s\S]+?(?=\n\n(?=#|\||```|$))/gm;
 
 export function chunkMarkdown(md: string, target = 2000, overlap = 300): Chunk[] {
-  const cleaned = md.replace(/\r\n/g, "\n");
+  // (brief §11) Source text must never impersonate the chunker's internal
+  // [[ATOMIC_n]] markers: a page containing a literal marker would be
+  // resolved back as a DIFFERENT block's text (cross-block content
+  // injection + chunk-boundary corruption in the BM25 index). Neutralize
+  // foreign markers before Pass 1 creates the real ones.
+  const cleaned = md
+    .replace(/\r\n/g, "\n")
+    .replace(/\[\[ATOMIC_(\d+)\]\]/g, "[ATOMIC_$1]");
   const chunks: Chunk[] = [];
 
   // Pass 1: extract atomic blocks (tables, code fences, structured page facts)
@@ -51,9 +58,17 @@ export function chunkMarkdown(md: string, target = 2000, overlap = 300): Chunk[]
   let placeholderText = cleaned;
   let placeholder = 0;
   const ATOMIC_CAP = 8000; // Max size for a single atomic chunk
+  // (brief §11) total-volume guard: ATOMIC_CAP-sized blocks × an unbounded
+  // block count let one pathological page mint thousands of atomic
+  // chunks. Past the ceiling, remaining blocks stay prose and get sliced
+  // by the normal paragraph path.
+  // shortcut: 200 atomic blocks/page; upgrade only if legitimate content
+  // pages exceed that many tables+fences.
+  const MAX_ATOMIC_BLOCKS = 200;
 
   const processAtomic = (regex: RegExp) => {
     for (const m of cleaned.matchAll(regex)) {
+      if (atomicBlocks.length >= MAX_ATOMIC_BLOCKS) return;
       const blockText = m[0].trim();
       if (blockText.length < 40) continue;
       const capped = blockText.length > ATOMIC_CAP ? blockText.slice(0, ATOMIC_CAP) : blockText;

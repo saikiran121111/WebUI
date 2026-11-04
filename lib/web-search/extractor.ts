@@ -286,9 +286,11 @@ function detectBlock(
  * Post-extraction text gate — catches silent blocks that the DOM pass
  * "cleaned up" but left the challenge wording in. Kept small and cheap:
  * a handful of regexes over the first 2000 chars.
+ * (brief §11) exported for direct regression vectors.
  */
-function detectBlockInText(text: string): BlockVerdict {
+export function detectBlockInText(text: string): BlockVerdict {
   const lower = text.slice(0, 2000).toLowerCase();
+  const signal = text.replace(/\s+/g, " ").trim();
 
   // Silent Cloudflare "Just a moment" that survived the DOM pass.
   // (audit 2026-11-04) head-window only: residue sits at the very start of
@@ -307,25 +309,41 @@ function detectBlockInText(text: string): BlockVerdict {
   for (const re of loginWallPatterns) {
     if (re.test(lower)) return { blocked: true, reason: "Login wall text in extraction" };
   }
-  // CAPTCHA — (audit 2026-11-04) a bare mention in article PROSE is not a
-  // wall: challenge residue sits at the very start of recovered text, so
-  // the bare keyword is checked in the head window only. Quoted wall
-  // strings ("verify you are human") stay page-wide — they don't appear
-  // in editorial content.
+  // CAPTCHA — (brief §11) even the head-window keyword alone was still a
+  // false wall: security explainers, help docs and bot-gate NEWS open
+  // with the word all the time. A SURVIVED challenge is structural: the
+  // challenge copy IS the whole body (thin extraction) or the head pairs
+  // the keyword with a second distinctive challenge phrase. Quoted wall
+  // strings ("verify you are human", "I'm not a robot") stay page-wide —
+  // they never appear in editorial content. HTTP-200 silent challenges
+  // stay rejected: every real challenge page is thin or co-locates a
+  // challenge token beside the keyword.
   const head300 = lower.slice(0, 300);
+  const thin = signal.length < 400;
   if (
-    head300.includes("captcha") ||
+    (head300.includes("captcha") &&
+      (thin || CHALLENGE_HEAD_TOKENS.some((t) => head300.includes(t)))) ||
     lower.includes("verify you are human") ||
     lower.includes("i'm not a robot")
   ) {
     return { blocked: true, reason: "CAPTCHA text in extraction" };
   }
   // Empty JS shell
-  if (text.replace(/\s+/g, " ").trim().length < 100) {
+  if (signal.length < 100) {
     return { blocked: true, reason: "Extraction under 100 meaningful chars (JS shell)" };
   }
   return { blocked: false, reason: "" };
 }
+
+// Distinctive challenge-page phrases only — no generic English ("bot",
+// "security check", "challenge") that editorial prose legitimately uses.
+const CHALLENGE_HEAD_TOKENS = [
+  "unusual traffic",
+  "access denied",
+  "access restricted",
+  "temporarily blocked",
+  "blocked your access",
+];
 
 /**
  * Strip residual WAF challenge / CAPTCHA / "checking your browser"
