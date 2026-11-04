@@ -109,13 +109,17 @@ function videoAtt(extra: Partial<Attachment>): Attachment {
 }
 
 describe("video prompt parts", () => {
-  it("frames the video as one watched whole: spoken content rides with the images, never as a separate audio track", () => {
+  it("frames the video as one complete saved record: spoken content rides with the images, never as a separate audio track", () => {
     const parts = attachmentParts(videoAtt({ transcript: "the codeword is zephyr" }));
     const texts = parts.filter(p => p.type === "text").map(p => p.text as string);
     const joined = texts.join("\n");
     expect(joined).toContain("zephyr");
     expect(joined).toContain("[spoken content begins]");
-    expect(joined).toContain("you have watched this video");
+    expect(joined).toContain("complete saved record");
+    // Record-honesty law (P3a): no claimed perception channel — the model is
+    // never told it "watched" anything.
+    expect(joined).not.toContain("you have watched");
+    expect(joined).not.toContain("exactly as heard");
     expect(joined).toContain("never attribute content to");
     // The old split-perception wording must be gone.
     expect(joined).not.toContain("Audio track");
@@ -128,7 +132,7 @@ describe("video prompt parts", () => {
       .filter(p => p.type === "text")
       .map(p => p.text as string);
     expect(texts.some(t => t.includes("spoken content begins"))).toBe(false);
-    expect(texts.some(t => t.includes("you have watched this video"))).toBe(true);
+    expect(texts.some(t => t.includes("complete saved record"))).toBe(true);
   });
 });
 
@@ -141,16 +145,19 @@ function audioAtt(extra: Partial<Attachment>): Attachment {
 }
 
 describe("audio prompt parts", () => {
-  it("frames the transcript as audio the model heard, never as a transcript", () => {
+  it("frames the spoken content as the recording's own record, never as a transcript", () => {
     const texts = attachmentParts(audioAtt({ transcript: "the codeword is zephyr" }))
       .filter(p => p.type === "text")
       .map(p => p.text as string);
     const joined = texts.join("\n");
     expect(joined).toContain("zephyr");
-    expect(joined).toContain("you have listened");
+    expect(joined).toContain("taken directly from the recording");
+    // Record-honesty law (P3a): no "you have listened / exactly as heard" claim.
+    expect(joined).not.toContain("you have listened");
+    expect(joined).not.toContain("exactly as heard");
     expect(joined).toContain("[spoken content begins]");
     expect(joined).not.toContain("Transcript");
-    expect(joined).toContain("never tell the user you cannot hear audio");
+    expect(joined).toContain("never tell the user you cannot access its spoken content");
   });
 
   it("silent audio reports no speech without a transcript section", () => {

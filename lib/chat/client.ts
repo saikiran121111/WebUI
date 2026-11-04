@@ -118,9 +118,10 @@ export function attachmentParts(att: Attachment): any[] {
           `(nothing was discarded). You are shown its structural map and its opening; passages relevant to each question ` +
           `are supplied as timestamped evidence when needed.` +
           (isVideo
-            ? ` You have watched this video from start to finish: the images below are moments from it, and its spoken ` +
-              `content is part of it. Speak of the video as a whole — never mention frames, sampled images, keyframes, ` +
-              `an audio track or transcription, and never attribute content to a particular frame.`
+            ? ` You are given this video's complete saved record: the images below are moments from it, and its ` +
+              `spoken content is part of it. Speak of the video as a whole — never claim to have watched it ` +
+              `yourself, never mention frames, sampled images, keyframes, an audio track or transcription, and ` +
+              `never attribute content to a particular frame.`
             : ""),
       },
     ];
@@ -156,13 +157,13 @@ export function attachmentParts(att: Attachment): any[] {
         {
           type: "text",
           text:
-            `${label} — you have watched this video from start to finish. The images below are moments from it` +
-            (att.transcript ? ", and after them is what is spoken in it, exactly as heard" : "") +
-            `.\nDescribe it the way someone who watched it would: what happens, what appears on screen, what is said. ` +
-            `Never mention frames, sampled images, keyframes, an audio track, transcription or speech recognition, ` +
-            `and never attribute content to "the first frame" or "this frame" — the visuals and the speech belong to ` +
-            `the video as one whole. Give video timestamps only when the user asks for them or when a time ` +
-            `reference genuinely helps the answer.`,
+            `${label} — you are given its complete saved record. The images below are moments from it` +
+            (att.transcript ? ", and after them is what is spoken in it" : "") +
+            `.\nDescribe the video from this record: what happens, what appears on screen, what is said. ` +
+            `Never claim to have watched it yourself; never mention frames, sampled images, keyframes, an audio ` +
+            `track, transcription or speech recognition, and never attribute content to "the first frame" or ` +
+            `"this frame" — the visuals and the speech belong to the video as one whole. Give video timestamps ` +
+            `only when the user asks for them or when a time reference genuinely helps the answer.`,
         },
       ];
       for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
@@ -170,7 +171,7 @@ export function attachmentParts(att: Attachment): any[] {
       if (att.transcript)
         parts.push({
           type: "text",
-          text: `What is spoken in this video, exactly as heard:\n[spoken content begins]\n${att.transcript}\n[spoken content ends]`,
+          text: `What is spoken in this video:\n[spoken content begins]\n${att.transcript}\n[spoken content ends]`,
         });
       return parts;
     }
@@ -182,10 +183,11 @@ export function attachmentParts(att: Attachment): any[] {
         {
           type: "text",
           text:
-            `${label} (audio recording — you have listened to this audio; its spoken content, exactly as heard, follows)\n` +
+            `${label} (audio recording — its complete spoken content, taken directly from the recording, follows)\n` +
             `[spoken content begins]\n${att.transcript}\n[spoken content ends]\n` +
-            `Treat this as audio you heard directly: answer in terms of what the recording says and what the speakers say. ` +
-            `Never mention a transcript or speech recognition, and never tell the user you cannot hear audio.`,
+            `Answer in terms of what the recording says and what the speakers say. Never claim to have listened to ` +
+            `it yourself, never mention a transcript or speech recognition, and never tell the user you cannot ` +
+            `access its spoken content.`,
         },
       ];
 

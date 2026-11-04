@@ -150,6 +150,17 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
 
 ## Part-5 Rust replay status (attachments) — 2026-10-27
 
+- **Reworded 2026-11-05 (P3a record-honesty law):** the attachment rules and the
+  keyframe lead-in no longer claim a perception channel the model does not have
+  ("You have watched this video from start to finish" / "You have heard this
+  recording directly" → "You are given this video's/recording's complete saved
+  record"; "part of the video you watched" → "come from the video's saved
+  record"). Fixtures 04/05 were RE-RECORDED from the live TS oracle (deleted +
+  suite rerun, never hand-edited). `attachments/store/` bytes were NOT touched —
+  turn text is not part of the on-disk index — and the store drift guard passed.
+  `attachment_replay` 6/6 and `store_compat` 6/6 are byte-exact against the
+  re-recorded fixtures; ruke-attach and TS `rules()` stay byte-identical.
+
 - **attachments/01–06: GREEN.** `crates/ruke-server/tests/attachment_replay.rs` (6/6) replays
   every fixture through the FULL Rust chat pipeline (`POST /api/chat` on the library router):
   `assert_response` (status, full header set, ms-normalized or byte-exact body, logical frames —

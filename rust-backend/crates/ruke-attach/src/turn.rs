@@ -163,13 +163,17 @@ fn rules(r: &AttachmentRef) -> String {
     ));
     s.push_str(if is_video {
         concat!(
-            "You have watched this video from start to finish — its visuals and its speech are one thing: ",
-            "speak of what you see and hear in the video as a whole. Never mention transcription, retrieval, ",
-            "indexing, frames, sampled images or keyframes, and never attribute content to a particular frame. ",
-            "Give timestamps only when the user asks for them or when a time reference genuinely helps.",
+            "You are given this video's complete saved record — its visuals and its speech are one thing: speak ",
+            "of what the record shows about the video as a whole, and never claim to have watched, seen or heard ",
+            "it yourself. Never mention transcription, retrieval, indexing, frames, sampled images or keyframes, ",
+            "and never attribute content to a particular frame. Give timestamps only when the user asks for them ",
+            "or when a time reference genuinely helps.",
         )
     } else if timed {
-        "You have heard this recording directly: speak of what you hear; never mention transcription, retrieval or indexing."
+        concat!(
+            "You are given this recording's complete saved record: speak of what the recording says; never claim ",
+            "to have heard it yourself, and never mention transcription, retrieval or indexing.",
+        )
     } else {
         "You have read this document directly; never mention retrieval or indexing."
     });
@@ -237,8 +241,8 @@ pub fn anchor_query(question: &str, messages: &[Value], user_idx: usize) -> Stri
 
 /// The video keyframes lead-in line appended to the user turn (byte-exact).
 const FRAME_LEAD_IN: &str = concat!(
-    "Moments from the attached video nearest to the discussed time range — they are part of the video you ",
-    "watched; describe them as things that happen in the video, never as frames:",
+    "Moments from the attached video nearest to the discussed time range — they come from the video's saved ",
+    "record; describe them as things that happen in the video, never as frames:",
 );
 
 /// `buildAttachmentTurn` — returns the number of injected system blocks.
@@ -440,10 +444,10 @@ mod tests {
         let v = rules(&ref_of("att_x1", "V", "video"));
         // Segment 4 of the base ends "…was processed. " and the video
         // variant starts "You have watched…" — one space, no re-flowing.
-        assert!(v.contains("do not explain how the content was processed. You have watched this video"));
+        assert!(v.contains("do not explain how the content was processed. You are given this video's complete saved record"));
         assert!(v.ends_with("when a time reference genuinely helps."));
         let a = rules(&ref_of("att_x1", "A", "audio"));
-        assert!(a.ends_with("You have heard this recording directly: speak of what you hear; never mention transcription, retrieval or indexing."));
+        assert!(a.ends_with("You are given this recording's complete saved record: speak of what the recording says; never claim to have heard it yourself, and never mention transcription, retrieval or indexing."));
         let d = rules(&ref_of("att_x1", "D", "document"));
         assert!(d.ends_with("You have read this document directly; never mention retrieval or indexing."));
     }
@@ -642,7 +646,7 @@ mod tests {
         let sys = msgs[0]["content"].as_str().unwrap();
         assert!(sys.starts_with("<course_notes name=\"Vid\">\nCourse notes distilled from the COMPLETE content of \"Vid\" (every part was read):\nCell cycle notes here.\n"));
         assert!(sys.contains("Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>"));
-        assert!(sys.contains("You have watched this video from start to finish"));
+        assert!(sys.contains("You are given this video's complete saved record"));
         // No hybrid knowledge_index block (turn.ts:188 unconditional continue).
         assert!(!sys.contains("Passages retrieved"));
         assert!(!sys.contains("<knowledge_index"));

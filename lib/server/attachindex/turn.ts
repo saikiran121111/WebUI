@@ -87,6 +87,11 @@ function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; a
   return out;
 }
 
+// Record-honesty law (P3a 2026-11-05): the model is handed the attachment's
+// saved record, never the experience of watching or hearing it — so the rules
+// forbid claiming a perception channel the model does not have, while keeping
+// the internal machinery invisible to the user. ⇔ ruke-attach turn.rs rules()
+// must stay byte-identical (golden attachment_replay forwards these bytes).
 function rules(ref: AttachmentRef): string {
   const isVideo = ref.category === "video";
   const timed = isVideo || ref.category === "audio";
@@ -96,12 +101,14 @@ function rules(ref: AttachmentRef): string {
     "If the question concerns a time range or section NOT present below, state that you cannot see that part of the " +
     "content clearly enough to answer it — do not guess, and do not explain how the content was processed. " +
     (isVideo
-      ? "You have watched this video from start to finish — its visuals and its speech are one thing: speak of what " +
-        "you see and hear in the video as a whole. Never mention transcription, retrieval, indexing, frames, sampled " +
-        "images or keyframes, and never attribute content to a particular frame. Give timestamps only when the user " +
-        "asks for them or when a time reference genuinely helps."
+      ? "You are given this video's complete saved record — its visuals and its speech are one thing: speak of what " +
+        "the record shows about the video as a whole, and never claim to have watched, seen or heard it yourself. " +
+        "Never mention transcription, retrieval, indexing, frames, sampled images or keyframes, and never attribute " +
+        "content to a particular frame. Give timestamps only when the user asks for them or when a time reference " +
+        "genuinely helps."
       : timed
-        ? "You have heard this recording directly: speak of what you hear; never mention transcription, retrieval or indexing."
+        ? "You are given this recording's complete saved record: speak of what the recording says; never claim to " +
+          "have heard it yourself, and never mention transcription, retrieval or indexing."
         : "You have read this document directly; never mention retrieval or indexing.")
   );
 }
@@ -229,8 +236,8 @@ export async function buildAttachmentTurn(
       parts.push({
         type: "text",
         text:
-          "Moments from the attached video nearest to the discussed time range — they are part of the video you " +
-          "watched; describe them as things that happen in the video, never as frames:",
+          "Moments from the attached video nearest to the discussed time range — they come from the video's saved " +
+          "record; describe them as things that happen in the video, never as frames:",
       });
       for (const img of images) parts.push({ type: "image_url", image_url: { url: img.url } });
       msg.content = parts;
