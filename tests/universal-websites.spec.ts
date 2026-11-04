@@ -284,6 +284,14 @@ const CASES: Case[] = [
   { name: "BookMyShow", prompt: "What movies are showing in Hyderabad this week on BookMyShow?", mustMention: "bookmyshow", hostHint: /bookmyshow|bmshow/i, learnedProof: /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|showtimes?|now showing|screens?\b|₹\s?\d/i },
   { name: "Zomato", prompt: "What are the top rated restaurants in Hyderabad on Zomato?", mustMention: "zomato", hostHint: /zomato/i, learnedProof: /★|\b\d(?:\.\d)?\s*\/\s*5\b|\b\d(?:\.\d)?\s*reviews?\b|₹/i },
 
+  // 1b. Travel boards — proof that the generic gate + three-branch
+  // proof law work on brands with NO routing-table affinity anywhere
+  // (user-requested universality fixtures; names in fixtures are
+  // legitimate expectations, not routing — universality law).
+  { name: "Goibibo", prompt: "What are the cheapest flight fares from Hyderabad to Delhi this week on Goibibo?", mustMention: "goibibo", hostHint: /goibibo/i, learnedProof: /₹\s?\d|rs\.?\s?\d/i },
+  { name: "Trivago", prompt: "What are hotel prices in Hyderabad on Trivago?", mustMention: "trivago", hostHint: /trivago/i, learnedProof: /₹\s?\d|rs\.?\s?\d|\$\s?\d/i },
+  { name: "RedBus", prompt: "What bus options are there from Hyderabad to Bangalore tonight on RedBus?", mustMention: "redbus", hostHint: /redbus/i, learnedProof: /₹\s?\d|\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/i },
+
   // 2. The 3 original regression cases
   { name: "YouTube short link", prompt: "https://youtu.be/zinbNw7L8xI — who won the battle of video generating in this video?", mustMentionPattern: /ltx|minimax/i, hostHint: /youtu|google/i, learnedProof: /ltx|mini ?max/i },
   { name: "Google Maps short link", prompt: "https://maps.app.goo.gl/pDMFFw4XaSzNJhgW6 — which location is this?", mustMention: "map", hostHint: /goo\.gl|google/i, linkResolvedProof: true },
