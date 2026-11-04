@@ -62,7 +62,10 @@ pub fn repo_root() -> PathBuf {
 /// `__tests__/rust-golden/store-fixture.test.ts`. Never regenerated or
 /// edited on the Rust side; the §27 tests copy these VERBATIM.
 pub fn store_fixture_dir(att_id: &str) -> PathBuf {
-    fixtures_dir().join("attachments").join("store").join(att_id)
+    fixtures_dir()
+        .join("attachments")
+        .join("store")
+        .join(att_id)
 }
 
 /// Byte-for-byte recursive directory copy (fixture bytes -> live store dir).
@@ -83,7 +86,8 @@ pub fn load_fixture(rel: &str) -> Value {
     let path = fixtures_dir().join(rel);
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read fixture {}: {e}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("bad fixture JSON {}: {e}", path.display()))
+    serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("bad fixture JSON {}: {e}", path.display()))
 }
 
 /// Fresh server state beside the REAL repo root (skill blocks must load from
@@ -111,13 +115,20 @@ pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
         // present so AppState matches the production shape. The web
         // runtime likewise exists only for shape parity — the gate
         // short-circuit above means replay never runs it.
-        titles: Arc::new(TitleQueue::new(store, slot, Arc::new(UnconfiguredTitleModel))),
-        web: Arc::new(ruke_server::WebRuntime {
-            net: ruke_websearch::net::RealNet,
-            cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
-            verticals: ruke_websearch::platform_api::RealVerticals,
-            bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
-        }),
+        titles: Arc::new(TitleQueue::new(
+            store,
+            slot,
+            Arc::new(UnconfiguredTitleModel),
+        )),
+        // No loopback bridge in integration tests: research/discovery
+        // short-circuit honestly (never touch the network).
+        next_search: None,
+        // Shape parity again: BrowserRuntime is lazy (boots nothing), and
+        // replay never issues a browser command — its root is the temp dir
+        // so no profile dir is ever created beside the real repo.
+        browser: Arc::new(ruke_browser::engine::BrowserRuntime::new(
+            tmp.path().to_path_buf(),
+        )),
     };
     if let Some((url, key)) = upstream {
         state.settings.set_upstream_override(url, key);
@@ -267,11 +278,18 @@ fn push_event(ev: &str, frames: &mut Vec<Value>, done: &mut bool) {
 /// `bodyMsNormalized` instead), and the logical frame sequence + tail.
 pub fn assert_response(fixture: &Value, rel: &str, status: u16, headers: &HeaderMap, bytes: &[u8]) {
     let resp = &fixture["response"];
-    assert_eq!(status, resp["status"].as_u64().unwrap() as u16, "{rel}: status");
+    assert_eq!(
+        status,
+        resp["status"].as_u64().unwrap() as u16,
+        "{rel}: status"
+    );
 
     let mut got: BTreeMap<String, String> = BTreeMap::new();
     for (k, v) in headers {
-        got.insert(k.as_str().to_ascii_lowercase(), v.to_str().unwrap().to_string());
+        got.insert(
+            k.as_str().to_ascii_lowercase(),
+            v.to_str().unwrap().to_string(),
+        );
     }
     let want: BTreeMap<String, String> = resp["headers"]
         .as_object()
@@ -284,10 +302,21 @@ pub fn assert_response(fixture: &Value, rel: &str, status: u16, headers: &Header
     let text = String::from_utf8_lossy(bytes).into_owned();
     let body = &resp["body"];
     if let Some(norm) = body.get("bodyMsNormalized") {
-        assert_eq!(normalize_body_ms(&text), norm.as_str().unwrap(), "{rel}: bodyMsNormalized");
+        assert_eq!(
+            normalize_body_ms(&text),
+            norm.as_str().unwrap(),
+            "{rel}: bodyMsNormalized"
+        );
     } else if let Some(lossy) = body.get("utf8Lossy") {
-        assert!(body.get("base64").is_none(), "{rel}: this corpus records no base64 byte fixtures");
-        assert_eq!(bytes, lossy.as_str().unwrap().as_bytes(), "{rel}: byte-exact body");
+        assert!(
+            body.get("base64").is_none(),
+            "{rel}: this corpus records no base64 byte fixtures"
+        );
+        assert_eq!(
+            bytes,
+            lossy.as_str().unwrap().as_bytes(),
+            "{rel}: byte-exact body"
+        );
     }
 
     let (frames, done, tail) = parse_logical(&text);
@@ -296,8 +325,52 @@ pub fn assert_response(fixture: &Value, rel: &str, status: u16, headers: &Header
         fixture["logicalFrames"].clone(),
         "{rel}: logical frames"
     );
-    assert_eq!(done, fixture["streamDone"].as_bool().unwrap(), "{rel}: streamDone");
-    assert_eq!(tail, fixture["unterminatedTail"].as_str().unwrap(), "{rel}: tail");
+    assert_eq!(
+        done,
+        fixture["streamDone"].as_bool().unwrap(),
+        "{rel}: streamDone"
+    );
+    assert_eq!(
+        tail,
+        fixture["unterminatedTail"].as_str().unwrap(),
+        "{rel}: tail"
+    );
+}
+
+/// P1 (2026-11-01) golden harness: the chat pipeline injects a
+/// `<runtime_clock>` system block whose content carries the LIVE wall-clock
+/// line. Wall-clock text is volatile, so the TS recorder masks the block
+/// content when writing fixtures (`maskRuntimeClock` in
+/// __tests__/rust-golden/support/golden.ts); the replay applies the
+/// IDENTICAL textual mask to its captured body before the byte-identical
+/// comparison. Everything else in the forwarded body stays byte-pinned, and
+/// the clock TEXT itself is pinned by ruke-server's chat/clock.rs unit tests.
+/// Rule: replace each `<runtime_clock>…</runtime_clock>` span (nearest
+/// closing tag) with `<runtime_clock>MASKED</runtime_clock>`; an unterminated
+/// opening tag is left verbatim (the TS regex then matches nothing).
+pub fn mask_runtime_clock(body: &str) -> String {
+    const TAG: &str = "<runtime_clock>";
+    const END: &str = "</runtime_clock>";
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(i) = rest.find(TAG) {
+        out.push_str(&rest[..i + TAG.len()]);
+        let after = &rest[i + TAG.len()..];
+        match after.find(END) {
+            // The closing tag stays in `rest` and is re-emitted by the next
+            // prefix/final copy (`</runtime_clock>` never re-matches TAG).
+            Some(j) => {
+                out.push_str("MASKED");
+                rest = &after[j..];
+            }
+            None => {
+                out.push_str(after);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Assert the recorded upstream request contract. The recorded URL's host is
@@ -307,7 +380,11 @@ pub fn assert_upstream_call(fixture: &Value, rel: &str, calls: &[RecordedCall]) 
     let want = fixture["upstreamCalls"].as_array().unwrap();
     assert_eq!(calls.len(), want.len(), "{rel}: upstream call count");
     for (c, w) in calls.iter().zip(want) {
-        assert_eq!(c.method, w["method"].as_str().unwrap(), "{rel}: upstream method");
+        assert_eq!(
+            c.method,
+            w["method"].as_str().unwrap(),
+            "{rel}: upstream method"
+        );
         assert_eq!(c.path, "/v1/chat/completions", "{rel}: upstream path");
         for (k, v) in w["headers"].as_object().unwrap() {
             assert_eq!(
@@ -346,16 +423,30 @@ pub struct Script {
 
 impl Script {
     pub fn stream(chunks: Vec<Vec<u8>>) -> Self {
-        Self { chunks, ..Default::default() }
+        Self {
+            chunks,
+            ..Default::default()
+        }
     }
     pub fn http_error(status: u16, err_text: &str) -> Self {
-        Self { status: Some(status), chunks: vec![err_text.as_bytes().to_vec()], ..Default::default() }
+        Self {
+            status: Some(status),
+            chunks: vec![err_text.as_bytes().to_vec()],
+            ..Default::default()
+        }
     }
     pub fn no_body() -> Self {
-        Self { no_body_status: Some(204), ..Default::default() }
+        Self {
+            no_body_status: Some(204),
+            ..Default::default()
+        }
     }
     pub fn hold(chunks: Vec<Vec<u8>>, abort_flag: Arc<AtomicBool>) -> Self {
-        Self { chunks, hold_until_abort: Some(abort_flag), ..Default::default() }
+        Self {
+            chunks,
+            hold_until_abort: Some(abort_flag),
+            ..Default::default()
+        }
     }
 }
 
@@ -392,7 +483,10 @@ impl MockUpstream {
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        Self { base: format!("http://{addr}"), inner }
+        Self {
+            base: format!("http://{addr}"),
+            inner,
+        }
     }
 
     pub fn url(&self) -> String {
@@ -411,12 +505,19 @@ async fn upstream_handle(State(inner): State<Arc<Inner>>, req: Request) -> Respo
         headers: req
             .headers()
             .iter()
-            .map(|(k, v)| (k.as_str().to_ascii_lowercase(), v.to_str().unwrap_or("").to_string()))
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_ascii_lowercase(),
+                    v.to_str().unwrap_or("").to_string(),
+                )
+            })
             .collect(),
         body_text: None,
     };
-    let body = axum::body::to_bytes(req.into_body(), 32_000_000).await.unwrap_or_default();
-    call.body_text = std::str::from_utf8(&body).ok().map(str::to_string);
+    let body = axum::body::to_bytes(req.into_body(), 32_000_000)
+        .await
+        .unwrap_or_default();
+    call.body_text = std::str::from_utf8(&body).ok().map(mask_runtime_clock);
     inner.calls.lock().unwrap().push(call);
 
     let script = inner
@@ -429,14 +530,24 @@ async fn upstream_handle(State(inner): State<Arc<Inner>>, req: Request) -> Respo
         return Response::builder().status(st).body(Body::empty()).unwrap();
     }
     let status = StatusCode::from_u16(script.status.unwrap_or(200)).unwrap();
-    let ct = script.content_type.unwrap_or_else(|| "text/event-stream".to_string());
+    let ct = script
+        .content_type
+        .unwrap_or_else(|| "text/event-stream".to_string());
     let body = match script.hold_until_abort {
         Some(flag) => Body::from_stream(HoldStream {
-            pending: script.chunks.into_iter().map(Bytes::from).collect::<Vec<_>>().into_iter(),
+            pending: script
+                .chunks
+                .into_iter()
+                .map(Bytes::from)
+                .collect::<Vec<_>>()
+                .into_iter(),
             flag,
         }),
         None => Body::from_stream(futures_util::stream::iter(
-            script.chunks.into_iter().map(|c| Ok::<_, std::io::Error>(Bytes::from(c))),
+            script
+                .chunks
+                .into_iter()
+                .map(|c| Ok::<_, std::io::Error>(Bytes::from(c))),
         )),
     };
     Response::builder()
@@ -493,10 +604,13 @@ pub async fn post_chat(state: &AppState, raw_body: &str) -> (u16, HeaderMap, Vec
     .unwrap();
     let status = resp.status().as_u16();
     let headers = resp.headers().clone();
-    let bytes = tokio::time::timeout(Duration::from_secs(20), axum::body::to_bytes(resp.into_body(), 1_000_000))
-        .await
-        .expect("chat body hung")
-        .unwrap();
+    let bytes = tokio::time::timeout(
+        Duration::from_secs(20),
+        axum::body::to_bytes(resp.into_body(), 1_000_000),
+    )
+    .await
+    .expect("chat body hung")
+    .unwrap();
     (status, headers, bytes.to_vec())
 }
 
@@ -520,8 +634,14 @@ pub fn split_chunks(data: &[u8], at: &[usize]) -> Vec<Vec<u8>> {
 /// Rule 6: the inference slot released exactly once after a replay.
 pub async fn assert_slot_idle(state: &AppState, rel: &str) {
     assert!(
-        state.slot.wait_for_user_idle(Duration::from_secs(5), Duration::from_millis(10)).await,
+        state
+            .slot
+            .wait_for_user_idle(Duration::from_secs(5), Duration::from_millis(10))
+            .await,
         "{rel}: inference slot never released"
     );
-    assert!(!state.slot.user_turn_active(), "{rel}: slot active after idle wait");
+    assert!(
+        !state.slot.user_turn_active(),
+        "{rel}: slot active after idle wait"
+    );
 }

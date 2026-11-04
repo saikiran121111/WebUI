@@ -58,7 +58,9 @@ fn user_turn_text(m: &Value) -> String {
 
 /// `buildTranscript`: user/assistant turns only, blank turns dropped.
 pub fn build_transcript(messages: &Value) -> Vec<TranscriptTurn> {
-    let Some(arr) = messages.as_array() else { return Vec::new() };
+    let Some(arr) = messages.as_array() else {
+        return Vec::new();
+    };
     let mut turns = Vec::new();
     for m in arr {
         // `'static` literals (not the borrowed match string) so
@@ -76,7 +78,10 @@ pub fn build_transcript(messages: &Value) -> Vec<TranscriptTurn> {
                 None | Some(Value::Null) => String::new(),
                 Some(v) => jsstr::js_to_string(v),
             };
-            jsstr::js_slice_head(jsstr::js_trim(&jsstr::js_collapse(&raw)), ASSISTANT_TURN_CHARS)
+            jsstr::js_slice_head(
+                jsstr::js_trim(&jsstr::js_collapse(&raw)),
+                ASSISTANT_TURN_CHARS,
+            )
         };
         if text.is_empty() {
             continue;
@@ -137,14 +142,16 @@ mod tests {
 
     #[test]
     fn roles_filtered_and_blanks_dropped() {
-        let m = msgs(r#"[
+        let m = msgs(
+            r#"[
             {"role":"system","content":"sys prompt"},
             {"role":"tool","content":"tool out"},
             {"role":"user","content":"   "},
             {"role":"assistant","content":"  "},
             {"role":"user","content":"real question"},
             {"role":"assistant","content":"  lots   of\n\n spaces  "}
-        ]"#);
+        ]"#,
+        );
         let t = build_transcript(&m);
         assert_eq!(t.len(), 2);
         assert_eq!(t[0].role, "user");
@@ -156,10 +163,14 @@ mod tests {
     #[test]
     fn assistant_content_stringification_parity() {
         // Null and absent content ⇒ "" ⇒ dropped (NOT "null").
-        let t = build_transcript(&msgs(r#"[{"role":"assistant"},{"role":"assistant","content":null}]"#));
+        let t = build_transcript(&msgs(
+            r#"[{"role":"assistant"},{"role":"assistant","content":null}]"#,
+        ));
         assert!(t.is_empty());
         // Numbers/arrays stringify via js_to_string.
-        let t = build_transcript(&msgs(r#"[{"role":"assistant","content":42},{"role":"assistant","content":[1,null,"x"]}]"#));
+        let t = build_transcript(&msgs(
+            r#"[{"role":"assistant","content":42},{"role":"assistant","content":[1,null,"x"]}]"#,
+        ));
         assert_eq!(t[0].text, "42");
         // JS Array.prototype.toString = join(","): null/undefined render as
         // the EMPTY string ("1,,x"), not "null"/"undefined".
@@ -170,11 +181,13 @@ mod tests {
 
     #[test]
     fn user_turn_attachment_note_and_parts() {
-        let t = build_transcript(&msgs(r#"[{
+        let t = build_transcript(&msgs(
+            r#"[{
             "role":"user",
             "content":[{"text":"  ","attachments":[]},{"text":"build \n\n this","other":1}],
             "attachments":[{"name":"spec.md"},{"name":""},{"nope":1},{"name":"img.png"}]
-        }]"#));
+        }]"#,
+        ));
         assert_eq!(t[0].text, "build this [attached: spec.md, img.png]");
     }
 
@@ -185,15 +198,23 @@ mod tests {
         let long = "\u{1D54F}".repeat(300); // 600 units
         let t = build_transcript(&msgs(&format!(r#"[{{"role":"user","content":"{long}"}}]"#)));
         assert_eq!(jsstr::js_len(&t[0].text), 500);
-        let a = build_transcript(&msgs(&format!(r#"[{{"role":"assistant","content":"{long}"}}]"#)));
+        let a = build_transcript(&msgs(&format!(
+            r#"[{{"role":"assistant","content":"{long}"}}]"#
+        )));
         assert_eq!(jsstr::js_len(&a[0].text), 400);
     }
 
     #[test]
     fn chars_format_and_chunking() {
         let turns = vec![
-            TranscriptTurn { role: "user", text: "aa".into() },      // 2+4+3 = 9
-            TranscriptTurn { role: "assistant", text: "bbb".into() }, // 3+9+3 = 15
+            TranscriptTurn {
+                role: "user",
+                text: "aa".into(),
+            }, // 2+4+3 = 9
+            TranscriptTurn {
+                role: "assistant",
+                text: "bbb".into(),
+            }, // 3+9+3 = 15
         ];
         assert_eq!(transcript_chars(&turns), 24);
         assert_eq!(format_transcript(&turns), "user: aa\nassistant: bbb");
@@ -204,7 +225,10 @@ mod tests {
         assert_eq!(chunks[1][0].role, "assistant");
 
         // Oversized turn alone; empty input ⇒ no chunks (never an empty first chunk).
-        let big = vec![TranscriptTurn { role: "assistant", text: "z".repeat(100) }];
+        let big = vec![TranscriptTurn {
+            role: "assistant",
+            text: "z".repeat(100),
+        }];
         let chunks = chunk_turns(&big, 10);
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].len(), 1);

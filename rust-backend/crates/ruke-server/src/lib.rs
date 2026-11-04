@@ -19,17 +19,22 @@
 //!   skills — mounted under the Rust-only `/api/ruke/*` namespace for the
 //!   same reason: the plain paths stay Next-owned until the Part 8
 //!   cutover, and the guard test below pins that.
-//! - Part 8 (cutover support): the chat web-research seam is LIVE — the
-//!   pipeline now runs the full `ruke-websearch` gate/retrieval flow and
-//!   wires the `web:<stage>` frames, the `web_meta` frame, and the
-//!   citation/gate header pair exactly like `app/api/chat/route.ts`. The
-//!   search pair and the decision route join the namespace (`GET
-//!   /api/ruke/search`, `POST /api/ruke/search-more`, `POST
-//!   /api/ruke/decision`); the production cutover is env-gated inside the
-//!   Next routes (`scripts/dev-supervisor.mjs` exports
-//!   `RUKE_RUST_BACKEND=1`; unset ⇒ the TS handler runs verbatim), so the
-//!   plain paths still stay Next-owned ON THIS SERVER and the guard test
-//!   below keeps pinning that.
+//! - Part 8 (cutover support; amended by the 2026-11-03 TS-ownership
+//!   rollback): the chat web-research seam is LIVE but TS-OWNED — the
+//!   pipeline drives the Next-owned research/tool services over the
+//!   loopback bridge ([`chat::next_search`]) and wires the `web:<stage>`
+//!   frames, the `web_meta` frame, and the citation/gate header pair
+//!   exactly like `app/api/chat/route.ts`. ALL web search (gate,
+//!   retrieval, extraction, citations, tool sessions) executes in the
+//!   Node process even under RUKE_RUST_BACKEND=1; the retired
+//!   `/api/ruke/search` + `/api/ruke/search-more` pair is GONE (the Next
+//!   search routes no longer proxy to Rust at all). The decision route
+//!   joins the namespace (`POST /api/ruke/decision`); the production
+//!   cutover is env-gated inside the Next routes
+//!   (`scripts/dev-supervisor.mjs` exports `RUKE_RUST_BACKEND=1`; unset
+//!   ⇒ the TS handler runs verbatim), so the plain paths still stay
+//!   Next-owned ON THIS SERVER and the guard test below keeps pinning
+//!   that.
 //!
 //! Rule 17 observability: all logs go through `tracing` with explicit
 //! fields. Never log: API keys / Authorization headers, settings.json
@@ -48,29 +53,19 @@ use serde_json::json;
 use ruke_core::{settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
 
 pub mod attach_notes;
+pub mod browser_routes;
 pub mod chat;
 pub mod conversations_routes;
 pub mod decision_routes;
+pub mod ipc;
 pub mod model_stats;
 pub mod persistence;
-pub mod search_routes;
 pub mod settings_routes;
 pub mod skills_install;
 pub mod skills_routes;
+pub mod task_scope;
 pub mod titles;
-
-/// Part 8: the web-research runtime (`ruke-websearch`), shared by the
-/// chat seam and the search pair. Mirrors the TS module singletons: the
-/// real `Net`, the SQLite search cache, the platform verticals, and the
-/// Tier-3b browser-read bridge (`NoBrowserBridge` when the supervisor
-/// did not wire a Next-hosted hop — page reads then degrade exactly like
-/// the TS path with no Playwright pool).
-pub struct WebRuntime {
-    pub net: ruke_websearch::net::RealNet,
-    pub cache: Arc<ruke_websearch::cache::SqliteSearchCache>,
-    pub verticals: ruke_websearch::platform_api::RealVerticals,
-    pub bridge: Arc<dyn ruke_websearch::browser_bridge::BrowserBridge>,
-}
+pub mod url_detector;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -98,8 +93,18 @@ pub struct AppState {
     /// (`titles::queue`), coalescing per-conversation jobs onto the
     /// shared inference slot.
     pub titles: Arc<titles::queue::TitleQueue>,
-    /// Part 8: the web-research runtime (chat seam + search pair).
-    pub web: Arc<WebRuntime>,
+    /// TS-ownership rollback (2026-11-03): loopback client to the
+    /// Next-owned web research / web-tool services ([`chat::next_search`]).
+    /// Unset (the bridge env pair absent) ⇒ research and destination
+    /// discovery honestly degrade — turns proceed without web evidence,
+    /// tool rounds receive explicit error envelopes. There is NO
+    /// Rust-side search fallback.
+    pub next_search: Option<chat::next_search::NextSearchBridge>,
+    /// Browser Use (Phase 2): the long-lived browser runtime — one shared
+    /// Chromium launched lazily on the first browser command. Tests only
+    /// construct it (lazy = nothing launches; short-circuit routes never
+    /// touch it).
+    pub browser: Arc<ruke_browser::engine::BrowserRuntime>,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -139,19 +144,45 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/ruke/model-stats", get(model_stats::model_stats_get))
         .route("/api/ruke/skills", get(skills_routes::skills_get))
-        .route("/api/ruke/skills/install", post(skills_install::skills_install_post))
-        .route("/api/ruke/skills/{skillName}", delete(skills_routes::skill_delete))
+        .route(
+            "/api/ruke/skills/install",
+            post(skills_install::skills_install_post),
+        )
+        .route(
+            "/api/ruke/skills/{skillName}",
+            delete(skills_routes::skill_delete),
+        )
         .route(
             "/api/ruke/skills/{skillName}/scenario",
             patch(skills_routes::scenario_patch),
         )
-        // Part 8: the search pair + decision route under the same
-        // Rust-only namespace. Next proxies its plain paths here ONLY
-        // when the supervisor exports RUKE_RUST_BACKEND=1; the plain
-        // paths stay Next-owned on this server (guard test below).
-        .route("/api/ruke/search", get(search_routes::search_get))
-        .route("/api/ruke/search-more", post(search_routes::search_more_post))
+        // Part 8: the decision route under the Rust-only namespace. The
+        // retired search pair is GONE (2026-11-03 TS-ownership rollback:
+        // web search runs exclusively in the Node process; the Next
+        // routes no longer proxy to this server). Plain paths stay
+        // Next-owned on this server (guard test below).
         .route("/api/ruke/decision", post(decision_routes::decision_post))
+        // Browser Use (Phase 2): the command RPC for the browser panel /
+        // tool loop. Errors ride the wire contract with HTTP 200; only
+        // auth failures use a status code (browser_routes.rs).
+        .route(
+            "/api/ruke/browser/command",
+            post(browser_routes::command_post),
+        )
+        // Browser Panel socket (Phase 3): ticket mint is bridge-authed;
+        // the WS itself admits on Origin + one-shot ticket (ticket
+        // because a WS handshake cannot carry the bridge-secret header).
+        .route(
+            "/api/ruke/browser/ws-ticket",
+            post(browser_routes::ws_ticket_post),
+        )
+        .route("/api/ruke/browser/ws", get(browser_routes::ui_ws_get))
+        // Authority policy (Phase 9): the human's facet rules for the
+        // engine (GET list / PUT save-or-clear), bridge-authed.
+        .route(
+            "/api/ruke/browser/policy",
+            get(browser_routes::policy_get).put(browser_routes::policy_put),
+        )
         .with_state(state)
 }
 
@@ -174,7 +205,10 @@ pub fn init_tracing() {
         Err(_) => tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
     };
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_target(true).try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .try_init();
 }
 
 #[cfg(test)]
@@ -192,8 +226,9 @@ mod tests {
         // set_var across this binary's test threads is benign here.
         std::env::set_var("WEB_SEARCH_GATE_DISABLED", "1");
         let slot = Arc::new(InferenceSlot::new());
-        let conversations =
-            Arc::new(persistence::ConversationStore::new(tmp.path().join("conversations")));
+        let conversations = Arc::new(persistence::ConversationStore::new(
+            tmp.path().join("conversations"),
+        ));
         let state = AppState {
             settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
             slot: slot.clone(),
@@ -207,14 +242,71 @@ mod tests {
                 slot,
                 Arc::new(titles::generate::UnconfiguredTitleModel),
             )),
-            web: Arc::new(WebRuntime {
-                net: ruke_websearch::net::RealNet,
-                cache: Arc::new(ruke_websearch::cache::SqliteSearchCache::new(tmp.path())),
-                verticals: ruke_websearch::platform_api::RealVerticals,
-                bridge: Arc::new(ruke_websearch::browser_bridge::NoBrowserBridge),
-            }),
+            // No loopback bridge in unit tests: research/discovery
+            // short-circuit honestly (never touch the network).
+            next_search: None,
+            // Lazy by construction: no Chromium launches unless a real
+            // browser command reaches the engine (rooted in the temp dir,
+            // never the repo).
+            browser: Arc::new(ruke_browser::engine::BrowserRuntime::new(
+                tmp.path().to_path_buf(),
+            )),
         };
         (state, tmp)
+    }
+
+    // Browser Use (Phase 2): the two contract short-circuits answer on the
+    // wire BEFORE the engine is touched — no browser is ever launched for
+    // a malformed or unknown command. (Auth is off here: the secret env
+    // is forced empty so the loopback-only stance matches the tests'
+    // other routes.)
+    #[tokio::test]
+    async fn browser_command_bad_envelope_answers_on_the_wire() {
+        std::env::set_var(crate::ipc::ENV_SECRET, "");
+        let (s, _t) = state();
+        let resp = build_router(s)
+            .oneshot(
+                http::Request::builder()
+                    .method("POST")
+                    .uri("/api/ruke/browser/command")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"commandType": ""}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error_code"], "browser_command_envelope_invalid");
+    }
+
+    #[tokio::test]
+    async fn browser_command_unknown_kind_short_circuits_before_the_engine() {
+        std::env::set_var(crate::ipc::ENV_SECRET, "");
+        let (s, _t) = state();
+        let resp = build_router(s)
+            .oneshot(
+                http::Request::builder()
+                    .method("POST")
+                    .uri("/api/ruke/browser/command")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"commandType":"totally_not_a_command","session_id":"s","turn_id":"t"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["error_code"], "browser_command_unknown");
     }
 
     #[tokio::test]
@@ -230,7 +322,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], json!(true));
         assert_eq!(v["user_turn_active"], json!(false));
@@ -257,7 +351,11 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{path} must not exist before its Part");
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "{path} must not exist before its Part"
+            );
         }
     }
 
@@ -268,7 +366,8 @@ mod tests {
     #[tokio::test]
     async fn chat_route_exists_and_streams_the_unreachable_contract() {
         let (s, _t) = state();
-        s.settings.set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
+        s.settings
+            .set_upstream_override("http://127.0.0.1:9/v1/chat/completions", "golden-key");
         let resp = build_router(s.clone())
             .oneshot(
                 http::Request::builder()
@@ -282,13 +381,22 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "early-open progress response");
-        assert_eq!(resp.headers()[http::header::CONTENT_TYPE], "text/event-stream");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "early-open progress response"
+        );
+        assert_eq!(
+            resp.headers()[http::header::CONTENT_TYPE],
+            "text/event-stream"
+        );
         assert_eq!(resp.headers()["cache-control"], "no-cache, no-transform");
         assert_eq!(resp.headers()["x-accel-buffering"], "no");
         assert!(resp.headers().contains_key("x-decision-mode"));
 
-        let bytes = axum::body::to_bytes(resp.into_body(), 256_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256_000)
+            .await
+            .unwrap();
         let text = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(text.starts_with("data: {\"ruke_stage\":{\"stage\":\"decision_done\""));
         assert!(text.contains(
@@ -322,8 +430,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(resp.headers()[http::header::CONTENT_TYPE], "application/json");
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        assert_eq!(
+            resp.headers()[http::header::CONTENT_TYPE],
+            "application/json"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         assert_eq!(&bytes[..], br#"{"error":"invalid JSON body"}"#);
 
         let resp = router
@@ -338,7 +451,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         assert_eq!(&bytes[..], br#"{"error":"message required"}"#);
 
         // 200 path: the in-process deterministic router answers without
@@ -349,65 +464,34 @@ mod tests {
                 http::Request::builder()
                     .method(http::Method::POST)
                     .uri("/api/ruke/decision")
-                    .body(axum::body::Body::from(r#"{"message":"make me a chart of sales"}"#))
+                    .body(axum::body::Body::from(
+                        r#"{"message":"make me a chart of sales"}"#,
+                    ))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.headers()[http::header::CONTENT_TYPE], "application/json");
-        let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
+        assert_eq!(
+            resp.headers()[http::header::CONTENT_TYPE],
+            "application/json"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 64_000)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        for key in ["active_mode", "decided_by", "stripped_prompt", "confidence", "skill_to_load"] {
-            assert!(v.get(key).is_some(), "envelope must carry snake_case key {key}");
+        for key in [
+            "active_mode",
+            "decided_by",
+            "stripped_prompt",
+            "confidence",
+            "skill_to_load",
+        ] {
+            assert!(
+                v.get(key).is_some(),
+                "envelope must carry snake_case key {key}"
+            );
         }
         assert_eq!(v["stripped_prompt"], json!("make me a chart of sales"));
-    }
-
-    /// Part 8: the search pair's short-circuit contracts — paths that
-    /// answer before any network IO (no-q, malformed, empty queries).
-    #[tokio::test]
-    async fn search_routes_short_circuit_contracts() {
-        let (s, _t) = state();
-        let router = build_router(s);
-
-        // TS `if (!query) return { results: [] }` — an empty `?q=` is
-        // falsy in JS, so both URIs take the same early return.
-        for uri in ["/api/ruke/search", "/api/ruke/search?q="] {
-            let resp = router
-                .clone()
-                .oneshot(
-                    http::Request::builder().uri(uri).body(axum::body::Body::empty()).unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(resp.status(), StatusCode::OK, "{uri}");
-            let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
-            assert_eq!(&bytes[..], br#"{"results":[]}"#, "{uri}");
-        }
-
-        let cases: [(&str, &[u8]); 2] = [
-            ("{oops", br#"{"error":"Malformed JSON body"}"#.as_slice()),
-            (
-                r#"{"queries":[]}"#,
-                br#"{"error":"queries array is required (1-3 string entries)"}"#.as_slice(),
-            ),
-        ];
-        for (body, want) in cases {
-            let resp = router
-                .clone()
-                .oneshot(
-                    http::Request::builder()
-                        .method(http::Method::POST)
-                        .uri("/api/ruke/search-more")
-                        .body(axum::body::Body::from(body))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{body}");
-            let bytes = axum::body::to_bytes(resp.into_body(), 64_000).await.unwrap();
-            assert_eq!(&bytes[..], want, "{body}");
-        }
     }
 }

@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "video attachment, explicit timestamp (time_range) on standard_chat — keyframes lost",
-    "semantics": "'around 1:45:00' -> routeQuery single HMS -> time_range [c-180, c+180] -> only the overlapping chunk survives, with a [01:45:00 - 01:46:00] header (fmtStamp). rules() uses the video variant. PRODUCTION BUG RECORDED (not fixed, §8): nearestFrames DID load the keyframe, but buildAttachmentTurn appends frames to messages[userIdx] (turn.ts:224) where userIdx = lastUserIdx+1 — undefined on standard_chat (no skill block, no shift) — so the frame is SILENTLY DROPPED: the forwarded user turn has NO image_url part. retrieval_done still reports {1,1} (blocks, not frames).",
+    "semantics": "'around 1:45:00' -> routeQuery single HMS -> time_range [c-180, c+180] -> only the overlapping chunk survives, with a [01:45:00 - 01:46:00] header (fmtStamp). rules() uses the video variant. PRODUCTION BUG RECORDED (not fixed, §8): nearestFrames DID load the keyframe, but buildAttachmentTurn appends frames to messages[userIdx] (turn.ts:224) where userIdx = lastUserIdx+1 — undefined on standard_chat (no skill block, no shift) — so the frame is SILENTLY DROPPED: the forwarded user turn has NO image_url part. retrieval_done still reports {1,1} (blocks, not frames). P1 (2026-11-01): a <runtime_clock> system block is injected between the user turn and the knowledge block; the dropped-frame off-by-one is unchanged.",
     "comparison": "structural",
     "harness": "__tests__/rust-golden/attachments.test.ts",
     "env": {
@@ -9,7 +9,7 @@
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions",
       "embed_seam": "embedOne fixed pseudo-vector [1,0,0.05]; index seeded via production writeIndex (BM25/RRF/pack unmocked)"
     },
-    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text."
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests)."
   },
   "request": {
     "rawBody": "{\"model\":\"strata-mock\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is happening in the training video around 1:45:00?\"},{\"type\":\"attachment_ref\",\"att_id\":\"att_golden1d\",\"name\":\"pivot-table-training.mp4\",\"category\":\"video\"}]}]}"
@@ -23,7 +23,7 @@
         "authorization": "Bearer golden-key",
         "content-type": "application/json"
       },
-      "bodyText": "{\"model\":\"strata-mock\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is happening in the training video around 1:45:00?\"}]},{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"pivot-table-training.mp4\\\">\\nPassages retrieved from the complete content of \\\"pivot-table-training.mp4\\\" (the full text is preserved locally — nothing was truncated):\\n[01:45:00 - 01:46:00]\\nDemo: rendering the pivot table.\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have watched this video from start to finish — its visuals and its speech are one thing: speak of what you see and hear in the video as a whole. Never mention transcription, retrieval, indexing, frames, sampled images or keyframes, and never attribute content to a particular frame. Give timestamps only when the user asks for them or when a time reference genuinely helps.\\n</knowledge_index>\"}]}",
+      "bodyText": "{\"model\":\"strata-mock\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is happening in the training video around 1:45:00?\"}]},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"pivot-table-training.mp4\\\">\\nPassages retrieved from the complete content of \\\"pivot-table-training.mp4\\\" (the full text is preserved locally — nothing was truncated):\\n[01:45:00 - 01:46:00]\\nDemo: rendering the pivot table.\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have watched this video from start to finish — its visuals and its speech are one thing: speak of what you see and hear in the video as a whole. Never mention transcription, retrieval, indexing, frames, sampled images or keyframes, and never attribute content to a particular frame. Give timestamps only when the user asks for them or when a time reference genuinely helps.\\n</knowledge_index>\"}]}",
       "bodyJson": {
         "model": "strata-mock",
         "messages": [
@@ -35,6 +35,10 @@
                 "text": "What is happening in the training video around 1:45:00?"
               }
             ]
+          },
+          {
+            "role": "system",
+            "content": "<runtime_clock>MASKED</runtime_clock>"
           },
           {
             "role": "system",

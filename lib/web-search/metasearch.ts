@@ -26,8 +26,12 @@
 import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
 import type { RawSearchResult, RankedResult } from "./types";
+import { FRAGMENT_ROUTE_RE } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
+import { scrubQuerySecrets } from "./ssrf";
+import { freshnessFit, isTimeScopedFreshness } from "./freshness";
+import { registrableHost } from "../decision/task-scope";
 import {
   googleSearch,
   bingNewsRssSearch,
@@ -88,23 +92,51 @@ function docOf(html: string): any {
 
 /* ── URL normalization ─────────────────────────────────────────────────────── */
 
+// §11.8 pre-fetch normalization: exact-match tracking params. `utm_`
+// suffixed keys (utm_content, utm_id, …) are stripped separately via
+// prefix match. `ref` stays in the historical exact strip list (so it IS
+// removed — pinned by the shared vectors); the historical list is part of
+// the cached-key parity.
 const TRACKING_PARAMS = [
   "utm_source", "utm_medium", "utm_campaign", "utm_term",
   "fbclid", "gclid", "ref",
 ];
 
+/**
+ * §11.8 AMP/mobile dupe collapse. `m.`/`amp.`/`wap.` subdomains and the
+ * AMP URL shapes below normalize onto the desktop canonical. NOT stripped:
+ * `src`, `s`, `from` (semantically load-bearing on CDN/media hosts), and
+ * `mobile.` (some sites — e.g. mobile.de — use it as the canonical brand
+ * host). Default ports (`:80`) collapse identically on both sides — WHATWG
+ * URL drops the empty port and the `url` crate normalizes the same way;
+ * pinned in the shared vector tables.
+ */
+const MOBILE_SUBDOMAIN_RE = /^(?:m|amp|wap)\.(.+)$/i;
+const AMP_PATH_RE = /^\/amp(?:\/|$)/i;
+const AMP_SUFFIX_RE = /\/amp$/i;
+
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);
-    u.hash = "";
+    // §6 fragment-router carve-out: SPA-route hashes are page identity and
+    // survive the key; pure in-page anchors still collapse.
+    if (!FRAGMENT_ROUTE_RE.test(u.hash)) u.hash = "";
     const p = new URLSearchParams(u.search);
     for (const k of TRACKING_PARAMS) p.delete(k);
+    for (const k of [...p.keys()]) if (k.startsWith("utm_")) p.delete(k);
     const q = p.toString();
     u.search = q ? "?" + q : "";
     let host = u.hostname.toLowerCase();
     if (host.startsWith("www.")) host = host.slice(4);
+    host = host.replace(MOBILE_SUBDOMAIN_RE, "$1");
     u.hostname = host;
     let path = u.pathname;
+    if (path !== "/") {
+      path = path.replace(AMP_PATH_RE, "/");
+      if (path !== "/" && AMP_SUFFIX_RE.test(path)) {
+        path = path.slice(0, -"/amp".length) || "/";
+      }
+    }
     if (path.length > 1) path = path.replace(/\/+$/, "");
     if (path === "") path = "/";
     u.pathname = path;
@@ -528,6 +560,32 @@ const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
 };
 
 /**
+ * §11.10 freshness-conditional vertical. A time-scoped run (realtime/day/
+ * week/month/year) asks "what's the CURRENT state of X" — the Wikipedia
+ * vertical answers with encyclopedic background that can crowd out fresher
+ * primary sources, so on time-scoped runs it is dropped from every intent
+ * table whose wiki entry exists only for topical grounding (general). The
+ * academic/docs intents KEEP wikipediaSearch: there the wiki is a concept
+ * disambiguator, not a recency source, and dropping it would hurt exactly
+ * the lookups those intents exist for.
+ *
+ * Rust mirror: `vertical_by_intent(intent, time_scoped)` — the general arm
+ * returns an empty vec when the wiki entry is dropped (identical behavior;
+ * the wiki is that arm's only engine). Change one table, change both.
+ *
+ * Exported only so the shared vector suite in
+ * `__tests__/web-search/retrieval-quality.test.ts` can pin the matrix;
+ * the Rust counterpart stays private (its matrix pin is in-file).
+ */
+export function verticalsForIntent(intent: Intent, timeScoped: boolean): SourceFn[] {
+  const base = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
+  if (timeScoped && intent !== "academic" && intent !== "docs") {
+    return base.filter((fn) => fn !== wikipediaSearch);
+  }
+  return base;
+}
+
+/**
  * News/breaking vertical: bingNewsRssSearch is routed here so it ONLY
  * fires for time-sensitive queries, never on coding tutorials,
  * restaurants, or e-commerce.
@@ -614,15 +672,23 @@ function capForEngine(engine: string): number {
 /**
  * Per-searchOne wall-clock cap: a single plan's general-web pool call
  * must not block the metasearch for more than this many milliseconds.
- * The general pool (6 engines) can take 18s+ when DDG's 3 stages all
- * time out (12s html + 6s lite). This cap fires at 10s and fuses
- * whatever has settled so far, letting the metasearch quorum logic
- * complete in time. Verticals (dev/news) are awaited separately with
- * their own short internal timeouts and are NOT capped — they are
- * high-signal, low-latency, and the cap only protects against the
- * general pool's slowest engine (DDG).
+ * The pool is now PRIORITY-SEQUENTIAL (Google → Brave → the rest, per
+ * the 2026-11-04 engine priority law), so a fully-dead chain pays the
+ * Google attempt cap + the Brave attempt cap + the staggered fallback
+ * pool before returning. This cap fires at 40s and fuses whatever has
+ * settled so far, letting the metasearch quorum logic complete in time.
+ * The 2026-11-04 engine priority law makes the cap need to fit the
+ * WORST priority chain, not the old flat parallel pool: a Google
+ * browser-SERP attempt burns up to GOOGLE_ATTEMPT_CAP_MS (20s) before
+ * Brave (12s) is even asked, and the fallback pool only runs after
+ * both failed. A healthy Google answer still lands in ~10-15s.
+ * Verticals (dev/news) are awaited separately with their own short
+ * internal timeouts and are NOT capped — they are high-signal,
+ * low-latency, and the cap only protects against pathological engine
+ * cascades (e.g. DDG's 3-stage 12s+6s stall after both priority
+ * engines failed).
  */
-const SEARCH_ONE_CAP_MS = 10_000;
+const SEARCH_ONE_CAP_MS = 40_000;
 
 async function searchOne(
   query: string,
@@ -630,6 +696,13 @@ async function searchOne(
   allQueries?: string[],
   freshness?: string,
 ): Promise<RawSearchResult[]> {
+  // §14 exfiltration law: deterministically strip well-known credential
+  // shapes from every query BEFORE any engine sees it — no model involved,
+  // applied at the single chokepoint all engine traffic passes through.
+  // Rust mirror: scrub_secrets() at the head of search_one (metasearch.rs).
+  query = scrubQuerySecrets(query);
+  if (allQueries) allQueries = allQueries.map(scrubQuerySecrets);
+
   // ALWAYS run the general web pool (Fix 3a): regardless of intent,
   // the sharded pool gives broad, high-recall results. Verticals are
   // layered on top, not instead of, the general pool.
@@ -664,7 +737,7 @@ async function searchOne(
   // These are awaited WITHOUT the cap — they are fast (15s timeout,
   // usually <5s) and high-signal. They run in parallel with the pool
   // so their wall-clock cost is already overlapping with the pool.
-  const vertical = VERTICAL_BY_INTENT[intent] ?? VERTICAL_BY_INTENT.general;
+  const vertical = verticalsForIntent(intent, isTimeScopedFreshness(freshness));
   const verticalResults = await Promise.allSettled(
     vertical.map((fn) => fn(query)),
   );
@@ -741,10 +814,105 @@ function engineWeight(engine: string, intent: Intent): number {
   return 1.2;
 }
 
+/**
+ * Hostname↔query-token affinity boost (FINAL-MIGRATION-REPORT §7.1
+ * proposal, never landed; user instruction 2026-11-04: "zepto should
+ * search zepto... nothing hard coded, it should be universal").
+ *
+ * For a query like "zepto", zeptonow.com carries the brand token in
+ * its own label while news/encyclopedia coverage does not — yet with
+ * NO task-scope target (bare brand queries form none) the preferred-
+ * boost and designated tier never arm. This is the universal net:
+ *
+ *   token ∈ query  ∧  registrable-label FIRST segment starts with the
+ *   token  →  boost, scaled by the token's RARITY across the fused
+ *   pool (fraction of distinct registrable domains whose first label
+ *   segment starts with the token). The df-gate substitutes for any
+ *   brand/stopword table: a word that heads many unrelated domains
+ *   gets high df and no boost; a brand word heads almost only the
+ *   brand's own domains.
+ *
+ * Laws kept: FIRST segment only (media-amazon.com leads with "media"
+ * — it is not "amazon"); tokens shorter than 5 chars are too weak a
+ * brand signal; a generic-word exclusion set (mirrors query-planner's
+ * GENERIC_QUERY_WORDS — function/action words, NEVER brand names);
+ * ORDER-ONLY capped multiplier (never admits, never drops) — the
+ * designated/preferred lanes remain the strong signals.
+ */
+const AFFINITY_DF_CEIL = 0.4;
+const AFFINITY_MAX = 0.6; // multiplier cap: ≤ ×1.6
+
+const AFFINITY_EXCLUDED_WORDS = new Set([
+  // generic action/descriptor words (query-planner GENERIC_QUERY_WORDS
+  // parity + a few retrieval-common generics). NOT a brand list — no
+  // site, domain, or TLD appears here.
+  "price", "prices", "pricing", "cost", "costs", "book", "booking",
+  "buy", "order", "orders", "search", "find", "check", "look",
+  "latest", "current", "official", "site", "website", "docs",
+  "documentation", "review", "reviews", "news", "near", "nearby",
+  "weather", "delivery", "menu", "product", "products", "ticket",
+  "tickets", "showtime", "showtimes", "profile", "best", "top",
+  "shop", "shops", "store", "stores", "deal", "deals", "online",
+]);
+
+function applyHostTokenAffinity(results: RankedResult[], queries: string[]): void {
+  if (results.length === 0 || queries.length === 0) return;
+  const qTokens = new Set<string>();
+  for (const q of queries) {
+    for (const raw of String(q ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+      if (raw.length >= 5 && !AFFINITY_EXCLUDED_WORDS.has(raw)) qTokens.add(raw);
+    }
+  }
+  if (qTokens.size === 0) return;
+
+  // registrable domain + FIRST label segment per result
+  const leads = new Map<RankedResult, { reg: string; lead: string }>();
+  const distinctDomains = new Set<string>();
+  for (const r of results) {
+    const reg = registrableHost(r.domain) ?? r.domain;
+    distinctDomains.add(reg);
+    const label = (reg.split(".")[0] ?? "").toLowerCase();
+    const lead = (label.split(/[-_]/)[0] ?? "").replace(/[^\p{L}\p{N}]/gu, "");
+    if (lead) leads.set(r, { reg, lead });
+  }
+  const total = distinctDomains.size || 1;
+
+  // token → distinct domains whose lead starts with it
+  const dfMap = new Map<string, Set<string>>();
+  const matched = new Map<RankedResult, string[]>();
+  for (const [r, { reg, lead }] of leads) {
+    const tokens: string[] = [];
+    for (const t of qTokens) {
+      if (lead.startsWith(t)) tokens.push(t);
+    }
+    if (tokens.length === 0) continue;
+    matched.set(r, tokens);
+    for (const t of tokens) {
+      const set = dfMap.get(t) ?? new Set<string>();
+      set.add(reg);
+      dfMap.set(t, set);
+    }
+  }
+  if (matched.size === 0) return;
+
+  for (const [r, tokens] of matched) {
+    let rarest = 1;
+    for (const t of tokens) {
+      const df = (dfMap.get(t)?.size ?? 0) / total;
+      if (df < rarest) rarest = df;
+    }
+    if (rarest <= AFFINITY_DF_CEIL) {
+      r.rrf *= 1 + AFFINITY_MAX * (1 - rarest);
+    }
+  }
+}
+
 export function reciprocalRankFuse(
   rawResults: RawSearchResult[],
   preferredDomains?: string[],
   intent: Intent = "general",
+  freshness?: string,
+  affinityQueries?: string[],
 ): RankedResult[] {
   // key = normalized URL, value = best raw + per-engine rank map
   const byUrl = new Map<
@@ -759,11 +927,17 @@ export function reciprocalRankFuse(
     } catch {
       continue;
     }
-    if (!norm || !isSafeUrl(norm)) continue;
+    // 2026-11-04 audit fix: BOTH forms must be safe — `r.url` is the URL
+    // actually fetched downstream, `norm` is only the dedupe key.
+    if (!norm || !isSafeUrl(r.url) || !isSafeUrl(norm)) continue;
 
     const entry = byUrl.get(norm);
     if (!entry) {
-      byUrl.set(norm, { result: { ...r, url: norm }, ranks: new Map() });
+      // §6 (2026-11-04): store the ENGINE'S OWN url verbatim — case-sensitive
+      // paths, signed/ref params, amp/mobile shapes and SPA-route hashes ride
+      // the fetch. Overwriting with `norm` silently rewrote every request
+      // while the emit comment claimed the opposite.
+      byUrl.set(norm, { result: { ...r }, ranks: new Map() });
     }
     const e = byUrl.get(norm)!;
     e.ranks.set(r.engine, e.ranks.get(r.engine) ?? r.rank);
@@ -797,16 +971,33 @@ export function reciprocalRankFuse(
       score += PREFERRED_BOOST;
     }
 
+    // §11.10 freshness fit — multiplicative decay/boost applied AFTER the
+    // preferred-domain additive boost (exact op order is mirrored in Rust
+    // `reciprocal_rank_fuse` for IEEE parity). Undated SERP entries stay
+    // ×1.0: recency only adjusts results that actually carry a date.
+    score *= freshnessFit(result.publishedDate, freshness);
+
     out.push({
       ...result,
-      url: canonical,
+      // 2026-11-04 audit fix: `url` = the URL as the engine gave it (fetch
+      // semantics: case-sensitive paths, ref params and amp-only shapes
+      // survive); `canonical` = dedupe key only (m./amp collapse, tracking
+      // strip). Normalizing the FETCH url used to silently rewrite requests.
+      url: result.url,
       canonical,
       domain,
       rrf: score,
       engines: [...ranks.keys()],
       engineRanks: Object.fromEntries(ranks),
+      // §19 provenance: this candidate was surfaced by a search engine.
+      origin: "search",
     });
   }
+
+  // Host↔query-token affinity boost (see applyHostTokenAffinity). Order
+  // only, applied after freshness — bare brand queries with no scope
+  // target still land the brand's own site first.
+  applyHostTokenAffinity(out, affinityQueries ?? []);
 
   out.sort((a, b) => b.rrf - a.rrf);
   return out;
@@ -824,7 +1015,7 @@ export interface SearchPlan {
    * supported. A non-"any" freshness that returns < 5 results triggers
    * an automatic re-run with "any" (see metasearchWithFreshnessRecovery).
    */
-  freshness?: "none" | "day" | "week" | "month" | "year" | "any";
+  freshness?: "none" | "day" | "week" | "month" | "year" | "realtime" | "any";
   /**
    * Free text used as an EXTRA relevance anchor by the fused-pool
    * relevance floor (see metasearch()). The pipeline passes the user's
@@ -946,24 +1137,29 @@ export async function metasearch(
   }).catch(() => {});
 
   // Race-able signal: resolves when either (a) all plans settle, or
-  // (b) the 6s grace timer fires after quorum is met, or (c) the 15s
-  // hard-cap fires as a deadlock safety net.
+  // (b) the 6s grace timer fires after quorum is met, or (c) the hard-cap
+  // fires as a deadlock safety net.
   const graceSignal = new Promise<void>((resolve) => {
     graceResolve = resolve;
-    // 15s absolute hard-cap: if quorum is never met (all engines return
-    // 0 results) AND all plans are slow, this fires to prevent hanging
-    // indefinitely. The pipeline ceiling in pipeline.ts (240s) would
-    // otherwise bound us, but 15s is a tighter, cleaner cap.
+    // Absolute hard-cap: if quorum is never met (all engines return 0
+    // results) AND all plans are slow, this fires to prevent hanging
+    // indefinitely. It MUST NOT undercut the engine priority law: a
+    // single plan may legally spend up to SEARCH_ONE_CAP_MS (40s) on its
+    // Google→Brave→legacy chain (Google's browser-SERP tier alone may
+    // use its 20s attempt budget). A 15s cap used to fuse OUT a legal
+    // slow Google SERP attempt, silently demoting Google below the
+    // staggered legacy pool — the exact inversion the priority law
+    // forbids (2026-11-04 audit fix).
     setTimeout(() => {
       if (!graceFired) {
         graceFired = true;
-        log.info("15s hard-cap fired — bounding metasearch wall-clock");
+        log.info("metasearch hard-cap fired — bounding wall-clock");
         if (graceResolve) {
           graceResolve();
           graceResolve = null;
         }
       }
-    }, 15_000);
+    }, 45_000); // SEARCH_ONE_CAP_MS (40s) + 5s fuse grace — see law note above
   });
 
   // Await the signal. Once it fires, fuse whatever has settled.
@@ -972,7 +1168,7 @@ export async function metasearch(
   const flat = settled.filter((r): r is RawSearchResult[] => r !== null).flat();
   const preferred = effectivePlans.flatMap((p) => p.preferredDomains ?? []);
   const intent = effectivePlans[0]?.intent ?? "general";
-  const ranked = reciprocalRankFuse(flat, preferred, intent);
+  const ranked = reciprocalRankFuse(flat, preferred, intent, freshness, effectivePlans.map((p) => p.query));
 
   // ── Per-result relevance floor (the junk-source filter) ─────────────────
   // Vertical sources (Wikipedia/HN/arXiv/StackExchange) are lexically gated
@@ -1056,9 +1252,14 @@ export async function metasearchWithFreshnessRecovery(
   maxResults = 20,
 ): Promise<{ results: RankedResult[]; freshnessRecoveryUsed: boolean }> {
   const anyPlan = plans.every((p) => !p.freshness || p.freshness === "any");
+  // (audit 2026-11-04) realtime facts (prices, scores, status) must NEVER
+  // be silently answered from undated pages — the "any" recovery exists to
+  // unstarve time-FILTERED evergreen queries, not to launder stale data
+  // into a live_required run. A realtime miss stays an honest miss.
+  const realtimePlan = plans.some((p) => p.freshness === "realtime");
   const firstPass = await metasearch(plans, maxResults);
 
-  if (!anyPlan && firstPass.length < 5) {
+  if (!anyPlan && !realtimePlan && firstPass.length < 5) {
     log.info(
       { initial: firstPass.length, freshness: plans[0]?.freshness },
       "freshness filter returned <5 results — re-running with freshness='any'",
@@ -1111,7 +1312,9 @@ export async function urlSearchFallback(
   title?: string,
 ): Promise<RankedResult[]> {
   const titlePrefix = title && title !== targetUrl && title.length > 0 ? title + " " : "";
-  const query = titlePrefix + targetUrl;
+  // §14: the composed query embeds a user-supplied URL + title — scrub
+  // before it reaches ANY engine (searchOne scrubs again; idempotent).
+  const query = scrubQuerySecrets(titlePrefix + targetUrl);
 
   const raw: RawSearchResult[] = [];
 
@@ -1156,6 +1359,27 @@ export async function urlSearchFallback(
 }
 
 /**
+ * Audit #9 (provenance law, exact-identical ⇔ `SEARCH_INDEX_PROVENANCE_LAW`
+ * in the retired Rust mirror (ruke-websearch/src/metasearch.rs, removed
+ * 2026-11-03)): the extraction
+ * pool's synthesized evidence must always declare what it IS — search-index
+ * listings, never a live read — so no packet from the pool can be presented
+ * as if a browser visit produced it.
+ */
+export const SEARCH_INDEX_PROVENANCE_LAW =
+  "This block is SEARCH-INDEX evidence from third-party result listings - it is NOT a live read of the target page and no browser visit produced it.";
+
+/**
+ * Audit #9: the per-passage marker when a Tier 6b fallback passage carries
+ * text captured from a THIRD-PARTY listing (`sourceUrl`) while being filed
+ * under the target URL. Exact-identical ⇔ `triangulated_passage_provenance`
+ * in the Rust metasearch crate.
+ */
+export function triangulatedPassageProvenance(sourceUrl: string): string {
+  return `[Evidence provenance: the passage text below was captured from a SEARCH-INDEX listing at ${sourceUrl} during metasearch - it is NOT a live read of the target page and no browser visit produced it.]`;
+}
+
+/**
  * Tier 6 — deep URL-slug metasearch triangulation.
  *
  * The guaranteed zero-block fallback: when Tiers 1–5 (direct, browser
@@ -1171,6 +1395,9 @@ export async function urlSearchFallback(
  *     → site:airbnb.com "12345"  +  "airbnb" "rooms" "12345"
  *   https://github.com/nicksix/fd
  *     → site:github.com "nicksix" "fd"
+ *
+ * Audit #9: every line names its query family and the block carries
+ * `SEARCH_INDEX_PROVENANCE_LAW` — the pool never poses as a live read.
  *
  * Returns a markdown synthesis string ("" when nothing useful found).
  */
@@ -1201,8 +1428,15 @@ export async function slugTriangulation(
     searchOne(broadQuery, "general"),
   ]);
 
+  // Audit #9 (provenance separation): every evidence line carries the
+  // query FAMILY that produced it — a `site:` index listing vs an
+  // off-site index listing — so a block assembled from search-pool
+  // results can never read as a live read of the target page.
   const seen = new Set<string>();
-  const all = [...siteResults, ...broadResults].filter((r) => {
+  const all = [
+    ...siteResults.map((r) => [r, "site index"] as const),
+    ...broadResults.map((r) => [r, "off-site index"] as const),
+  ].filter(([r]) => {
     let norm = "";
     try { norm = normalizeUrl(r.url); } catch { return false; }
     if (seen.has(norm)) return false;
@@ -1214,12 +1448,13 @@ export async function slugTriangulation(
 
   const lines: string[] = [
     "[Synthesized Web Index Evidence] for " + targetUrl,
+    SEARCH_INDEX_PROVENANCE_LAW,
     title ? "Page title (from metasearch): " + title : "",
     "",
   ].filter(Boolean);
 
-  for (const r of all.slice(0, 8)) {
-    lines.push(`- [${r.engine}] ${r.title || "(untitled)"}`);
+  for (const [r, family] of all.slice(0, 8)) {
+    lines.push(`- [${r.engine} | ${family}] ${r.title || "(untitled)"}`);
     lines.push(`  URL: ${r.url}`);
     if (r.snippet?.length) lines.push(`  Snippet: ${r.snippet.slice(0, 400)}`);
     lines.push("");

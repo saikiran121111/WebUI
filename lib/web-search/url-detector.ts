@@ -13,7 +13,11 @@
  * known local file/code extension unless the token is prefixed with
  * http(s):// or www.
  */
-import tldts from "tldts";
+// Named import ONLY: `tldts` has no default export in browser ESM builds
+// (see the named-import law comment in lib/decision/task-scope.ts — the
+// default-import crash the Phase-6 E2E matrix caught applies here too).
+import { parse as tldtsParse } from "tldts";
+import { FRAGMENT_ROUTE_RE } from "./types";
 
 /**
  * File/code extensions that must never be mistaken for TLDs.
@@ -62,7 +66,12 @@ export function detectUrlsAndDomains(
   const { excludeFileTokens = true } = opts;
 
   const out: DetectedUrl[] = [];
-  const seen = new Set<string>();
+  // 2026-11-04 audit fix: pass-1 URLs dedupe by FULL URL (origin+path+query)
+  // — the hostname-only key dropped every second product link on the same
+  // site. seenHost keeps the cross-pass suppression (a bare domain token
+  // does not re-detect a host already surfaced with a full URL).
+  const seenUrl = new Set<string>();
+  const seenHost = new Set<string>();
 
   // Trailing sentence punctuation is not part of a URL path.
   const stripTail = (t: string) => t.replace(/[.,;:!?)\]}'"`]+$/, "");
@@ -76,9 +85,14 @@ export function detectUrlsAndDomains(
       const u = new URL(raw);
       const host = u.hostname.toLowerCase();
       if (host.length < 4) continue; // skip localhost, IP-like short names
-      const key = host;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      // path/query case preserved; §6: a fragment-router hash IS page
+      // identity — two `#/route` pages on one host are distinct targets
+      // (pure anchors still collapse onto the page).
+      const key =
+        u.origin + u.pathname + u.search + (FRAGMENT_ROUTE_RE.test(u.hash) ? u.hash : "");
+      if (seenUrl.has(key)) continue;
+      seenUrl.add(key);
+      seenHost.add(host);
       out.push({ raw, url: raw, domain: host, hasScheme: true });
     } catch {
       /* malformed URL token — skip */
@@ -89,10 +103,14 @@ export function detectUrlsAndDomains(
   const wwwRe = /\bwww\.[\w-]+(?:\.[\w-]+)+(?:\/[^\s"'<>[\]]*)?/gi;
   while ((m = wwwRe.exec(prompt)) !== null) {
     const raw = stripTail(m[0]);
-    const host = raw.slice(4).split("/")[0].toLowerCase();
-    if (seen.has(host)) continue;
-    seen.add(host);
-    out.push({ raw, url: "https://" + raw.toLowerCase(), domain: host, hasScheme: false });
+    const slash = raw.indexOf("/");
+    const hostPart = slash === -1 ? raw : raw.slice(0, slash);
+    const pathPart = slash === -1 ? "" : raw.slice(slash);
+    const host = hostPart.slice(4).toLowerCase();
+    if (seenHost.has(host)) continue;
+    seenHost.add(host);
+    // Host lowercased, path/query case preserved (case-sensitive product paths).
+    out.push({ raw, url: "https://" + hostPart.toLowerCase() + pathPart, domain: host, hasScheme: false });
   }
 
   // Pass 3: bare domain tokens (skiran.dev, lite.ego.app, rbi.org.in),
@@ -104,7 +122,7 @@ export function detectUrlsAndDomains(
     const path = stripTail(m[2] ?? "");
 
     // Skip tokens already found in pass 1/2.
-    if (seen.has(host)) continue;
+    if (seenHost.has(host)) continue;
 
     // Skip tokens that look like file paths or dotted identifiers that
     // are not domains: "v1.2.3", "e.g.", "i.e."
@@ -112,7 +130,7 @@ export function detectUrlsAndDomains(
     if (/^v?\d+\./.test(host)) continue; // version number
     if (host.endsWith(".e.g") || host.endsWith(".i.e")) continue;
 
-    const parsed = tldts.parse(host);
+    const parsed = tldtsParse(host);
     // tldts: domain = registrable domain (public suffix + one label),
     // publicSuffix = TLD or multi-part suffix. "skiran.dev" -> domain
     // "skiran.dev" / suffix "dev". "lite.ego.app" -> domain "ego.app" /
@@ -131,7 +149,7 @@ export function detectUrlsAndDomains(
     // this guard is load-bearing for "main.rs").
     if (excludeFileTokens && FILE_EXTENSIONS.has(pubSuffix)) continue;
 
-    seen.add(host);
+    seenHost.add(host);
     out.push({
       raw: host + path,
       url: "https://" + host + path,

@@ -199,6 +199,7 @@ fn stage_event_citation_gate_field_ledgers() {
     ev.done = Some(2);
     ev.total = Some(3);
     ev.coverage = Some(0.5);
+    ev.session = Some("conv-1".into());
     ev.url = Some("https://x.test".into());
     ev.domain = Some("x.test".into());
     let mut cites = CitationMap::new();
@@ -220,6 +221,20 @@ fn stage_event_citation_gate_field_ledgers() {
         decided_by: Some("gate".into()),
         queries: vec![GateQuery { query: "q".into(), intent: "general".into() }],
     });
+    // P5 (Rich-Results Addendum §55/§57/§58): the manifest ledger records
+    // these as FLAT named-type references (contractParse nests only inline
+    // `{` types), so populating any valid JSON value proves ordering only.
+    ev.presentation = Some(serde_json::json!({ "primary": "text" }));
+    ev.rich_results = Some(vec![serde_json::json!({
+        "id": "rich:x", "version": 1, "kind": "generic", "sourceRefs": [], "payload": {}
+    })]);
+    ev.surface_id = Some("rich:x".into());
+    ev.surface_kind = Some("generic".into());
+    ev.surface_revision = Some(1);
+    // Task-scope audit #10: `browser:working_tab` carriers. Optional
+    // fields must be populated to join the key-ORDER comparison.
+    ev.turn = Some("turn-1".into());
+    ev.tab_id = Some("tab-9".into());
     let keys = top_level_keys(&serde_json::to_string(&ev).unwrap());
     assert_eq!(keys, rust_expected, "StageEvent key order/casing vs TS ledger");
 

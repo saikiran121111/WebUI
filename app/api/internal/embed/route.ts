@@ -11,7 +11,8 @@
  * marker chunk through RRF without any cosine signal), so the seam had to
  * close the way Tier-3b closed the browser-pool gap: a loopback RPC.
  *
- * Same Tier-3b trust model as /api/internal/browser-read:
+ * Same bridge trust model as the other /api/internal/* routes
+ * (web-research, web-tools):
  * - loopback-only in practice (Next dev binds loopback, ruke-server
  *   targets 127.0.0.1);
  * - per-run process-local secret via RUKE_BROWSER_BRIDGE_SECRET, handed to

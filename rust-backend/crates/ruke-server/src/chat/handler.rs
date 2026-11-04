@@ -55,7 +55,9 @@ pub async fn chat_post(State(state): State<AppState>, req: Request) -> Response 
     // span carries `turn_id` into every log line (instrumented below so
     // `parent:`-attached logs in the forwarders land in the same context).
     let turn = state.turns.turn();
-    chat_inner(state, &turn, req).instrument(turn.span.clone()).await
+    chat_inner(state, &turn, req)
+        .instrument(turn.span.clone())
+        .await
 }
 
 async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Response {
@@ -78,8 +80,44 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
     let raw_s = String::from_utf8_lossy(&raw_bytes).into_owned();
 
     // (2) JSON.parse with the same "null stays null" semantics.
-    let mut payload: Option<Value> =
-        serde_json::from_str::<Value>(&raw_s).ok().filter(|v| !v.is_null());
+    let mut payload: Option<Value> = serde_json::from_str::<Value>(&raw_s)
+        .ok()
+        .filter(|v| !v.is_null());
+
+    // (2b) Browser Use transport marker (task-scope audit, brief #2):
+    // the client sets `browser_session` to the conversation id on EVERY
+    // chat send — presence alone NEVER routes anything (it is identity,
+    // not a switch; panel open/closed plays no part). On the progress
+    // path the browser tool loop runs only when this marker combines
+    // with an OPERATE task-scope fold (`task_scope::routes_to_browser_
+    // turn` — decided in pipeline::pump_progress against the same single
+    // fold the gate ctx uses). Stripped from the payload before anything
+    // leaves (compaction included). Compaction never carries it (the TS
+    // client only sets it on chat sends, and the strip below runs before
+    // the passthrough either way).
+    let browser_session = payload
+        .as_ref()
+        .and_then(|p| p.get("browser_session"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(p) = payload.as_mut() {
+        attach::remove_key(p, "browser_session");
+    }
+
+    // (2c) P1 clock grounding ⇔ route.ts POST `turnTimezone`: the client's
+    // IANA zone is captured here and STRIPPED before anything else runs
+    // (the compaction passthrough below must never see it, same law as
+    // `browser_session` — the clock block is injected only by the pipeline).
+    let turn_timezone = payload
+        .as_ref()
+        .and_then(|p| p.get("timezone"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(p) = payload.as_mut() {
+        attach::remove_key(p, "timezone");
+    }
 
     // (3)
     let model: String = payload
@@ -103,7 +141,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
             if let Some(messages) = p.get_mut("messages").and_then(Value::as_array_mut) {
                 attach::strip_attachment_refs(messages);
             }
-            tracing::info!(model = model.as_str(), "compaction passthrough: skipping decision pipeline");
+            tracing::info!(
+                model = model.as_str(),
+                "compaction passthrough: skipping decision pipeline"
+            );
             let body = serde_json::to_vec(p).unwrap_or_default();
             return forward::forward_legacy(
                 &state,
@@ -122,7 +163,10 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
 
     // (5) the decision gate: NON-EMPTY messages array only (04c skips it).
     if let Some(p) = payload.as_mut() {
-        if p.get("messages").and_then(Value::as_array).is_some_and(|m| !m.is_empty()) {
+        if p.get("messages")
+            .and_then(Value::as_array)
+            .is_some_and(|m| !m.is_empty())
+        {
             // TS wraps this in try/catch; the Rust port degrades internally
             // (every IO failure in routing already yields None), so there
             // is nothing to catch here — same observable outcome.
@@ -145,8 +189,7 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // frames: `hasAttachmentRef` rides the LAST USER
                     // TURN's parts, evaluated before the pipeline
                     // injects anything (route.ts:644 / :758).
-                    let has_refs =
-                        attach::turn_has_attachment_ref(messages[idx].get("content"));
+                    let has_refs = attach::turn_has_attachment_ref(messages[idx].get("content"));
                     (idx, full_text, pinned, has_refs)
                 })
             };
@@ -164,7 +207,11 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                 let env = match pinned {
                     Some(m) => DecisionEnvelope::passthrough(m, &full_text),
                     None => get_decision_sync(
-                        if js_trim(&full_text).is_empty() { "" } else { &full_text },
+                        if js_trim(&full_text).is_empty() {
+                            ""
+                        } else {
+                            &full_text
+                        },
                         &history,
                     ),
                 };
@@ -184,8 +231,13 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // gate runs (route.ts), so the citation/gate pair can
                     // never ride them — the citations travel in the
                     // `web_meta` frame instead (Rule 2.2/2.3).
-                    let resp_headers =
-                        stream_headers(None, used_skill.as_deref(), decision_mode.as_str(), None, None);
+                    let resp_headers = stream_headers(
+                        None,
+                        used_skill.as_deref(),
+                        decision_mode.as_str(),
+                        None,
+                        None,
+                    );
                     let payload_owned = std::mem::replace(p, Value::Null);
                     tokio::spawn(pipeline::pump_progress(
                         state.clone(),
@@ -203,6 +255,11 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         history,
                         span.clone(),
                         token.clone(),
+                        // Browser tool loop key: (conversation, this
+                        // turn) — the same identity the panel RPC's
+                        // turn bookkeeping uses.
+                        browser_session.map(|s| (s, turn.turn_id.to_string())),
+                        turn_timezone.clone(),
                         ProgressChannel::new(tx),
                     ));
                     // Dropping this body (client walked away) cancels the
@@ -235,6 +292,14 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     &token,
                     None,
                     &model,
+                    turn_timezone.as_deref(),
+                    // The legacy path has no progress channel and never
+                    // runs the browser tool loop, so it must never skip
+                    // the research gate on a marker — the browser-marker
+                    // arg is only ever true on the progress path where
+                    // the routing law can actually run the loop (brief
+                    // #2/#3).
+                    false,
                     &span,
                 )
                 .await;

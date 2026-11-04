@@ -33,7 +33,9 @@ pub const REFRESH_MESSAGE_DELTA: i64 = 4;
 /// trims non-empty, also RAW. The first user message always TERMINATES the
 /// scan (blank ⇒ "").
 pub fn first_user_text(messages: &Value) -> String {
-    let Some(arr) = messages.as_array() else { return String::new() };
+    let Some(arr) = messages.as_array() else {
+        return String::new();
+    };
     for m in arr {
         if m.get("role").and_then(Value::as_str) != Some("user") {
             continue;
@@ -90,16 +92,30 @@ pub fn should_generate(meta: &Value, message_count: i64, force: bool) -> bool {
 
 /// `applyTitleToDoc` — the guarded in-memory title write. `now_ms` is
 /// injected for test determinism (`Date.now()` at the TS call site).
-pub fn apply_title_to_doc(doc: &mut Value, title: &str, gen_count: i64, now_ms: i64) -> Result<bool, String> {
+pub fn apply_title_to_doc(
+    doc: &mut Value,
+    title: &str,
+    gen_count: i64,
+    now_ms: i64,
+) -> Result<bool, String> {
     // `if (!meta || !title)` — falsy meta (missing/null/0/""/false) or "".
     let meta_truthy = doc.get("meta").map(jsstr::js_truthy).unwrap_or(false);
     if !meta_truthy || title.is_empty() {
         return Ok(false);
     }
-    if doc.get("meta").and_then(|m| m.get("titleSource")).and_then(Value::as_str) == Some("manual") {
+    if doc
+        .get("meta")
+        .and_then(|m| m.get("titleSource"))
+        .and_then(Value::as_str)
+        == Some("manual")
+    {
         return Ok(false);
     }
-    if let Some(g) = doc.get("meta").and_then(|m| m.get("titleGenCount")).and_then(Value::as_f64) {
+    if let Some(g) = doc
+        .get("meta")
+        .and_then(|m| m.get("titleGenCount"))
+        .and_then(Value::as_f64)
+    {
         if g > gen_count as f64 {
             return Ok(false);
         }
@@ -113,11 +129,17 @@ pub fn apply_title_to_doc(doc: &mut Value, title: &str, gen_count: i64, now_ms: 
             return Ok(true);
         }
         // Primitive meta ⇒ TS strict-mode TypeError (see header).
-        return Err("applyTitleToDoc: title assignment on primitive meta (strict-mode TypeError parity)".into());
+        return Err(
+            "applyTitleToDoc: title assignment on primitive meta (strict-mode TypeError parity)"
+                .into(),
+        );
     };
     meta_map.insert("title".into(), Value::String(title.to_string()));
     meta_map.insert("titleSource".into(), Value::String("auto".into()));
-    meta_map.insert("titleGenCount".into(), Value::Number(Number::from(gen_count)));
+    meta_map.insert(
+        "titleGenCount".into(),
+        Value::Number(Number::from(gen_count)),
+    );
     meta_map.insert("titleGenAt".into(), Value::Number(Number::from(now_ms)));
     Ok(true)
 }
@@ -134,10 +156,12 @@ mod tests {
     fn first_user_text_table() {
         assert_eq!(first_user_text(&v("[]")), "");
         assert_eq!(first_user_text(&v("[{\"role\":\"system\",\"content\":\"s\"},{\"role\":\"user\",\"content\":\"  hi  \"}]")), "  hi  "); // RAW, untrimmed
-        // First user message TERMINATES: a blank one yields "" even if a
-        // later user message has text.
+                                                                                                                                           // First user message TERMINATES: a blank one yields "" even if a
+                                                                                                                                           // later user message has text.
         assert_eq!(
-            first_user_text(&v("[{\"role\":\"user\",\"content\":\"\"},{\"role\":\"user\",\"content\":\"later\"}]")),
+            first_user_text(&v(
+                "[{\"role\":\"user\",\"content\":\"\"},{\"role\":\"user\",\"content\":\"later\"}]"
+            )),
             ""
         );
         // Parts array: first part with non-blank trimmed text wins, RAW.
@@ -145,11 +169,22 @@ mod tests {
             first_user_text(&v("[{\"role\":\"user\",\"content\":[{\"text\":\"  \"},{\"text\":\" P2 \"},{\"text\":\"p3\"}]}]")),
             " P2 "
         );
-        assert_eq!(first_user_text(&v("[{\"role\":\"user\",\"content\":[{\"nope\":1}]}]")), "");
-        assert_eq!(first_user_text(&v("[{\"role\":\"user\",\"content\":null}]")), "");
+        assert_eq!(
+            first_user_text(&v("[{\"role\":\"user\",\"content\":[{\"nope\":1}]}]")),
+            ""
+        );
+        assert_eq!(
+            first_user_text(&v("[{\"role\":\"user\",\"content\":null}]")),
+            ""
+        );
         // FEFF counts as JS ws ⇒ parts with only FEFF are blank. (JSON
         // escape form — serde rejects the JS `\u{…}` spelling.)
-        assert_eq!(first_user_text(&v("[{\"role\":\"user\",\"content\":[{\"text\":\"\\ufeff\"},{\"text\":\"next\"}]}]")), "next");
+        assert_eq!(
+            first_user_text(&v(
+                "[{\"role\":\"user\",\"content\":[{\"text\":\"\\ufeff\"},{\"text\":\"next\"}]}]"
+            )),
+            "next"
+        );
     }
 
     #[test]
@@ -188,14 +223,18 @@ mod tests {
 
     #[test]
     fn should_generate_table() {
-        assert!(!should_generate(&v("{\"titleSource\":\"manual\"}"), 100, true)); // manual beats force
+        assert!(!should_generate(
+            &v("{\"titleSource\":\"manual\"}"),
+            100,
+            true
+        )); // manual beats force
         assert!(should_generate(&v("{}"), 1, true));
         assert!(!should_generate(&v("{}"), 1, false));
         assert!(should_generate(&v("{}"), 2, false)); // never generated, full exchange
         assert!(!should_generate(&v("{\"titleGenCount\":10}"), 13, false)); // 3 < 4
         assert!(should_generate(&v("{\"titleGenCount\":10}"), 14, false)); // 4 >= 4
         assert!(!should_generate(&v("{\"titleGenCount\":10}"), 9, false)); // shrink-guard
-        // titleGenCount as a STRING is not a number ⇒ first-time rule.
+                                                                           // titleGenCount as a STRING is not a number ⇒ first-time rule.
         assert!(should_generate(&v("{\"titleGenCount\":\"10\"}"), 2, false));
         // Null meta (no meta key) ⇒ first-time rule.
         assert!(should_generate(&Value::Null, 5, false));
@@ -217,8 +256,12 @@ mod tests {
         let mut d = v("[]");
         assert_eq!(apply_title_to_doc(&mut d, "t", 8, 123), Ok(false)); // array doc: no meta
 
-        let mut d = v("{\"id\":\"c\",\"meta\":{\"title\":\"old\"},\"updatedAt\":55,\"messages\":[]}");
-        assert_eq!(apply_title_to_doc(&mut d, "Fresh Title", 7, 1761534562345), Ok(true));
+        let mut d =
+            v("{\"id\":\"c\",\"meta\":{\"title\":\"old\"},\"updatedAt\":55,\"messages\":[]}");
+        assert_eq!(
+            apply_title_to_doc(&mut d, "Fresh Title", 7, 1761534562345),
+            Ok(true)
+        );
         assert_eq!(d["meta"]["title"], v("\"Fresh Title\""));
         assert_eq!(d["meta"]["titleSource"], v("\"auto\""));
         assert_eq!(d["meta"]["titleGenCount"], v("7"));

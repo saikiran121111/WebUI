@@ -3,7 +3,6 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/auto-update-search.mjs",
     "dev": "node scripts/dev-supervisor.mjs",
     "dev:next": "next dev",
     "build": "next build",
@@ -15,7 +14,8 @@
     "cskill:add": "node scripts/install-core-skill.mjs",
     "contracts:generate": "node rust-backend/scripts/gen-mode-contracts.mjs && node rust-backend/scripts/gen-contract-manifest.mjs",
     "contracts:check": "node rust-backend/scripts/gen-mode-contracts.mjs --check && node rust-backend/scripts/gen-contract-manifest.mjs --check",
-    "titles:backfill": "node scripts/backfill-titles.mjs"
+    "titles:backfill": "node scripts/backfill-titles.mjs",
+    "search:update": "node scripts/auto-update-search.mjs"
   },
   "dependencies": {
     "@crawlee/playwright": "^3.18.2",

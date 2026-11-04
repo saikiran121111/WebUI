@@ -40,7 +40,11 @@ const nextConfig = {
       // Web-search engine native deps: impit's Rust N-API binding +
       // better-sqlite3's C++ binding must load from node_modules, not
       // through the webpack bundle (both are required at runtime).
+      // wreq-js is in the same class: its dist resolves the platform
+      // binding (.node) at runtime, and wreqLoad's .catch(()=>null) would
+      // silently disable Pass C if webpack bundled it (rollback audit §B).
       "better-sqlite3",
+      "wreq-js",
     ],
   },
 };

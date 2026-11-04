@@ -24,42 +24,47 @@
 //!   its single combined signal through retrieval, so the Rust side
 //!   passes the turn's token unchanged — no child token.
 //!
-//! PART-8 (implemented): the web-research gate runs between retrieval and
-//!   the strip — `WEB_SEARCH_GATE_DISABLED=1` (or `WEB_SEARCH_LFM_DISABLED`)
+//! PART-8 (TS-ownership rollback, 2026-11-03): web research is TS-owned;
+//!   this pipeline makes ONE authenticated loopback call to the Next-owned
+//!   research service (`crate::chat::next_search`) between retrieval and
+//!   the strip. No research runs in this crate — what remains here is only
+//!   wire-only helper types (`task_scope`, `url_detector`) shared with the
+//!   browser-loop contract — and there is NO dormant Rust fallback: an
+//!   unwired bridge simply means no web evidence for the turn.
+//!   `WEB_SEARCH_GATE_DISABLED=1` (or `WEB_SEARCH_LFM_DISABLED`)
 //!   short-circuits the whole block with the verbatim TS log line and NO
-//!   slot claim; otherwise the turn's slot is held across the gate
-//!   (`begin_guard`'s Drop ⇔ TS's `finally endUserTurn`), the gate's
-//!   progress frames ride `web:<kebab-stage>` via `ProgressChannel::try_stage`,
-//!   and a bundle injects `buildMainModelContext().systemBlock` at
-//!   `lastUserIdx + 1` and fills `PipelineOutcome`'s two fields — the
-//!   legacy header pair (Rule 2.2) and the `web_meta` frame in
-//!   `pump_progress` consume them. Client abort reaches the gate through a
-//!   flag mirror of the turn token (⇔ TS threading the request signal).
+//!   slot claim; otherwise the turn's slot is held across the loopback
+//!   (`begin_guard`'s Drop ⇔ TS's `finally endUserTurn`), the bridge's
+//!   NDJSON progress frames ride `web:<kebab-stage>` via
+//!   `ProgressChannel::try_stage`, client abort drops the request mid-
+//!   stream (⇔ TS threading the request signal), and a bundle injects
+//!   `buildMainModelContext().systemBlock` at `lastUserIdx + 1` and fills
+//!   `PipelineOutcome`'s fields — the legacy header pair (Rule 2.2) and
+//!   the `web_meta` frame in `pump_progress` consume them. Bridge failures
+//!   are log-and-continue (Rule 2.4): the turn proceeds without web
+//!   evidence exactly like a failed TS gate.
 //!   RECORDED QUIRK: `imageParts` indexes the RAW `lastUserIdx` AFTER the
 //!   skill/retrieval injections — on injected turns that is a system
 //!   message with no image parts; reproduced, not fixed.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Instant;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use tracing::Span;
 
 use ruke_attach::{build_attachment_turn, collect_attachment_refs, Cancelled, NotesLlm};
 use ruke_contracts::decision::DecisionEnvelope;
-use ruke_contracts::stages::{Citation, CitationMap, GateQuery, ResearchMeta, StageEvent};
+use ruke_contracts::stages::{CitationMap, GateQuery, ResearchMeta, StageEvent};
 use ruke_decision::skill_block::build_decision_skill_block;
 use ruke_skills::jsstr::js_slice_head;
 use ruke_skills::lazy::inject_system_before;
-use ruke_websearch::pipeline::{
-    build_main_model_context, run_web_research, EvidenceBundle, PipelineProgress, PipelineStage,
-};
-use ruke_websearch::search_gate::SearchGateOptions;
-use ruke_websearch::types::{HistoryTurn, SearchGateContext};
 
-use crate::chat::{attach, forward, sse::ProgressChannel};
+use crate::chat::{
+    attach, clock, forward,
+    next_search::BridgeError,
+    sse::ProgressChannel,
+};
 use crate::AppState;
 
 /// What the web gate contributes: the `[S1]…[Sn]` citation map and the
@@ -72,6 +77,23 @@ use crate::AppState;
 pub struct PipelineOutcome {
     pub web_citations: Option<CitationMap>,
     pub search_gate: Option<ResearchMeta>,
+    /// P2: the depth the gate chose when it produced a bundle — drives the
+    /// model-facing web tool loop (`chat/web_loop.rs` ⇔ TS web-tool-loop).
+    /// TS-ownership rollback: depth crosses the bridge as the TS wire
+    /// string ("quick" | "standard" | "deep") — Rust no longer owns a
+    /// Depth type.
+    pub web_depth: Option<String>,
+    /// P5 (Addendum §55/§57 ⇔ TS runTurnPipeline's `presentation`/
+    /// `richResults`): the turn's plan + validated surfaces as wire Values.
+    /// `rich_results` is only `Some` when NON-empty ⇔ the TS
+    /// `length > 0 ? rr : null` gate; `Value` passthrough mirrors the
+    /// StageEvent ledger (flat named-type references).
+    pub presentation: Option<Value>,
+    pub rich_results: Option<Vec<Value>>,
+    /// Task-scope audit (brief #1/#6): the ONE per-turn folded contract the
+    /// gate ctx was built with — carried to the web tool loop so gate and
+    /// session share one scope (⇔ TS route.ts feeding both).
+    pub turn_scope: Option<crate::task_scope::TaskScope>,
 }
 
 /// Mirror of `runTurnPipeline`'s Part-4-visible steps. `ch` is the progress
@@ -89,9 +111,26 @@ pub async fn run_turn_pipeline(
     token: &CancellationToken,
     mut ch: Option<&mut ProgressChannel>,
     model: &str,
+    // P1 clock grounding: the client's IANA zone captured (and stripped
+    // from the payload) by the handler — ⇔ TS `opts.turnTimezone`.
+    turn_timezone: Option<&str>,
+    // Task-scope audit (brief #2/#3): true when the request carried the
+    // `browser_session` marker (conversation identity — sent on EVERY
+    // chat send, panel visibility irrelevant). Marker + an OPERATE fold
+    // makes this a browser turn, and the general research gate is then
+    // SKIPPED: the browser turn resolves its destination itself
+    // (browser_loop bounded discovery), never behind a blind fan-out.
+    browser_marker: bool,
     span: &Span,
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
+
+    // Brief §5: exactly ONE request instant ⇔ TS `turnInstant` inside
+    // prepareTurn — the research bridge's `currentDate` (the gate's date)
+    // and the step-7 `<runtime_clock>` block both derive from this same
+    // instant, so the gate and the model can never reason against
+    // different calendar dates (UTC vs session zone).
+    let turn_now = chrono::Utc::now();
 
     // Step 4 (route.ts:461): exactly ONE skill block reaches the model.
     // A slash-routed user skill already injected its block (in
@@ -130,7 +169,12 @@ pub async fn run_turn_pipeline(
     let att_ids: Vec<String> = payload
         .get("messages")
         .and_then(Value::as_array)
-        .map(|m| collect_attachment_refs(m).into_iter().map(|r| r.att_id).collect())
+        .map(|m| {
+            collect_attachment_refs(m)
+                .into_iter()
+                .map(|r| r.att_id)
+                .collect()
+        })
         .unwrap_or_default();
     if has_attachment_refs {
         if let Some(ch) = ch.as_mut() {
@@ -138,26 +182,27 @@ pub async fn run_turn_pipeline(
         }
     }
     let retrieval_started = Instant::now();
-    let retrieval: Result<usize, Cancelled> = match payload.get_mut("messages").and_then(Value::as_array_mut) {
-        Some(messages) => {
-            let llm = NotesLlm {
-                url: state.settings.llm_api_url(),
-                key: state.settings.llm_api_key(),
-            };
-            build_attachment_turn(
-                messages,
-                last_user_idx + 1,
-                question,
-                &state.root,
-                state.attach_embedder.as_ref(),
-                &state.http,
-                &llm,
-                token,
-            )
-            .await
-        }
-        None => Ok(0),
-    };
+    let retrieval: Result<usize, Cancelled> =
+        match payload.get_mut("messages").and_then(Value::as_array_mut) {
+            Some(messages) => {
+                let llm = NotesLlm {
+                    url: state.settings.llm_api_url(),
+                    key: state.settings.llm_api_key(),
+                };
+                build_attachment_turn(
+                    messages,
+                    last_user_idx + 1,
+                    question,
+                    &state.root,
+                    state.attach_embedder.as_ref(),
+                    &state.http,
+                    &llm,
+                    token,
+                )
+                .await
+            }
+            None => Ok(0),
+        };
     match retrieval {
         Ok(blocks) => {
             if blocks > 0 {
@@ -205,157 +250,278 @@ pub async fn run_turn_pipeline(
         }
     }
 
+    // Task-scope audit (brief #1/#6): ONE fold per turn over the
+    // conversation's USER turns plus the current question, shared by the
+    // gate ctx AND the web tool loop (⇔ TS route.ts: a single
+    // foldTaskScope feeds both runTurnPipeline and runWebToolLoop). The
+    // fold is deterministic, so hoisting it out of the gate block changes
+    // no bytes — it just makes the ONE-contract-per-turn law structural.
+    let scope_prompts: Vec<String> = history
+        .iter()
+        .filter(|h| h.get("role").and_then(Value::as_str) == Some("user"))
+        .filter_map(|h| h.get("content").and_then(Value::as_str))
+        .map(str::to_string)
+        .chain(std::iter::once(question.to_string()))
+        .collect();
+    let turn_scope = crate::task_scope::fold_task_scope(&scope_prompts);
+    outcome.turn_scope = Some(turn_scope.clone());
+
+    // Task-scope audit (brief #2/#3) ordering law: the browser marker
+    // (conversation identity) COMBINED with an OPERATE fold makes this a
+    // browser turn — and for a browser turn the general research fan-out
+    // is SKIPPED entirely. An operational turn must resolve its
+    // destination through bounded discovery inside the browser loop,
+    // never by paying for a blind web-research pass against an unknown
+    // site first. Marker turns with any other intent keep the research
+    // path (with the scope enforced through the gate ctx); panel
+    // visibility plays no part anywhere in this law.
+    let browser_turn =
+        browser_marker && crate::task_scope::routes_to_browser_turn(&turn_scope);
+
     // ---- 6) web-research gate (route.ts:835; PART-8 wired) ----
     // The env short-circuit precedes the slot claim: a disabled gate never
     // touches the inference slot (TS `if (webResearchDisabled) log...
     // else { beginUserTurn(); try {…} finally { endUserTurn(); } }`).
-    if ruke_websearch::search_gate::gate_disabled_by_env() {
+    if browser_turn {
+        tracing::info!(
+            parent: span,
+            prompt = %js_slice_head(question, 60),
+            "general web research skipped: operational task scope — the browser turn owns the site-bound work"
+        );
+    } else if gate_disabled_by_env() {
         tracing::info!(
             parent: span,
             prompt = %js_slice_head(question, 60),
             "web-research pipeline disabled (WEB_SEARCH_GATE_DISABLED)"
         );
-    } else {
+    } else if let Some(bridge) = state.next_search.as_ref() {
+        // TS-ownership rollback (2026-11-03): the research itself is
+        // TypeScript's — it runs in the Next process through the same
+        // runWebResearch() the public /api/search route uses, driven over
+        // the internal bridge RPC (app/api/internal/web-research). Rust
+        // keeps ONLY the generic transport pieces: the slot claim, the
+        // progress-frame relay, and the evidence injection here.
         // Drop IS the `finally endUserTurn`. The slot counts turns, so the
         // forwarder's later `begin_guard` nests exactly like the TS
-        // handler's second `beginUserTurn` for the same request.
+        // handler's second `beginUserTurn` for the same request. The
+        // whole research window stays inside the guard.
         let _web_guard = state.slot.clone().begin_guard();
 
-        // `imageParts` indexes the RAW `lastUserIdx` AFTER the skill and
-        // retrieval injections above — on injected turns that slot holds a
-        // SYSTEM message (no image parts). The TS oracle reads
-        // `payload.messages[lastUserIdx]?.content` at exactly this point;
-        // reproduced verbatim (module docs).
-        let image_parts: Vec<String> = payload
+        // Brief §3 law: the current user turn may have SHIFTED off
+        // `last_user_idx` — step 4 (decision skill) and step 5 (attachment
+        // retrieval) each inject a SYSTEM block before it. The raw read used
+        // to land on that SYSTEM block and silently drop the turn's image
+        // parts; recompute the real position first (⇔ TS `resolveTurnIndex`).
+        let turn_idx = payload
             .get("messages")
             .and_then(Value::as_array)
-            .and_then(|m| m.get(last_user_idx))
-            .map(|m| turn_image_parts(m.get("content")))
-            .unwrap_or_default();
+            .map(|m| resolve_turn_index(m, last_user_idx))
+            .unwrap_or(last_user_idx);
+        let turn_content = payload
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|m| m.get(turn_idx))
+            .and_then(|m| m.get("content"));
+        let image_parts: Vec<String> = turn_image_parts(turn_content);
         // §11.2 follow-up: the gate's attachment-evidence flag is the TS
         // oracle's `hasAttachmentRefs || hasInlineAttachment` — unindexed
         // attachments inline their content (no ref) but the turn STILL
         // carries local evidence. Retrieval above stays ref-keyed.
-        let inline_attachment = payload
-            .get("messages")
-            .and_then(Value::as_array)
-            .and_then(|m| m.get(last_user_idx))
-            .map(|m| turn_has_inline_attachment(m.get("content")))
-            .unwrap_or(false);
-        let history_turns: Vec<HistoryTurn> = history
+        let inline_attachment = turn_has_inline_attachment(turn_content);
+        let history_json: Vec<Value> = history
             .iter()
-            .map(|h| HistoryTurn {
-                role: h.get("role").and_then(Value::as_str).unwrap_or_default().to_string(),
-                content: h.get("content").and_then(Value::as_str).unwrap_or_default().to_string(),
+            .filter_map(|h| {
+                let role = h.get("role").and_then(Value::as_str)?;
+                let content = h.get("content").and_then(Value::as_str)?;
+                Some(json!({ "role": role, "content": content }))
             })
             .collect();
-        let ctx = SearchGateContext {
-            user_prompt: question.to_string(),
-            history: Some(history_turns),
-            has_image_attachment: Some(!image_parts.is_empty()),
+        // Task-scope audit (brief #1/#6): the ONE per-turn fold hoisted
+        // above feeds the research ctx — the model cannot broaden it via
+        // tool arguments. Crosses the wire verbatim (the shared
+        // task-scope fixture matrix pins the shape on both sides).
+        let body = json!({
+            "prompt": question,
+            "history": history_json,
+            "hasImageAttachment": !image_parts.is_empty(),
             // Part-10 approved deviation: the SAME current-turn flag the
             // retrieval stage above keyed off feeds the attachment-aware
             // gate suppression (TS oracle: hasAttachmentEvidence). §11.2:
-            // OR-ed with the inline-attachment flag — small unindexed
-            // attachments inline their content instead of carrying a ref.
-            has_attachment_evidence: Some(has_attachment_refs || inline_attachment),
-            // Universal search pre-gate (approved deviation): None ⇒ the
-            // gate uses the real runtime date (never hardcoded).
-            current_date: None,
-            image_data_urls: Some(image_parts),
-        };
-        // Settings are read PER CALL (llmApiUrl/llmApiKey): a settings.json
-        // edit lands without a restart (Rule 2.5).
-        let gate_options = SearchGateOptions {
-            endpoint: state.settings.llm_api_url(),
-            api_key: state.settings.llm_api_key(),
-            gate_disabled: None,
-        };
+            // OR-ed with the inline-attachment flag.
+            "hasAttachmentEvidence": has_attachment_refs || inline_attachment,
+            "imageDataUrls": image_parts,
+            "scope": serde_json::to_value(&turn_scope).unwrap_or(Value::Null),
+            // Session-zone date at the turn instant ⇔ TS chat-route
+            // `currentDate: sessionDateString(turnInstant, turnTimezone)`:
+            // the gate's "today" must equal the date the step-7 clock
+            // block shows — never the gate's bare-UTC fallback.
+            "currentDate": clock::session_date_string(turn_timezone, turn_now),
+        });
 
         // ⇔ TS `onProgress: (p) => { log.info({…}, "web-research progress");
         //    stage("web:"+p.stage, { detail, total, done, coverage, url,
         //    domain }) }`. On the legacy path `pc` is None (TS's no-op
         //    `stage`) but the log still runs. `try_stage` is the sync
         //    escape hatch (its docs record the full-queue drop divergence).
+        // The bridge relays PipelineProgress frames verbatim — the stage
+        // labels are the TS wire strings (gate/planning/searching/...).
         let pc: Option<&ProgressChannel> = ch.as_deref();
-        let progress_fn = |p: &PipelineProgress| {
-            let label = stage_label(p.stage);
+        let on_progress = |f: &Value| {
+            let label = f.get("stage").and_then(Value::as_str).unwrap_or_default();
+            let detail = f.get("detail").and_then(Value::as_str).unwrap_or_default();
             tracing::info!(
                 parent: span,
                 stage = %label,
-                detail = %p.detail.clone().unwrap_or_default(),
+                detail = %detail,
                 "web-research progress"
             );
             if let Some(pc) = pc {
                 let mut e = StageEvent::new(format!("web:{label}"));
-                e.detail = p.detail.clone();
-                e.total = p.total.map(|t| t as u64);
-                e.done = p.done.map(|d| d as u64);
-                e.coverage = p.coverage;
-                e.url = p.url.clone();
-                e.domain = p.domain.clone();
+                e.detail = f.get("detail").and_then(Value::as_str).map(str::to_string);
+                e.total = f.get("total").and_then(Value::as_u64);
+                e.done = f.get("done").and_then(Value::as_u64);
+                e.coverage = f.get("coverage").and_then(Value::as_f64);
+                e.url = f.get("url").and_then(Value::as_str).map(str::to_string);
+                e.domain = f.get("domain").and_then(Value::as_str).map(str::to_string);
                 pc.try_stage(&e);
             }
         };
 
-        // TS threads the request's combined AbortSignal into the pipeline;
-        // the Rust seam mirrors the turn's token into a flag the pipeline
-        // polls (`cancel` checks in run_web_research ⇔ `signal.aborted`).
-        let cancel = Arc::new(AtomicBool::new(false));
-        let cancel_watcher = {
-            let cancel = cancel.clone();
-            let token = token.clone();
-            tokio::spawn(async move {
-                token.cancelled().await;
-                cancel.store(true, Ordering::Relaxed);
-            })
-        };
-        let result = run_web_research(
-            &state.http,
-            &gate_options,
-            &state.web.net,
-            state.web.cache.as_ref(),
-            &state.web.verticals,
-            state.web.bridge.as_ref(),
-            &ctx,
-            Some(&progress_fn as &(dyn Fn(&PipelineProgress) + Send + Sync)),
-            Some(&cancel),
-        )
-        .await;
-        cancel_watcher.abort();
+        // Cancellation ⇔ TS threading the request's AbortSignal: dropping
+        // the response future closes the socket, Next observes the request
+        // abort and stops retrieval (next_search.rs).
+        let result = bridge.research(&body, token, on_progress).await;
 
-        // TS catch arm around the whole step: ANY pipeline failure logs
-        // and proceeds WITHOUT web evidence — the turn never gets a
-        // `ruke_error` from the web stage (Rule 2.4).
-        match result {
+        // TS catch arm around the whole step: ANY failure logs and
+        // proceeds WITHOUT web evidence — the turn never gets a
+        // `ruke_error` from the web stage (Rule 2.4). Same for a bridge
+        // transport failure: there is no retry and no second engine.
+        let frame = match result {
+            Err(BridgeError::Cancelled) => {
+                tracing::info!(parent: span, "web research cancelled with the turn");
+                None
+            }
             Err(err) => {
                 tracing::error!(
                     parent: span,
                     err = %err,
-                    "web research pipeline failed — proceeding without web evidence"
+                    "web research bridge failed — proceeding without web evidence"
                 );
+                None
             }
-            Ok(None) => {}
-            Ok(Some(bundle)) => {
-                let mm = build_main_model_context(&bundle);
-                if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
-                    inject_system_before(messages, last_user_idx + 1, mm.system_block);
+            Ok(frame) => Some(frame),
+        };
+        if let Some(frame) = frame.as_ref() {
+            match frame.get("status").and_then(Value::as_str) {
+                Some("bundle") => {
+                    let system_block = frame
+                        .get("systemBlock")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if !system_block.is_empty() {
+                        if let Some(messages) =
+                            payload.get_mut("messages").and_then(Value::as_array_mut)
+                        {
+                            inject_system_before(messages, last_user_idx + 1, system_block.to_string());
+                        }
+                    }
+                    // The TS route serializes citations as the sourceId →
+                    // {sourceId,url,title,domain,publishedAt} object —
+                    // byte-compatible with the old CitationMap contents.
+                    outcome.web_citations = frame.get("citations").and_then(Value::as_object).cloned();
+                    // ResearchMeta/GateQuery are Serialize-only contracts:
+                    // rebuild them from the camelCase frame (⇔ the retired
+                    // research_meta wire strings).
+                    let gate = frame.get("searchGate");
+                    outcome.search_gate = gate.map(|g| ResearchMeta {
+                        depth: g
+                            .get("depth")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        freshness: g
+                            .get("freshness")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        decided_by: g.get("decidedBy").and_then(Value::as_str).map(str::to_string),
+                        queries: g
+                            .get("queries")
+                            .and_then(Value::as_array)
+                            .map(|qs| {
+                                qs.iter()
+                                    .filter_map(|q| {
+                                        Some(GateQuery {
+                                            query: q.get("query").and_then(Value::as_str)?.to_string(),
+                                            intent: q.get("intent").and_then(Value::as_str)?.to_string(),
+                                        })
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    });
+                    outcome.web_depth = frame.get("depth").and_then(Value::as_str).map(str::to_string);
+                    // P5 §55/§57: plan + validated surfaces travel as wire
+                    // Values; the TS frame already gates empty surfaces out
+                    // (presentation null / richResults [] ⇔ the length>0
+                    // law) — Rust mirrors "absent when empty".
+                    outcome.presentation = frame.get("presentation").filter(|v| !v.is_null()).cloned();
+                    if let Some(rr) = frame.get("richResults").and_then(Value::as_array) {
+                        if !rr.is_empty() {
+                            outcome.rich_results = Some(rr.clone());
+                        }
+                    }
+                    // shortcut: closures instead of `Value::as_*` paths —
+                    // inside tracing macro fields that path resolves to
+                    // the tracing `Value` TRAIT (E0782), not serde's type.
+                    let stats = frame.get("stats");
+                    let stat_u64 = |key: &str| {
+                        stats.and_then(|s| s.get(key)).and_then(|v| v.as_u64()).unwrap_or(0)
+                    };
+                    tracing::info!(
+                        parent: span,
+                        passages = stat_u64("passages"),
+                        results = stat_u64("results"),
+                        gate_source = %stats.and_then(|s| s.get("gateSource")).and_then(|v| v.as_str()).unwrap_or(""),
+                        from_cache = stats.and_then(|s| s.get("fromCache")).and_then(|v| v.as_bool()).unwrap_or(false),
+                        citations = frame.get("citations").and_then(|v| v.as_object()).map(|m| m.len()).unwrap_or(0) as u64,
+                        "web research evidence injected (TS-owned pipeline via the internal bridge)"
+                    );
                 }
-                outcome.web_citations = Some(citation_map_from(&bundle));
-                outcome.search_gate = Some(research_meta(&bundle));
-                tracing::info!(
-                    parent: span,
-                    passages = bundle.top_passages.len() as u64,
-                    results = bundle.search_results.len() as u64,
-                    gate_source = %wire_str(&bundle.search_gate.source),
-                    from_cache = bundle.from_cache,
-                    citations = bundle.packets.len() as u64,
-                    gap_search = bundle.gap_search_fired,
-                    "web research evidence injected"
-                );
+                Some("no_bundle") => {}
+                Some("error") => {
+                    tracing::error!(
+                        parent: span,
+                        err = %frame.get("message").and_then(|v| v.as_str()).unwrap_or(""),
+                        "TS web research pipeline failed — proceeding without web evidence"
+                    );
+                }
+                _ => {
+                    tracing::error!(
+                        parent: span,
+                        "web research bridge sent an unexpected terminal frame"
+                    );
+                }
             }
         }
         // `_web_guard` drops here ⇔ the finally.
+    } else {
+        // Bridge not configured (env pair unset): honest degradation — no
+        // Rust-side search fallback exists (rollback law).
+        tracing::warn!(
+            parent: span,
+            prompt = %js_slice_head(question, 60),
+            "web-research bridge not configured: the turn proceeds without web evidence"
+        );
+    }
+
+    // Step 7 (route.ts step 7): P1 clock grounding — always on for every
+    // model-visible turn (the compaction passthrough never runs this
+    // function). Injected LAST among the system blocks so the
+    // <runtime_clock> block sits immediately before the user turn.
+    if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
+        let block = clock::build_clock_block(turn_timezone, turn_now);
+        inject_system_before(messages, last_user_idx + 1, block);
     }
 
     tracing::info!(
@@ -390,6 +556,16 @@ pub async fn pump_progress(
     history: Vec<Value>,
     span: Span,
     token: CancellationToken,
+    // Some((conversation, turn)) whenever the client sent the
+    // `browser_session` marker (conversation identity — presence alone
+    // does NOT route; task-scope audit brief #2). The browser tool loop
+    // runs only when the folded turn scope ALSO derives an OPERATE
+    // intent; every other marker turn takes the research/plain path.
+    // (handler computes this before stripping the marker).
+    browser: Option<(String, String)>,
+    // P1 clock grounding: handler-captured IANA zone (already stripped
+    // from the payload there) — threaded to the pipeline like `browser`.
+    turn_timezone: Option<String>,
     mut ch: ProgressChannel,
 ) {
     let decision_mode = env.active_mode.as_str();
@@ -402,7 +578,7 @@ pub async fn pump_progress(
     ch.stage(&ev).await;
 
     let used_for_stage = used_skill.clone();
-    let outcome = run_turn_pipeline(
+    let mut outcome = run_turn_pipeline(
         &mut payload,
         &env,
         used_for_stage.as_deref(),
@@ -414,6 +590,12 @@ pub async fn pump_progress(
         &token,
         Some(&mut ch),
         &model,
+        turn_timezone.as_deref(),
+        // Brief #2: the marker's mere PRESENCE feeds the ordering law
+        // (identity halves of the routing conjunction; the routing
+        // conjunction itself is re-checked at the arms below against the
+        // fold — one fold, one truth).
+        browser.is_some(),
         &span,
     )
     .await;
@@ -423,12 +605,52 @@ pub async fn pump_progress(
     // `searchGate: searchGateMeta ?? undefined` (skip-if-none matches).
     // With the corpus env (gate disabled) the outcome stays None-pair and
     // the recorded golden bytes carry no such frame, exactly as before.
-    if let Some(cits) = &outcome.web_citations {
-        if !cits.is_empty() {
-            let mut ev = StageEvent::new("web_meta");
-            ev.web_citations = Some(cits.clone());
-            ev.search_gate = outcome.search_gate.clone();
-            ch.stage(&ev).await;
+    // P5 (§57): the frame also fires when the turn minted rich surfaces
+    // but no citation packets (e.g. news items from ranked results alone) —
+    // surfaces must still reach the UI. webCitations parity ⇔ TS `??`:
+    // no-bundle (None) omits the key; a bundle with zero packets (Some(
+    // empty)) serializes `{}` exactly like TS's truthy empty object.
+    let surfaces: Vec<Value> = outcome.rich_results.clone().unwrap_or_default();
+    let has_citations = outcome
+        .web_citations
+        .as_ref()
+        .is_some_and(|c| !c.is_empty());
+    if has_citations || !surfaces.is_empty() {
+        let mut ev = StageEvent::new("web_meta");
+        ev.web_citations = outcome.web_citations.clone();
+        ev.search_gate = outcome.search_gate.clone();
+        ev.presentation = outcome.presentation.clone();
+        if !surfaces.is_empty() {
+            ev.rich_results = Some(surfaces.clone());
+        }
+        ch.stage(&ev).await;
+        // §58 per-surface lifecycle frames: the frame payload is ONLY
+        // id/kind/revision — the envelope itself rode once on web_meta,
+        // never repeated per frame. Surfaces derive server-side before any
+        // model byte, so discovered→ready arrive back-to-back;
+        // `web:surface_updated` is the reserved mid-turn revision path
+        // (none minted yet — the P2 tool loop does not regenerate).
+        for rr in &surfaces {
+            let sid = rr
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let kind = rr
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let mut d = StageEvent::new("web:surface_discovered");
+            d.surface_id = Some(sid.clone());
+            d.surface_kind = Some(kind.clone());
+            d.surface_revision = Some(1);
+            ch.stage(&d).await;
+            let mut r = StageEvent::new("web:surface_ready");
+            r.surface_id = Some(sid);
+            r.surface_kind = Some(kind);
+            r.surface_revision = Some(1);
+            ch.stage(&r).await;
         }
     }
 
@@ -444,10 +666,101 @@ pub async fn pump_progress(
     // (every fallible load already degrades to `None`/empty the way the TS
     // catch arms do), and `forward_into` performs its own `ch.fail` for
     // every upstream failure — so no synthetic frame is needed here.
-    forward::forward_into(&state, body, decision_mode, &model, &span, &token, &mut ch).await;
+    //
+    // Browser-ROUTED turns (marker ∧ Operate scope) take the browser
+    // tool-loop path with the SAME stripped payload; every other turn is
+    // byte-identical to before.
+    // P2: a gate-produced bundle additionally arms the model-facing web
+    // tool loop (web_loop.rs ⇔ TS web-tool-loop.ts) for turns that carry
+    // no client-supplied `tools` — a browser-routed turn keeps priority,
+    // and a client passthrough `tools` array is never overwritten.
+    //
+    // Brief #2: the routing conjunction completes HERE against the ONE
+    // fold the pipeline already made — no second derivation anywhere.
+    // The browser loop runs only when marker presence AND an Operate
+    // scope agree; a marker turn with any other intent falls through to
+    // the research/plain path like any other turn (the browser loop no
+    // longer swallows research turns — brief #3), and panel visibility
+    // enters nowhere in this law. `turn_scope` moves into whichever tool
+    // loop runs.
+    let turn_scope = outcome.turn_scope.take();
+    let browser_take = browser.is_some()
+        && turn_scope
+            .as_ref()
+            .is_some_and(|s| crate::task_scope::routes_to_browser_turn(s));
+    let web_tools =
+        !browser_take && outcome.web_depth.is_some() && payload.get("tools").is_none();
+    match browser {
+        Some((session_id, turn_id)) if browser_take => {
+            crate::chat::browser_loop::run_tool_loop(
+                &state,
+                payload,
+                last_user_idx,
+                &model,
+                &span,
+                &token,
+                &mut ch,
+                session_id,
+                turn_id,
+                turn_scope,
+            )
+            .await;
+        }
+        _ if web_tools => {
+            let depth = outcome.web_depth.expect("web_tools gate implies a depth");
+            let merged = outcome.web_citations.take().unwrap_or_default();
+            let gate = outcome.search_gate.take();
+            // P5 §57: the surface set continues through the loop's re-emits
+            // (OVERWRITE law — every updated web_meta carries the full set).
+            let presentation = outcome.presentation.take();
+            let rich_results = outcome.rich_results.take().unwrap_or_default();
+            crate::chat::web_loop::run_web_tool_loop(
+                &state,
+                payload,
+                last_user_idx,
+                &model,
+                depth,
+                merged,
+                gate,
+                presentation,
+                rich_results,
+                &question,
+                // The SAME fold the gate ctx was built with — one
+                // contract per turn, hoisted once at the arms (brief #6:
+                // failure and recovery paths never re-widen it).
+                turn_scope,
+                &span,
+                &token,
+                &mut ch,
+            )
+            .await;
+        }
+        _ => {
+            forward::forward_into(&state, body, decision_mode, &model, &span, &token, &mut ch)
+                .await;
+        }
+    }
 }
 
 /* ── web-gate helpers (⇔ the inline TS blocks in route.ts step 6) ─────── */
+
+/// Brief §3 law ⇔ TS `resolveTurnIndex`: the REAL position of the current
+/// user turn at read time. `last_user_idx` is computed at turn entry, but
+/// the step-4 skill block and the step-5 retrieval evidence each inject a
+/// SYSTEM block BEFORE that turn and shift it — a raw read after them lands
+/// on the injected SYSTEM message. Only injected SYSTEM blocks can sit at
+/// or after `last_user_idx` (it was the LAST user turn), so skipping the
+/// contiguous SYSTEM run starting exactly there is exact for 0, 1, or 2
+/// injections.
+pub(crate) fn resolve_turn_index(messages: &[Value], last_user_idx: usize) -> usize {
+    let mut i = last_user_idx;
+    while i < messages.len()
+        && messages[i].get("role").and_then(Value::as_str) == Some("system")
+    {
+        i += 1;
+    }
+    i
+}
 
 /// `imageParts`: array content parts that are `image_url` parts whose
 /// `imageUrl.url` is a `data:` URL (TS `typeof u === "string" &&
@@ -460,7 +773,11 @@ pub(crate) fn turn_image_parts(content: Option<&Value>) -> Vec<String> {
     parts
         .iter()
         .filter(|p| p.get("type").and_then(Value::as_str) == Some("image_url"))
-        .filter_map(|p| p.get("image_url").and_then(|i| i.get("url")).and_then(Value::as_str))
+        .filter_map(|p| {
+            p.get("image_url")
+                .and_then(|i| i.get("url"))
+                .and_then(Value::as_str)
+        })
         .filter(|u| u.starts_with("data:"))
         .map(str::to_string)
         .collect()
@@ -484,88 +801,18 @@ pub(crate) fn turn_has_inline_attachment(content: Option<&Value>) -> bool {
     }
 }
 
-/// `webCitationMap[p.sourceId] = { sourceId, url, title, domain,
-/// publishedAt }` over the PRE-gap packets in order (the bundle's
-/// `packets` list is already the pre-gap one — the recorded quirk).
-pub(crate) fn citation_map_from(bundle: &EvidenceBundle) -> CitationMap {
-    let mut map = CitationMap::new();
-    for p in &bundle.packets {
-        let c = Citation {
-            source_id: p.source_id.clone(),
-            url: p.url.clone(),
-            title: p.title.clone(),
-            domain: p.domain.clone(),
-            published_at: p.published_at.clone(),
-        };
-        map.insert(p.source_id.clone(), serde_json::to_value(&c).unwrap_or_default());
-    }
-    map
-}
-
-/// `searchGateMeta = { depth, freshness, decidedBy: gate.source,
-/// queries: decision.queries.map(q => ({ query, intent })) }`.
-pub(crate) fn research_meta(bundle: &EvidenceBundle) -> ResearchMeta {
-    let d = &bundle.search_gate.decision;
-    ResearchMeta {
-        depth: wire_str(&d.depth),
-        freshness: wire_str(&d.freshness),
-        decided_by: Some(wire_str(&bundle.search_gate.source)),
-        queries: d
-            .queries
-            .iter()
-            .map(|q| GateQuery { query: q.query.clone(), intent: wire_str(&q.intent) })
-            .collect(),
-    }
-}
-
-/// The enum's WIRE string (`depth`/`freshness`/`intent`/`source` on the
-/// header/frame values). All four enums serialize to a single string.
-pub(crate) fn wire_str<T: serde::Serialize>(v: &T) -> String {
-    match serde_json::to_value(v) {
-        Ok(Value::String(s)) => s,
-        _ => String::new(),
-    }
-}
-
-/// `stage("web:" + p.stage)` — the kebab-case wire labels (`gap-search`,
-/// `auth_required`) that the TS pipeline emits (pipeline.ts:137).
-fn stage_label(s: PipelineStage) -> String {
-    wire_str(&s)
+/// Test/CI escape hatch ⇔ the retired crate helper (TS owns the real
+/// `gateDisabledByEnv`; this is the pre-bridge check with identical
+/// semantics — `WEB_SEARCH_GATE_DISABLED`, with the legacy
+/// `WEB_SEARCH_LFM_DISABLED` still working).
+fn gate_disabled_by_env() -> bool {
+    std::env::var("WEB_SEARCH_GATE_DISABLED").as_deref() == Ok("1")
+        || std::env::var("WEB_SEARCH_LFM_DISABLED").as_deref() == Ok("1")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ruke_websearch::types::{
-        Depth, EvidencePacket, ExtractionKind, Freshness, GateSource, Intent, SearchDecision,
-        SearchGateResult, SearchQuery,
-    };
-
-    fn bundle_with(packets: Vec<EvidencePacket>) -> EvidenceBundle {
-        EvidenceBundle {
-            search_gate: SearchGateResult {
-                decision: SearchDecision {
-                    search_required: true,
-                    reason: "r".into(),
-                    freshness: Freshness::Week,
-                    depth: Depth::Deep,
-                    queries: vec![
-                        SearchQuery { query: "q one".into(), intent: Intent::News, preferred_domains: None },
-                        SearchQuery { query: "q two".into(), intent: Intent::Docs, preferred_domains: None },
-                    ],
-                },
-                source: GateSource::MainModel,
-                gate_ms: 1.0,
-            },
-            search_results: vec![],
-            packets,
-            top_passages: vec![],
-            from_cache: false,
-            coverage: 0.0,
-            gap_search_fired: false,
-            auth_required: vec![],
-        }
-    }
 
     #[test]
     fn image_parts_keep_only_data_url_image_parts() {
@@ -576,50 +823,72 @@ mod tests {
             { "type": "image_url" },
             { "type": "image_url", "image_url": { "url": 7 } },
         ]);
-        assert_eq!(turn_image_parts(Some(&content)), vec!["data:image/png;base64,AAA"]);
+        assert_eq!(
+            turn_image_parts(Some(&content)),
+            vec!["data:image/png;base64,AAA"]
+        );
         // String content and missing content are BOTH `[]` (TS `?.`).
         assert!(turn_image_parts(Some(&serde_json::json!("s"))).is_empty());
         assert!(turn_image_parts(None).is_empty());
     }
 
+    /// Brief §3 law, real request shape: the step-4 skill block and the
+    /// step-5 evidence block are injected BEFORE the current user turn
+    /// (exactly like `inject_system_before(messages, last_user_idx, …)` at
+    /// the step-4 site and the retrieval site). The RAW index read — the
+    /// pre-fix behavior — lands on a SYSTEM block and drops the turn's
+    /// images; `resolve_turn_index` must find the shifted user turn.
     #[test]
-    fn citation_map_follows_packet_order_and_drops_absent_published_at() {
-        let bundle = bundle_with(vec![
-            EvidencePacket {
-                source_id: "S1".into(), url: "https://a.example".into(), title: "A".into(),
-                domain: "a.example".into(), published_at: Some("2026-01-01".into()),
-                extraction: ExtractionKind::SnippetOnly, passages: vec![], classification: None,
-            },
-            EvidencePacket {
-                source_id: "yt".into(), url: "https://yt.example".into(), title: "Y".into(),
-                domain: "yt.example".into(), published_at: None,
-                extraction: ExtractionKind::Direct, passages: vec![], classification: None,
-            },
-        ]);
-        let map = citation_map_from(&bundle);
-        let keys: Vec<&String> = map.keys().collect();
-        assert_eq!(keys, ["S1", "yt"]); // insertion order ⇔ Map insertion order
-        assert_eq!(map["S1"]["publishedAt"], serde_json::json!("2026-01-01"));
-        assert!(map["yt"].get("publishedAt").is_none()); // TS undefined drops
-    }
+    fn current_turn_image_parts_survive_skill_and_evidence_injections() {
+        let image_turn = serde_json::json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "Attached file: notes.txt\nwho is this person?" },
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA" } },
+            ],
+        });
+        let last = 2usize;
+        let mut messages: Vec<Value> = vec![
+            serde_json::json!({ "role": "user", "content": "hi" }),
+            serde_json::json!({ "role": "assistant", "content": "yo" }),
+            image_turn.clone(),
+        ];
 
-    #[test]
-    fn research_meta_uses_wire_strings() {
-        let meta = research_meta(&bundle_with(vec![]));
-        assert_eq!(meta.depth, "deep");
-        assert_eq!(meta.freshness, "week");
-        assert_eq!(meta.decided_by.as_deref(), Some("main-model"));
+        // No injections: the index is already the user turn.
+        assert_eq!(resolve_turn_index(&messages, last), last);
+
+        // Step 4 (skill) at `last`, step 5 (evidence) at `last + 1` — the
+        // user turn lands at last + 2.
+        inject_system_before(&mut messages, last, "<core_skill>…".to_string());
+        inject_system_before(&mut messages, last + 1, "<attachment_evidence>…".to_string());
+        // The DEFECT the fix kills: the raw slot is now a SYSTEM block.
+        assert!(
+            turn_image_parts(messages.get(last).and_then(|m| m.get("content"))).is_empty(),
+            "raw last_user_idx read must be the injected SYSTEM block"
+        );
+        let idx = resolve_turn_index(&messages, last);
+        assert_eq!(idx, last + 2);
+        assert_eq!(messages[idx].get("role").and_then(Value::as_str), Some("user"));
+        let content = messages[idx].get("content");
+        assert_eq!(turn_image_parts(content), vec!["data:image/png;base64,AAA"]);
+        assert!(turn_has_inline_attachment(content));
+
+        // Only the skill injection (no evidence): single shift.
+        let mut one: Vec<Value> = vec![
+            serde_json::json!({ "role": "user", "content": "hi" }),
+            serde_json::json!({ "role": "assistant", "content": "yo" }),
+            image_turn,
+        ];
+        inject_system_before(&mut one, last, "<core_skill>…".to_string());
+        assert_eq!(resolve_turn_index(&one, last), last + 1);
         assert_eq!(
-            serde_json::to_string(&meta.queries).unwrap(),
-            r#"[{"query":"q one","intent":"news"},{"query":"q two","intent":"docs"}]"#
+            turn_image_parts(one[last + 1].get("content")),
+            vec!["data:image/png;base64,AAA"]
         );
     }
 
-    #[test]
-    fn stage_labels_match_the_ts_wire() {
-        assert_eq!(stage_label(PipelineStage::GapSearch), "gap-search");
-        assert_eq!(stage_label(PipelineStage::AuthRequired), "auth_required");
-        assert_eq!(stage_label(PipelineStage::Gate), "gate");
-        assert_eq!(stage_label(PipelineStage::Reranking), "reranking");
-    }
+    // The citation-map / research_meta / stage-label parity tests retired
+    // with the Rust search engine (2026-11-03 TS ownership rollback): the
+    // values now arrive as TS wire JSON, so the TS suite owns those
+    // shapes (web-tools-rpc + research-route vectors pin the grammar).
 }

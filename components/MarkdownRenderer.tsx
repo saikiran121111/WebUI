@@ -19,6 +19,7 @@ import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
 import type { RendererMode } from "../lib/decision/types";
 import { rehypeCitations } from "./render/citations";
+import { CitationPill } from "./web-results/CitationPreview";
 
 export interface RenderContextValue {
   streaming: boolean;
@@ -164,33 +165,19 @@ const MD_COMPONENTS = {
   hr() {
     return <hr className="md-hr" />;
   },
+  // P5 §67: the pill keeps its exact DOM contract (data-testid, data-citation,
+  // href, hover classes) and gains the hover/focus preview popover through
+  // CitationPill — existing vitest/Playwright locators still pass.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ...({ citation(props: any) {
-    const sourceId = props["data-source"] as string;
-    const url = props["data-url"] as string;
-    const title = props["data-title"] as string;
     return (
-      <span className="inline-flex items-center gap-1 align-super" data-testid="citation-pill">
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={title}
-          data-citation={sourceId}
-          className="inline-flex items-center gap-0.5 text-[11px] font-medium
-            px-1.5 py-0.5 rounded-md
-            bg-transparent text-[#38E8FF]
-            outline-none
-            transition-colors
-            hover:text-[#6beeff] focus-visible:ring-1 focus-visible:ring-[#38E8FF]/40"
-        >
-          <span>{sourceId}</span>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-60">
-            <path d="M7 17 17 7M7 7h10v10" />
-          </svg>
-        </a>
-      </span>
+      <CitationPill
+        sourceId={props["data-source"] as string}
+        url={props["data-url"] as string}
+        title={props["data-title"] as string}
+        domain={props["data-domain"] as string}
+        publishedAt={props["data-published-at"] as string | undefined}
+      />
     );
   } } as any),
 };

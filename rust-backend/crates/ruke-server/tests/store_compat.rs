@@ -15,7 +15,9 @@ mod common;
 
 use common::{copy_tree, load_fixture, store_fixture_dir};
 
-use ruke_attach::{build_attachment_turn, has_index, read_index, read_notes, FixedEmbedder, NotesLlm};
+use ruke_attach::{
+    build_attachment_turn, has_index, read_index, read_notes, FixedEmbedder, NotesLlm,
+};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -96,7 +98,10 @@ fn question_of(fx: &Value) -> String {
 async fn rust_turn(fx: &Value, user_idx: usize, root: &std::path::Path) -> (Vec<Value>, usize) {
     let mut messages = rust_messages(fx);
     let http = reqwest::Client::new();
-    let llm = NotesLlm { url: PORT9_URL.to_string(), key: "golden-key".into() };
+    let llm = NotesLlm {
+        url: PORT9_URL.to_string(),
+        key: "golden-key".into(),
+    };
     let embedder = FixedEmbedder(QUERY_VEC.to_vec());
     let n = build_attachment_turn(
         &mut messages,
@@ -134,7 +139,10 @@ fn node_written_meta_and_chunks_parse_field_by_field() {
     assert!(has_index(root, "att_golden1c"));
     assert!(has_index(root, "att_golden1d"));
     assert!(!has_index(root, "att_golden1b"), "fixture 02: never seeded");
-    assert!(!has_index(root, "xyz"), "ATT_RE gate (store parity, not an error)");
+    assert!(
+        !has_index(root, "xyz"),
+        "ATT_RE gate (store parity, not an error)"
+    );
 
     let idx = read_index(root, "att_golden1a").unwrap();
     assert_eq!(idx.meta.att_id, "att_golden1a");
@@ -148,7 +156,10 @@ fn node_written_meta_and_chunks_parse_field_by_field() {
     assert!(idx.meta.frames.is_empty());
     assert_eq!(idx.chunks.len(), 3);
     assert_eq!(idx.chunks[1].i, 1);
-    assert_eq!(idx.chunks[1].text, "The Calvin cycle fixes carbon dioxide using ATP and NADPH.");
+    assert_eq!(
+        idx.chunks[1].text,
+        "The Calvin cycle fixes carbon dioxide using ATP and NADPH."
+    );
     assert_eq!(idx.chunks[1].start_sec, None);
     assert_eq!(idx.chunks[1].vec, vec![0.0, 1.0, 0.0]);
 
@@ -177,8 +188,15 @@ async fn fixture_01_rust_block_is_ts_block_byte_exact() {
     // The recorded injection-index quirk (lastUserIdx + 1, REPRODUCED).
     let (messages, n) = rust_turn(&fx, 1, tmp.path()).await;
     assert_eq!(n, 1, "one knowledge block -> retrieval_done done=total=1");
-    assert_eq!(rust_block(&messages), ts_block(&fx), "formatted evidence block must match TS byte-for-byte");
-    assert_eq!(messages[0]["role"], "user", "block lands AFTER the user turn (quirk)");
+    assert_eq!(
+        rust_block(&messages),
+        ts_block(&fx),
+        "formatted evidence block must match TS byte-for-byte"
+    );
+    assert_eq!(
+        messages[0]["role"], "user",
+        "block lands AFTER the user turn (quirk)"
+    );
     assert_eq!(messages[1]["role"], "system");
 }
 
@@ -198,7 +216,10 @@ async fn fixture_03_empty_index_injects_nothing() {
     let tmp = seeded_root(&["att_golden1c"]);
     let fx = fixture("03-empty-index-zero-evidence.json");
     let (messages, n) = rust_turn(&fx, 1, tmp.path()).await;
-    assert_eq!(n, 0, "empty evidence -> no block -> retrieval_done done=total=0");
+    assert_eq!(
+        n, 0,
+        "empty evidence -> no block -> retrieval_done done=total=0"
+    );
     assert_eq!(messages.len(), 1, "no system message was injected");
 }
 
@@ -208,12 +229,19 @@ async fn fixture_04_video_time_range_block_matches_ts() {
     let fx = fixture("04-video-time-range-keyframes-dropped.json");
     let (messages, n) = rust_turn(&fx, 1, tmp.path()).await;
     assert_eq!(n, 1);
-    assert_eq!(rust_block(&messages), ts_block(&fx), "time_range header + video rules must match");
+    assert_eq!(
+        rust_block(&messages),
+        ts_block(&fx),
+        "time_range header + video rules must match"
+    );
     // The quirk: frames target messages[1] (the string block) -> silently
     // dropped, exactly as fixture 04 records.
     assert_eq!(messages[1]["role"], "system");
     let user_parts = messages[0]["content"].as_array().unwrap();
-    assert!(!user_parts.iter().any(|p| p["type"] == "image_url"), "keyframe must be DROPPED here");
+    assert!(
+        !user_parts.iter().any(|p| p["type"] == "image_url"),
+        "keyframe must be DROPPED here"
+    );
 }
 
 #[tokio::test]
@@ -225,12 +253,24 @@ async fn fixture_05_shift_correct_path_lands_block_and_keyframe() {
     // BEFORE the splice), the block splices at user_idx.
     let (messages, n) = rust_turn(&fx, 0, tmp.path()).await;
     assert_eq!(n, 1);
-    assert_eq!(messages[0]["role"], "system", "block BEFORE the user turn when the index is valid");
+    assert_eq!(
+        messages[0]["role"], "system",
+        "block BEFORE the user turn when the index is valid"
+    );
     assert_eq!(rust_block(&messages), ts_block(&fx));
     let user_parts = messages[1]["content"].as_array().unwrap();
-    assert!(user_parts
+    assert!(user_parts.iter().any(|p| p["type"] == "text"
+        && p["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("Moments from the attached video")));
+    let img = user_parts
         .iter()
-        .any(|p| p["type"] == "text" && p["text"].as_str().unwrap().starts_with("Moments from the attached video")));
-    let img = user_parts.iter().find(|p| p["type"] == "image_url").expect("keyframe must land");
-    assert_eq!(img["image_url"]["url"].as_str().unwrap(), ts_image_url(&fx), "frame bytes -> data-url must match TS byte-for-byte");
+        .find(|p| p["type"] == "image_url")
+        .expect("keyframe must land");
+    assert_eq!(
+        img["image_url"]["url"].as_str().unwrap(),
+        ts_image_url(&fx),
+        "frame bytes -> data-url must match TS byte-for-byte"
+    );
 }

@@ -19,8 +19,8 @@ ruke-core.workspace = true
 ruke-skills.workspace = true
 ruke-decision.workspace = true
 ruke-attach.workspace = true
-ruke-websearch.workspace = true
-axum.workspace = true
+ruke-browser.workspace = true
+axum = { workspace = true, features = ["ws"] }
 tokio = { workspace = true, features = ["process"] }
 tokio-util.workspace = true
 serde.workspace = true
@@ -29,9 +29,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
 regex.workspace = true
+psl.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 url.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
 http-body-util.workspace = true
 tokio-stream.workspace = true
 

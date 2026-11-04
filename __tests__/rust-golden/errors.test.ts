@@ -13,6 +13,7 @@ import {
   MOCK_LLM_URL,
   UpstreamScript,
   anchorSkillBlocks,
+  maskRuntimeClock,
   bytesRecord,
   installUpstream,
   normalizeBodyMs,
@@ -64,7 +65,7 @@ async function runAndRecord(o: {
       url: c.url,
       method: c.method,
       headers: Object.fromEntries(Object.entries(c.headers).sort()),
-      bodyText: c.body,
+      bodyText: c.body === null ? null : maskRuntimeClock(c.body),
     })),
     response: {
       status: run.status,
@@ -82,7 +83,7 @@ async function runAndRecord(o: {
     comparison: o.comparison,
     harness: HARNESS,
     env: ENV_PRE,
-    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text.',
+    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText (the clock text itself is pinned by clock unit tests).',
     notes: o.notes,
   });
   return { run, logical };

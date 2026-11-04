@@ -35,6 +35,13 @@ pub async fn decision_post(State(_state): State<AppState>, req: Request) -> Resp
     let status = StatusCode::from_u16(resp.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     // NextResponse.json ⇒ exactly `application/json` (no charset — same
     // as axum's own JSON responses).
-    (status, [(CONTENT_TYPE, axum::http::HeaderValue::from_static("application/json"))], resp.body)
+    (
+        status,
+        [(
+            CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        )],
+        resp.body,
+    )
         .into_response()
 }

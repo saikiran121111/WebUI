@@ -1,12 +1,15 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * PART 10: explicit YouTube caption journey (regression candidate B —
- * captions RPC, fixed in b4b5e94). Asks for the SPOKEN content of the same
- * video the universal suite links (youtu.be/zinbNw7L8xI), so a correct
- * answer requires the transcript path: Rust youtube_bridge → POST
- * /api/internal/youtube-evidence (loopback secret, 90 s deadline) → Node
- * caption fetch → evidence → main model.
+ * Explicit YouTube caption journey (regression candidate B — caption
+ * chain, fixed in b4b5e94; the Rust youtube_bridge/youtube-evidence RPC
+ * leg of that fix was removed in the 2026-11-03 TS rollback). Asks for
+ * the SPOKEN content of the same video the universal suite links
+ * (youtu.be/zinbNw7L8xI), so a correct answer requires the transcript
+ * path: the TS caption chain (innertube.ts / media-captions.ts /
+ * captionProbe.ts inside the web-research pipeline) → evidence → main
+ * model; a Rust-orchestrated turn reaches that chain through the
+ * authenticated /api/internal/web-research bridge.
  *
  * Honesty rules baked into the assertions:
  * - We assert the model does NOT refuse access and that any citation pills
@@ -72,7 +75,7 @@ test("spoken-content question about a YouTube video is answered from evidence, n
   }
 
   // If the answer cites, every pill must point at the video (evidence came
-  // from this URL — the youtube-evidence RPC response), never a junk pool.
+  // from this URL — the TS caption/evidence hop), never a junk pool.
   const pills = page.getByTestId("citation-pill").locator("a");
   if ((await pills.count()) > 0) {
     const hrefs = await pills.evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));

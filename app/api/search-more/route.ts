@@ -19,12 +19,12 @@ import {
   evidenceBlock,
 } from "../../../lib/web-search/pipeline";
 import { childLogger } from "@/lib/server/logger";
-import { rustEnabled, rustProxy } from "@/lib/server/rustProxy";
 
 const log = childLogger("api/search-more");
 
 export async function POST(req: NextRequest) {
-  if (rustEnabled()) return rustProxy(req, "/api/ruke/search-more");
+  // Search ownership is TypeScript (rollback 2026-11-03): this route ALWAYS
+  // executes the TS pipeline, including when RUKE_RUST_BACKEND=1.
   let body: any;
   try {
     body = await req.json();
@@ -35,8 +35,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // DTO caps enforced (brief §12): the documented contract above (max 3
+  // queries, ≤100 chars each) was never actually applied — an unbounded
+  // array of unbounded strings rode straight into the pipeline.
   const queries: string[] = Array.isArray(body?.queries)
-    ? body.queries.filter((q: unknown) => typeof q === "string").slice(0, 3)
+    ? body.queries
+        .filter((q: unknown) => typeof q === "string")
+        .map((q: string) => q.trim().slice(0, 100))
+        .filter(Boolean)
+        .slice(0, 3)
     : [];
 
   if (queries.length === 0) {

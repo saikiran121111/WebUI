@@ -329,6 +329,21 @@ export function anchorSkillBlocks(bodyJson: unknown): { payload: unknown; anchor
   return { payload, anchors };
 }
 
+/**
+ * P1 (2026-11-01): the chat route injects a `<runtime_clock>` system block
+ * whose content carries the LIVE wall-clock line into every forwarded
+ * upstream body. Wall-clock text is volatile — a fixture pinning it could
+ * never re-run byte-identical — so the harness masks the block CONTENT in
+ * bodyText/bodyJson: the message slot, tags, ordering and every other byte
+ * stay pinned; the clock TEXT is pinned by dedicated unit tests
+ * (clock-context.test.ts ⇔ ruke-server chat/clock.rs). The Rust replay
+ * applies the identical textual mask before the byte-identical comparison
+ * (mask_runtime_clock in ruke-server/tests/common/mod.rs).
+ */
+export function maskRuntimeClock(body: string): string {
+  return body.replace(/<runtime_clock>[\s\S]*?<\/runtime_clock>/g, "<runtime_clock>MASKED</runtime_clock>");
+}
+
 // ---------------------------------------------------------------------------
 // Fixture body builders
 // ---------------------------------------------------------------------------

@@ -128,7 +128,10 @@ fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if from >= hay.len() {
         return None;
     }
-    hay[from..].windows(needle.len()).position(|w| w == needle).map(|p| from + p)
+    hay[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| from + p)
 }
 
 #[cfg(test)]
@@ -168,7 +171,11 @@ mod tests {
         let stream = b"x<think>oops tail keeps going";
         assert_eq!(run(&[stream]), b"x".to_vec());
         for i in 1..stream.len() {
-            assert_eq!(run(&[&stream[..i], &stream[i..]]), b"x".to_vec(), "split at {i}");
+            assert_eq!(
+                run(&[&stream[..i], &stream[i..]]),
+                b"x".to_vec(),
+                "split at {i}"
+            );
         }
     }
 

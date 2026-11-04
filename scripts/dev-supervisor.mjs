@@ -42,7 +42,8 @@
  *   - next child: RUKE_RUST_BACKEND=1 — the ONLY switch that arms the
  *     thin-proxy branches in app/api/** (lib/server/rustProxy.ts) —
  *     plus RUKE_BACKEND_PORT and the SAME bridge secret so the
- *     /api/internal/browser-read RPC can authorize the Rust→Next hop.
+ *     /api/internal/* RPCs (web-research, web-tools, embed) can authorize
+ *     the Rust→Next hop.
  *
  * Teardown (Windows process supervision): on SIGINT/SIGBREAK/SIGTERM, on this
  * process exiting, or when EITHER child exits first, we kill every

@@ -23,12 +23,16 @@
 //!   history slicing, order-preserving key removal).
 
 pub mod attach;
+pub mod browser_loop;
+pub mod clock;
 pub mod error;
 pub mod forward;
 pub mod handler;
 pub mod headers;
+pub mod next_search;
 pub mod pipeline;
 pub mod scrubber;
 pub mod sse;
+pub mod web_loop;
 
 pub use handler::chat_post;

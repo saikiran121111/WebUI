@@ -59,7 +59,10 @@ pub(crate) fn now_ms() -> i64 {
 
 impl ConversationStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into(), recently_deleted: Mutex::new(HashMap::new()) }
+        Self {
+            dir: dir.into(),
+            recently_deleted: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -70,7 +73,13 @@ impl ConversationStore {
     fn file(&self, id: &str) -> PathBuf {
         let safe: String = id
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         self.dir.join(format!("{safe}.json"))
     }
@@ -115,7 +124,9 @@ impl ConversationStore {
     /// `getConversationOnDisk`: utf-8 read (lossy, like Node's decoder) or
     /// null on ANY error.
     pub fn get(&self, id: &str) -> Option<String> {
-        fs::read(self.file(id)).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
+        fs::read(self.file(id))
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
     }
 
     /// `saveConversationOnDisk`.
@@ -149,7 +160,10 @@ impl ConversationStore {
     /// without it the window test races the ms boundary between the delete
     /// stamp and the fixture's base time).
     fn delete_at(&self, id: &str, at: i64) {
-        self.recently_deleted.lock().unwrap().insert(id.to_string(), at);
+        self.recently_deleted
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), at);
         let _ = fs::remove_file(self.file(id));
     }
 }
@@ -166,7 +180,9 @@ pub fn js_ms_number(f: f64) -> Value {
     if f.fract() == 0.0 && f.abs() < 9.2e18 {
         Value::Number(Number::from(f as i64))
     } else {
-        Number::from_f64(f).map(Value::Number).unwrap_or(Value::Null) // JS stringify: NaN/Inf → null
+        Number::from_f64(f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null) // JS stringify: NaN/Inf → null
     }
 }
 
@@ -207,13 +223,19 @@ pub fn merge_protected_title(stored_raw: Option<&str>, incoming_json: &str) -> S
                 // (ESM strict mode) THROWS → caught → incoming verbatim.
                 if incoming["meta"].is_object() {
                     let title = stored_title.cloned().unwrap();
-                    incoming["meta"].as_object_mut().unwrap().insert("title".into(), title);
+                    incoming["meta"]
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("title".into(), title);
                     for k in ["titleSource", "titleGenCount", "titleGenAt"] {
                         // `stored.meta[k] !== undefined` — an explicit null
                         // IS copied; a missing key is not.
                         if let Some(v) = stored.get("meta").and_then(|sm| sm.get(k)) {
                             let v = v.clone();
-                            incoming["meta"].as_object_mut().unwrap().insert(k.into(), v);
+                            incoming["meta"]
+                                .as_object_mut()
+                                .unwrap()
+                                .insert(k.into(), v);
                         }
                     }
                 } else {
@@ -233,7 +255,10 @@ mod tests {
 
     fn store() -> (ConversationStore, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
-        (ConversationStore::new(tmp.path().join("conversations")), tmp)
+        (
+            ConversationStore::new(tmp.path().join("conversations")),
+            tmp,
+        )
     }
 
     #[test]
@@ -279,7 +304,11 @@ mod tests {
         // QUIRK PIN: a literal weird filename lists under the RAW id but
         // stats/reads the sanitized path — updatedAt 0, get None.
         fs::create_dir_all(tmp.path().join("conversations")).unwrap();
-        fs::write(tmp.path().join("conversations").join("we!rd.json"), "{\"meta\":{}}").unwrap();
+        fs::write(
+            tmp.path().join("conversations").join("we!rd.json"),
+            "{\"meta\":{}}",
+        )
+        .unwrap();
         let items = s.list().unwrap();
         let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
         assert!(ids.contains(&"aaa") && ids.contains(&"bbb") && ids.contains(&"we!rd"));
@@ -291,14 +320,29 @@ mod tests {
     #[test]
     fn list_sort_is_desc_and_stable() {
         let mut items = vec![
-            ListedConversation { id: "a".into(), updated_at: 1.0 },
-            ListedConversation { id: "b".into(), updated_at: 3.0 },
-            ListedConversation { id: "c".into(), updated_at: 2.0 },
-            ListedConversation { id: "d".into(), updated_at: 3.0 },
+            ListedConversation {
+                id: "a".into(),
+                updated_at: 1.0,
+            },
+            ListedConversation {
+                id: "b".into(),
+                updated_at: 3.0,
+            },
+            ListedConversation {
+                id: "c".into(),
+                updated_at: 2.0,
+            },
+            ListedConversation {
+                id: "d".into(),
+                updated_at: 3.0,
+            },
         ];
         sort_by_updated_desc(&mut items);
         assert_eq!(
-            items.iter().map(|i| (i.id.as_str(), i.updated_at)).collect::<Vec<_>>(),
+            items
+                .iter()
+                .map(|i| (i.id.as_str(), i.updated_at))
+                .collect::<Vec<_>>(),
             vec![("b", 3.0), ("d", 3.0), ("c", 2.0), ("a", 1.0)]
         );
     }
@@ -313,8 +357,14 @@ mod tests {
 
     #[test]
     fn js_ms_number_prints_like_json_stringify() {
-        assert_eq!(js_ms_number(1761534562345.0), Value::Number(Number::from(1761534562345i64)));
-        assert_eq!(serde_json::to_string(&js_ms_number(1761534562345.0)).unwrap(), "1761534562345");
+        assert_eq!(
+            js_ms_number(1761534562345.0),
+            Value::Number(Number::from(1761534562345i64))
+        );
+        assert_eq!(
+            serde_json::to_string(&js_ms_number(1761534562345.0)).unwrap(),
+            "1761534562345"
+        );
         let frac = js_ms_number(123.5);
         assert_eq!(serde_json::to_string(&frac).unwrap(), "123.5");
     }
@@ -328,14 +378,26 @@ mod tests {
         assert_eq!(merge_protected_title(None, INC), INC);
         assert_eq!(merge_protected_title(Some(""), INC), INC); // falsy stored
         assert_eq!(merge_protected_title(Some("{{{bad"), INC), INC); // stored unparseable
-        assert_eq!(merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), "{{bad"), "{{bad");
+        assert_eq!(
+            merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), "{{bad"),
+            "{{bad"
+        );
         let manual = "{\"meta\":{\"title\":\"mine\",\"titleSource\":\"manual\"}}";
-        assert_eq!(merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), manual), manual);
+        assert_eq!(
+            merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), manual),
+            manual
+        );
         let no_meta = "{\"messages\":[]}";
-        assert_eq!(merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), no_meta), no_meta);
+        assert_eq!(
+            merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), no_meta),
+            no_meta
+        );
         // meta: null is falsy ⇒ verbatim, NOT re-serialized.
         let meta_null = "{\"meta\":null}";
-        assert_eq!(merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), meta_null), meta_null);
+        assert_eq!(
+            merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), meta_null),
+            meta_null
+        );
     }
 
     #[test]
@@ -347,9 +409,9 @@ mod tests {
         assert_eq!(v["meta"]["titleGenCount"], Value::from(7));
         assert_eq!(v["meta"]["titleGenAt"], Value::from(1));
         assert_eq!(v["meta"]["titleSource"], Value::Null); // an explicit null IS copied
-        // Parsed-path always re-serializes: the incoming string had no
-        // stored title? it did — but even with nothing copied the output is
-        // compact stringify, never the original spelling.
+                                                           // Parsed-path always re-serializes: the incoming string had no
+                                                           // stored title? it did — but even with nothing copied the output is
+                                                           // compact stringify, never the original spelling.
         assert_ne!(merged, INC);
     }
 
@@ -359,7 +421,10 @@ mod tests {
         let merged = merge_protected_title(Some(stored), INC);
         let v: Value = serde_json::from_str(&merged).unwrap();
         assert_eq!(v["meta"]["title"], Value::String("new".into())); // incoming survives
-        assert_eq!(merged, "{\"meta\":{\"title\":\"new\",\"titleSource\":\"auto\"},\"messages\":[]}");
+        assert_eq!(
+            merged,
+            "{\"meta\":{\"title\":\"new\",\"titleSource\":\"auto\"},\"messages\":[]}"
+        );
     }
 
     #[test]
@@ -367,6 +432,9 @@ mod tests {
         // stored title truthy + incoming meta is a STRING ⇒ JS `incoming.meta.title = …`
         // throws in strict mode ⇒ catch ⇒ incoming verbatim.
         let incoming = "{\"meta\":\"oops\"}";
-        assert_eq!(merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), incoming), incoming);
+        assert_eq!(
+            merge_protected_title(Some("{\"meta\":{\"title\":\"old\"}}"), incoming),
+            incoming
+        );
     }
 }

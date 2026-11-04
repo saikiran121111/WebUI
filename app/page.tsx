@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDown, AlertCircle, RefreshCw, ChevronDown } from "lucide-react";
 import ChatMessage from "../components/ChatMessage";
@@ -12,6 +13,12 @@ import Sidebar from "../components/ui/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import RecentsModal from "../components/ui/RecentsModal";
 import CompactDividerBadge from "../components/ui/CompactDividerBadge";
+
+// Browser Panel (Browser Use, Phase 3): lazy chunk, client-only — the
+// panel decides its own visibility from lib/browser-client/browserStore,
+// so the page mount is unconditional and cheap. Never in the initial
+// bundle (CLAUDE.md §5.1).
+const BrowserPanel = dynamic(() => import("../components/browser/BrowserPanel"), { ssr: false });
 import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { useTokenMeter } from "../hooks/useTokenMeter";
@@ -26,6 +33,9 @@ function uid(prefix = ""): string {
 export default function HomePage() {
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Read at send time by the browser-session getter below (never re-renders).
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hasScrolledUp, setHasScrolledUp] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
@@ -41,6 +51,15 @@ export default function HomePage() {
     compact, compactState, activeTokenCount,
   } = useChat({
     model: process.env.NEXT_PUBLIC_MODEL_ID ?? "",
+    // Browser Use routing law (task-scope audit, brief #2): the marker
+    // tags EVERY chat send with the conversation identity — panel
+    // open/closed NEVER decides browser activation. The server's
+    // task-scope contract (task_scope::routes_to_browser_turn) decides
+    // whether the turn is operational; when it is, the panel AUTO-OPENS
+    // on the first `browser:preparing` frame (browserStore law). Read
+    // non-reactively (activeIdRef) — panel state must never re-render the
+    // chat tree.
+    getBrowserSession: () => activeIdRef.current ?? "default",
   });
 
   // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.
@@ -377,6 +396,7 @@ export default function HomePage() {
         onToggleSidebar={() => setSidebarOpen(v => !v)}
         settings={<SettingsMenu effort={effort} onEffortChange={setEffort} onCompactNow={runCompact} />}
         progress={<ProgressChip progress={turnProgress} onDismiss={dismissProgress} />}
+        browserConversation={activeId ?? "default"}
       />
       <div className="flex flex-1 min-h-0">
       <Sidebar
@@ -539,6 +559,7 @@ export default function HomePage() {
           onBulkMoveGroup={handleBulkMoveGroup}
         />
       )}
+      <BrowserPanel sessionId={activeId ?? "default"} />
     </div>
   );
 }

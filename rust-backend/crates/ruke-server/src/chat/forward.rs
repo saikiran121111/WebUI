@@ -108,7 +108,10 @@ pub async fn forward_legacy(
             // Non-ASCII API key: JS `fetch` throws inside the try, landing
             // in the same catch as a connection error ⇒ 503 below.
             tracing::error!(parent: span, "llm server unreachable");
-            return error::json_error(StatusCode::SERVICE_UNAVAILABLE, &error::unreachable_message(&url));
+            return error::json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &error::unreachable_message(&url),
+            );
         }
     };
 
@@ -129,7 +132,10 @@ pub async fn forward_legacy(
         Ok(u) => u,
         Err(_) => {
             tracing::error!(parent: span, "llm server unreachable");
-            return error::json_error(StatusCode::SERVICE_UNAVAILABLE, &error::unreachable_message(&url));
+            return error::json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &error::unreachable_message(&url),
+            );
         }
     };
 
@@ -138,8 +144,12 @@ pub async fn forward_legacy(
         // TS: `await upstream.text()` (catch ⇒ ""), error log, status mirror.
         let err_text = upstream.text().await.unwrap_or_default();
         tracing::error!(parent: span, status = status.as_u16(), "llm upstream error");
-        let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        return error::json_error(code, &error::upstream_error_message(status.as_u16(), &err_text));
+        let code =
+            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        return error::json_error(
+            code,
+            &error::upstream_error_message(status.as_u16(), &err_text),
+        );
     }
 
     // undici: `res.body === null` for 204/205/304 ⇒ the 502 branch. A 200
@@ -161,7 +171,10 @@ pub async fn forward_legacy(
     let pump_model = model.to_string();
     let pump_mode = decision_mode.to_string();
     tokio::spawn(async move {
-        run_pump(upstream, guard, tx, pump_token, pump_span, pump_model, pump_mode).await;
+        run_pump(
+            upstream, guard, tx, pump_token, pump_span, pump_model, pump_mode,
+        )
+        .await;
     });
 
     let body_stream = AbortOnDrop::new(ReceiverStream::new(rx), token);
@@ -223,7 +236,9 @@ async fn run_pump(
                 // mid-stream (no trailer). Err item ends the body stream.
                 tracing::error!(parent: &span, "llm stream chunk error");
                 failed = true;
-                let _ = tx.send(Err(io::Error::other("upstream stream error"))).await;
+                let _ = tx
+                    .send(Err(io::Error::other("upstream stream error")))
+                    .await;
                 break;
             }
         }
@@ -302,7 +317,8 @@ pub async fn forward_into(
     if !status.is_success() {
         let err_text = upstream.text().await.unwrap_or_default();
         tracing::error!(parent: span, status = status.as_u16(), "llm upstream error");
-        ch.fail(&error::upstream_error_message(status.as_u16(), &err_text)).await;
+        ch.fail(&error::upstream_error_message(status.as_u16(), &err_text))
+            .await;
         return;
     }
     if matches!(status.as_u16(), 204 | 205 | 304) {

@@ -26,6 +26,7 @@ import {
   MOCK_LLM_URL,
   UpstreamScript,
   anchorSkillBlocks,
+  maskRuntimeClock,
   bytesRecord,
   installUpstream,
   normalizeBodyMs,
@@ -108,12 +109,13 @@ async function runAndRecord(o: {
   const logical = parseLogical(run.text);
   const hasStage = logical.frames.some((f) => f.kind === "stage");
   const upstreamCalls = calls.map((c) => {
+    const bodyText = c.body === null ? null : maskRuntimeClock(c.body);
     let bodyJson: unknown = null;
     let anchors: ReturnType<typeof anchorSkillBlocks>["anchors"] = [];
-    if (c.body) {
-      try { const a = anchorSkillBlocks(JSON.parse(c.body)); bodyJson = a.payload; anchors = a.anchors; } catch { bodyJson = null; }
+    if (bodyText) {
+      try { const a = anchorSkillBlocks(JSON.parse(bodyText)); bodyJson = a.payload; anchors = a.anchors; } catch { bodyJson = null; }
     }
-    return { url: c.url, method: c.method, headers: Object.fromEntries(Object.entries(c.headers).sort()), bodyText: c.body, bodyJson, anchors };
+    return { url: c.url, method: c.method, headers: Object.fromEntries(Object.entries(c.headers).sort()), bodyText, bodyJson, anchors };
   });
   writeJsonFixture(o.rel, {
     request: { rawBody: raw },
@@ -134,7 +136,7 @@ async function runAndRecord(o: {
     comparison: o.comparison,
     harness: HARNESS,
     env: { ...ENV_PRE, embed_seam: "embedOne fixed pseudo-vector [1,0,0.05]; index seeded via production writeIndex (BM25/RRF/pack unmocked)" },
-    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text.',
+    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests).',
     notes: o.notes,
   });
   return { run, logical, upstreamCalls };
@@ -160,7 +162,9 @@ describe("golden: attachment retrieval", () => {
         "buildAttachmentTurn (route.ts:450) assuming a skill block was injected at lastUserIdx — but " +
         "buildDecisionSkillBlock returns null for standard_chat (skill-loader.ts:88), so the 'shift' never " +
         "happened and the block lands AFTER the user turn instead of before it (message order in " +
-        "upstreamCalls[0].bodyJson: user, then system). Rust Part 6 must reproduce the OBSERVED order.",
+        "upstreamCalls[0].bodyJson: user, then system). Rust Part 6 must reproduce the OBSERVED order. " +
+        "P1 (2026-11-01): the live-clock injection adds one <runtime_clock> system block between the " +
+        "user turn and the knowledge block; the after-the-user contract is unchanged.",
       comparison: "structural",
       rawBody: userTurn("According to the indexed lecture notes, what happens in the Calvin cycle?", {
         att_id: "att_golden1a", name: "intro-biology.pdf", category: "text",
@@ -224,7 +228,9 @@ describe("golden: attachment retrieval", () => {
         "PRODUCTION BUG RECORDED (not fixed, §8): nearestFrames DID load the keyframe, but " +
         "buildAttachmentTurn appends frames to messages[userIdx] (turn.ts:224) where userIdx = lastUserIdx+1 — " +
         "undefined on standard_chat (no skill block, no shift) — so the frame is SILENTLY DROPPED: the " +
-        "forwarded user turn has NO image_url part. retrieval_done still reports {1,1} (blocks, not frames).",
+        "forwarded user turn has NO image_url part. retrieval_done still reports {1,1} (blocks, not frames). " +
+        "P1 (2026-11-01): a <runtime_clock> system block is injected between the user turn and the " +
+        "knowledge block; the dropped-frame off-by-one is unchanged.",
       comparison: "structural",
       rawBody: userTurn("What is happening in the training video around 1:45:00?", {
         att_id: "att_golden1d", name: "pivot-table-training.mp4", category: "video",
@@ -236,7 +242,10 @@ describe("golden: attachment retrieval", () => {
     const sys = msgs.find((m) => String(m.content).startsWith("<knowledge_index"));
     expect(String(sys!.content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
     // Off-by-one: block AFTER the user turn; frame dropped (messages[userIdx] undefined).
-    expect(msgs.map((m) => m.role)).toEqual(["user", "system"]);
+    // P1 (2026-11-01): the live-clock block sits between the user turn and the
+    // knowledge block; the off-by-one contract is unchanged.
+    expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system"]);
+    expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe(true);
     const userParts = msgs[0].content as { type: string }[];
     expect(userParts.some((p) => p.type === "image_url")).toBe(false);
     expect(userParts.some((p) => p.type === "attachment_ref")).toBe(false);
@@ -251,7 +260,8 @@ describe("golden: attachment retrieval", () => {
         "the user turn really shifts to lastUserIdx+1, and the attachment pipeline then behaves as its " +
         "comment describes: knowledge block lands BEFORE the user turn; the keyframe rides the END of the " +
         "user turn — intro text 'Moments from the attached video...' + image_url (data:image/jpeg;base64," +
-        "fixed 1x1 jpeg). Message order: [decision_skill, knowledge_index, user]. Proves the off-by-one in " +
+        "fixed 1x1 jpeg). Message order: [decision_skill, runtime_clock, knowledge_index, user] " +
+        "(P1 2026-11-01 live-clock injection adds the second system block). Proves the off-by-one in " +
         "04 is specifically the missing-shift case, not the whole injection design.",
       comparison: "structural",
       rawBody: JSON.stringify({
@@ -266,10 +276,12 @@ describe("golden: attachment retrieval", () => {
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
     expect(String(msgs[0].content)).toBe("<decision_skill_block id=\"decision_skill:excel\">");
     expect(upstreamCalls[0].anchors[0].kind).toBe("decision_skill");
-    expect(String(msgs[1].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
-    expect(String(msgs[1].content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
-    expect(msgs[2].role).toBe("user");
-    const parts = msgs[2].content as { type: string; text?: string; image_url?: { url: string } }[];
+    // P1 (2026-11-01): order is [decision_skill, runtime_clock, knowledge_index, user].
+    expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(String(msgs[2].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
+    expect(String(msgs[2].content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
+    expect(msgs[3].role).toBe("user");
+    const parts = msgs[3].content as { type: string; text?: string; image_url?: { url: string } }[];
     expect(parts[0].type).toBe("text");
     expect(parts.some((p) => p.type === "text" && String(p.text).startsWith("Moments from the attached video"))).toBe(true);
     const img = parts.find((p) => p.type === "image_url");
@@ -282,7 +294,8 @@ describe("golden: attachment retrieval", () => {
       scenario: "same retrieval on the legacy stream:false path",
       semantics:
         "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including " +
-        "the standard_chat off-by-one: block after the user turn); only the stage FRAMES are absent on the " +
+        "the standard_chat off-by-one: block after the user turn; P1 2026-11-01: order is user, " +
+        "runtime_clock, knowledge); only the stage FRAMES are absent on the " +
         "legacy path (stage() is a no-op), so retrieval_done never appears.",
       comparison: "byte-exact",
       streamFalse: true,
@@ -292,7 +305,8 @@ describe("golden: attachment retrieval", () => {
     });
     expect(logical.frames.some((f) => f.kind === "stage")).toBe(false);
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
-    expect(msgs.map((m) => m.role)).toEqual(["user", "system"]);
+    // P1 (2026-11-01): user, runtime_clock, knowledge — parity with the progress path.
+    expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system"]);
     expect(run.headers["x-decision-mode"]).toBe("standard_chat");
   });
 

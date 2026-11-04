@@ -16,6 +16,7 @@ import {
   MOCK_LLM_URL,
   UpstreamScript,
   anchorSkillBlocks,
+  maskRuntimeClock,
   bytesRecord,
   installUpstream,
   normalizeBodyMs,
@@ -70,11 +71,12 @@ async function runAndRecord(o: RunFixtureOpts) {
   const run = await runChat(POST as never, o.rawBody);
   const logical = parseLogical(run.text);
   const upstreamCalls = calls.map((c) => {
+    const bodyText = c.body === null ? null : maskRuntimeClock(c.body);
     let bodyJson: unknown = null;
     let anchors: ReturnType<typeof anchorSkillBlocks>["anchors"] = [];
-    if (c.body) {
+    if (bodyText) {
       try {
-        const anchored = anchorSkillBlocks(JSON.parse(c.body));
+        const anchored = anchorSkillBlocks(JSON.parse(bodyText));
         bodyJson = anchored.payload;
         anchors = anchored.anchors;
       } catch {
@@ -85,7 +87,7 @@ async function runAndRecord(o: RunFixtureOpts) {
       url: c.url,
       method: c.method,
       headers: Object.fromEntries(Object.entries(c.headers).sort()),
-      bodyText: c.body,
+      bodyText,
       bodyJson,
       anchors,
     };
@@ -118,7 +120,9 @@ async function runAndRecord(o: RunFixtureOpts) {
     harness: HARNESS,
     env: ENV_PRE,
     normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path ' +
-      "response bodies are stored ms-normalized (raw bytes carry volatile ms digits).",
+      "response bodies are stored ms-normalized (raw bytes carry volatile ms digits). P1 (2026-11-01): the live " +
+      "<runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson " +
+      "(the clock text itself is pinned by clock unit tests).",
     notes: o.notes,
   });
   return { run, logical, calls };

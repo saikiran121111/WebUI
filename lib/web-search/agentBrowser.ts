@@ -60,8 +60,22 @@ async function getFingerprintSuite() {
   }
   if (!_fpGenerator || !_fpInjector) return null;
   try {
-    const fp = _fpGenerator.getFingerprint();
-    return { fp, injector: _fpInjector };
+    // (audit 2026-11-04) The pool binary is Chromium, so only Chrome-family
+    // fingerprints are self-consistent here: a Safari/Firefox suite would
+    // pin a non-Chromium UA onto a context that still sends the sec-ch-ua
+    // quartet + spoofed navigator.userAgentData — a Safari persona filled
+    // with Chromium hints, the exact inconsistent identity WAFs flag.
+    // Bounded retries; no consistent hit falls back to the static Chrome
+    // persona (USER_AGENT/SEC_CH_UA), which is engine-consistent.
+    for (let i = 0; i < 4; i++) {
+      const fp = _fpGenerator.getFingerprint();
+      const ua = String(fp?.headers?.["user-agent"] ?? "");
+      const uaCh = Object.keys(fp?.headers ?? {}).some((k) =>
+        k.toLowerCase().startsWith("sec-ch-ua"),
+      );
+      if (/Chrome\/\d/.test(ua) && uaCh) return { fp, injector: _fpInjector };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -126,6 +140,46 @@ const POOL_SIZE = Math.max(
   Math.min(6, parseInt(process.env.WEB_SEARCH_BROWSER_POOL_SIZE ?? "5", 10) || 5),
 );
 const BROWSER_PAGE_BUDGET_MS = 40_000;
+
+/* Generic bot-gate interstitial markers — detection is PASSIVE and
+ * site-agnostic (no domains hardcoded). These strings appear on
+ * Cloudflare managed challenges / block pages, AWS WAF and DataDome
+ * interstitials. They exist so the settle loop never mistakes a
+ * challenge page's own text (which is >300 chars) for real content.
+ * We use them only to know the page has NOT settled on content — we
+ * never interact with a CAPTCHA or challenge widget. */
+const CHALLENGE_MARKER_RE =
+  /just a moment|verifying you are ?(a )?human|verify you are human|checking your browser|enable javascript and cookies|attention required|error 10[0-9]{2}|cf-browser-verification|cf-chl|ddos-guard|403 forbidden|access denied|request blocked|unusual traffic/i;
+
+/** Pure predicate (vector-tested): does this body text look like a
+ *  WAF/anti-bot interstitial rather than the page's real content? */
+export function challengeMarkersPresent(bodyText: string): boolean {
+  return CHALLENGE_MARKER_RE.test(bodyText);
+}
+
+/* Generic credential-wall marker families (structural, site-agnostic —
+ * no domains hardcoded). A page whose SHORT rendered text is dominated by
+ * two distinct credential-wall families is a login/MFA/paywall gate, not
+ * content. Long-form pages are never flagged, so an article that merely
+ * links "Sign in" in its nav is content. */
+const AUTH_WALL_FAMILIES: RegExp[] = [
+  /\b(sign ?in|log ?in)\b/i,
+  /\b(sign ?up|create (an )?account|register)\b/i,
+  /\b(password|passcode)\b/i,
+  /\b(verify|one[- ]?time|otp|mfa)\b/i,
+  /\b(subscribe|members[- ]only|premium|paywall)\b/i,
+];
+
+/** Pure predicate (vector-tested): WAF interstitial OR generic credential
+ *  wall in the rendered text — the final admission gate's detector. */
+export function authWallOrInterstitialText(bodyText: string): boolean {
+  const norm = (bodyText ?? "").replace(/\s+/g, " ").trim();
+  if (challengeMarkersPresent(norm)) return true;
+  // Long-form rendered text is content, even if it links to a sign-in.
+  if (norm.length === 0 || norm.length >= 4_000) return false;
+  const hits = AUTH_WALL_FAMILIES.filter((re) => re.test(norm)).length;
+  return hits >= 2;
+}
 const ACQUIRE_TIMEOUT_MS = 60_000;
 
 // Exported so the headless extraction tiers and the 10K audit share one
@@ -152,6 +206,63 @@ try {
   window.chrome = window.chrome || { app: {}, runtime: {} };
 } catch (_) {}
 `;
+
+/* The context sends sec-ch-ua/sec-ch-ua-mobile/sec-ch-ua-platform HTTP
+   headers AND a Chrome-branded UA, but the underlying Chromium binary
+   still reports its own (version-skewed, Chromium-not-Google-Chrome)
+   brand list through navigator.userAgentData JS. WAF environment checks
+   (Cloudflare Turnstile foremost) cross-compare the JS UA-CH object with
+   the HTTP client-hints headers — a mismatch flags the session and the
+   managed challenge escalates to interactive mode, which we may never
+   satisfy passively. Live audit 2026-11-04: headers said Chrome 131/14x,
+   brands said Chromium/153, fullVersions was null. This script makes the
+   JS view derive from the exact header values the context sends, so the
+   persona is internally consistent. */
+function uaMatchInitScript(
+  ua: string,
+  secChUa: string,
+  secChUaMobile: string,
+  secChUaPlatform: string,
+): string {
+  const full = /Chrome\/([\d.]+)/.exec(ua)?.[1] ?? "";
+  const brands = secChUa
+    .split(",")
+    .map((p) => {
+      const m = /^\s*"?([^";]+)"?\s*;\s*v="?(\d+)"?\s*$/.exec(p);
+      return m ? { brand: m[1].trim(), version: m[2] } : null;
+    })
+    .filter((b): b is { brand: string; version: string } => b !== null);
+  const fullVersions = brands.map((b) => ({ brand: b.brand, version: full || b.version }));
+  const platform = secChUaPlatform.replace(/^"|"$/g, "");
+  const mobile = secChUaMobile.trim() === "?1";
+  const payload = JSON.stringify({ brands, fullVersions, mobile, platform });
+  return `try {
+  const d = ${payload};
+  Object.defineProperty(navigator, "userAgentData", {
+    configurable: true,
+    get: () => ({
+      brands: d.brands.slice(),
+      mobile: d.mobile,
+      platform: d.platform,
+      fullVersions: d.fullVersions.slice(),
+      getHighEntropyValues: function (hints) {
+        var h = {};
+        (hints || []).forEach(function (k) {
+          if (k === "architecture") h.architecture = "x86";
+          else if (k === "bitness") h.bitness = "64";
+          else if (k === "model") h.model = "";
+          else if (k === "platformVersion") h.platformVersion = "15.1.0";
+          else if (k === "uaFullVersion") h.uaFullVersion = ${JSON.stringify(full)};
+          else if (k === "fullVersionList") h.fullVersionList = d.fullVersions.slice();
+          else if (k === "formFactors") h.formFactors = ["Desktop"];
+        });
+        h.mobile = d.mobile; h.platform = d.platform;
+        return Promise.resolve(h);
+      },
+    }),
+  });
+} catch (_) {}`;
+}
 
 /* ── lazy browser cache (PLAYWRIGHT_BROWSERS_PATH) ─────────────────────── */
 
@@ -267,6 +378,38 @@ async function ensurePool(): Promise<void> {
            navigator patches that the static STEALTH_INIT_SCRIPT cannot. */
         const suite = await getFingerprintSuite();
         const headers = suite ? (suite.fp.headers ?? {}) : {};
+        /* fingerprint-generator emits a document-navigation header
+           TEMPLATE (sec-fetch-*, accept, accept-encoding,
+           upgrade-insecure-requests...).  Spreading it as static
+           context-wide extra headers makes Chromium send those
+           browser-managed/request-scoped values on EVERY subresource:
+           live audit 2026-11-04 — cross-origin WAF challenge scripts
+           (AWS WAF token endpoints) died with net::ERR_INVALID_ARGUMENT
+           and the beacon fetches with net::ERR_FAILED, so the WAF
+           never issued its clearance cookie and the read walled
+           honestly.  fingerprint-injector's own onlyInjectableHeaders
+           strips exactly this family set; mirror it here (families,
+           not sites — fully generic).  The sec-ch-ua quartet and
+           accept-language are managed separately below. */
+        const REQUEST_SCOPED = new Set([
+          "accept",
+          "accept-encoding",
+          "cache-control",
+          "pragma",
+          "upgrade-insecure-requests",
+          "sec-fetch-dest",
+          "sec-fetch-mode",
+          "sec-fetch-site",
+          "sec-fetch-user",
+          "te",
+        ]);
+        const safeHeaders: Record<string, string> = {};
+        for (const [k, v] of Object.entries(headers)) {
+          const kl = k.toLowerCase();
+          if (kl === "user-agent" || kl === "accept-language" || kl.startsWith("sec-ch-ua")) continue;
+          if (REQUEST_SCOPED.has(kl)) continue;
+          safeHeaders[kl] = String(v);
+        }
         const ua = headers["user-agent"] ?? USER_AGENT;
         const secChUa = headers["sec-ch-ua"] ?? SEC_CH_UA;
         const secChUaMobile = headers["sec-ch-ua-mobile"] ?? "?0";
@@ -286,22 +429,49 @@ async function ensurePool(): Promise<void> {
             "sec-ch-ua": secChUa,
             "sec-ch-ua-mobile": secChUaMobile,
             "sec-ch-ua-platform": secChUaPlatform,
-            ...(Object.keys(headers).filter(k =>
-              !["user-agent","sec-ch-ua","sec-ch-ua-mobile","sec-ch-ua-platform","accept-language"].includes(k)
-            ).reduce<Record<string, string>>((acc, k) => { acc[k] = headers[k]; return acc; }, {})),
+            ...safeHeaders,
           },
         });
         /* The proper injector path — full canvas/webgl/audio/fingerprint
-           script injection, not the minimal static patch. */
+           script injection, not the minimal static patch.  The injector
+           re-applies setExtraHTTPHeaders from this context's options, so
+           the clean spread above survives the attach. */
         await applyFingerprintToContext(ctx, suite);
+        /* Belt-and-braces: whatever the injector merged, the final
+           context header set must stay free of browser-managed
+           request-scoped headers (same family law as above). */
+        try {
+          const pinned: Record<string, string> = {
+            "accept-language": "en-IN,en-US;q=0.9,en;q=0.8",
+            "sec-ch-ua": secChUa,
+            "sec-ch-ua-mobile": secChUaMobile,
+            "sec-ch-ua-platform": secChUaPlatform,
+            ...safeHeaders,
+          };
+          await ctx.setExtraHTTPHeaders(pinned);
+        } catch {
+          /* header pin failed — context still usable with create-time set */
+        }
         /* Also keep the static stealth patch as a baseline fallback */
         await ctx.addInitScript({ content: STEALTH_INIT_SCRIPT });
+        /* Last init script wins: the UA-CH spoof is generated from THIS
+           context's header values, so JS and HTTP client hints agree. */
+        await ctx.addInitScript({
+          content: uaMatchInitScript(ua, secChUa, secChUaMobile, secChUaPlatform),
+        });
         pool.contexts.push(ctx);
       }
     })();
-    pool.launching.finally?.(() => {
-      pool.launching = null;
-    });
+    // (audit 2026-11-04) The old bare .finally() chain was a floating
+    // promise: when launch rejected, the derived chain rejected with no
+    // handler → unhandledRejection (dev-server crash). The .catch keeps
+    // the bookkeeping chain inert; the original rejection still surfaces
+    // through `await pool.launching` below for the real caller.
+    void pool.launching
+      .catch(() => {})
+      .finally(() => {
+        pool.launching = null;
+      });
   }
   await pool.launching;
 }
@@ -463,6 +633,216 @@ export async function extractPageInOnePass(
 }
 
 /**
+ * Google SERP through the stealth pool (2026-11-04). The HTTP tier now
+ * receives a JS-required shell from Google (a "Google Search" title plus
+ * an enablejs meta-refresh — live-probed: 200 OK, 94 KB, zero organic
+ * anchors), so Google is fetched the way its users are: a real Chromium
+ * render in a fingerprinted pooled context, parsed from the live DOM.
+ * Strictly passive: we never click consent, CAPTCHA or "I'm not a robot"
+ * controls — if Google serves its own block page we return an honest
+ * zero and the engine breaker does the rest.
+ */
+export async function readGoogleSerp(
+  query: string,
+  gl: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<{ url: string; title: string; snippet: string }[]> {
+  if (browserPoolDisabled()) return [];
+  const ctx = await acquireContext();
+  // (audit 2026-11-04) newPage() used to sit OUTSIDE the try/finally that
+  // frees the context: a throw here (crashed context, Chromium tab-limit)
+  // left the ctx pinned in pool.inUse forever — permanently shrinking the
+  // pool by one slot per failure.
+  let page: Page;
+  try {
+    page = await ctx.newPage();
+  } catch {
+    freeContext(ctx);
+    return [];
+  }
+  try {
+    const res = await page
+      .goto(
+        "https://www.google.com/search?q=" +
+          encodeURIComponent(query) +
+          "&num=20&hl=en&gl=" + encodeURIComponent(gl),
+        { waitUntil: "domcontentloaded", timeout: opts.timeoutMs ?? 15_000 },
+      )
+      .catch(() => null);
+    if (!res) {
+      log.info({ query }, "google SERP browser tier: navigation failed (no response)");
+      return [];
+    }
+    if (res.status() >= 400) {
+      /* Booleans/status/URL only — no cookies or headers in logs. */
+      log.info(
+        { query, status: res.status(), finalUrl: page.url() },
+        "google SERP browser tier: blocked status",
+      );
+      return [];
+    }
+    // Wait (bounded) for organic anchors to render. Both markup eras
+    // count: modern SERPs nest h3 inside the anchor, basic-HTML SERPs
+    // nest the anchor inside <h3 class="r">.
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3_000) {
+      const n = await page
+        .evaluate(() => document.querySelectorAll("a[href] h3, h3 a[href]").length)
+        .catch(() => 0);
+      if (n > 0) break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    /* h3 is the organic-title marker in every Google markup era; the
+       anchor either wraps it (`<a><h3>t</h3></a>`, the modern form) or is
+       wrapped by it (`<h3><a>t</a></h3>`, basic-HTML form). Live probes
+       (2026-11-04) proved the real destination is NOT in the DOM: the
+       hrefs are signed `google.com/goto?url=<token>` redirectors and the
+       SERP's CSP blocks in-page fetch() from following them. The
+       user-equivalent passive resolution is navigation itself: open a
+       scratch tab, goto() the href, read where the redirect chain
+       committed. Tokens that refuse are skipped honestly. */
+    const raws = await page
+      .evaluate(() => {
+        const out: { raw: string; title: string; snippet: string }[] = [];
+        const seen = new Set<string>();
+        for (const h3 of Array.from(document.querySelectorAll("h3"))) {
+          const a =
+            (h3.closest("a[href]") as HTMLAnchorElement | null) ??
+            (h3.querySelector("a[href]") as HTMLAnchorElement | null);
+          if (!a) continue;
+          const raw = a.href;
+          if (seen.has(raw)) continue;
+          seen.add(raw);
+          const block = a.closest("div, li");
+          const snippet =
+            block?.querySelector(".VwiC3b, .IsZvec, span.st, [data-sncf]")?.textContent?.trim() ?? "";
+          out.push({ raw, title: h3.textContent?.trim() ?? "", snippet });
+          if (out.length >= 15) break;
+        }
+        return out;
+      })
+      .catch(() => [] as { raw: string; title: string; snippet: string }[]);
+
+    const isGoogleRedirector = (u: string): boolean => {
+      try {
+        const x = new URL(u);
+        const h = x.hostname.toLowerCase();
+        return (h === "google.com" || h.endsWith(".google.com")) && x.pathname === "/goto";
+      } catch {
+        return false;
+      }
+    };
+
+    const resolvedByRaw = new Map<string, string>();
+    const toResolve = raws.filter((r) => isGoogleRedirector(r.raw)).slice(0, 12);
+    if (toResolve.length > 0) {
+      /* 3 parallel scratch tabs drain the redirect queue — sequential
+         resolution of 12 chains would add ~10s to the SERP tier. Each
+         worker carries its own wall guard so a hostile redirect chain
+         can never stall the pool slot. */
+      const queue = toResolve.slice();
+      const tR = Date.now();
+      const worker = async (): Promise<void> => {
+        // Same newPage-inside-try law: a tab-creation failure here must
+        // not reject Promise.all mid-drain (the outer finally still frees
+        // the ctx; the worker just exits and the siblings keep working).
+        let rp: Page | null = null;
+        try {
+          rp = await ctx.newPage();
+          /* (brief §12) Same hop gate on the redirect-resolution tabs:
+             the href is a google.com/goto token, but the chain it
+             follows is page-controlled data — refuse any hop to a
+             private address; the per-row catch below skips the row
+             honestly, exactly like a refused/timed-out chain already did. */
+          await rp.route("**/*", (r) =>
+            isSafeUrl(r.request().url())
+              ? r.continue().catch(() => {})
+              : r.abort("blockedbyclient").catch(() => {}),
+          );
+          for (;;) {
+            if (Date.now() - tR > 12_000) return; // one wall for all workers
+            const r = queue.shift();
+            if (!r) return;
+            try {
+              await rp.goto(r.raw, { waitUntil: "commit", timeout: 4_000 });
+              const u = rp.url();
+              if (u && !isGoogleRedirector(u)) resolvedByRaw.set(r.raw, u);
+            } catch {
+              /* redirect refused / timed out — honest skip for this row */
+            }
+          }
+        } catch {
+          /* tab creation failed — exit honestly; sibling workers keep draining */
+        } finally {
+          if (rp) await rp.close().catch(() => {});
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    }
+
+    const rows: { url: string; title: string; snippet: string }[] = [];
+    const seenUrls = new Set<string>();
+    for (const r of raws) {
+      let url = r.raw;
+      if (isGoogleRedirector(url)) {
+        const dest = resolvedByRaw.get(url);
+        if (!dest) continue;
+        url = dest;
+      }
+      try {
+        const real = new URL(url);
+        if (real.protocol !== "http:" && real.protocol !== "https:") continue;
+        const fin = real.hostname.toLowerCase();
+        if (
+          fin === "google.com" ||
+          fin.endsWith(".google.com") ||
+          fin.endsWith(".gstatic.com") ||
+          fin.endsWith("googleusercontent.com")
+        )
+          continue;
+        if (seenUrls.has(url)) continue;
+        seenUrls.add(url);
+      } catch {
+        continue;
+      }
+      rows.push({ url, title: r.title, snippet: r.snippet });
+      if (rows.length >= 15) break;
+    }
+    if (rows.length === 0) {
+      /* Diagnosis only — status/title/counts, never cookies. Tells us
+         whether Google served a consent interstitial, its own block
+         page, or a JS shell that never rendered organics. */
+      const diag = await page
+        .evaluate(() => ({
+          title: document.title.slice(0, 120),
+          anchors: document.querySelectorAll("a[href]").length,
+          organic: document.querySelectorAll("a[href] h3, h3 a[href]").length,
+          challenged:
+            /captcha|unusual traffic|consent\.google|enablejs|not a robot/i.test(
+              document.body?.innerText ?? "",
+            ),
+        }))
+        .catch(() => null);
+      log.info(
+        {
+          query,
+          status: res.status(),
+          finalUrl: page.url(),
+          rawAnchors: raws.length,
+          tokensResolved: resolvedByRaw.size,
+          diag,
+        },
+        "google SERP browser tier: no organic rows parsed",
+      );
+    }
+    return rows;
+  } finally {
+    await page.close().catch(() => {});
+    freeContext(ctx);
+  }
+}
+
+/**
  * Open `url` in a pooled stealth context, wait for DOM settle, and pull
  * out every extractable fact in one pass.
  *
@@ -472,6 +852,48 @@ export async function extractPageInOnePass(
  * HTTP-tier: a JS-only SPA that returns an empty shell to a raw fetch
  * still produces full data here because the page actually executed.
  */
+/** Ad/analytics families (generic patterns — no site names). */
+const AD_BLOCK_RE =
+  /doubleclick|google-analytics|googletagmanager|adsystem|ad\.|pixel|facebook\.com\/tr\//i;
+
+/**
+ * Page-route decision law (exported for regression vectors; the Playwright
+ * wiring below is a one-line call).
+ *
+ * (brief §12) The SSRF line is the security gate: the entry check on
+ * extractUrlBrowser only vets the FIRST URL, and Playwright re-fires the
+ * route handler for every navigation redirect AND every subresource —
+ * so an on-page iframe/fetch or a redirect hop aimed at a link-local or
+ * private address is refused here before it ever leaves the machine.
+ * It runs FIRST, before even the WAF-challenge allowance: a challenge is
+ * that host's decision about a PUBLIC page, never a license to dial
+ * internal addresses.
+ * shortcut: literal host/IP law only (same law as the got hop chain in
+ * net.ts); the DNS-aware upgrade belongs to the caller's pre-navigation
+ * gate (isSafeUrlWithDns in tools.ts), never relaxed here.
+ */
+export function routeDecision(
+  url: string,
+  resourceType: string,
+  wafChallengeActive: boolean,
+): "ssrf-abort" | "ad-abort" | "fastload-abort" | "continue" {
+  if (!isSafeUrl(url)) return "ssrf-abort";
+  if (AD_BLOCK_RE.test(url)) return "ad-abort";
+  if (wafChallengeActive) {
+    /* WAF challenge: every other resource (images, fonts, media) must
+       load so the challenge JS can complete and issue its session
+       cookie. */
+    return "continue";
+  }
+  if (resourceType === "media" || resourceType === "websocket" || resourceType === "font") {
+    return "fastload-abort";
+  }
+  /* Images: allow through — WAF challenge pages embed image-based
+     fingerprints, and grocery SPAs ship product thumbnails in JSON.
+     The fast-load budget is already met by domcontentloaded + settle. */
+  return "continue";
+}
+
 export async function extractUrlBrowser(
   url: string,
   opts: { timeoutMs?: number } = {},
@@ -505,12 +927,7 @@ export async function extractUrlBrowser(
     };
   }
   const ctx = await acquireContext();
-  const page: Page = await ctx.newPage();
-  /* Universal caption probe (no domains — see lib/web-search/captionProbe):
-     collect the player's own caption-track responses from the very first
-     request; the probe itself only runs later when a <video> rendered. */
   const capStore: CaptionCaptureStore = { bodies: [] };
-  attachCaptionListener(page, capStore);
   const out: PageExtraction = {
     ok: false,
     url,
@@ -522,29 +939,35 @@ export async function extractUrlBrowser(
     meta: {},
     windowState: {},
   };
+  // (audit 2026-11-04) newPage() was outside the try/finally that frees the
+  // context — a throw there leaked the pool slot forever.
+  let page: Page;
+  try {
+    page = await ctx.newPage();
+  } catch {
+    freeContext(ctx);
+    out.error = "browser pool: could not open a tab on this context";
+    return out;
+  }
+  /* Universal caption probe (no domains — see lib/web-search/captionProbe):
+     collect the player's own caption-track responses from the very first
+     request; the probe itself only runs later when a <video> rendered. */
+  attachCaptionListener(page, capStore);
   try {
     // Fast-load: abort analytics/media/websockets for the initial load.
     // The handler reads `wafChallengeActive` at request time, so a
     // post-goto flag flip changes behaviour for subsequent requests.
     let wafChallengeActive = false;
     await page.route("**/*", (route) => {
-      const u = route.request().url();
-      if (/doubleclick|google-analytics|googletagmanager|adsystem|ad\.|pixel|facebook\.com\/tr\//i.test(u)) {
-        return route.abort().catch(() => {});
-      }
-      if (wafChallengeActive) {
-        /* WAF challenge: every resource (images, fonts, media) must load
-           so the challenge JS can complete and issue the session cookie. */
-        return route.continue();
-      }
-      const rt = route.request().resourceType();
-      if (rt === "media" || rt === "websocket" || rt === "font") {
-        return route.abort().catch(() => {});
-      }
-      /* Images: allow through — WAF challenge pages embed image-based
-         fingerprints, and grocery SPAs ship product thumbnails in JSON.
-         The fast-load budget is already met by domcontentloaded + settle. */
-      return route.continue();
+      const d = routeDecision(
+        route.request().url(),
+        route.request().resourceType(),
+        wafChallengeActive,
+      );
+      if (d === "continue") return route.continue();
+      return route
+        .abort(d === "ssrf-abort" ? "blockedbyclient" : undefined)
+        .catch(() => {});
     });
 
     let status: number | null = null;
@@ -562,38 +985,110 @@ export async function extractUrlBrowser(
          The challenge page sets a cookie via challenge.js; a reload
          with all resources allowed lets the challenge complete.
        - HTTP 403/429/503 can also carry a JS challenge (Cloudflare).
+       - HTTP 405 is the AWS WAF CAPTCHA variant (per AWS docs). Routing
+         it through this branch does NOT bypass it: it only classifies
+         the response, waits passively, and — when the CAPTCHA interstitial
+         remains — ends in the honest wall outcome below. We never solve,
+         click or route around a CAPTCHA; we only stop mistaking its
+         status for an ordinary page.
        The status-code check is site-agnostic: any site whose WAF returns
        these codes gets the same reload + extended-settle treatment. */
-    if (status === 202 || status === 403 || status === 429 || status === 503) {
+    if (status === 202 || status === 403 || status === 429 || status === 503 || status === 405) {
       wafChallengeActive = true;
       log.info({ url, status }, "WAF challenge detected — reloading with full resource allow");
       try {
-        await page.reload({ waitUntil: "domcontentloaded", timeout: 20_000 });
-        /* The challenge cookie was set by the reload's initial response.
-           Treat the post-reload state as a fresh navigation: re-read
-           status and let the settle loop below fill bodyText. */
-        out.status = null; /* will be filled by the post-reload status below */
+        const reloadRes = await page.reload({ waitUntil: "domcontentloaded", timeout: 20_000 });
+        /* Treat the post-reload state as a fresh navigation: the reload's
+           own response carries the post-challenge status, and the settle
+           loop below fills bodyText. */
+        if (reloadRes) status = reloadRes.status();
+        out.status = status;
       } catch {
         /* reload failure — challenge JS may have already set the cookie;
            continue with the current page state */
       }
     }
 
-    // Settle: 2.5s for normal SPAs; 5s when a WAF challenge is active
-    // (challenge JS needs time to complete and issue the session cookie,
-    // but keep the budget tight so one hostile host can't freeze a pool
-    // slot for 10s+ while other URLs queue up behind it).
-    const settleLimit = wafChallengeActive ? 5_000 : 2_500;
+    // Settle: 2.5s for normal SPAs; up to 12s when a WAF challenge is
+    // active (Cloudflare's invisible Turnstile frequently needs ~10s of
+    // quiet JS time before it issues cf_clearance; 8s burned the passive
+    // window in live testing with clearanceIssued=false). The loop may NOT exit on "body has >300 chars" alone — a
+    // Cloudflare challenge page's own text exceeds that, and returning
+    // it to the model is how "403 forbidden" answers used to happen.
+    // It exits only on real content: >300 chars AND no interstitial
+    // marker. Budget stays bounded so one hostile host can't freeze a
+    // pool slot indefinitely.
+    const settleLimit = wafChallengeActive ? 12_000 : 2_500;
+    const pageTextState = () =>
+      page
+        .evaluate(() => {
+          const t = document.body?.innerText ?? "";
+          return { len: t.length, head: t.slice(0, 2_000) };
+        })
+        .catch(() => ({ len: 0, head: "" }));
     const t0 = Date.now();
+    let contentCleared = false;
     while (Date.now() - t0 < settleLimit) {
-      const len = await page
-        .evaluate(() => document.body?.innerText?.length ?? 0)
-        .catch(() => 0);
-      if (len > 300) break;
+      const st = await pageTextState();
+      if (st.len > 300 && !challengeMarkersPresent(st.head)) {
+        contentCleared = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, 400));
     }
 
+    /* Still behind the interstitial after the passive challenge window:
+       check whether the challenge JS already issued the host's session
+       cookie (Cloudflare's cf_clearance, AWS WAF's token, DataDome's).
+       If it did, re-navigate ONCE — exactly what a normal browser does
+       when a managed challenge resolves: the second request carries the
+       cookie and returns the real page. This is passive acceptance of a
+       challenge the site itself chose to run; we never click, solve or
+       route around any CAPTCHA/login wall. If no cookie was issued, the
+       wall is structural and we report it honestly. */
+    if (wafChallengeActive && !contentCleared) {
+      const cookies = await ctx.cookies().catch(() => []);
+      const clearanceIssued = cookies.some((c) =>
+        /^(cf_clearance|__cf_bm|aws-waf-token|datadome)$/i.test(c.name),
+      );
+      log.info({ url, clearanceIssued }, "WAF interstitial still up after settle — session cookie issued?");
+      if (clearanceIssued) {
+        try {
+          const re = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+          if (re) {
+            status = re.status();
+            out.status = status;
+          }
+          const t1 = Date.now();
+          while (Date.now() - t1 < 4_000) {
+            const st = await pageTextState();
+            if (st.len > 300 && !challengeMarkersPresent(st.head)) {
+              contentCleared = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 400));
+          }
+        } catch {
+          /* re-navigation failed — fall through to the honest wall outcome */
+        }
+      }
+    }
+
+    if (wafChallengeActive && !contentCleared) {
+      out.finalUrl = page.url();
+      out.error = "WAF challenge unresolved after passive wait — reported as a wall, not bypassed";
+      return out; /* out.ok stays false; the finally block releases the pool slot */
+    }
+
     out.finalUrl = page.url();
+    if (out.finalUrl && !isSafeUrl(out.finalUrl)) {
+      /* Defense in depth behind the route gate: if anything still
+         committed to an unsafe final address (service worker, CDP-level
+         path), no page content is extracted at all — the refusal is the
+         outcome, not the body. */
+      out.error = "unsafe final URL after navigation — read refused";
+      return out;
+    }
     out.title = await page.title().catch(() => "");
 
     // JSON-LD: pull raw script blocks and parse locally (linkedom would
@@ -700,8 +1195,23 @@ export async function extractUrlBrowser(
       .catch(() => ({}) as Record<string, string>);
 
     out.ok = out.bodyText.length > 0 || out.jsonLd.length > 0 || Object.keys(out.windowState).length > 0;
-    if (!out.ok && (status === 403 || status === 429 || status === 503)) {
+    if (!out.ok && (status === 403 || status === 429 || status === 503 || status === 405)) {
       out.error = "browser HTTP " + status + " (likely WAF challenge)";
+    }
+    /* Final admission gate (2026-11-04 audit fix): content PRESENCE is not
+       content VALIDITY. A WAF interstitial or a login wall can render
+       under HTTP 200 with more than 300 chars, so the settle loop's early
+       exit never sees it — validate the extracted text before it becomes
+       model-facing evidence or gets cached. Mirrors the direct tier's
+       detectBlockInText law, which the browser tier used to skip. Passive
+       detection only — we never interact with a challenge or credential
+       wall; we report it honestly and let the extractor cascade on. */
+    if (out.ok && authWallOrInterstitialText(out.bodyText)) {
+      out.ok = false;
+      out.error =
+        "rendered page is a challenge/auth interstitial (HTTP " +
+        status +
+        ") — reported as a wall, not content";
     }
 
     // ARIA semantic snapshot (the "C++ semantic snapshot" from the spec):
@@ -729,8 +1239,9 @@ export async function extractUrlBrowser(
        player, surface its caption track (DOM text tracks → the player's
        own caption XHRs, which carry request-scoped anti-abuse tokens no
        plain-HTTP fetch can reproduce) and append it to bodyText, so
-       EVERY downstream consumer — the TS extractor AND the Rust
-       Tier-3b browser-read bridge — sees transcripts for any provider.
+       EVERY downstream consumer — the TS extractor, the web_search/
+       read_page loop and destination discovery — sees transcripts for
+       any provider.
        Non-video pages pay exactly one evaluate(); the probe can never
        break the page read. */
     if (out.ok && !wafChallengeActive) {
@@ -754,6 +1265,3 @@ export async function extractUrlBrowser(
     freeContext(ctx);
   }
 }
-
-
-export { extractUrlBrowser as browserRead };

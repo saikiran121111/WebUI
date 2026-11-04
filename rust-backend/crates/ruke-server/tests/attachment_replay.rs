@@ -21,8 +21,8 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use common::{
-    assert_response, assert_slot_idle, assert_upstream_call, copy_tree, load_fixture,
-    post_chat, store_fixture_dir, test_state, MockUpstream, Script,
+    assert_response, assert_slot_idle, assert_upstream_call, copy_tree, load_fixture, post_chat,
+    store_fixture_dir, test_state, MockUpstream, Script,
 };
 use ruke_attach::FixedEmbedder;
 
@@ -45,7 +45,8 @@ fn ensure_store_seeded() {
 /// content "noted" — distinct from the Part-4 chat default.
 fn sse_std() -> Script {
     Script::stream(vec![
-        b"data: {\"id\":\"a1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"noted\"}}]}\n\n".to_vec(),
+        b"data: {\"id\":\"a1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"noted\"}}]}\n\n"
+            .to_vec(),
         b"data: [DONE]\n\n".to_vec(),
     ])
 }

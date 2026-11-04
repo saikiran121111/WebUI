@@ -185,7 +185,46 @@ e.output.lines.push(d),e.output.chars+=p,e.output.reviewer?.capturedFrameIds.add
 - Frame key format seen: `` `${e.targetId}:${e.frame.frameId}:${p.nodeId}` ``; DOM node refs `` `node:${e}` ``.
 - `node_id=` appears inside each rendered line; lines are appended until `maxChars` budget `i` is hit (line truncated by break).
 - Credential-frame protection: when a `credentialFrameId` is set, that frame gets reduced budget
-  (`oc-nY`=15,000 chars, `ic-oY`=150 elements) **[inferred]**.
+  (`oc-nY`=15,000 chars, `ic-oY`=150 elements) **[inferred]** — Ruke applies the reduced budget
+  whenever the credential-guard config is active for the snapshot (Phase 5, `credential_budget()`;
+  the per-frame `credentialFrameId` plumbing is a Chromium-iab multi-frame concern Ruke does not have).
+
+### 3.0.4 Phase-5 re-verification: reference-copy identity + the `ci`/`ui`/`hp` geometry trio (verbatim)
+
+**File identity law (load-bearing for all future RE in this area):** the dom-CUA walker and
+geometry helpers live in
+`app/resources/plugins/openai-bundled/plugins/browser/scripts/browser-service.mjs`
+(byte length 1,611,121; `function hY(` at char 763,971; `"Missing frame geometry for DOM CUA frame"`
+at 754,791). The `plugins/chrome` copy is byte-identical in that region. The
+`@oai/browser-desktop` and `@oai/cua` copies of `browser-service.mjs` carry `hY` at char 729,080 —
+their byte range 160,150–160,850 is ElementInfo API-doc TEXT, not code; the previously pinned
+"p5@160,335 / ui@160,527 / hp@160,669" offsets belong to NO currently-existing copy and must not be
+reused. Re-extractions must pass the target path as a process argument, never inline in `-e` strings.
+
+Point transform trio used by `dO` (`ci(n,s,a)` above; `n`=quad, `s`=frame-local point, `a`=frame size):
+```js
+p5(e,t,r){let n={x:r[0]??0,y:r[1]??0},o={x:r[2]??0,y:r[3]??0},i={x:r[6]??0,y:r[7]??0},
+ s=e.x/t.width,a=e.y/t.height;
+ return{x:n.x+s*(o.x-n.x)+a*(i.x-n.x),y:n.y+s*(o.y-n.y)+a*(i.y-n.y)}}
+ui(e,t,r){if(r==null||r.length<8)return null;
+ return t!=null?p5(e,t,r):(()=>{const n=hp(r);if(!n)return null;return{x:n.left+e.x,y:n.top+e.y}})()}
+hp(e){if(e.length<8)return null;
+ const xs=[e[0],e[2],e[4],e[6]].filter(v=>v!=null),ys=[e[1],e[3],e[5],e[7]].filter(v=>v!=null);
+ if(xs.length!==4||ys.length!==4)return null;
+ return{bottom:Math.max(...ys),left:Math.min(...xs),right:Math.max(...xs),top:Math.min(...ys)}}
+```
+Ruke ports these byte-faithfully (`transform_point_scaled` / `transform_point` / `quad_bounds` in
+`rust-backend/crates/ruke-browser/src/dom_cua.rs`); the unit table
+(quad `[10,20,110,20,110,120,10,120]`: (5,5)@(100,100)→(15,25); (50,50)@(200,200)→(35,45);
+(5,5) unsized→(15,25)) matches the reference semantics exactly — the earlier summary expectation
+"sized (5,5)→(60,70)" was a mis-pin, NOT a port bug. The page walker `hY` is ported BYTE-EXACT
+(EXACT_MATCH against the raw extraction `walker_hy.txt`); the `dD` frame-hop chain (`getFrameOwner`
+→ sized `getBoxModel.content` + in-page `({width:innerWidth,height:innerHeight})` else
+`getContentQuads[0]`, then `ui(n,s,a)`) is ported as `frame_geometry_hop`, and Ruke applies the
+parent-frame chain per hop (`pD` [adapted]: the reference's same-target skip is a Chromium-iab
+multi-target concern; Ruke has one CDP target per tab). Real-Chromium smoke (`smoke_lifecycle`,
+Phase-5 block) proves the transform end-to-end: a walker node inside a fixed iframe is clicked and
+focuses `inner-in` inside the iframe document.
 
 ### 3.1 `dom_cua_*` action schemas + ref→coordinates dispatch (client side, verbatim)
 ```js

@@ -52,7 +52,12 @@ impl ProgressChannel {
                 return;
             }
         };
-        if self.tx.send(Bytes::from(format!("data: {text}\n\n"))).await.is_err() {
+        if self
+            .tx
+            .send(Bytes::from(format!("data: {text}\n\n")))
+            .await
+            .is_err()
+        {
             self.closed = true; // the client is gone: stop writing
         }
     }
@@ -146,7 +151,8 @@ mod tests {
     async fn fail_emits_error_frame_then_exactly_one_done() {
         let (tx, mut rx) = mpsc::channel(8);
         let mut ch = ProgressChannel::new(tx);
-        ch.fail("Could not reach the model server at 127.0.0.1:9.").await;
+        ch.fail("Could not reach the model server at 127.0.0.1:9.")
+            .await;
         ch.fail("again").await; // latch: nothing more, no duplicate [DONE]
         ch.close();
         drop(ch);

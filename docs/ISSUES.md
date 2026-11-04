@@ -31,8 +31,10 @@
   captionProbe.ts (DOM TextTrack cues / response listener incl. rt=texttrack
   / accessible-name CC toggles; playNudge + late-boot re-nudge) ←
   media-captions.ts (pool, analytics-only route, 3× nav retry) on the TS
-  side; youtube_bridge.rs HttpInnerTube over the internal-secret
-  /api/internal/youtube-evidence route on the Rust side.
+  side; on the migration-era Rust side, youtube_bridge.rs HttpInnerTube
+  relayed the same Node chain over the internal-secret
+  /api/internal/youtube-evidence route — that route and bridge were
+  removed in the 2026-11-03 TS rollback; the chain is TS-only now.
   LIVE-VERIFIED: 32 segments parsed through the engine components on an
   HTML5-native source; YouTube player mounted + fired its own tokened
   timedtext XHR before the IP hit a Google sorry/CAPTCHA throttle (see

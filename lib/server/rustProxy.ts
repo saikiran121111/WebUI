@@ -43,6 +43,22 @@ export function rustBaseUrl(): string {
   return `http://127.0.0.1:${port}`;
 }
 
+/**
+ * The bridge-secret header the Rust server checks when
+ * RUKE_BROWSER_BRIDGE_SECRET is configured (mirrors
+ * ruke_websearch::browser_bridge::SECRET_HEADER). Routes that Rust guards
+ * with the secret (e.g. the browser RPC) inject it server-side via
+ * `rustProxy`'s `extraHeaders` — the browser must never see the secret,
+ * and a browser cannot set it anyway.
+ */
+export const INTERNAL_SECRET_HEADER = "x-ruke-internal-secret";
+
+/** {} when the secret is unset (dev loopback mode); never log its value. */
+export function internalSecretHeaders(): Record<string, string> {
+  const secret = process.env.RUKE_BROWSER_BRIDGE_SECRET?.trim();
+  return secret ? { [INTERNAL_SECRET_HEADER]: secret } : {};
+}
+
 // Hop-by-hop headers must not cross the proxy (RFC 9110 §7.6.1).
 // `accept-encoding` is stripped on the REQUEST leg so undici negotiates
 // (and transparently decodes) its own; the Rust handlers parse request
@@ -103,12 +119,26 @@ function connectivityCode(err: unknown): string {
  * holds the decoded Next route params — encodeURIComponent them there).
  * The original query string is preserved verbatim.
  */
-export async function rustProxy(req: Request, rustPath: string): Promise<Response> {
+export async function rustProxy(
+  req: Request,
+  rustPath: string,
+  opts?: { extraHeaders?: Record<string, string> },
+): Promise<Response> {
   const base = rustBaseUrl();
   const query = new URL(req.url).search;
+  const requestHeaders = forwardableHeaders(req.headers);
+  if (opts?.extraHeaders) {
+    // Injected headers WIN: any same-named header a client guessed at is
+    // dropped, so the Rust guard always sees the server-held value.
+    const overrides = new Set(Object.keys(opts.extraHeaders).map((k) => k.toLowerCase()));
+    for (let i = requestHeaders.length - 1; i >= 0; i--) {
+      if (overrides.has(requestHeaders[i][0].toLowerCase())) requestHeaders.splice(i, 1);
+    }
+    for (const [key, value] of Object.entries(opts.extraHeaders)) requestHeaders.push([key, value]);
+  }
   const init: RequestInit & { duplex?: "half" } = {
     method: req.method,
-    headers: forwardableHeaders(req.headers),
+    headers: requestHeaders,
     signal: req.signal,
   };
   if (req.method !== "GET" && req.method !== "HEAD") {

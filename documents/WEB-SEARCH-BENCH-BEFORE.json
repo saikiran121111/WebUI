@@ -1,0 +1,998 @@
+{
+  "label": "before",
+  "base": "http://localhost:3000",
+  "model": "qwen3.8-flash-next-iq3_s",
+  "started": "2026-11-02T12:02:14.865Z",
+  "gitHead": "7f3b957eb5d3b36842a36a061ac8bef12f2cce83",
+  "runs": [
+    {
+      "run": 1,
+      "status": 200,
+      "prompt": "latest release notes for postgres",
+      "t0": 1793620938108,
+      "landmarks": {
+        "decision_ms": 1,
+        "gate_ms": 39,
+        "planning_ms": 39,
+        "first_search_ms": 39,
+        "candidate_ready_ms": 2287,
+        "first_page_ms": 2287,
+        "evidence_sufficient_ms": 4261,
+        "answer_first_token_ms": 15217
+      },
+      "counters": {
+        "citations": 25,
+        "queries_completed": 1,
+        "evidence_packets": 11
+      },
+      "frames": [
+        {
+          "at_ms": 1,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 1314,
+          "stage": "web:recovery",
+          "detail": "Only 0 relevant result(s) - firing broad recovery pass..."
+        },
+        {
+          "at_ms": 2287,
+          "stage": "web:reading",
+          "detail": "Reading top 10 pages..."
+        },
+        {
+          "at_ms": 2604,
+          "stage": "web:reading",
+          "detail": "Read 1 of 10 pages..."
+        },
+        {
+          "at_ms": 2992,
+          "stage": "web:reading",
+          "detail": "Read 2 of 10 pages..."
+        },
+        {
+          "at_ms": 3216,
+          "stage": "web:reading",
+          "detail": "Read 3 of 10 pages..."
+        },
+        {
+          "at_ms": 3374,
+          "stage": "web:reading",
+          "detail": "Read 4 of 10 pages..."
+        },
+        {
+          "at_ms": 3798,
+          "stage": "web:reading",
+          "detail": "Read 5 of 10 pages..."
+        },
+        {
+          "at_ms": 4261,
+          "stage": "web:reading",
+          "detail": "Read 6 of 10 pages..."
+        },
+        {
+          "at_ms": 4261,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 4261,
+          "stage": "web:done",
+          "detail": "Evidence ready: 11 passages (coverage 50%)"
+        },
+        {
+          "at_ms": 4265,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 18503,
+          "stage": "web:tools",
+          "detail": "web_search"
+        },
+        {
+          "at_ms": 37686,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 47554,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 132581,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 141256,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 155131,
+          "stage": "web:tools",
+          "detail": "web_search"
+        }
+      ],
+      "total_ms": 221803,
+      "framesCount": 21
+    },
+    {
+      "run": 2,
+      "status": 200,
+      "prompt": "latest release notes for postgres",
+      "t0": 1793621160020,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 2,
+        "planning_ms": 2,
+        "first_search_ms": 2,
+        "candidate_ready_ms": 947,
+        "first_page_ms": 947,
+        "evidence_sufficient_ms": 947,
+        "answer_first_token_ms": 102501
+      },
+      "counters": {
+        "citations": 25,
+        "queries_completed": 1,
+        "evidence_packets": 11
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:recovery",
+          "detail": "Only 0 relevant result(s) - firing broad recovery pass..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Reading top 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Read 1 of 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Read 2 of 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Read 3 of 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Read 4 of 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Read 5 of 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reading",
+          "detail": "Read 6 of 10 pages..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 947,
+          "stage": "web:done",
+          "detail": "Evidence ready: 11 passages (coverage 50%)"
+        },
+        {
+          "at_ms": 949,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 21192,
+          "stage": "web:tools",
+          "detail": "web_search,read_page"
+        },
+        {
+          "at_ms": 38129,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 50416,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 53824,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 72101,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 74797,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 123442,
+      "framesCount": 21
+    },
+    {
+      "run": 1,
+      "status": 200,
+      "prompt": "weather in london today",
+      "t0": 1793621283471,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 2,
+        "planning_ms": 2,
+        "first_search_ms": 2,
+        "candidate_ready_ms": 2348,
+        "first_page_ms": 2348,
+        "evidence_sufficient_ms": 6518,
+        "answer_first_token_ms": 78492
+      },
+      "counters": {
+        "citations": 23,
+        "queries_completed": 1,
+        "evidence_packets": 14
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 1388,
+          "stage": "web:recovery",
+          "detail": "Only 0 relevant result(s) - firing broad recovery pass..."
+        },
+        {
+          "at_ms": 2348,
+          "stage": "web:reading",
+          "detail": "Reading top 10 pages..."
+        },
+        {
+          "at_ms": 3309,
+          "stage": "web:reading",
+          "detail": "Read 1 of 10 pages..."
+        },
+        {
+          "at_ms": 4174,
+          "stage": "web:reading",
+          "detail": "Read 2 of 10 pages..."
+        },
+        {
+          "at_ms": 4322,
+          "stage": "web:reading",
+          "detail": "Read 3 of 10 pages..."
+        },
+        {
+          "at_ms": 4766,
+          "stage": "web:reading",
+          "detail": "Read 4 of 10 pages..."
+        },
+        {
+          "at_ms": 5530,
+          "stage": "web:reading",
+          "detail": "Read 5 of 10 pages..."
+        },
+        {
+          "at_ms": 6501,
+          "stage": "web:reading",
+          "detail": "Read 6 of 10 pages..."
+        },
+        {
+          "at_ms": 6518,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 6518,
+          "stage": "web:gap-search",
+          "detail": "Coverage 33% - firing targeted 2nd-hop search for missing entities..."
+        },
+        {
+          "at_ms": 17260,
+          "stage": "web:done",
+          "detail": "Evidence ready: 14 passages (coverage 33%)"
+        },
+        {
+          "at_ms": 17264,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 34441,
+          "stage": "web:tools",
+          "detail": "web_search,read_page"
+        },
+        {
+          "at_ms": 45363,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 53870,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 63073,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 72786,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 74057,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 87558,
+      "framesCount": 22
+    },
+    {
+      "run": 2,
+      "status": 200,
+      "prompt": "weather in london today",
+      "t0": 1793621371038,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 2,
+        "planning_ms": 2,
+        "first_search_ms": 2,
+        "candidate_ready_ms": 991,
+        "first_page_ms": 991,
+        "evidence_sufficient_ms": 991,
+        "answer_first_token_ms": 12058
+      },
+      "counters": {
+        "citations": 22,
+        "queries_completed": 1,
+        "evidence_packets": 14
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 2,
+          "stage": "web:recovery",
+          "detail": "Only 0 relevant result(s) - firing broad recovery pass..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Reading top 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Read 1 of 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Read 2 of 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Read 3 of 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Read 4 of 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Read 5 of 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reading",
+          "detail": "Read 6 of 10 pages..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 991,
+          "stage": "web:gap-search",
+          "detail": "Coverage 33% - firing targeted 2nd-hop search for missing entities..."
+        },
+        {
+          "at_ms": 1650,
+          "stage": "web:done",
+          "detail": "Evidence ready: 14 passages (coverage 33%)"
+        },
+        {
+          "at_ms": 1653,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 14977,
+          "stage": "web:tools",
+          "detail": "web_search"
+        },
+        {
+          "at_ms": 28399,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 32914,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 44828,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 47626,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 49867,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 91371,
+      "framesCount": 22
+    },
+    {
+      "run": 1,
+      "status": 200,
+      "prompt": "typescript latest version announcement",
+      "t0": 1793621462418,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 1,
+        "planning_ms": 1,
+        "first_search_ms": 1,
+        "candidate_ready_ms": 2902,
+        "first_page_ms": 2902,
+        "evidence_sufficient_ms": 4914,
+        "answer_first_token_ms": 128122
+      },
+      "counters": {
+        "citations": 27,
+        "queries_completed": 1,
+        "evidence_packets": 20
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 1,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 1,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 1,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 2902,
+          "stage": "web:reading",
+          "detail": "Reading top 10 pages..."
+        },
+        {
+          "at_ms": 3034,
+          "stage": "web:reading",
+          "detail": "Read 1 of 10 pages..."
+        },
+        {
+          "at_ms": 3594,
+          "stage": "web:reading",
+          "detail": "Read 2 of 10 pages..."
+        },
+        {
+          "at_ms": 4023,
+          "stage": "web:reading",
+          "detail": "Read 3 of 10 pages..."
+        },
+        {
+          "at_ms": 4252,
+          "stage": "web:reading",
+          "detail": "Read 4 of 10 pages..."
+        },
+        {
+          "at_ms": 4455,
+          "stage": "web:reading",
+          "detail": "Read 5 of 10 pages..."
+        },
+        {
+          "at_ms": 4914,
+          "stage": "web:reading",
+          "detail": "Read 6 of 10 pages..."
+        },
+        {
+          "at_ms": 4914,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 4914,
+          "stage": "web:done",
+          "detail": "Evidence ready: 20 passages (coverage 75%)"
+        },
+        {
+          "at_ms": 4917,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 19478,
+          "stage": "web:tools",
+          "detail": "web_search"
+        },
+        {
+          "at_ms": 36862,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 39417,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 50757,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 54676,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 65102,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 83084,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 158135,
+      "framesCount": 21
+    },
+    {
+      "run": 2,
+      "status": 200,
+      "prompt": "typescript latest version announcement",
+      "t0": 1793621620566,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 39,
+        "planning_ms": 39,
+        "first_search_ms": 39,
+        "candidate_ready_ms": 39,
+        "first_page_ms": 39,
+        "evidence_sufficient_ms": 39,
+        "answer_first_token_ms": 234545
+      },
+      "counters": {
+        "citations": 28,
+        "queries_completed": 1,
+        "evidence_packets": 20
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Reading top 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Read 1 of 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Read 2 of 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Read 3 of 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Read 4 of 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Read 5 of 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reading",
+          "detail": "Read 6 of 10 pages..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 39,
+          "stage": "web:done",
+          "detail": "Evidence ready: 20 passages (coverage 75%)"
+        },
+        {
+          "at_ms": 44,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 85258,
+          "stage": "web:tools",
+          "detail": "web_search,web_search"
+        },
+        {
+          "at_ms": 112630,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 113630,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 128072,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 142843,
+          "stage": "web_meta",
+          "detail": null
+        },
+        {
+          "at_ms": 157654,
+          "stage": "web:tools",
+          "detail": "read_page"
+        },
+        {
+          "at_ms": 166987,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 252537,
+      "framesCount": 21
+    },
+    {
+      "run": 1,
+      "status": 200,
+      "prompt": "when was the first qwen model released",
+      "t0": 1793621873112,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 1,
+        "planning_ms": 3608,
+        "first_search_ms": 3608,
+        "candidate_ready_ms": 5331,
+        "first_page_ms": 5331,
+        "evidence_sufficient_ms": 7599,
+        "answer_first_token_ms": 26819
+      },
+      "counters": {
+        "citations": 9,
+        "queries_completed": 1,
+        "evidence_packets": 17
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 1,
+          "detail": null
+        },
+        {
+          "at_ms": 1,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 3608,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 3608,
+          "stage": "web:searching",
+          "detail": "Searching 2 source pool(s)..."
+        },
+        {
+          "at_ms": 5331,
+          "stage": "web:reading",
+          "detail": "Reading top 9 pages..."
+        },
+        {
+          "at_ms": 5519,
+          "stage": "web:reading",
+          "detail": "Read 1 of 9 pages..."
+        },
+        {
+          "at_ms": 5834,
+          "stage": "web:reading",
+          "detail": "Read 2 of 9 pages..."
+        },
+        {
+          "at_ms": 6467,
+          "stage": "web:reading",
+          "detail": "Read 3 of 9 pages..."
+        },
+        {
+          "at_ms": 6667,
+          "stage": "web:reading",
+          "detail": "Read 4 of 9 pages..."
+        },
+        {
+          "at_ms": 7149,
+          "stage": "web:reading",
+          "detail": "Read 5 of 9 pages..."
+        },
+        {
+          "at_ms": 7562,
+          "stage": "web:reading",
+          "detail": "Read 6 of 9 pages..."
+        },
+        {
+          "at_ms": 7599,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 7599,
+          "stage": "web:done",
+          "detail": "Evidence ready: 17 passages (coverage 100%)"
+        },
+        {
+          "at_ms": 7603,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 32060,
+      "framesCount": 14
+    },
+    {
+      "run": 2,
+      "status": 200,
+      "prompt": "when was the first qwen model released",
+      "t0": 1793621905181,
+      "landmarks": {
+        "decision_ms": 0,
+        "gate_ms": 1,
+        "planning_ms": 4690,
+        "first_search_ms": 4690,
+        "candidate_ready_ms": 6828,
+        "first_page_ms": 6828,
+        "evidence_sufficient_ms": 23147,
+        "answer_first_token_ms": 39403
+      },
+      "counters": {
+        "citations": 9,
+        "queries_completed": 2,
+        "evidence_packets": 18
+      },
+      "frames": [
+        {
+          "at_ms": 0,
+          "stage": "decision_done",
+          "ms": 0,
+          "detail": null
+        },
+        {
+          "at_ms": 1,
+          "stage": "web:gate",
+          "detail": "Deciding whether a web search is needed..."
+        },
+        {
+          "at_ms": 4690,
+          "stage": "web:planning",
+          "detail": "Decomposing into sub-queries..."
+        },
+        {
+          "at_ms": 4690,
+          "stage": "web:searching",
+          "detail": "Searching 3 source pool(s)..."
+        },
+        {
+          "at_ms": 6828,
+          "stage": "web:reading",
+          "detail": "Reading top 9 pages..."
+        },
+        {
+          "at_ms": 6828,
+          "stage": "web:reading",
+          "detail": "Read 1 of 9 pages..."
+        },
+        {
+          "at_ms": 6828,
+          "stage": "web:reading",
+          "detail": "Read 2 of 9 pages..."
+        },
+        {
+          "at_ms": 7748,
+          "stage": "web:reading",
+          "detail": "Read 3 of 9 pages..."
+        },
+        {
+          "at_ms": 23147,
+          "stage": "web:reading",
+          "detail": "Read 4 of 9 pages..."
+        },
+        {
+          "at_ms": 23147,
+          "stage": "web:reading",
+          "detail": "Read 5 of 9 pages..."
+        },
+        {
+          "at_ms": 23147,
+          "stage": "web:reading",
+          "detail": "Read 6 of 9 pages..."
+        },
+        {
+          "at_ms": 23147,
+          "stage": "web:reranking",
+          "detail": "Reranking with BM25..."
+        },
+        {
+          "at_ms": 23147,
+          "stage": "web:done",
+          "detail": "Evidence ready: 18 passages (coverage 100%)"
+        },
+        {
+          "at_ms": 23151,
+          "stage": "web_meta",
+          "detail": null
+        }
+      ],
+      "total_ms": 47398,
+      "framesCount": 14
+    }
+  ],
+  "finished": "2026-11-02T12:19:12.580Z"
+}
