@@ -50,12 +50,12 @@ async function mockStream(page: Page, content: string, decisionMode: string, chu
   });
 }
 
-async function send(page: Page, text: string, timeout = 20_000): Promise<void> {
+async function send(page: Page, text: string, timeout = 20_000, waitComplete = true): Promise<void> {
   const box = page.locator("textarea").first();
   await box.click();
   await box.fill(text);
   await box.press("Enter");
-  await page.locator(ASSISTANT_DONE).first().waitFor({ timeout });
+  if (waitComplete) await page.locator(ASSISTANT_DONE).first().waitFor({ timeout });
 }
 
 /** Click a download button, save the file, return its saved path. */
@@ -83,13 +83,27 @@ test("Decision Engine injects exactly the matched modality skill (zero cross-con
   test.skip(!proxyOk, "e2e-llm-proxy not running (node scripts/e2e-llm-proxy.mjs)");
 
   await page.goto("http://localhost:3000/");
-  await send(page, "make me a printable pdf report about quarterly revenue", 120_000);
-
-  const bodies: string[] = await (await fetch("http://127.0.0.1:8099/__captured")).json();
+  // This leg asserts the request the server FORWARDS upstream, not the
+  // model's answer. On a consumer laptop the real local generation of a
+  // full pdf deliverable runs long past any UI completion wait (a 120 s
+  // data-state="complete" wait timed out with the turn still streaming at
+  // 36 tk/s). The forwarded call is recorded the instant the turn issues
+  // it, so wait on the capture of the skill-injected call itself instead.
+  const PROMPT = "make me a printable pdf report about quarterly revenue";
+  await send(page, PROMPT, 0, false);
+  const captureOf = async () =>
+    ((await (await fetch("http://127.0.0.1:8099/__captured")).json()) as string[]).filter(
+      (b) => b.includes("quarterly revenue") && b.includes("decision_skill"),
+    );
+  await expect
+    .poll(captureOf, {
+      timeout: 90_000,
+      message: "skill-injected upstream call never reached the proxy (LLM_API_URL pointed at it?)",
+    })
+    .not.toHaveLength(0);
   // The engine noise-strips the prompt before sending it upstream, so match a
   // phrase that survives stripping rather than the verbatim user sentence.
-  const mine = bodies.filter((b) => b.includes("quarterly revenue"));
-  expect(mine.length, "dev server never forwarded the prompt upstream (LLM_API_URL pointed at the proxy?)").toBeGreaterThan(0);
+  const mine = await captureOf();
   // Unwrap the recorded request body so assertions see the real message text
   // (raw JSON would carry \" escapes inside the system content).
   const parsed = JSON.parse(mine[mine.length - 1]);
