@@ -155,6 +155,17 @@ export interface EvidencePassage {
   bm25Score: number;
 }
 
+/**
+ * Brief §6 (2026-11-04): fragment-router carve-out for the canonical/dedupe
+ * key. SPA hash routes (`#/products/123`, AngularJS `#!/app`) are DISTINCT
+ * PAGES — the fragment is part of page identity, so it must survive URL
+ * cleanup and dedupe. A pure in-page anchor (`#section-2`) names a position
+ * within the SAME document and collapses onto the page. Generic router
+ * convention only — no site tables. Always tested against `location.hash`
+ * form (includes the leading `#`).
+ */
+export const FRAGMENT_ROUTE_RE = /^#!?\//;
+
 /** A normalized result from ANY search source, after URL cleanup + dedup. */
 export interface NormalizedResult {
   url: string;

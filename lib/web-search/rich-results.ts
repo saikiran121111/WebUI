@@ -318,7 +318,7 @@ export function deriveRichResults(src: RichResultSource): RichResult[] {
       seen.add(r.canonical);
       const item: { title: string; url: string; domain: string; publishedAt?: string } = {
         title: r.title,
-        url: r.canonical,
+        url: r.url || r.canonical, // §6: card links the exact engine URL
         domain: r.domain,
       };
       if (r.publishedDate) item.publishedAt = r.publishedDate;

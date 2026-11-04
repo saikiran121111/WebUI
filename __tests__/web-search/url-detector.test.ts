@@ -67,3 +67,21 @@ describe("url-detector: bare domains (tldts, all IANA TLDs)", () => {
     expect(detectUrlsAndDomains("tell me about recursion in plain English, no web needed")).toHaveLength(0);
   });
 });
+
+describe("url-detector: fragment-router pages are DISTINCT targets (brief §6)", () => {
+  it("keeps two SPA hash-route URLs on the same host", () => {
+    const out = detectPromptUrls(
+      "compare https://shop.example.com/app#/products/1 and https://shop.example.com/app#/products/2",
+    );
+    expect(out).toHaveLength(2);
+    expect(out).toContain("https://shop.example.com/app#/products/1");
+    expect(out).toContain("https://shop.example.com/app#/products/2");
+  });
+
+  it("still collapses repeated plain in-page anchors to one URL", () => {
+    const out = detectPromptUrls(
+      "see https://docs.example.com/guide#intro then https://docs.example.com/guide#setup",
+    );
+    expect(out).toHaveLength(1);
+  });
+});

@@ -26,6 +26,7 @@
 import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
 import type { RawSearchResult, RankedResult } from "./types";
+import { FRAGMENT_ROUTE_RE } from "./types";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
 import { scrubQuerySecrets } from "./ssrf";
@@ -117,7 +118,9 @@ const AMP_SUFFIX_RE = /\/amp$/i;
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);
-    u.hash = "";
+    // §6 fragment-router carve-out: SPA-route hashes are page identity and
+    // survive the key; pure in-page anchors still collapse.
+    if (!FRAGMENT_ROUTE_RE.test(u.hash)) u.hash = "";
     const p = new URLSearchParams(u.search);
     for (const k of TRACKING_PARAMS) p.delete(k);
     for (const k of [...p.keys()]) if (k.startsWith("utm_")) p.delete(k);
@@ -930,7 +933,11 @@ export function reciprocalRankFuse(
 
     const entry = byUrl.get(norm);
     if (!entry) {
-      byUrl.set(norm, { result: { ...r, url: norm }, ranks: new Map() });
+      // §6 (2026-11-04): store the ENGINE'S OWN url verbatim — case-sensitive
+      // paths, signed/ref params, amp/mobile shapes and SPA-route hashes ride
+      // the fetch. Overwriting with `norm` silently rewrote every request
+      // while the emit comment claimed the opposite.
+      byUrl.set(norm, { result: { ...r }, ranks: new Map() });
     }
     const e = byUrl.get(norm)!;
     e.ranks.set(r.engine, e.ranks.get(r.engine) ?? r.rank);

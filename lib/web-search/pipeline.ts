@@ -32,6 +32,7 @@ import {
   metasearch,
   metasearchWithFreshnessRecovery,
   countLexicallyRelevant,
+  normalizeUrl,
   type SearchPlan,
   type RankedResult,
 } from "./metasearch";
@@ -1051,7 +1052,9 @@ export async function runWebResearch(
   // Bundle-level SERP-baseline invariant: results outside the read window
   // still contribute their engine-indexed title + snippet, so blocked-site
   // facts survive even when extraction never reaches rank 11+.
-  const extracted = new Set(packets.map((p) => p.url));
+  // §6: packet.url is the RAW fetched URL since §6, while baselinePacketsFor
+  // skips on CANONICAL keys — map through normalizeUrl before comparing.
+  const extracted = new Set(packets.map((p) => normalizeUrl(p.url)));
   const extraBaselines = baselinePacketsFor(searchResults, extracted, 10);
   if (extraBaselines.length > 0) {
     renumberPackets(extraBaselines, nextSourceIndex(packets));

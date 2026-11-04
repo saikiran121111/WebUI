@@ -665,7 +665,8 @@ function serpBaselinePassage(result: RankedResult): EvidencePacket["passages"][n
   if (snippet.length < 12) return null;
   return {
     sourceId: "",
-    url: result.canonical,
+    // §6: the SERP entry cites the URL exactly as the engine surfaced it.
+    url: result.url || result.canonical,
     title: result.title,
     domain: result.domain,
     publishedAt: result.publishedDate,
@@ -717,6 +718,10 @@ function redirectedProvenanceHeader(requested: string, resolved: string): string
  * be lost just because we chose not to fetch that URL. The pipeline
  * merges these after extractAll(); extractUrl() already carries the same
  * baseline inside every packet it returns.
+ *
+ * §6 note: `extractedUrls` carries CANONICAL keys (packet.url is the raw
+ * fetched URL since §6 — the pipeline maps it through normalizeUrl); the
+ * skip check below compares against `r.canonical`.
  */
 export function baselinePacketsFor(
   ranked: RankedResult[],
@@ -731,7 +736,7 @@ export function baselinePacketsFor(
     if (!baseline) continue;
     out.push({
       sourceId: "",
-      url: r.canonical,
+      url: r.url || r.canonical, // §6: raw engine URL (fetch/citation truth)
       title: r.title,
       domain: r.domain,
       publishedAt: r.publishedDate,
@@ -748,15 +753,15 @@ export function baselinePacketsFor(
  * abandoned at the total page budget. Shape mirrors the terminal-failure
  * fallback extractUrl() already returns (baseline first; title/marker only
  * when no baseline exists) — the only new artifact is the
- * "PAGE_BUDGET_TIMEOUT" classification. Mirrors `timeout_fallback_packet`
- * in ruke-websearch/src/extractor.rs.
+ * "PAGE_BUDGET_TIMEOUT" classification. (The ruke-websearch crate mirror
+ * was retired 2026-11-03 — this TS shape is the only one.)
  */
 export function timeoutFallbackPacket(
   result: RankedResult,
 ): EvidencePacket & { classification: string } {
   const packet: EvidencePacket = {
     sourceId: "",
-    url: result.canonical,
+    url: result.url || result.canonical, // §6: fetch/citation truth
     title: result.title,
     domain: result.domain,
     publishedAt: result.publishedDate,
@@ -769,7 +774,7 @@ export function timeoutFallbackPacket(
   } else {
     packet.passages.push({
       sourceId: "",
-      url: result.canonical,
+      url: result.url || result.canonical,
       title: result.title,
       domain: result.domain,
       publishedAt: result.publishedDate,
@@ -791,8 +796,10 @@ export function timeoutFallbackPacket(
 async function extractBrowser(
   result: RankedResult,
 ): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string; finalUrl?: string } | null> {
+  // §6: navigate the RAW engine URL (fetch truth); canonical stays comparison-only.
+  const fetchUrl = result.url || result.canonical;
   try {
-    const r = await extractPageInOnePass(result.canonical, { timeoutMs: 45_000 });
+    const r = await extractPageInOnePass(fetchUrl, { timeoutMs: 45_000 });
     if (!r.ok) {
       return {
         markdown: "",
@@ -810,7 +817,8 @@ async function extractBrowser(
     }
 
     // 2. Final URL after JS/HTTP redirects — the real target of the SERP.
-    if (r.finalUrl && r.finalUrl !== result.canonical) {
+    // §6: compared against the URL we ACTUALLY navigated, not the key.
+    if (r.finalUrl && r.finalUrl !== fetchUrl) {
       parts.push("Final URL after redirects: " + r.finalUrl);
     }
 
@@ -1126,7 +1134,12 @@ export async function extractUrl(
       body. Cache WRITES still happen (fresh evidence replenishes it). */
   liveRequired = false,
 ): Promise<EvidencePacket & { classification: string }> {
-  const url = result.canonical;
+  // Brief §6: FETCH semantics use the URL exactly as the engine/tool gave
+  // it — case-sensitive paths, signed query params, amp/mobile shapes and
+  // SPA-route hashes survive end to end; `canonical` stays the dedupe /
+  // comparison key only. `|| canonical` covers synthetic results that
+  // predate the §6 url/canonical split.
+  const url = result.url || result.canonical;
   // Set whenever a capped tier expired; drives the tail branch.
   let budgetHit = false;
   const packet: EvidencePacket = {

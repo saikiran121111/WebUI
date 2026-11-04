@@ -4,7 +4,7 @@
  * Every vector table here is byte-for-byte identical to its Rust inline
  * counterpart; change one side, change both in the same commit:
  *
- *   normalizeUrl vectors ........ rust metasearch.rs `normalize_url_vectors`
+ *   normalizeUrl vectors ........ TS-owned (ruke-websearch retired 2026-11-03)
  *   freshnessFit band vectors ... rust types.rs `freshness_fit_shared_vectors_*`
  *   time-scoped pins ............ rust types.rs `is_time_scoped_freshness_pins`
  *   retrieval-mode pins ......... rust types.rs `retrieval_mode_for_freshness_pins`
@@ -45,9 +45,9 @@ import {
 } from "../../lib/web-search/segment-filter";
 import { junkPenalty } from "../../lib/web-search/reranker";
 
-/* ── normalizeUrl (⇔ rust normalize_url_vectors) ───────────────────────── */
+/* ── normalizeUrl (TS-owned since the 2026-11-03 Rust rollback) ───────── */
 
-describe("normalizeUrl shared vectors (⇔ rust metasearch.rs)", () => {
+describe("normalizeUrl vectors (TS-owned after the 2026-11-03 Rust rollback)", () => {
   const VECTORS: Array<[string, string]> = [
     // tracking params dropped, non-tracking kept, fragment cleared
     [
@@ -85,12 +85,32 @@ describe("normalizeUrl shared vectors (⇔ rust metasearch.rs)", () => {
       "https://m.example.com:8080/amp/p?utm_term=t&q=1",
       "https://example.com:8080/p?q=1",
     ],
+    // §6 fragment-router carve-out: SPA hash routes are DISTINCT PAGES and
+    // survive the key; plain in-page anchors still collapse (vector above).
+    [
+      "https://example.com/app#/products/42",
+      "https://example.com/app#/products/42",
+    ],
+    [
+      "https://example.com/app#!/legacy/route",
+      "https://example.com/app#!/legacy/route",
+    ],
+    ["https://example.com/app#section-2", "https://example.com/app"],
   ];
   for (const [input, expected] of VECTORS) {
     it(`"${input}" → "${expected}"`, () => {
       expect(normalizeUrl(input)).toBe(expected);
     });
   }
+
+  it("Unicode/IDNA: host punycodes; path escapes and semantic params survive (§6)", () => {
+    // m. subdomain collapse + /amp/ path collapse + kept `src` (semantic);
+    // the punycode host and percent escapes are stable through the
+    // URLSearchParams round-trip.
+    expect(
+      normalizeUrl("https://m.münchen.de/amp/brötchen?preis=%E2%82%AC5&src=x"),
+    ).toBe("https://xn--mnchen-3ya.de/br%C3%B6tchen?preis=%E2%82%AC5&src=x");
+  });
 });
 
 /* ── freshnessFit (⇔ rust types.rs shared band vectors) ────────────────── */

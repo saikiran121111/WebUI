@@ -17,6 +17,7 @@
 // (see the named-import law comment in lib/decision/task-scope.ts — the
 // default-import crash the Phase-6 E2E matrix caught applies here too).
 import { parse as tldtsParse } from "tldts";
+import { FRAGMENT_ROUTE_RE } from "./types";
 
 /**
  * File/code extensions that must never be mistaken for TLDs.
@@ -84,7 +85,11 @@ export function detectUrlsAndDomains(
       const u = new URL(raw);
       const host = u.hostname.toLowerCase();
       if (host.length < 4) continue; // skip localhost, IP-like short names
-      const key = u.origin + u.pathname + u.search; // path/query case preserved
+      // path/query case preserved; §6: a fragment-router hash IS page
+      // identity — two `#/route` pages on one host are distinct targets
+      // (pure anchors still collapse onto the page).
+      const key =
+        u.origin + u.pathname + u.search + (FRAGMENT_ROUTE_RE.test(u.hash) ? u.hash : "");
       if (seenUrl.has(key)) continue;
       seenUrl.add(key);
       seenHost.add(host);
