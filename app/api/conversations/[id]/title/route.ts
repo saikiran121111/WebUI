@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestTitleGeneration, type TitleJobResult } from "../../../../../lib/server/titles/queue";
+import { rustEnabled, rustProxy } from "../../../../../lib/server/rustProxy";
 
 /**
  * Trigger (or force, for the backfill script) an auto-title refresh for a
@@ -15,6 +16,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  if (rustEnabled()) return rustProxy(req, `/api/ruke/conversations/${encodeURIComponent(params.id)}/title`);
   const force = req.nextUrl.searchParams.get("force") === "1";
   let model: string | undefined;
   try {

@@ -5,7 +5,6 @@ export {
   extractPromptUrls,
   deterministicHardBypass,
   gateDisabledByEnv,
-  promptHasExternalEntity,
 } from "./search-gate";
 export {
   metasearch,
@@ -126,9 +125,6 @@ export {
   planQueries,
   evaluateCoverage,
   runGapMetasearch,
-  extractBrandTokens,
-  inferBrandDomain,
-  buildDeepIndexQuery,
   type PlannedQuery,
   type CoverageReport,
 } from "./query-planner";

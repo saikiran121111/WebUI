@@ -37,3 +37,9 @@ settings.json.tmp
 
 # Bundled context dumps (never commit)
 repomix-output*.xml
+
+# Browser engine runtime state (never commit): the persisted authority
+# store (user's saved per-host permission rules) and the engine-owned
+# downloads directory that tab downloads / uploads land in.
+ruke-browser-policy.json
+downloads/

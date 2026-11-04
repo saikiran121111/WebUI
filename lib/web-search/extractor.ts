@@ -28,6 +28,8 @@
  * Every URL is classified into one of the report categories:
  *   SUCCESS_DIRECT, SUCCESS_ADAPTER, SUCCESS_METADATA,
  *   SUCCESS_JINA_FALLBACK, SUCCESS_WAYBACK, SUCCESS_SNIPPET_FALLBACK,
+ *   SUCCESS_BROWSER, SUCCESS_REDIRECTED (fetch succeeded but landed on a
+ *   different registrable site — packet URL/domain carry the final site),
  *   FAIL_SILENT_BOT_BLOCK, FAIL_SILENT_LOGIN_WALL,
  *   FAIL_EMPTY_JS_SHELL, FAIL_NETWORK_OR_CRASH
  *
@@ -51,14 +53,12 @@ import {
   structuralExtractAsync,
   detectMode,
   extractDocumentSync,
+  extractPdfBytes,
 } from "./universal-extractor";
 import { normalizeBody, detectCharset } from "./charset-normalizer";
-import { urlSearchFallback, slugTriangulation } from "./metasearch";
-import {
-  extractPageInOnePass,
-  closeBrowserPool,
-  type PageExtraction,
-} from "@/lib/browser/agentBrowser";
+import { urlSearchFallback, slugTriangulation, triangulatedPassageProvenance } from "./metasearch";
+import { registrableHost } from "../decision/task-scope";
+import { extractPageInOnePass } from "./agentBrowser";
 import {
   walkGenericJsonForEntities,
 } from "./hydration-unpacker";
@@ -72,11 +72,45 @@ import type { EvidencePacket } from "./types";
 //   Tier 5   (Wayback):                     45s
 //   Tier 6   (slug triangulation):           uses metasearch (40s/engine)
 //   PDF downloads:                          120s
-const TIER1_TIMEOUT_MS = 45_000;
+// §25 RETUNE (2026-10-30, mirrored in ruke-websearch/src/extractor.rs):
+// live tier-latency profile p50 ~1.4 s, off-straggler max 6.1 s — caps move
+// to ~3–4x the observed max so a dead tier fails FAST into the next tier
+// instead of parking a wave (one wayback straggler burned 18.5 s at the
+// old cap). Link-preview keeps 45 s: per-bot short fan-outs, dominated by
+// the per-page budget below anyway.
+const TIER1_TIMEOUT_MS = 20_000;
 const LINK_PREVIEW_TIMEOUT_MS = 45_000;
-const JINA_TIMEOUT_MS = 45_000;
-const WAYBACK_TIMEOUT_MS = 45_000;
+const JINA_TIMEOUT_MS = 15_000;
+const WAYBACK_TIMEOUT_MS = 12_000;
 const PDF_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+// APPROVED PART-10 PARITY DEVIATION (MIGRATION-MAP §11.3) — TOTAL per-page
+// wall-clock budget in extractAll(). The tier timeouts above are PER
+// REQUEST, not per PAGE: one dead host stacks tier1 + link-preview bots +
+// Jina + Wayback (avail + CDX + snapshot) sequentially into minutes. Live
+// evidence (2026-10-28): ONE of ten pages held Promise.all — and with it
+// the whole evidence stream and the client's search-toggle UI — for 3m51s.
+// The budget abandons the cascade at the cap and folds the page into the
+// same snippet-baseline terminal packet extractUrl() produces when the
+// cascade legitimately fails. Mirrored byte-for-behavior in
+// ruke-websearch/src/extractor.rs (same default, same fallback shape,
+// classification "PAGE_BUDGET_TIMEOUT" never emitted elsewhere).
+// §25 RETUNE (2026-10-30): 60 s → 30 s. No page in the live profile needed
+// more than ~7 s of cascade — the old default only ever sheltered stragglers.
+const PAGE_BUDGET_DEFAULT_MS = 30_000;
+
+// APPROVED PART-10 AMENDMENT (MIGRATION-MAP §11.3, 2026-10-29): the budget
+// is now tier-boundary-COOPERATIVE instead of a hard cut. Every HTTP tier
+// await inside extractUrl() is capped by the REMAINING budget, and the
+// browser tier (stealth-Chromium pool — the epoch's generic bot-shield
+// bypass: fingerprint rotation, challenge-page rendering, SPA hydration
+// unpacking) is ALWAYS granted its bridge-bounded allowance even when the
+// HTTP budget is gone. The original hard cut starved JS-heavy / bot-
+// challenged sites (user-reported 2026-10-29 "can't access BookMyShow /
+// HackerNews" regression): one dead site could still burn at most
+// PAGE_BUDGET_DEFAULT_MS + this allowance — still a hard bound.
+// Mirrored in ruke-websearch/src/extractor.rs (BROWSER_ALLOWANCE_MS).
+const BROWSER_ALLOWANCE_MS = 46_000; // bridge timeout (45s) + headroom
 
 // Concurrency for the DOM-extraction tier.
 //
@@ -138,8 +172,11 @@ const BLOCK_SIGNATURES: {
       head.includes("challenge-platform") ||
       head.includes("cf-turnstile") ||
       head.includes("__cf_chl") ||
-      head.includes("Just a moment") ||
-      head.includes("Checking your browser") ||
+      // (audit 2026-11-04) `head` is lower-cased by detectBlock — the old
+      // capitalized literals could never match ("Just a moment" vs "just a
+      // moment"): a dead signature on Cloudflare's most common wall string.
+      head.includes("just a moment") ||
+      head.includes("checking your browser") ||
       (status === 503 && head.includes("cf-ray")),
   },
   // Akamai Bot Manager
@@ -249,12 +286,17 @@ function detectBlock(
  * Post-extraction text gate — catches silent blocks that the DOM pass
  * "cleaned up" but left the challenge wording in. Kept small and cheap:
  * a handful of regexes over the first 2000 chars.
+ * (brief §11) exported for direct regression vectors.
  */
-function detectBlockInText(text: string): BlockVerdict {
+export function detectBlockInText(text: string): BlockVerdict {
   const lower = text.slice(0, 2000).toLowerCase();
+  const signal = text.replace(/\s+/g, " ").trim();
 
-  // Silent Cloudflare "Just a moment" that survived the DOM pass
-  if (lower.includes("just a moment")) {
+  // Silent Cloudflare "Just a moment" that survived the DOM pass.
+  // (audit 2026-11-04) head-window only: residue sits at the very start of
+  // recovered text; the old 2 KB scan flagged legitimate articles that
+  // merely mention the phrase mid-prose.
+  if (lower.slice(0, 300).includes("just a moment") || lower.slice(0, 300).includes("checking your browser")) {
     return { blocked: true, reason: "Cloudflare challenge text survived extraction" };
   }
   // Login wall
@@ -267,20 +309,41 @@ function detectBlockInText(text: string): BlockVerdict {
   for (const re of loginWallPatterns) {
     if (re.test(lower)) return { blocked: true, reason: "Login wall text in extraction" };
   }
-  // CAPTCHA
+  // CAPTCHA — (brief §11) even the head-window keyword alone was still a
+  // false wall: security explainers, help docs and bot-gate NEWS open
+  // with the word all the time. A SURVIVED challenge is structural: the
+  // challenge copy IS the whole body (thin extraction) or the head pairs
+  // the keyword with a second distinctive challenge phrase. Quoted wall
+  // strings ("verify you are human", "I'm not a robot") stay page-wide —
+  // they never appear in editorial content. HTTP-200 silent challenges
+  // stay rejected: every real challenge page is thin or co-locates a
+  // challenge token beside the keyword.
+  const head300 = lower.slice(0, 300);
+  const thin = signal.length < 400;
   if (
-    lower.includes("captcha") ||
+    (head300.includes("captcha") &&
+      (thin || CHALLENGE_HEAD_TOKENS.some((t) => head300.includes(t)))) ||
     lower.includes("verify you are human") ||
     lower.includes("i'm not a robot")
   ) {
     return { blocked: true, reason: "CAPTCHA text in extraction" };
   }
   // Empty JS shell
-  if (text.replace(/\s+/g, " ").trim().length < 100) {
+  if (signal.length < 100) {
     return { blocked: true, reason: "Extraction under 100 meaningful chars (JS shell)" };
   }
   return { blocked: false, reason: "" };
 }
+
+// Distinctive challenge-page phrases only — no generic English ("bot",
+// "security check", "challenge") that editorial prose legitimately uses.
+const CHALLENGE_HEAD_TOKENS = [
+  "unusual traffic",
+  "access denied",
+  "access restricted",
+  "temporarily blocked",
+  "blocked your access",
+];
 
 /**
  * Strip residual WAF challenge / CAPTCHA / "checking your browser"
@@ -344,6 +407,20 @@ interface TierOutput {
   /** Block detector verdict (kind=null when not blocked). */
   blocked: boolean;
   blockedReason: string;
+  /**
+   * Final URL after engine-followed redirects, ONLY when it differs from
+   * the requested URL (audit item 8, 2026-11-04: provenance must ride
+   * with the body — net.ts already reports it on every multi-pass path).
+   */
+  resolvedUrl?: string;
+  /**
+   * (brief §12) The read rode net.ts's single TLS-retry path where cert
+   * verification was explicitly disabled (broken chain). The body was
+   * fetched, but it must never masquerade as a verified read: extractUrl
+   * prepends a TLS provenance note to the evidence and refuses to cache
+   * the body under an unverified row.
+   */
+  insecureTls?: boolean;
   /** Which structural mode was used (for the stress-test report). */
   mode?: string;
   /** Number of markdown tables preserved (portfolio / SaaS signal). */
@@ -385,28 +462,80 @@ async function extractDirect(
 
   // Normalize the body's charset before anything else — this is what
   // keeps Shift_JIS / GB18030 / EUC-KR / Windows-1252 pages readable
-  // instead of garbled. (No-op for UTF-8, the common case: net.ts's
-  // readBounded already decoded it, so we only re-decode when the
-  // content-type names a non-UTF-8 charset.)
-  const bytes = new TextEncoder().encode(page.body);
+  // instead of garbled.
+  // (audit 2026-11-04) The old code RE-ENCODED the already-decoded string
+  // (TextEncoder) — for a Pass-B page the UTF-8 decode had already eaten
+  // every non-UTF-8 byte (U+FFFD), so detectCharset sniffed a corpse and
+  // normalizeBody re-mangled correct Pass-A text. net.ts now hands over
+  // the TRUE decompressed bytes (rawBytes); detection + re-decode run on
+  // them, and the re-encode fallback survives only on the string-only
+  // wreq pass.
+  const bytes = page.rawBytes ?? new TextEncoder().encode(page.body);
   const charset = detectCharset(page.contentType, bytes);
   const html =
     charset === "utf-8" ? page.body : normalizeBody(bytes, page.contentType);
 
   if (!page.ok || page.body.length < 200) {
+    // (audit 2026-11-04) HTTP status carries access-control semantics the
+    // old blanket blocked:false threw away: a 401 that survived the
+    // cascade reported SUCCESS_SNIPPET_FALLBACK (a SUCCESS label) instead
+    // of an auth-required failure, and 401 skipped the browser-rescue
+    // gate entirely. Auth statuses → login-wall kind; WAF statuses →
+    // bot-block kind; plain 404/5xx stay unblocked misses.
+    const authStatus = page.status === 401 || page.status === 407;
+    const wafStatus =
+      page.status === 403 || page.status === 405 ||
+      page.status === 429 || page.status === 202;
     return {
       tier: "crash",
       markdown: "",
       status: page.status,
-      blocked: false,
-      blockedReason: "HTTP " + page.status + " (non-200 or empty body)",
+      blocked: authStatus || wafStatus,
+      blockedReason: authStatus
+        ? "HTTP " + page.status + " authorization required"
+        : "HTTP " + page.status +
+          (wafStatus ? " (WAF/bot status)" : " (non-200 or empty body)"),
     };
   }
 
   // Non-HTML response: hand it to the structural extractor's document
-  // mode (CSV/JSON/Markdown sync; PDF via the raw slice — Jina Tier 2
-  // handles PDF rendering when it matters).
+  // mode (CSV/JSON/Markdown sync; PDF via unpdf).
+  // (audit 2026-11-04) PDFs used to hit the sync placeholder and return
+  // the literal string "(PDF requires structuralExtractAsync)" AS
+  // EVIDENCE (≥100 chars — it sailed the gate and reached the model).
+  // This function is async, so run the real unpdf pass HERE, on the true
+  // retained bytes (gov PDFs are the classic broken-cert + PDF combo, so
+  // the tlsTolerantGet path also carries rawBytes).
   if (!/text\/html|application\/xhtml/i.test(page.contentType)) {
+    if (
+      /application\/pdf/i.test(page.contentType) ||
+      (page.rawBytes !== undefined && /\.pdf(\?|#|$)/i.test(url))
+    ) {
+      const pdfMd = await extractPdfBytes(
+        page.rawBytes ?? new TextEncoder().encode(page.body),
+      );
+      if (!pdfMd.startsWith("(PDF text extraction failed")) {
+        return {
+          tier: "metadata",
+          markdown: pdfMd,
+          status: page.status,
+          blocked: false,
+          blockedReason: "",
+          mode: "document",
+          ...(page.resolvedUrl && page.resolvedUrl !== url
+            ? { resolvedUrl: page.resolvedUrl }
+            : {}),
+          ...(page.insecureTls ? { insecureTls: true } : {}),
+        };
+      }
+      return {
+        tier: "crash",
+        markdown: "",
+        status: page.status,
+        blocked: false,
+        blockedReason: "PDF text extraction failed (unpdf could not parse)",
+      };
+    }
     const md = extractDocumentSync(page.body, page.contentType, url);
     if (md.length >= 100) {
       return {
@@ -416,6 +545,10 @@ async function extractDirect(
         blocked: false,
         blockedReason: "",
         mode: "document",
+        ...(page.resolvedUrl && page.resolvedUrl !== url
+          ? { resolvedUrl: page.resolvedUrl }
+          : {}),
+        ...(page.insecureTls ? { insecureTls: true } : {}),
       };
     }
     return {
@@ -526,6 +659,10 @@ async function extractDirect(
     status: page.status,
     blocked: false,
     blockedReason: "",
+    ...(page.resolvedUrl && page.resolvedUrl !== url
+      ? { resolvedUrl: page.resolvedUrl }
+      : {}),
+    ...(page.insecureTls ? { insecureTls: true } : {}),
     mode: det.mode,
     tableCount,
     codeBlockCount,
@@ -557,18 +694,64 @@ function serpBaselinePassage(result: RankedResult): EvidencePacket["passages"][n
   if (snippet.length < 12) return null;
   return {
     sourceId: "",
-    url: result.canonical,
+    // §6: the SERP entry cites the URL exactly as the engine surfaced it.
+    url: result.url || result.canonical,
     title: result.title,
     domain: result.domain,
     publishedAt: result.publishedDate,
+    // (audit 2026-11-04) The old header predicted failure ("the page
+    // itself was blocked or empty") even though this passage is pushed
+    // BEFORE the tier cascade runs — in a SUCCESS_DIRECT packet it was a
+    // false claim sitting next to the real extraction. The provenance
+    // statement below is true whatever the cascade later decides: this
+    // text is the engine's index entry, never the page's retrieved body.
     passageText:
-      "[SERP snippet baseline — the page itself was blocked or empty. " +
-      "The following is the search engine's own indexed title + snippet, " +
-      "guaranteed evidence even when every direct connection fails.]\n" +
+      "[Search-engine index entry — title + snippet as the search engine " +
+      "indexed them. Snippet-level evidence about the page, not the page's " +
+      "own retrieved content; verify against the retrieved passages from " +
+      "this URL before quoting specifics.]\n" +
       snippet.slice(0, 2000),
     bm25Score: 0,
   };
 }
+
+/**
+ * Cross-site landing check (audit item 8, 2026-11-04): did the fetch
+ * engine end up serving content from a DIFFERENT registrable site than
+ * the requested URL? (A shop URL bouncing to an affiliate/ad landing, a
+ * regional mirror, a country redirect to a different site.) registrableHost
+ * is public-suffix aware (tldts) — co.in / com.au second levels compare
+ * correctly — and same-site hops (http→https, apex→www) never fire it.
+ */
+function crossedRegistrableBoundary(requested: string, resolved?: string): boolean {
+  if (!resolved) return false;
+  const a = registrableHost(requested);
+  const b = registrableHost(resolved);
+  return !!a && !!b && a !== b;
+}
+
+/** Passage header naming the site that actually served redirect-landed text. */
+function redirectedProvenanceHeader(requested: string, resolved: string): string {
+  return (
+    "[Redirect provenance: " + requested + " now resolves to " + resolved +
+    ". The text below was served by that final site, not the originally " +
+    "requested URL — cite it as " + resolved + ".]\n"
+  );
+}
+
+/**
+ * (brief §12) TLS provenance for the net.ts broken-chain retry
+ * (net.ts warns "[web-search/net] TLS-unverified read" for exactly this
+ * case). An unverified read must never masquerade as an official verified
+ * read, so the note rides the passage text next to the redirect header —
+ * the model sees it, and the tier classification never claims otherwise.
+ */
+const TLS_UNVERIFIED_NOTE =
+  "[TLS provenance: this page's TLS certificate chain failed verification; " +
+  "certificate checking was explicitly disabled for one retry to read it. " +
+  "The content below is TLS-UNVERIFIED and could be an interception rather " +
+  "than the authentic site's response — never present it as a verified " +
+  "official read.]\n";
 
 /**
  * Bundle-level SERP-baseline guarantee: results OUTSIDE the extractor's
@@ -578,6 +761,10 @@ function serpBaselinePassage(result: RankedResult): EvidencePacket["passages"][n
  * be lost just because we chose not to fetch that URL. The pipeline
  * merges these after extractAll(); extractUrl() already carries the same
  * baseline inside every packet it returns.
+ *
+ * §6 note: `extractedUrls` carries CANONICAL keys (packet.url is the raw
+ * fetched URL since §6 — the pipeline maps it through normalizeUrl); the
+ * skip check below compares against `r.canonical`.
  */
 export function baselinePacketsFor(
   ranked: RankedResult[],
@@ -592,7 +779,7 @@ export function baselinePacketsFor(
     if (!baseline) continue;
     out.push({
       sourceId: "",
-      url: r.canonical,
+      url: r.url || r.canonical, // §6: raw engine URL (fetch/citation truth)
       title: r.title,
       domain: r.domain,
       publishedAt: r.publishedDate,
@@ -605,7 +792,45 @@ export function baselinePacketsFor(
 }
 
 /**
- * Browser-tier extraction — real Playwright Chromium (lib/browser/agentBrowser.ts).
+ * §11.3: the packet extractAll() yields when a page's tier cascade is
+ * abandoned at the total page budget. Shape mirrors the terminal-failure
+ * fallback extractUrl() already returns (baseline first; title/marker only
+ * when no baseline exists) — the only new artifact is the
+ * "PAGE_BUDGET_TIMEOUT" classification. (The ruke-websearch crate mirror
+ * was retired 2026-11-03 — this TS shape is the only one.)
+ */
+export function timeoutFallbackPacket(
+  result: RankedResult,
+): EvidencePacket & { classification: string } {
+  const packet: EvidencePacket = {
+    sourceId: "",
+    url: result.url || result.canonical, // §6: fetch/citation truth
+    title: result.title,
+    domain: result.domain,
+    publishedAt: result.publishedDate,
+    extraction: "snippet-only",
+    passages: [],
+  };
+  const baseline = serpBaselinePassage(result);
+  if (baseline) {
+    packet.passages.push(baseline);
+  } else {
+    packet.passages.push({
+      sourceId: "",
+      url: result.url || result.canonical,
+      title: result.title,
+      domain: result.domain,
+      publishedAt: result.publishedDate,
+      passageText:
+        result.title || "(page read timed out — no content extracted)",
+      bm25Score: 0,
+    });
+  }
+  return { ...packet, classification: "PAGE_BUDGET_TIMEOUT" };
+}
+
+/**
+ * Browser-tier extraction — real Playwright Chromium (lib/web-search/agentBrowser.ts).
  * Runs when Stage A (fast HTTP) was blocked/empty and the page is a known
  * WAF-heavy SPA or JS shell. The browser executes the full SPA bundle, so
  * Myntra / Zomato / BookMyShow / Blinkit hydration payloads that never
@@ -613,9 +838,11 @@ export function baselinePacketsFor(
  */
 async function extractBrowser(
   result: RankedResult,
-): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string } | null> {
+): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string; finalUrl?: string } | null> {
+  // §6: navigate the RAW engine URL (fetch truth); canonical stays comparison-only.
+  const fetchUrl = result.url || result.canonical;
   try {
-    const r = await extractPageInOnePass(result.canonical, { timeoutMs: 45_000 });
+    const r = await extractPageInOnePass(fetchUrl, { timeoutMs: 45_000 });
     if (!r.ok) {
       return {
         markdown: "",
@@ -633,7 +860,8 @@ async function extractBrowser(
     }
 
     // 2. Final URL after JS/HTTP redirects — the real target of the SERP.
-    if (r.finalUrl && r.finalUrl !== result.canonical) {
+    // §6: compared against the URL we ACTUALLY navigated, not the key.
+    if (r.finalUrl && r.finalUrl !== fetchUrl) {
       parts.push("Final URL after redirects: " + r.finalUrl);
     }
 
@@ -682,7 +910,7 @@ async function extractBrowser(
     if (markdown.length < 60) {
       return { markdown, status: r.status, blocked: false, blockedReason: "browser returned little content" };
     }
-    return { markdown, status: r.status ?? 200, blocked: false, blockedReason: "" };
+    return { markdown, status: r.status ?? 200, blocked: false, blockedReason: "", finalUrl: r.finalUrl };
   } catch (e: any) {
     return {
       markdown: "",
@@ -752,6 +980,10 @@ async function extractLinkPreview(
     status: page.status,
     blocked: false,
     blockedReason: "",
+    ...(page.resolvedUrl && page.resolvedUrl !== url
+      ? { resolvedUrl: page.resolvedUrl }
+      : {}),
+    ...(page.insecureTls ? { insecureTls: true } : {}),
     mode: structOut.mode,
     tableCount: structOut.tableCount,
     codeBlockCount: structOut.codeBlockCount,
@@ -796,11 +1028,15 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
     { timeoutMs: WAYBACK_TIMEOUT_MS },
   );
   let snapshotUrl: string | null = null;
+  let snapshotTs = ""; // (audit 2026-11-04) snapshots must SELF-DECLARE their age
   if (availRes && availRes.ok) {
     try {
       const data: any = JSON.parse(availRes.text);
       const snap = data?.archived_snapshots?.closest?.url;
-      if (snap) snapshotUrl = snap;
+      if (snap) {
+        snapshotUrl = snap;
+        snapshotTs = String(data?.archived_snapshots?.closest?.timestamp ?? "");
+      }
     } catch {
       /* malformed */
     }
@@ -819,6 +1055,7 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
         const row = rows.find((r) => r?.[2]?.startsWith("200"));
         if (row?.[0] && row?.[1]) {
           snapshotUrl = "https://web.archive.org/web/" + row[1] + "/" + row[0];
+          snapshotTs = String(row[1]);
         }
       } catch {
         /* malformed */
@@ -835,9 +1072,12 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
   const structOut = await structuralExtractAsync(page.body, page.contentType, snapshotUrl);
   const md = structOut.markdown;
   if (md.length < 100) return null;
+  const tsNote = /^\d{8}/.test(snapshotTs)
+    ? `captured ${snapshotTs.slice(0, 4)}-${snapshotTs.slice(4, 6)}-${snapshotTs.slice(6, 8)} — HISTORIC content, verify against live sources before quoting as current`
+    : "capture date unknown — HISTORIC content, verify against live sources before quoting as current";
   return {
     tier: "wayback",
-    markdown: "## Wayback Machine snapshot of " + url + "\n" + md,
+    markdown: `## Wayback Machine snapshot of ${url} (${tsNote})\n` + md,
     status: page.status,
     blocked: false,
     blockedReason: "",
@@ -856,10 +1096,96 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
  * Never throws: returns a snippet-only packet on total failure so the
  * pipeline still has SOMETHING for the BM25 reranker.
  */
+/**
+ * §11.3 AMENDMENT (2026-10-29): cap one tier-await by the remaining page
+ * budget. The DEADLINE_EXPIRED sentinel mirrors Rust's Err(()) from
+ * `capped` in ruke-websearch: the caller substitutes that tier's failure
+ * shape and marks budgetHit so the classification tail can report
+ * PAGE_BUDGET_TIMEOUT. With no deadline the promise runs untouched
+ * (byte-parity for golden replays and uncapped direct calls). The tier's
+ * own per-request timeout keeps bounding the orphaned promise.
+ */
+const DEADLINE_EXPIRED = Symbol("deadline-expired");
+async function withDeadline<T>(
+  deadline: number | undefined,
+  fut: Promise<T>,
+): Promise<T | typeof DEADLINE_EXPIRED> {
+  if (deadline === undefined) return fut;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fut,
+      new Promise<typeof DEADLINE_EXPIRED>((resolve) => {
+        timer = setTimeout(
+          () => resolve(DEADLINE_EXPIRED),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// ── Short-lived per-domain extraction health (§17/§29) + browser-tier
+// selectivity (§18) — mirrors the Rust store in ruke-websearch extractor.
+// Pure bookkeeping over the EXISTING cascade; adds no new browser
+// capability and no new tier. A read that ends fully bot-blocked cools
+// its domain down; the next read then skips only the ATTEMPT at the
+// already-implemented browser seam and runs the identical HTTP cascade +
+// snippet tail. Nothing permanent: every entry has a TTL, the store is
+// bounded, and the rank cap just confines that attempt to the top of the
+// read window (it is the most expensive existing tier).
+export const BROWSER_RANK_MAX = 6;
+const DOMAIN_BOT_COOLDOWN_MS = 10 * 60_000;
+const DOMAIN_HEALTH_MAX = 256;
+const domainHealth = new Map<string, number>();
+
+function domainOnCooldown(domain: string): boolean {
+  const exp = domainHealth.get(domain);
+  return exp !== undefined && exp > Date.now();
+}
+
+function recordDomainBotBlock(domain: string): void {
+  const now = Date.now();
+  if (domainHealth.size >= DOMAIN_HEALTH_MAX) {
+    // shortcut: LRU bookkeeping not worth it — drop expired, wipe if still
+    // full; every entry has a TTL so the store self-heals.
+    for (const [d, exp] of domainHealth) if (exp <= now) domainHealth.delete(d);
+    if (domainHealth.size >= DOMAIN_HEALTH_MAX) domainHealth.clear();
+  }
+  domainHealth.set(domain, now + DOMAIN_BOT_COOLDOWN_MS);
+}
+
+/** Test-only: wipe cross-request health state (the Rust twin pairs this
+    with a test lock; vitest isolates files and runs tests in-file
+    sequentially, so the Map needs no lock here). */
+export function resetExtractionHealth(): void {
+  domainHealth.clear();
+}
+
 export async function extractUrl(
   result: RankedResult,
+  /** §11.3 AMENDMENT: absolute deadline (epoch ms) for the HTTP tiers.
+      Omitted = uncapped cascade — the original golden/parity path. */
+  deadline?: number,
+  /** §18: position of `result` in the pipeline's full read window —
+      drives browser-tier selectivity only; callers with no window pass 0. */
+  rankInWindow = 0,
+  /** §11.11 page-layer mirror (2026-11-04 audit fix): on a live_required
+      turn the SQLite PAGE cache is skipped just like the query cache —
+      a "price today / latest" answer must never cite a 5h-old cached
+      body. Cache WRITES still happen (fresh evidence replenishes it). */
+  liveRequired = false,
 ): Promise<EvidencePacket & { classification: string }> {
-  const url = result.canonical;
+  // Brief §6: FETCH semantics use the URL exactly as the engine/tool gave
+  // it — case-sensitive paths, signed query params, amp/mobile shapes and
+  // SPA-route hashes survive end to end; `canonical` stays the dedupe /
+  // comparison key only. `|| canonical` covers synthetic results that
+  // predate the §6 url/canonical split.
+  const url = result.url || result.canonical;
+  // Set whenever a capped tier expired; drives the tail branch.
+  let budgetHit = false;
   const packet: EvidencePacket = {
     sourceId: "", // assigned later
     url,
@@ -881,8 +1207,9 @@ export async function extractUrl(
       packet.extraction = "snippet-only";
     }
 
-    // Tier 0: SQLite cache hit
-  const cached = getCachedPage(url);
+    // Tier 0: SQLite cache hit (skipped entirely on live_required turns —
+  // the §11.11 freshness law at the page layer, 2026-11-04 audit fix).
+  const cached = liveRequired ? null : getCachedPage(url);
   if (cached && cached.extracted.length >= 200) {
     const cachedTier = cached.tier as string;
     packet.extraction =
@@ -905,8 +1232,10 @@ export async function extractUrl(
         ? "SUCCESS_JINA_FALLBACK"
         : cachedTier === "adapter"
           ? "SUCCESS_ADAPTER"
-          : cachedTier === "wayback"
-            ? "SUCCESS_WAYBACK"
+          : cachedTier === "browser"
+            ? "SUCCESS_BROWSER"
+            : cachedTier === "wayback"
+              ? "SUCCESS_WAYBACK"
             : cachedTier === "metadata"
               ? "SUCCESS_METADATA"
               : "SUCCESS_DIRECT";
@@ -935,21 +1264,54 @@ export async function extractUrl(
   // second caller-level fingerprint retry would re-fetch the clean HTML
   // that the first already recovered under, and waste the Jina budget
   // on a follow-up that never ran).
-  const directOut = await extractDirect(url, "chrome");
+  // §11.3 AMENDMENT: capped by the remaining page budget; expiry
+  // substitutes the network-failure shape (status 0, blocked) which keeps
+  // the downstream tier gates intact — the page still gets the
+  // link-preview tier if it fits, and ALWAYS the browser tier.
+  const directRaw = await withDeadline(deadline, extractDirect(url, "chrome"));
+  const directOut: TierOutput | null =
+    directRaw === DEADLINE_EXPIRED
+      ? ((budgetHit = true),
+        {
+          tier: "crash" as const,
+          markdown: "",
+          status: 0,
+          blocked: true,
+          blockedReason: "page budget exhausted during direct fetch",
+        })
+      : directRaw;
 
   if (directOut && !directOut.blocked && directOut.markdown.length >= 200) {
+    // (audit item 8, 2026-11-04) A redirect that crossed registrable
+    // domains served ANOTHER site's content. The packet must carry the
+    // final URL/domain as truth (citations, provenance header) and must
+    // not claim SUCCESS_DIRECT of the requested shop. Cross-domain bodies
+    // are never cached under the requested URL — a later cache hit would
+    // relabel them plain SUCCESS_DIRECT and launder the provenance away.
+    const crossed = crossedRegistrableBoundary(url, directOut.resolvedUrl);
+    const finalUrl = crossed ? directOut.resolvedUrl as string : url;
+    const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+    if (crossed) {
+      packet.url = finalUrl;
+      packet.domain = finalDomain;
+    }
     packet.extraction = "direct";
     packet.passages.push({
       sourceId: "",
-      url,
+      url: finalUrl,
       title: result.title,
-      domain: result.domain,
+      domain: finalDomain,
       publishedAt: result.publishedDate,
-      passageText: directOut.markdown,
+      passageText:
+        (crossed ? redirectedProvenanceHeader(url, finalUrl) : "") +
+        (directOut.insecureTls ? TLS_UNVERIFIED_NOTE : "") +
+        directOut.markdown,
       bm25Score: 0,
     });
-    putCachedPage(url, directOut.markdown, "direct");
-    return { ...packet, classification: "SUCCESS_DIRECT" };
+    // §12: a TLS-unverified body is never cached — the cache row carries
+    // no note, so a replay would silently launder it into a verified read.
+    if (!crossed && !directOut.insecureTls) putCachedPage(url, directOut.markdown, "direct");
+    return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
   }
 
   // If Tier 1 produced only metadata (product JSON-LD, hydration state,
@@ -961,18 +1323,31 @@ export async function extractUrl(
     directOut.tier === "metadata" &&
     directOut.markdown.length >= 100
   ) {
+    // Audit item 8: same cross-domain truth rule as the direct-success
+    // branch — metadata harvested off a landing on another registrable
+    // site is that site's metadata, not the requested URL's.
+    const crossed = crossedRegistrableBoundary(url, directOut.resolvedUrl);
+    const finalUrl = crossed ? directOut.resolvedUrl as string : url;
+    const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+    if (crossed) {
+      packet.url = finalUrl;
+      packet.domain = finalDomain;
+    }
     packet.extraction = "direct";
     packet.passages.push({
       sourceId: "",
-      url,
+      url: finalUrl,
       title: result.title,
-      domain: result.domain,
+      domain: finalDomain,
       publishedAt: result.publishedDate,
-      passageText: directOut.markdown,
+      passageText:
+        (crossed ? redirectedProvenanceHeader(url, finalUrl) : "") +
+        (directOut.insecureTls ? TLS_UNVERIFIED_NOTE : "") +
+        directOut.markdown,
       bm25Score: 0,
     });
-    putCachedPage(url, directOut.markdown, "metadata");
-    return { ...packet, classification: "SUCCESS_METADATA" };
+    if (!crossed && !directOut.insecureTls) putCachedPage(url, directOut.markdown, "metadata");
+    return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_METADATA" };
   }
 
   // Tier 2: social link-preview crawler bypass — fires when Tier 1 was
@@ -985,20 +1360,36 @@ export async function extractUrl(
 
   let linkPreviewOut: TierOutput | null = null;
   if (tier1BlockedOrEmpty) {
-    linkPreviewOut = await extractLinkPreview(url);
+    // §11.3 AMENDMENT: the 4-bot link-preview stack is the worst budget
+    // burner (4×45s); it is capped by the remaining budget so the browser
+    // tier downstream always stays reachable.
+    const lpRaw = await withDeadline(deadline, extractLinkPreview(url));
+    if (lpRaw === DEADLINE_EXPIRED) budgetHit = true;
+    linkPreviewOut = lpRaw === DEADLINE_EXPIRED ? null : lpRaw;
     if (linkPreviewOut && linkPreviewOut.markdown.length >= 200) {
+      // Audit item 8: bots get redirected too — carry the landing truth.
+      const crossed = crossedRegistrableBoundary(url, linkPreviewOut.resolvedUrl);
+      const finalUrl = crossed ? linkPreviewOut.resolvedUrl as string : url;
+      const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+      if (crossed) {
+        packet.url = finalUrl;
+        packet.domain = finalDomain;
+      }
       packet.extraction = "direct";
       packet.passages.push({
         sourceId: "",
-        url,
+        url: finalUrl,
         title: result.title,
-        domain: result.domain,
+        domain: finalDomain,
         publishedAt: result.publishedDate,
-        passageText: linkPreviewOut.markdown,
+        passageText:
+          (crossed ? redirectedProvenanceHeader(url, finalUrl) : "") +
+          (linkPreviewOut.insecureTls ? TLS_UNVERIFIED_NOTE : "") +
+          linkPreviewOut.markdown,
         bm25Score: 0,
       });
-      putCachedPage(url, linkPreviewOut.markdown, "direct");
-      return { ...packet, classification: "SUCCESS_DIRECT" };
+      if (!crossed && !linkPreviewOut.insecureTls) putCachedPage(url, linkPreviewOut.markdown, "direct");
+      return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
     }
   }
 
@@ -1015,27 +1406,51 @@ export async function extractUrl(
     (directOut?.status === 429) ||
     (directOut?.markdown.length < 200 && directOut?.tier === "crash") ||
     (directOut?.markdown.length < 100 && !(directOut?.tier === "crash"));
-  if (directThinnedOrBlocked) {
+  // §18: an attempt at the EXISTING browser seam is the most expensive
+  // move in the cascade, so it is confined to the top of the read window,
+  // and skipped for a domain still cooling down from a recent full
+  // bot-block (short TTL, never permanent — §17). Missing this attempt is
+  // just another tier miss: the jina/wayback/snippet tail below runs
+  // unchanged either way.
+  if (
+    directThinnedOrBlocked &&
+    rankInWindow < BROWSER_RANK_MAX &&
+    !domainOnCooldown(result.domain)
+  ) {
     const browserOut = await extractBrowser(result);
     if (browserOut && browserOut.markdown.length >= 200 && !browserOut.blocked) {
+      // Audit item 8: the browser tier already prints the final URL in
+      // its markdown; the packet/citation layer must agree with it.
+      const crossed = crossedRegistrableBoundary(url, browserOut.finalUrl);
+      const finalUrl = crossed ? browserOut.finalUrl as string : url;
+      const finalDomain = crossed ? registrableHost(finalUrl) ?? result.domain : result.domain;
+      if (crossed) {
+        packet.url = finalUrl;
+        packet.domain = finalDomain;
+      }
       packet.extraction = "direct";
       packet.passages.push({
         sourceId: "",
-        url,
+        url: finalUrl,
         title: result.title,
-        domain: result.domain,
+        domain: finalDomain,
         publishedAt: result.publishedDate,
-        passageText: browserOut.markdown,
+        passageText: crossed ? redirectedProvenanceHeader(url, finalUrl) + browserOut.markdown : browserOut.markdown,
         bm25Score: 0,
       });
-      putCachedPage(url, browserOut.markdown, "browser");
-      return { ...packet, classification: "SUCCESS_BROWSER" };
+      if (!crossed) putCachedPage(url, browserOut.markdown, "browser");
+      return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_BROWSER" };
     }
   }
 
   // Tier 4: Jina fallback — fires on any Tier 1/2 failure including
   // silent blocks (which is its whole point for Cloudflare-protected pages).
-  const jinaOut = await extractJina(url);
+  // §11.3 AMENDMENT: capped tiers past the browser allowance are the pure
+  // anti-stall tail — an expired budget skips them cheaply (the original
+  // hard cut used to cut the BROWSER allowance short instead).
+  const jinaRaw = await withDeadline(deadline, extractJina(url));
+  if (jinaRaw === DEADLINE_EXPIRED) budgetHit = true;
+  const jinaOut = jinaRaw === DEADLINE_EXPIRED ? null : jinaRaw;
   if (jinaOut && jinaOut.markdown.length >= 200) {
     packet.extraction = "jina-fallback";
     packet.passages.push({
@@ -1062,8 +1477,12 @@ export async function extractUrl(
     (directOut.blocked ||
       directOut.status === 0 ||
       (directOut.markdown.length < 100 && directOut.tier === "crash"));
-  if (tier1Failed) {
-    const waybackOut = await extractWayback(url);
+  // (audit 2026-11-04) an ARCHIVED snapshot can never answer a live_required
+  // question (price/score/status) — skip the wayback tier entirely there.
+  if (tier1Failed && !liveRequired) {
+    const waybackRaw = await withDeadline(deadline, extractWayback(url));
+    if (waybackRaw === DEADLINE_EXPIRED) budgetHit = true;
+    const waybackOut = waybackRaw === DEADLINE_EXPIRED ? null : waybackRaw;
     if (waybackOut && waybackOut.markdown.length >= 200) {
       packet.extraction = "jina-fallback";
       packet.passages.push({
@@ -1103,7 +1522,11 @@ export async function extractUrl(
   if ((directBlocked || directEmptyShell || linkPreviewOut === null) && (result.snippet ?? "").length < 20) {
     try {
       // Tier 6a: slug triangulation (site: + broad keyword queries)
-      const synthesized = await slugTriangulation(url, result.title);
+      // §11.3 AMENDMENT: issues live metasearch engine requests (~40s
+      // each) — capped by the remaining budget.
+      const synthRaw = await withDeadline(deadline, slugTriangulation(url, result.title));
+      if (synthRaw === DEADLINE_EXPIRED) budgetHit = true;
+      const synthesized = synthRaw === DEADLINE_EXPIRED ? "" : synthRaw;
       if (synthesized.length >= 80) {
         const cleaned = stripWafChallengeText(synthesized);
         if (hasMeaningfulContent(cleaned, 40)) {
@@ -1121,7 +1544,9 @@ export async function extractUrl(
       }
       // Tier 6b: exact-URL search fallback (search engines that index
       // the literal URL string — a broader net than slug keywords alone)
-      const fallbackResults = await urlSearchFallback(url, result.title);
+      const fbRaw = await withDeadline(deadline, urlSearchFallback(url, result.title));
+      if (fbRaw === DEADLINE_EXPIRED) budgetHit = true;
+      const fallbackResults = fbRaw === DEADLINE_EXPIRED ? [] : fbRaw;
       if (fallbackResults.length > 0) {
         const best = fallbackResults[0];
         const fbSnippet = (best.snippet || best.title || "").slice(0, 12000);
@@ -1134,7 +1559,12 @@ export async function extractUrl(
               title: best.title || result.title,
               domain: best.domain || result.domain,
               publishedAt: best.publishedDate,
-              passageText: cleaned,
+              // Audit #9: the passage is filed under the TARGET url (that
+              // is what the packet is about), but its text came from a
+              // third-party listing at `best.url`. The marker names the
+              // real source so fallback evidence can never be presented
+              // as a live read of the target. ⇔ Rust extractor Tier 6b.
+              passageText: `${triangulatedPassageProvenance(best.url)}\n${cleaned}`,
               bm25Score: 0,
             });
             return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };
@@ -1149,6 +1579,29 @@ export async function extractUrl(
   // Classify the Tier 4 result: if Tier 1 hit a real block, this is a
   // FAIL_* that the stress report will surface; otherwise it's a clean
   // snippet fallback (SUCCESS_SNIPPET_FALLBACK).
+  // §11.3 AMENDMENT: a page whose budget expired mid-cascade and that the
+  // browser allowance could not rescue reports PAGE_BUDGET_TIMEOUT — the
+  // same classification as before the amendment, but the packet keeps its
+  // natural cascade shape: the SERP baseline passage is already first, and
+  // the marker/title is pushed only when no baseline exists (identical
+  // fallback text to timeoutFallbackPacket). Mirrors the budget_hit tail
+  // in ruke-websearch's extract_url_capped.
+  if (budgetHit) {
+    packet.extraction = "snippet-only";
+    if (packet.passages.length === 0) {
+      packet.passages.push({
+        sourceId: "",
+        url,
+        title: result.title,
+        domain: result.domain,
+        publishedAt: result.publishedDate,
+        passageText:
+          result.title || "(page read timed out — no content extracted)",
+        bm25Score: 0,
+      });
+    }
+    return { ...packet, classification: "PAGE_BUDGET_TIMEOUT" };
+  }
   if (directOut && directOut.blocked) {
     const kind = directOut.blockedReason;
     packet.passages.push({
@@ -1165,6 +1618,7 @@ export async function extractUrl(
       return { ...packet, classification: "FAIL_SILENT_LOGIN_WALL" };
     }
     if (/cloudflare|akamai|perimeterx|datadome|captcha|bot|js/i.test(kind)) {
+      recordDomainBotBlock(result.domain);
       return { ...packet, classification: "FAIL_SILENT_BOT_BLOCK" };
     }
     return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
@@ -1202,6 +1656,49 @@ export async function extractUrl(
   return { ...packet, classification: "SUCCESS_SNIPPET_FALLBACK" };
 }
 
+const BUDGET_HIT = Symbol("page-budget-hit");
+
+/**
+ * §11.3 (AMENDED 2026-10-29): the deadline is threaded INTO the cascade —
+ * each HTTP tier is capped at its own await by the remaining budget, and
+ * the browser tier always runs when the direct read thinned/blocked
+ * (bridge-bounded). This race is now a SAFETY NET with one browser
+ * allowance of slack (budget + BROWSER_ALLOWANCE_MS): it can only fire if
+ * a tier ignores its cap, which none do on the normal path. The losing
+ * cascade keeps running harmlessly in the background (its own per-request
+ * timeouts bound it) and its late rejection is absorbed. A cache throw
+ * while the race is still live rejects exactly like the original
+ * Promise.all. Mirrors the tokio::time::timeout wrapper in ruke-
+ * websearch's extract_all: the page still counts toward onPage progress
+ * and still receives its S-id.
+ */
+async function extractUrlWithBudget(
+  result: RankedResult,
+  budgetMs: number,
+  rankInWindow = 0,
+  liveRequired = false,
+): Promise<EvidencePacket & { classification: string }> {
+  const deadline = Date.now() + budgetMs;
+  const work = extractUrl(result, deadline, rankInWindow, liveRequired);
+  const guard = work.catch(() => undefined); // absorb a post-budget rejection
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const won = await Promise.race([
+      work,
+      new Promise<typeof BUDGET_HIT>((resolve) => {
+        timer = setTimeout(
+          () => resolve(BUDGET_HIT),
+          budgetMs + BROWSER_ALLOWANCE_MS,
+        );
+      }),
+    ]);
+    return won === BUDGET_HIT ? timeoutFallbackPacket(result) : won;
+  } finally {
+    if (timer) clearTimeout(timer);
+    void guard;
+  }
+}
+
 /**
  * Extract the top N ranked results in parallel (capped at 10 URLs, 6 at a
  * time). Returns packets ready for BM25 scoring, each with its
@@ -1213,22 +1710,58 @@ export async function extractAll(
   /** Real per-page completion counter (this batch only) — used by the
       chat route's live progress bridge; optional, existing callers unaffected. */
   onPage?: (done: number, total: number) => void,
+  /** §11.3 per-page wall-clock budget (MIGRATION-MAP); production always
+      uses the default, tests may inject a smaller one. */
+  pageBudgetMs = PAGE_BUDGET_DEFAULT_MS,
+  /** §18: start position of `ranked` inside the pipeline's full read
+      window; batched hops pass their offset, one-shot callers pass 0. */
+  rankBase = 0,
+  /** §25 mid-wave sufficiency stop: consulted once per page COMPLETION; on
+      the first true the wave resolves with the packets completed so far,
+      in rank order, and no further progress frames are emitted. Mirrors
+      extract_all's `stop_when` in extractor.rs — JS promises cannot be
+      aborted, so unfinished pages are ABANDONED (their results discarded
+      by the guard below) where Rust cancels the futures outright; the
+      visible contract (packet set, progress frames, S-ids) is identical.
+      Upgrade path if abandoned fetches ever start costing bandwidth:
+      thread an AbortController through limit()/extractUrlWithBudget. */
+  stopWhen?: (packet: EvidencePacket & { classification: string }) => boolean,
+  /** §11.11 page-layer freshness law (2026-11-04 audit fix): true ⇒ skip
+      the SQLite page cache for every page in this wave. */
+  liveRequired = false,
 ): Promise<(EvidencePacket & { classification: string })[]> {
   const top = ranked.slice(0, maxUrls);
+  const settled: Array<(EvidencePacket & { classification: string }) | undefined> =
+    new Array(top.length).fill(undefined);
   let donePages = 0;
-  const settled = await Promise.all(
-    top.map((r) => limit(() => extractUrl(r)).then((p) => {
-      donePages++;
-      onPage?.(donePages, top.length);
-      return p;
-    })),
+  let stopped = false;
+  let signalStop: () => void = () => {};
+  const stopGate = new Promise<void>((resolve) => { signalStop = resolve; });
+  const tasks = top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i, liveRequired)).then((p) => {
+    if (stopped) return undefined; // abandoned page — Rust cancels these instead
+    settled[i] = p;
+    donePages++;
+    onPage?.(donePages, top.length);
+    if (stopWhen?.(p)) {
+      stopped = true;
+      signalStop();
+    }
+    return p;
+  }));
+  // Full-wave path is the original Promise.all (rejects like before); the
+  // race only ever settles early when the predicate fired.
+  await Promise.race([Promise.all(tasks), stopGate]);
+  if (stopped) for (const t of tasks) t.catch(() => {}); // abandon, don't unhandled-reject
+  const packets = settled.filter(
+    (p): p is EvidencePacket & { classification: string } => p !== undefined,
   );
-  // Assign S1..Sn in rank order
-  settled.forEach((packet, i) => {
+  // Assign S1..Sn in rank order (positional slots keep the order; a
+  // stopped wave simply has holes, and ids renumber over the survivors).
+  packets.forEach((packet, i) => {
     packet.sourceId = "S" + (i + 1);
     for (const p of packet.passages) p.sourceId = packet.sourceId;
   });
-  return settled;
+  return packets;
 }
 
 /**

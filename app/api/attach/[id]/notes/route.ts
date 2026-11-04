@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { childLogger } from "../../../../../lib/server/logger";
 import { generateNotes } from "../../../../../lib/server/attachindex/notes";
 import { hasIndex, readIndex, readNotes } from "../../../../../lib/server/attachindex/store";
+import { rustEnabled, rustProxy } from "../../../../../lib/server/rustProxy";
 
 /**
  * Lazy course notes for an indexed attachment (whole-content summaries).
@@ -16,13 +17,15 @@ export const dynamic = "force-dynamic";
 
 const log = childLogger("api/attach/notes");
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  if (rustEnabled()) return rustProxy(req, `/api/ruke/attach/${encodeURIComponent(params.id)}/notes`);
   const notes = readNotes(params.id);
   if (!notes) return NextResponse.json({ error: "No cached notes for this attachment" }, { status: 404 });
   return NextResponse.json({ notes });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  if (rustEnabled()) return rustProxy(req, `/api/ruke/attach/${encodeURIComponent(params.id)}/notes`);
   const attId = params.id;
   if (!hasIndex(attId)) return NextResponse.json({ error: "No knowledge index for this attachment" }, { status: 404 });
 

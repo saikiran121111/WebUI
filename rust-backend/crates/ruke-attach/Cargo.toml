@@ -1,0 +1,24 @@
+[package]
+name = "ruke-attach"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Part 5: attachment read/retrieval parity port (store reader, BM25+hybrid ranking, query router, evidence formatter, turn injection, notes). Read-compatible with the Node-written .data/attach-index format; index BUILDING and embeddings stay in Node."
+
+[lib]
+name = "ruke_attach"
+path = "src/lib.rs"
+
+[dependencies]
+ruke-skills.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

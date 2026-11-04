@@ -52,8 +52,12 @@ export interface JsonCompletionOptions {
 /** Strip code fences / prose around a JSON payload the model wrapped anyway. */
 export function extractJsonObject(text: string): string | null {
   if (!text) return null;
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1] : text;
+  // Strip thinking blocks (terminated or orphan-truncated) BEFORE brace
+  // scanning — a thinking model's chain-of-thought can contain braces that
+  // would otherwise poison the JSON window.
+  const cleaned = text.replace(/<(?:think|thinking)>[\s\S]*?(?:<\/(?:think|thinking)>|$)/gi, "");
+  const fenced = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : cleaned;
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start === -1 || end <= start) return null;

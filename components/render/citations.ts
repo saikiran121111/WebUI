@@ -96,6 +96,9 @@ export function rehypeCitations(citationMap: CitationMap, _statusMap?: CitationS
             "data-url": entry.url,
             "data-domain": entry.domain,
             "data-title": entry.title,
+            // P5 CitationPreview reads this; omitted when unknown so the
+            // popover never shows an empty date.
+            ...(entry.publishedAt ? { "data-published-at": entry.publishedAt } : {}),
           },
           children: [{ type: "text", value: sourceId }],
         });

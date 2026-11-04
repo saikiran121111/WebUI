@@ -8,10 +8,12 @@ import {
   startSkillWatcher,
   syncInstalledSkills,
 } from "../../../lib/skills/registry";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { SkillRecord } from "../../../lib/skills/types";
 
 /** GET /api/skills — every installed skill merged with its scenario config. */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/skills");
   const root = projectRoot();
   startSkillWatcher(root);
   await syncInstalledSkills(root);

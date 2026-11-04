@@ -16,6 +16,7 @@
  *      metasearch to identify the video's topic from the open web.
  */
 import { fetchUrl } from "./net";
+import { getBrowserTranscript } from "./media-captions";
 
 const CONSENT_COOKIE = "CONSENT=YES+cb.20210328-17-p0.en+FX+700";
 
@@ -95,6 +96,9 @@ function innertube(): Promise<any> {
 
 /* ── evidence sources ─────────────────────────────────────────────────── */
 
+/** InnerTube metadata: web session first, then the ANDROID client fallback
+ *  (different consent surface). Consumed by getYouTubeEvidence below; the
+ *  Rust youtube-evidence RPC consumer was removed 2026-11-03. */
 async function getInfo(videoId: string): Promise<any | null> {
   // Web session (cached).
   try {
@@ -261,8 +265,22 @@ async function collectYouTubeEvidence(
     ? bi.tags.map((t: any) => String(t)).slice(0, 12)
     : [];
 
-  // 3) transcript (real captions first) + top comments.
-  const transcript = info ? await transcriptFromInfo(info) : "";
+  // 3) transcript (real captions first) + top comments. InnerTube caption
+  // fetches are anti-abuse-token gated now (200-with-empty-body), so the
+  // universal browser caption engine (lib/web-search/media-captions.ts —
+  // the watch URL is assembled HERE, in the YouTube vertical, not in the
+  // universal engine) is the fallback tier.
+  // (audit 2026-11-04) The browser tier used to be gated on `info` existing
+  // ("gate mirrors the Rust side" — no longer true; retrieval is TS-owned).
+  // getBrowserTranscript only needs the watch URL: an InnerTube metadata
+  // blockout must not also kill a fully retrievable caption track. The
+  // .catch keeps a throwing caption probe from taking the already-
+  // assembled metadata down with it.
+  const transcriptInnerTube = info ? await transcriptFromInfo(info) : "";
+  const transcript =
+    transcriptInnerTube ||
+    (await
+      getBrowserTranscript(`https://www.youtube.com/watch?v=${videoId}`).catch(() => ""));
   const comments = info ? await topComments(info) : [];
 
   const chapters = chaptersFromDescription(description);
@@ -295,12 +313,12 @@ async function collectYouTubeEvidence(
   } else if (comments.length > 0) {
     parts.push(
       "### Transcript",
-      "(No caption track available — metadata, description and top community comments below are the full retrievable content for this video.)",
+      "(No caption track available, and this system does not run speech-to-text over video audio — metadata, description and top community comments below are the full retrievable content for this video.)",
     );
   } else {
     parts.push(
       "### Transcript",
-      "(No caption track and no comments available for this video — the description + metadata above are the full retrievable content.)",
+      "(No caption track and no comments available for this video, and this system does not run speech-to-text over video audio — the description + metadata above are the full retrievable content.)",
     );
   }
   if (comments.length > 0) {

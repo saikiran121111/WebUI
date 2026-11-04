@@ -9,7 +9,9 @@ import {
 import { getDecision } from "../../../lib/decision/client";
 import { beginUserTurn, endUserTurn } from "../../../lib/server/inference-busy";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
+import { foldTaskScope, type TaskScope } from "../../../lib/decision/task-scope";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
+import { buildClockContext, sessionDateString } from "../../../lib/chat/clock-context";
 import {
   MODE_FENCE,
   MODE_SKILL,
@@ -20,7 +22,12 @@ import {
 } from "../../../lib/decision/types";
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
+import { runWebToolLoop } from "../../../lib/chat/web-tool-loop";
+import type { WebToolDepth } from "../../../lib/web-search/tools";
+import type { PresentationPlan } from "../../../lib/web-search/presentation";
+import type { RichResult } from "../../../lib/web-search/rich-results";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { StageEvent } from "../../../lib/types";
 
 const log = childLogger("api/chat");
@@ -294,7 +301,7 @@ async function forwardStreamInto(
  * decides to search, and flip SearchGateContext.hasImageAttachment so the
  * Stage 0 image+lookup-intent bypass can fire.
  */
-function turnImageParts(content: unknown): string[] {
+export function turnImageParts(content: unknown): string[] {
   if (!Array.isArray(content)) return [];
   const out: string[] = [];
   for (const part of content) {
@@ -304,11 +311,53 @@ function turnImageParts(content: unknown): string[] {
   return out;
 }
 
+/**
+ * Brief §3 law: the REAL position of the current user turn at read time.
+ * `lastUserIdx` is computed at turn entry, but step 4 (decision-engine skill
+ * block) and step 5 (attachment evidence) each inject a SYSTEM block BEFORE
+ * that turn and shift it off the index — a raw `messages[lastUserIdx]` read
+ * after them landed on the injected SYSTEM block and silently dropped the
+ * turn's image parts (gate flag + vision pre-pass inputs). Recomputing is
+ * exact regardless of how many injections ran: only injected SYSTEM blocks
+ * can sit at or after `lastUserIdx` (it was the LAST user turn, so nothing
+ * real exists between it and the shifted position).
+ * Rust mirror: resolve_turn_index (chat/pipeline.rs). Pinned by the golden
+ * §3 request-shape test and the Rust unit test.
+ */
+export function resolveTurnIndex(messages: unknown, lastUserIdx: number): number {
+  const arr = Array.isArray(messages) ? messages : [];
+  let i = lastUserIdx;
+  while (i < arr.length && (arr[i] as any)?.role === "system") i += 1;
+  return i;
+}
+
 /** Does this turn carry an internal attachment_ref (indexed-document turn)? */
 function turnHasAttachmentRef(content: unknown): boolean {
   return (
     Array.isArray(content) &&
     content.some((part: any) => part?.type === "attachment_ref")
+  );
+}
+
+/**
+ * §11.2 follow-up (APPROVED DEVIATION extension): attachments that are too
+ * small to index carry NO attachment_ref — the client inlines their
+ * content instead (lib/chat/client.ts attachmentParts: every variant,
+ * indexed or not, begins with a text part "Attached file: …"). Without
+ * this detection an inline audio/video meta-instruction reached the model
+ * gate and web-searched itself. GATE ONLY: retrieval stays keyed on real
+ * refs (nothing to retrieve for an inline turn — the content is already
+ * in the prompt). Rust mirror: turn_has_inline_attachment (chat/pipeline).
+ */
+function turnHasInlineAttachment(content: unknown): boolean {
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (part: any) =>
+        part?.type === "text" &&
+        typeof part?.text === "string" &&
+        part.text.startsWith("Attached file: "),
+    )
   );
 }
 
@@ -414,10 +463,17 @@ async function runTurnPipeline(
     signal: AbortSignal;
     stage: (e: StageEvent) => void;
     hasAttachmentRefs: boolean;
+    /** §11.2: inline (NOT indexed) attachment parts on the current turn —
+     *  feed the GATE's attachment-evidence flag only; retrieval never
+     *  consults this (nothing to retrieve: the content is already inline). */
+    hasInlineAttachment: boolean;
     model: string;
+    /** P1 clock grounding: the client's IANA zone (captured from the request
+     *  body in POST, already deleted there so it never reaches upstream). */
+    turnTimezone?: string;
   },
-): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null }> {
-  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, model } = opts;
+): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null; presentation: PresentationPlan | null; richResults: RichResult[] | null; turnScope: TaskScope }> {
+  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
   let skillBlockBytes = 0;
@@ -467,6 +523,31 @@ async function runTurnPipeline(
   let inferenceTurnActive = false;
   let webCitationMap: Record<string, any> | null = null;
   let searchGateMeta: ResearchMeta | null = null;
+  let webDepth: WebToolDepth | null = null;
+  // P5 (Addendum §55/§57): the turn's presentation plan + validated rich
+  // surfaces, derived deterministically from the evidence bundle.
+  let presentation: PresentationPlan | null = null;
+  let richResults: RichResult[] | null = null;
+  // Task-scope contract (audit 2026-11-02, brief #1/#3/#6): fold THIS
+  // conversation's user turns — oldest→newest, current turn last — into the
+  // server-owned operational scope before anything searches. Neither the
+  // gate nor the model's tool arguments can widen it; the pipeline and the
+  // web tool session both consume it. Rust mirror: fold_task_scope in the
+  // chat pipeline (stateless fold over the request's user turns).
+  const turnScope = foldTaskScope([
+    ...(Array.isArray(history)
+      ? history
+          .filter((h) => h.role === "user" && typeof h.content === "string")
+          .map((h) => h.content)
+      : []),
+    fullText,
+  ]);
+  // Brief §5: ONE request instant + session timezone shared by the research
+  // gate (ctx.currentDate below) and the <runtime_clock> block injected at
+  // step 7 — the gate and the answering model must never reason against
+  // different calendar dates (UTC vs session date at the midnight/year
+  // boundary). Rust mirror: `turn_now` in chat/pipeline.rs.
+  const turnInstant = new Date();
   const webResearchDisabled = gateDisabledByEnv();
   try {
     if (webResearchDisabled) {
@@ -474,13 +555,29 @@ async function runTurnPipeline(
     } else {
     beginUserTurn();
     inferenceTurnActive = true;
-    const imageParts = turnImageParts(payload.messages?.[lastUserIdx]?.content);
+    // Brief §3: recompute where the turn REALLY sits — the step-4 skill and
+    // step-5 evidence injections may have shifted it off lastUserIdx (the raw
+    // read landed on the injected SYSTEM block and dropped the images).
+    const turnIdx = resolveTurnIndex(payload.messages, lastUserIdx);
+    const imageParts = turnImageParts(payload.messages?.[turnIdx]?.content);
     researchBundle = await runWebResearch(
       {
         userPrompt: fullText,
         history,
         hasImageAttachment: imageParts.length > 0,
+        // APPROVED PART-10 DEVIATION: the same current-turn flag the
+        // retrieval stage keyed off feeds the attachment-aware gate
+        // (Rust mirror: has_attachment_evidence). §11.2: OR-ed with the
+        // inline-attachment flag — unindexed (small) attachments inline
+        // their content instead of carrying a ref, and that content IS
+        // local evidence for the gate even though retrieval skips it.
+        hasAttachmentEvidence: hasAttachmentRefs || hasInlineAttachment,
         imageDataUrls: imageParts,
+        scope: turnScope,
+        // Session-timezone date at the turn instant (⇔ the date the step-7
+        // clock block will show; ⇔ Rust body "currentDate"). Without it the
+        // gate would fall back to the bare-UTC calendar date.
+        currentDate: sessionDateString(turnInstant, turnTimezone),
       },
       (p) => {
         log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
@@ -530,6 +627,11 @@ async function runTurnPipeline(
           intent: q.intent,
         })),
       };
+      // P2: arm the model-facing web tool loop for this turn
+      // (lib/chat/web-tool-loop.ts ⇔ Rust chat/web_loop.rs).
+      webDepth = researchBundle.searchGate.decision.depth;
+      presentation = researchBundle.presentation ?? null;
+      richResults = researchBundle.richResults.length > 0 ? researchBundle.richResults : null;
       log.info(
         {
           passages: researchBundle.topPassages.length,
@@ -554,16 +656,31 @@ async function runTurnPipeline(
     if (inferenceTurnActive) endUserTurn();
   }
 
+  // 7) P1 clock grounding (always on for every model-visible turn; the
+  //    purpose="compact" passthrough never reaches this function): the main
+  //    model has NEVER carried a live clock — RC1's root cause for the
+  //    "what time is it?" refusal/web-search detour. Injected last among the
+  //    system blocks so it sits immediately before the user turn.
+  //    Rust twin: crates/ruke-server/src/chat/clock.rs (+ pipeline inject).
+  injectSystemBefore(
+    payload.messages,
+    lastUserIdx + 1,
+    buildClockContext({ now: turnInstant, browserTimezone: turnTimezone }),
+  );
+
   // One-line routing log: mode + deciding source + skill actually injected.
   log.info(
     { mode: env.active_mode, by: env.decided_by, skill: usedSkill, skillBytes: skillBlockBytes, model },
     "turn decision",
   );
 
-  return { webCitationMap, searchGateMeta };
+  return { webCitationMap, searchGateMeta, webDepth, presentation, richResults, turnScope };
 }
 
 export async function POST(req: NextRequest) {
+  // Part-8 cutover (supervisor-armed only; unset ⇒ this TS handler runs
+  // verbatim). The proxy streams the Rust SSE turn through untouched.
+  if (rustEnabled()) return rustProxy(req, "/api/chat");
   const raw = await req.text();
   let payload: any = null;
   try {
@@ -577,6 +694,7 @@ export async function POST(req: NextRequest) {
   let decisionMode: RendererMode = "standard_chat";
   let webCitationMap: Record<string, any> | null = null;
   let searchGateMeta: ResearchMeta | null = null;
+  let turnTimezone: string | undefined;
 
   // Compaction's own call (lib/chat/compact.ts): forward it VERBATIM.
   // Running the per-turn pipeline over it is actively destructive: the decision
@@ -588,6 +706,15 @@ export async function POST(req: NextRequest) {
   // prompt. The compaction system prompt IS the whole contract; the history
   // must reach the model untouched. (No progress frames either: the
   // compaction client parses content deltas only.)
+  // Browser Use (Phase 10): `browser_session` selects the browser tool loop
+  // in the RUST route (rustProxy above leaves it in the body). The TS path
+  // has no browser engine, but the key must still never reach upstream.
+  if (payload) delete payload.browser_session;
+  // P1: the client's IANA timezone feeds the <runtime_clock> block and, like
+  // browser_session, is consumed here — it must never reach the upstream.
+  if (typeof payload?.timezone === "string") turnTimezone = payload.timezone;
+  if (payload) delete payload.timezone;
+
   if (payload?.purpose === "compact") {
     delete payload.purpose; // transport marker: never reaches the upstream
     if (Array.isArray(payload.messages)) stripAttachmentRefs(payload.messages);
@@ -641,7 +768,10 @@ export async function POST(req: NextRequest) {
       // EARLY-OPEN response so the WebUI can show, live, what the server is
       // actually doing before the model's first byte ever arrives.
       if (payload.stream !== false) {
-        const hasAttachmentRefs = turnHasAttachmentRef(payload.messages[lastUserIdx]?.content);
+        const turnContent = payload.messages[lastUserIdx]?.content;
+        const hasAttachmentRefs = turnHasAttachmentRef(turnContent);
+        // §11.2 gate-only flag: inline (unindexed) attachment parts.
+        const hasInlineAttachment = turnHasInlineAttachment(turnContent);
 
         // One combined signal for the whole turn: the browser walking away
         // (stream cancel) or the request aborting kills the gate fetch AND
@@ -704,26 +834,68 @@ export async function POST(req: NextRequest) {
                 signal: inner.signal,
                 stage: ch.stage,
                 hasAttachmentRefs,
+                hasInlineAttachment,
                 model,
+                turnTimezone,
               });
-              if (meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) {
+              // P5 (§57): the frame also fires when the turn minted rich
+              // surfaces but no citation packets (e.g. news items from
+              // ranked results alone) — surfaces must still reach the UI.
+              const surfaces = meta.richResults ?? [];
+              if ((meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) || surfaces.length > 0) {
                 // Web metadata rides the stream now: response headers are
                 // written before start(), when the gate has not run yet.
                 ch.stage({
                   stage: "web_meta",
-                  webCitations: meta.webCitationMap as StageEvent["webCitations"],
+                  webCitations: (meta.webCitationMap ?? undefined) as StageEvent["webCitations"],
                   searchGate: meta.searchGateMeta ?? undefined,
+                  presentation: meta.presentation ?? undefined,
+                  richResults: surfaces.length > 0 ? surfaces : undefined,
                 });
+                // §58 per-surface lifecycle frames: the frame payload is
+                // ONLY id/kind/revision — the envelope itself rides once
+                // on web_meta, never repeated per frame. Surfaces derive
+                // server-side before any model byte, so discovered→ready
+                // arrive back-to-back; `web:surface_updated` remains the
+                // reserved path for mid-turn revisions (none minted yet —
+                // the P2 tool loop does not regenerate surfaces).
+                for (const rr of surfaces) {
+                  ch.stage({ stage: "web:surface_discovered", surfaceId: rr.id, surfaceKind: rr.kind, surfaceRevision: 1 });
+                  ch.stage({ stage: "web:surface_ready", surfaceId: rr.id, surfaceKind: rr.kind, surfaceRevision: 1 });
+                }
               }
 
               stripAttachmentRefs(payload.messages);
-              await forwardStreamInto(
-                JSON.stringify(payload),
-                decisionMode,
-                inner.signal,
-                model,
-                ch,
-              );
+              // P2: a gate-produced bundle arms the model-facing web tool
+              // loop (web-tool-loop.ts ⇔ Rust web_loop.rs) — the model gets
+              // the read-only web_search / read_page surface instead of a
+              // plain forward. A client-supplied `tools` array (the Browser
+              // Panel passthrough) is never overwritten: those turns keep
+              // the passthrough exactly as before.
+              if (meta.webDepth && !payload.tools) {
+                await runWebToolLoop({
+                  payload,
+                  lastUserIdx,
+                  fullText,
+                  model,
+                  depth: meta.webDepth,
+                  webCitationMap: meta.webCitationMap,
+                  searchGateMeta: meta.searchGateMeta,
+                  presentation: meta.presentation,
+                  richResults: meta.richResults,
+                  scope: meta.turnScope,
+                  signal: inner.signal,
+                  ch,
+                });
+              } else {
+                await forwardStreamInto(
+                  JSON.stringify(payload),
+                  decisionMode,
+                  inner.signal,
+                  model,
+                  ch,
+                );
+              }
             } catch (err: unknown) {
               log.error(
                 { err: err instanceof Error ? err.message : err },
@@ -756,7 +928,9 @@ export async function POST(req: NextRequest) {
         signal: req.signal,
         stage: () => {},
         hasAttachmentRefs: turnHasAttachmentRef(payload.messages[lastUserIdx]?.content),
+        hasInlineAttachment: turnHasInlineAttachment(payload.messages[lastUserIdx]?.content),
         model,
+        turnTimezone,
       });
       webCitationMap = meta.webCitationMap;
       searchGateMeta = meta.searchGateMeta;

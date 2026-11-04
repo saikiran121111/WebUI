@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSafeSkillName, projectRoot, updateScenario } from "../../../../../lib/skills/registry";
+import { rustEnabled, rustProxy } from "../../../../../lib/server/rustProxy";
 
 const ALLOWED_FIELDS = ["enabled", "autoUse", "whenToUse", "triggerKeywords"];
 
@@ -8,6 +9,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { skillName: string } },
 ) {
+  if (rustEnabled()) return rustProxy(req, `/api/ruke/skills/${encodeURIComponent(params.skillName)}/scenario`);
   const skillName = params.skillName;
   if (!isSafeSkillName(skillName)) {
     return NextResponse.json({ error: "Invalid skill name" }, { status: 400 });

@@ -1,0 +1,57 @@
+{
+  "_meta": {
+    "scenario": "POST /api/decision — no intent match (standard_chat) with conversationHistory",
+    "semantics": "Regex miss still yields decided_by 'in-process-deliverable-match' with active_mode standard_chat (NOT a fallback flag): the envelope is ALWAYS built; stripped_prompt is ALWAYS verbatim equal to the incoming message — history never alters it. CONTRACT DISCOVERY: the history field the route reads is named 'conversationHistory' (an unknown 'history' key is silently ignored). skill_to_load is null for standard_chat; enable_validator is ALWAYS the active mode id; disable_validators is every OTHER mode in INTENT_ORDER.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/decision-serialization.test.ts",
+    "env": {
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none — the whole point is that these bytes contain NO timing/volatile fields."
+  },
+  "request": {
+    "rawBody": "{\"message\":\"tell me more about that\",\"conversationHistory\":[{\"role\":\"user\",\"content\":\"earlier question\"},{\"role\":\"assistant\",\"content\":\"earlier reply\"}]}"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodyBytes": "{\"active_mode\":\"standard_chat\",\"confidence\":1,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"tell me more about that\",\"skill_to_load\":null,\"allowed_code_fence\":null,\"disable_validators\":[\"excel\",\"docs\",\"pdf\",\"ppt\",\"3d_asset\",\"cad_blueprint\",\"chart\",\"html_render\"],\"enable_validator\":\"standard_chat\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
+  },
+  "envelope": {
+    "active_mode": "standard_chat",
+    "confidence": 1,
+    "decided_by": "in-process-deliverable-match",
+    "stripped_prompt": "tell me more about that",
+    "skill_to_load": null,
+    "allowed_code_fence": null,
+    "disable_validators": [
+      "excel",
+      "docs",
+      "pdf",
+      "ppt",
+      "3d_asset",
+      "cad_blueprint",
+      "chart",
+      "html_render"
+    ],
+    "enable_validator": "standard_chat",
+    "task_constraints": [],
+    "extracted_entities": [],
+    "lfm_latency_ms": 0
+  },
+  "envelopeKeyOrder": [
+    "active_mode",
+    "confidence",
+    "decided_by",
+    "stripped_prompt",
+    "skill_to_load",
+    "allowed_code_fence",
+    "disable_validators",
+    "enable_validator",
+    "task_constraints",
+    "extracted_entities",
+    "lfm_latency_ms"
+  ]
+}

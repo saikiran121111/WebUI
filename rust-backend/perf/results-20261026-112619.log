@@ -1,0 +1,58 @@
+=== 0. idle RSS ===
+idle-WS-bytes=2024280064 (1931 MB)
+=== 1. API routing latency (3x each) ===
+GET /api/conversations http=200 total=0.016851s
+GET /api/conversations http=200 total=0.005298s
+GET /api/conversations http=200 total=0.005737s
+GET /api/settings http=200 total=0.679876s
+GET /api/settings http=200 total=0.004859s
+GET /api/settings http=200 total=0.004539s
+GET /api/model-stats http=200 total=0.188015s
+GET /api/model-stats http=200 total=0.006623s
+GET /api/model-stats http=200 total=0.006313s
+=== 2. tiny chat turn (streaming, TTFP + TTFT) ===
+[tiny] first-bytes-ms=3920
+[tiny] first-stage-ms=3920
+[tiny] first-content-delta-ms=28584
+[tiny] stream-lines=0
+ruke_stage":{"stage":"decision_done","mode":"standard_chat","ms":0}
+ruke_stage":{"stage":"web:gate","detail":"Deciding whether a web search is needed..."}
+ruke_stage":{"stage":"web:planning","detail":"Decomposing into sub-queries..."}
+ruke_stage":{"stage":"web:searching","detail":"Searching 3 source pool(s)...","total":3}
+ruke_stage":{"stage":"web:reading","detail":"Reading top 5 pages...","total":5}
+=== 3. mid-stream cancel probe ===
+curl killed at +3s; bytes received: 175
+--- post-cancel tiny turn (zombie-turn detector: fast first-stage = slot freed) ---
+[post-cancel] first-bytes-ms=47
+[post-cancel] first-stage-ms=47
+[post-cancel] first-content-delta-ms=2857
+[post-cancel] stream-lines=0
+=== 4. web-research turn (peak RSS + extraction stages) ===
+[research] first-bytes-ms=39
+[research] first-stage-ms=39
+[research] first-content-delta-ms=12659
+[research] stream-lines=0
+--- web: stage timeline (line numbers ≈ relative time) ---
+      1 web:gate
+      1 web:planning
+      1 web:searching
+     11 web:reading
+      1 web:reranking
+      1 web:done
+stage-frames=18
+=== 5. repeated-turn RSS growth (10x non-streaming tiny) ===
+before-WS=2212 MB
+turn1 http=200 total=4.052072s WS=2212 MB
+turn2 http=200 total=3.998180s WS=2212 MB
+turn3 http=200 total=4.019225s WS=2212 MB
+turn4 http=200 total=4.211614s WS=2219 MB
+turn5 http=200 total=4.006343s WS=2219 MB
+turn6 http=200 total=4.023158s WS=2219 MB
+turn7 http=200 total=4.163131s WS=2219 MB
+turn8 http=200 total=3.972264s WS=2219 MB
+turn9 http=200 total=3.951284s WS=2219 MB
+turn10 http=200 total=3.933025s WS=2156 MB
+=== WS sampler peak (from /d/Projects/WebUI/WebUI/rust-backend/perf/ws-13004.csv) ===
+peak-WS=2514 MB over 504 samples
+lock-state: none (as expected)
+DONE exit=0

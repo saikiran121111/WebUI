@@ -117,10 +117,16 @@ test.describe("long document knowledge index", () => {
     try {
       await page.goto("/");
 
-      const effort = page.getByLabel("Reasoning effort");
-      if ((await effort.getAttribute("title")) !== "Reasoning: Off") {
+      // Guard current ChatInput chrome: the trigger carries aria-label
+      // "Reasoning effort: X" (no title attr) and the picker items are
+      // role=menuitemradio (3864f1a, 2026-10-22 — predates the Rust cutover;
+      // the stale title/button selectors here dated to 2026-10-20 and hung
+      // the click until the test timeout).
+      const effort = page.getByRole("button", { name: /^Reasoning effort:/ });
+      if ((await effort.getAttribute("aria-label")) !== "Reasoning effort: Off") {
         await effort.click();
-        await page.getByRole("button", { name: "Off", exact: true }).click();
+        await page.getByRole("menuitemradio", { name: "Off", exact: true }).click();
+        await expect(effort).toHaveAttribute("aria-label", "Reasoning effort: Off");
       }
 
       await page.setInputFiles(FILE_INPUT, docFile);

@@ -1,0 +1,168 @@
+{
+  "_meta": {
+    "scenario": "SSE frames split across arbitrary upstream chunk boundaries",
+    "semantics": "The route forwards upstream bytes without re-framing, so response bytes === concatenated chunk bytes for EVERY boundary (byte identity proven per case). An unterminated trailing frame is passed through as a partial tail: no [DONE] is synthesized and the tail stays unterminated.",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/sse-vectors.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none",
+    "notes": "Transport boundaries are explicitly NOT the contract; re-parsed logical frames must be equal across all boundary cases (proven here)."
+  },
+  "cases": [
+    {
+      "name": "mid-payload split",
+      "upstreamChunks": [
+        "data: {\"id\":\"s1\",\"ch",
+        "oices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n\n",
+        "data: [DONE]\n\n"
+      ],
+      "responseByteIdentity": true,
+      "response": {
+        "bytes": 82,
+        "utf8Lossy": "data: {\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "logicalFrames": [
+        {
+          "kind": "data",
+          "obj": {
+            "id": "s1",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "AB"
+                }
+              }
+            ]
+          },
+          "raw": "{\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}"
+        },
+        {
+          "kind": "done"
+        }
+      ],
+      "streamDone": true,
+      "unterminatedTail": ""
+    },
+    {
+      "name": "split between the two frame-terminator newlines",
+      "upstreamChunks": [
+        "data: {\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n",
+        "\ndata: [DONE]\n\n"
+      ],
+      "responseByteIdentity": true,
+      "response": {
+        "bytes": 82,
+        "utf8Lossy": "data: {\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "logicalFrames": [
+        {
+          "kind": "data",
+          "obj": {
+            "id": "s1",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "AB"
+                }
+              }
+            ]
+          },
+          "raw": "{\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}"
+        },
+        {
+          "kind": "done"
+        }
+      ],
+      "streamDone": true,
+      "unterminatedTail": ""
+    },
+    {
+      "name": "three-way split of one frame",
+      "upstreamChunks": [
+        "data:",
+        " {\"id\":\"s1\",\"choices\":[{\"index\":0,\"",
+        "delta\":{\"content\":\"AB\"}}]}\n\ndata: [DONE]\n\n"
+      ],
+      "responseByteIdentity": true,
+      "response": {
+        "bytes": 82,
+        "utf8Lossy": "data: {\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "logicalFrames": [
+        {
+          "kind": "data",
+          "obj": {
+            "id": "s1",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "AB"
+                }
+              }
+            ]
+          },
+          "raw": "{\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}"
+        },
+        {
+          "kind": "done"
+        }
+      ],
+      "streamDone": true,
+      "unterminatedTail": ""
+    },
+    {
+      "name": "stray blank line between frames (extra \\n | \\n)",
+      "upstreamChunks": [
+        "data: {\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n\n\n",
+        "\ndata: [DONE]\n\n"
+      ],
+      "responseByteIdentity": true,
+      "response": {
+        "bytes": 84,
+        "utf8Lossy": "data: {\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}\n\n\n\ndata: [DONE]\n\n"
+      },
+      "logicalFrames": [
+        {
+          "kind": "data",
+          "obj": {
+            "id": "s1",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "AB"
+                }
+              }
+            ]
+          },
+          "raw": "{\"id\":\"s1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"AB\"}}]}"
+        },
+        {
+          "kind": "done"
+        }
+      ],
+      "streamDone": true,
+      "unterminatedTail": ""
+    },
+    {
+      "name": "unterminated trailing frame (no terminator at all)",
+      "upstreamChunks": [
+        "data: {\"partial\":true}"
+      ],
+      "responseByteIdentity": true,
+      "response": {
+        "bytes": 22,
+        "utf8Lossy": "data: {\"partial\":true}"
+      },
+      "logicalFrames": [],
+      "streamDone": false,
+      "unterminatedTail": "data: {\"partial\":true}"
+    }
+  ]
+}

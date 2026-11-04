@@ -1,37 +1,56 @@
 /**
- * SEARCH-BY-DEFAULT gate — search_required = true is the DEFAULT for any
- * non-trivial prompt; the model gets to veto a search ONLY for the two
- * narrow classes of self-contained prompts. No domain whitelists, no
- * narrow keyword lists.
+ * EVIDENCE-NEED gate (2026-11-04 repair, brief §1/§2) — the decision
+ * standard is "does a reliable answer REQUIRE information outside the
+ * conversation and local evidence that may be current or changing?" —
+ * NOT "could a search possibly help?" and NOT "search-by-default".
+ * No brand→domain tables, no bare-token keyword triggers (today/current/
+ * latest/price/video are NOT search instructions on their own), no
+ * growing greeting whitelist, no model-verdict overturns.
  *
  * Decision flow:
- *   0. Hard bypass (URL / known-domain / web-intent / image+intent) →
- *      search, 0 ms.
- *   1. Trivial 1-2 word greetings → NO-SEARCH (zero tokens, zero risk).
- *   2. Main-model gate (one JSON call, 35s ceiling): the model says
- *      search_required=true unless the prompt is strictly
- *      (a) pure conversational filler, OR
- *      (b) a self-contained offline code/math/text transformation where
- *          the user supplied 100% of the input AND mentioned zero
- *          external brands, websites, people, places, products, events
- *          or facts.
- *      Whenever ANY proper noun, brand, website, product, movie,
- *      restaurant, location, URL, or factual question appears → ALWAYS
- *      search. This inversion is encoded in the system prompt below and
- *      in the parser: a model `search_required=false` verdict is
- *      RE-VERIFIED against the "external entity present" heuristic, and
- *      overturned to `true` when a proper noun / brand / URL /
- *      time-sensitive fact is detected in the prompt.
- *   3. Main model unreachable / unparseable → SEARCH-BY-DEFAULT:
- *      `rulesBasedPlan()` (search_required=true), NOT a no-search
- *      fallback. The gate errs on the side of running a search rather
- *      than missing live facts — a junk search is far cheaper than a
- *      confidently wrong answer.
+ *   0. Deterministic hard bypass — all detectors evaluate the CURRENT
+ *      INSTRUCTION ONLY (quoted prose, inline code and fenced code are
+ *      stripped first, so a URL literal inside code the user pasted
+ *      cannot start a search):
+ *        FORCE-NO skip layers (evaluated FIRST, escape-guarded):
+ *          E1 explicit local-only scope (residual re-test is the guard);
+ *          clock questions ("what is today's date?") — the request
+ *             carries a live server clock;
+ *          E2 supplied-material transforms, prompt-defined code-gen,
+ *             creative writing, pure arithmetic.
+ *        FORCE-YES evidence layers (instruction scope):
+ *          URL/domain literals in the instruction; explicit search/
+ *          browse/verify frames; research frames (find + studies/
+ *          citations/sources); navigation frames (open/read a link,
+ *          watch/stream a live event); narrow high-confidence freshness
+ *          shapes (still supported, up to date, most recent, office
+ *          holder, latest version/release, latest news, how much…cost);
+ *          image attachment + lookup intent.
+ *        The boolean attachment flag NEVER forces a verdict: attachment
+ *        presence is not evidence sufficiency — the model gate is told
+ *        local evidence exists and that attached material does not
+ *        supply external/current facts.
+ *      Undecided → the model gate decides.
+ *   1. Trivial greetings / assistant-identity chit-chat → NO-SEARCH
+ *      (zero tokens; temporal adverbs are normalized away before the
+ *      fixed-set check — "what are you doing today" is the same chit-
+ *      chat as "what are you doing", no whitelist growth).
+ *   2. Main-model gate (one JSON call, 35s ceiling). A model
+ *      `search_required=false` is a FIRST-CLASS outcome — the old
+ *      "external entity present" overturn (promptHasExternalEntity) was
+ *      removed: capitalization, proper nouns, versions and bare time
+ *      words are not search instructions.
+ *   3. Main model unreachable / unparseable → `rulesBasedPlan()` applies
+ *      the SAME semantic standard deterministically: it searches only
+ *      when a force-YES evidence shape is present; small talk and static
+ *      explanations get a safe local no-search. A model outage must not
+ *      turn conversations into engine queries.
  *
  * Authority is exactly ONE model (the main model from settings.json);
  * no separate LFM / secondary router. Historical note: the LFM2.5-1.2B
  * router (:8791) was removed 2026-10-22; lfm-gate.ts was deleted 2026-10-23
- * and replaced by this file.
+ * and replaced by this file. The search-by-default inversion it encoded
+ * (veto re-verify + always-search rules fallback) was removed 2026-11-04.
  */
 import { childLogger } from "@/lib/server/logger";
 import { llmApiUrl, llmApiKey } from "@/lib/server/settings";
@@ -40,6 +59,9 @@ import {
   SearchGateContext,
   SearchDecision,
 } from "./types";
+import { detectUrlsAndDomains, detectPromptUrls, type DetectedUrl } from "./url-detector";
+import { isEnforceableScope, scopeHosts } from "../decision/task-scope";
+import { localContextLine } from "./local-context";
 
 const log = childLogger("web-search/search-gate");
 
@@ -66,7 +88,7 @@ const GATE_JSON_SCHEMA = {
   properties: {
     search_required: { type: "boolean" },
     reason: { type: "string" },
-    freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "any"] },
+    freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "realtime", "any"] },
     depth: { type: "string", enum: ["quick", "standard", "deep"] },
     queries: {
       type: "array",
@@ -105,186 +127,565 @@ const TRIVIAL_EXACT = new Set([
 
 const TRIVIAL_FILLER_PREFIX = /^(?:by the way|so|anyway|then|oh|hmm|hi|hey|hello|thanks|thank you)\s+/i;
 
+// (2026-11-04 brief §1) Temporal adverbs are normalized AWAY before the
+// fixed-set check instead of growing the set with "…today" variants:
+// "what are you doing today" is the same chit-chat as "what are you
+// doing". This is normalization, not a whitelist — and it never weakens
+// freshness: "what's the weather today" strips to "what's the weather",
+// which is NOT in the set, so the freshness layer still force-YESes.
+const TRIVIAL_TEMPORAL_SUFFIX = /\s+(?:today|tonight|right now|now|currently|at the moment)$/i;
+
 function isTrivialPrompt(prompt: string): boolean {
   let p = prompt.trim().toLowerCase();
   p = p.replace(/[.!?…\s]+$/, "");
+  p = p.replace(TRIVIAL_TEMPORAL_SUFFIX, "");
   if (TRIVIAL_EXACT.has(p)) return true;
   const peeled = p.replace(TRIVIAL_FILLER_PREFIX, "");
   if (peeled !== p && TRIVIAL_EXACT.has(peeled)) return true;
   return false;
 }
 
+/**
+ * Instruction scope (2026-11-04 brief §1/§3): deterministic detectors read
+ * the CURRENT INSTRUCTION only. Fenced code, inline `code` spans and
+ * double-quoted prose are content the user supplied — a URL literal inside
+ * code, a quoted live-sounding word ("the price is high today") or a pasted
+ * release note is NOT a search instruction. The model gate still sees the
+ * full message; only the deterministic arms use this scope.
+ * shortcut: quote-pair stripping is best-effort (an odd number of quotes
+ * leaves the tail visible); upgrade trigger = a real chat message whose
+ * unbalanced quoting flips a verdict, which the model gate then covers.
+ */
+function instructionScope(p: string): string {
+  let s = p.replace(/```[\s\S]*?```/g, " ").replace(/~~~[\s\S]*?~~~/g, " ");
+  s = s.replace(/`[^`\n]+`/g, " ");
+  s = s.replace(/"[^"\n]*"/g, " ");
+  s = s.replace(/[“‟″][^“‟″]*[“‟″]/g, " ");
+  return s;
+}
+
 /** Detect an explicit http:// or https:// URL in the user prompt. */
 export function extractPromptUrls(prompt: string): string[] {
-  const m = prompt.match(/https?:\/\/[^\s"'<>[\]]+/gi);
-  return m ? [...new Set(m)] : [];
+  // tldts-based detector: catches full URLs AND bare domains (skiran.dev,
+  // lite.ego.app, rbi.org.in) across all 1,440+ IANA TLDs with a
+  // code-filename guard so "app.ts" is never mistaken for a domain.
+  return detectPromptUrls(prompt);
 }
 
 /* ── STAGE 0: deterministic hard bypass (0 ms, no LLM call) ──────────── */
 
 /**
- * The user's message is unambiguously about the live web. Three detectors:
+ * The 2026-11-04 evidence-need chain (brief §1/§2/§3), evaluated on the
+ * INSTRUCTION SCOPE (quoted prose / code stripped — see instructionScope):
  *
- *   A. URL / known domain / shortener   — any http(s):// or www. URL, or a
- *      bare known name (youtu.be, youtube.com, maps.app.goo.gl, goo.gl,
- *      bit.ly, t.co, lnkd.in, redd.it, amzn.to, linkedin.com, reddit.com,
- *      x.com, instagram.com), or a bare domain-shaped token ending in a
- *      known TLD (.gov, .gov.in, .nic.in, .com, .org, .in, .io, .net, .co).
- *   B. Explicit web/freshness intent    — search, look up, watch, video,
- *      location, maps, linkedin, reddit, who won, latest, current, today,
- *      this year's digits (e.g. 2026), price, jobs, hiring.
- *   C. Image attachment + lookup intent — a screenshot plus person/place/
- *      company lookup words (search, linkedin, profile, who is, find, guy,
- *      person, company, location, where is, product).
+ *   FORCE-NO skip layers (evaluated FIRST; each is escape-guarded — an
+ *   escape means "fall through", never "force YES"):
+ *     E1 local-only scope — the user EXPLICITLY scoped the turn to local
+ *        evidence ("do not search the web", "answer only from the
+ *        attached…", "…, nothing else"). The residual re-test IS the
+ *        guard: "don't search — what's the latest version?" keeps a
+ *        freshness frame outside the negation and falls through. Bare
+ *        URL literals are NOT re-tested here: "Do not search the web.
+ *        Count the characters in https://example.com." stays NO.
+ *     CLOCK — a direct date/time/day question ("what is today's date?")
+ *        is answered from the live server clock; searching cannot make
+ *        the clock more correct.
+ *     E2 local-task arms — supplied-material transforms (SUPPLIED_TASK_RE),
+ *        prompt-defined code-gen (CODEGEN_RE), creative writing
+ *        (CREATIVE_RE), pure arithmetic (MATH_RE). The guard tests the
+ *        prompt with the matched task clause ITSELF removed, so artifact
+ *        nouns inside the clause ("Summarize this news article.") cannot
+ *        trigger their own guard, while a genuinely external second
+ *        clause ("…; check the web for slang usage") escapes.
  *
- * When any fires the gate answers {search_required: true, reason:
- * "deterministic_url_or_intent"} in 0 ms — the model never gets to veto
- * "open the link the user literally pasted".
+ *   FORCE-YES evidence layers (instruction scope):
+ *     URL — any http(s):// or bare domain the tldts detector finds in the
+ *        instruction. (The old KNOWN_SITE/DOMAIN_TLD/WWW token regexes were
+ *        DEAD code — the detector already covered them — and the known-
+ *        site brand list violated the no-brand-tables law, so all three
+ *        are deleted.)
+ *     WEB_INTENT — explicit search frames (search the web / search for /
+ *        google it / look up / look online / check the web / browse the
+ *        web / who won), navigation frames (open|read|visit a link|page|
+ *        article; watch|stream a video|livestream|keynote|launch event)
+ *        and research frames (find + studies|citations|sources|papers).
+ *        BARE tokens (today/current/latest/price/video/watch) are NOT
+ *        search instructions — that bare-token list was the false-positive
+ *        engine the brief retires.
+ *     FRESHNESS — narrow high-confidence time-sensitive shapes only
+ *        (weather, how much…cost, still supported/true, up to date, most
+ *        recent, as of now, this week/month/year, who is the <office
+ *        holder>, current|latest version|release, latest…news, open
+ *        positions|job listings, price…right now).
+ *     IMAGE — image attachment + lookup intent.
+ *
+ * The attachment flag is NOT a layer: attachment presence is not evidence
+ * sufficiency (brief §3) — attached material supports transforms of itself
+ * and never supplies external/current facts, so undecided attachment
+ * turns reach the model gate, which is told the local-evidence situation.
+ *
+ * Ordering law (replaces "FRESHNESS NEVER LOSES", 2026-11-04): skip →
+ * clock → url → web intent → freshness → image. A local task containing a
+ * freshness WORD ("Write a poem about the weather.", "Rewrite this
+ * paragraph: Our latest release is ready.") stays force-NO — the word is
+ * not an evidence request; a contradictory local-only turn escapes via
+ * the E1 residual guard, and any surviving explicit frame still force-
+ * YESes in the second half of the chain.
  */
-const KNOWN_SITE_TOKEN_RE =
-  /(?:^|[^\w./-])(youtu\.be|youtube\.com|maps\.app\.goo\.gl|goo\.gl|bit\.ly|t\.co|lnkd\.in|redd\.it|amzn\.to|linkedin\.com|reddit\.com|x\.com|instagram\.com)(?:$|[^\w./-])/i;
 
-const DOMAIN_TLD_TOKEN_RE =
-  /(?:^|[^\w./-])[\w-]+(?:\.[\w-]+)*\.(?:gov|gov\.in|nic\.in|com|org|io|net|co|uk|edu)(?:$|[^\w.-])/i;
+/**
+ * Explicit web-search frames (universal — frames, never bare nouns).
+ * "search for" is an explicit search VERB frame; "binary search." carries
+ * no frame ("search" not followed by a search-object frame).
+ */
+const SEARCH_FRAME_RE =
+  /(?:\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\bsearch(?:es|ing|ed)?\s+for\b|\b(?:web|google|internet|bing)\s+search(?:es|ing)?\b|\b(?:google|bing)\s+it\b|\blook\s?up\b|\blook\s*online\b|\bcheck\s+(?:the\s+|for\s+)?(?:web|online|internet)\b|\bbrowse\s+(?:the\s+)?(?:web|internet|online)\b)/i;
 
-const WWW_TOKEN_RE = /(?:^|[^\w./-])www\.[\w-]+/i;
+/**
+ * Navigation frames — the user points at a live-web object to open or
+ * watch. Generic nouns only (no brand names): "watch this video",
+ * "stream the keynote", "read that article". Attachment self-references
+ * are neutralized by webIntentProbe BEFORE this fires, so "Read the text
+ * burned into the attached video" never masquerades as navigation.
+ */
+const NAV_RE =
+  /(?:\b(?:open|read|visit|load|check\s+out|go\s+to|pull\s+up|click(?:\s+on)?)\b[^.!?]{0,24}?(?:this|that|the|a|an|following|his|her|their|its)\s+(?:[\w'-]+\s+){0,2}?(?:link|url|page|website|site|web\s*page|article|blog\s*post|post|profile)\b|\b(?:watch|stream)\b[^.!?]{0,24}?(?:this|that|the|a|an)?\s*(?:livestream|live\s*stream|webcast|webinar|keynote|launch\s+event|press\s+conference|ceremony|concert|game|match|broadcast|video|videos|clip|trailers?))/i;
 
-const WEB_INTENT_RE =
-  /(?:\b(?:search|watch|video|location|maps|linkedin|reddit|latest|current|today|price|jobs|hiring|20(?:2[4-9]))\b|\blook\s?up\b|\bwho\s+won\b)/i;
+/** Research frames — an explicit request for external EVIDENCE. */
+const RESEARCH_RE =
+  /\b(?:find|locate|gather|cite|look\s+for|searched)\b[^.!?]{0,48}?\b(?:peer-reviewed|studies|citations?|sources|references|papers|literature|news\s+coverage)\b/i;
+
+/** Force-YES web-intent = search frames ∪ navigation ∪ research ∪ who-won. */
+const WEB_INTENT_RE = new RegExp(
+  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|\\bwho\\s+won\\b`,
+  "i",
+);
+
+/**
+ * Escape guard for the force-NO skip layers. Broader than the force-YES
+ * frames on purpose — a false escape only returns the turn to the model
+ * gate, it never forces a search. EXTERNAL_NEED covers hybrid supplied-
+ * material turns that ask for CURRENT information ("find the latest
+ * information about the company") without being a force-YES freshness
+ * shape by themselves.
+ */
+const EXTERNAL_NEED_RE =
+  /\b(?:find|look\s+for|check|see|compare)\b[^.!?]{0,30}?\b(?:latest|current|newest|up[\s-]?to[\s-]?date)\b[^.!?]{0,20}?\b(?:information|news|updates?|regulations?|listings?|positions?|prices?|versions?|releases?)\b/i;
+const GUARD_EXTERNAL_RE = new RegExp(
+  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|(?:${EXTERNAL_NEED_RE.source})` +
+    // `sources?` carries an EXTERNAL-citation sense ("cite your sources");
+    // it must not fire as an artifact descriptor — "source file"/"source
+    // code" name the supplied material itself (false-escape fix, 2026-11-04:
+    // "Find the bug in this attached source file." escaped the supplied arm
+    // on the word "source"). The lookahead keeps "find sources for this"
+    // and "verify against other sources" escaping normally.
+    `|\\b(?:website|online|internet|sources?(?!\\s+(?:code|files?\\b))|citations?|studies|peer-reviewed|papers?|references?|verify|fact[\\s-]?check|news|research|google)\\b` +
+    `|\\bup[\\s-]?to[\\s-]?date\\b|\\bstill\\s+(?:true|accurate|valid|current|available|maintained|supported)\\b`,
+  "i",
+);
+
+/**
+ * Part-10 follow-up fix (APPROVED DEVIATION, MIGRATION-MAP §11.2): the
+ * narrow `video` token in WEB_INTENT_RE force-YESed "Read the text burned
+ * into the attached video …" — but that media is the user's OWN attached
+ * file, not an external web target. These probe regexes strip attachment
+ * self-references BEFORE the web-intent arm is evaluated (probe ONLY —
+ * the freshness arm and the query planner still see the FULL prompt, so
+ * hybrid turns keep force-YES):
+ *   MEDIA_SELF_REF_RE — unconditional: an explicit "attached/uploaded/
+ *     pasted/provided/supplied + media noun" phrase is a self-reference
+ *     wherever it appears ("search the video of the keynote" is NOT one);
+ *   ATTACH_ANAPHORA_RE — pronoun anaphora ("this/the/my video"), stripped
+ *     ONLY when the turn actually carries local attachment evidence, so a
+ *     no-attachment "watch this video on youtube" keeps its web intent.
+ * Rust mirror: re_media_self_ref / re_attach_anaphora / web_intent_probe.
+ */
+const MEDIA_NOUNS =
+  "audio|video|recording|clip|footage|image|photo|picture|screenshot|pdf|doc(?:ument)?|file|transcript|log|code";
+// Global replace ⇔ Rust `replace_all` (strip EVERY self-ref occurrence).
+const MEDIA_SELF_REF_RE_G = new RegExp(
+  `\\b(?:attached|attachment|uploaded|pasted|provided|supplied)\\s+(?:[a-z]+\\s+){0,2}?(?:${MEDIA_NOUNS})\\b`,
+  "gi",
+);
+const ATTACH_ANAPHORA_RE_G = new RegExp(
+  `\\b(?:this|these|my|the)\\s+(?:${MEDIA_NOUNS})\\b`,
+  "gi",
+);
+
+/** Web-intent probe body: the prompt with attachment self-refs
+ *  neutralized (see MEDIA_SELF_REF_RE_G above). Freshness checks and
+ *  query planning NEVER use the probe. */
+function webIntentProbe(prompt: string, hasLocalArtifact: boolean): string {
+  let s = prompt.replace(MEDIA_SELF_REF_RE_G, " ");
+  if (hasLocalArtifact) s = s.replace(ATTACH_ANAPHORA_RE_G, " ");
+  return s;
+}
 
 /** Lookup-intent words that only count when an image is attached. */
 const IMAGE_LOOKUP_INTENT_RE =
   /(?:\b(?:search|linkedin|profile|find|guy|person|company|location|product)\b|\bwho\s*'?s?\s+is\b|\bwhere\s+is\b|\bwhat\s+is\s+this\b)/i;
 
-export interface HardBypassHit {
-  matched: "url" | "known_site" | "web_intent" | "image_intent";
+/* ── universal search pre-gate regexes ──────────────────────────────────
+ * (The attachment escape-hatch EXPLICIT_WEB_INTENT_RE was retired
+ * 2026-11-04 with the attachment force-NO layer: the boolean attachment
+ * flag is not evidence sufficiency, and GUARD_EXTERNAL_RE above is the
+ * one shared escape for every skip layer.) */
+// Byte-identical bodies to the Rust re_freshness / re_local_only /
+// re_supplied_task / re_codegen / re_math (Rust scopes ASCII \b with
+// (?-u:…); JS \b is already ASCII).
+
+/** Force-YES freshness — high-confidence, NARROW time-sensitive shapes.
+ *  Bare "latest"/"current"/"today"/"price" are NOT here (that bare-token
+ *  list was the false-positive engine: "Write a poem about the weather."
+ *  and "Rewrite this paragraph: Our latest release is ready." must stay
+ *  local). Only frames where the ASK itself needs present-day data:
+ *  weather, how-much…cost, still-supported, up-to-date, most-recent,
+ *  as-of-now, this-week/month/year, office-holder identity, version/
+ *  release freshness, latest-…-news, open positions / job listings,
+ *  price…right now. Office-holder nouns only match inside the
+ *  "who is/are the …" frame. */
+const FRESHNESS_RE =
+  /(?:\b(?:currently|weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b)/i;
+
+/** Layer E1 — the user EXPLICITLY scoped the turn to local evidence. */
+const LOCAL_ONLY_RE =
+  /(?:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b|\bwithout\s+(?:searching|browsing)\b|\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\banswer\s+(?:only|strictly)\s+from\b|\buse\s+only\s+the\s+attached\b|\bnothing\s+else\b)/i;
+// Part-10 follow-up fix (§11.2): "…, nothing else." is the meta-instruction
+// fingerprint (closed-form local answers: "reply YES", "repeat after me").
+// The residual re-test below stays the guard: "watch the launch tomorrow,
+// nothing else" keeps `watch` in the residual → the web arm re-fires.
+// Global mirror ⇔ Rust `replace_all` (strip EVERY local-only phrase).
+const LOCAL_ONLY_RE_G = new RegExp(LOCAL_ONLY_RE.source, "gi");
+
+/** Layer E2 — a verb that TRANSFORMS content the user supplied, in one
+ *  sentence; the demonstrative must reach an artifact noun (so "Review
+ *  this year's finals" never skips). */
+const SUPPLIED_TASK_RE =
+  // §11.2 follow-up: `listen|hear` verbs + media nouns (audio|video|…) —
+  // attached-media meta-instructions ("Listen to the attached audio…")
+  // are supplied-content transforms even through the web-intent probe;
+  // the read arm now also tolerates "read the ATTACHED transcript".
+  // 2026-11-04 brief §3: verb→demonstrative gap widened {0,25}→{0,40} so
+  // "Summarize the latest paragraph in the attached document." reads as
+  // the transform of SUPPLIED material that it is (the intervening words
+  // describe WHICH supplied material — they are not an external-need frame).
+  /(?:\b(?:summar(?:y|ize|ise)|translat(?:e|ion)|rewrite|paraphrase|shorten|proofread|fix|correct|review|refactor|debug|annotate|explain|clarify|improve|convert|extract|listen|hear)\b[^.!?]{0,40}?(?:this|these|my|attached|supplied|uploaded|pasted|provided)\b[^.!?]{0,20}?(?:code|file|text|log|logs|pdf|doc|docs|document|documents|paragraph|snippet|function|screenshot|image|essay|article|script|trace|error|message|conversation|table|data|json|csv|resume|letter|contract|draft|passage|chat|audio|video|recording|clip|footage|transcript|voice|speech)|\bwhat(?:'s|\s+is)\s+wrong\s+with\b|\bfind\s+the\s+(?:bug|issue|problem)\s+in\b|\bread\s+(?:this|the|an?)\s+(?:attached\s+)?(?:file|code|text|log|pdf|attachment|audio|video|recording|clip|transcript)\b)/i;
+
+/** Layer E2 — code-writing tasks fully defined by the prompt itself. */
+const CODEGEN_RE =
+  /\b(?:write|create|generate|give me|produce|implement)\b[^.!?]{0,30}?\b(?:code|function|component|script|program|class|regex|sql|hook|snippet|unit tests?)\b/i;
+
+/** Layer E2 — pure arithmetic ("what is 15 * 17?", "solve 25 * 47"). */
+const MATH_RE =
+  /(?:\b(?:what(?:'s|\s+is)|solve|calculate|compute)\b[^.!?]{0,12}?\d+\s*[-+*/xX]\s*\d+)/i;
+
+/** Layer E2 — creative writing: the content comes FROM the model, not
+ *  from the web ("Write a poem about the weather." — the weather is a
+ *  THEME, not an evidence request). Escape-guarded like every skip arm. */
+const CREATIVE_RE =
+  /\b(?:write|compose|invent|make\s+up|draft)\b[^.!?]{0,40}?\b(?:poem|story|stories|essay|haiku|song|lyrics|tale|fiction|novel|joke|limerick|sonnet|screenplay|paragraph|tweet|caption)\b/i;
+
+/** Pure clock question (brief §5): a direct date/time/day request is
+ *  answered from the live server clock — retrieval cannot make the clock
+ *  more correct. Sentence-ANCHORED so "What's the date of the release?"
+ *  (an external fact) never matches. */
+const CLOCK_ASK_RE =
+  /^(?:what(?:'s| is)? (?:the |today'?s )?(?:current )?(?:date|time|day of the week)(?: (?:is it|is today|today|tonight|now|for today))?|what day is it(?: today| today'?s)?|what day (?:is|was) it|(?:please )?tell me (?:the )?(?:current )?time(?: please)?)[?.!]*$/i;
+
+/** Shared force-NO decision for every deterministic local-task layer.
+ *  Structurally guarantees ZERO queries — an operational instruction can
+ *  never become an engine query from the skip path. */
+function localTaskDecision(): SearchDecision {
+  return {
+    search_required: false,
+    reason: "deterministic_self_contained",
+    freshness: "any",
+    depth: "standard",
+    queries: [],
+  };
 }
 
-/** Returns the bypass verdict (queries pre-filled from the URLs/entities)
- *  or null when the message needs the model to decide. */
+export interface HardBypassHit {
+  matched:
+    | "url"
+    | "web_intent"
+    | "image_intent"
+    | "freshness"
+    | "clock_question"
+    | "local_task";
+  /** tldts-detected URLs/bare-domains (normalised https:// form). */
+  detected: DetectedUrl[];
+}
+
+/* ── gate query language (§4): Unicode-preserving, subject-anchored ──── */
+
+const GATE_FILLER = new Set([
+  "tell", "me", "what", "is", "the", "a", "an", "i", "want", "to", "so",
+  "you", "can", "could", "please", "how", "about", "in", "on", "at", "by",
+  "for", "from", "with", "that", "this", "these", "those", "there", "here",
+  "would", "like", "need", "look", "find", "show", "give", "get", "best",
+  "top", "good", "and", "it", "its", "of", "up",
+]);
+// Trivial temporal adverbs add nothing to an engine query ("…price now").
+// "latest" is NOT a stop — it is the subject of "latest version/news".
+// shortcut: bare "right" is stopped too (it rides the "right now" frame);
+// a literal "right" subject ("right to left rotation") rides on the
+// surviving tokens around it.
+const GATE_TEMPORAL_STOPS = new Set([
+  "today", "tonight", "tomorrow", "yesterday", "now", "right", "currently",
+]);
+
+/**
+ * §4 Unicode law: the OLD keyword builder did `.replace(/[^a-z0-9\s]/g," ")`
+ * — Devanagari, CJK, é and ₹ were all ERASED, so "東京で牛乳 price today"
+ * searched as "price". This tokenizer keeps every script (\p{L}\p{N}\p{M},
+ * NFC-normalized) and preserves exact identifiers; case is the only thing
+ * normalized. ASCII output is byte-identical to the old class for normal
+ * words.
+ */
+const GATE_TOKEN_RE = /[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}'’_-]*/gu;
+
+function gateTokenize(text: string): string[] {
+  return (text.normalize("NFC").match(GATE_TOKEN_RE) ?? [])
+    .map((t) => t.toLowerCase().replace(/^['’_-]+|['’_-]+$/g, ""))
+    .filter((t) => t.length > 0);
+}
+
+/**
+ * §4 subject preservation: a subjectless follow-up ("What is its price
+ * now?") borrows its subject from the most recent USER turn — never from
+ * assistant prose (history entries here are role-filtered by contract),
+ * never from hidden instructions, secrets, or attachment bodies. Quoted
+ * prose/code inside that turn is stripped by instructionScope first.
+ */
+function subjectAnchor(ctx: SearchGateContext): string {
+  const hist = ctx.history ?? [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const m = hist[i];
+    if (m.role !== "user") continue;
+    const toks = gateTokenize(instructionScope(m.content)).filter(
+      (w) => w.length > 2 && !GATE_FILLER.has(w) && !GATE_TEMPORAL_STOPS.has(w),
+    );
+    if (toks.length === 0) continue;
+    return toks.slice(0, 4).join(" ").slice(0, 120);
+  }
+  return "";
+}
+
+/** Keyword form first: search engines index pages, not URL strings — a
+ *  URL-as-query returns the domain's homepage. The pipeline's Stage-0
+ *  direct-target fetch reads the prompt's own URLs in parallel, so the
+ *  keyword query is all the engine pool needs. Subjectless/stopword-only
+ *  results return null (§4: reject before dispatch — the OLD fallback
+ *  pushed the WHOLE prompt as a query, turning operational instructions
+ *  into engine traffic). */
+function gateKeywordQuery(
+  instr: string,
+  ctx: SearchGateContext,
+  detected: DetectedUrl[],
+): string | null {
+  const text = instr.replace(/https?:\/\/[^\s"'<>[\]]+/gi, " ");
+  const tokens = gateTokenize(text).filter(
+    (w) => w.length > 2 && !GATE_FILLER.has(w) && !GATE_TEMPORAL_STOPS.has(w),
+  );
+  let keywords = tokens.slice(0, 8).join(" ");
+  if (tokens.length <= 1 && detected.length === 0) {
+    const anchor = subjectAnchor(ctx);
+    if (anchor) keywords = `${anchor} ${keywords}`.trim();
+  }
+  return keywords.length > 3 ? keywords.slice(0, 300) : null;
+}
+
+/** E2 skip arms, evaluated in order; each matched arm ESCAPES when the
+ *  prompt with the matched clause itself removed still carries external
+ *  evidence need (guard), so artifact nouns inside the clause ("Summarize
+ *  this news article.") cannot trigger their own guard. CODEGEN additionally
+ *  escapes on a surviving freshness shape ("Write a script that reports the
+ *  most recent release." is a program whose ANSWER is live data). */
+const SKIP_ARMS: { re: RegExp; extraGuard: RegExp | null }[] = [
+  { re: SUPPLIED_TASK_RE, extraGuard: null },
+  { re: CODEGEN_RE, extraGuard: FRESHNESS_RE },
+  { re: CREATIVE_RE, extraGuard: null },
+  { re: MATH_RE, extraGuard: null },
+];
+
+/** Returns the bypass verdict (queries pre-filled from the URLs/entities,
+ *  zero queries on every force-NO) or null when the message needs the
+ *  model to decide. */
 export function deterministicHardBypass(
   ctx: SearchGateContext,
 ): { decision: SearchDecision; hit: HardBypassHit } | null {
   const p = ctx.userPrompt.trim();
   if (!p) return null;
+  // Every deterministic arm reads the INSTRUCTION SCOPE: quoted prose,
+  // inline code and pasted material are the user's CONTENT — a URL
+  // literal inside code, a quoted live-word, or a pasted release note
+  // arms nothing (the model gate still sees the full message).
+  const instr = instructionScope(p);
+  if (instr.trim().length === 0) return null;
 
+  const detected = detectUrlsAndDomains(instr);
+  const localArtifact = ctx.hasAttachmentEvidence === true;
+
+  const forceNo = (
+    matched: HardBypassHit["matched"],
+    reason: string,
+  ): { decision: SearchDecision; hit: HardBypassHit } => ({
+    hit: { matched, detected: [] },
+    decision: { ...localTaskDecision(), reason },
+  });
+
+  // ── SKIP LAYER E1 (first, before every force-YES arm) ──
+  // The user EXPLICITLY scoped the turn to local evidence. The residual
+  // re-test IS the guard: "do not search the web" contains the frame
+  // word "search", so the residual (local-only phrases stripped) is
+  // re-tested against web-intent frames and freshness shapes. A
+  // contradictory "don't search — what's the latest version?" turn
+  // falls through. Bare URL literals are NOT re-tested: "Do not search
+  // the web. Count the characters in https://example.com." is a local
+  // character count, not a link to open. The web-intent probe (media
+  // self-refs neutralized) applies to the residual, not to freshness.
+  const residual = instr.replace(LOCAL_ONLY_RE_G, " ");
+  if (
+    LOCAL_ONLY_RE.test(instr) &&
+    !(
+      WEB_INTENT_RE.test(webIntentProbe(residual, localArtifact)) ||
+      FRESHNESS_RE.test(residual)
+    )
+  ) {
+    return forceNo("local_task", "deterministic_self_contained");
+  }
+
+  // ── SKIP LAYER: pure clock question (brief §5) ──
+  if (CLOCK_ASK_RE.test(instr.trim())) {
+    return forceNo("clock_question", "deterministic_clock_question");
+  }
+
+  // ── SKIP LAYER E2 arms (universal; NO attachment flag involved) ──
+  for (const arm of SKIP_ARMS) {
+    if (!arm.re.test(instr)) continue;
+    const rest = instr.replace(arm.re, " ");
+    const escapes =
+      GUARD_EXTERNAL_RE.test(rest) ||
+      (arm.extraGuard !== null && arm.extraGuard.test(rest));
+    if (!escapes) return forceNo("local_task", "deterministic_self_contained");
+    break; // guarded escape: fall through to the evidence layers below
+  }
+
+  // ── FORCE-YES evidence layers ──
+  // A boolean attachment flag NEVER forces a verdict either way (brief §3):
+  // attached material satisfies transforms of itself but never supplies
+  // external facts — undecided attachment turns fall through to the model
+  // gate, which is told the local-evidence situation.
   let hit: HardBypassHit | null = null;
-  const urls = extractPromptUrls(p);
-
-  if (urls.length > 0) hit = { matched: "url" };
-  else if (KNOWN_SITE_TOKEN_RE.test(p) || DOMAIN_TLD_TOKEN_RE.test(p) || WWW_TOKEN_RE.test(p)) hit = { matched: "known_site" };
-  else if (WEB_INTENT_RE.test(p)) hit = { matched: "web_intent" };
-  else if (ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(p)) hit = { matched: "image_intent" };
+  if (detected.length > 0) hit = { matched: "url", detected };
+  else if (WEB_INTENT_RE.test(webIntentProbe(instr, localArtifact))) hit = { matched: "web_intent", detected: [] };
+  else if (FRESHNESS_RE.test(instr)) hit = { matched: "freshness", detected: [] };
+  else if (ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(instr)) hit = { matched: "image_intent", detected: [] };
   if (!hit) return null;
 
   const queries: SearchDecision["queries"] = [];
-  for (const u of urls.slice(0, 4)) queries.push({ query: u, intent: "general" });
+  const keywords = gateKeywordQuery(instr, ctx, detected);
+  if (keywords) queries.push({ query: keywords, intent: "general" });
 
-  // Keyword-form companion query: strip fillers + the URL itself so the
-  // metasearch pool still learns WHAT to look for around the link.
-  const filler = new Set([
-    "tell", "me", "what", "is", "the", "a", "an", "i", "want", "to", "so",
-    "you", "can", "could", "please", "how", "about", "in", "on", "at", "by",
-    "for", "from", "with", "that", "this", "these", "those", "there", "here",
-    "would", "like", "need", "look", "find", "show", "give", "get", "best",
-    "top", "good", "and", "it", "its", "of", "up",
-  ]);
-  const keywords = p
-    .replace(/https?:\/\/[^\s"'<>[\]]+/gi, " ")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !filler.has(w))
-    .slice(0, 8)
-    .join(" ");
-  if (keywords.length > 3) queries.push({ query: keywords, intent: "general" });
-  if (queries.length === 0) {
-    queries.push({ query: p.replace(/\s+/g, " ").trim().slice(0, 300), intent: "general" });
+  // URL plans: kept as last queries (cache-key continuity) — metasearch()
+  // drops URL-shaped plans from the engine pool; the pipeline's Stage-0
+  // direct-target fetch is what actually reads the linked page.
+  if (hit.detected.length > 0) {
+    for (const d of hit.detected.slice(0, 4)) {
+      if (!queries.some((q) => q.query === d.url)) {
+        queries.push({ query: d.url, intent: "general" });
+      }
+    }
   }
+  // §4: a YES verdict with no keyword and no URL cannot dispatch — reject
+  // it here (the model gate decides instead) rather than fire stopword
+  // junk at the providers.
+  if (queries.length === 0) return null;
 
-  const isNewsy = /\b(latest|current|today|20(?:2[4-9])|who\s+won|price|jobs|hiring)\b/i.test(p);
+  // (audit 2026-11-04) Realtime tier is lexical, not brand-scoped:
+  // continuously-changing facts (prices, stock levels, weather, scores,
+  // open-now, availability, delivery ETAs). Both deterministic paths must
+  // agree — rulesBasedPlan now DERIVES from this function, so they cannot.
+  const isRealtime =
+    /\b(price|prices|pricing|cost|costs|how much|in stock|stock|shares?|weather|temperature|forecast|score|scores|standings?|open now|available|availability|eta|delivery)\b/i.test(instr);
+  const isNewsy = /\b(latest|current|news|today|20(?:2[4-9])|who\s+won|jobs|hiring)\b/i.test(instr);
   return {
     hit,
     decision: {
       search_required: true,
       reason: "deterministic_url_or_intent",
-      freshness: isNewsy ? "week" : "any",
-      depth: urls.length > 0 ? "deep" : "standard",
+      freshness: isRealtime ? "realtime" : isNewsy ? "week" : "any",
+      depth: hit.detected.length > 0 ? "deep" : "standard",
       queries,
     },
   };
 }
 
-/* ── external-entity detector (the search-by-default re-verify) ───────── */
-
-/**
- * Deterministic "external entity present" check. Under the search-by-default
- * policy a model `search_required=false` verdict is only honored when the
- * prompt contains NONE of: a URL, a known-site token, a domain-shaped
- * token, a proper-noun phrase (2+ consecutive capitalized words), a
- * version number, a time-sensitivity signal, or an attached image with
- * lookup intent. If any of these fire, the verdict is overturned to
- * search_required=true by the parser (see parseMainGateJson), so a lazy
- * "I can answer from memory" answer can never suppress a live-facts
- * lookup for Blinkit / Myntra / a local business / any proper noun.
- */
-export function promptHasExternalEntity(prompt: string): boolean {
-  const p = prompt ?? "";
-  if (p.trim().length === 0) return false;
-  // 1. Explicit URL
-  if (extractPromptUrls(p).length > 0) return true;
-  // 2. Known-site / domain-shaped tokens (re-use the Stage 0 detectors)
-  if (KNOWN_SITE_TOKEN_RE.test(p) || DOMAIN_TLD_TOKEN_RE.test(p) || WWW_TOKEN_RE.test(p)) return true;
-  // 3. Proper-noun phrase: two consecutive capitalized words ("Blinkit deal",
-  //    "BookMyShow movie", "NVIDIA stock"). One capitalized word at
-  //    sentence start is NOT enough (English sentences start capitalized);
-  //    two in a row is a strong proper-noun signal.
-  const properNounPhrase = /\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b/.test(p);
-  if (properNounPhrase) return true;
-  // 4. Version numbers / model numbers (v1.2.3, 15.2, 3090, RTX 4090, ...)
-  if (/\bv?\d+\.\d+(?:\.\d+)?\b/.test(p) || /\b[A-Z]{2,}\s?\d{2,4}\b/.test(p)) return true;
-  // 5. Time-sensitivity signal (prices, "today", "current", a specific
-  //    year digit)
-  if (/\b(today|current|latest|recent|20(?:[012]\d))\b/i.test(p)) return true;
-  // 6. Proper-noun-ish single capitalized token of 4+ chars that is not
-  //    the sentence's first word. Heuristic: a capitalized word appearing
-  //    after position 4 in the prompt.
-  const nonLeadingCap = p.slice(4).match(/\b[A-Z][a-z]{3,}\b/);
-  if (nonLeadingCap) return true;
-  return false;
-}
+// (2026-11-04 brief §2) `promptHasExternalEntity` — the search-by-default
+// re-verify that overturned a confident model NO on capitalized words,
+// proper nouns and version numbers ("Explain Binary Search.", "Explain
+// Newton's first law.") — is DELETED with its two override sites. A model
+// no-search verdict is first-class; evidence-need is decided by the gate
+// policy + the deterministic chain above, never by a proper-noun guess.
 
 /* ── deterministic fallback plans (emergency only) ───────────────────── */
 
+/**
+ * THE emergency fallback (main model unreachable / unparseable / timeout /
+ * gate disabled by env). 2026-11-04 brief §2: the old version ALWAYS
+ * searched (the unanchored `new` even matched "Newton") — the search-
+ * by-default default is REMOVED. The rules plan now applies the SAME
+ * semantic standard as the primary chain: it derives its verdict from
+ * deterministicHardBypass, so the two deterministic authorities can
+ * never disagree on the same turn. A middle prompt with no explicit
+ * evidence shape stays LOCAL on outage (safe local answers, zero
+ * downstream traffic) — the bounded deterministic force-YES layers
+ * (URL literal, explicit search frame, live-fact freshness) still fire
+ * when the turn genuinely requires retrieval.
+ */
 export function rulesBasedPlan(ctx: SearchGateContext): SearchGateResult {
-  const p = ctx.userPrompt.trim();
-  const hasTimeSignal = /latest|recent|new|current|today|this (week|month|year|quarter)/i.test(p);
-  const hasVersion = /\bv?\d+\.\d+|version \d+/i.test(p);
-  const urls = extractPromptUrls(p);
-  const queries: SearchDecision["queries"] = [
-    {
-      query: p.replace(/\s+/g, " ").trim().slice(0, 300),
-      intent: (hasTimeSignal ? "news" : "general") as SearchDecision["queries"][number]["intent"],
-    },
-  ];
-  for (const u of urls.slice(0, 3)) {
-    queries.push({ query: u, intent: "general" });
+  const bypass = deterministicHardBypass(ctx);
+  if (!bypass || !bypass.decision.search_required) {
+    return bypass
+      ? noSearchPlan(bypass.decision.reason)
+      : noSearchPlan("rule-based plan: no explicit live-evidence shape (main model unreachable)");
   }
-  return {
-    decision: {
-      // SEARCH-BY-DEFAULT: the rules fallback always searches. The no-
-      // search path is reserved for the trivial-greeting short-circuit
-      // above — a junk search is far cheaper than a confidently-wrong
-      // live-facts answer.
-      search_required: true,
-      reason: "rule-based search-by-default plan (main model unreachable)",
-      freshness: hasTimeSignal ? "day" : hasVersion ? "month" : "any",
-      depth: "standard",
-      queries,
-    },
-    source: "rules",
-    gateMs: 0,
+  const decision: SearchDecision = {
+    ...bypass.decision,
+    reason: "rule-based plan: explicit live-evidence shape (main model unreachable)",
   };
+  // Task-scope carry (audit 2026-11-02, brief #6): the emergency fallback
+  // must NEVER broaden the contract. The scope's VERIFIED hosts ride as
+  // preferred_domains on the main query and get site: companions; an
+  // unresolved target gets a bounded quoted discovery query (max 2) —
+  // never an invented domain.
+  const scope = ctx.scope;
+  if (scope && isEnforceableScope(scope) && decision.queries.length > 0) {
+    const hosts = scopeHosts(scope);
+    if (hosts.length > 0) {
+      decision.queries[0].preferred_domains = hosts;
+      for (const h of hosts.slice(0, 2)) {
+        decision.queries.push({
+          query: `${decision.queries[0].query} site:${h}`.slice(0, 300),
+          intent: "general",
+          preferred_domains: [h],
+        });
+      }
+    }
+    let discovery = 0;
+    for (const t of scope.targets) {
+      if (discovery >= 2) break;
+      if (t.state === "unresolved" && t.phrase) {
+        const phrase = t.phrase.replace(/^["“”']|["“”']$/g, "").trim();
+        if (phrase) {
+          discovery += 1;
+          decision.queries.push({ query: `"${phrase}"`.slice(0, 300), intent: "general" });
+        }
+      }
+    }
+  }
+  return { decision, source: "rules", gateMs: 0 };
 }
 
 function noSearchPlan(reason = "trivial prompt — no web content needed"): SearchGateResult {
@@ -311,47 +712,58 @@ function noSearchPlan(reason = "trivial prompt — no web content needed"): Sear
  */
 import { THINKING_OFF_BODY } from "./llm-json";
 
+// Part-10 (universal search pre-gate): replaces the old SEARCH-BY-DEFAULT
+// policy. Byte-identical to the Rust MAIN_GATE_SYSTEM_PROMPT. The decision
+// standard is staleness-aware: the model judges whether a fact may have
+// CHANGED, and the "Current date: …" line prepended by
+// buildMainGateMessages grounds that judgment in the real runtime clock.
 const MAIN_GATE_SYSTEM_PROMPT = `You are the search router for your own answering pipeline.
-SEARCH-BY-DEFAULT POLICY: answer search_required = true for essentially
-every real question. The ONLY prompts that get search_required = false are
-exactly these two:
-  (a) Pure conversational filler / greetings / thanks / assistant chitchat
-      ("hi", "hello", "thank you", "which model are you") — no external
-      facts are being asked about.
-  (b) A completely self-contained offline task (code, math, text
-      transformation) where the user supplied 100% of the input AND the
-      task mentions zero external brands, websites, people, places,
-      products, events, versions, prices, or facts from the world.
-If ANY proper noun, brand name, website, product, movie, restaurant,
-location, company, person, version number, price, or factual question
-appears — including a Blinkit/Myntra/Zepto/BookMyShow/Zomato style
-platform name, a local business, or a niche tool — search_required MUST
-be true. When in doubt between "I might know" and "I don't know exactly",
-ALWAYS search: the user would rather have a verified answer than a
-confident guess.
+Your parametric knowledge may be STALE. Use the current date at the top of
+this message when interpreting words such as latest, current, today,
+recent, this year, newest, supported, available, price, version, office
+holder, release, schedule, law, regulation, or status — and whenever you
+decide whether a fact may have changed since your training.
+
+DECISION STANDARD: ask "Does answering this accurately REQUIRE information
+outside the conversation and local evidence that may be current, changing,
+or unknown?" — NOT "could web search possibly help?".
+
+Search when:
+- the answer depends on facts that may have changed since training
+  (versions, releases, prices, office holders, laws, regulations,
+  schedules, availability, status, news, sports results);
+- external verification materially affects correctness;
+- the user explicitly asks to search, fact-check, or verify.
+
+Do NOT search when:
+- the task transforms content the user provided (summarize, translate,
+  rewrite, proofread, shorten, explain, review, or fix supplied code,
+  logs, or text);
+- it is ordinary writing, generic coding the prompt already defines, or
+  pure math;
+- debugging follows from code, logs, or attachments the user supplied;
+- the question concerns an established concept, definition, or how-to
+  whose answer does not change;
+- the conversation or an attached document already supplies the evidence —
+  but supplied material never supplies current EXTERNAL facts: a request for
+  open positions, citations, peer-reviewed studies, prices, releases or news
+  still requires a search no matter what an attachment contains;
+- the question only needs the current time, date, or day of the week:
+  the request carries a live server clock; answer from the clock.
+
+For genuinely ambiguous middle cases: if the answer could plausibly have
+changed since training, search; otherwise answer without searching.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
- "freshness": "none"|"day"|"week"|"month"|"year"|"any",
+ "freshness": "none"|"day"|"week"|"month"|"year"|"realtime"|"any",
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
 
-Decision rules (search-first):
-- search_required = true for: news, prices, stock/crypto rates, weather,
-  sports results, releases, product availability, local places/businesses,
-  current events, restaurant menus, movie showtimes, job listings,
-  anything about a specific named entity you are not 100% sure of,
-  any explicit URL, any follow-up that asks for a LINK/URL or the CURRENT
-  availability/stock/price/open-closed status of something in the
-  conversation, or details/reviews of an entity you recommended.
-- The conversation history is part of the request: resolve "it / this /
-  that" against it before deciding.
-- A NEW, unrelated chit-chat turn about the ASSISTANT itself (not about
-  a world fact) is the only follow-up that may be no-search.
-
 Query rules (only when search_required = true):
 - 2-4 queries. KEYWORD FORM, not full sentences. Never paste the user's
-  question verbatim; never write a query that is only stopwords or generic
+  question or an operational instruction (e.g. "read this file and reply
+  YES") as a query; never write a query that is only stopwords or generic
   phrasing.
 - Anchor every query on the concrete entities of the request (names,
   numbers, products, places) plus at most one topic word.
@@ -359,35 +771,70 @@ Query rules (only when search_required = true):
   Example bad: ["What is the minimum number of cuts needed to partition
   the string so that each part is a palindrome"].
 - Use the user's exact terminology for proper nouns and version numbers.
-- On follow-up turns, anchor every query on the RESOLVED entity name in
-  exact quotes: ["Honor 200 5G" site:amazon.in, "Honor 200 5G" price buy
-  India] — the site: form when the user or the conversation has named the
-  store/platform, the topic form ("price buy", "apply", "reviews open")
-  otherwise.
-- Set preferred_domains when an authoritative source is obvious.
-- freshness = "any" unless the fact is explicitly live (breaking news,
-  today's price/weather/score). depth: "quick" single fact, "standard"
-  comparison, "deep" multi-source research.
+- Prefer official/primary sources: when the authoritative source is
+  obvious for a version, release, doc set, price, or office-holder fact,
+  set preferred_domains to it (e.g. oracle.com, openjdk.org, nodejs.org,
+  python.org, official project docs or repositories).
+- freshness: "day" for same-day facts, "realtime" when the fact changes
+  minute-to-minute (prices, scores, status pages, "right now" state),
+  "week"/"month"/"year" when the fact is time-scoped, "any" otherwise;
+  "none" only with search_required = false.
+- depth: "quick" single fact, "standard" comparison, "deep" multi-source
+  research.
 Do NOT add anything else to your output.`;
 
-function buildMainGateMessages(ctx: SearchGateContext): { role: string; content: string }[] {
+/**
+ * Part-10 (universal search pre-gate): the date the gate reasons about.
+ * NEVER hardcoded — tests inject `currentDate` so they never depend on
+ * the wall clock. The chat route supplies the SESSION-timezone date
+ * (`sessionDateString(turnInstant, turnTimezone)` — the same instant that
+ * renders the turn's `<runtime_clock>` block), so the gate and the
+ * answering model can never judge "today"/staleness against different
+ * calendar dates at the UTC↔session midnight boundary (brief §5). The
+ * bare-UTC fallback fires only for direct API callers that pass no
+ * `currentDate` (e.g. /api/search, which has no session zone to honor);
+ * Rust mirrors the session-zone law in `chat::clock::session_date_string`.
+ */
+function gateCurrentDate(ctx: SearchGateContext, now: Date = new Date()): string {
+  const d = ctx.currentDate?.trim();
+  if (d) return d;
+  return now.toISOString().slice(0, 10);
+}
+
+function buildMainGateMessages(
+  ctx: SearchGateContext,
+  now: Date = new Date(),
+): { role: string; content: string }[] {
+  const date = gateCurrentDate(ctx, now);
   const msgs: { role: string; content: string }[] = [
-    { role: "system", content: MAIN_GATE_SYSTEM_PROMPT },
+    {
+      role: "system",
+      content:
+        `Current date: ${date} (year ${date.slice(0, 4)}).\n` +
+        `${localContextLine(now)}\n${MAIN_GATE_SYSTEM_PROMPT}`,
+    },
   ];
   if (ctx.history?.length) {
     for (const m of ctx.history.slice(-4)) {
       msgs.push({ role: m.role, content: m.content.slice(0, 300) });
     }
   }
-  const prompt = ctx.hasImageAttachment
-    ? `${ctx.userPrompt.slice(0, 2000)}\n\n(The user also attached an image/screenshot to this message.)`
-    : ctx.userPrompt.slice(0, 2000);
-  msgs.push({ role: "user", content: prompt });
+  const attNote = ctx.hasAttachmentEvidence
+    ? "\n\n(The user also attached document/file material to this message. Its contents are SUPPLIED evidence already in view: satisfy summarize/translate/explain/debug requests against it without searching, but attached content never supplies current EXTERNAL facts — open positions, citations, peer-reviewed studies, prices, releases and news still require a search.)"
+    : "";
+  const imgNote = ctx.hasImageAttachment
+    ? "\n\n(The user also attached an image/screenshot to this message.)"
+    : "";
+  msgs.push({ role: "user", content: `${ctx.userPrompt.slice(0, 2000)}${attNote}${imgNote}` });
   return msgs;
 }
 
 function stripAndRepair(raw: string): string {
   let s = raw.trim();
+  // Strip thinking/reasoning blocks some backends embed in the payload —
+  // terminated or truncated (a thinking model cut off mid-think by
+  // max_tokens leaves an orphan open tag; consume to end of output).
+  s = s.replace(/<(?:think|thinking)>[\s\S]*?(?:<\/(?:think|thinking)>|$)/gi, "");
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
   const braceStart = s.indexOf("{");
   if (braceStart > 0) s = s.slice(braceStart);
@@ -400,11 +847,18 @@ function stripAndRepair(raw: string): string {
  * timeout, unparseable JSON, or an empty-content + empty-reasoning failure.
  */
 async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | null> {
+  // Brief §5: ONE instant for the whole gate call — the currentDate
+  // fallback and the local-context line can never disagree with each
+  // other mid-call at a midnight boundary.
+  const gateNow = new Date();
   const body: Record<string, unknown> = {
     model: "default",
-    messages: buildMainGateMessages(ctx),
+    messages: buildMainGateMessages(ctx, gateNow),
     temperature: 0,
     ...THINKING_OFF_BODY,
+    // Extra thinking-disables for backends that use a different flag name.
+    thinking: { type: "disabled" },
+    response_format: { type: "json_object" },
     max_tokens: MAIN_GATE_MAX_TOKENS,
   };
 
@@ -438,10 +892,9 @@ async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | n
     const decision = parseMainGateJson(raw, ctx);
     if (decision) return decision;
   }
-  log.warn(
-    { content: content.slice(0, 120), reasoning: reasoning.slice(0, 120) },
-    "main-model gate produced no parseable verdict",
-  );
+  // Silent fallback: the caller (runSearchGate) routes to rulesBasedPlan.
+  // No WARN log here — an unparseable verdict from a small local model is
+  // expected noise, not an error worth dumping to the terminal.
   return null;
 }
 
@@ -458,34 +911,14 @@ function parseMainGateJson(raw: string, ctx: SearchGateContext): SearchDecision 
       if (typeof parsed?.search_required !== "boolean") continue;
 
       if (!parsed.search_required) {
-        // Search-by-default re-verify: the model may only veto a search
-        // for genuinely self-contained prompts. If the prompt carries an
-        // external entity (URL, brand, proper noun, version, time signal,
-        // image+lookup intent), the "I can answer from memory" answer is
-        // overturned — this is what makes the gate search-by-default in
-        // practice, not just in the system prompt.
-        const vetoAllowed =
-          !promptHasExternalEntity(ctx.userPrompt) &&
-          !(ctx.hasImageAttachment && IMAGE_LOOKUP_INTENT_RE.test(ctx.userPrompt));
-        if (!vetoAllowed) {
-          const urls = extractPromptUrls(ctx.userPrompt);
-          const queries: SearchDecision["queries"] = urls.map(
-            (u) => ({ query: u, intent: "general" as const }),
-          );
-          if (queries.length === 0) {
-            queries.push({
-              query: ctx.userPrompt.replace(/\s+/g, " ").trim().slice(0, 300),
-              intent: "general",
-            });
-          }
-          return {
-            search_required: true,
-            reason: "search-by-default: model veto overturned (external entity present)",
-            freshness: "any",
-            depth: "standard",
-            queries,
-          };
-        }
+        // (2026-11-04 brief §2) A model `false` verdict is FIRST-CLASS:
+        // the deterministic chain above already force-YESed every
+        // explicit evidence shape (URL literal, search frame, live-fact
+        // freshness), so reaching the model with a NO is the designed
+        // outcome for conversation/concepts/writing/supplied material.
+        // The old promptHasExternalEntity veto (capitalization / proper-
+        // noun / version guessing) is deleted — it overturned confident
+        // correct answers on "Explain Newton's first law." style turns.
         return {
           search_required: false,
           reason: String(parsed.reason ?? "main model: no live web content needed").slice(0, 300),
@@ -511,14 +944,15 @@ function parseMainGateJson(raw: string, ctx: SearchGateContext): SearchDecision 
       for (const u of urls) {
         if (!queries.some((q) => q.query === u)) queries.push({ query: u, intent: "general" });
       }
-      if (queries.length === 0) {
-        queries.push({ query: ctx.userPrompt.replace(/\s+/g, " ").trim().slice(0, 300), intent: "general" });
-      }
+      // §4: a YES verdict whose queries all sanitized away is unusable —
+      // reject the whole verdict (caller falls to the rules plan, same
+      // standard) instead of pasting the user's question back as a query.
+      if (queries.length === 0) return null;
 
       return {
         search_required: true,
         reason: String(parsed.reason ?? "main model: live web content needed").slice(0, 300),
-        freshness: (["none", "day", "week", "month", "year", "any"].includes(parsed.freshness)
+        freshness: (["none", "day", "week", "month", "year", "realtime", "any"].includes(parsed.freshness)
           ? parsed.freshness
           : "any") as SearchDecision["freshness"],
         depth: (["quick", "standard", "deep"].includes(parsed.depth)
@@ -555,29 +989,24 @@ export function gateDisabledByEnv(): boolean {
 }
 
 /**
- * THE gate. SEARCH-BY-DEFAULT policy.
+ * THE gate. EVIDENCE-NEED policy (2026-11-04 brief §1/§2):
  *
- * Precedence:
- *   0. hard bypass (URL / known domain / web intent / image+intent) →
- *      search, 0 ms, source "deterministic", reason "deterministic_url_or_intent"
- *   1. trivial greeting / assistant-identity prompt → no-search, zero tokens
- *   2. main model verdict, re-verified against promptHasExternalEntity —
- *      a model `false` is flipped to `true` whenever an external entity
- *      (brand, URL, proper noun, version, time signal, image+intent) is
- *      present.
- *   3. main model unreachable / unparseable → SEARCH-BY-DEFAULT rules
- *      plan (a junk search is far cheaper than a confidently-wrong
- *      offline answer).
+ *   0. hard bypass — skip layers (local-only / pure clock / supplied-
+ *      material / codegen / creative / math, each escape-guarded) →
+ *      force-NO with ZERO queries; force-YES layers (URL literal,
+ *      explicit search/navigation/research frame, narrow freshness,
+ *      image+lookup) → force-SEARCH. 0 ms, source "deterministic".
+ *   1. trivial greeting / assistant-identity prompt (temporal-adverb
+ *      normalized: "what are you doing today" ≡ "what are you doing")
+ *      → no-search, zero tokens, ZERO gate model calls.
+ *   2. the main model's verdict — FINAL in both directions. The gate
+ *      model is the only model; there is no second router, no planner,
+ *      and no deterministic re-verify that overrides its NO.
+ *   3. main model unreachable / malformed / timeout → rules plan with
+ *      the SAME semantic standard (safe local answers; only explicit
+ *      evidence shapes search).
  */
 export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateResult> {
-  // Search-by-default override (the Part 1 mandate): unless the prompt is
-  // a trivial 1-2 word greeting/chit-chat, the gate NEVER returns
-  // search_required=false — a junk search is far cheaper than a
-  // confidently-wrong answer on live facts (prices, stock, showtimes,
-  // local businesses, versions). The model's role narrows to writing the
-  // queries, not to vetoing the search.
-  const searchByDefault = !isTrivialPrompt(ctx.userPrompt);
-
   // Test / CI escape hatch: skip the network call entirely.
   if (gateDisabledByEnv()) {
     const bypass = deterministicHardBypass(ctx);
@@ -590,13 +1019,18 @@ export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateR
     return plan;
   }
 
-  // Stage 0: hard bypass — a literal link / known site / live-intent word
-  // never waits on (or loses to) a model verdict. 0 ms, zero tokens.
+  // Stage 0: hard bypass — an explicit link / live-evidence frame never
+  // waits on a model verdict, and an explicit local scope never spends
+  // one. 0 ms, zero tokens.
   const bypass = deterministicHardBypass(ctx);
   if (bypass) {
     log.info(
-      { matched: bypass.hit.matched, prompt: ctx.userPrompt.slice(0, 60) },
-      "search gate STAGE 0 hard bypass → search",
+      {
+        matched: bypass.hit.matched,
+        search_required: bypass.decision.search_required,
+        prompt: ctx.userPrompt.slice(0, 60),
+      },
+      "search gate STAGE 0 hard bypass",
     );
     return { decision: bypass.decision, source: "deterministic", gateMs: 0 };
   }
@@ -610,21 +1044,12 @@ export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateR
   const t0 = performance.now();
   const main = await mainModelGate(ctx);
   if (main) {
-    let decision = main;
-    // Search-by-default re-verify: a model "no" only holds when the
-    // prompt is truly self-contained (no URL / brand / proper noun /
-    // version / time signal / image+lookup intent).
-    if (!main.search_required && promptHasExternalEntity(ctx.userPrompt)) {
-      decision = {
-        ...main,
-        search_required: true,
-        reason: "search-by-default: external entity in prompt — search even though the model vetoed",
-        depth: "standard",
-        queries: main.queries.length > 0 ? main.queries : buildFallbackQueries(ctx.userPrompt),
-      };
-    }
+    // The model verdict is FINAL: the deterministic chain already forced
+    // every explicit evidence shape, so nothing here re-searches a
+    // confident no. (2026-11-04 brief §2: the search-by-default override
+    // is deleted; model NO = empty queries = zero downstream traffic.)
     const out: SearchGateResult = {
-      decision,
+      decision: main,
       source: "main-model",
       gateMs: Math.round(performance.now() - t0),
     };
@@ -633,37 +1058,20 @@ export async function runSearchGate(ctx: SearchGateContext): Promise<SearchGateR
         source: out.source,
         search_required: out.decision.search_required,
         gateMs: out.gateMs,
-        overridden: main.search_required !== out.decision.search_required,
       },
       "search gate verdict (main model)",
     );
     return out;
   }
 
-  // Main model failed → SEARCH-BY-DEFAULT: rules-based plan (search
-  // required), NOT a no-search fallback. The gate errs on the side of
-  // running a search rather than missing live facts.
+  // Main model failed (unreachable / malformed / timeout) → rules plan
+  // applying the SAME evidence-need standard — NOT always-search. Safe
+  // local answers survive an outage; only explicit evidence shapes fire.
   log.warn(
     { prompt: ctx.userPrompt.slice(0, 80), gateMs: Math.round(performance.now() - t0) },
-    "main model unreachable — search-by-default rules plan",
+    "main model unreachable — rules plan (same evidence-need standard)",
   );
   return rulesBasedPlan(ctx);
-}
-
-/**
- * Build a minimal keyword-form query list from the prompt when the model
- * was unreachable or returned none. Used by the search-by-default
- * override and by rulesBasedPlan.
- */
-function buildFallbackQueries(prompt: string): SearchDecision["queries"] {
-  const urls = extractPromptUrls(prompt);
-  const out: SearchDecision["queries"] = urls.slice(0, 3).map((u) => ({ query: u, intent: "general" }));
-  const hasTimeSignal = /latest|recent|new|current|today|this (week|month|year|quarter)/i.test(prompt);
-  out.unshift({
-    query: prompt.replace(/\s+/g, " ").trim().slice(0, 300),
-    intent: (hasTimeSignal ? "news" : "general") as SearchDecision["queries"][number]["intent"],
-  });
-  return out;
 }
 
 /**

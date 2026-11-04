@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 
 /**
  * Custom stats endpoint backing the composer token meter.
@@ -42,6 +43,7 @@ async function fetchUpstream(path: string): Promise<unknown | null> {
 }
 
 export async function GET(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/model-stats");
   if (req.nextUrl.searchParams.get("live") === "1") {
     const slots = await fetchUpstream("/slots");
     if (!Array.isArray(slots)) return NextResponse.json({ ok: false });

@@ -4,7 +4,11 @@ export const SearchDecisionSchema = z
   .object({
     search_required: z.boolean(),
     reason: z.string(),
-    freshness: z.enum(["none", "day", "week", "month", "year", "any"]),
+    // §11.10: "realtime" is the tightest class — facts that change
+    // minute-to-minute (prices, scores, status pages, "right now" state).
+    // Retrieval treats it as live_required (cache is never consulted) with
+    // a 5-minute retention window on write.
+    freshness: z.enum(["none", "day", "week", "month", "year", "realtime", "any"]),
     depth: z.enum(["quick", "standard", "deep"]),
     queries: z.array(
       z.object({
@@ -16,19 +20,57 @@ export const SearchDecisionSchema = z
   })
   // search_required=true needs ≥1 query; a no-search verdict is allowed to
   // carry an empty queries array (the pipeline never reads it on that path).
-  .refine((d) => d.search_required || d.queries.length > 0, {
+  // (2026-11-04 audit fix: the predicate was inverted — it rejected the
+  // valid false+empty case and accepted the invalid true+empty one; the
+  // Compat schema below always had this right.)
+  .refine((d) => !d.search_required || d.queries.length > 0, {
     message: "search_required=true requires at least one query",
   });
 
 export type SearchDecision = z.infer<typeof SearchDecisionSchema>;
 
-/** Legacy freshness values normalized to the new set on parse. */
+/**
+ * Legacy freshness values normalized to the new set on parse.
+ * §11.11 (audit 2026-11-04b): an arbitrary string that is neither a legacy
+ * alias nor a canonical value must NOT ride through an unchecked cast into
+ * the decision — it would poison the retrieval-mode ladder and the TTL
+ * squeeze downstream. Any invalid input deliberately normalizes to "any"
+ * (the neutral tier: cached_preferred, no false live_required).
+ */
 function normalizeFreshness(f: string): SearchDecision["freshness"] {
   switch (f) {
     case "current": return "day";
     case "recent": return "month";
-    default: return f as SearchDecision["freshness"];
+    case "none":
+    case "day":
+    case "week":
+    case "month":
+    case "year":
+    case "realtime":
+    case "any":
+      return f;
+    default:
+      return "any";
   }
+}
+
+/**
+ * §11.11 retrieval-mode contract. The cache READ policy for a run is
+ * derived from the gate's freshness decision:
+ *  - live_required  (freshness "realtime"): NEVER read the query cache;
+ *    every run hits the live engine pool. Short TTL on write.
+ *  - live_preferred (freshness "day"/"week"): a cache hit is only ever a
+ *    short-TTL row (enforced at WRITE time by FRESH_QUERY_TTL_MS) — the
+ *    5-hour cached row is never produced for these decisions.
+ *  - cached_preferred: everything else; the normal TTL applies.
+ * Rust mirror: `RetrievalMode` + `retrieval_mode_for_freshness` (types.rs).
+ */
+export type RetrievalMode = "cached_preferred" | "live_preferred" | "live_required";
+
+export function retrievalModeForFreshness(f: string): RetrievalMode {
+  if (f === "realtime") return "live_required";
+  if (f === "day" || f === "week") return "live_preferred";
+  return "cached_preferred";
 }
 
 /**
@@ -113,6 +155,17 @@ export interface EvidencePassage {
   bm25Score: number;
 }
 
+/**
+ * Brief §6 (2026-11-04): fragment-router carve-out for the canonical/dedupe
+ * key. SPA hash routes (`#/products/123`, AngularJS `#!/app`) are DISTINCT
+ * PAGES — the fragment is part of page identity, so it must survive URL
+ * cleanup and dedupe. A pure in-page anchor (`#section-2`) names a position
+ * within the SAME document and collapses onto the page. Generic router
+ * convention only — no site tables. Always tested against `location.hash`
+ * form (includes the leading `#`).
+ */
+export const FRAGMENT_ROUTE_RE = /^#!?\//;
+
 /** A normalized result from ANY search source, after URL cleanup + dedup. */
 export interface NormalizedResult {
   url: string;
@@ -122,6 +175,16 @@ export interface NormalizedResult {
   engine: string;
   publishedDate?: string;
   domain: string;
+  /**
+   * §19 provenance stamp — how this candidate entered the pool. Stamped at
+   * the single merge/normalization points (metasearch fuse, Stage-0 direct
+   * targets); downstream ranking reads it but never rewrites it.
+   *  - "search": surfaced by an engine (SERP / vertical / news / fallback)
+   *  - "user": the URL came from the user's own prompt (direct-target hop)
+   *  - "retrieval": entered via an already-approved fetch (link expansion)
+   *  - "config": injected by operator configuration (preferred domains)
+   */
+  origin?: "search" | "user" | "retrieval" | "config";
 }
 
 export interface RankedResult extends NormalizedResult {
@@ -146,6 +209,8 @@ export interface EvidencePacket {
    * One of the canonical categories:
    *   SUCCESS_DIRECT, SUCCESS_ADAPTER, SUCCESS_METADATA,
    *   SUCCESS_JINA_FALLBACK, SUCCESS_SNIPPET_FALLBACK,
+   *   SUCCESS_BROWSER, SUCCESS_REDIRECTED (landed on a different
+   *   registrable site; url/domain carry the final site),
    *   FAIL_SILENT_BOT_BLOCK, FAIL_SILENT_LOGIN_WALL,
    *   FAIL_EMPTY_JS_SHELL, FAIL_NETWORK_OR_CRASH
    * Absent on packets that pre-date the stress-test upgrade.
@@ -165,10 +230,37 @@ export interface SearchGateContext {
    */
   hasImageAttachment?: boolean;
   /**
+   * Part-10 APPROVED PARITY DEVIATION (attachment-aware gate): the CURRENT
+   * turn carries attachment evidence (`attachment_ref` blocks — the same
+   * flag the retrieval stage keys off). Consulted ONLY by the Stage-0
+   * attachment-local suppression rule; absent/false ⇒ behavior is
+   * byte-identical to the pre-deviation parity baseline. Mirrors the Rust
+   * SearchGateContext field of the same name.
+   */
+  hasAttachmentEvidence?: boolean;
+  /**
+   * Part-10 APPROVED PARITY DEVIATION (universal search pre-gate): the
+   * runtime date ("YYYY-MM-DD") the gate model should reason against.
+   * NEVER hardcoded — when absent the gate falls back to the real clock
+   * (`new Date()`), so staleness questions are judged against the actual
+   * present; tests inject a fixed date so they never couple to the wall
+   * clock. Mirrors the Rust SearchGateContext `current_date` field.
+   */
+  currentDate?: string;
+  /**
    * Image data URLs attached to the user's turn (when hasImageAttachment).
    * Consumed by the Vision-to-Search entity pre-pass before query planning.
    */
   imageDataUrls?: string[];
+  /**
+   * Task-scope audit (2026-11-02, brief #1/#3/#6): the server-derived
+   * operational scope for this turn (targets, intent, verified hosts).
+   * Produced by foldTaskScope over the conversation's user turns — NEVER
+   * by the model: gate/tool arguments cannot widen this contract.
+   * Absent ⇒ callers derive from the prompt alone. Mirrors the Rust
+   * SearchGateContext `scope` field.
+   */
+  scope?: import("../decision/task-scope").TaskScope;
 }
 
 export interface SearchGateResult {

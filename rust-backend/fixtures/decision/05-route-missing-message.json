@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "scenario": "POST /api/decision — message missing/empty",
+    "semantics": "400 {\"error\":\"message required\"} byte-exact. The guard tests message.trim(), so empty AND whitespace-only messages both land here (see fixture 03).",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/decision-serialization.test.ts",
+    "env": {
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none — the whole point is that these bytes contain NO timing/volatile fields."
+  },
+  "request": {
+    "rawBody": "{\"history\":[]}"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodyBytes": "{\"error\":\"message required\"}"
+  },
+  "envelope": {
+    "error": "message required"
+  },
+  "envelopeKeyOrder": [
+    "error"
+  ]
+}

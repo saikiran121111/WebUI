@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
+import { handleBrowserStage } from "../lib/browser-client/browserStore";
 import {
   compactConversation,
   type CompactResult,
@@ -25,6 +26,7 @@ import {
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
 import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
+import { sanitizeRichResult, type RichResult } from "../lib/web-search/rich-results";
 import {
   computeBaselines,
   TurnProgressTracker,
@@ -38,10 +40,12 @@ export interface UseChatOptions {
   apiUrl?: string;
   apiKey?: string;
   /**
-   * The web pipeline hit a login wall (web:auth_required stage) — the page
-   * opens its in-app Browser panel targeted at the walled URL (Part 3).
+   * Browser Use (Phase 10): returns the conversation id whose Browser
+   * Panel is currently open (undefined = no browser for this send).
+   * Consulted at SEND time through a ref — the caller wires it
+   * non-reactively (page.tsx) so panel state never re-renders the chat.
    */
-  onAuthRequired?: (info: { url?: string; domain?: string }) => void;
+  getBrowserSession?: () => string | undefined;
 }
 
 export interface UseChatReturn {
@@ -86,13 +90,8 @@ export function useChat({
   model = "",
   apiUrl,
   apiKey,
-  onAuthRequired,
+  getBrowserSession,
 }: UseChatOptions = {}): UseChatReturn {
-  // Stable ref: handleEvent stays dependency-free but always sees the
-  // page's latest auth-required handler.
-  const onAuthRequiredRef = useRef(onAuthRequired);
-  onAuthRequiredRef.current = onAuthRequired;
-
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus]   = useState<SendStatus>("complete");
   const [error, setError]     = useState<string | null>(null);
@@ -111,6 +110,9 @@ export function useChat({
   //     [system?, compacted-context message, ...recent tail, ...new turns].
   const compactThresholdsRef = useRef<CompactThresholds | null>(null);
   const compactingRef = useRef(false);
+  // Latest getter without re-render coupling (Phase 10 browser marker).
+  const getBrowserSessionRef = useRef(getBrowserSession);
+  getBrowserSessionRef.current = getBrowserSession;
 
   // Post-turn rebuild of the model-facing history, applied LAZILY. When a
   // turn ends we remember the LLM array as it stood BEFORE the turn (the
@@ -406,21 +408,44 @@ export function useChat({
     // Server phase frames (ruke_stage): real counts into the tracker, plus
     // web metadata that streamed turns deliver in-band instead of headers.
     if (ev.stage) {
+      // Browser Use (Phase 3 seam): browser:* frames steer the Browser
+      // Panel store (open/active/idle). The progress tracker still sees
+      // the frame below — we do not swallow stage events.
+      if (typeof ev.stage.stage === "string" && ev.stage.stage.startsWith("browser:")) {
+        // Audit #10: working_tab frames carry the SESSION+TURN+TAB
+        // qualifiers too (wire `tabId`/`turn` ⇔ Rust `tab_id`/`turn`); the
+        // store refuses cross-session and stale-turn frames with them.
+        handleBrowserStage(ev.stage.stage, ev.stage.session, ev.stage.tabId, ev.stage.turn);
+      }
       if (ev.stage.stage === "web_meta") {
         const id = assistantIdRef.current;
         const gateMeta = ev.stage.searchGate ?? ev.stage.researchLfm;
-        if (id && (ev.stage.webCitations || gateMeta)) {
+        // P5 rich-results transport: the frame carries the PresentationPlan
+        // and the full validated surface set (OVERWRITE law — every re-emit
+        // ships the FULL set, never a delta). The frame also fires with a
+        // surfaces-only payload (no citation packets, e.g. news items from
+        // ranked results alone), so the store condition covers all four
+        // payloads. Defense in depth (§60): the client re-runs the canonical
+        // sanitizer on every envelope even though the server already
+        // sanitized — tamper/old-server drift drops a surface gracefully,
+        // never the response (one broken widget law, §59).
+        const rawSurfaces: unknown[] | null = Array.isArray(ev.stage.richResults)
+          ? (ev.stage.richResults as unknown[])
+          : null;
+        const surfaces: RichResult[] | null = rawSurfaces
+          ? rawSurfaces
+              .map(sanitizeRichResult)
+              .filter((r): r is RichResult => r !== null)
+          : null;
+        if (id && (ev.stage.webCitations || gateMeta || surfaces || ev.stage.presentation)) {
           setMessages(prev => prev.map(m => m.id === id ? {
             ...m,
             ...(ev.stage.webCitations ? { webCitations: ev.stage.webCitations } : {}),
             ...(gateMeta ? { searchGate: gateMeta } : {}),
+            ...(ev.stage.presentation ? { presentation: ev.stage.presentation } : {}),
+            ...(surfaces && surfaces.length > 0 ? { richResults: surfaces } : {}),
           } : m));
         }
-      }
-      if (ev.stage.stage === "web:auth_required") {
-        // Login-wall report (Part 3): surface the Browser panel aimed at the
-        // walled page. The progress tracker already shows the info band.
-        onAuthRequiredRef.current?.({ url: ev.stage.url, domain: ev.stage.domain });
       }
       const t = progressRef.current;
       if (t) {
@@ -671,7 +696,23 @@ export function useChat({
       const requestHistory = [...llmHistoryRef.current, userMsg];
 
       await client.chat(
-        { messages: requestHistory, model, stream: true, reasoning_effort: curEffort === "off" ? undefined : curEffort, tools },
+        {
+          messages: requestHistory,
+          model,
+          stream: true,
+          reasoning_effort: curEffort === "off" ? undefined : curEffort,
+          tools,
+          // Browser routing law (task-scope audit, brief #2): the marker
+          // rides on EVERY chat send as conversation identity — panel
+          // open/closed never decides activation, and the SERVER decides
+          // the browser loop from the task-scope contract. Still never
+          // set on compaction/fence-repair calls (their own paths).
+          browser_session: getBrowserSessionRef.current?.(),
+          // P1 clock grounding: the zone the user experiences "now" in.
+          // The route answers time/date questions from the server clock
+          // converted to this zone (never its own machine zone).
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
         (ev) => handleEvent(ev, controller),
         controller.signal,
         (headers) => {

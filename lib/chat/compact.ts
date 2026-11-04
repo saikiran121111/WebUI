@@ -54,6 +54,7 @@ Output the final state inside <compacted_context> tags using this exact Markdown
 ## 2. Current Architecture & Exact State
 - [Exact file paths, function signatures, database schemas, formulas, or system states currently in use]
 - [Finalized decisions and the 1-sentence reason WHY they were chosen]
+- [Time anchor: the absolute date(s) the conversation took place on, and any explicit dates/times stated by the user, written in absolute form (never "today"/"yesterday")]
 
 ## 3. Chronological Topic & Breadcrumb Index
 - [1-line entry per completed or discarded topic so awareness is never lost]

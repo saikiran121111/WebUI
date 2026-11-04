@@ -32,9 +32,20 @@ import { test, expect } from "@playwright/test";
 // placeholder is now "How can I help you today?".
 const INPUT = "textarea[placeholder^='How can I help']";
 
-async function sendPrompt(page: import("@playwright/test").Page, text: string) {
+/**
+ * Count this page's assistant bubbles BEFORE sending. The app RESTORES the
+ * previous conversation on goto("/") (verified behavior), so restored turns
+ * can carry inline [S#] citation pills (a[data-citation]) from EARLIER
+ * sessions. A "no search happened" assertion must therefore be scoped to
+ * THIS turn's bubble (index = prior count), never the whole page — same
+ * race family as the universal-websites helper fix. Returns the prior count.
+ */
+async function sendPrompt(page: import("@playwright/test").Page, text: string): Promise<number> {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  const priorAssistant = await page
+    .locator('[data-testid="assistant-message"]')
+    .count();
 
   const input = page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: 15000 });
@@ -48,6 +59,16 @@ async function sendPrompt(page: import("@playwright/test").Page, text: string) {
     .getByText(text.slice(0, 40), { exact: false })
     .first()
     .waitFor({ state: "visible", timeout: 15000 });
+  return priorAssistant;
+}
+
+/**
+ * Locator for the bubble this turn mounted (index = pre-send count in both
+ * fresh-chat and restored-chat modes). Falls back to the page scope if the
+ * bubble never appeared (then the global assertion still fails loudly).
+ */
+function turnScope(page: import("@playwright/test").Page, priorAssistant: number) {
+  return page.locator('[data-testid="assistant-message"]').nth(priorAssistant);
 }
 
 /** The exact prompt from the bug report (algorithm + Rust stub). */
@@ -64,17 +85,21 @@ test("pure LeetCode algorithm prompt triggers NO web search", async ({ page }) =
   const unhandledErrors: string[] = [];
   page.on("pageerror", (err) => unhandledErrors.push(err.message));
 
-  await sendPrompt(page, PALINDROME_PROMPT);
+  const priorAssistant = await sendPrompt(page, PALINDROME_PROMPT);
 
   // The gate answers in a few seconds; give the whole turn time to settle.
   await page.waitForTimeout(60000);
 
   // 1) No clickable search line, no sources popup, no gate badge, no
   // citation pills. (Located by testid/data-attr, not visible text.)
+  // The toggle/popup/badge are per-turn ephemeral processing UI and were
+  // never restored by prior sessions, so a page-global zero is valid for
+  // them; the inline citation pills ARE persisted in restored history, so
+  // the pill assertion is scoped to this turn's own bubble.
   await expect(page.getByTestId("web-search-toggle")).toHaveCount(0);
   await expect(page.getByTestId("research-trail-card")).toHaveCount(0);
   await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
-  await expect(page.locator("a[data-citation]")).toHaveCount(0);
+  await expect(turnScope(page, priorAssistant).locator("a[data-citation]")).toHaveCount(0);
 
   // 2) The answer itself arrived (an algorithm answer is long + has code).
   const mainText = await page.locator("main").first().innerText();
@@ -89,13 +114,14 @@ test("pure LeetCode algorithm prompt triggers NO web search", async ({ page }) =
 test("named LeetCode problem the model knows needs no search", async ({ page }) => {
   test.setTimeout(150000);
 
-  await sendPrompt(page, "Can you give me rust code for leetcode problem 23. Merge k sorted lists");
+  const priorAssistant = await sendPrompt(page, "Can you give me rust code for leetcode problem 23. Merge k sorted lists");
   await page.waitForTimeout(60000);
 
   // A search is only acceptable if the cited sources are on-topic; the
   // garbage pool (messaging apps / help centers / mapping sites) is not.
-  // After the answer streams, the cited sources are the [S#] citation pills.
-  const pills = page.getByTestId("citation-pill").locator("a");
+  // After the answer streams, the cited sources are the [S#] citation
+  // pills — scoped to THIS turn's bubble so restored history can't pollute.
+  const pills = turnScope(page, priorAssistant).getByTestId("citation-pill").locator("a");
   if ((await pills.count()) > 0) {
     const hrefs = await pills
       .evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
@@ -105,7 +131,7 @@ test("named LeetCode problem the model knows needs no search", async ({ page }) 
   }
 });
 
-test("live-fact question searches and is labelled Model-gated with on-topic sources", async ({ page }) => {
+test("live-fact question searches and is labelled Auto-gated with on-topic sources", async ({ page }) => {
   test.setTimeout(200000);
 
   await sendPrompt(page, "What is the NVIDIA RTX 5090 graphics card price in India right now?");
@@ -119,11 +145,17 @@ test("live-fact question searches and is labelled Model-gated with on-topic sour
   const popup = page.getByTestId("research-trail-card").first();
   await expect(popup).toBeVisible();
 
-  // The badge names the AUTHORITY: the main model is authoritative now, so
-  // a pipeline run decided by it must read "Model-gated".
+  // The badge names the AUTHORITY. Since the approved universal pre-gate
+  // deviation (MIGRATION-MAP §11.1), the live-intent word "price" in this
+  // prompt is force-YESed by the deterministic Stage-0 web-intent rule
+  // BEFORE the model is ever consulted — the authority for THIS prompt is
+  // now the pre-gate, so the badge must read "Auto-gated". The assertion
+  // still names the authority that actually decided (never weakened); the
+  // model-gated path itself is exercised by the gray-middle unit matrix in
+  // __tests__/web-search/search-gate-universal.test.ts.
   const badge = page.getByTestId("research-trail-gate-badge").first();
   await expect(badge).toBeVisible();
-  await expect(badge).toHaveText("Model-gated");
+  await expect(badge).toHaveText("Auto-gated");
 
   // Every cited source in the popup must be plausibly on-topic.
   const hrefs = await popup

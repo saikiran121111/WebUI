@@ -112,8 +112,16 @@ async function redditAdapter(u: URL): Promise<AdapterResult | null> {
     return null;
   }
   const lines: string[] = [];
-  const listing = Array.isArray(data) ? data : data?.[0] ?? data;
-  for (const child of listing?.data?.children ?? []) {
+  // (audit 2026-11-04) Reddit's .json endpoints ALWAYS answer with a
+  // listing-wrapper ARRAY (comment pages: [post, comments]; subreddit
+  // pages: [posts]). The old ternary had the branches backwards — it kept
+  // the array itself, then read `.data` off the array (undefined), so the
+  // adapter returned null on every listing and comment URL. Take the
+  // FIRST listing object (the post on comment pages); its children carry
+  // the post body, the sibling comments live at data[1].
+  const listing = Array.isArray(data) ? (data[0] ?? {}) : data;
+  const commentListing = Array.isArray(data) ? data[1] : null;
+  for (const child of [...(listing?.data?.children ?? []), ...(commentListing?.data?.children ?? [])]) {
     const d = child?.data;
     if (!d) continue;
     const isPost = d.author && (d.selftext || d.title);
@@ -142,7 +150,12 @@ async function githubAdapter(u: URL): Promise<AdapterResult | null> {
   const segs = u.pathname.split("/").filter(Boolean);
   // /owner/repo/blob/branch/path → raw
   if (segs.length >= 5 && segs[2] === "blob") {
-    const [, owner, repo, branch] = segs;
+    // (audit 2026-11-04) The old `[, owner, repo, branch]` hole skipped
+    // segs[0]: filter(Boolean) already stripped the leading empty, so the
+    // hole shifted everything — owner ended up holding the REPO, repo
+    // held the literal "blob", and every raw fetch 404'd (owner=repo name,
+    // path "/blob/..."). The blob marker is segs[2]; skip it, not the owner.
+    const [owner, repo, , branch] = segs;
     const path = segs.slice(4).join("/");
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
     const res = await fetchUrl(rawUrl, { timeoutMs: 45_000 });

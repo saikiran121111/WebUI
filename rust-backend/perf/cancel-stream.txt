@@ -1,0 +1,4 @@
+data: {"ruke_stage":{"stage":"decision_done","mode":"standard_chat","ms":0}}
+
+data: {"ruke_stage":{"stage":"web:gate","detail":"Deciding whether a web search is needed..."}}
+
