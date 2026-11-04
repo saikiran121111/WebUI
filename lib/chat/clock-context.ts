@@ -61,6 +61,20 @@ export function utcOffset(now: Date, timeZone: string): string {
 }
 
 /**
+ * The SESSION-timezone calendar date ("YYYY-MM-DD") for `now` — the exact
+ * zone the `<runtime_clock>` block labels. The chat route feeds this to the
+ * search gate as `currentDate` so the gate and the model's clock block never
+ * disagree at the UTC-vs-local midnight boundary (brief §5: one request
+ * instant + session tz across chat/gate/research; the gate's bare-UTC
+ * fallback would otherwise judge "today" freshness against yesterday).
+ * Rust mirror: `clock::session_date_string` (same fallback law).
+ */
+export function sessionDateString(now: Date, browserTimezone?: string): string {
+  const p = zoneParts(now, resolveSessionTimezone(browserTimezone));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/**
  * The per-turn `<runtime_clock>` system block. Wording law: this text and
  * the Rust `clock.rs` block are byte-identical apart from the live values —
  * changing one without the other breaks the Rust-mirror parity tests.
@@ -87,7 +101,9 @@ export function buildClockBlock(
     "This clock is authoritative and live: the server injects it fresh into every turn, immediately before the current user message.\n" +
     "Answer any current-time, date, or day-of-week question directly from this line, in the session timezone shown. " +
     "NEVER claim that you lack a clock, cannot see the current time, or that your knowledge is frozen at a training cutoff.\n" +
-    'Use this clock — never a web search — whenever you reason about "today", "now", "this year", or staleness.\n' +
+    "Use this clock silently as background context: resolve \"today\", \"now\", \"this week\", or staleness against it WITHOUT announcing the date, time, or timezone. " +
+    "Do not greet with or otherwise state the current date/time unless the user asks for it, an as-of date materially helps the answer, or you need to explain a temporal ambiguity.\n" +
+    "The clock does NOT update your knowledge of the outside world: facts that change over time (prices, releases, officeholders, news, availability) still need a web search when verification matters — never answer them from this line alone.\n" +
     "</runtime_clock>"
   );
 }

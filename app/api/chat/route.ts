@@ -11,7 +11,7 @@ import { beginUserTurn, endUserTurn } from "../../../lib/server/inference-busy";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
 import { foldTaskScope, type TaskScope } from "../../../lib/decision/task-scope";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
-import { buildClockContext } from "../../../lib/chat/clock-context";
+import { buildClockContext, sessionDateString } from "../../../lib/chat/clock-context";
 import {
   MODE_FENCE,
   MODE_SKILL,
@@ -522,6 +522,12 @@ async function runTurnPipeline(
       : []),
     fullText,
   ]);
+  // Brief §5: ONE request instant + session timezone shared by the research
+  // gate (ctx.currentDate below) and the <runtime_clock> block injected at
+  // step 7 — the gate and the answering model must never reason against
+  // different calendar dates (UTC vs session date at the midnight/year
+  // boundary). Rust mirror: `turn_now` in chat/pipeline.rs.
+  const turnInstant = new Date();
   const webResearchDisabled = gateDisabledByEnv();
   try {
     if (webResearchDisabled) {
@@ -544,6 +550,10 @@ async function runTurnPipeline(
         hasAttachmentEvidence: hasAttachmentRefs || hasInlineAttachment,
         imageDataUrls: imageParts,
         scope: turnScope,
+        // Session-timezone date at the turn instant (⇔ the date the step-7
+        // clock block will show; ⇔ Rust body "currentDate"). Without it the
+        // gate would fall back to the bare-UTC calendar date.
+        currentDate: sessionDateString(turnInstant, turnTimezone),
       },
       (p) => {
         log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
@@ -631,7 +641,7 @@ async function runTurnPipeline(
   injectSystemBefore(
     payload.messages,
     lastUserIdx + 1,
-    buildClockContext({ browserTimezone: turnTimezone }),
+    buildClockContext({ now: turnInstant, browserTimezone: turnTimezone }),
   );
 
   // One-line routing log: mode + deciding source + skill actually injected.

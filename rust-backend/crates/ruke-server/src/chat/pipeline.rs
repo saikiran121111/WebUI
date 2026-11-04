@@ -125,6 +125,13 @@ pub async fn run_turn_pipeline(
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
 
+    // Brief §5: exactly ONE request instant ⇔ TS `turnInstant` inside
+    // prepareTurn — the research bridge's `currentDate` (the gate's date)
+    // and the step-7 `<runtime_clock>` block both derive from this same
+    // instant, so the gate and the model can never reason against
+    // different calendar dates (UTC vs session zone).
+    let turn_now = chrono::Utc::now();
+
     // Step 4 (route.ts:461): exactly ONE skill block reaches the model.
     // A slash-routed user skill already injected its block (in
     // `apply_slash_skill_routing`); the decision-engine block fills in only
@@ -344,6 +351,11 @@ pub async fn run_turn_pipeline(
             "hasAttachmentEvidence": has_attachment_refs || inline_attachment,
             "imageDataUrls": image_parts,
             "scope": serde_json::to_value(&turn_scope).unwrap_or(Value::Null),
+            // Session-zone date at the turn instant ⇔ TS chat-route
+            // `currentDate: sessionDateString(turnInstant, turnTimezone)`:
+            // the gate's "today" must equal the date the step-7 clock
+            // block shows — never the gate's bare-UTC fallback.
+            "currentDate": clock::session_date_string(turn_timezone, turn_now),
         });
 
         // ⇔ TS `onProgress: (p) => { log.info({…}, "web-research progress");
@@ -508,7 +520,7 @@ pub async fn run_turn_pipeline(
     // function). Injected LAST among the system blocks so the
     // <runtime_clock> block sits immediately before the user turn.
     if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
-        let block = clock::build_clock_block(turn_timezone, chrono::Utc::now());
+        let block = clock::build_clock_block(turn_timezone, turn_now);
         inject_system_before(messages, last_user_idx + 1, block);
     }
 

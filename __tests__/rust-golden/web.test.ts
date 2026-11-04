@@ -529,3 +529,88 @@ describe("golden: web-search pipeline", () => {
     expect(seq).toContain("web:done");
   });
 });
+
+// Brief §5 behavior test (NO fixture written — the corpus is the Rust replay
+// contract; this pins BEHAVIOR at the real-request level only clock unit
+// tests can't reach). "What time is it?" must: (a) skip search entirely —
+// zero engine, reader or model-gate traffic (installUpstream throws on ANY
+// extra fetch, and exactly ONE chat forward is scripted); (b) show the
+// answering model the NEW quiet-clock law VERBATIM inside the real upstream
+// request body (the per-turn <runtime_clock> block), in the SESSION zone the
+// client declared. A prompt-string unit test alone is NOT an output-
+// behavior test; this exercises the actual route → payload path.
+describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffic)", () => {
+  it("06 clock question — no search, no evidence, quiet-clock law in the live request", async () => {
+    HARNESS.mode = "normal";
+    const calls = installUpstream([CHAT_UPSTREAM]);
+    const run = await runChat(
+      POST as never,
+      JSON.stringify({
+        model: "strata-mock",
+        messages: [{ role: "user", content: "What time is it?" }],
+        timezone: "Asia/Kolkata",
+      }),
+    );
+    expect(run.status).toBe(200);
+    const logical = parseLogical(run.text);
+    expect(logical.done).toBe(true);
+    // (a) The gate force-NOs on CLOCK_ASK before any model/retrieval work:
+    // the pipeline skips entirely (stage "web:skipped"), and the ONLY
+    // upstream fetch in the whole request is the single chat forward —
+    // installUpstream throws on any extra fetch, so zero length beyond 1
+    // here IS the zero-gate-model + zero-search-traffic proof.
+    expect(calls.length).toBe(1);
+    const seq = stages(logical.frames);
+    expect(seq).toContain("web:gate");
+    expect(seq).toContain("web:skipped");
+    for (const s of ["web:planning", "web:searching", "web:reading", "web:reranking", "web:done"]) {
+      expect(seq).not.toContain(s);
+    }
+    // No bundle ⇒ no web_meta frame, no evidence sentinel, no citation map.
+    expect(logical.frames.some((f) => f.kind === "stage" && (f.obj as { stage?: string }).stage === "web_meta")).toBe(false);
+    expect(run.headers["x-web-citations"]).toBeUndefined();
+
+    // (b) The real model-request shape: the quiet-clock law rides the turn.
+    // The captured body is the RAW upstream request (JSON text), so static
+    // law lines are asserted in their JSON-escaped form (esc()).
+    const body = calls[0].body!;
+    const esc = (s: string) => JSON.stringify(s).slice(1, -1);
+    expect(calls[0].url).toBe(MOCK_LLM_URL);
+    expect(body.includes("<runtime_clock>")).toBe(true);
+    expect(body.includes("session timezone: Asia/Kolkata (IANA).")).toBe(true);
+    // The exact §5 law lines (⇔ clock.rs build_clock_text mirror; both are
+    // byte-pinned by the clock unit tests — this proves they reach the
+    // ANSWERING model's request, not just the unit fixtures):
+    expect(
+      body.includes(
+        esc(
+          'Use this clock silently as background context: resolve "today", "now", "this week", or staleness against it WITHOUT announcing the date, time, or timezone. Do not greet with or otherwise state the current date/time unless the user asks for it, an as-of date materially helps the answer, or you need to explain a temporal ambiguity.',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      body.includes(
+        esc(
+          "The clock does NOT update your knowledge of the outside world: facts that change over time (prices, releases, officeholders, news, availability) still need a web search when verification matters — never answer them from this line alone.",
+        ),
+      ),
+    ).toBe(true);
+    // No OLD conflation law ("never a web search" for staleness) may survive:
+    expect(body.includes(esc("never a web search — whenever"))).toBe(false);
+
+    const payload = anchorSkillBlocks(JSON.parse(body)).payload as {
+      messages: { role: string; content: unknown }[];
+      tools?: unknown[];
+    };
+    // The user turn is never rewritten; the ONLY injection is the clock
+    // block (lastUserIdx+1); no evidence block, no tool-loop arming
+    // (bundleless turn ⇔ fixture 04's shape).
+    expect(payload.messages.map((m) => m.role)).toEqual(["user", "system"]);
+    expect(payload.messages[0].content).toBe("What time is it?");
+    expect(String(payload.messages[1].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
+    expect(payload.tools).toBeUndefined();
+    // And no answer-content fabrication: the scripted answer streams through.
+    expect(run.text).toContain("search answer");
+  });
+});

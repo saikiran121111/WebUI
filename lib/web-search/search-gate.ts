@@ -786,24 +786,32 @@ Do NOT add anything else to your output.`;
 /**
  * Part-10 (universal search pre-gate): the date the gate reasons about.
  * NEVER hardcoded — tests inject `currentDate` so they never depend on
- * the wall clock; production always falls back to the real runtime clock
- * (UTC, matching Rust's chrono::Utc::now) so staleness questions ("is X
- * still supported?") are judged against the actual present.
+ * the wall clock. The chat route supplies the SESSION-timezone date
+ * (`sessionDateString(turnInstant, turnTimezone)` — the same instant that
+ * renders the turn's `<runtime_clock>` block), so the gate and the
+ * answering model can never judge "today"/staleness against different
+ * calendar dates at the UTC↔session midnight boundary (brief §5). The
+ * bare-UTC fallback fires only for direct API callers that pass no
+ * `currentDate` (e.g. /api/search, which has no session zone to honor);
+ * Rust mirrors the session-zone law in `chat::clock::session_date_string`.
  */
-function gateCurrentDate(ctx: SearchGateContext): string {
+function gateCurrentDate(ctx: SearchGateContext, now: Date = new Date()): string {
   const d = ctx.currentDate?.trim();
   if (d) return d;
-  return new Date().toISOString().slice(0, 10);
+  return now.toISOString().slice(0, 10);
 }
 
-function buildMainGateMessages(ctx: SearchGateContext): { role: string; content: string }[] {
-  const date = gateCurrentDate(ctx);
+function buildMainGateMessages(
+  ctx: SearchGateContext,
+  now: Date = new Date(),
+): { role: string; content: string }[] {
+  const date = gateCurrentDate(ctx, now);
   const msgs: { role: string; content: string }[] = [
     {
       role: "system",
       content:
         `Current date: ${date} (year ${date.slice(0, 4)}).\n` +
-        `${localContextLine()}\n${MAIN_GATE_SYSTEM_PROMPT}`,
+        `${localContextLine(now)}\n${MAIN_GATE_SYSTEM_PROMPT}`,
     },
   ];
   if (ctx.history?.length) {
@@ -839,9 +847,13 @@ function stripAndRepair(raw: string): string {
  * timeout, unparseable JSON, or an empty-content + empty-reasoning failure.
  */
 async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | null> {
+  // Brief §5: ONE instant for the whole gate call — the currentDate
+  // fallback and the local-context line can never disagree with each
+  // other mid-call at a midnight boundary.
+  const gateNow = new Date();
   const body: Record<string, unknown> = {
     model: "default",
-    messages: buildMainGateMessages(ctx),
+    messages: buildMainGateMessages(ctx, gateNow),
     temperature: 0,
     ...THINKING_OFF_BODY,
     // Extra thinking-disables for backends that use a different flag name.

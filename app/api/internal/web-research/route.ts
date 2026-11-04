@@ -12,7 +12,10 @@
  * SSRF defense-in-depth (this route performs outbound fetches on request).
  *
  * Body:  { prompt, history?, hasImageAttachment?, hasAttachmentEvidence?,
- *          imageDataUrls?, scope? }   (scope = Rust-folded TaskScope JSON)
+ *          imageDataUrls?, scope?, currentDate? }
+ *          (scope = Rust-folded TaskScope JSON; currentDate = the
+ *          session-zone date at Rust's turn instant, "YYYY-MM-DD" —
+ *          ⇔ the TS chat route's ctx.currentDate law, brief §5)
  * Reply: NDJSON stream — zero or more
  *          {"type":"progress","stage","detail?",...}   (PipelineProgress)
  * then exactly one terminal frame:
@@ -81,6 +84,14 @@ export async function POST(req: NextRequest) {
     // Rust-folded TaskScope (shared task-scope fixture matrix pins the
     // shape; the gate/planner tolerate missing fields leniently).
     scope: body.scope && typeof body.scope === "object" ? body.scope : undefined,
+    // Brief §5 single-instant law: the session-zone date Rust computed at
+    // its turn instant, so the gate judges "today" against the SAME date
+    // the turn's <runtime_clock> block shows. Strictly validated — any
+    // other shape falls back to the gate's own clock.
+    currentDate:
+      typeof body.currentDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.currentDate)
+        ? body.currentDate
+        : undefined,
   };
 
   const t0 = performance.now();
