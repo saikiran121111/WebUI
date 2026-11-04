@@ -313,9 +313,20 @@ const CASES: Case[] = [
  *                  e.g. location-gated quick-commerce prices); the
  *                  answer states that gap truthfully and stays
  *                  grounded in retrieved provenance.
- * A hedged "I don't know" satisfies NO branch. We never require a
- * false success when a real site blocks — but every honest report must
- * be evidenced, about the right site, and specific about the gap.
+ * The hedge veto governs the fresh-success claim (freshRead) only: the
+ * gap branch deliberately uses the SAME first-person wording
+ * ("I can't confirm X") that HEDGE_PATTERNS ban, so requiring both at
+ * once made evidenceGap unpassable by any human-phrased gap report
+ * (BookMyShow run 2026-11-04: real 07:10 PM ticket grid + live
+ * ET00518674 URLs, vetoed solely by the honest "What I could not
+ * confirm" section). A hedged bare "I don't know" still satisfies NO
+ * branch: assertNoRefusal gates canned refusals, and evidenceGap is
+ * additionally gated on reached + attempted + provenance + 200 chars.
+ * We never require a false success when a real site blocks — but every
+ * honest report must be evidenced, about the right site, and specific
+ * about the gap.
+ * shortcut: a shallow-but-ok >200-char gap monologue satisfies
+ * evidenceGap too — same DOM-telemetry limit as GAP_TRUTH above.
  */
 for (const c of CASES) {
   test(`universal: ${c.name}`, async ({ page }) => {
@@ -353,7 +364,6 @@ for (const c of CASES) {
       ev.attempted &&
       ev.domains.length > 0 &&
       GAP_TRUTH.test(text) &&
-      !hedged &&
       text.length > 200;
     expect(
       freshRead || honestFailure || evidenceGap,
