@@ -16,7 +16,39 @@ Status board (updated per phase):
 | P2 | Model tools: `web_search`/`read_page`, kill `searchMoreStub`, gap loop, RetrievalFailure taxonomy, budgets, tool/result envelopes | **CLOSED** (this commit — details below) |
 | P4 | Planner: query schema/domain semantics/decomposition, evidence sufficiency, bounded Deep, PresentationPlan router | **CLOSED** (this commit — details below) |
 | P5 | UI: citations + U1–U13 + full universal rich-results registry (`components/web-results/`, no gradients) | **CLOSED** (this commit — details below) |
-| P7 | Deterministic proof suite + before/after benchmarks + ONE final locked Playwright loop + final report | pending |
+| P7 | Deterministic proof suite + before/after benchmarks + ONE final locked Playwright loop + final report | VOIDED as briefed — superseded by the 2026-11-03 TS-ownership rollback and the 2026-11-04/05 staged-research cycle below; the equivalent final locked loop ran 2026-11-05 (all-green). |
+
+---
+
+## CURRENT CYCLE — STAGED RESEARCH ARCHITECTURE (P0–P6, 2026-11-04/05)
+
+The current brief is the user-confirmed staged research architecture (universal evidence-driven
+validator + investigation flow; no brand/site/domain aliases or magic phrases in production logic).
+This repo has no root README; this file remains the human-readable deliverable home (`documents/`),
+with AI-internal state in `docs/STATE.md`.
+
+| Phase | Scope (short) | Status |
+| --- | --- | --- |
+| P0 | Baseline review from `93637e6` | **CLOSED** |
+| P1 | Search-gate evidence-need law (content detectors, freshness, NO_SEARCH_BASIS) | **CLOSED** (148a4d0) |
+| P2 | Answer-unit coverage law, route-follow hop, honest starved sentinel | **CLOSED** (1514c8b) |
+| P3 | Honest attachment records (P3a) + server-owned research action ledger (P3b) | **CLOSED** (e62d409 / 7c91c29) |
+| P4 | Evidence-gap recovery law (`serpCoversQuery`, provider fallthrough, never-lose fallback) + 10k acquisition-vs-correctness measurement split | **CLOSED** (48d3409) |
+| P5 | Rich-results presentation preserved (verification pass, structured metadata intact) | **CLOSED** (64 tests green) |
+| P6 | Benchmark program defined (≥429-task corpus, 300@70%, two reviewers, six release targets) | **CLOSED as program; MEASUREMENT PENDING** — `documents/WEB-SEARCH-BENCHMARK-PROGRAM.md` |
+
+Final locked Playwright loop (pw-76..79, commit b708bb9): **CLOSED ALL-GREEN 2026-11-05** —
+search-gate 3/3; universal-websites 15/15 (15 sites, one fix-rerun pass); 10k sample 4/4 runs,
+deterministic acquisition 49/50 across corpus ranges 0–49; interactive browser default suite 11/11
+(browser/computer-use ownership unregressed). The two loop fixes were test-contract arms in
+`tests/universal-websites.spec.ts` (Myntra `INR` currency-marker arm; `GAP_TRUTH` can-arm regex);
+zero production-code edits during the loop. Hash chain on `develop`:
+`93637e6 → 148a4d0 → 1514c8b → e62d409 → 7c91c29 → 48d3409 → 13d5383 → b708bb9`.
+
+Honest limits: the P6 benchmark numbers above do NOT exist — the six release targets are unmeasured;
+the 10k report's YES/NO column is an advisory model vote, never ground truth; no capability,
+parity, or superiority claim is authorized by this architecture existing. Raw per-run outputs:
+`docs/web-search-10k-report.md`; per-phase contracts: `docs/STATE.md` cycle block.
 
 ---
 
