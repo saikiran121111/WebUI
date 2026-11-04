@@ -2836,3 +2836,48 @@ P1–P7.3 closeout (final report, §4 report, shutdown) DEFERRED until audit fix
 1. Read audit-cited regions: task-scope.ts deriveTaskScope, task_scope.rs mirror, planner-law.ts L150-360, query-planner.ts planQueries.
 2. Design R1 scope/intent law fix (typed contract parity TS<->Rust), with corpus tests first (task-scope corpus 56/56 must extend, not break).
 3. Implement R1 (items #2/#5 intent+follow-up laws) → vitest + cargo test -p ruke-websearch -p ruke-browser → commit.
+
+---
+
+# CYCLE 2026-11-04/05 — STAGED RESEARCH ARCHITECTURE (WEB SEARCH repair; universal evidence-driven validator/investigation flow)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Implement the user-confirmed staged research architecture (brief §§P0–P6, anchors A–F) on `develop` from baseline `93637e6`: decide from request meaning + evidence needed whether retrieval is required, then CONTINUE investigating (routes/sections/queries) instead of inventing facts. Laws: no brand/site/domain/product aliases, URL templates, genre whitelists or magic-phrase lists in production decision logic; TS owns retrieval (Rust chat/RPC untouched, wreq-js intentional); reuse gate/planner/metasearch/extractor/ranking/cache/tools/persistence; no second planner, no new model/provider/vector DB; tool request ≠ successful read; do not infer nonexistence from failed lookup; no superiority/parity claims without measurement. Overnight law: NEVER stop/ask; fix issues yourself; push develop + update this file after EACH phase; ONE final locked Playwright loop at end; then auto-shutdown PC.
+Phase status: **P0 baseline reviewed (93637e6). P1 CLOSED (pushed 148a4d0). P2 CLOSED (pushed 1514c8b). P3 ACTIVE. P4 reachable items pending. P5 maintained-test hardening ongoing (specs shipped with each phase). P6 benchmark program = honest REMAINING deliverable (cannot be fabricated; documented as pending measurement).**
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- P1 (148a4d0): gate evidence-need law — content detectors WEB_INTENT (ATTRIBUTION_RE/CATALOG_ASK_RE/SEARCH_FRAME_RE), FRESHNESS_RE, NO_SEARCH_BASIS six-basis contract; wire SearchDecision shape FROZEN (no_search_basis parsed/stripped, never emitted). research-depth-gate.test.ts green at this commit.
+- P2 (1514c8b): answer-unit coverage law (ENUMERATIVE_ASK_RE + hasNovelIdentifier + GAP_STOPWORDS + sourceOperator in query-planner.ts; gapQuery NEVER null while needsGapSearch); planner-law keyClaimsSupported ⇒ !needsGapSearch (budget/serde contract UNTOUCHED — planner-law.test.ts:259-268 + :449-467 pins honored); pipeline route-follow hop (harvest links from read pages, rank anchor/path focus overlap, domain control, maxGapPageFetches budget, origin:"retrieval"); sufficiency at ALL depths; tools.ts focus-window cutPassageWindow + links inventory + honest truncated; NEW lib/web-search/route-links.ts (collectRouteLinks/focusTokens shared tools↔pipeline); evidenceBlock selectExcerpt keeps whole table rows past cap when focus-matching; HONEST starved sentinel (exact bytes pinned in web.test.ts:455 + fixtures/README item 5).
+- Fixture 03 regenerated from live TS oracle (delete + re-record; never hand-edit). MIGRATION-MAP.md line "No web evidence could be retrieved." = HISTORICAL Rust Part-8 body — DO NOT touch. app/api/search(/-more) route bodies are distinct — kept.
+- web-tools.test.ts:449 pin updated with law comment (truncated now reports clipped passages; page-omission law unchanged).
+- Validation gates green at 1514c8b: vitest web-search+golden 458/458; FULL vitest 104 files 1234 pass/1 skip; typecheck exit 0; contracts:check OK.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (this cycle)]
+- route-links.ts ← tools.ts (read_page links inventory) + pipeline.ts (route-follow hop).
+- query-planner.evaluateCoverage ← planner-law.evaluateSufficiency (keyClaimsSupported) ← pipeline sufficiency gate ← planner-law gap hop + route hop; callers also retrieval-quality tests.
+- evidenceBlock/selectExcerpt ← pipeline → app/api/chat evidence injection (P3 audits here).
+- P3 anchors: app/api/chat/route.ts ~:875 (arm tools on evidence-required decision); lib/chat/web-tool-loop.ts streamRound ~:283, no-tool completion ~:392 (action ledger; Rust rust-backend chat/web_loop.rs needs MATCHING behavior — check); lib/chat/citations.ts ~:63; lib/chat/attachindex/turn.ts :99 ("watched a video from start to finish" overclaim → replace with indexed-span wording); client.ts persistence must be server-authoritative (never trust client citations).
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- Sentinel (byte-exact, pipeline.ts + web.test.ts pin + README): "No web evidence could be retrieved for this request: every search and read attempted came back empty or unusable. Do not present unverified memory as retrieved fact: state plainly which requested facts you could not confirm, and clearly label any background knowledge you offer as unverified."
+- NormalizedResult.origin ∈ {search,user,retrieval,config}; route candidates legitimately "retrieval".
+- PageAttempt.entry.links?: {url,anchor}[] (Record<string,unknown>, no interface change); truncated = kept-drop || blocksCut.
+- SearchBudget/budgetForDepth FROZEN (serde parity). PlannerLaw serialized JSON pinned byte-for-byte by planner-law.test.ts serde test.
+- Vitest law: only __tests__/**/*.test.ts run; tests/*.spec.ts = Playwright. Rust law: cargo test -p ruke-server --lib ONLY; NEVER cargo fmt --all.
+- Golden regen law: delete fixture + rerun (writeJsonFixture rewrites fresh; drift = fail with first-diff).
+
+## [8.5 E2E/PLAYWRIGHT STATE]
+- No Playwright run this cycle yet. FINAL loop = ONE locked fix-rerun loop per memory law + CLAUDE.md §1: lock .ai-coordination/playwright.lock, foreground PowerShell wait loop (3h deadline), include tests/search-gate.spec.ts + tests/universal-websites.spec.ts single-case greps (pw-chunk.ps1 pattern); Vitest w/ stubbed fetch needs NO lock.
+- Next pw numbering continues prior cycle's monotonic sequence (pw-76+).
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- None failing at 1514c8b. Watch: retrieval-quality corpus vs new coverage law (green); rerank/BM25 on route packets (green in spec); golden parallel-load flake family (adjudicate standalone reruns, never mutate fixtures/tests).
+- P3 risks: Rust web_loop.rs parity for any action-ledger change; client.ts trusting client-supplied citations.
+
+## [8.7 ACTIVE SKILLS]
+Tier-1 loaded earlier: graphify, ponytail (ongoing behavioral only). Playwright skills load ONLY for the final loop.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. Read app/api/chat/route.ts ~:860-900 (tool arming vs gate decision), lib/chat/web-tool-loop.ts (:260-400), rust-backend chat/web_loop.rs counterpart.
+2. Design P3 action-ledger + armed-tools law + no-tool completion contract (TS + Rust parity), specs first.
+3. Implement P3 → vitest + (if Rust touched) cargo -p ruke-server --lib → commit+push → state update.
