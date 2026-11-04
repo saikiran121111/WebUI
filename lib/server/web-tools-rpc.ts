@@ -29,6 +29,7 @@ import {
   WEB_TOOL_FINAL_DIRECTIVE,
 } from "@/lib/chat/web-tool-loop";
 import { gateDisabledByEnv } from "@/lib/web-search/search-gate";
+import { retrievalModeForFreshness } from "@/lib/web-search/types";
 import type { TaskScope } from "@/lib/decision/task-scope";
 import { childLogger } from "@/lib/server/logger";
 
@@ -113,7 +114,13 @@ export async function handleWebToolsRpc(
         : 1;
     const question = typeof body.question === "string" ? body.question : "";
     const scope = validScope(body.scope) ? body.scope : null;
-    const session = makeWebToolSession(depth as WebToolDepth, seed, question, scope);
+    // §9 (audit 2026-11-04): the gate's freshness rides the bridge (⇔ Rust
+    // web_loop.rs create payload) so the session honors the live_required
+    // page-cache law on read_page. Freshness→retrieval-mode stays a TS law
+    // (no Rust mirror); anything unrecognized maps to cached_preferred.
+    const freshness = typeof body.freshness === "string" ? body.freshness : "any";
+    const liveRequired = retrievalModeForFreshness(freshness) === "live_required";
+    const session = makeWebToolSession(depth as WebToolDepth, seed, question, scope, liveRequired);
     sessions.set(session.searchSessionId, { session, lastTouched: now });
     return {
       status: 200,
@@ -121,6 +128,9 @@ export async function handleWebToolsRpc(
         sessionId: session.searchSessionId,
         budget: session.budget,
         remainingBudget: remainingBudget(session),
+        // §9: observable freshness policy (Rust ignores it; the suite pins
+        // the freshness→live_required mapping through this field).
+        liveRequired: session.liveRequired,
         tools: webToolDefinitions(),
         guidance: WEB_TOOL_GUIDANCE,
         finalDirective: WEB_TOOL_FINAL_DIRECTIVE,

@@ -173,8 +173,19 @@ export function queryCacheKey(plans: SearchPlan[]): string {
   // time filters per freshness tier, so "zepto bread price" as realtime
   // and as "any" produce DIFFERENT SERPs with different TTLs. Query-only
   // keys let a 5-hour "any" row answer a realtime run — freshness leak.
+  // §9: intent and preferredDomains are retrieval-affecting too — the
+  // planner picks different vertical sources for news vs shopping intent
+  // and restricts the SERP for site-scoped plans, so the SAME query with
+  // a different intent/domain scope is a DIFFERENT retrieval and must not
+  // share a cache row (one plan's SERP poisoning another's answer).
   const normalized = plans
-    .map((p) => `${p.query.toLowerCase().trim()}|${p.freshness ?? "any"}`)
+    .map((p) => {
+      const domains = [...(p.preferredDomains ?? [])]
+        .map((d) => d.toLowerCase().trim())
+        .sort()
+        .join(",");
+      return `${p.query.toLowerCase().trim()}|${p.freshness ?? "any"}|${p.intent ?? "general"}|${domains}`;
+    })
     .sort()
     .join("|");
   return hash(normalized);

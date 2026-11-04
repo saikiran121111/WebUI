@@ -222,7 +222,7 @@ describe("P6 untrusted-data law in the evidence block", () => {
     );
   });
 
-  it("renders exactly 8 guideline bullets between header and </evidence>", { retry: 3 }, () => {
+  it("renders exactly 10 guideline bullets between header and </evidence>", { retry: 3 }, () => {
     const header = "Guidelines for using this evidence:";
     const head = block.indexOf(header);
     const close = block.indexOf("</evidence>");
@@ -230,7 +230,7 @@ describe("P6 untrusted-data law in the evidence block", () => {
     expect(close).toBeGreaterThan(head);
     const bullets = block.slice(head + header.length, close)
       .split("\n").filter((l: string) => l.startsWith("- "));
-    expect(bullets.length).toBe(8);
+    expect(bullets.length).toBe(10); // 8 pre-§9 + two §9 freshness/price-attribution laws
   });
 });
 

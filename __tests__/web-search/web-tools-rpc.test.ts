@@ -56,6 +56,27 @@ describe("web-tools RPC (Rust chat-loop bridge)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("§9: create maps gate freshness onto the session (realtime ⇒ liveRequired)", async () => {
+    const vectors: [unknown, boolean][] = [
+      ["realtime", true], // live_required — read_page never replays the page cache
+      ["day", false],     // live_preferred is not live_required
+      ["week", false],
+      ["any", false],
+      [undefined, false], // legacy callers / absent gate
+      [42, false],        // non-string DTO junk degrades to "any"
+    ];
+    for (const [freshness, expected] of vectors) {
+      const res = await handleWebToolsRpc({
+        action: "create",
+        depth: "quick",
+        question: "q",
+        ...(freshness === undefined ? {} : { freshness }),
+      });
+      expect(res.status, `freshness=${String(freshness)}`).toBe(200);
+      expect((res.json as any).liveRequired, `freshness=${String(freshness)}`).toBe(expected);
+    }
+  });
+
   it("exec with unparseable arguments gets the exact invalid_arguments envelope", async () => {
     const created = (
       await handleWebToolsRpc({ action: "create", depth: "quick", question: "q" })

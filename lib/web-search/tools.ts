@@ -176,6 +176,14 @@ export interface WebToolSession {
    * (legacy direct-session callers). Mirrors Rust `WebToolSession.scope`.
    */
   scope: TaskScope | null;
+  /**
+   * §9 (audit 2026-11-04): the gate's retrieval policy, carried from the
+   * search decision (freshness "realtime" ⇒ live_required). A live_required
+   * turn's read_page NEVER replays the SQLite page cache — stale cached
+   * bytes can never answer "the price right now", same law as the pipeline
+   * (pipeline.ts liveRequired ⇔ here).
+   */
+  liveRequired: boolean;
 }
 
 /** Hostname of a tool-supplied URL ("" on parse failure — fail closed). */
@@ -192,6 +200,7 @@ export function makeWebToolSession(
   citationSeed: number,
   queryContext: string,
   scope: TaskScope | null = null,
+  liveRequired = false,
 ): WebToolSession {
   return {
     searchSessionId: "ws-" + Math.random().toString(36).slice(2, 10),
@@ -202,6 +211,7 @@ export function makeWebToolSession(
     nextSource: Math.max(1, citationSeed),
     queryContext: queryContext.slice(0, 500),
     scope,
+    liveRequired,
   };
 }
 
@@ -384,7 +394,9 @@ async function readOneUrl(
   };
 
   try {
-    const packet = await extractUrl(synthetic, deadline);
+    // §9: a live_required session's read never serves the page cache —
+    // the 4th extractUrl arg carries the gate's policy to this path too.
+    const packet = await extractUrl(synthetic, deadline, 0, session.liveRequired);
     applySegmentFilter([packet], focus || session.queryContext);
     renumberPackets([packet], session.nextSource);
     session.nextSource += 1;

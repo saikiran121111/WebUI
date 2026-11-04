@@ -35,6 +35,7 @@ import {
   SearchDecisionSchemaCompat,
   type EvidencePacket,
 } from "../../lib/web-search/types";
+import { queryCacheKey } from "../../lib/web-search/cache";
 import {
   FRESH_QUERY_TTL_MS,
   REALTIME_QUERY_TTL_MS,
@@ -195,6 +196,45 @@ describe("retrievalModeForFreshness pins (⇔ rust types.rs)", () => {
     for (const f of ["month", "year", "any", "none"]) {
       expect(retrievalModeForFreshness(f), f).toBe("cached_preferred");
     }
+  });
+});
+
+/* ── §9 (audit 2026-11-04): query cache identity — retrieval-affecting intent/scope ─ */
+
+describe("queryCacheKey carries every retrieval-affecting field (brief §9)", () => {
+  const plan = (over: Record<string, unknown> = {}) =>
+    ({ query: "zepto bread price", intent: "general", freshness: "any", ...over }) as any;
+
+  it("same query+freshness, different INTENT ⇒ different key (different vertical sources)", () => {
+    expect(queryCacheKey([plan()])).not.toBe(
+      queryCacheKey([plan({ intent: "shopping" })]),
+    );
+  });
+
+  it("different preferredDomains ⇒ different key; set ORDER does not matter", () => {
+    const a = queryCacheKey([plan({ preferredDomains: ["acme.com", "beta.com"] })]);
+    const b = queryCacheKey([plan({ preferredDomains: ["beta.com", "acme.com"] })]);
+    const c = queryCacheKey([plan({ preferredDomains: ["other.com"] })]);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+    expect(a).not.toBe(queryCacheKey([plan()])); // explicit scope ≠ unscoped
+  });
+
+  it("domain CASE folds into identity (keys are normalized, like queries)", () => {
+    expect(queryCacheKey([plan({ preferredDomains: ["ACME.com"] })])).toBe(
+      queryCacheKey([plan({ preferredDomains: ["acme.com"] })]),
+    );
+  });
+
+  it("multi-plan SET order is irrelevant; a different plan SET is a different key", () => {
+    const p1 = plan({ query: "alpha" });
+    const p2 = plan({ query: "beta", intent: "news" });
+    expect(queryCacheKey([p1, p2])).toBe(queryCacheKey([p2, p1]));
+    expect(queryCacheKey([p1, p2])).not.toBe(queryCacheKey([p1]));
+  });
+
+  it("freshness stays in the key (pre-existing §11.11 law, unpinned regression wall)", () => {
+    expect(queryCacheKey([plan()])).not.toBe(queryCacheKey([plan({ freshness: "realtime" })]));
   });
 });
 

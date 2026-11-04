@@ -613,6 +613,23 @@ describe("task-scope admission (⇔ rust scope admission)", () => {
     expect(page.redirectedTo).toBe("https://moved.example/final");
   });
 
+  it("§9: a live_required session passes the policy into extractUrl (page cache never answers)", async () => {
+    const s = makeWebToolSession("standard", 1, "price right now", null, true);
+    expect(s.liveRequired).toBe(true);
+    await execReadPageTool(s, { urls: ["https://live.example/a"] }, []);
+    expect(mocks.extractUrl).toHaveBeenCalledTimes(1);
+    // The 4th positional arg IS the liveRequired policy — dropping it
+    // silently downgrades a realtime turn to cached reads (the §9 bug).
+    expect(mocks.extractUrl.mock.calls[0][3]).toBe(true);
+    // URL-shaped web_search queries ride the SAME readOneUrl path.
+    await execWebSearchTool(s, { queries: ["https://live.example/pricing"], missing_claims: ["m"] }, []);
+    const urlCall = mocks.extractUrl.mock.calls.find((c: any[]) => c[0]?.url === "https://live.example/pricing");
+    expect(urlCall?.[3]).toBe(true);
+    // Default (non-live) sessions keep page-cache reads allowed (false).
+    await execReadPageTool(session(), { urls: ["https://live.example/b"] }, []);
+    expect(mocks.extractUrl.mock.calls[2][3]).toBe(false);
+  });
+
   it("no scope (null) ⇒ no enforcement: legacy sessions keep pre-audit behavior", async () => {
     mocks.metasearch.mockResolvedValue([ranked("https://anything.example/1"), ranked("https://other.example/2")]);
     const out = await execWebSearchTool(session(), { queries: ["alpha beta"], missing_claims: ["fact"] }, []);
