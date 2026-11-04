@@ -61,6 +61,7 @@ import {
 import { derivePresentation, type PresentationPlan } from "./presentation";
 import { deriveRichResults, type GeoPoint, type RichResult } from "./rich-results";
 import { fetchPage } from "./net";
+import { collectRouteLinks, focusTokens } from "./route-links";
 import {
   extractAll,
   renumberPackets,
@@ -290,9 +291,41 @@ export interface EvidenceBundle {
  * top-level specs, prices, and attributes are never lost during
  * chunk ranking.
  */
+/**
+ * Table-row-aware excerpt selection (universal research-depth law): a
+ * blind character-prefix cut drops the REQUESTED rows sitting near the
+ * end of a long table — the page was read, the fact was dropped anyway.
+ * For table-shaped passages keep the prefix PLUS every whole row past
+ * the cap that matches the request's own words, with an honest in-place
+ * marker for the skipped middle. Non-table passages ride the
+ * byte-identical prefix cut (goldens stay stable).
+ */
+function selectExcerpt(text: string, cap: number, focusWords: string[]): string {
+  if (text.length <= cap) return text;
+  const head = text.slice(0, cap);
+  const lines = text.split("\n");
+  if (lines.length < 5) return head;
+  const inHead = new Set(head.split("\n"));
+  const past = lines.filter(
+    (l) => !inHead.has(l) && /^\s*\|/.test(l) && focusWords.some((w) => l.toLowerCase().includes(w)),
+  );
+  if (past.length === 0) return head;
+  return head + "\n[…table rows past the excerpt cap, kept whole:]\n" + past.slice(0, 30).join("\n");
+}
+
 export function evidenceBlock(bundle: EvidenceBundle): string {
   if (bundle.topPassages.length === 0) {
-    return "No web evidence could be retrieved. Proceed with your knowledge only.";
+    // Honest acquisition-failure sentinel (universal research-depth audit
+    // 2026-11-05): the old wording told the model to "proceed with your
+    // knowledge only" — an instruction to answer WITHOUT evidence, the
+    // exact unsupported-memory path the audit targets. Retrieval failure
+    // is now stated as a fact about what was attempted, and unverified
+    // background must be labelled as such.
+    return (
+      "No web evidence could be retrieved for this request: every search and read attempted came back empty or unusable. " +
+      "Do not present unverified memory as retrieved fact: state plainly which requested facts you could not confirm, " +
+      "and clearly label any background knowledge you offer as unverified."
+    );
   }
   const bySource = new Map<string, EvidencePassage[]>();
   for (const p of bundle.topPassages) {
@@ -303,6 +336,10 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
 
   const depth = bundle.searchGate.decision.depth;
   const charBudget = depth === "deep" ? 60_000 : 35_000;
+  // Focus words come from the gate's own user-derived queries: they say
+  // which parts of a long source matter for THIS request (grammar over
+  // the request, never a brand/keyword table).
+  const focusWords = (bundle.searchGate.decision.queries ?? []).flatMap((q) => focusTokens(q.query));
 
   const lines: string[] = [
     "<evidence> Web passages retrieved for this request, grouped by source. ",
@@ -330,7 +367,7 @@ export function evidenceBlock(bundle: EvidenceBundle): string {
     lines.push(`\n[${id}] ${title}${published}\n    ${url}`);
     for (const p of passages.slice(0, 5)) {
       if (totalChars >= charBudget) break;
-      const excerpt = p.passageText.slice(0, 4000);
+      const excerpt = selectExcerpt(p.passageText, 4000, focusWords);
       totalChars += excerpt.length;
       lines.push(
         `    "${excerpt.replace(/\s+/g, " ")}"  (BM25=${p.bm25Score.toFixed(2)})`,
@@ -1134,8 +1171,11 @@ export async function runWebResearch(
   });
   log.info({ ms: Math.round(performance.now() - t2), passages: topPassages.length }, "rerank complete");
 
-  // ── coverage & gap evaluation (the only 2nd hop: find what's missing) ──
-  const coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
+  // ── coverage & gap evaluation (recovery hops: find what's missing) ────
+  // `let`: re-evaluated after every evidence merge so the route hop and
+  // the sufficiency pass both see the CURRENT evidence state, not the
+  // pre-hop snapshot.
+  let coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
   let gapSearchFired = false;
   // Packets from the existing gap hop. `packets` itself is NEVER
   // reassigned (pinned contract), so the deep wave below re-merges
@@ -1183,25 +1223,125 @@ export async function runWebResearch(
         { gapResults: gapResults.length, merged: allPackets.length },
         "gap search merged",
       );
+      // The merge changed what's on the table — re-evaluate before the
+      // route hop decides whether an answer unit is STILL missing.
+      coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
+    }
+  }
+
+  // ── route-follow hop (universal research-depth law, 2026-11-05) ────────
+  // When retrieved pages confirm the TOPIC but not the requested answer
+  // unit, and the fetched content itself NAMES a route to it (a linked
+  // detail/catalog page), FOLLOW that route instead of re-guessing it
+  // through another search query. A navigation edge is not evidence of a
+  // read — the bounded fetch below is what converts a discovered route
+  // into evidence. Same domain law + segment filter + gap-page budget as
+  // the search hop; fires once per run (bounded fan-out, no crawl, no
+  // loop, no second retrieval engine).
+  if (coverage.needsGapSearch) {
+    const wantWords = new Set(focusTokens(ctx.userPrompt + " " + qTexts.join(" ")));
+    const allHopPackets = [...packets, ...secondHopPackets];
+    const readSet = new Set(allHopPackets.map((pkt) => normalizeUrl(pkt.url)));
+    const seenRoute = new Set<string>();
+    const routes: RankedResult[] = [];
+    for (const pkt of allHopPackets) {
+      for (const link of collectRouteLinks(pkt.url, pkt.passages)) {
+        const key = normalizeUrl(link.url);
+        if (readSet.has(key) || seenRoute.has(key)) continue;
+        seenRoute.add(key);
+        let rdomain = link.url;
+        let pathWords: string[] = [];
+        try {
+          const u = new URL(link.url);
+          rdomain = u.hostname;
+          pathWords = focusTokens(decodeURIComponent(u.pathname));
+        } catch {
+          continue;
+        }
+        let score = 0;
+        for (const w of focusTokens(link.anchor)) if (wantWords.has(w)) score += 2;
+        for (const w of pathWords) if (wantWords.has(w)) score += 1;
+        routes.push({
+          url: link.url,
+          canonical: key,
+          title: link.anchor,
+          snippet: link.anchor,
+          engine: "route-follow",
+          domain: rdomain,
+          rrf: score,
+          engines: ["route-follow"],
+          engineRanks: {},
+          origin: "retrieval", // provenance contract: link expansion
+        });
+      }
+    }
+    const routeCandidates = applyDomainControl(routes, plannerLaw)
+      .sort((a, b) => b.rrf - a.rrf)
+      .slice(0, plannerLaw.budget.maxGapPageFetches);
+    if (routeCandidates.length > 0) {
+      onProgress?.({
+        stage: "gap-search",
+        detail: `Following ${routeCandidates.length} route(s) named inside already-read pages toward the missing answer...`,
+        coverage: coverage.coverage,
+      });
+      log.info(
+        { harvested: routes.length, followed: routeCandidates.map((r) => r.url) },
+        "route-follow hop fired",
+      );
+      const routePackets = await extractAll(
+        routeCandidates,
+        plannerLaw.budget.maxGapPageFetches,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        liveRequired,
+      );
+      applySegmentFilter(routePackets, segmentFilterQuery + " " + ctx.userPrompt);
+      renumberPackets(routePackets, nextSourceIndex(allHopPackets));
+      if (routePackets.length > 0) {
+        secondHopPackets = [...secondHopPackets, ...routePackets];
+        topPassages = rerank(
+          [...packets, ...secondHopPackets],
+          ctx.userPrompt,
+          qTexts,
+          15,
+          {
+            ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
+            freshness: gate.decision.freshness,
+            preferredDomains: designatedDomains,
+          },
+        );
+        coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
+        log.info({ routePackets: routePackets.length, coverage: coverage.coverage }, "route-follow hop merged");
+      }
     }
   }
 
   // ── P4 deep-research demand wave (§11.6/§11.14/§11.21) ──────────────
-  // Arms ONLY at depth "deep" and ONLY when the §11.14 sufficiency pass
-  // did not stop early. Same primitives as the gap hop above — no second
-  // retrieval engine, no extra LLM call (§11.22). A two-word factual
-  // query never reaches this path: depth stays quick/standard (§11.21).
+  // Arms ONLY when the §11.14 sufficiency pass did not stop early AND the
+  // DEPTH budget allocates wave queries (quick/standard budgets carry
+  // demandWaveQueries:0, so buildGapDemand returns null there). Same
+  // primitives as the hops above — no second retrieval engine, no extra
+  // LLM call (§11.22). A two-word factual query never reaches this path:
+  // depth stays quick/standard (§11.21).
   let sufficiency: SufficiencyReport | null = null;
   let gapDemand: GapDemand | null = null;
   let demandWaveFired = false;
-  if (gate.decision.depth === "deep") {
-    sufficiency = evaluateSufficiency(
-      [...packets, ...secondHopPackets],
-      topPassages,
-      coverage,
-      gate.decision,
-      plannerLaw,
-    );
+  // Research depth law (2026-11-05): the §11.14 sufficiency pass now runs
+  // at EVERY depth so the audit trail is honest — quick/standard must not
+  // skip the measurement and silently report stopEarly=true. The demand
+  // wave still arms only where the DEPTH budget grants wave queries
+  // (quick/standard budgets carry demandWaveQueries:0, so buildGapDemand
+  // returns null there) — retrieval bytes at those depths stay
+  // byte-identical; only the reported verdict becomes truthful.
+  sufficiency = evaluateSufficiency(
+    [...packets, ...secondHopPackets],
+    topPassages,
+    coverage,
+    gate.decision,
+    plannerLaw,
+  );
     if (!sufficiency.stopEarly) {
       const usedQueries = [
         ...qTexts,
@@ -1252,7 +1392,6 @@ export async function runWebResearch(
         }
       }
     }
-  }
 
   onProgress?.({
     stage: "done",

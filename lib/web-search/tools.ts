@@ -27,6 +27,7 @@
 import { metasearch, normalizeUrl } from "./metasearch";
 import { extractUrl, renumberPackets } from "./extractor";
 import { applySegmentFilter } from "./segment-filter";
+import { collectRouteLinks, focusTokens } from "./route-links";
 import { isSafeUrlWithDns } from "./ssrf";
 import type { SearchDecision, RankedResult } from "./types";
 import { domainWithin } from "./domain-match";
@@ -334,6 +335,24 @@ const MAX_PASSAGE_CHARS = 2000;
 const READ_PAGE_TEXT_BUDGET = 20000; // shared across every page of a batch
 const URL_SHAPE = /^https?:\/\//i;
 
+/**
+ * Focus-window block cut: when the focus matches past the plain prefix,
+ * center the window on the focus's LAST occurrence (requested facts
+ * typically sit after the boilerplate intro, not before it). Prefix
+ * matches keep the byte-identical plain cut.
+ */
+function cutPassageWindow(t: string, words: string[]): string {
+  const low = t.toLowerCase();
+  let pos = -1;
+  for (const w of words) {
+    const i = low.lastIndexOf(w);
+    if (i > pos) pos = i;
+  }
+  if (pos < MAX_PASSAGE_CHARS) return t.slice(0, MAX_PASSAGE_CHARS) + "…";
+  const start = Math.min(pos - Math.floor(MAX_PASSAGE_CHARS / 2), t.length - MAX_PASSAGE_CHARS);
+  return "…" + t.slice(start, start + MAX_PASSAGE_CHARS) + "…";
+}
+
 interface PageAttempt {
   entry: Record<string, unknown>;
   citation: CitationSeed | null;
@@ -428,11 +447,24 @@ async function readOneUrl(
         };
       }
     }
+    // Focus-window law (universal research-depth audit 2026-11-05): a
+    // blind 2000-char prefix cannot reach a requested fact that sits
+    // past a long intro. When a focus word matches deeper in a block,
+    // center the returned window on its last occurrence and mark both
+    // cuts with an ellipsis; the block-level truncation flag below then
+    // discloses honestly that page content was discarded.
+    const fWords = focusTokens(focus || session.queryContext);
     const blocks: string[] = [];
+    let blocksCut = false;
     for (const p of packet.passages) {
       const t = p.passageText;
       if (t.trim() === "") continue;
-      blocks.push(t.length > MAX_PASSAGE_CHARS ? t.slice(0, MAX_PASSAGE_CHARS) + "…" : t);
+      if (t.length > MAX_PASSAGE_CHARS) {
+        blocksCut = true;
+        blocks.push(cutPassageWindow(t, fWords));
+      } else {
+        blocks.push(t);
+      }
       if (blocks.length >= MAX_PASSAGES_PER_PAGE) break;
     }
     const hasText = blocks.length > 0;
@@ -473,6 +505,12 @@ async function readOneUrl(
       domain: packet.domain,
       ...(packet.publishedAt !== undefined ? { publishedAt: packet.publishedAt } : {}),
     };
+    // Route inventory (universal research-depth law): real links inside
+    // the FETCHED content are surfaced so the investigator can follow a
+    // named detail/catalog route with one bounded read instead of
+    // re-searching. Inventory only — the follow-up fetch is what makes
+    // it evidence.
+    const routeLinks = collectRouteLinks(packet.url, packet.passages);
     return {
       entry: {
         url,
@@ -484,7 +522,10 @@ async function readOneUrl(
         ...(classification ? { classification } : {}),
         sourceId: packet.sourceId,
         passages: kept,
-        truncated: kept.length < blocks.length,
+        // Honest disclosure: content was discarded either by dropping
+        // whole passage blocks OR by windowing/cutting inside them.
+        truncated: kept.length < blocks.length || blocksCut,
+        ...(routeLinks.length > 0 ? { links: routeLinks } : {}),
       },
       citation,
       failure,

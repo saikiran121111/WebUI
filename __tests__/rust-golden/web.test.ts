@@ -433,8 +433,12 @@ describe("golden: web-search pipeline", () => {
       semantics:
         "All engines return []: the relevance floor fires web:recovery (broad retry, still empty), then " +
         "web:done('No search results returned') — runWebResearch returns a NON-NULL empty bundle. The route " +
-        "still injects the EXACT sentinel block 'No web evidence could be retrieved. Proceed with your "
-        + "knowledge only.' (no ANTI_REFUSAL preamble — topPassages empty) at lastUserIdx+1, but the empty " +
+        "still injects the EXACT honest sentinel block 'No web evidence could be retrieved for this request: "
+        + "every search and read attempted came back empty or unusable. Do not present unverified memory as "
+        + "retrieved fact: state plainly which requested facts you could not confirm, and clearly label any "
+        + "background knowledge you offer as unverified.' — reworded 2026-11-05 (research-depth audit): the "
+        + "old 'Proceed with your knowledge only.' INSTRUCTED unsupported-memory answering; the empty bundle " +
+        "now states the acquisition failure as fact (no ANTI_REFUSAL preamble — topPassages empty) at lastUserIdx+1, but the empty " +
         "citation map means NO web_meta frame and NO citation headers. P2 (2026-11-02): even the starved " +
         "bundle arms the web tool loop — WEB_TOOL_GUIDANCE leads the message chain (guidance, user, " +
         "runtime_clock, sentinel) and payload.tools offers web_search/read_page, so the model may retry " +
@@ -452,7 +456,10 @@ describe("golden: web-search pipeline", () => {
     expect(logical.frames.some((f) => f.kind === "stage" && (f.obj as { stage?: string }).stage === "web_meta")).toBe(false);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: string }[]; tools?: { function: { name: string } }[] };
-    expect(payload.messages.some((m) => m.role === "system" && m.content === "No web evidence could be retrieved. Proceed with your knowledge only.")).toBe(true);
+    // Exact-string pin of the HONEST starved sentinel (reworded 2026-11-05:
+    // it states the acquisition failure and forbids unverified-memory
+    // answering — the old wording instructed exactly that).
+    expect(payload.messages.some((m) => m.role === "system" && m.content === "No web evidence could be retrieved for this request: every search and read attempted came back empty or unusable. Do not present unverified memory as retrieved fact: state plainly which requested facts you could not confirm, and clearly label any background knowledge you offer as unverified.")).toBe(true);
     // P2: a starved bundle still arms the tool loop — the model can retry.
     expect(payload.messages.map((m) => m.role)).toEqual(["system", "user", "system", "system"]);
     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);

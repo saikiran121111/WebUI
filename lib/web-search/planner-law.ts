@@ -636,7 +636,12 @@ export function evaluateSufficiency(
 
   const enoughSources = sourceDomains.length >= 3;
   const independentDomains = sourceDomains.length >= 2;
-  const keyClaimsSupported = coverage.coverage >= 0.6;
+  // Answer-unit law (universal research-depth audit 2026-11-05): literal
+  // coverage of the QUERY WORDS is not support for the requested ANSWER.
+  // While the coverage evaluator still sees an open answer unit
+  // (needsGapSearch), key claims must not be declared supported — three
+  // domains repeating the question vocabulary is the audited failure.
+  const keyClaimsSupported = coverage.coverage >= 0.6 && !coverage.needsGapSearch;
 
   const freshnessBanded = ["day", "week", "month", "year", "realtime"].includes(decision.freshness);
   // Tightened 2026-11-04 (audit): ANY publication date used to satisfy a

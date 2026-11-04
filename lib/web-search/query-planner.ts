@@ -419,13 +419,79 @@ export interface CoverageReport {
  * search engine treats them as exact phrases) plus the source-class
  * operator if one was detected.
  */
+/* ── answer-unit law (universal research-depth audit 2026-11-05) ─────
+ * For an ENUMERATIVE ask ("which/what … does X support/offer/include …")
+ * the answer units are NAMED IDENTIFIERS — an external catalog the user
+ * does not already have. Query-word substring hits on topical text are
+ * NOT coverage of such a unit: the retrieved passages must contain at
+ * least one identifier-shaped token the user did not already supply.
+ * Grammar + token-shape only (no entity/brand tables). When no identifier
+ * is present the evaluator errs toward FIRING recovery: an extra bounded
+ * wave is cheap, a falsely-complete answer is the audited failure.
+ */
+const ENUMERATIVE_ASK_RE =
+  /\b(?:which|what)\b[^.?!\n]{0,50}?\b(?:does|do|did|can|will|could)\s+(?!(?:this|that|these|those|it|its|the|a|an|my|our|his|her|their|your|he|she|they|we)\b)[^.?!]{0,40}?\b(?:supports?|offer(?:s|ed|ing)?|provide[sd]?|providing|include[sd]?|including|integrat(?:e|es|ed|ing)|feature[sd]?|list(?:s|ed)?|accept(?:s|ed)?)\b/i;
+
+// Identifier-shaped answer tokens: hyphen/dot-joined with a digit
+// (Boreal-X17, GPT-4), internal caps (CamelCase product tokens), or a
+// capitalized name followed by a number (Llama 3). Plain prose hyphenates
+// ("state-of-the-art") intentionally do NOT count — they must not fake
+// "an identifier was found" and suppress recovery.
+const IDENTIFIER_RES: RegExp[] = [
+  /\b[A-Za-z][A-Za-z0-9]*[-.][A-Za-z0-9]*\d[A-Za-z0-9]*\b/g,
+  /\b[A-Za-z][a-z0-9]*[A-Z][A-Za-z0-9]*\b/g,
+  /\b[A-Z][a-z]{2,} \d[\w.]*/g,
+];
+
+function hasNovelIdentifier(passages: string[], userPrompt: string): boolean {
+  const promptLow = userPrompt.toLowerCase();
+  for (const text of passages) {
+    // URLs scrubbed first: domain tokens would masquerade as identifiers.
+    const scrubbed = text.replace(/https?:\/\/\S+/g, " ");
+    for (const re of IDENTIFIER_RES) {
+      for (const m of scrubbed.matchAll(re)) {
+        if (!promptLow.includes(m[0].toLowerCase())) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Function-word filter for the prompt-derived gap query (vocabulary, not
+// entity knowledge). Used when needsGapSearch fires but every prompt
+// entity already matched — recovery must still be dispatchable.
+const GAP_STOPWORDS = new Set([
+  "which", "what", "when", "where", "who", "whose", "why", "how",
+  "does", "do", "did", "can", "could", "would", "should", "will", "shall",
+  "is", "are", "was", "were", "be", "been", "being", "the", "a", "an",
+  "for", "of", "in", "on", "at", "to", "and", "or", "with", "about",
+  "from", "tell", "me", "please", "give", "show", "list", "any", "all",
+]);
+
+function sourceOperator(cls: string | null): string {
+  if (cls === "github") return "site:github.com ";
+  if (cls === "pdf") return "filetype:pdf ";
+  return "";
+}
+
 export function evaluateCoverage(
   userPrompt: string,
   retrievedPassages: string[],
 ): CoverageReport {
   const entities = extractEntities(userPrompt);
+  const cls = sourceClass(userPrompt);
   if (entities.length === 0) {
-    return { coverage: 1, missingEntities: [], needsGapSearch: false, gapQuery: null };
+    // Actionability law (audit B): whenever recovery is warranted the
+    // caller must get a dispatchable query — needsGapSearch and gapQuery
+    // are NEVER decoupled. Sparse evidence with no entities still gets a
+    // prompt-derived recovery query instead of a silent stall.
+    const sparse = retrievedPassages.length < 2;
+    return {
+      coverage: 1,
+      missingEntities: [],
+      needsGapSearch: sparse,
+      gapQuery: sparse ? sourceOperator(cls) + userPrompt.trim() : null,
+    };
   }
 
   // Concatenate all retrieved text into one haystack
@@ -438,21 +504,37 @@ export function evaluateCoverage(
 
   const coverage = hitEntities.size / entities.length;
   const missing = entities.filter((e) => !hitEntities.has(e));
-  const cls = sourceClass(userPrompt);
+
+  // Answer-unit law: topical entity hits are not answer coverage.
+  const answerGap =
+    ENUMERATIVE_ASK_RE.test(userPrompt) &&
+    !hasNovelIdentifier(retrievedPassages, userPrompt);
 
   const needsGapSearch =
     (coverage < 0.5 && missing.length > 0) ||
-    retrievedPassages.length < 2;
+    retrievedPassages.length < 2 ||
+    answerGap;
 
   let gapQuery: string | null = null;
-  if (needsGapSearch && missing.length > 0) {
-    const quoted = missing
-      .slice(0, 3)
-      .map((e) => (e.length > 3 ? '"' + e + '"' : e))
-      .join(" ");
-    if (cls === "github") gapQuery = `site:github.com ${quoted}`;
-    else if (cls === "pdf") gapQuery = `filetype:pdf ${quoted}`;
-    else gapQuery = quoted;
+  if (needsGapSearch) {
+    let core: string;
+    if (missing.length > 0) {
+      core = missing
+        .slice(0, 3)
+        .map((e) => (e.length > 3 ? '"' + e + '"' : e))
+        .join(" ");
+    } else {
+      // Every entity matched but the ANSWER unit is missing: derive the
+      // recovery query from the user's own content words — never a
+      // canned phrase list.
+      const words = userPrompt
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !GAP_STOPWORDS.has(w));
+      core = words.length > 0 ? words.join(" ") : userPrompt.trim();
+    }
+    gapQuery = sourceOperator(cls) + core;
   }
 
   return { coverage, missingEntities: missing, needsGapSearch, gapQuery };

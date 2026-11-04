@@ -446,7 +446,10 @@ describe("execReadPageTool envelope (⇔ rust exec_read_page)", () => {
     const out = await execReadPageTool(session(), { urls: ["https://a.example", "https://b.example", "https://c.example"] }, cites);
     const [p1, p2, p3] = (out as any).pages;
     expect(p1.passages).toHaveLength(6);
-    expect(p1.truncated).toBe(false);
+    // truncated now also reports clipped passages (focus-window law, 2026-11-05):
+    // every block here is windowed to 2000+…, so the honest flag is true even
+    // though no whole block was dropped. The pinned page-omission law is unchanged.
+    expect(p1.truncated).toBe(true);
     expect(p2.passages).toHaveLength(3);
     expect(p2.truncated).toBe(true);
     expect(p3.omitted).toBe("char_budget");

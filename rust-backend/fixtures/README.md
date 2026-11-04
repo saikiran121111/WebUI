@@ -83,9 +83,14 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
    source lines + quoted excerpts; `buildMainModelContext` prepends `ANTI_REFUSAL_DIRECTIVE +
    "\n\n"` whenever passages exist — the block NEVER starts with `<evidence>`.
 5. Two distinct web-failure shapes: starved engines → pipeline returns NON-NULL empty bundle →
-   exact sentinel `"No web evidence could be retrieved. Proceed with your knowledge only."`
-   injected, NO web_meta, NO citation headers (`web-search/03`); internals THROW → route catch
-   swallows, NO block at all (`web-search/04`). Both fully non-fatal.
+   exact honest sentinel `"No web evidence could be retrieved for this request: every search and
+   read attempted came back empty or unusable. Do not present unverified memory as retrieved fact:
+   state plainly which requested facts you could not confirm, and clearly label any background
+   knowledge you offer as unverified."` injected, NO web_meta, NO citation headers (`web-search/03`);
+   internals THROW → route catch swallows, NO block at all (`web-search/04`). Both fully non-fatal.
+   (Sentinel reworded 2026-11-05, research-depth audit: the previous wording — "Proceed with your
+   knowledge only." — instructed the model to answer from memory without evidence; the fixture was
+   regenerated from the live TS oracle, never hand-edited.)
 6. `web_meta` arrives as a **stage frame** (`stage:"web_meta"`) AFTER `web:done`, NOT a data
    frame; legacy path surfaces the same metadata ONLY via `X-Web-Citations`/`X-Search-Gate`
    (`encodeURIComponent(JSON)`), only when citations are non-empty.

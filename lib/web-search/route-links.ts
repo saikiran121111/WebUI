@@ -1,0 +1,59 @@
+/**
+ * route-links.ts — discovered-route harvesting (universal research-depth
+ * law, 2026-11-05). Real in-content links (markdown anchors or bare URLs)
+ * are inventory, not evidence: harvesting them turns "the page mentions a
+ * linked catalog" into a dispatchable route that the next bounded FETCH
+ * can convert into evidence. One shared implementation for read_page's
+ * `links` inventory (tools.ts) and the pipeline's route-follow hop.
+ */
+
+const MD_LINK_RE = /\[([^\]]{1,160})\]\((https?:\/\/[^)\s]+)\)/g;
+const BARE_URL_RE = /(?<![\w/."'(])https?:\/\/[^\s)\]}>,"]+/g;
+
+/** Content-word tokens (length > 3) used for route/row focus ranking. */
+export function focusTokens(text: string): string[] {
+  return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+}
+
+/**
+ * Enumerate every http(s) route named inside already-read passages,
+ * resolved against the URL the content was served from (final origin —
+ * relative links must resolve where the page actually lives, not where it
+ * was requested), deduped, hash-stripped fragments kept for SPA routes.
+ */
+export function collectRouteLinks(
+  baseUrl: string,
+  passages: { passageText: string }[],
+  cap = 12,
+): { url: string; anchor: string }[] {
+  const out: { url: string; anchor: string }[] = [];
+  const seen = new Set<string>();
+  for (const p of passages) {
+    for (const m of p.passageText.matchAll(MD_LINK_RE)) addRoute(out, seen, baseUrl, m[2], m[1]);
+    // Bare-URL pass: markdown hrefs are masked first so they can't double-count.
+    const bare = p.passageText.replace(MD_LINK_RE, " ");
+    for (const m of bare.matchAll(BARE_URL_RE)) addRoute(out, seen, baseUrl, m[0], "");
+    if (out.length >= cap) break;
+  }
+  return out.slice(0, cap);
+}
+
+function addRoute(
+  out: { url: string; anchor: string }[],
+  seen: Set<string>,
+  baseUrl: string,
+  raw: string,
+  anchor: string,
+): void {
+  const cleaned = raw.replace(/[.,;:!?]+$/, "");
+  try {
+    const abs = new URL(cleaned, baseUrl);
+    if (abs.protocol !== "http:" && abs.protocol !== "https:") return;
+    if (abs.href === baseUrl) return; // a route back onto the page just read
+    if (seen.has(abs.href)) return;
+    seen.add(abs.href);
+    out.push({ url: abs.href, anchor: anchor.trim().slice(0, 160) });
+  } catch {
+    // Malformed href in page content: a dead route candidate, skip it.
+  }
+}
