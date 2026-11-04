@@ -227,3 +227,81 @@ Corpus: .data/web-search-10k-urls.json (500 verified URLs)
 | https://flipkart.com/amul-pasteurised-salted-butter/p/itmd8456fd5e5276 | 200 | 100 | NO |  |
 | https://flipkart.com/food-products/butter/pr?sid=eat%2Cvyv | 200 | 100 | NO |  |
 | https://zepto.com/ | null | 0 | NO |  |
+
+## Run 2026-11-04T21:21:20.431Z
+
+- Sampled: 15
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 15/15
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 14, NO 1, UNKNOWN 0
+
+| https://news.ycombinator.com/ | 200 | 3924 | YES | The webpage is the Hacker News front page, displaying a list of top stories including topics on residential proxies, AI  |
+| https://stackoverflow.com/ | 403 | 31516 | YES | The page displays the 'Newest Questions' section of Stack Overflow, showing a total of 24,134,885 questions. It includes |
+| https://en.wikipedia.org/wiki/Web | 200 | 4153 | YES | The webpage is a Wikipedia disambiguation page for 'Web'. It lists various meanings including spider webs, the World Wid |
+| https://github.com/ | 200 | 5827 | YES | GitHub homepage featuring marketing content about its AI-powered developer platform, including sections on Copilot, Acti |
+| https://bing.com/ | 200 | 763 | YES | The page is the Microsoft Bing homepage, featuring a search bar, visual search options, and an image caption 'One step c |
+| https://duckduckgo.com/ | 200 | 13041 | YES | The webpage is the homepage for DuckDuckGo, an internet privacy company. It promotes their private search engine and bro |
+| https://mozilla.org/ | 200 | 10556 | YES | Mozilla's homepage highlights its mission for trustworthy tech and digital rights, featuring products like Firefox, Thun |
+| https://apple.com/ | 200 | 7618 | YES | The webpage is the official Apple homepage featuring promotions for MacBook Pro (M6), iPhone Duo, iMac, iPhone 18 Pro, H |
+| https://google.com/ | 200 | 1151 | YES | The page is the Google homepage, featuring a search bar with voice and image search options, links to About, Store, Adve |
+| https://india.gov.in/ | 200 | 10613 | YES | The National Portal of India provides single-window access to information and services offered by the government at all  |
+| https://sebi.gov.in/ | 200 | 21195 | YES | The webpage is the official homepage of the Securities and Exchange Board of India (SEBI). It features a language select |
+| https://rbi.org.in/ | 200 | 24948 | YES | The webpage is the official homepage of the Reserve Bank of India (RBI). It displays the bank's preamble regarding monet |
+| https://linkedin.com/ | 200 | 24049 | YES | The page is the LinkedIn login/signup landing page. It features a 'Welcome to your professional community' headline, opt |
+| https://reddit.com/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual Reddit homepage content. |
+| https://youtube.com/ | 200 | 2850 | YES | The page is the YouTube homepage, displaying navigation links (Home, Shorts, Subscriptions), a search bar, and prompts t |
+
+## Run 2026-11-04T21:24:31.202Z
+
+- Sampled: 15
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 14/15
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 12, NO 3, UNKNOWN 0
+
+| https://blinkit.com/ | 200 | 314 | YES | Blinkit is an online grocery delivery service offering over 30,000 products delivered to customers' doorsteps. The site  |
+| https://myntra.com/ | 200 | 33 | YES | Myntra is an online shopping platform for fashion and lifestyle products in India, offering clothing, footwear, accessor |
+| https://zepto.in/ | 200 | 496 | NO | The page is a Sedo brokerage landing page indicating that the domain zepto.in is already taken and offering services to  |
+| https://bookmyshow.com/ | 200 | 605 | YES | The webpage is the homepage of BookMyShow India (in.bookmyshow.com), an online ticketing platform for movies, plays, spo |
+| https://zomato.com/ | 200 | 2027 | YES | Zomato is India's #1 food delivery app, offering online ordering from over 300,000 restaurants across 800+ cities. Key f |
+| https://swiggy.com/ | 202 | 0 | NO |  |
+| https://flipkart.com/ | 200 | 20858 | YES | The webpage is the homepage of Flipkart, an Indian e-commerce marketplace. It features navigation for various categories |
+| https://nykaa.com/ | 200 | 382 | YES | Nykaa Hot Pink Sale 2026 - Shop India's Biggest Beauty Sale! |
+| https://ajio.com/ | 200 | 192 | NO | Access Denied error page from Akamai edge server. |
+| https://amazon.in/ | 202 | 2651 | YES | The page is the Amazon.in homepage featuring deals on electronics, fashion, and everyday items under various price point |
+| https://netflix.com/ | 200 | 2663 | YES | The page is the Netflix India landing page, featuring a sign-up prompt starting at ₹149/month, a list of trending titles |
+| https://dev.to/ | 200 | 28691 | YES | The page is the homepage of the DEV Community, a platform for software developers. It features recent articles such as ' |
+| https://medium.com/ | 200 | 237 | YES | Medium homepage with title 'Medium: Read and write stories.', description about sharing insightful perspectives, JSON-LD |
+| https://vitejs.dev/ | 200 | 3160 | YES | Vite is a fast frontend build tool for modern web applications, featuring instant server start, lightning-fast HMR, and  |
+| https://react.dev/ | 200 | 7503 | YES | The webpage is the official documentation for React, described as 'the library for web and native user interfaces'. It e |
+
+## Run 2026-11-04T21:27:37.216Z
+
+- Sampled: 15
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 15/15
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 15, NO 0, UNKNOWN 0
+
+| https://blinkit.com/prn/amul-salted-butter/prid/159 | 200 | 1741 | YES | The page displays the product 'Amul Salted Butter' with details including flavour (Salted), unit options (100g, 500g - b |
+| https://blinkit.com/prn/amul-butter/prid/160 | 200 | 1764 | YES | The page displays the product 'Amul Salted Butter' with details including flavor (Salted), availability status (Out of s |
+| https://flipkart.com/amul-pasteurised-salted-butter/p/itmd8456fd5e5276 | 200 | 2182 | YES | Amul Pasteurised Salted Butter (500g) priced at ₹50 on Flipkart, sold by seller MYTHANGLORY. Product details include bra |
+| https://flipkart.com/food-products/butter/pr?sid=eat%2Cvyv | 200 | 3504 | YES | The page displays a list of 28 butter products from brands like Amul, Mother Dairy, and President. Most items are marked |
+| https://zepto.com/ | 200 | 2537 | YES | Zepto is an online quick commerce app in India delivering groceries, fruits, vegetables, personal care, electronics, and |
+| https://en.wikipedia.org/wiki/Blinkit | 200 | 13277 | YES | Blinkit is an Indian quick-commerce company, formerly known as Grofers, founded in December 2013 by Albinder Dhindsa and |
+| https://blink-it-frontend.vercel.app/ | 200 | 9488 | YES | The webpage is a BlinkIt grocery delivery interface displaying product listings for categories like 'Dairy, Bread & Eggs |
+| https://blinkit.com/pages/mobile | 200 | 90 | YES | The page is a landing page for the Blinkit mobile app, encouraging users to download it from the App Store or Google Pla |
+| https://seller.blinkit.com/ | 200 | 5596 | YES | The webpage is the seller portal for Blinkit, India's leading quick-commerce platform. It highlights key metrics such as |
+| https://partners.blinkit.com/ | 200 | 7282 | YES | The webpage is the official 'Partners' portal for Blinkit, an instant commerce platform. It details the Blinkit Partners |
+| https://play.google.com/store/apps/details?id=com.grofers.customerapp&amp;hl=en-US | 200 | 8105 | YES | The webpage is the Google Play Store listing for 'Blinkit: Groceries & more' (formerly Grofers). It describes an app for |
+| https://eternal.com/our-businesses/blinkit/ | 200 | 2079 | YES | Blinkit is a quick commerce company under Eternal that delivers groceries, essentials, electronics, beauty products, and |
+| https://brands.blinkit.com/ | 200 | 4505 | YES | The webpage is the landing page for 'Blinkit Ads' (Brand Central), Blinkit's self-serve advertising platform. It highlig |
+| https://bistro.blinkit.com/ | 200 | 563 | YES | Bistro by Blinkit offers food delivery with a focus on health, hygiene, sustainability, and speed. |
+| https://blinkit.com/pages/delivery | 200 | 3838 | YES | The page is a recruitment landing page for Blinkit delivery partners. It highlights earnings up to ₹50,000, a joining bo |
+
+## Run 2026-11-04T21:29:41.632Z
+
+- Sampled: 5
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 5/5
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 2, NO 3, UNKNOWN 0
+
+| https://jobhai.com/blinkit-delivery-jobs-in-bangalore-ccgcmp | 200 | 19311 | YES | The page lists 89 Blinkit delivery job vacancies in Bangalore, including roles like Grocery Delivery Boy and Delivery Bo |
+| https://jobhai.com/blinkit-jobs-in-bangalore-ccmp | 200 | 20841 | YES | The page lists 132 Blinkit job openings in Bangalore, primarily for 'Grocery Delivery Boy' and 'Delivery Boy' roles. Sal |
+| https://reddit.com/r/blinkit/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual subreddit content. |
+| https://reddit.com/r/bangalore/comments/1hmine6/fraud_by_blinkit_in_bangalore/ | 200 | 364 | NO |  |
+| https://reddit.com/r/FuckZepto/comments/1q723pg/is_zepto_showing_fake_delivery_times_in_bangalore/ | 200 | 364 | NO |  |

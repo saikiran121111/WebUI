@@ -160,8 +160,15 @@ const HONEST_WALL =
  * shallow-but-ok read that missed it (tool rows show names, not URLs);
  * upgrade when per-turn fetched-URL telemetry reaches the bubble.
  */
+// 2026-11-05 fix: the old (?:could|can)(?:n'?t| not) arm was only ever
+// reachable through "could" — after a bare "can" the n'?t branch demands
+// a second n, so "I can't confirm"/"I cannot confirm" (the exact honest
+// gap wording the 2026-11-05 YouTube run produced: real S1-cited score-
+// card + a truthful caveat where the description text cut off) fell to
+// gap=false and all three branches died on an OTHERWISE grounded answer.
+// Same intent, now also reachable via "can". Branch gating unchanged.
 const GAP_TRUTH =
-  /\b(?:could|can)(?:n'?t| not) (?:confirm|verify|find|see|retrieve|determine|extract|get|access)\b|no (?:price|rating|listing|data)\b[^.]{0,60}\b(?:listed|available|found|shown|provided)\b/i;
+  /\b(?:can(?:'?t| ?not)|could(?:n'?t| ?not)) (?:confirm|verify|find|see|retrieve|determine|extract|get|access)\b|no (?:price|rating|listing|data)\b[^.]{0,60}\b(?:listed|available|found|shown|provided)\b/i;
 
 /**
  * THIS TURN'S ANSWER TEXT — never the whole <main> (brief E2E repair:
@@ -279,7 +286,11 @@ interface Case {
 const CASES: Case[] = [
   // 1. Universal Indian e-commerce / food / entertainment
   { name: "Blinkit", prompt: "What is the price of 1 litre Amul butter on Blinkit today?", mustMention: "blinkit", hostHint: /blinkit/i, learnedProof: /₹\s?\d|rs\.?\s?\d/i },
-  { name: "Myntra", prompt: "What is the price and rating of Levi's 501 original fit jeans on Myntra?", mustMention: "myntra", hostHint: /myntra/i, learnedProof: /₹\s?\d|rs\.?\s?\d|\b\d(?:\.\d)?\s*(?:stars?|\/\s*5|out of 5)/i },
+  // "INR 3401" (structured-data currency format the site itself serves)
+  // is the same class of site-learned currency marker as ₹/rs. — the
+  // 2026-11-05 run read real product JSON-LD and stated the price with
+  // the unverified rating, but the regex only knew ₹/rs. spellings.
+  { name: "Myntra", prompt: "What is the price and rating of Levi's 501 original fit jeans on Myntra?", mustMention: "myntra", hostHint: /myntra/i, learnedProof: /₹\s?\d|rs\.?\s?\d|\bINR\s?\d|\b\d(?:\.\d)?\s*(?:stars?|\/\s*5|out of 5)/i },
   { name: "Zepto", prompt: "What is the price of a Kingfisher beer 650ml on Zepto?", mustMention: "zepto", hostHint: /zepto/i, learnedProof: /₹\s?\d|rs\.?\s?\d/i },
   { name: "BookMyShow", prompt: "What movies are showing in Hyderabad this week on BookMyShow?", mustMention: "bookmyshow", hostHint: /bookmyshow|bmshow/i, learnedProof: /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|showtimes?|now showing|screens?\b|₹\s?\d/i },
   { name: "Zomato", prompt: "What are the top rated restaurants in Hyderabad on Zomato?", mustMention: "zomato", hostHint: /zomato/i, learnedProof: /★|\b\d(?:\.\d)?\s*\/\s*5\b|\b\d(?:\.\d)?\s*reviews?\b|₹/i },
