@@ -7,10 +7,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDecision } from "../../../lib/decision/client";
 import { childLogger } from "../../../lib/server/logger";
+import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 
 const log = childLogger("api/decision");
 
 export async function POST(req: NextRequest) {
+  if (rustEnabled()) return rustProxy(req, "/api/ruke/decision");
   let body: unknown;
   try {
     body = await req.json();

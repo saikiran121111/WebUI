@@ -73,6 +73,12 @@ export class ChatClient {
     if (req.decision_mode) body.decision_mode = req.decision_mode;
     // Compaction's own call bypasses the per-turn pipeline entirely.
     if (req.purpose) body.purpose = req.purpose;
+    // Browser tool-loop marker (Phase 10): only the Rust chat route acts
+    // on it, and it strips the key before anything is forwarded.
+    if (req.browser_session) body.browser_session = req.browser_session;
+    // P1 clock grounding: the route consumes it for the <runtime_clock>
+    // block and strips it before upstream (same law as browser_session).
+    if (req.timezone) body.timezone = req.timezone;
     if (body.stream) {
       body.stream_options = { include_usage: true };
     }

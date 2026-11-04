@@ -23,6 +23,7 @@
 import { parseHTML } from "linkedom";
 import pLimit from "p-limit";
 import type { RawSearchResult } from "./types";
+import { scrubQuerySecrets } from "./ssrf";
 import {
   fetchPage,
   fetchUrl,
@@ -159,28 +160,80 @@ function noteEngineSuccess(engine: string): void {
 }
 
 /**
- * Return true if the engine is currently in its cooldown window.
- * Callers should return [] immediately when this returns true.
+ * Pacer gate (audit 2026-11-04 fix). The old pacer resolved pLimit's thunk
+ * after applying jitter — releasing the single in-flight slot BEFORE the
+ * caller's SERP fetch actually started, so two "paced" queries to the same
+ * engine host overlapped in flight (the file-header one-in-flight-per-host
+ * law was enforced only by the jitter delay). The slot now spans the whole
+ * engine call: the gate hands the caller a held slot and `done()` frees
+ * it. Callers acquire, check `allowed`, and MUST release in `finally`.
  */
-async function enginePacerWithBreaker(engine: string): Promise<boolean> {
-  if (engineIsCoolingDown(engine)) return false;
+interface PacerGate {
+  allowed: boolean;
+  done: () => void;
+}
+const NO_PACER_GATE: PacerGate = { allowed: false, done: () => {} };
+
+async function acquirePacerSlot(
+  engine: string,
+  jitterMs: () => number,
+): Promise<PacerGate> {
   let entry = enginePacers.get(engine);
   if (!entry) {
-    const { default: pLimit } = await import("p-limit");
     entry = { limit: pLimit(1), lastCall: 0 };
     enginePacers.set(engine, entry);
   }
-  return entry.limit(async () => {
-    if (engineIsCoolingDown(engine)) return false;
-    // Jitter: stagger consecutive calls to the same engine by 250–450 ms.
-    const jitter = Math.floor(Math.random() * 200 + 250);
-    const elapsed = Date.now() - entry!.lastCall;
-    if (elapsed < jitter) {
-      await new Promise((r) => setTimeout(r, jitter - elapsed));
-    }
-    entry!.lastCall = Date.now();
-    return true;
+  let grant!: () => void;
+  const granted = new Promise<void>((r) => {
+    grant = r;
   });
+  let release!: () => void;
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  // pLimit(1) runs this thunk only when the slot is free; it stays busy
+  // until the current holder calls done() → release().
+  entry.limit(async () => {
+    grant();
+    await held;
+  });
+  await granted;
+  // Jitter INSIDE the slot: consecutive same-engine calls serialize on
+  // both spacing and in-flight time. Brave 429s aggressively when its
+  // SERPs are ~300 ms apart (live-probed 2026-11-04: a second brave query
+  // one second after the first got throttled), so brave's consecutive-
+  // call spacing is raised to 1.5-2.5s.
+  const wait = Math.max(0, entry.lastCall + jitterMs() - Date.now());
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  entry.lastCall = Date.now();
+  let closed = false;
+  return {
+    allowed: true,
+    done: () => {
+      if (!closed) {
+        closed = true;
+        release();
+      }
+    },
+  };
+}
+
+/**
+ * Pacer with the circuit-breaker guard. Returns allowed=false when the
+ * engine is in its cooldown window; a granted gate MUST be released.
+ */
+async function enginePacerWithBreaker(engine: string): Promise<PacerGate> {
+  if (engineIsCoolingDown(engine)) return NO_PACER_GATE;
+  const gate = await acquirePacerSlot(engine, () =>
+    engine === "brave"
+      ? 1_500 + Math.floor(Math.random() * 1_000)
+      : 250 + Math.floor(Math.random() * 200),
+  );
+  if (engineIsCoolingDown(engine)) {
+    gate.done();
+    return NO_PACER_GATE;
+  }
+  return gate;
 }
 
 /**
@@ -188,20 +241,8 @@ async function enginePacerWithBreaker(engine: string): Promise<boolean> {
  * Used by engines that trip the breaker explicitly at their own call
  * sites (e.g. bingSearch, bingNewsRssSearch, redditSearch).
  */
-async function enginePacer(engine: string): Promise<void> {
-  const jitter = 250 + Math.floor(Math.random() * 200);
-  let entry = enginePacers.get(engine);
-  if (!entry) {
-    const { default: pLimit } = await import("p-limit");
-    entry = { limit: pLimit(1), lastCall: 0 };
-    enginePacers.set(engine, entry);
-  }
-  const waitUntil = entry.lastCall + jitter;
-  const now = Date.now();
-  const delay = Math.max(0, waitUntil - now);
-  entry.lastCall = now + delay;
-  if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-  await entry.limit(() => {});
+async function enginePacer(engine: string): Promise<PacerGate> {
+  return acquirePacerSlot(engine, () => 250 + Math.floor(Math.random() * 200));
 }
 
 class EngineBudget {
@@ -488,6 +529,63 @@ async function ddgVqd(query: string): Promise<RawSearchResult[]> {
   return out.slice(0, 10);
 }
 
+async function ddgLitePost(query: string): Promise<RawSearchResult[]> {
+  const gate = await enginePacerWithBreaker("ddg-lite");
+  if (!gate.allowed) return [];
+  try {
+    return await ddgLitePostInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function ddgLitePostInner(query: string): Promise<RawSearchResult[]> {
+  const jar = newCookieJar();
+  const host = "https://lite.duckduckgo.com";
+
+  const prime = await fetchPage(host + "/lite/", {
+    timeoutMs: DDG_LITE_TIMEOUT_MS,
+    headers: realisticHeaders({ referer: host + "/" }),
+  } as any).catch(() => null);
+  if (prime?.cookies?.length) jar.absorb(host + "/", prime.cookies);
+  const cookieVal = jar.cookieFor(host + "/");
+
+  // POST with form-encoded body — much more resilient against 429s than
+  // a GET to html.duckduckgo.com (no referrer fingerprint, no JS).
+  const res = await fetchUrl(host + "/lite/", {
+    timeoutMs: DDG_LITE_TIMEOUT_MS,
+    method: "POST",
+    body: "q=" + encodeURIComponent(query) + "&b=chrome",
+    useRealisticHeaders: true,
+    headers: {
+      ...(cookieVal ? { cookie: cookieVal } : {}),
+      "content-type": "application/x-www-form-urlencoded",
+      origin: host,
+      referer: host + "/",
+      "sec-fetch-site": "same-origin",
+    },
+  }).catch(() => null);
+  if (!res?.text || res.status !== 200) return [];
+  const doc = docOf(res.text);
+  const out: RawSearchResult[] = [];
+  const links: any[] = doc.querySelectorAll("a.result-link, a.result-a");
+  for (const a of links) {
+    const href = a.getAttribute("href") ?? "";
+    if (!href) continue;
+    let url = decodeUddg(href);
+    if (!isSafeUrl(url)) continue;
+    out.push({
+      title: a.textContent?.trim() ?? "",
+      url,
+      snippet: a.closest("tr")?.querySelector("td.result-snippet")?.textContent?.trim() ?? "",
+      engine: "ddg-lite",
+      rank: out.length + 1,
+    });
+  }
+  if (out.length >= 2) noteEngineSuccess("ddg-lite");
+  else tripCircuitBreaker("ddg-lite", "ddg-lite POST returned 0 results");
+  return out.slice(0, 10);
+}
+
 /**
  * 3-stage DDG: try Stage A (cookie-primed html POST, 12s), fall back to
  * Stage B (lite POST, 6s fast timeout), then Stage C (VQD token, 12s)
@@ -506,8 +604,15 @@ async function ddgVqd(query: string): Promise<RawSearchResult[]> {
  * or ~12s when Stage B is skipped after Stage A's fast-fail.
  */
 export async function ddgSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("duckduckgo");
-  if (!allowed) return [];
+  const gate = await enginePacerWithBreaker("duckduckgo");
+  if (!gate.allowed) return [];
+  try {
+    return await ddgSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function ddgSearchInner(query: string): Promise<RawSearchResult[]> {
   const stageA = await ddgHtml(query).catch(() => [] as RawSearchResult[]);
   if (stageA.length > 0) { noteEngineSuccess("duckduckgo"); return stageA; }
   // Stage A 0-result is NOT a trip observation by itself: the lite
@@ -526,8 +631,15 @@ export async function ddgSearch(query: string): Promise<RawSearchResult[]> {
 /* ── Yahoo (Bing index, RU= redirect unwrap) ────────────────────────────── */
 
 export async function yahooSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("yahoo");
-  if (!allowed) return [];
+  const gate = await enginePacerWithBreaker("yahoo");
+  if (!gate.allowed) return [];
+  try {
+    return await yahooSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function yahooSearchInner(query: string): Promise<RawSearchResult[]> {
   const regions = [
     "https://in.search.yahoo.com/search?p=" + encodeURIComponent(query) + "&n=15",
     "https://search.yahoo.com/search?p=" + encodeURIComponent(query) + "&n=15",
@@ -607,19 +719,71 @@ function unwrapGoogleHref(href: string): string {
  * Parse-first rule: the page is only judged blocked when the parser finds
  * zero results (isBlockedAfterParse), never before.
  */
+/* Local app, local context (2026-11-04 pivot): Google's `gl` region
+ * comes from the machine's own Intl locale (en-IN → "in"), so brand
+ * and commerce queries rank the user's country's sites first. No
+ * hardcoded location — it IS the user's system. */
+function systemGl(): string {
+  try {
+    const locale = new Intl.DateTimeFormat().resolvedOptions().locale ?? "en-US";
+    const region = locale.split("-").filter(Boolean).pop() ?? "US";
+    return region.length === 2 ? region.toLowerCase() : "us";
+  } catch {
+    return "us";
+  }
+}
+
+/* Google's HTML SERP is a JS-required shell for scraper fingerprints
+ * (live-probed 2026-11-04: 200 OK, 94 KB, organic results absent), so
+ * when the HTTP tier comes back empty the SERP is rendered in the
+ * stealth browser pool instead — the same real-Chromium tier that reads
+ * Cloudflare-Walled sites. Dynamic import keeps playwright out of every
+ * module graph that only needs the HTTP engines. */
+async function googleSerpFallback(query: string): Promise<RawSearchResult[]> {
+  try {
+    const { readGoogleSerp } = await import("./agentBrowser");
+    const rows = await readGoogleSerp(query, systemGl(), { timeoutMs: 12_000 });
+    if (rows.length >= 2) {
+      noteEngineSuccess("google");
+      return rows.map((r, i) => ({
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet,
+        engine: "google",
+        rank: i + 1,
+      }));
+    }
+  } catch {
+    /* pool unavailable / render failed — honest zero */
+  }
+  return [];
+}
+
 export async function googleSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("google");
-  if (!allowed) return [];
+  const gate = await enginePacerWithBreaker("google");
+  if (!gate.allowed) return [];
+  try {
+    return await googleSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function googleSearchInner(query: string): Promise<RawSearchResult[]> {
   const res = await fetchPage(
     "https://www.google.com/search?q=" +
       encodeURIComponent(query) +
-      "&num=20&hl=en&gl=us",
+      "&num=20&hl=en&gl=" + systemGl(),
     {
       timeoutMs: ENGINE_TIMEOUT_MS,
       headers: realisticHeaders({ referer: "https://www.google.com/" }),
     } as any,
   );
-  if (!res?.body || res.body.length < 500) return [];
+  if (!res?.body || res.body.length < 500) {
+    const fb = await googleSerpFallback(query);
+    if (fb.length > 0) return fb;
+    tripCircuitBreaker("google", "google HTTP empty response + browser tier no results");
+    return [];
+  }
 
   const doc = docOf(res.body);
   const out: RawSearchResult[] = [];
@@ -655,15 +819,30 @@ export async function googleSearch(query: string): Promise<RawSearchResult[]> {
     tripCircuitBreaker("google", "google returned " + res.status + " with no results");
     return [];
   }
-  if (out.length > 0) noteEngineSuccess("google");
+  // 200 OK but no organic anchors in the HTML: the JS-required shell.
+  // Render the SERP in the stealth pool.
+  const browsed = await googleSerpFallback(query);
+  if (browsed.length > 0) return browsed;
+  if (out.length === 0) {
+    tripCircuitBreaker("google", "google HTTP + browser tiers both returned no results");
+  } else {
+    noteEngineSuccess("google");
+  }
   return out;
 }
 
 /* ── Brave (own index, SSR HTML + __INITIAL_STATE__) ────────────────────── */
 
 export async function braveSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("brave");
-  if (!allowed) return [];
+  const gate = await enginePacerWithBreaker("brave");
+  if (!gate.allowed) return [];
+  try {
+    return await braveSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function braveSearchInner(query: string): Promise<RawSearchResult[]> {
   const res = await fetchPage(
     "https://search.brave.com/search?q=" + encodeURIComponent(query) + "&source=web",
     {
@@ -889,15 +1068,19 @@ async function redditJson(query: string): Promise<RawSearchResult[]> {
  * Returns the first stage that produces results.
  */
 export async function redditSearch(query: string): Promise<RawSearchResult[]> {
-  await enginePacer("reddit");
-  const stageA = await redditRss(query).catch(() => [] as RawSearchResult[]);
-  if (stageA.length > 0) return stageA;
-  const stageB = await redditPullPush(query).catch(() => [] as RawSearchResult[]);
-  if (stageB.length > 0) return stageB;
-  const stageC = await redditJson(query).catch(() => [] as RawSearchResult[]);
-  if (stageC.length > 0) return stageC;
-  log.warn({ query: query.slice(0, 80) }, "reddit: all 3 stages returned 0 results");
-  return [];
+  const gate = await enginePacer("reddit");
+  try {
+    const stageA = await redditRss(query).catch(() => [] as RawSearchResult[]);
+    if (stageA.length > 0) return stageA;
+    const stageB = await redditPullPush(query).catch(() => [] as RawSearchResult[]);
+    if (stageB.length > 0) return stageB;
+    const stageC = await redditJson(query).catch(() => [] as RawSearchResult[]);
+    if (stageC.length > 0) return stageC;
+    log.warn({ query: query.slice(0, 80) }, "reddit: all 3 stages returned 0 results");
+    return [];
+  } finally {
+    gate.done();
+  }
 }
 
 /* ── Bing (RSS + cookie-primed HTML, ck/a decode) ────────────────────────── */
@@ -1032,13 +1215,17 @@ async function bingHtml(query: string): Promise<RawSearchResult[]> {
  * Returns the first stage that produces results.
  */
 export async function bingSearch(query: string): Promise<RawSearchResult[]> {
-  await enginePacer("bing");
-  const stageA = await bingRss(query).catch(() => [] as RawSearchResult[]);
-  if (stageA.length > 0) return stageA;
-  const stageB = await bingHtml(query).catch(() => [] as RawSearchResult[]);
-  if (stageB.length > 0) return stageB;
-  log.warn({ query: query.slice(0, 80) }, "bing: both stages returned 0 results");
-  return [];
+  const gate = await enginePacer("bing");
+  try {
+    const stageA = await bingRss(query).catch(() => [] as RawSearchResult[]);
+    if (stageA.length > 0) return stageA;
+    const stageB = await bingHtml(query).catch(() => [] as RawSearchResult[]);
+    if (stageB.length > 0) return stageB;
+    log.warn({ query: query.slice(0, 80) }, "bing: both stages returned 0 results");
+    return [];
+  } finally {
+    gate.done();
+  }
 }
 
 /* ── Bing News RSS + Google News fallback (keyless, real target URLs) ────── */
@@ -1055,8 +1242,14 @@ export async function bingSearch(query: string): Promise<RawSearchResult[]> {
  *   wrappers fail full-page extraction and must be avoided).
  */
 export async function bingNewsRssSearch(query: string): Promise<RawSearchResult[]> {
-  await enginePacer("bing-news");
-
+  const gate = await enginePacer("bing-news");
+  try {
+    return await bingNewsRssSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function bingNewsRssSearchInner(query: string): Promise<RawSearchResult[]> {
   // ── Stage A: Bing News RSS (real target URLs via url= param) ────────
   const bingUrl =
     "https://www.bing.com/news/search?q=" +
@@ -1164,9 +1357,45 @@ function parseBingNewsRss(xml: string): RawSearchResult[] {
  * Zero CAPTCHAs — GitHub's API allows 60 unauthenticated req/hr/IP.
  */
 export async function githubSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("github");
-  if (!allowed) return [];
+  const gate = await enginePacerWithBreaker("github");
+  if (!gate.allowed) return [];
+  try {
+    return await githubSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function githubSearchInner(query: string): Promise<RawSearchResult[]> {
   const out: RawSearchResult[] = [];
+
+  // 0. User search — instant JSON for developer portfolios / named devs
+  //    (the .dev domain case: "skiran" → their GitHub profile).
+  try {
+    const userRes = await fetchUrl(
+      "https://api.github.com/search/users?q=" +
+        encodeURIComponent(query) +
+        "&per_page=5",
+      {
+        timeoutMs: 12_000,
+        headers: {
+          ...apiHeaders({ "accept": "application/vnd.github+json" }),
+          "x-github-api-version": "2022-11-28",
+        },
+      } as any,
+    );
+    if (userRes?.ok && userRes.text) {
+      const data: any = JSON.parse(userRes.text);
+      for (const u of data.items ?? []) {
+        out.push({
+          title: `GitHub: ${u.login}`,
+          url: u.html_url ?? "https://github.com/" + u.login,
+          snippet: `${u.type ?? "User"} — GitHub profile for "${query}"`,
+          engine: "github",
+          rank: out.length + 1,
+        });
+      }
+    }
+  } catch { /* try repos next */ }
 
   // 1. Repository search
   try {
@@ -1269,8 +1498,15 @@ function devtoTagForQuery(query: string): string | null {
 }
 
 export async function devToSearch(query: string): Promise<RawSearchResult[]> {
-  const allowed = await enginePacerWithBreaker("devto");
-  if (!allowed) return [];
+  const gate = await enginePacerWithBreaker("devto");
+  if (!gate.allowed) return [];
+  try {
+    return await devToSearchInner(query);
+  } finally {
+    gate.done();
+  }
+}
+async function devToSearchInner(query: string): Promise<RawSearchResult[]> {
   const out: RawSearchResult[] = [];
 
   // 1. Tagged feed (when the query contains a known tech tag).
@@ -1389,23 +1625,62 @@ export function deduplicateQueries(queries: string[]): string[] {
  * 4 sub-queries × 6 engines never fire 24 simultaneous requests at any
  * single host.
  */
+/* Engine priority law (2026-11-04, user): Google is the #1 source for
+   every search, Brave #2, the rest only when both of those failed.
+   The array order IS that law — the fallback paths below slice off the
+   first two entries once they've already been tried in priority order. */
 export const GENERAL_WEB_ENGINES = [
+  googleSearch,          // Google live web index (got-scraping fingerprints, parse-first) — PRIORITY 1
+  braveSearch,           // Brave's own index — PRIORITY 2
   ddgSearch,             // DuckDuckGo (3-stage: cookie-primed html POST → lite POST → VQD, 12s per stage)
-  googleSearch,          // Google live web index (got-scraping fingerprints, parse-first)
+  ddgLitePost,           // DDG Lite form-POST — resilient when html.duckduckgo.com 429s
   bingSearch,            // Bing (RSS feed → cookie-primed HTML, ck/a decode, parse-first)
   yahooSearch,           // Bing global web index (RU= unwrap, parse-first)
-  braveSearch,           // Brave's own index
   redditSearch,          // community ground-truth (3-stage: RSS → PullPush → JSON)
 ] as const;
 
+/* A priority attempt is abandoned when it exceeds its cap: ENGINE_TIMEOUT_MS
+   (40s) is the net-cascade ceiling, but the metasearch searchOne cap is far
+   tighter — an engine that hasn't answered by now counts as "didn't work"
+   and the next-priority engine takes over. Google's cap is wider than the
+   others because its working tier is the browser SERP (render ~4s + signed
+   redirect resolution), not a plain HTTP fetch. */
+const GOOGLE_ATTEMPT_CAP_MS = 20_000;
+const BRAVE_ATTEMPT_CAP_MS = 12_000;
+
+function attempt<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+}
+
 /**
- * Run a single query against ALL general-web engines in parallel with
- * per-engine pacing. Returns the merged raw result list (ranked per-engine;
- * RRF fusion happens in metasearch.ts).
+ * Priority run for a single query: Google first; if Google answered, its
+ * results are used and no other engine is consulted at all. If Google
+ * failed (block, timeout or parse-miss), Brave; only if Brave also failed
+ * does the rest of the pool run.
  */
 export async function runGeneralWebSearch(query: string): Promise<RawSearchResult[]> {
+  // (audit 2026-11-04) Secret scrub is enforced HERE, at the shared engine
+  // entry point — the metasearch-side scrub only covered the metasearch
+  // path; any other caller of this export used to ship tokens/keys sitting
+  // in a query string straight to Google/Brave/DDG. scrubQuerySecrets is
+  // idempotent, so the upstream scrub costs nothing.
+  query = scrubQuerySecrets(query);
+  const googleResults = await attempt(
+    googleSearch(query).catch(() => [] as RawSearchResult[]),
+    GOOGLE_ATTEMPT_CAP_MS,
+    [] as RawSearchResult[],
+  );
+  if (googleResults.length > 0) return googleResults;
+
+  const braveResults = await attempt(
+    braveSearch(query).catch(() => [] as RawSearchResult[]),
+    BRAVE_ATTEMPT_CAP_MS,
+    [] as RawSearchResult[],
+  );
+  if (braveResults.length > 0) return braveResults;
+
   const settled = await Promise.allSettled(
-    GENERAL_WEB_ENGINES.map((fn) => fn(query).catch(() => [] as RawSearchResult[])),
+    GENERAL_WEB_ENGINES.slice(2).map((fn) => fn(query).catch(() => [] as RawSearchResult[])),
   );
   const out: RawSearchResult[] = [];
   for (const s of settled) {
@@ -1415,14 +1690,24 @@ export async function runGeneralWebSearch(query: string): Promise<RawSearchResul
 }
 
 /**
- * Sharded metasearch: distribute multiple sub-queries across DIFFERENT
- * engines to minimise per-host burst load.
+ * Priority metasearch (2026-11-04 engine priority law — user):
  *
- * - `primaryQuery` (from `deduplicateQueries[0]`) is sent to the
- *   rate-sensitive direct scrapers (DDG, Google, Bing, Brave) once.
- * - All queries are sent to the Bing + Reddit engines and the remaining
- *   general engines in parallel (their per-engine pacer handles the
- *   jitter between sub-queries automatically).
+ *   1. Google — the #1 source for every search in the plan. When Google
+ *      answers the primary query, ONLY Google's results are used (its
+ *      rank order is the best available ranking signal) and no other
+ *      engine is asked at all.
+ *   2. Brave — same all-or-nothing rule, tried only when Google failed.
+ *   3. The rest of the pool — DDG (HTML + lite), Bing, Yahoo, Reddit,
+ *      Bing News RSS, GitHub — staggered as before, and only reached
+ *      when BOTH priority engines failed or timed out (their circuit
+ *      breakers are typically open by then, so re-asking them would
+ *      just burn load).
+ *
+ * "Failed" includes a timeout: each priority attempt is race-capped at
+ * GOOGLE/BRAVE_ATTEMPT_CAP_MS so one hung engine cannot eat the whole
+ * searchOne wall-clock budget. The stagger between fallback engines
+ * (150-300 ms) is what prevents the production 429 cascade observed
+ * during the November engine-throttle night.
  *
  * Returns the merged raw result list for RRF fusion.
  */
@@ -1430,34 +1715,71 @@ export async function runGeneralWebSearchSharded(
   primaryQuery: string,
   allQueries: string[],
 ): Promise<RawSearchResult[]> {
-  // 1. Primary query → rate-sensitive direct scrapers (DDG, Google, Bing, Brave)
-  const directPromises = [
-    ddgSearch(primaryQuery),
-    googleSearch(primaryQuery),
-    bingSearch(primaryQuery),
-    braveSearch(primaryQuery),
+  // Same entry-point scrub law as runGeneralWebSearch.
+  primaryQuery = scrubQuerySecrets(primaryQuery);
+  allQueries = allQueries.map(scrubQuerySecrets);
+  const stagger = () => new Promise((r) => setTimeout(r, 150 + Math.floor(Math.random() * 150)));
+
+  const runPriorityEngine = async (
+    fn: (q: string) => Promise<RawSearchResult[]>,
+    primaryCapMs: number,
+    restCapMs: number,
+  ): Promise<RawSearchResult[]> => {
+    const primary = await attempt(
+      fn(primaryQuery).catch(() => [] as RawSearchResult[]),
+      primaryCapMs,
+      [] as RawSearchResult[],
+    );
+    if (primary.length === 0) return [];
+    const out: RawSearchResult[] = [...primary];
+    const rest: Promise<RawSearchResult[]>[] = [];
+    for (const q of allQueries) {
+      if (q === primaryQuery) continue;
+      rest.push(
+        attempt(fn(q).catch(() => [] as RawSearchResult[]), restCapMs, [] as RawSearchResult[]),
+      );
+    }
+    for (const r of await Promise.all(rest)) out.push(...r);
+    return out;
+  };
+
+  /* Google's rest-query cap is wider than Brave's: by the time the
+     extra queries run, the browser pool is warm, but each one still
+     pays SERP render + redirect resolution. */
+  const googleResults = await runPriorityEngine(googleSearch, GOOGLE_ATTEMPT_CAP_MS, 15_000);
+  if (googleResults.length > 0) return googleResults;
+
+  const braveResults = await runPriorityEngine(braveSearch, BRAVE_ATTEMPT_CAP_MS, 8_000);
+  if (braveResults.length > 0) return braveResults;
+
+  // Fallback pool — Google and Brave just failed; everyone else pays.
+  const tier1: Promise<RawSearchResult[]>[] = [];
+  for (let i = 0; i < allQueries.length; i++) {
+    if (i > 0) await stagger();
+    tier1.push(ddgLitePost(allQueries[i]).catch(() => [] as RawSearchResult[]));
+  }
+  await stagger();
+  const tier2: Promise<RawSearchResult[]>[] = [
+    ddgSearch(primaryQuery).catch(() => [] as RawSearchResult[]),
   ];
+  await stagger();
+  tier2.push(bingSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
+  await stagger();
+  tier2.push(yahooSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
 
-  // 2. Bing and Reddit are fast + unblocked, so they run on every
-  //    deduplicated sub-query (not just the primary) to give every
-  //    scenario strong coverage without an all-engines flood.
-  const bingAll = allQueries.map((q) => bingSearch(q));
-  const redditAll = allQueries.map((q) => redditSearch(q));
+  const tier3: Promise<RawSearchResult[]>[] = [];
+  for (let i = 0; i < allQueries.length; i++) {
+    if (i > 0) await stagger();
+    tier3.push(redditSearch(allQueries[i]).catch(() => [] as RawSearchResult[]));
+  }
+  await stagger();
+  tier3.push(bingNewsRssSearch(primaryQuery).catch(() => [] as RawSearchResult[]));
 
-  // 3. All queries → remaining general engines (rate-limited by their
-  //    individual pacer, so all sub-queries get through with jitter).
-  const otherEngines = [yahooSearch];
-  const othersPromises = allQueries.flatMap((q) =>
-    otherEngines.map((fn) => fn(q)),
-  );
+  // GitHub: instant JSON, zero CAPTCHA — fires in parallel with tier 1.
+  const github = githubSearch(primaryQuery).catch(() => [] as RawSearchResult[]);
 
   const settled = await Promise.allSettled(
-    [
-      ...directPromises,
-      ...bingAll,
-      ...redditAll,
-      ...othersPromises,
-    ],
+    [...tier1, ...tier2, ...tier3, github],
   );
   const out: RawSearchResult[] = [];
   for (const s of settled) {

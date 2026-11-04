@@ -38,7 +38,11 @@ test.describe("skill engine UI", () => {
 
   test("skills modal lists the installed humanizer with its auto badge", async ({ page }) => {
     await page.goto("/");
-    await page.locator('[aria-label="Skills"]').first().click();
+    // The old toolbar [aria-label="Skills"] trigger was retired by the UI
+    // redesign; the live entry point is the chat-input "+" popover
+    // (aria-label="Add", aria-haspopup="menu") → "Skills" menuitem.
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Skills", exact: true }).click();
 
     const modal = page.locator('[data-testid="skills-modal"]');
     await expect(modal).toBeVisible();

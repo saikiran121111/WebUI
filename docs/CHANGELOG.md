@@ -1,5 +1,61 @@
 # CHANGELOG
 
+## 2026-10-25 — Fix: stale task hijacked a live session + truncated URLs + --no-sandbox infobar
+User-reported LIVE failures: "play this song https://youtu.be/oJMfhZ6QvaY" opened only `youtu.be` (the model re-typed the link), and a leftover Playwright fixture task parked at `exhausted.html` (disk `.data/browser-task.json`) made every later chat turn inject "the user must act; send resume_task" — the model obeyed and the browser ended at `about:blank`. Also the automation window showed Chrome's "unsupported command-line flag: --no-sandbox" infobar:
+- **Task TTL** (`taskState.ts`): `TASK_TTL_MS` = 2 h enforced in `loadTask` (raw AND cached branches, rm's the file) — an abandoned/test-run flow can never resurface, and its completed-non-idempotent sigs stop poisoning skip-if-done.
+- **Directive-level staleness** (`taskState.ts` `isStaleTask` + `authContext.ts`): a `waiting_for_*` park whose page contradicts the LIVE tab is annotated "STALE … Do NOT send resume_task for it" instead of the resume directive; a park on the CURRENT page (or with the browser closed) keeps its directive — legitimate consent/login parks untouched. `sameFlowPage` = origin+path, query/hash ignored.
+- **Route-level supersede** (`app/api/chat/route.ts` step 5b): on explicit browser intent, `taskFlowMismatch(task, liveUrl, targetUrl)` → `clearTask()` BEFORE the block is injected, so a fresh request starts a new flow instead of inheriting an old park.
+- **Verbatim navigation** (`intent.ts` `extractBrowserUrl` + block line): the user's URL is extracted (http(s) or bare path-bearing/www tokens) and injected as "targets this EXACT url … Copy it VERBATIM"; new MEDIA guidance: navigate verbatim → click the player, else `keyboard_nav ["k"]`/Enter.
+- **Sandbox** (`interactiveBrowser.ts`): both VISIBLE launch sites (interactive session + pipeline fallback read) now pass `chromiumSandbox: true` — Playwright's default (false) injects `--no-sandbox`, which trips Chrome's warning infobar. Verified live: launched automation Chrome's command line contains no `--no-sandbox`. The headless pool (invisible) is untouched.
+- Tests: 12+1 new unit pins (`browser-task-state.test.ts` staleness describe incl. fake-timer TTL expiry; `browser-intent.test.ts` extractBrowserUrl; `browser-context-integration.test.ts` STALE-vs-directive + verbatim url; `browser-engine-launcher.test.ts` source contract: exactly 2 `chromiumSandbox: true`, no `--no-sandbox` in code). Verified: tsc EXIT:0; vitest 66 files 721 passed | 1 skipped EXIT:0; playwright fallback 17/17 (4.5 s) EXIT:0 and panel 4/4 (49.2 s) EXIT:0 on the sandbox-launched session. (First fallback attempt: 17/17 RED — infra only: the dev server had been restarted without `RUKE_TEST_FIXTURES`; re-homed under the pidfile with `dev8.log`.)
+
+## 2026-10-25 — Perf: browser engine speed upgrade + built-in `browser-operator` core skill
+Ten-to-hundred-x fewer inference turns per web task, zero test regressions (vitest 66 files 708 passed | 1 skipped, exit 0; playwright `browser-fallback` 17/17 in 5.2 s exit 0; `browser-engine-panel` 4/4 in 49.8 s exit 0; tsc exit 0):
+- **Fence re-fire**: `BrowserApiBlock.tsx` module dedupe is now a timestamp `Map` with a 1.5 s cooldown — the same fence text in a LATER turn re-executes instead of being silently skipped forever.
+- **Cross-bundle state**: `panelState.ts` (still 100% client-safe, no `fs`) and `domIndexer.ts`'s snapshot store now live on `globalThis` (`__ruke_last_browser_outcome__`, `__ruke_dom_snapshot_store__`) so `/api/browser` and `/api/chat` dev bundles share one act→see→act loop; `executeBrowserAction` also records the outcome SERVER-side (`!nested`) — the loop closes even if the fence chip reloads.
+- **Latency**: highlight overlay insert→remove cut from 1,100 ms to 50 ms (25+25) — a 10-field fill_form stopped burning 11 s on CSS fades; every DOM invariant the fixture asserts (`pos=fixed|ptr=none|label|gone=yes`) preserved.
+- **Fresh refs without snapshot turns**: every successful state-changing action (`click/fill/select/check/press/keyboard_nav/fill_form/batch`) auto-re-indexes and returns the new `snapshotId`+ref map (telemetry `snapshotsTaken` stays pinned to explicit snapshots). Stale-ref identity guard now ALSO runs at semantic_dom: a ref pinned to an older `snapshotId`, or one whose live role+name no longer matches, falls through to the expanded_dom recovery ladder (`recovered:true`) instead of acting on a re-rendered control.
+- **Forms**: `fill_form` comboboxes handle native `<select>` (selectOption) vs custom ARIA comboboxes (type-into-entry, or open popup + click matching `[role="option"]`, honest per-field error otherwise); `submitMode:"submit"` consequential probing reads the SUBMIT CONTROLS' wording (`submitControlWording`) instead of whole body text — pages merely mentioning "post/send/remove" no longer false-trigger the consent gate.
+- **Skill**: new invisible-tier core skill `.cskills/browser-operator/` + `.cskills-scenarios/browser-operator.json` (composite, autoUse) — `fill_form` (≤32 fields) over per-field fills, `batch` (≤8 steps) over per-step turns, always send `role`+`name` beside `ref` so the recovery ladder auto-heals; the same fast-path rules are mirrored in the standing "## Browser agent" block (`authContext.ts`).
+
+## 2026-10-25 — Feat+Refactor: universal multi-browser agent + OS-only pivot (built-in WebUI browser removed)
+The agent now drives the user's OWN browser — Chrome (default, validated on this machine), Brave, Edge, or Firefox — in a real visible window under a dedicated automation profile (`.data/browser-profiles/<engine>/`). The built-in WebUI browser is fully removed: no right panel (`RightBrowserPanel.tsx` deleted), no screencast/mirror (`/api/browser/stream`, `/api/browser/last-frame` deleted → 404), no legacy action vocabulary, and `browser_engine` rejects stale values like `"internal"` with a 400.
+- **Universal automation (no per-site integrations)**: 13 semantic actions over ```browser_api fences (`lib/browser/browserToolProtocol.ts` + `browserActions.ts`), semantic `[eN]`/frame-qualified `[f1:eN]` DOM refs (`domIndexer.ts`), role/name/label/text/selector targeting with stale-ref identity recovery (`browserTargeting.ts`), six-layer fallback ladder semantic_dom→expanded_dom→keyboard→visual_grounding→authorized_alternative→human_handoff (`fallbackController.ts`, `keyboardFallback.ts`, `visualGrounding.ts` — screenshots are ONE transient jpeg, never a mirror), visible "AI Click/Fill/Focus" highlight (fixed, pointer-events:none, removed before the real click), honest 422s with strategy trail — never a fabricated success.
+- **Safety**: server-side consequential gate (`CONSEQUENTIAL_RE`; client `confirmConsequential` never sufficient; skip-if-done so resume never re-submits a transfer), CAPTCHA/MFA/403 detection parks the task (`waiting_for_user_action|waiting_for_login|waiting_for_confirmation`) and `resume_task` continues after the human acts — never a bypass; password values never surface in snapshots; sanitized disk-backed telemetry (`.data/browser-telemetry.json`) with env labels local_fixture/mock/real_browser (disk because dev per-route bundles don't share memory).
+- **Context loop**: fence outcome → `panelState` → exactly one "## Browser agent" block next turn (`authContext.ts`, injected by `app/api/chat/route.ts`); explicit browser requests act immediately (`intent.ts`), no "may I open the browser?".
+- **Settings**: dropdown = the user's four own browsers (Chrome first), four-part validation, static "no built-in browser, no mirror" hint.
+- **Tests**: `tests/browser-fallback.spec.ts` 17/17 on real Chrome (31.6 s, exit 0); `tests/browser-engine-panel.spec.ts` 4/4 (48.2 s, exit 0); new `__tests__/browser-consequential.test.ts` pins the consent heuristic both directions; 66 vitest files 708 passed | 1 skipped (exit 0); tsc exit 0. Fixed along the way: dom-poor fixture button renamed "Send query"→"Run query" (the conservative `send\b` gate is intentional, now unit-pinned); telemetry made disk-backed; spec locator `getByRole({name:"Settings"})` substring-collided with "Voice settings" → scoped+exact.
+
+## 2026-10-24 — Fix: browser 422s, universal bare-domain Stage-0 scraping, deterministic gate, engine sharding, ASCII logs
+Six diagnosed bugs fixed in one pass (browser launch, `skiran.dev` direct search, gate latency, 429 cascade, log mojibake):
+- **Browser launch (lib/browser/agentBrowser.ts + interactiveBrowser.ts)**: removed the broken
+  `require("playwright-core/lib/server/registry").Registry.default()` deep import (exports-map blocked →
+  3-5 traces/request); safe CJS/ESM interop for `fingerprint-generator`/`fingerprint-injector`
+  (`mod?.X ?? mod?.default ?? mod`); filesystem scan for the Chromium executable now matches
+  `chrome-win64/` (Chromium 1243 layout, not `chrome-win/`); interactive path now passes the FULL
+  `{fingerprint, headers}` wrapper to `attachFingerprintToPlaywright` (raw fingerprint threw
+  "Cannot destructure property 'navigator'"). `POST /api/browser` start/navigate/done_login → 200.
+- **next.config.mjs**: playwright, playwright-core, @crawlee/playwright, fingerprint-generator/-injector,
+  header-generator, got-scraping, impit, youtubei.js, linkedom, tldts added to server-external packages —
+  header-generator's `__dirname`-relative `data_files/headers-order.json` no longer ENOENTs under bundling.
+- **Universal bare-domain detection (lib/web-search/url-detector.ts, new + tldts)**: all 1,440+ IANA TLDs +
+  multi-part public suffixes; subdomains under registrable domains and wildcard suffixes (vercel.app/github.io)
+  accepted; code-filename guard (ts/tsx/js/…/gguf excluded unless http(s):// or www.); paths preserved;
+  `.sh` (Saint Helena ccTLD) deliberately NOT guarded. Stage 0 Direct Target in pipeline.ts: prompt URLs are
+  fetched DIRECTLY (engine "direct-target", unshifted before the SERP pool → [S1]) even when every engine 429s;
+  extractor tier cascade auto-renders SPA/blocked shells via the Playwright pool.
+- **Search gate (search-gate.ts + llm-json.ts)**: 0 ms deterministic bypass when a URL/bare domain is present
+  (`gateMs:0 source:"deterministic"` live); gate LLM calls send reasoning_effort/chat_template_kwargs/thinking/
+  response_format off-flags; `<think|thinking>` blocks stripped before JSON parse (unclosed blocks included);
+  silent fallback to rulesBasedPlan (no WARN).
+- **Engines (engines.ts)**: DDG Lite POST (form + cookie prime), GitHub users endpoint, sharded tiering with
+  150-300 ms stagger — no same-millisecond 5-engine burst; per-engine circuit breakers contain 429s
+  (google/brave/ddg 429'd on this IP → breakers trip, direct target + RSS/JSON engines still deliver evidence).
+- **Logs**: `…` → `...` across lib/web-search, lib/browser, lib/server (live logs: zero `ΓÇª`, zero ellipsis).
+- **Test**: `__tests__/web-search/url-detector.test.ts` (8 cases: exact user sentence, TLD spread, wildcard
+  subdomains, paths/dedup, file guard, version noise, prose). tsc 0; vitest 618 passed | 1 skipped; live
+  skiran.dev chat → 200 with S1=skiran.dev (stage-0 SUCCESS_DIRECT) + S2=github profile evidence.
+
 ## 2026-10-23 — Feature: Live token meter in the composer footer (Speed tk/s · Context used/max)
 User request: replace the static "Output varies based on model that's being used." note with
 real, API-sourced stats — `Speed: 56.45 tk/s · Context: 3456/131072` — with no fabricated numbers.

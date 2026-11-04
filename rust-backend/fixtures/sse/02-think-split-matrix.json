@@ -1,0 +1,907 @@
+{
+  "_meta": {
+    "scenario": "<think>/</think> split at every byte position (incl. unterminated block)",
+    "semantics": "tsOutput = the CURRENT TS scrubber's byte-for-byte output when the upstream stream is cut at byte splitAtByte (two chunks): the scrubber decodes+scrubs EACH CHUNK INDEPENDENTLY, so a tag straddling the boundary is not recognized (its halves leak through) and an unterminated block only drops the remainder OF ITS OWN CHUNK. expectedRust = single-pass scrub of the whole stream (atomic model): a split tag is still removed; an unterminated block drops everything from the open tag onward. Rust must reproduce expectedRust for ALL splits.",
+    "comparison": "approved-deviation",
+    "harness": "__tests__/rust-golden/sse-vectors.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "1",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none",
+    "notes": "This is the ONE place where chunk boundaries ARE behavior: it documents the known TS scrubber bug (MIGRATION-MAP 'think bug' row) and defines the Rust state-machine target (approved fix, Rule 4). The client-side lib/stream/thinkTags.ts is a separate TS-side filter and stays TS."
+  },
+  "upstreamStream": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+  "atomicExpectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+  "splitCount": 139,
+  "mismatchSplitBytes": [
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121,
+    122,
+    123,
+    124,
+    125,
+    126,
+    127,
+    128,
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139
+  ],
+  "cases": [
+    {
+      "splitAtByte": 1,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 2,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 3,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 4,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 5,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 6,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 7,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 8,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 9,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 10,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 11,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 12,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 13,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 14,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 15,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 16,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 17,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 18,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 19,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 20,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 21,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 22,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 23,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 24,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 25,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 26,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 27,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 28,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 29,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 30,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 31,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 32,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 33,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 34,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 35,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 36,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 37,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 38,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 39,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 40,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 41,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 42,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 43,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 44,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 45,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 46,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 47,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 48,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 49,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 50,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 51,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 52,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 53,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 54,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 55,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 56,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 57,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 58,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 59,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 60,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 61,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 62,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 63,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 64,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 65,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 66,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 67,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 68,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 69,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 70,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 71,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 72,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 73,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 74,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 75,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 76,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 77,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 78,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 79,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 80,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 81,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 82,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 83,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 84,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 85,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 86,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 87,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 88,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 89,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 90,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 91,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 92,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>secret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 93,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>ecret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 94,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>cret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 95,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>ret1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 96,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>et1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 97,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>t1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 98,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>1</think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 99,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font></think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 100,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>/think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 101,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>think>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 102,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>hink>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 103,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>ink>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 104,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>nk>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 105,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>k>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 106,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 107,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 108,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": true
+    },
+    {
+      "splitAtByte": 109,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 110,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 111,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 112,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 113,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 114,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 115,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Boops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 116,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bops\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 117,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bps\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 118,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bs\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 119,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\"}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 120,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B}}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 121,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B}]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 122,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B]}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 123,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B}\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 124,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\n\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 125,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\ndata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 126,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bdata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 127,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bata: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 128,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bta: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 129,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Ba: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 130,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B: [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 131,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B [DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 132,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B[DONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 133,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BDONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 134,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BONE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 135,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BNE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 136,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BE]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 137,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B]\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 138,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\n\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    },
+    {
+      "splitAtByte": 139,
+      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\n",
+      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
+      "tsMatchesExpectedRust": false
+    }
+  ]
+}

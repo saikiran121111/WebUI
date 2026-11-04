@@ -7,6 +7,10 @@
 
 import type { FileCategory } from "./files/extensions";
 import type { RendererMode } from "./decision/types";
+// P5 rich-result transport (addendum §2/§57): type-only references keep the
+// contract-manifest ledger flat (contractParse nests ONLY inline `{` types).
+import type { PresentationPlan } from "./web-search/presentation";
+import type { RichResult } from "./web-search/rich-results";
 // Verification layer (server-side) types, needed for the Evidence-trail rows
 // and the post-answer claim audit. Type-only: erased at compile time, so no
 // server code enters the browser bundle.
@@ -185,6 +189,17 @@ export interface Message {
     queries: { query: string; intent: string }[];
   };
   /**
+   * P5 (Rich-Results Addendum §55): the deterministic presentation plan for
+   * this turn's web evidence — plan only, never model-authored UI.
+   */
+  presentation?: PresentationPlan;
+  /**
+   * P5 (Addendum §2): protocol-validated rich-result surfaces for this turn
+   * (see lib/web-search/rich-results.ts). The client re-validates with the
+   * zod schema before rendering; unknown kinds fall back to a generic card.
+   */
+  richResults?: RichResult[];
+  /**
    * @deprecated renamed `searchGate` on 2026-10-23 (LFM → SEARCH-GATE).
    * Kept ONLY as a back-compat reader for conversations persisted before
    * the rename; new turns never populate it.
@@ -270,7 +285,8 @@ export interface StreamToolCallDelta {
  * `web_meta` stage instead of response headers on streamed turns.
  */
 export interface StageEvent {
-  /** decision_done | skill | retrieval | retrieval_done | web_meta | web:<PipelineStage> */
+  /** decision_done | skill | retrieval | retrieval_done | web_meta |
+   *  web:<PipelineStage> | browser:<Phase> (Phase-10 browser tool loop) */
   stage: string;
   detail?: string;
   /** decision mode at decision_done */
@@ -279,6 +295,10 @@ export interface StageEvent {
   done?: number;
   total?: number;
   coverage?: number;
+  /** browser:* frames (Phase-10 tool loop) only: the browser session
+   *  (conversation id) the model's browser activity belongs to — the
+   *  Browser Panel store keys its state by this. */
+  session?: string;
   /** web:auth_required only: the login-walled URL and its domain — the
    *  client opens its in-app Browser panel targeted at this page. */
   url?: string;
@@ -296,6 +316,30 @@ export interface StageEvent {
     decidedBy?: string;
     queries: { query: string; intent: string }[];
   };
+  /**
+   * P5 (Addendum §55/§57): presentation plan carried on `web_meta` so the
+   * client knows which surfaces the turn opted into. Declaration order is
+   * the wire key order — ⇔ stages.rs `presentation`.
+   */
+  presentation?: PresentationPlan;
+  /**
+   * P5 (Addendum §57–§58): the validated rich-result surfaces riding the
+   * `web_meta` frame (the OVERWRITE law applies: a later web_meta replaces
+   * the whole set). ⇔ stages.rs `rich_results`.
+   */
+  richResults?: RichResult[];
+  /** P5 §58 `web:surface_*` frames: the surface's id / kind / revision. */
+  surfaceId?: string;
+  surfaceKind?: string;
+  surfaceRevision?: number;
+  /**
+   * Task-scope audit #10: `browser:working_tab` frames only — the chat
+   * turn the frame belongs to (⇔ stages.rs `turn`) and the engine tab the
+   * model is working on (⇔ stages.rs `tab_id`). Session + turn + tab
+   * qualified display metadata: never a permission.
+   */
+  turn?: string;
+  tabId?: string;
   /** @deprecated pre-rename spelling (2026-10-23); read as a fallback. */
   researchLfm?: {
     depth: string;

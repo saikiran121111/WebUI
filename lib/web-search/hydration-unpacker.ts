@@ -452,7 +452,14 @@ export function walkGenericJsonForEntities(
   }
 
   function walk(node: unknown, depth: number): boolean {
-    if (depth > maxDepth || cards.length >= maxCards) return true;
+    // (audit 2026-11-04) `true` means STOP EVERYTHING — and every caller
+    // loop aborts on it. Returning true on a depth overflow therefore
+    // killed the whole walk the moment the FIRST branch got deeper than
+    // maxDepth, never visiting its shallower siblings (deep config blob
+    // first, product array second = zero cards). Depth overflow prunes
+    // ONLY that subtree; only maxCards is a global stop.
+    if (cards.length >= maxCards) return true;
+    if (depth > maxDepth) return false;
     if (Array.isArray(node)) {
       for (const item of node.slice(0, 200)) {
         if (walk(item, depth + 1)) return true;

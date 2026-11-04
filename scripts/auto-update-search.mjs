@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 /**
- * predev auto-updater for the open-source search stack.
+ * Manual updater for the open-source search stack (audit item 21, 2026-11-04).
  *
- * Keeps the scraping/extraction NPM stack current without ever requiring
- * a manual update step or any paid service:
+ *   npm run search:update  →  this script
  *
- *   npm run dev  →  predev hook  →  this script
- *
- * Throttled to at most once per 6 hours via .data/last-search-update.json.
- * Pass --force (or set WEB_SEARCH_UPDATE_FORCE=1) to update right now.
- * Failures never block `npm run dev` — the app must still start offline.
+ * OPT-IN ONLY by law: it used to ride the `predev` hook with a 6h
+ * due-gate, which silently mutated node_modules (and package-lock) behind
+ * every `npm run dev` — an unpinned, unreviewed dependency change in the
+ * middle of development, and a cold install every dev session was at the
+ * mercy of whatever the registry served that morning. The hook and the
+ * time gate are gone: you run it when YOU want the stack current, and a
+ * failure now reports a non-zero exit so the command is honest about
+ * itself instead of pretending success. .data/last-search-update.json is
+ * kept purely as a last-run record.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,42 +33,10 @@ const PKGS = [
   "youtubei.js",
 ];
 
-const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const stateFile = join(repoRoot, ".data", "last-search-update.json");
 
-function lastUpdateMs() {
-  try {
-    const raw = JSON.parse(readFileSync(stateFile, "utf8"));
-    const ms = Date.parse(raw?.lastUpdate ?? "");
-    return Number.isFinite(ms) ? ms : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function forceRequested() {
-  return (
-    process.argv.includes("--force") ||
-    process.env.WEB_SEARCH_UPDATE_FORCE === "1"
-  );
-}
-
-const now = Date.now();
-const last = lastUpdateMs();
-const due = forceRequested() || now - last > SIX_HOURS_MS;
-
-if (!due) {
-  const ageMin = Math.round((now - last) / 60000);
-  console.log(
-    `[auto-update-search] last update ${ageMin} min ago (< 6h) — skipping. Use --force to update now.`,
-  );
-  process.exit(0);
-}
-
-console.log(
-  `[auto-update-search] updating ${PKGS.length} search-stack packages${forceRequested() ? " (--force)" : ""}...`,
-);
+console.log(`[search:update] updating ${PKGS.length} search-stack packages...`);
 try {
   execFileSync("npm", ["update", ...PKGS, "--no-fund", "--no-audit"], {
     cwd: repoRoot,
@@ -76,14 +47,17 @@ try {
   mkdirSync(dirname(stateFile), { recursive: true });
   writeFileSync(
     stateFile,
-    JSON.stringify({ lastUpdate: new Date().toISOString(), packages: PKGS }, null, 2),
+    JSON.stringify(
+      { lastUpdate: new Date().toISOString(), packages: PKGS },
+      null,
+      2,
+    ),
   );
-  console.log("[auto-update-search] search stack is up to date.");
+  console.log("[search:update] search stack is up to date.");
 } catch (err) {
-  // Never break `npm run dev` — an offline or registry-flaky box still starts.
-  console.warn(
-    "[auto-update-search] update failed (continuing with the versions already installed):",
+  console.error(
+    "[search:update] update failed — the installed versions remain in place:",
     err?.message ?? String(err),
   );
+  process.exit(1);
 }
-process.exit(0);

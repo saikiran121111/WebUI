@@ -19,11 +19,11 @@
  *
  * ZERO-DOWNLOAD rule: no `playwright install` — the pool resolves its
  * Chromium from the repo-local `.data/ms-playwright` cache via
- * PLAYWRIGHT_BROWSERS_PATH (see lib/browser/agentBrowser.ts).
+ * PLAYWRIGHT_BROWSERS_PATH (see lib/web-search/agentBrowser.ts).
  */
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { extractPageInOnePass, closeBrowserPool } from "../lib/browser/agentBrowser";
+import { extractPageInOnePass, closeBrowserPool } from "../lib/web-search/agentBrowser";
 import { walkGenericJsonForEntities } from "../lib/web-search/hydration-unpacker";
 import { llmApiUrl, llmApiKey } from "../lib/server/settings";
 import { THINKING_OFF_BODY } from "../lib/web-search/llm-json";

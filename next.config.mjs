@@ -21,6 +21,18 @@ const nextConfig = {
       "pptxgenjs",
       "playwright",
       "playwright-core",
+      "@crawlee/playwright",
+      // fingerprint/header packages: header-generator reads
+      // data_files/headers-order.json via __dirname — bundling into
+      // .next/server/vendor-chunks breaks that relative path (ENOENT).
+      "fingerprint-generator",
+      "fingerprint-injector",
+      "header-generator",
+      "got-scraping",
+      "impit",
+      "youtubei.js",
+      "linkedom",
+      "tldts",
       // Structured server logging: pino's dynamic requires + pino-pretty's
       // color deps must resolve at runtime, not through the webpack bundle.
       "pino",
@@ -28,10 +40,11 @@ const nextConfig = {
       // Web-search engine native deps: impit's Rust N-API binding +
       // better-sqlite3's C++ binding must load from node_modules, not
       // through the webpack bundle (both are required at runtime).
-      "impit",
+      // wreq-js is in the same class: its dist resolves the platform
+      // binding (.node) at runtime, and wreqLoad's .catch(()=>null) would
+      // silently disable Pass C if webpack bundled it (rollback audit §B).
       "better-sqlite3",
-      // linkedom's CJS parser must also resolve at runtime.
-      "linkedom",
+      "wreq-js",
     ],
   },
 };

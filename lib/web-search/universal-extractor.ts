@@ -318,13 +318,23 @@ function pdfLimiter() {
 const PDF_OUTPUT_CAP = 500_000; // 500K chars of extracted text (was 12K)
 
 async function extractPdf(html: string): Promise<string> {
+  return extractPdfBytes(new TextEncoder().encode(html));
+}
+
+/**
+ * (audit 2026-11-04) Byte-true PDF entry. net.ts now retains the original
+ * decompressed bytes (PageResponse.rawBytes) — pdf.js CANNOT recover a PDF
+ * from a lossy UTF-8 string (invalid sequences became U+FFFD and the
+ * xref offsets no longer exist). Callers that have rawBytes must pass
+ * them; the string path stays only as the documented lossy fallback.
+ */
+export async function extractPdfBytes(bytes: Uint8Array): Promise<string> {
   const runner = pdfLimiter();
   return runner(async () => {
     try {
       const mod: any = await import("unpdf");
       // unpdf's extractText takes a Uint8Array (not a Buffer — pdf.js
       // rejects Buffer instances on Node 24).
-      const bytes = new TextEncoder().encode(html);
       const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       const { text } = await mod.extractText(new Uint8Array(buf));
       // Release the raw byte reference — unpdf holds its own copy, so
@@ -332,10 +342,9 @@ async function extractPdf(html: string): Promise<string> {
       void bytes; // allow GC of the source buffer
       return "## PDF text extraction\n" + text.slice(0, PDF_OUTPUT_CAP);
     } catch {
-      // unpdf failed to parse (corrupt PDF, scanned image, etc.) —
-      // return a trimmed slice of the raw bytes so the caller still
-      // has something.
-      return "(PDF text extraction failed)\n" + html.slice(0, 5000);
+      // unpdf failed to parse (corrupt PDF, scanned image, or bytes that
+      // arrived through a string-only fetch pass and lost their binary).
+      return "(PDF text extraction failed — unpdf could not parse the payload: corrupt file, scanned page, or lossy byte transfer)";
     }
   });
 }

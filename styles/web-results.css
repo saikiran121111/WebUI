@@ -1,0 +1,390 @@
+/*
+ * web-results.css — P5 rich-result surfaces (§45–§52).
+ *
+ * Style law (§45–§48): restrained and neutral. NO purple/blue/cyan gradients,
+ * NO neon borders, NO glowing cards, NO gradient text, NO glassmorphism
+ * excess. Every value reuses an existing repo token (tokens.css) — this file
+ * introduces no new colors. §76 greps this file for gradient/glow patterns:
+ * the tokens used here must never be gradient definitions.
+ *
+ * Imported by components/web-results/RichResultRenderer.tsx (lazy style,
+ * same pattern as cad-studio.css), never via globals.css, so the web-search
+ * surfaces never ride the initial page-load bundle.
+ */
+
+/* ── Frame (§54: one primary surface per message) ─────────────────────── */
+.wr-frame {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.wr-frame--compact { background: transparent; box-shadow: none; }
+.wr-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 0;
+}
+.wr-title { font-size: 13px; font-weight: 600; color: var(--foreground); }
+.wr-sub { font-size: 12px; color: var(--muted); margin: 2px 12px 0; }
+.wr-body { padding: 10px 12px; }
+.wr-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+.wr-foot--split { flex-wrap: wrap; }
+
+/* §43 stale indicator: plain label + dot, no animation color games. */
+.wr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.wr-badge::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.wr-badge--stale { border-color: var(--border-strong); color: var(--foreground); }
+.wr-badge--stale::before { background: var(--danger); }
+
+/* ── Provenance pills (§42 provenance law) ────────────────────────────── */
+.wr-src-link {
+  font-size: 11px;
+  color: var(--link);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.wr-src-link:hover, .wr-src-link:focus-visible { border-color: var(--border-strong); }
+.wr-src-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* ── Actions (§40/§41: entry points, never auto-executed) ────────────── */
+.wr-action {
+  font-size: 12px;
+  color: var(--foreground);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+}
+.wr-action:hover { background: var(--bg-hover); }
+.wr-action:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+.wr-action--primary { border-color: var(--link); }
+.wr-action-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── Result card (generic unit of every list/grid/carousel) ───────────── */
+.wr-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wr-card--clickable { cursor: pointer; transition: border-color var(--t-fast) var(--ease-out); }
+.wr-card--clickable:hover, .wr-card--clickable:focus-visible { border-color: var(--border-strong); }
+.wr-card--row { flex-direction: row; align-items: center; gap: 10px; }
+.wr-card-title { font-size: 13px; font-weight: 600; color: var(--foreground); }
+.wr-card-line { font-size: 12px; color: var(--muted); }
+.wr-card-note { font-size: 11px; color: var(--muted); }
+.wr-kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; }
+.wr-kv dt { color: var(--muted); }
+.wr-kv dd { color: var(--foreground); margin: 0; }
+
+/* ── Grid / list ──────────────────────────────────────────────────────── */
+.wr-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.wr-grid--2 { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.wr-list { display: flex; flex-direction: column; gap: 8px; }
+.wr-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted);
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 10px; cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-out);
+}
+.wr-secondary:hover { border-color: var(--border-strong); color: var(--foreground); }
+
+/* ── Carousel (§52: labeled buttons, keyboard) ────────────────────────── */
+.wr-carousel { position: relative; }
+.wr-carousel-track { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 2px; }
+.wr-carousel-track > * { flex: 0 0 min(84%, 320px); scroll-snap-align: start; }
+.wr-carousel-btn {
+  position: absolute; top: 42%;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.wr-carousel-btn:hover { background: var(--bg-hover); }
+.wr-carousel-btn--prev { left: -6px; }
+.wr-carousel-btn--next { right: -6px; }
+.wr-carousel-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Tables (§67 InteractiveTable) ────────────────────────────────────── */
+.wr-table-wrap { overflow-x: auto; }
+.wr-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.wr-table th, .wr-table td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+  color: var(--foreground);
+}
+.wr-table th { background: var(--bg-elevated); color: var(--muted); font-weight: 600; }
+.wr-table--sortable th button {
+  all: unset; cursor: pointer; font-weight: 600; color: var(--muted);
+}
+.wr-table--sortable th button:focus-visible { outline: 2px solid var(--link); }
+
+/* ── Charts (§67 InteractiveChart: local SVG, retrieved code never runs) ─ */
+.wr-chart { width: 100%; height: auto; display: block; }
+.wr-chart-bar { fill: var(--link); opacity: 0.85; }
+.wr-chart-line { stroke: var(--link); stroke-width: 1.5; fill: none; }
+.wr-chart-dot { fill: var(--link); }
+.wr-chart-axis { stroke: var(--border-strong); stroke-width: 1; }
+.wr-chart-label { fill: var(--muted); font-size: 10px; }
+.wr-legend { display: flex; gap: 10px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.wr-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+
+/* ── Media (§6 images, §7 YouTube, §9 video, §10 audio) ───────────────── */
+.wr-thumb {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.wr-thumb img { display: block; width: 100%; height: auto; }
+.wr-thumb-btn { all: unset; display: block; width: 100%; cursor: pointer; }
+.wr-thumb-btn:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+.wr-play {
+  position: absolute; inset: 0; margin: auto;
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-strong);
+  color: var(--foreground);
+  pointer-events: none;
+}
+.wr-duration {
+  position: absolute; right: 6px; bottom: 6px;
+  font-size: 11px; color: var(--foreground);
+  background: var(--bg-overlay);
+  border-radius: 4px; padding: 1px 6px;
+}
+.wr-credit { font-size: 11px; color: var(--muted); }
+.wr-credit a { color: var(--link); text-decoration: none; }
+.wr-video-frame, .wr-embed-frame {
+  width: 100%; aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.wr-video-native { width: 100%; max-height: 340px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.wr-audio { width: 100%; }
+.wr-gallery { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.wr-gallery button { all: unset; cursor: pointer; display: block; }
+.wr-gallery button:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+.wr-gallery img { width: 100%; height: 110px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+
+/* ── Map (§11: coordinates only from a validated provider) ────────────── */
+.wr-map { display: flex; flex-direction: column; gap: 8px; }
+.wr-map-frame { width: 100%; height: 260px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.wr-map-placeholder {
+  display: flex; flex-direction: column; gap: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elevated); padding: 10px; font-size: 12px; color: var(--muted);
+}
+.wr-pin-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elevated); padding: 6px 10px; font-size: 12px;
+}
+.wr-pin-row.wr-pin--active { border-color: var(--link); }
+.wr-pin-btn {
+  all: unset; cursor: pointer; color: var(--foreground); font-size: 12px;
+}
+.wr-pin-btn:focus-visible { outline: 2px solid var(--link); }
+
+/* ── Metrics / timeline ───────────────────────────────────────────────── */
+.wr-metrics { display: flex; gap: 8px; flex-wrap: wrap; }
+.wr-metric {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elevated); padding: 8px 12px; min-width: 120px;
+}
+.wr-metric-value { font-size: 18px; font-weight: 600; color: var(--foreground); }
+.wr-metric-label { font-size: 11px; color: var(--muted); }
+.wr-metric-delta { font-size: 11px; }
+.wr-metric-delta--up { color: var(--success); }
+.wr-metric-delta--down { color: var(--danger); }
+.wr-timeline { display: flex; flex-direction: column; gap: 0; border-left: 2px solid var(--border); margin-left: 6px; }
+.wr-timeline-item { padding: 4px 0 4px 14px; position: relative; font-size: 12px; }
+.wr-timeline-item::before {
+  content: ""; position: absolute; left: -5px; top: 10px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong);
+}
+
+/* ── Flashcards / quiz (§68) ──────────────────────────────────────────── */
+.wr-flashcard {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elevated); padding: 14px; min-height: 84px;
+  cursor: pointer; font-size: 13px; color: var(--foreground);
+  display: grid; place-items: center; text-align: center;
+}
+.wr-flashcard:focus-visible { outline: 2px solid var(--link); }
+.wr-quiz-option {
+  display: block; width: 100%; text-align: left;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elevated); color: var(--foreground);
+  padding: 8px 10px; font-size: 12px; cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-out);
+}
+.wr-quiz-option:hover { border-color: var(--border-strong); }
+.wr-quiz-option--correct { border-color: var(--success); }
+.wr-quiz-option--wrong { border-color: var(--danger); }
+
+/* ── Overlays: sheet / lightbox / fullscreen (§8, §52) ────────────────── */
+.wr-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: var(--bg-overlay);
+  display: grid; place-items: center;
+  padding: 16px;
+}
+.wr-overlay-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-width: min(920px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 14px;
+  position: relative;
+}
+.wr-overlay-panel--wide { max-width: min(1200px, 96vw); }
+.wr-overlay-close {
+  position: absolute; top: 8px; right: 8px;
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated); color: var(--foreground);
+  cursor: pointer;
+  display: grid; place-items: center;
+}
+.wr-overlay-close:hover { background: var(--bg-hover); }
+.wr-sheet {
+  position: fixed; inset: 0; z-index: 60;
+  background: var(--bg-overlay);
+  display: flex; justify-content: flex-end;
+}
+.wr-sheet-panel {
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-strong);
+  width: min(420px, 94vw);
+  height: 100%;
+  overflow: auto;
+  padding: 14px;
+}
+
+/* ── Sources panel (U5: grouped by domain, per-host counts) ───────────── */
+.wr-sources { display: flex; flex-direction: column; gap: 10px; }
+.wr-src-group { display: flex; flex-direction: column; gap: 6px; }
+.wr-src-group-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 12px; color: var(--foreground); font-weight: 600;
+}
+.wr-src-count { font-size: 11px; color: var(--muted); font-weight: 400; }
+.wr-src-card {
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elevated); padding: 8px 10px;
+}
+.wr-src-card a.wr-src-title {
+  color: var(--foreground); font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.wr-src-card a.wr-src-title:hover { text-decoration: underline; }
+.wr-src-meta { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+.wr-cite-pop {
+  position: absolute; z-index: 55;
+  width: 260px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.wr-cite-pop .wr-card-title { display: block; margin-bottom: 2px; }
+/* Citation preview show/hide: pure CSS (:hover/:focus-within) — SSR-safe,
+ * keyboard-accessible, no state, and §50-tame (opacity only, 140 ms). */
+.wr-cite { position: relative; }
+.wr-cite .wr-cite-pop {
+  top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast);
+}
+.wr-cite:hover .wr-cite-pop,
+.wr-cite:focus-within .wr-cite-pop {
+  opacity: 1; visibility: visible;
+  transition: opacity var(--t-fast) var(--ease-out), visibility 0s linear 0s;
+}
+
+/* ── Skeletons (§44: opacity pulse only — NO gradient sweep) ──────────── */
+.wr-skeleton {
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  animation: wr-pulse 1.4s var(--ease-in-out) infinite;
+}
+@keyframes wr-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ── Error surface (§59: one broken widget never destroys the response) ─ */
+.wr-error {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  padding: 10px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.wr-error-text { font-size: 12px; color: var(--foreground); }
+.wr-empty { font-size: 12px; color: var(--muted); }
+
+/* ── Motion (§50: 120–200 ms, reduced-motion honored) ─────────────────── */
+.wr-fade { animation: wr-fade-in 160ms var(--ease-out); }
+@keyframes wr-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .wr-skeleton, .wr-fade { animation: none; }
+  .wr-action, .wr-card--clickable, .wr-secondary, .wr-quiz-option { transition: none; }
+}
+
+/* ── Responsive (§51) ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .wr-grid, .wr-grid--2 { grid-template-columns: 1fr; }
+  .wr-carousel-track > * { flex-basis: 92%; }
+  .wr-map-frame { height: 200px; }
+}

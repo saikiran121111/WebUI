@@ -5,14 +5,17 @@ import { highlightCode } from "../../lib/render/highlight";
 import { resolveLanguage } from "../../lib/render/languages";
 import { copyText } from "../../lib/render/clipboard";
 
-const STREAM_HIGHLIGHT_INTERVAL_MS = 200;
 /**
- * During active streaming, plain <pre><code> is shown with zero Shiki
- * overhead until the fence has been quiet for at least 150 ms; then a
- * single Shiki call runs.  When streaming ends the block is re-highlighted
- * immediately.
+ * Throttle interval for highlighting an ACTIVELY STREAMING fence.  A local
+ * model emits tokens faster than any pure debounce can settle (the old
+ * 150 ms debounce reset on every chunk and Shiki never ran until the fence
+ * closed — that is why colors appeared only after generation finished).
+ * Colors must land DURING generation, so highlighting is throttled, not
+ * debounced: at most one Shiki pass per interval while tokens keep flowing,
+ * plus one immediate pass when streaming ends.  400 ms ≈ 2.5 Shiki passes
+ * per second worst-case, which keeps the rAF-batched stream cost flat.
  */
-const STREAM_DEBOUNCE_MS = 150;
+const STREAM_HIGHLIGHT_INTERVAL_MS = 400;
 const MAX_STREAM_HIGHLIGHT_CHARS = 10_000;
 const COLLAPSE_AFTER_LINES = 24;
 
@@ -39,10 +42,9 @@ export default memo(function CodeBlock({ code, lang, streaming = false }: CodeBl
   const lineCount = useMemo(() => code.split("\n").length, [code]);
   const collapsible = lineCount > COLLAPSE_AFTER_LINES;
 
-  // Throttle + debounce: SSE chunks arrive faster than any fixed delay, so a
-  // 150 ms debounce keeps Shiki out of the hot path while the fence is still
-  // changing.  The final chunk (or streaming = false) triggers an immediate
-  // highlight so colors always land by the time the user reads the code.
+  // Throttle: while streaming, one Shiki pass per STREAM_HIGHLIGHT_INTERVAL_MS
+  // at most (new chunks inside the window piggyback on the scheduled pass).
+  // The final chunk (streaming = false) triggers an immediate highlight.
   const lastHighlightAt = useRef(0);
   const highlightSeq = useRef(0);
   const appliedSeq = useRef(0);
@@ -58,19 +60,25 @@ export default memo(function CodeBlock({ code, lang, streaming = false }: CodeBl
       setHtml(null);
       return;
     }
-    // While actively streaming: debounce — wait for the code to stop changing.
+    const run = () => {
+      if (cancelled) return;
+      lastHighlightAt.current = Date.now();
+      const seq = ++highlightSeq.current;
+      void highlightCode(code, lang).then(result => {
+        if (!cancelled && seq >= appliedSeq.current) {
+          appliedSeq.current = seq;
+          setHtml(result?.html ?? null);
+        }
+      });
+    };
+    // While actively streaming: throttled — colors keep landing mid-stream.
     if (streaming) {
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        lastHighlightAt.current = Date.now();
-        const seq = ++highlightSeq.current;
-        void highlightCode(code, lang).then(result => {
-          if (!cancelled && seq >= appliedSeq.current) {
-            appliedSeq.current = seq;
-            setHtml(result?.html ?? null);
-          }
-        });
-      }, STREAM_DEBOUNCE_MS);
+      const wait = STREAM_HIGHLIGHT_INTERVAL_MS - (Date.now() - lastHighlightAt.current);
+      if (wait <= 0) {
+        run();
+        return () => { cancelled = true; };
+      }
+      const timer = setTimeout(run, wait);
       return () => { cancelled = true; clearTimeout(timer); };
     }
     // Streaming just ended: highlight immediately with no debounce.

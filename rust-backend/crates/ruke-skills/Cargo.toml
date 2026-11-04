@@ -1,0 +1,13 @@
+[package]
+name = "ruke-skills"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Two-tier skill engine port (lib/skills/registry.ts + lazy.ts, lib/decision/skill-loader.ts): JS string semantics, user-tier registry, core-tier bundle loading, slash routing."
+
+[dependencies]
+serde_json.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -979,3 +979,14 @@ input[type="date"], input[type="time"] { color-scheme: dark; }
   overflow: hidden;
 }
 
+/* Citation pills: they read as inline marks, not tappable cards. Never let
+   a text selection paint their background — selecting answer text must
+   highlight the text only, and keyboard focus stays a ring, not a fill. */
+a[data-citation] {
+  background: transparent !important;
+}
+a[data-citation]:hover,
+a[data-citation]:focus-visible {
+  background: transparent !important;
+}
+

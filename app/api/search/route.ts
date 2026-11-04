@@ -16,6 +16,8 @@ import { runWebResearch, evidenceBlock } from "../../../lib/web-search/pipeline"
 import { runGeneralWebSearch } from "../../../lib/web-search/engines";
 
 export async function GET(req: NextRequest) {
+  // Search ownership is TypeScript (rollback 2026-11-03): this route ALWAYS
+  // executes the TS pipeline, including when RUKE_RUST_BACKEND=1.
   const query = req.nextUrl.searchParams.get("q");
   if (!query) return NextResponse.json({ results: [] });
 

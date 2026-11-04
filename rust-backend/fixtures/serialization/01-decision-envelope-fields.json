@@ -1,0 +1,97 @@
+{
+  "_meta": {
+    "scenario": "DecisionEnvelope field-by-field comparison classes",
+    "semantics": "Ledger of every envelope field with its comparison class. The confidence '1' vs serde '1.0' and the omitted-vs-null lfm_input/lfm_raw fields are the two known serializer traps for Parts 3/4.",
+    "comparison": "semantic",
+    "harness": "__tests__/rust-golden/decision-serialization.test.ts",
+    "env": {
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
+    },
+    "normalization": "none",
+    "notes": "Part 3/4 must NOT 'fix' the TS side; the Rust serializer conforms to these bytes (or an explicit approved deviation is recorded)."
+  },
+  "referenceCall": {
+    "message": "spreadsheet please"
+  },
+  "envelopeKeyOrder": [
+    "active_mode",
+    "confidence",
+    "decided_by",
+    "stripped_prompt",
+    "skill_to_load",
+    "allowed_code_fence",
+    "disable_validators",
+    "enable_validator",
+    "task_constraints",
+    "extracted_entities",
+    "lfm_latency_ms"
+  ],
+  "fields": [
+    {
+      "path": "active_mode",
+      "comparison": "byte-exact",
+      "note": "string enum of mode ids"
+    },
+    {
+      "path": "confidence",
+      "comparison": "byte-exact",
+      "note": "JS always emits integer 1 (\"1\"). serde_json f64 emits \"1.0\" — BYTE-INEQUAL. Rust serializer must emit 1 (integer). Finding for Parts 3/4; do NOT normalize the TS side."
+    },
+    {
+      "path": "decided_by",
+      "comparison": "byte-exact",
+      "note": "\"in-process-deliverable-match\" | \"in-process-fallback\" (internal-only) | (chat-internal-only: \"repair-passthrough\")"
+    },
+    {
+      "path": "stripped_prompt",
+      "comparison": "byte-exact",
+      "note": "ALWAYS verbatim === incoming message"
+    },
+    {
+      "path": "skill_to_load",
+      "comparison": "byte-exact",
+      "note": "core skill name (MODE_SKILL) or null; null MUST serialize as JSON null (present), not omitted"
+    },
+    {
+      "path": "allowed_code_fence",
+      "comparison": "byte-exact",
+      "note": "string or null; null MUST serialize as JSON null (present), not omitted"
+    },
+    {
+      "path": "disable_validators",
+      "comparison": "byte-exact",
+      "note": "string array; ORDER significant (INTENT_ORDER minus active)"
+    },
+    {
+      "path": "enable_validator",
+      "comparison": "byte-exact",
+      "note": "ALWAYS the active mode id (observed for excel AND standard_chat)"
+    },
+    {
+      "path": "task_constraints",
+      "comparison": "byte-exact",
+      "note": "always [] in the in-process engine"
+    },
+    {
+      "path": "extracted_entities",
+      "comparison": "byte-exact",
+      "note": "always [] in the in-process engine"
+    },
+    {
+      "path": "lfm_latency_ms",
+      "comparison": "byte-exact",
+      "note": "always 0 (in-process)"
+    }
+  ],
+  "neverPresentFields": [
+    {
+      "path": "lfm_input",
+      "note": "OMITTED from the JSON object — absence, not null. Rust struct must skip-serialize these (serde default+skip) or leave them out entirely."
+    },
+    {
+      "path": "lfm_raw",
+      "note": "OMITTED from the JSON object — absence, not null. Rust struct must skip-serialize these (serde default+skip) or leave them out entirely."
+    }
+  ],
+  "keyOrderContract": "TS JSON.stringify preserves object insertion order; fixture 01/02/03 pin envelopeKeyOrder. Rust DecisionEnvelope must serialize in the SAME order to be byte-exact."
+}
