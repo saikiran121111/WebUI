@@ -1652,11 +1652,66 @@ function attempt<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
 }
 
+/* ── Evidence-gap recovery law (P4, staged-research brief §4/§6) ─────────
+   "Google answered" used to mean "returned anything at all" — a consent
+   wall, CAPTCHA interstitial or generic-junk SERP therefore ENDED all
+   further provider investigation even when no result title/snippet/URL
+   contained a single content word of the query. The engine priority law
+   stands (Google #1, Brave #2, rest only when both failed); this law only
+   sharpens "failed" to include "answered but the answer never touches the
+   query's own vocabulary": a provider counts as answering ONLY when at
+   least half of the query's content words appear somewhere in its result
+   text. Vocabulary self-overlap, entity knowledge never consulted — the
+   SAME 0.5 coverage law as query-planner.evaluateCoverage, and the same
+   function-word filter as its GAP_STOPWORDS (the metasearch → engines
+   import cycle forbids reuse, so this filter mirrors it — same precedent
+   as metasearch.ts:837 mirroring query-planner's GENERIC word set). NO
+   brand/site/domain table, NO URL template, NO magic phrase. */
+const POOL_QUERY_STOPWORDS = new Set([
+  "which", "what", "when", "where", "who", "whose", "why", "how",
+  "does", "do", "did", "can", "could", "would", "should", "will", "shall",
+  "is", "are", "was", "were", "be", "been", "being", "the", "a", "an",
+  "for", "of", "in", "on", "at", "to", "and", "or", "with", "about",
+  "from", "tell", "me", "please", "give", "show", "list", "any", "all",
+]);
+
+/** Search-one budget guard: searchOne races the whole pool at
+   SEARCH_ONE_CAP_MS (40 s). Recovery adds a provider tier that the old
+   early-return never reached — once the priority attempts have already
+   burned most of that wall clock, asking the fallback pool just guarantees
+   the cap fires and the caller gets NOTHING. shortcut: fixed constant,
+   not threaded state; upgrade trigger = SEARCH_ONE_CAP_MS ever moves. */
+const RECOVERY_POOL_TIME_GUARD_MS = 25_000;
+
+/** The recovery predicate: is this provider's SERP grounded in the query's
+   own words? (empty results = never answered; a query with no content
+   words beyond stop-words is unjudgeable → benefit of the doubt.) */
+export function serpCoversQuery(query: string, results: RawSearchResult[]): boolean {
+  if (results.length === 0) return false;
+  const terms = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !POOL_QUERY_STOPWORDS.has(w));
+  if (terms.length === 0) return true;
+  const haystack = results
+    .map((r) => `${r.title} ${r.snippet} ${r.url}`)
+    .join(" ")
+    .toLowerCase();
+  const hits = terms.filter((t) => haystack.includes(t)).length;
+  return hits / terms.length >= 0.5;
+}
+
 /**
- * Priority run for a single query: Google first; if Google answered, its
- * results are used and no other engine is consulted at all. If Google
- * failed (block, timeout or parse-miss), Brave; only if Brave also failed
- * does the rest of the pool run.
+ * Priority run for a single query: Google first; if Google answered AND
+ * its results are grounded in the query vocabulary, its results are used
+ * and no other engine is consulted at all. If Google failed (block,
+ * timeout, parse-miss) OR answered with a SERP that never touches the
+ * query's own content words (evidence-gap recovery), Brave; only if Brave
+ * also failed/missed does the rest of the pool run. The pool is skipped
+ * when the priority attempts already burned the searchOne budget
+ * (RECOVERY_POOL_TIME_GUARD_MS), and a fully-failed cascade still returns
+ * the priority providers' non-empty results rather than nothing.
  */
 export async function runGeneralWebSearch(query: string): Promise<RawSearchResult[]> {
   // (audit 2026-11-04) Secret scrub is enforced HERE, at the shared engine
@@ -1665,19 +1720,31 @@ export async function runGeneralWebSearch(query: string): Promise<RawSearchResul
   // in a query string straight to Google/Brave/DDG. scrubQuerySecrets is
   // idempotent, so the upstream scrub costs nothing.
   query = scrubQuerySecrets(query);
+  const startedAt = Date.now();
   const googleResults = await attempt(
     googleSearch(query).catch(() => [] as RawSearchResult[]),
     GOOGLE_ATTEMPT_CAP_MS,
     [] as RawSearchResult[],
   );
-  if (googleResults.length > 0) return googleResults;
+  if (serpCoversQuery(query, googleResults)) return googleResults;
+  if (googleResults.length > 0) {
+    log.info(
+      { results: googleResults.length },
+      "evidence-gap recovery: Google answered but its result text never touches the query vocabulary — asking Brave",
+    );
+  }
 
   const braveResults = await attempt(
     braveSearch(query).catch(() => [] as RawSearchResult[]),
     BRAVE_ATTEMPT_CAP_MS,
     [] as RawSearchResult[],
   );
-  if (braveResults.length > 0) return braveResults;
+  if (serpCoversQuery(query, braveResults)) return braveResults;
+
+  const gapRecovery = googleResults.length > 0 || braveResults.length > 0;
+  if (gapRecovery && Date.now() - startedAt > RECOVERY_POOL_TIME_GUARD_MS) {
+    return braveResults.length > 0 ? braveResults : googleResults;
+  }
 
   const settled = await Promise.allSettled(
     GENERAL_WEB_ENGINES.slice(2).map((fn) => fn(query).catch(() => [] as RawSearchResult[])),
@@ -1686,7 +1753,11 @@ export async function runGeneralWebSearch(query: string): Promise<RawSearchResul
   for (const s of settled) {
     if (s.status === "fulfilled") out.push(...s.value);
   }
-  return out;
+  // Never-lose law: recovery must not make a poor provider answer WORSE
+  // than the old early-return — an empty fallback pool returns the
+  // priority providers' results (priority order preserved) instead of [].
+  if (out.length > 0) return out;
+  return braveResults.length > 0 ? braveResults : googleResults;
 }
 
 /**
@@ -1709,6 +1780,15 @@ export async function runGeneralWebSearch(query: string): Promise<RawSearchResul
  * (150-300 ms) is what prevents the production 429 cascade observed
  * during the November engine-throttle night.
  *
+ * Evidence-gap recovery (P4) applies the same law as runGeneralWebSearch:
+ * a priority engine counts as answering only when its MERGED results are
+ * grounded in the primary query's own vocabulary (serpCoversQuery); a
+ * nonempty-but-ungrounded SERP falls through to the next tier, subject to
+ * the RECOVERY_POOL_TIME_GUARD_MS budget guard and the never-lose
+ * fallback. Coverage is judged against the merged multi-query result set,
+ * so a paraphrase query whose results legitimately lack primary terms
+ * still counts once ANY tier result touches them — conservative.
+ *
  * Returns the merged raw result list for RRF fusion.
  */
 export async function runGeneralWebSearchSharded(
@@ -1718,6 +1798,7 @@ export async function runGeneralWebSearchSharded(
   // Same entry-point scrub law as runGeneralWebSearch.
   primaryQuery = scrubQuerySecrets(primaryQuery);
   allQueries = allQueries.map(scrubQuerySecrets);
+  const startedAt = Date.now();
   const stagger = () => new Promise((r) => setTimeout(r, 150 + Math.floor(Math.random() * 150)));
 
   const runPriorityEngine = async (
@@ -1747,12 +1828,24 @@ export async function runGeneralWebSearchSharded(
      extra queries run, the browser pool is warm, but each one still
      pays SERP render + redirect resolution. */
   const googleResults = await runPriorityEngine(googleSearch, GOOGLE_ATTEMPT_CAP_MS, 15_000);
-  if (googleResults.length > 0) return googleResults;
+  if (serpCoversQuery(primaryQuery, googleResults)) return googleResults;
+  if (googleResults.length > 0) {
+    log.info(
+      { results: googleResults.length },
+      "evidence-gap recovery: Google answered but its result text never touches the query vocabulary — asking Brave",
+    );
+  }
 
   const braveResults = await runPriorityEngine(braveSearch, BRAVE_ATTEMPT_CAP_MS, 8_000);
-  if (braveResults.length > 0) return braveResults;
+  if (serpCoversQuery(primaryQuery, braveResults)) return braveResults;
 
-  // Fallback pool — Google and Brave just failed; everyone else pays.
+  const gapRecovery = googleResults.length > 0 || braveResults.length > 0;
+  if (gapRecovery && Date.now() - startedAt > RECOVERY_POOL_TIME_GUARD_MS) {
+    return braveResults.length > 0 ? braveResults : googleResults;
+  }
+
+  // Fallback pool — Google and Brave just failed (or answered without
+  // grounding); everyone else pays.
   const tier1: Promise<RawSearchResult[]>[] = [];
   for (let i = 0; i < allQueries.length; i++) {
     if (i > 0) await stagger();
@@ -1785,5 +1878,9 @@ export async function runGeneralWebSearchSharded(
   for (const s of settled) {
     if (s.status === "fulfilled") out.push(...s.value);
   }
-  return out;
+  // Never-lose law (same as runGeneralWebSearch): recovery must not turn a
+  // poor provider answer into zero results — an empty fallback pool
+  // returns the priority providers' results (priority order) instead.
+  if (out.length > 0) return out;
+  return braveResults.length > 0 ? braveResults : googleResults;
 }

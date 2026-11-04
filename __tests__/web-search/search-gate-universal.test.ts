@@ -247,4 +247,24 @@ describe("the universal pre-gate never calls the LLM", () => {
     expect(smallTalk.gateMs).toBe(0);
     expect(smallTalk.decision.reason).toBe("trivial prompt — no web content needed");
   });
+
+  // G01 law pin (2026-11-04 audit; P4 R-sweep — previously untested):
+  // bare "currently" is a temporal adverb, not an evidence request. The
+  // old freshness head force-YESed "What are you currently doing?" as
+  // small talk; now the hard bypass ABSTAINS (the turn falls to the
+  // model gate, whose NO is first-class), trailing-adverb variants
+  // ("…doing now") normalize into the trivial set, and "currently"
+  // still counts inside the price frames.
+  it("bare 'currently' no longer force-YESes; price frames still count it", async () => {
+    expect(deterministicHardBypass(ctx("What are you currently doing?"))).toBeNull();
+
+    const nowTalk = await runSearchGate(ctx("What are you doing now?"));
+    expect(nowTalk.decision.search_required).toBe(false);
+    expect(nowTalk.decision.queries).toEqual([]);
+    expect(nowTalk.decision.reason).toBe("trivial prompt — no web content needed");
+
+    const priceNow = deterministicHardBypass(ctx("What are the current prices?"));
+    expect(priceNow).not.toBeNull();
+    expect(priceNow!.hit.matched).toBe("freshness");
+  });
 });

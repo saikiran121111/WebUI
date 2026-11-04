@@ -21,6 +21,13 @@
  * in-memory pool (lib/web-search/agentBrowser.ts) resolves Chromium from
  * the repo-local `.data/ms-playwright` cache via
  * PLAYWRIGHT_BROWSERS_PATH, exactly like playwright.config.ts does.
+ *
+ * P4 measurement law (staged-research brief §7): ACQUISITION is asserted
+ * deterministically (did the extraction layer produce content?), model
+ * CORRECTNESS is only ever advisory — a local model's YES/NO vote is not
+ * ground truth, so the verdict never feeds the pass/fail assertion and
+ * the report labels it as such. A Sources badge, high keyword coverage or
+ * a plausible generated paragraph is not success.
  */
 import { test, expect } from "@playwright/test";
 import { readFileSync, existsSync, mkdirSync, appendFileSync } from "node:fs";
@@ -184,6 +191,9 @@ test(`web-search-10k: ${slice.length} of ${corpus.length} URLs (universal extrac
   const summary = {
     runAt: new Date().toISOString(),
     sample: slice.length,
+    // Deterministic acquisition counter (the measured quantity): the
+    // extraction layer produced real content for this URL.
+    acquired: rows.filter((r) => r.bodyChars >= 50 || r.status === 200).length,
     yes: rows.filter((r) => r.verdict.visible === "YES").length,
     no: rows.filter((r) => r.verdict.visible === "NO").length,
     unknown: rows.filter((r) => r.verdict.visible === "UNKNOWN").length,
@@ -193,9 +203,8 @@ test(`web-search-10k: ${slice.length} of ${corpus.length} URLs (universal extrac
     REPORT_FILE,
     `\n## Run ${summary.runAt}\n\n` +
     `- Sampled: ${summary.sample}\n` +
-    `- YES: ${summary.yes}\n` +
-    `- NO: ${summary.no}\n` +
-    `- UNKNOWN: ${summary.unknown}\n\n` +
+    `- Acquired (deterministic: body ≥50 chars or HTTP 200): ${summary.acquired}/${summary.sample}\n` +
+    `- AI verdict (ADVISORY — a model vote is not ground truth): YES ${summary.yes}, NO ${summary.no}, UNKNOWN ${summary.unknown}\n\n` +
     rows
       .map(
         (r) =>
@@ -209,10 +218,12 @@ test(`web-search-10k: ${slice.length} of ${corpus.length} URLs (universal extrac
 
   // The universal guarantee: the extractor waterfall must never return 0
   // passages — even a fully-blocked URL yields the SERP baseline. The
-  // AI verdict "NO" is a data point, not a hard fail (a handful of
-  // hard-blocked sites in 10K is expected); the test fails only when
-  // the extraction layer itself produced nothing for a URL.
-  const emptyExtractions = rows.filter((r) => r.bodyChars < 50 && r.status !== 200 && r.verdict.visible === "NO");
+  // assertion is DETERMINISTIC ACQUISITION ONLY (P4): a model verdict is
+  // advisory and must neither save nor fail this check — "generator/model
+  // voting alone is not ground truth". A handful of hard-blocked sites in
+  // 10K is expected; the test fails only when the extraction layer itself
+  // produced nothing for too many URLs.
+  const emptyExtractions = rows.filter((r) => r.bodyChars < 50 && r.status !== 200);
   expect(
     emptyExtractions.length,
     `${emptyExtractions.length} URLs returned zero extraction even through the full waterfall: ${emptyExtractions.slice(0, 5).map((r) => r.url).join(", ")}`,
