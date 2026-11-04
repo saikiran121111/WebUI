@@ -86,7 +86,7 @@ async function sendPrompt(page: import("@playwright/test").Page, text: string): 
 async function waitForAnswer(
   page: import("@playwright/test").Page,
   priorAssistant: number,
-  deadlineMs = 180_000,
+  deadlineMs = 300_000,
 ) {
   const t0 = Date.now();
   while (Date.now() - t0 < deadlineMs) {
@@ -295,7 +295,11 @@ const CASES: Case[] = [
  */
 for (const c of CASES) {
   test(`universal: ${c.name}`, async ({ page }) => {
-    test.setTimeout(240_000);
+    // 180s deadline + 240s cap KILLED real 181s successful turns
+    // (dev-audit3 2026-11-04: POST /api/chat 200 in 181151ms). Local
+    // search turns need ~300s; shortcut: if a turn ever legitimately
+    // exceeds this, raise both numbers together.
+    test.setTimeout(360_000);
     const priorAssistant = await sendPrompt(page, c.prompt);
     await waitForAnswer(page, priorAssistant);
     const ev = await readTurnEvidence(page, priorAssistant);
