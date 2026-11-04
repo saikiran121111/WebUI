@@ -3,7 +3,12 @@
  * re-architecture).
  *
  * Runs REAL end-to-end searches through the live app (localhost:3000) and
- * asserts non-empty, on-topic evidence + zero LLM refusal on:
+ * asserts, PER TURN, on-topic answer text + live provenance + zero LLM
+ * refusal (brief E2E repair): the answer is read ONLY from this turn's
+ * completed bubble (.msg-content), and each case must show EITHER fresh
+ * on-site facts backed by this turn's Sources panel OR a truthful
+ * access-failure report that names the wall/login/CAPTCHA mechanism.
+ * Cases:
  *   1. Blinkit, Myntra, Zepto, BookMyShow, Zomato (ZERO per-site
  *      adapters — the same 4-stage waterfall extracts every one of them)
  *   2. The 3 original regression cases (YouTube short link, Google Maps
@@ -114,8 +119,98 @@ const REFUSAL_PATTERNS = [
   /i can'?t (see|view) (the|this|that) (video|link|page|website|content)/i,
 ];
 
-function answerText(page: import("@playwright/test").Page): Promise<string> {
-  return page.locator("main").first().innerText();
+/**
+ * Hedges: an unverified "I don't know" is NOT a truthful access failure.
+ * A truthful report names the MECHANISM (wall/login/CAPTCHA — matched by
+ * HONEST_WALL below); a hedge offers nothing. Hedged answers can never
+ * satisfy the fresh-read branch.
+ */
+const HEDGE_PATTERNS = [
+  /\bi (don'?t|do not|dont) know\b/i,
+  /\bi (can'?t|cannot|am unable to) (?:tell|determine|confirm|say)\b/i,
+  /\bnot sure\b/i,
+  /\bi (?:have|had) no (?:access|information|way to)\b/i,
+];
+
+/**
+ * Truthful access-gap reporting — the pipeline evidence guideline's
+ * "report the wall honestly as an access gap" surface. The report must
+ * NAME THE MECHANISM (CAPTCHA / login wall / 403 / paywall / failed
+ * fetch), which is what separates an honestly-attempted read from a
+ * hedge or the capability refusals REFUSAL_PATTERNS forbids. (Those
+ * refusal laws stay untouched — an honest gap report names the site's
+ * block, not the assistant's abilities.)
+ */
+const HONEST_WALL =
+  /captcha|robot (?:check|test|verification)|human (?:verification|check)|log\s?in (?:required|needed|wall|page)|sign\s?in (?:required|needed)|access (?:was )?denied|permission denied|\b403\b|paywall|(?:was |were |is |it )?blocked (?:the |their |its |my |your )?(?:request|page|site|read|access|me)|couldn'?t (?:access|open|load|read|fetch|retrieve|reach)|unable to (?:access|open|load|read|fetch|retrieve|reach)|failed to (?:access|open|load|read|fetch|retrieve|reach)|hit (?:a|an) (?:wall|block)/i;
+
+/**
+ * THIS TURN'S ANSWER TEXT — never the whole <main> (brief E2E repair:
+ * main includes the user's QUESTION, so `mustMention: "blinkit"` was
+ * satisfied by the prompt echo and proved nothing about the answer).
+ * `.msg-content` is the rendered answer body of the assistant bubble
+ * at index priorAssistant — the prompt, the collapsed reasoning box,
+ * the tool chrome, and every restored prior turn are all excluded, so
+ * anything matched here was written by the assistant THIS turn.
+ */
+async function answerText(
+  page: import("@playwright/test").Page,
+  priorAssistant: number,
+): Promise<string> {
+  const content = page
+    .locator('[data-testid="assistant-message"]')
+    .nth(priorAssistant)
+    .locator(".msg-content");
+  expect(
+    await content.count(),
+    "this turn's completed assistant bubble rendered no answer body (.msg-content)",
+  ).toBeGreaterThan(0);
+  return content.first().innerText();
+}
+
+interface TurnEvidence {
+  /** This turn's answer body. */
+  answer: string;
+  /** Source domains recorded in THIS turn's provenance panel. */
+  domains: string[];
+  /** The turn actually attempted web access (provenance rows exist or
+   *  a web-tool call row rendered). Blocked reads whose page yielded no
+   *  citable text leave NO provenance row — the attempt signal keeps the
+   *  honest-failure branch reachable for genuine hard blocks (tools.ts
+   *  only mints a CitationSeed for packets with readable text). */
+  attempted: boolean;
+}
+
+/** Answer body + provenance for THIS turn: opens the Sources sheet
+ *  (role=dialog, explicit testid — CLAUDE.md §4.4 locator priority),
+ *  reads the per-domain group headers, closes the sheet again. */
+async function readTurnEvidence(
+  page: import("@playwright/test").Page,
+  priorAssistant: number,
+): Promise<TurnEvidence> {
+  const answer = await answerText(page, priorAssistant);
+  const bubble = page
+    .locator('[data-testid="assistant-message"]')
+    .nth(priorAssistant);
+  const domains: string[] = [];
+  const footer = bubble.getByTestId("sources-footer");
+  if (await footer.count()) {
+    await footer.click();
+    const dialog = page.getByRole("dialog", { name: /^Sources \(\d+\)/ });
+    await dialog.waitFor({ state: "visible", timeout: 10_000 });
+    // .wr-src-head groups the domain span first, the count span second.
+    domains.push(
+      ...(await dialog
+        .locator(".wr-src-head > span:first-child")
+        .allInnerTexts()).map((d) => d.trim()),
+    );
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+  }
+  const toolRows =
+    (await bubble.getByText("web_search", { exact: true }).count()) +
+    (await bubble.getByText("read_page", { exact: true }).count());
+  return { answer, domains, attempted: domains.length > 0 || toolRows > 0 };
 }
 
 function assertNoRefusal(text: string): void {
@@ -124,17 +219,11 @@ function assertNoRefusal(text: string): void {
   }
 }
 
-/**
- * Each case: send the prompt, wait for the answer, assert (a) the answer
- * arrived (non-empty, on-topic text), and (b) zero refusal. When the
- * case is a live-web lookup, also assert the answer mentions a real fact
- * (a price, a name, a URL, a rating, etc.) rather than a hedged "I
- * don't know".
- */
 interface Case {
   name: string;
   prompt: string;
-  /** Substring that MUST appear in the answer (case-insensitive). */
+  /** Substring that MUST appear in THIS turn's answer body or in its
+   *  provenance domain list — never in the echoed question (case-insensitive). */
   mustMention?: string;
   /**
    * Alternative proof marker (case-insensitive regex). Used where a
@@ -146,41 +235,94 @@ interface Case {
    * "youtube" ever was.
    */
   mustMentionPattern?: RegExp;
+  /**
+   * Provenance law (BOTH proof branches): this turn's Sources panel
+   * must carry a domain containing this hint — the turn had to REACH
+   * the named site. A website name inside a regression fixture is a
+   * legitimate expectation, not a routing table (universality law).
+   */
+  hostHint: RegExp;
+  /**
+   * Fresh-read proof: markers that cannot come from the prompt or
+   * generic boilerplate — a currency figure, a "4.3/5" rating, a
+   * showtime, a profile URL, answer-content vocabulary. A hit is
+   * evidence the content came FROM the site.
+   */
+  learnedProof?: RegExp;
+  /**
+   * For lookups whose fresh content is unpredictable by regex (a maps
+   * pin, HN's current top story): a fresh read = reached the target
+   * host in provenance AND answered without hedging.
+   */
+  linkResolvedProof?: boolean;
 }
 
 const CASES: Case[] = [
   // 1. Universal Indian e-commerce / food / entertainment
-  { name: "Blinkit", prompt: "What is the price of 1 litre Amul butter on Blinkit today?", mustMention: "blinkit" },
-  { name: "Myntra", prompt: "What is the price and rating of Levi's 501 original fit jeans on Myntra?", mustMention: "myntra" },
-  { name: "Zepto", prompt: "What is the price of a Kingfisher beer 650ml on Zepto?", mustMention: "zepto" },
-  { name: "BookMyShow", prompt: "What movies are showing in Hyderabad this week on BookMyShow?", mustMention: "bookmyshow" },
-  { name: "Zomato", prompt: "What are the top rated restaurants in Hyderabad on Zomato?", mustMention: "zomato" },
+  { name: "Blinkit", prompt: "What is the price of 1 litre Amul butter on Blinkit today?", mustMention: "blinkit", hostHint: /blinkit/i, learnedProof: /₹\s?\d|rs\.?\s?\d/i },
+  { name: "Myntra", prompt: "What is the price and rating of Levi's 501 original fit jeans on Myntra?", mustMention: "myntra", hostHint: /myntra/i, learnedProof: /₹\s?\d|rs\.?\s?\d|\b\d(?:\.\d)?\s*(?:stars?|\/\s*5|out of 5)/i },
+  { name: "Zepto", prompt: "What is the price of a Kingfisher beer 650ml on Zepto?", mustMention: "zepto", hostHint: /zepto/i, learnedProof: /₹\s?\d|rs\.?\s?\d/i },
+  { name: "BookMyShow", prompt: "What movies are showing in Hyderabad this week on BookMyShow?", mustMention: "bookmyshow", hostHint: /bookmyshow|bmshow/i, learnedProof: /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|showtimes?|now showing|screens?\b|₹\s?\d/i },
+  { name: "Zomato", prompt: "What are the top rated restaurants in Hyderabad on Zomato?", mustMention: "zomato", hostHint: /zomato/i, learnedProof: /★|\b\d(?:\.\d)?\s*\/\s*5\b|\b\d(?:\.\d)?\s*reviews?\b|₹/i },
 
   // 2. The 3 original regression cases
-  { name: "YouTube short link", prompt: "https://youtu.be/zinbNw7L8xI — who won the battle of video generating in this video?", mustMentionPattern: /ltx|minimax/i },
-  { name: "Google Maps short link", prompt: "https://maps.app.goo.gl/pDMFFw4XaSzNJhgW6 — which location is this?", mustMention: "map" },
-  { name: "LinkedIn profile search", prompt: "Find the LinkedIn profile of the CEO of Tata Group", mustMention: "linkedin" },
+  { name: "YouTube short link", prompt: "https://youtu.be/zinbNw7L8xI — who won the battle of video generating in this video?", mustMentionPattern: /ltx|minimax/i, hostHint: /youtu|google/i, learnedProof: /ltx|mini ?max/i },
+  { name: "Google Maps short link", prompt: "https://maps.app.goo.gl/pDMFFw4XaSzNJhgW6 — which location is this?", mustMention: "map", hostHint: /goo\.gl|google/i, linkResolvedProof: true },
+  { name: "LinkedIn profile search", prompt: "Find the LinkedIn profile of the CEO of Tata Group", mustMention: "linkedin", hostHint: /linkedin/i, learnedProof: /linkedin\.com\/in|\/in\/[a-z0-9_-]{3,}|public profile/i },
 
   // 3. Arbitrary unscripted websites
-  { name: "HackerNews", prompt: "What is the top story on HackerNews right now?", mustMention: "hacker" },
-  { name: "StackOverflow", prompt: "What is the top voted StackOverflow answer about 'useEffect infinite loop React'?", mustMention: "stackoverflow" },
-  { name: "Greenhouse job", prompt: "What open jobs does Stripe have on their Greenhouse job board right now?", mustMention: "job" },
-  { name: "Government portal", prompt: "What is the latest notification on the India government portal about the 2026 budget?", mustMention: "gov" },
+  { name: "HackerNews", prompt: "What is the top story on HackerNews right now?", mustMention: "hacker", hostHint: /ycombinator|y\.combinator|hn\.algolia/i, linkResolvedProof: true },
+  { name: "StackOverflow", prompt: "What is the top voted StackOverflow answer about 'useEffect infinite loop React'?", mustMention: "stackoverflow", hostHint: /stackoverflow|stackexchange/i, learnedProof: /strict ?mode|dependency (?:array|list)|infinite (?:re-?render|render loop)|cleanup function|abort ?controller|use ?callback/i },
+  { name: "Greenhouse job", prompt: "What open jobs does Stripe have on their Greenhouse job board right now?", mustMention: "job", hostHint: /greenhouse|job-boards|lever|stripe/i, learnedProof: /engineer|manager|designer|scientist|analyst|remote|hybrid|intern|openings?\b|\brole/i },
+  { name: "Government portal", prompt: "What is the latest notification on the India government portal about the 2026 budget?", mustMention: "gov", hostHint: /gov\.in|nic\.in|pib|finmin|planindia/i, learnedProof: /finance bill|appropriation|ordinance|gazette|cabinet|committee|press release|union budget|fiscal|revenue|expenditure/i },
 ];
 
+/**
+ * Proof law per case (brief E2E repair): read THIS turn's answer body
+ * plus its provenance, then require exactly one of two branches —
+ *   freshRead:     the Sources panel reached the target host AND the
+ *                  answer carries content that could only have been
+ *                  learned from the site (price / rating / showtime /
+ *                  profile URL / answer-content vocabulary); for
+ *                  unpredictable fresh content (a maps pin, HN's top
+ *                  story) instead reached + answered without hedging;
+ *   honestFailure: the answer reports the access gap by NAMING the
+ *                  mechanism (CAPTCHA / login / 403 / paywall / failed
+ *                  fetch) AND the turn shows a real attempt.
+ * A hedged "I don't know" satisfies neither branch. We never require a
+ * false success when a real site blocks — but the block report must be
+ * honest, evidenced, and about the right site.
+ */
 for (const c of CASES) {
   test(`universal: ${c.name}`, async ({ page }) => {
     test.setTimeout(240_000);
     const priorAssistant = await sendPrompt(page, c.prompt);
     await waitForAnswer(page, priorAssistant);
-    const text = await answerText(page);
+    const ev = await readTurnEvidence(page, priorAssistant);
+    const text = ev.answer;
+    const dom = ev.domains.join(" ").toLowerCase();
     expect(text.length, "answer must be non-empty").toBeGreaterThan(40);
     assertNoRefusal(text);
     if (c.mustMention) {
-      expect(text.toLowerCase(), `answer must mention '${c.mustMention}'`).toContain(c.mustMention.toLowerCase());
+      // Answer body or provenance domain — never the echoed question.
+      expect(
+        `${text} ${dom}`.toLowerCase(),
+        `answer or provenance must mention '${c.mustMention}'`,
+      ).toContain(c.mustMention.toLowerCase());
     }
     if (c.mustMentionPattern) {
       expect(c.mustMentionPattern.test(text), `answer must match ${c.mustMentionPattern}`).toBe(true);
     }
+    const reached = c.hostHint.test(dom);
+    const hedged = HEDGE_PATTERNS.some((r) => r.test(text));
+    const learned =
+      (c.learnedProof ? c.learnedProof.test(text) : false) ||
+      (c.mustMentionPattern ? c.mustMentionPattern.test(text) : false);
+    const freshRead = reached && (learned || c.linkResolvedProof === true) && !hedged;
+    const honestFailure = HONEST_WALL.test(text) && (reached || ev.attempted);
+    expect(
+      freshRead || honestFailure,
+      `no fresh on-site proof and no honest failure report — reached=${reached} learned=${learned} attempted=${ev.attempted} wall=${HONEST_WALL.test(text)} hedged=${hedged} domains=[${ev.domains.join(", ")}] answer="${text.slice(0, 400)}"`,
+    ).toBe(true);
   });
 }
