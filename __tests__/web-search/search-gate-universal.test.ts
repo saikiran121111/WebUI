@@ -9,15 +9,19 @@
  *  universal_pre_gate_never_calls_the_llm) — identical prompt matrices,
  *  identical expected labels, reasons and query-shape guarantees.
  *
- * Three layers, NO attachment required (that is the universal part):
- *   FORCE_SEARCH — high-confidence freshness / time-sensitive shapes the
- *     model gate must never be allowed to veto;
- *   FORCE_SKIP — explicitly local-only turns and obviously self-contained
- *     tasks (supplied-content transforms, prompt-defined code-gen, pure
- *     math), deterministically answered with ZERO queries — an operational
- *     instruction can never become an engine query;
- *   UNDECIDED — the gray middle falls through to the (now date-aware)
- *     main-model gate.
+ * Layers, NO attachment required (that is the universal part) — the
+ * 2026-11-04 ordering law: E1 explicit local-only scope → pure clock ask
+ * (brief §5) → E2 self-contained skip arms (each escapes on
+ * GUARD_EXTERNAL_RE) → only THEN the force-YES evidence layers (URL →
+ * web-intent FRAME → freshness FRAME → image intent). A deterministic
+ * verdict needs an EVIDENCE NEED expressed as a frame — never bare
+ * tokens, proper nouns, or brand tables. Every undecided turn falls
+ * through to the model gate, whose NO is first-class (the deleted
+ * search-by-default override used to re-veto confident model NOs on
+ * capitalized words). Trivial small talk ("what are you doing today")
+ * is normalized BEFORE any model call (brief §1 screenshot repro), and
+ * queries follow the §4 law: Unicode-preserving, subject-anchored,
+ * never stopword-only/subjectless.
  * All deterministic verdicts are proven LLM-free by construction: they
  * come from deterministicHardBypass — the same Stage-0 front door
  * runSearchGate consults BEFORE trivial/mainModelGate.
@@ -91,23 +95,84 @@ describe("universal local-task force-SKIP (approved Part-10 deviation)", () => {
     }
   });
 
-  it("the escape hatch returns self-contained shapes to the model gate", () => {
-    // Layer E2 is guarded by EXPLICIT_WEB_INTENT_RE like the attachment
-    // rule: a self-contained shape that ALSO signals live-web intent
-    // falls through to the model.
-    expect(
-      deterministicHardBypass(ctx("Translate this paragraph; check the web for slang usage.")),
-    ).toBeNull();
-    expect(
-      deterministicHardBypass(ctx("Summarize this text and browse online sources.")),
-    ).toBeNull();
-    // Layer E1 (explicit local-only intent) deliberately has NO escape —
-    // the phrase list contains "web" itself, so an escape test would
-    // self-cancel the user's explicit instruction.
+  it("the escape hatch: a surviving live-web frame turns the turn into force-YES", () => {
+    // The E2 arms escape on GUARD_EXTERNAL_RE — and the surviving web
+    // frame then force-YESes deterministically (brief §3: supplied-
+    // material turns that ask for external evidence are never suppressed;
+    // with an explicit frame they don't even need the model).
+    for (const prompt of [
+      "Translate this paragraph; check the web for slang usage.",
+      "Summarize this text and browse online sources.",
+    ]) {
+      const r = deterministicHardBypass(ctx(prompt));
+      expect(r, prompt).not.toBeNull();
+      expect(r!.hit.matched, prompt).toBe("web_intent");
+      expect(r!.decision.search_required, prompt).toBe(true);
+    }
+    // Layer E1 (explicit local-only intent) deliberately has NO naive
+    // frame escape — the phrase list itself contains "web"/"browse", so a
+    // guard on the full prompt would self-cancel the user's instruction;
+    // only the residual re-test re-arms the gate (see the media suite's
+    // E1 guard law).
     const r = deterministicHardBypass(ctx("Don't browse; only from the attached document."));
     expect(r).not.toBeNull();
     expect(r!.hit.matched).toBe("local_task");
     expect(r!.decision.search_required).toBe(false);
+  });
+});
+
+describe("pure clock questions answer from the clock, never the web (brief §5)", () => {
+  it("direct date/time/day asks force NO with the clock reason and zero queries", () => {
+    for (const prompt of [
+      "What is today's date?",
+      "What day is it today?",
+      "What time is it?",
+      "What's the current time?",
+    ]) {
+      const r = deterministicHardBypass(ctx(prompt));
+      expect(r, prompt).not.toBeNull();
+      expect(r!.hit.matched, prompt).toBe("clock_question");
+      expect(r!.decision.search_required, prompt).toBe(false);
+      expect(r!.decision.reason, prompt).toBe("deterministic_clock_question");
+      expect(r!.decision.queries, prompt).toEqual([]);
+    }
+  });
+
+  it("a date-shaped question about an EXTERNAL fact is not a clock ask", () => {
+    const r = deterministicHardBypass(ctx("What's the date of the latest release?"));
+    expect(r).not.toBeNull();
+    expect(r!.hit.matched).toBe("freshness");
+    expect(r!.decision.search_required).toBe(true);
+  });
+});
+
+describe("§4 query law: subject-preserving, Unicode-preserving", () => {
+  it("a subjectless follow-up borrows the subject from recent USER context", () => {
+    const r = deterministicHardBypass({
+      userPrompt: "What is its price now?",
+      history: [
+        { role: "user", content: "Tell me about the Acme Q900 headphones" },
+        { role: "assistant", content: "The Acme Q900 ships with ANC and a 40 h battery." },
+      ],
+    });
+    expect(r).not.toBeNull();
+    expect(r!.hit.matched).toBe("freshness");
+    // The OLD builder emitted the subjectless "price now"; the fix must
+    // carry the entity forward instead.
+    expect(r!.decision.queries[0]!.query).toBe("acme q900 headphones price");
+    // The anchor is role-filtered: assistant prose NEVER rides the query.
+    expect(r!.decision.queries[0]!.query).not.toContain("anc");
+    expect(r!.decision.queries[0]!.query).not.toContain("battery");
+    // Price-now is a continuously-changing fact tier (live_required).
+    expect(r!.decision.freshness).toBe("realtime");
+  });
+
+  it("non-Latin subjects survive the query builder intact", () => {
+    // The old builder stripped everything outside [a-z0-9] — CJK/Devanagari
+    // subjects were erased and "price"/stopwords rode to the providers.
+    const r = deterministicHardBypass(ctx("東京で牛乳 price today"));
+    expect(r).not.toBeNull();
+    expect(r!.decision.queries[0]!.query).toBe("東京で牛乳 price");
   });
 });
 
@@ -168,5 +233,18 @@ describe("the universal pre-gate never calls the LLM", () => {
     expect(no.decision.search_required).toBe(false);
     expect(no.decision.queries).toEqual([]);
     expect(no.gateMs).toBe(0);
+
+    // Brief §1 screenshot repro: "what are you doing today" once cost a
+    // full gate-model round AND fired a freshness-week search with query
+    // "are doing today". It now short-circuits before any model touch:
+    // the temporal-suffix normalization ("… today" stripped) hits the
+    // trivial set, and the distinct noSearchPlan reason (vs the rules
+    // fallback's "rule-based plan…" reason) structurally proves the
+    // unroutable endpoint was never attempted — zero LLM calls.
+    const smallTalk = await runSearchGate(ctx("what are you doing today"));
+    expect(smallTalk.decision.search_required).toBe(false);
+    expect(smallTalk.decision.queries).toEqual([]);
+    expect(smallTalk.gateMs).toBe(0);
+    expect(smallTalk.decision.reason).toBe("trivial prompt — no web content needed");
   });
 });

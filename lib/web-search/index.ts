@@ -5,7 +5,6 @@ export {
   extractPromptUrls,
   deterministicHardBypass,
   gateDisabledByEnv,
-  promptHasExternalEntity,
 } from "./search-gate";
 export {
   metasearch,

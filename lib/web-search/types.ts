@@ -29,12 +29,28 @@ export const SearchDecisionSchema = z
 
 export type SearchDecision = z.infer<typeof SearchDecisionSchema>;
 
-/** Legacy freshness values normalized to the new set on parse. */
+/**
+ * Legacy freshness values normalized to the new set on parse.
+ * §11.11 (audit 2026-11-04b): an arbitrary string that is neither a legacy
+ * alias nor a canonical value must NOT ride through an unchecked cast into
+ * the decision — it would poison the retrieval-mode ladder and the TTL
+ * squeeze downstream. Any invalid input deliberately normalizes to "any"
+ * (the neutral tier: cached_preferred, no false live_required).
+ */
 function normalizeFreshness(f: string): SearchDecision["freshness"] {
   switch (f) {
     case "current": return "day";
     case "recent": return "month";
-    default: return f as SearchDecision["freshness"];
+    case "none":
+    case "day":
+    case "week":
+    case "month":
+    case "year":
+    case "realtime":
+    case "any":
+      return f;
+    default:
+      return "any";
   }
 }
 
