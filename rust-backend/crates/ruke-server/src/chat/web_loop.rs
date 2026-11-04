@@ -81,7 +81,9 @@ const WEB_TOOL_GUIDANCE: &str = "WEB RESEARCH TOOL LAWS FOR THIS TURN:\n\
 - Walls are access controls, not puzzles: auth_required or captcha_required means stop reaching for that page. Answer from the sources you can read and name what you could not.\n\
 - Batch every page you need into ONE read_page call: one tool round buys many pages.\n\
 - If the tool budget runs out, answer from the evidence you have and state plainly what is still missing. A budget_exhausted or failure envelope is not permission to guess.\n\
-- If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.";
+- If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n\
+- A failed, blocked or empty lookup is NOT evidence that the fact does not exist: never tell the human it does not exist based on a lookup that failed — say what you searched and what you could not retrieve.\n\
+- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.";
 
 /// Fallback final directive ⇔ TS `WEB_TOOL_FINAL_DIRECTIVE` (same
 /// byte-parity note as [`WEB_TOOL_GUIDANCE`]).
@@ -381,6 +383,11 @@ pub async fn run_web_tool_loop(
     // into the TS session on every exec call (its `Math.max` mirror keeps
     // the TS budget accounting consistent even though Rust drives).
     let mut rounds_used = 0usize;
+    // P3b action-record law: the TS session owns the ledger (every tool
+    // action incl. rejections); Rust only carries the latest snapshot the
+    // exec RPC returns — it never reconstructs the record itself.
+    let mut last_ledger: Option<Value> = None;
+    let mut last_summary = String::new();
     let outcome = 'outer: {
         for round in 0..max_rounds {
             if token.is_cancelled() {
@@ -399,6 +406,28 @@ pub async fn run_web_tool_loop(
                     ms = started.elapsed().as_millis() as u64,
                     "web tool loop complete"
                 );
+                // P3b grounded release: the turn's ACTUAL tool outcomes
+                // ride the wire (⇔ web-tool-loop.ts mirror). Only stamped
+                // when tools actually ran (empty ledger = nothing to
+                // record) and citations exist (no-citations-no-web_meta).
+                if !merged.is_empty() {
+                    let actions = last_ledger
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .filter(|a| !a.is_empty());
+                    if let Some(actions) = actions {
+                        let mut ev = StageEvent::new("web_meta");
+                        ev.web_citations = Some(merged.clone());
+                        ev.search_gate = search_gate.clone();
+                        ev.presentation = presentation.clone();
+                        if !rich_results.is_empty() {
+                            ev.rich_results = Some(rich_results.clone());
+                        }
+                        ev.research_ledger =
+                            Some(json!({"toolRounds": rounds_used, "actions": actions}));
+                        ch.stage(&ev).await;
+                    }
+                }
                 break 'outer Outcome::Finished;
             }
 
@@ -483,6 +512,12 @@ pub async fn run_web_tool_loop(
                         )
                     }
                     Ok(v) => {
+                        if let Some(l) = v.get("ledger") {
+                            last_ledger = Some(l.clone());
+                        }
+                        if let Some(s) = v.get("ledgerSummary").and_then(Value::as_str) {
+                            last_summary = s.to_string();
+                        }
                         let envelope = v.get("envelope").cloned().unwrap_or_else(|| {
                             json!({
                                 "ok": false,
@@ -540,6 +575,12 @@ pub async fn run_web_tool_loop(
                 if !rich_results.is_empty() {
                     ev.rich_results = Some(rich_results.clone());
                 }
+                // P3b: the ledger snapshot from this round's exec RPCs
+                // (⇔ web-tool-loop.ts `researchLedger`).
+                if let Some(actions) = last_ledger.as_ref().and_then(Value::as_array) {
+                    ev.research_ledger =
+                        Some(json!({"toolRounds": rounds_used, "actions": actions}));
+                }
                 ch.stage(&ev).await;
             }
             // Next round re-serializes `payload` with the extended
@@ -560,6 +601,11 @@ pub async fn run_web_tool_loop(
         }
         if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
             messages.push(json!({"role": "system", "content": final_directive}));
+            // P3b: the forced answer must answer AGAINST the actual action
+            // record, not the model's memory of it (⇔ web-tool-loop.ts).
+            if !last_summary.is_empty() {
+                messages.push(json!({"role": "system", "content": last_summary.clone()}));
+            }
         }
         if token.is_cancelled() {
             break 'outer Outcome::Aborted;

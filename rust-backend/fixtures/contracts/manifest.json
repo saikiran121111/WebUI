@@ -271,6 +271,60 @@
         "nullable": false
       },
       {
+        "name": "researchLedger",
+        "present": "optional-omit-when-absent",
+        "nullable": false,
+        "fields": [
+          {
+            "name": "toolRounds",
+            "present": "always-present",
+            "nullable": false
+          },
+          {
+            "name": "actions",
+            "present": "always-present",
+            "nullable": false,
+            "fields": [
+              {
+                "name": "tool",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "round",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "ok",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "error",
+                "present": "optional-omit-when-absent",
+                "nullable": false
+              },
+              {
+                "name": "requested",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "retrieved",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "failed",
+                "present": "always-present",
+                "nullable": false
+              }
+            ]
+          }
+        ]
+      },
+      {
         "name": "surfaceId",
         "present": "optional-omit-when-absent",
         "nullable": false

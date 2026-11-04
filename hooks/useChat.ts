@@ -444,6 +444,9 @@ export function useChat({
             ...(gateMeta ? { searchGate: gateMeta } : {}),
             ...(ev.stage.presentation ? { presentation: ev.stage.presentation } : {}),
             ...(surfaces && surfaces.length > 0 ? { richResults: surfaces } : {}),
+            // P3b: the server-issued action record stamps straight
+            // through — display/audit metadata, never re-sent upstream.
+            ...(ev.stage.researchLedger ? { webResearchLedger: ev.stage.researchLedger } : {}),
           } : m));
         }
       }

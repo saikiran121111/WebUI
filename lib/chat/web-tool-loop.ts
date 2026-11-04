@@ -45,6 +45,8 @@ import {
   execReadPageTool,
   webToolDefinitions,
   remainingBudget,
+  recordAction,
+  summarizeActionLedger,
   WEB_TOOL_MAX_ROUNDS_CAP,
   type CitationSeed,
   type WebToolDepth,
@@ -72,7 +74,9 @@ export const WEB_TOOL_GUIDANCE =
   "- Walls are access controls, not puzzles: auth_required or captcha_required means stop reaching for that page. Answer from the sources you can read and name what you could not.\n" +
   "- Batch every page you need into ONE read_page call: one tool round buys many pages.\n" +
   "- If the tool budget runs out, answer from the evidence you have and state plainly what is still missing. A budget_exhausted or failure envelope is not permission to guess.\n" +
-  "- If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.";
+  "- If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n" +
+  "- A failed, blocked or empty lookup is NOT evidence that the fact does not exist: never tell the human it does not exist based on a lookup that failed — say what you searched and what you could not retrieve.\n" +
+  "- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.";
 
 // ⇔ Rust `WEB_TOOL_FINAL_DIRECTIVE`.
 export const WEB_TOOL_FINAL_DIRECTIVE =
@@ -394,6 +398,21 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
           { model, round: round + 1, finish: relay.finish ?? "none", ms: Date.now() - started },
           "web tool loop complete",
         );
+        // P3b grounded release: the turn's ACTUAL tool outcomes ride the
+        // wire so persisted history and benchmark audits can check the
+        // answer against them. Only stamped when tools actually ran (an
+        // empty ledger = nothing to record) and citations exist (the
+        // no-citations-no-web_meta law stays intact). ⇔ web_loop.rs mirror.
+        if (session.actionLedger.length > 0 && Object.keys(merged).length > 0) {
+          ch.stage({
+            stage: "web_meta",
+            webCitations: merged as StageEvent["webCitations"],
+            searchGate: opts.searchGateMeta ?? undefined,
+            presentation: opts.presentation ?? undefined,
+            richResults: opts.richResults && opts.richResults.length > 0 ? opts.richResults : undefined,
+            researchLedger: { toolRounds: session.roundsUsed, actions: session.actionLedger },
+          });
+        }
         ch.close();
         return;
       }
@@ -444,6 +463,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
               remainingBudget: remainingBudget(session),
             }),
           });
+          recordAction(session, { tool: call.name, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0 });
           continue;
         }
         const args = parsed as Record<string, unknown>;
@@ -461,6 +481,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
             detail: "only web_search and read_page are available in this turn",
             remainingBudget: remainingBudget(session),
           };
+          recordAction(session, { tool: call.name, ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0 });
         }
         // Merge the [S#] citations these calls minted. Tools number packets
         // from the session, so keys never collide with the pipeline's map.
@@ -489,6 +510,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
           // surfaces ride along; the loop itself mints no new surfaces.
           presentation: opts.presentation ?? undefined,
           richResults: opts.richResults && opts.richResults.length > 0 ? opts.richResults : undefined,
+          researchLedger: { toolRounds: session.roundsUsed, actions: session.actionLedger },
         });
       }
       // Next round re-serializes `payload` with the extended messages;
@@ -505,6 +527,12 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
     delete payload.tools;
     if (Array.isArray(payload.messages)) {
       payload.messages.push({ role: "system", content: WEB_TOOL_FINAL_DIRECTIVE });
+      // P3b: the forced answer must answer AGAINST the actual action
+      // record, not the model's memory of it. ⇔ web_loop.rs mirror.
+      const ledgerSummary = summarizeActionLedger(session);
+      if (ledgerSummary !== "") {
+        payload.messages.push({ role: "system", content: ledgerSummary });
+      }
     }
     if (signal?.aborted) {
       ch.close();

@@ -78,6 +78,14 @@ pub struct StageEvent {
     pub presentation: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rich_results: Option<Vec<Value>>,
+    /// P3b action-record law: the server-issued record of every web tool
+    /// action the turn actually attempted (attempts / retrievals / failures
+    /// / rejections), never the model's account of them. `Value`
+    /// passthrough of the TS `researchLedger` object the exec RPC returns;
+    /// only ever stamped on `web_meta`. Declaration order ⇔ `lib/types.ts`
+    /// ⇔ wire key order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub research_ledger: Option<Value>,
     /// P5 §58 `web:surface_*` frames: the surface's id / kind / revision.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_id: Option<String>,
@@ -113,6 +121,7 @@ impl StageEvent {
             search_gate: None,
             presentation: None,
             rich_results: None,
+            research_ledger: None,
             surface_id: None,
             surface_kind: None,
             surface_revision: None,

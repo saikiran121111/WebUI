@@ -159,12 +159,36 @@ export function webToolBudgetFor(depth: WebToolDepth): WebToolBudget {
 
 /* ── the session (§11.14 tracking) ─────────────────────────────────────── */
 
+/**
+ * P3b action-record law (staged-research brief §7–§8: "a tool request is
+ * not a successful search/read"): one entry per tool action the turn
+ * ACTUALLY attempted, rejections included. Server-owned — the model's own
+ * account of what it did is never trusted. Travels to the client on the
+ * `web_meta` researchLedger and to Rust via the exec RPC.
+ */
+export interface ToolActionRecord {
+  tool: string;
+  /** Model tool round this action ran in (0 before the first round). */
+  round: number;
+  /** false ⇒ the call was REJECTED and no lookup ran at all. */
+  ok: boolean;
+  /** Rejection code when ok=false (invalid_arguments, budget_exhausted…). */
+  error?: string;
+  /** lookups this call requested (queries + routed URLs / read URLs) */
+  requested: number;
+  /** SERP items + successfully fetched pages actually returned */
+  retrieved: number;
+  /** individual lookups that came back failed (engine error, wall, block) */
+  failed: number;
+}
+
 export interface WebToolSession {
   searchSessionId: string;
   budget: WebToolBudget;
   searchesUsed: number;
   readUrlsUsed: number;
   roundsUsed: number;
+  actionLedger: ToolActionRecord[];
   /** [S#] continuation after the pipeline's packets (citation-map seed). */
   nextSource: number;
   /** Focus fallback: the user prompt the tool loop was built for. */
@@ -209,6 +233,7 @@ export function makeWebToolSession(
     searchesUsed: 0,
     readUrlsUsed: 0,
     roundsUsed: 0,
+    actionLedger: [],
     nextSource: Math.max(1, citationSeed),
     queryContext: queryContext.slice(0, 500),
     scope,
@@ -222,6 +247,39 @@ export function remainingBudget(session: WebToolSession) {
     readUrls: Math.max(0, session.budget.maxReadUrls - session.readUrlsUsed),
     rounds: Math.max(0, session.budget.maxToolRounds - session.roundsUsed),
   };
+}
+
+/** Append one action-record entry stamped with the current model round. */
+export function recordAction(
+  session: WebToolSession,
+  rec: Omit<ToolActionRecord, "round">,
+): void {
+  session.actionLedger.push({ ...rec, round: session.roundsUsed });
+}
+
+/**
+ * P3b grounded-release law: the action record phrased as a constraint the
+ * model must answer against (injected on the forced final round). An empty
+ * ledger returns "" — no record, no message.
+ */
+export function summarizeActionLedger(session: WebToolSession): string {
+  const ledger = session.actionLedger;
+  if (ledger.length === 0) return "";
+  const lines = ledger.map((r) =>
+    r.ok
+      ? `- ${r.tool} round ${r.round}: ${r.requested} lookup(s) requested → ${r.retrieved} retrieved, ${r.failed} failed.`
+      : `- ${r.tool} round ${r.round}: REJECTED (${r.error ?? "unknown"}) — the lookup never ran.`,
+  );
+  const requested = ledger.reduce((n, r) => n + r.requested, 0);
+  const retrieved = ledger.reduce((n, r) => n + r.retrieved, 0);
+  const failed = ledger.reduce((n, r) => n + r.failed, 0);
+  const rejected = ledger.filter((r) => !r.ok).length;
+  return [
+    "RESEARCH ACTION RECORD (server-issued from actual tool outcomes, not the model's account):",
+    ...lines,
+    `Total: ${ledger.length} tool action(s): ${requested} lookup(s) requested, ${retrieved} retrieved, ${failed} failed, ${rejected} rejected.`,
+    "A failed, blocked or empty lookup is NOT evidence that the requested fact does not exist: never conclude nonexistence from a lookup that failed. Say plainly what could not be retrieved, and present anything no successful search or read supports as unverified background knowledge, never as research output.",
+  ].join("\n");
 }
 
 /** A citation the tool loop must merge into the [S#] citation map. */
@@ -570,6 +628,7 @@ async function readUrlBatch(
 }
 
 function budgetExhaustedEnvelope(session: WebToolSession, tool: string, what: string) {
+  recordAction(session, { tool, ok: false, error: "budget_exhausted", requested: 0, retrieved: 0, failed: 0 });
   return {
     ok: false,
     tool,
@@ -581,6 +640,7 @@ function budgetExhaustedEnvelope(session: WebToolSession, tool: string, what: st
 }
 
 function invalidArgsEnvelope(session: WebToolSession, tool: string, detail: string) {
+  recordAction(session, { tool, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0 });
   return {
     ok: false,
     tool,
@@ -776,6 +836,18 @@ export async function execWebSearchTool(
   }
   if (failures.length > 0) out.failures = failures;
   if (notices.length > 0) out.notices = notices;
+  // Entry-shape law: only FAILED pages carry fetched:false; a successful
+  // read rides with NO fetched key at all (fetched:true appears solely on
+  // char-budget omissions) — so honest retrieval counts fetched !== false.
+  const pagesOk = (out.pages as Record<string, unknown>[] | undefined)
+    ?.filter((p) => p.fetched !== false).length ?? 0;
+  recordAction(session, {
+    tool: "web_search",
+    ok: true,
+    requested: queryResults.length + readUrls.length,
+    retrieved: results.length + pagesOk,
+    failed: failures.length,
+  });
   return out;
 }
 
@@ -823,5 +895,12 @@ export async function execReadPageTool(
   };
   if (batch.failures.length > 0) out.failures = batch.failures;
   if (notices.length > 0) out.notices = notices;
+  recordAction(session, {
+    tool: "read_page",
+    ok: true,
+    requested: urls.length,
+    retrieved: batch.pages.filter((p) => p.fetched !== false).length,
+    failed: batch.failures.length,
+  });
   return out;
 }

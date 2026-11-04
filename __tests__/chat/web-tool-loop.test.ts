@@ -301,8 +301,20 @@ describe("tool round → merged conversation → final answer", () => {
       detail: "tool arguments are not a JSON object",
     });
     expect(mocks.execWebSearch).not.toHaveBeenCalled();
-    // no fresh citations → no web_meta frame
-    expect(h.stages.some((s) => s.stage === "web_meta")).toBe(false);
+    // P3b: no fresh citations still means no mid-loop web_meta frame, but
+    // the turn ends on the grounded-release ledger frame — the rejected
+    // calls ride it so the record of what ACTUALLY happened ships with the
+    // (pipeline-seeded) citations. Exactly one, on the completion.
+    const metaStages = h.stages.filter((s) => s.stage === "web_meta");
+    expect(metaStages).toHaveLength(1);
+    expect(metaStages[0].webCitations && Object.keys(metaStages[0].webCitations)).toEqual(["S1"]);
+    expect(metaStages[0].researchLedger).toEqual({
+      toolRounds: 2,
+      actions: [
+        { tool: "shell_exec", ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0, round: 1 },
+        { tool: "web_search", ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0, round: 2 },
+      ],
+    });
     expect(countDone(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
   });

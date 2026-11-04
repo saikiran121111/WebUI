@@ -19,6 +19,8 @@ import {
   execReadPageTool,
   webToolDefinitions,
   remainingBudget,
+  recordAction,
+  summarizeActionLedger,
   WEB_TOOL_MAX_ROUNDS_CAP,
   type WebToolSession,
   type WebToolDepth,
@@ -152,6 +154,9 @@ export async function handleWebToolsRpc(
     // ever matters. In-flight calls stay bounded by the pipeline's own
     // per-request deadlines.
     if (signal?.aborted) {
+      if (entry) {
+        recordAction(entry.session, { tool, ok: false, error: "cancelled", requested: 0, retrieved: 0, failed: 0 });
+      }
       return {
         status: 200,
         json: {
@@ -166,6 +171,10 @@ export async function handleWebToolsRpc(
       };
     }
     if (!entry) {
+      // shortcut: session_expired has no session to ledger — the record
+      // cannot attach anywhere; the honest envelope in-conversation covers
+      // the model, and no ledger frame follows this turn. Upgrade path:
+      // none needed while the RPC session store is turn-scoped.
       // Honest degradation: the loop grammar keeps going, the model is told.
       return {
         status: 200,
@@ -200,6 +209,7 @@ export async function handleWebToolsRpc(
       args = undefined;
     }
     if (!args || typeof args !== "object" || Array.isArray(args)) {
+      recordAction(session, { tool, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0 });
       return {
         status: 200,
         json: {
@@ -211,6 +221,8 @@ export async function handleWebToolsRpc(
             remainingBudget: remainingBudget(session),
           },
           citations: [],
+          ledger: session.actionLedger,
+          ledgerSummary: summarizeActionLedger(session),
         },
       };
     }
@@ -228,8 +240,20 @@ export async function handleWebToolsRpc(
         detail: "only web_search and read_page are available in this turn",
         remainingBudget: remainingBudget(session),
       };
+      recordAction(session, { tool, ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0 });
     }
-    return { status: 200, json: { envelope, citations: fresh } };
+    // P3b: the action record rides every exec response so the Rust loop
+    // (which owns the loop grammar) never reconstructs it and can stamp
+    // it on web_meta / inject it on the forced final round.
+    return {
+      status: 200,
+      json: {
+        envelope,
+        citations: fresh,
+        ledger: session.actionLedger,
+        ledgerSummary: summarizeActionLedger(session),
+      },
+    };
   }
 
   if (action === "discover") {

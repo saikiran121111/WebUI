@@ -178,6 +178,14 @@ export interface Message {
     publishedAt?: string;
   }>;
   /**
+   * P3b action-record law: the server-issued record of what the turn's web
+   * tools ACTUALLY did (stamped from the `web_meta` researchLedger frame).
+   * Persisted so benchmark audits can score the answer against real tool
+   * outcomes instead of the model's account. Display/audit only — never an
+   * authority input, never sent upstream.
+   */
+  webResearchLedger?: NonNullable<StageEvent["researchLedger"]>;
+  /**
    * Search-gate summary shown in the Research Trail card: which queries
    * were generated, at what depth/freshness, and which authority decided
    * ("deterministic" Stage-0 bypass, or "main-model").
@@ -328,6 +336,27 @@ export interface StageEvent {
    * the whole set). ⇔ stages.rs `rich_results`.
    */
   richResults?: RichResult[];
+  /**
+   * P3b action-record law (staged-research brief §7–§8): the server-issued
+   * record of every web tool action the turn ACTUALLY attempted (attempts,
+   * retrievals, failures, rejections) — not the model's account of them.
+   * Carried on `web_meta` so persisted messages and benchmark audits can
+   * compare the answer against real tool outcomes. Never travels upstream
+   * (client.ts buildBody drops message-level metadata; the request builder
+   * here never copies it into tool messages). ⇔ stages.rs `research_ledger`.
+   */
+  researchLedger?: {
+    toolRounds: number;
+    actions: {
+      tool: string;
+      round: number;
+      ok: boolean;
+      error?: string;
+      requested: number;
+      retrieved: number;
+      failed: number;
+    }[];
+  };
   /** P5 §58 `web:surface_*` frames: the surface's id / kind / revision. */
   surfaceId?: string;
   surfaceKind?: string;

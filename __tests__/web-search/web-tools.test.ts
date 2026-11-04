@@ -47,6 +47,8 @@ import {
   webToolBudgetFor,
   makeWebToolSession,
   remainingBudget,
+  recordAction,
+  summarizeActionLedger,
   webToolDefinitions,
   execWebSearchTool,
   execReadPageTool,
@@ -638,5 +640,76 @@ describe("task-scope admission (⇔ rust scope admission)", () => {
     const out = await execWebSearchTool(session(), { queries: ["alpha beta"], missing_claims: ["fact"] }, []);
     expect(out.resultsReturned).toBe(2);
     expect(out.notices ?? []).not.toContainEqual(expect.stringContaining("off-scope"));
+  });
+});
+
+/* ── P3b action ledger (staged-research brief §7–§8: grounded release) ───
+   The session's action record is SERVER-issued from actual tool outcomes —
+   attempts, rejections, honest retrievals — so the answer can be scored
+   against what the turn ACTUALLY did, never the model's account of it.
+   Rejections (invalid arguments, spent budget) must be in the record: a
+   lookup that never ran is not "zero results". */
+
+describe("P3b action ledger (recordAction / summarizeActionLedger)", () => {
+  it("fresh session: empty record, empty summary (no record → no message)", () => {
+    const s = session();
+    expect(s.actionLedger).toEqual([]);
+    expect(summarizeActionLedger(s)).toBe("");
+  });
+
+  it("recordAction stamps the CURRENT round, not a per-call guess", () => {
+    const s = session();
+    recordAction(s, { tool: "web_search", ok: true, requested: 1, retrieved: 1, failed: 0 });
+    s.roundsUsed = 3;
+    recordAction(s, { tool: "read_page", ok: true, requested: 2, retrieved: 2, failed: 0 });
+    expect(s.actionLedger.map((a) => a.round)).toEqual([0, 3]);
+  });
+
+  it("rejections are recorded, never dropped: invalid_arguments and budget_exhausted", async () => {
+    const s = session("quick"); // maxSearchCalls 1
+    const bad = await execWebSearchTool(s, { queries: ["  "], missing_claims: ["m"] }, []);
+    expect(bad.error).toBe("invalid_arguments");
+    const first = await execWebSearchTool(s, { queries: ["alpha beta"], missing_claims: ["fact"] }, []);
+    expect(first.ok).toBe(true); // metasearch mocked []: a real lookup that found nothing
+    const spent = await execWebSearchTool(s, { queries: ["gamma"], missing_claims: ["fact"] }, []);
+    expect(spent.error).toBe("budget_exhausted");
+
+    expect(s.actionLedger).toEqual([
+      { tool: "web_search", round: 0, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0 },
+      { tool: "web_search", round: 0, ok: true, requested: 1, retrieved: 0, failed: 0 },
+      { tool: "web_search", round: 0, ok: false, error: "budget_exhausted", requested: 0, retrieved: 0, failed: 0 },
+    ]);
+    // Byte-pinned grounded-release summary — the exact text the forced final
+    // round injects as a system message; the law sentence is the contract.
+    expect(summarizeActionLedger(s)).toBe([
+      "RESEARCH ACTION RECORD (server-issued from actual tool outcomes, not the model's account):",
+      "- web_search round 0: REJECTED (invalid_arguments) — the lookup never ran.",
+      "- web_search round 0: 1 lookup(s) requested → 0 retrieved, 0 failed.",
+      "- web_search round 0: REJECTED (budget_exhausted) — the lookup never ran.",
+      "Total: 3 tool action(s): 1 lookup(s) requested, 0 retrieved, 0 failed, 2 rejected.",
+      "A failed, blocked or empty lookup is NOT evidence that the requested fact does not exist: never conclude nonexistence from a lookup that failed. Say plainly what could not be retrieved, and present anything no successful search or read supports as unverified background knowledge, never as research output.",
+    ].join("\n"));
+  });
+
+  it("read_page counts honest FETCHES, not attempts (SSRF-blocked page = failed, not retrieved)", async () => {
+    const s = session();
+    mocks.isSafeUrlWithDns.mockResolvedValueOnce(false);
+    const out = await execReadPageTool(s, { urls: ["http://127.0.0.1:8080/admin", "https://good.example/a"] }, []);
+    expect(out.ok).toBe(true); // the round ran; one page honestly failed
+    expect(s.actionLedger).toEqual([
+      { tool: "read_page", round: 0, ok: true, requested: 2, retrieved: 1, failed: 1 },
+    ]);
+    const badRead = await execReadPageTool(s, { urls: ["not a url"] }, []);
+    expect(badRead.error).toBe("invalid_arguments");
+    expect(s.actionLedger[1]).toEqual({ tool: "read_page", round: 0, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0 });
+  });
+
+  it("§11.18 URL-shaped queries count against the SAME record as keyword queries", async () => {
+    const s = session(); // metasearch [] + default extractUrl success
+    const out = await execWebSearchTool(s, { queries: ["https://example.com/pricing", "plain keywords"], missing_claims: ["fact"] }, []);
+    expect((out.pages as unknown[])).toHaveLength(1);
+    expect(s.actionLedger).toEqual([
+      { tool: "web_search", round: 0, ok: true, requested: 2, retrieved: 1, failed: 0 }, // 1 SERP query + 1 URL read; only the read fetched
+    ]);
   });
 });
