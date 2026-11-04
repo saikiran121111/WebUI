@@ -88,6 +88,14 @@ const GATE_JSON_SCHEMA = {
   properties: {
     search_required: { type: "boolean" },
     reason: { type: "string" },
+    // Brief §B evidence-basis contract: a no-search verdict must name WHY
+    // no evidence is needed. Conditional ("required only when
+    // search_required=false") is not expressible in this flat schema —
+    // parseMainGateJson enforces it; json_object backends ignore it.
+    no_search_basis: {
+      type: "string",
+      enum: ["local_transform", "code_task", "creative", "math", "stable_general", "available_evidence"],
+    },
     freshness: { type: "string", enum: ["none", "day", "week", "month", "year", "realtime", "any"] },
     depth: { type: "string", enum: ["quick", "standard", "deep"] },
     queries: {
@@ -123,6 +131,11 @@ const TRIVIAL_EXACT = new Set([
   "which model are you", "what model are you", "who are you",
   "who made you", "who created you", "what are you", "are you alive",
   "how do you work", "how are you", "what can you do",
+  // G01 (2026-11-04 audit): fixed chit-chat family completions — small
+  // talk must not reach freshness/model arbitration. This is a closed
+  // set, not a growing greeting whitelist.
+  "how are you doing", "how are you feeling", "how do you feel",
+  "how's it going", "how is it going", "what's up", "what is up",
 ]);
 
 const TRIVIAL_FILLER_PREFIX = /^(?:by the way|so|anyway|then|oh|hmm|hi|hey|hello|thanks|thank you)\s+/i;
@@ -160,7 +173,11 @@ function instructionScope(p: string): string {
   let s = p.replace(/```[\s\S]*?```/g, " ").replace(/~~~[\s\S]*?~~~/g, " ");
   s = s.replace(/`[^`\n]+`/g, " ");
   s = s.replace(/"[^"\n]*"/g, " ");
-  s = s.replace(/[“‟″][^“‟″]*[“‟″]/g, " ");
+  // G04 (2026-11-04 audit): U+201D ” was MISSING from the curly classes, so
+  // “quoted live-sounding text” stayed visible to the deterministic
+  // detectors. shortcut: only the common curly pairs are handled; upgrade
+  // trigger = a real message using an exotic quote pair that flips a verdict.
+  s = s.replace(/[“”‟″„][^“”‟″„]*[“”‟″„]/g, " ");
   return s;
 }
 
@@ -238,8 +255,13 @@ export function extractPromptUrls(prompt: string): string[] {
  * "search for" is an explicit search VERB frame; "binary search." carries
  * no frame ("search" not followed by a search-object frame).
  */
+// H01 (2026-11-04 audit): "search in google for that" / "through search" /
+// "do a search" carried no frame. Engine names here are SEARCH-FRAME
+// vocabulary (how people name the act of searching), never subjects — the
+// no-brand-tables law bans site names acting as answer targets, not frame
+// words. Provider names only ever pair with a search VERB.
 const SEARCH_FRAME_RE =
-  /(?:\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\bsearch(?:es|ing|ed)?\s+for\b|\b(?:web|google|internet|bing)\s+search(?:es|ing)?\b|\b(?:google|bing)\s+it\b|\blook\s?up\b|\blook\s*online\b|\bcheck\s+(?:the\s+|for\s+)?(?:web|online|internet)\b|\bbrowse\s+(?:the\s+)?(?:web|internet|online)\b)/i;
+  /(?:\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\bsearch(?:es|ing|ed)?\s+for\b|\b(?:web|google|internet|bing)\s+search(?:es|ing)?\b|\b(?:google|bing)\s+(?:it|that|this)\b|\bsearch(?:es|ing|ed)?\s+(?:in|on|through|using)\s+(?:google|bing|duckduckgo|brave|yandex|the\s+web|the\s+internet|a\s+search\s+engine|search\s+engine)\b|\bthrough\s+(?:a\s+|the\s+)?search\b|\b(?:do|does|perform|conduct|run|execute)\s+(?:a\s+|the\s+|some\s+)?search(?:es)?\b|\blook\s?up\b|\blook\s*online\b|\bcheck\s+(?:the\s+|for\s+)?(?:web|online|internet)\b|\bbrowse\s+(?:the\s+)?(?:web|internet|online)\b)/i;
 
 /**
  * Navigation frames — the user points at a live-web object to open or
@@ -255,9 +277,50 @@ const NAV_RE =
 const RESEARCH_RE =
   /\b(?:find|locate|gather|cite|look\s+for|searched)\b[^.!?]{0,48}?\b(?:peer-reviewed|studies|citations?|sources|references|papers|literature|news\s+coverage)\b/i;
 
-/** Force-YES web-intent = search frames ∪ navigation ∪ research ∪ who-won. */
+/**
+ * Source-attribution frame (brief root cause 1 — "…from their
+ * documentation" / "in …'s guidelines"): the request ATTRIBUTES the answer
+ * to an external document family, an evidence need with NO magic search
+ * word. Universal grammar, no entity tables: attribution preposition +
+ * (possessive 's | their | its) + document-kind noun, up to two descriptor
+ * words deep ("PM-KISAN guidelines"). "doument" (a real user typo) rides
+ * the fuzzy `dou\w*ment` stem — ONE fuzzy pattern, not a growing word
+ * list. shortcut: typos that alter the stem itself are missed; upgrade
+ * trigger = an attribution noun the model gate then has to cover (the
+ * basis contract makes a blind model NO on it invalid anyway).
+ * "about"/"with"/"against" are deliberately NOT attribution prepositions —
+ * attachment guardrails ("Compare this PDF with the latest regulations.")
+ * must stay undecided, and "from NVIDIA?" has no possessive + noun frame.
+ * Attachment self-refs are neutralized by webIntentProbe BEFORE this is
+ * tested ("the attached document" → stripped; and no possessive frame).
+ */
+const DOC_NOUN =
+  "documents?|documentation|dou\\w*ment|docs?|manuals?|guides?|guidelines?|specs?|specifications?|reports?|catalogs?|catalogues?|faqs?|polic(?:y|ies)|terms(?:\\s+of\\s+(?:service|use))?|announcements?|websites?|sites?|homepages?|white\\s?papers?|handbooks?|brochures?|press\\s+releases?|blog\\s+posts?";
+const ATTRIBUTION_RE = new RegExp(
+  `\\b(?:from|in|according\\s+to|per|based\\s+on|stated\\s+in|via)\\b[^.?!\\n]{0,60}?(?:'s|’s|their|its)\\s+(?:[\\w'’-]+\\s+){0,2}?(?:${DOC_NOUN})\\b`,
+  "i",
+);
+
+/**
+ * Enumerable-catalog ask (brief root cause 1): "which/what … does <entity>
+ * support|offer|provide…" demands the COMPLETE list the entity itself
+ * defines — a topical explanation can never answer it, so retrieval is
+ * required for unknown entities. The blocklist after the modal is
+ * GRAMMATICAL (pronouns, demonstratives, articles) — not an entity table:
+ * "What does this function do?" stays undecided (local code), "Which
+ * foundation models does ArborWorks support?" force-YESes. Bare
+ * do/run/use as the main verb are excluded so ordinary local code
+ * questions ("What does this class use?") never arm a search.
+ */
+const CATALOG_ASK_RE =
+  /\b(?:which|what)\b[^.?!\n]{0,50}?\b(?:does|do|did|can|will|could)\s+(?!(?:this|that|these|those|it|its|the|a|an|my|our|his|her|their|your|he|she|they|we)\b)[^.?!]{0,40}?\b(?:supports?|support(?:ed|ing)?|offers?|offer(?:ed|ing)?|provides?|providing|hosts?|hosting|includes?|including|integrat(?:e|es|ed|ing)|features?|featuring|ships?|shipping|lists?|listing|accepts?|accepting)\b/i;
+
+/** Force-YES web-intent = search ∪ navigation ∪ research ∪ attribution ∪
+ *  catalog-ask ∪ who-won. (Attribution and catalog-ask ride the SAME
+ *  web_intent tag: the maintained matrices only assert their own tags,
+ *  and one force-YES family keeps the guard union coherent.) */
 const WEB_INTENT_RE = new RegExp(
-  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|\\bwho\\s+won\\b`,
+  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|(?:${ATTRIBUTION_RE.source})|(?:${CATALOG_ASK_RE.source})|\\bwho\\s+won\\b`,
   "i",
 );
 
@@ -272,7 +335,7 @@ const WEB_INTENT_RE = new RegExp(
 const EXTERNAL_NEED_RE =
   /\b(?:find|look\s+for|check|see|compare)\b[^.!?]{0,30}?\b(?:latest|current|newest|up[\s-]?to[\s-]?date)\b[^.!?]{0,20}?\b(?:information|news|updates?|regulations?|listings?|positions?|prices?|versions?|releases?)\b/i;
 const GUARD_EXTERNAL_RE = new RegExp(
-  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|(?:${EXTERNAL_NEED_RE.source})` +
+  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|(?:${ATTRIBUTION_RE.source})|(?:${CATALOG_ASK_RE.source})|(?:${EXTERNAL_NEED_RE.source})` +
     // `sources?` carries an EXTERNAL-citation sense ("cite your sources");
     // it must not fire as an artifact descriptor — "source file"/"source
     // code" name the supplied material itself (false-escape fix, 2026-11-04:
@@ -343,9 +406,17 @@ const IMAGE_LOOKUP_INTENT_RE =
  *  as-of-now, this-week/month/year, office-holder identity, version/
  *  release freshness, latest-…-news, open positions / job listings,
  *  price…right now. Office-holder nouns only match inside the
- *  "who is/are the …" frame. */
+ *  "who is/are the …" frame. G02 price frame at the tail below.
+ *  G01 (2026-11-04 audit): bare "currently" is REMOVED from the head — a
+ *  temporal adverb is not an evidence request ("What are you currently
+ *  doing?" was small talk force-YESed). "currently" still counts inside
+ *  the price frames below, and the trivial-layer temporal normalization
+ *  already handles trailing adverbs ("…doing today").
+ *  G02 (fallback coverage): the current/latest + price-family frame now
+ *  fires WITHOUT an explicit "today/right now" tail — an outage fallback
+ *  that misses a plain price ask is the regression this closes. */
 const FRESHNESS_RE =
-  /(?:\b(?:currently|weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b)/i;
+  /(?:\b(?:weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b|\b(?:current|latest)\b[^.!?]{0,24}?\b(?:prices?|costs?|salary|salaries|fees?|fare|fares)\b|\b(?:job|jobs|positions?|hiring)\b[^.!?]{0,20}?\b(?:open|available|listings?|vacanc\w*)\b)/i;
 
 /** Layer E1 — the user EXPLICITLY scoped the turn to local evidence. */
 const LOCAL_ONLY_RE =
@@ -539,19 +610,22 @@ export function deterministicHardBypass(
   // The user EXPLICITLY scoped the turn to local evidence. The residual
   // re-test IS the guard: "do not search the web" contains the frame
   // word "search", so the residual (local-only phrases stripped) is
-  // re-tested against web-intent frames and freshness shapes. A
-  // contradictory "don't search — what's the latest version?" turn
-  // falls through. Bare URL literals are NOT re-tested: "Do not search
-  // the web. Count the characters in https://example.com." is a local
-  // character count, not a link to open. The web-intent probe (media
-  // self-refs neutralized) applies to the residual, not to freshness.
+  // re-tested against web-intent frames ONLY.
+  // G03 law change (2026-11-04 audit): a bare freshness WORD no longer
+  // overrides an explicit prohibition — "Do not browse; is React 18 up
+  // to date?" honors the instruction (the user chose the evidence
+  // boundary; freshness is a property of the fact, not a search
+  // instruction). The residual escape is an explicit WEB-INTENT frame
+  // outside the negation ("…, but check the web for the price" / "watch
+  // the launch event, nothing else"). Bare URL literals are NOT
+  // re-tested: "Do not search the web. Count the characters in
+  // https://example.com." is a local character count, not a link. The
+  // web-intent probe (media self-refs neutralized) applies to the
+  // residual.
   const residual = instr.replace(LOCAL_ONLY_RE_G, " ");
   if (
     LOCAL_ONLY_RE.test(instr) &&
-    !(
-      WEB_INTENT_RE.test(webIntentProbe(residual, localArtifact)) ||
-      FRESHNESS_RE.test(residual)
-    )
+    !WEB_INTENT_RE.test(webIntentProbe(residual, localArtifact))
   ) {
     return forceNo("local_task", "deterministic_self_contained");
   }
@@ -713,7 +787,9 @@ function noSearchPlan(reason = "trivial prompt — no web content needed"): Sear
 import { THINKING_OFF_BODY } from "./llm-json";
 
 // Part-10 (universal search pre-gate): replaces the old SEARCH-BY-DEFAULT
-// policy. Byte-identical to the Rust MAIN_GATE_SYSTEM_PROMPT. The decision
+// policy. (The "byte-identical Rust MAIN_GATE_SYSTEM_PROMPT" comment was
+// stale — the ruke-websearch crate was removed 2026-11-03 and no Rust
+// source mirrors this prompt anymore; it is the SOLE owner.) The decision
 // standard is staleness-aware: the model judges whether a fact may have
 // CHANGED, and the "Current date: …" line prepended by
 // buildMainGateMessages grounds that judgment in the real runtime clock.
@@ -756,6 +832,19 @@ changed since training, search; otherwise answer without searching.
 
 Answer with ONLY valid JSON:
 {"search_required": boolean, "reason": string,
+ "no_search_basis": required when search_required=false, omitted when
+   true — one of "local_transform" (the task transforms content the user
+   supplied), "code_task" (the prompt itself defines the code), "creative"
+   (writing/art comes from you), "math" (pure computation),
+   "stable_general" (an established concept that does not change), or
+   "available_evidence" (THIS conversation or an attached document
+   already contains the needed evidence). CONFIDENCE IS NOT A BASIS:
+   "I know this", "confident from memory" or "unlikely to have changed"
+   is not one of the six — if you cannot name one, set
+   search_required=true. A request attributed to an external document
+   ("from their documentation") or for a complete list an organization
+   defines ("which models does X support") has NO valid no-search basis
+   unless the document is in this conversation.
  "freshness": "none"|"day"|"week"|"month"|"year"|"realtime"|"any",
  "depth": "quick"|"standard"|"deep",
  "queries": [{"query": string, "intent": "general"|"news"|"docs"|"code"|"academic"|"forum", "preferred_domains"?: string[]}]}
@@ -898,6 +987,18 @@ async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | n
   return null;
 }
 
+/** The six machine-checkable justifications for a no-search verdict
+ *  (brief §B). Anything else — including a bare confidence claim — is not
+ *  a valid basis and downgrades the verdict to undecided. */
+const NO_SEARCH_BASIS = new Set([
+  "local_transform",
+  "code_task",
+  "creative",
+  "math",
+  "stable_general",
+  "available_evidence",
+]);
+
 /**
  * Parse the main model's combined verdict+plan. A `search_required: false`
  * answer is a first-class outcome — not a failure. Explicit prompt URLs are
@@ -919,6 +1020,18 @@ function parseMainGateJson(raw: string, ctx: SearchGateContext): SearchDecision 
         // The old promptHasExternalEntity veto (capitalization / proper-
         // noun / version guessing) is deleted — it overturned confident
         // correct answers on "Explain Newton's first law." style turns.
+        //
+        // (2026-11-04 brief §B evidence-basis contract) The NO must
+        // declare WHY no evidence is needed — one of six named bases.
+        // "unknown → no evidence needed" is not a basis: a missing or
+        // invalid no_search_basis makes the verdict UNPARSEABLE here, so
+        // the caller escalates to the rules plan (which force-YESes
+        // attribution/catalog shapes and keeps genuine local tasks
+        // local). Confidence language is rejected by construction. The
+        // basis string NEVER rides SearchDecision — the wire shape stays
+        // frozen for cache/web_meta consumers.
+        const basis = String(parsed.no_search_basis ?? "").trim().toLowerCase();
+        if (!NO_SEARCH_BASIS.has(basis)) return null;
         return {
           search_required: false,
           reason: String(parsed.reason ?? "main model: no live web content needed").slice(0, 300),
@@ -999,9 +1112,13 @@ export function gateDisabledByEnv(): boolean {
  *   1. trivial greeting / assistant-identity prompt (temporal-adverb
  *      normalized: "what are you doing today" ≡ "what are you doing")
  *      → no-search, zero tokens, ZERO gate model calls.
- *   2. the main model's verdict — FINAL in both directions. The gate
- *      model is the only model; there is no second router, no planner,
- *      and no deterministic re-verify that overrides its NO.
+ *   2. the main model's verdict — FINAL in both directions once a NO
+ *      declares a machine-checked evidence basis (brief §B: a missing or
+ *      invalid no_search_basis is NOT a valid no-search verdict — the
+ *      turn escalates to the rules plan; the basis itself never rides
+ *      the SearchDecision wire shape). The gate model is the only model;
+ *      there is no second router, no planner, and no deterministic
+ *      re-verify that overrides a well-formed NO.
  *   3. main model unreachable / malformed / timeout → rules plan with
  *      the SAME semantic standard (safe local answers; only explicit
  *      evidence shapes search).
