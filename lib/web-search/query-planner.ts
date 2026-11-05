@@ -421,13 +421,16 @@ export interface CoverageReport {
  */
 /* ── answer-unit law (universal research-depth audit 2026-11-05) ─────
  * For an ENUMERATIVE ask ("which/what … does X support/offer/include …")
- * the answer units are NAMED IDENTIFIERS — an external catalog the user
- * does not already have. Query-word substring hits on topical text are
- * NOT coverage of such a unit: the retrieved passages must contain at
- * least one identifier-shaped token the user did not already supply.
- * Grammar + token-shape only (no entity/brand tables). When no identifier
- * is present the evaluator errs toward FIRING recovery: an extra bounded
- * wave is cheap, a falsely-complete answer is the audited failure.
+ * the answer units are NAMED ENTITIES — an external catalog the user does
+ * not already have. Query-word substring hits on topical text are NOT
+ * coverage of such a unit: the retrieved passages must contain at least
+ * one NOVEL answer name (identifier-shaped OR plain proper-name form)
+ * inside a sentence that bears the request's predicate, un-hedged (audit
+ * item 9: token shape alone — footer "WebKit"/"HTTP2" — is a ranking
+ * signal, and a "for example" fragment proves membership, not list scope).
+ * Grammar + morphology only (no entity/brand tables). When support is
+ * absent the evaluator errs toward FIRING recovery: an extra bounded wave
+ * is cheap, a falsely-complete answer is the audited failure.
  */
 const ENUMERATIVE_ASK_RE =
   /\b(?:which|what)\b[^.?!\n]{0,50}?\b(?:does|do|did|can|will|could)\s+(?!(?:this|that|these|those|it|its|the|a|an|my|our|his|her|their|your|he|she|they|we)\b)[^.?!]{0,40}?\b(?:supports?|offer(?:s|ed|ing)?|provide[sd]?|providing|include[sd]?|including|integrat(?:e|es|ed|ing)|feature[sd]?|list(?:s|ed)?|accept(?:s|ed)?)\b/i;
@@ -443,15 +446,79 @@ const IDENTIFIER_RES: RegExp[] = [
   /\b[A-Z][a-z]{2,} \d[\w.]*/g,
 ];
 
-function hasNovelIdentifier(passages: string[], userPrompt: string): boolean {
+/* ── answer-support law (audit 2026-11-05 item 9) ───────────────────────
+ * Token SHAPE is a retrieval/ranking signal, not support. A passage
+ * supports the requested answer unit only when the novel answer token sits
+ * in a SENTENCE that holds the request's predicate (a support/offer/...
+ * verb, a use/run phrasing, or a surface co-occurrence of the question's
+ * own content words — the copular "models are Boreal-X17" form), AND the
+ * support is not an explicitly hedged example (a partial example never
+ * establishes the SCOPE of a claimed complete list). The relation test is
+ * sentence co-occurrence + morphology only: no entity tables, no footer
+ * blocklists, no site rules. Answers phrased as plain proper names — a
+ * "India, Brazil, Japan and Germany" list or "it uses Opus" — ARE support
+ * even though they match no identifier pattern (the audited false gap).
+ */
+const ANSWER_PREDICATE_RE =
+  /\b(supports?|supported|offer(?:s|ed|ing)?|provid(?:e|es|ed|ing)|includ(?:e|es|ed|ing)|integrat(?:e|es|ed|ing)|featur(?:e|es|ed|ing)|lists?|listed|accept(?:s|ed)?|us(?:e|es|ed|ing)|run(?:s|ning)?|operat(?:e|es|ed|ing)|deliver(?:s|ed|ing)?|deploy(?:s|ed|ing)?|compatible)\b/i;
+
+// Explicitly partial support markers: one hedged example cannot establish
+// that the requested LIST is complete, so it never closes an enumerative
+// ask on its own (recovery stays armed — err toward firing).
+const HEDGE_RE =
+  /\b(for example|for instance|e\.?g\.?|such as|partial(?:ly)?|examples?|among others|one of|just one|not exhaustive|etc\.?)\b/i;
+
+// Two or more comma/"and"-joined capitalized plain names: a genuine
+// enumeration of answer units that match no identifier pattern.
+const PROPER_LIST_RE =
+  /\b[A-Z][a-z]{2,}(?:\s*(?:,\s*|\s+and\s+|\s+or\s+)[A-Z][a-z]{2,})+/g;
+// A capitalized plain name appearing mid-sentence (proper-noun shape —
+// sentence-initial capitals are just orthography).
+const MID_CAP_RE = /\b[A-Z][a-z]{2,}\b/g;
+
+function novelAnswerToken(s: string, promptLow: string): boolean {
+  for (const re of IDENTIFIER_RES) {
+    for (const m of s.matchAll(re)) {
+      if (!promptLow.includes(m[0].toLowerCase())) return true;
+    }
+  }
+  for (const m of s.matchAll(PROPER_LIST_RE)) {
+    const names = m[0].match(/[A-Z][a-z]{2,}/g) || [];
+    if (names.some((n) => !promptLow.includes(n.toLowerCase()))) return true;
+  }
+  for (const m of s.matchAll(MID_CAP_RE)) {
+    if (s.slice(0, m.index ?? 0).trim().length === 0) continue; // sentence start
+    if (promptLow.includes(m[0].toLowerCase())) continue; // question echo
+    return true;
+  }
+  return false;
+}
+
+function predicateBearing(s: string, promptWords: string[]): boolean {
+  if (ANSWER_PREDICATE_RE.test(s)) return true;
+  const words = s.toLowerCase().match(/[a-z0-9]+/g) || [];
+  for (const w of words) {
+    if (w.length < 4 || GAP_STOPWORDS.has(w)) continue;
+    for (const p of promptWords) {
+      // Morphological variants only (stem prefixing): "models" ~ "model".
+      if (w.startsWith(p) || p.startsWith(w)) return true;
+    }
+  }
+  return false;
+}
+
+function hasAnswerSupport(passages: string[], userPrompt: string): boolean {
   const promptLow = userPrompt.toLowerCase();
+  const promptWords = (promptLow.match(/[a-z0-9]+/g) || []).filter(
+    (w) => w.length >= 4 && !GAP_STOPWORDS.has(w),
+  );
   for (const text of passages) {
-    // URLs scrubbed first: domain tokens would masquerade as identifiers.
+    // URLs scrubbed first: domain tokens would masquerade as answer names.
     const scrubbed = text.replace(/https?:\/\/\S+/g, " ");
-    for (const re of IDENTIFIER_RES) {
-      for (const m of scrubbed.matchAll(re)) {
-        if (!promptLow.includes(m[0].toLowerCase())) return true;
-      }
+    for (const s of scrubbed.split(/(?<=[.!?])\s+|\n+/)) {
+      if (!s.trim() || !novelAnswerToken(s, promptLow)) continue;
+      if (HEDGE_RE.test(s)) continue; // explicitly partial example
+      if (predicateBearing(s, promptWords)) return true;
     }
   }
   return false;
@@ -505,10 +572,13 @@ export function evaluateCoverage(
   const coverage = hitEntities.size / entities.length;
   const missing = entities.filter((e) => !hitEntities.has(e));
 
-  // Answer-unit law: topical entity hits are not answer coverage.
+  // Answer-unit law: topical entity hits are not answer coverage, and a
+  // novel identifier-SHAPED token is not support either (audit item 9) —
+  // support requires the token inside a predicate-bearing, un-hedged
+  // sentence (identifier shape OR plain proper-name answer forms).
   const answerGap =
     ENUMERATIVE_ASK_RE.test(userPrompt) &&
-    !hasNovelIdentifier(retrievedPassages, userPrompt);
+    !hasAnswerSupport(retrievedPassages, userPrompt);
 
   const needsGapSearch =
     (coverage < 0.5 && missing.length > 0) ||
