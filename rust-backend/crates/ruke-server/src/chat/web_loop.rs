@@ -47,8 +47,18 @@
 //!   the turn already committed to the tool loop); a mid-loop exec RPC
 //!   failure gets an explicit `tool_service_unavailable` envelope — the
 //!   model is told the research service is down rather than left guessing
-//!   (Rust-inline transport envelope; there is no Rust-side search retry).
+//!   (Rust-inline transport envelope; there is no Rust-side search retry);
+//! - WS06 (audit 2026-11-05 item 6) answer release gating: a round's
+//!   `delta.content` is buffered (its frames are content-stripped live;
+//!   reasoning frames stream through untouched — gating them would delay
+//!   thinking for zero verification value) and its terminal frames
+//!   (`finish_reason`/`[DONE]`) are HELD until [`answer_release`] has
+//!   audited the text against the SERVER citation map + action ledger.
+//!   The repaired answer then releases as one synthetic delta followed by
+//!   the held frames, preserving the single-`[DONE]` grammar. ⇔ TS
+//!   `holdRoundFrame`/`releaseRound` in lib/chat/web-tool-loop.ts.
 
+use std::collections::HashSet;
 use std::time::Instant;
 
 use serde_json::{json, Value};
@@ -58,6 +68,7 @@ use tracing::Span;
 use ruke_contracts::stages::{CitationMap, ResearchMeta, StageEvent};
 use ruke_skills::lazy::inject_system_before;
 
+use crate::chat::answer_release::audit_research_answer;
 use crate::chat::browser_loop::{tool_content, ToolStreamRelay};
 use crate::chat::{
     error, next_search,
@@ -97,12 +108,119 @@ enum Outcome {
     Failed(String),
 }
 
-/// Result of one upstream round: either an assembled relay to inspect, or
-/// an outcome that ends the loop (the channel was already failed/closed by
-/// `stream_round`).
+/// Result of one upstream round: either an assembled relay to inspect plus
+/// the WS06 `held` frames (this round's terminal frames, parked until the
+/// answer text passes [`audit_research_answer`]), or an outcome that ends
+/// the loop (the channel was already failed/closed by `stream_round`).
 enum Round {
-    Relay(ToolStreamRelay),
+    Relay(ToolStreamRelay, Vec<Vec<u8>>),
     Done(Outcome),
+}
+
+/// WS06 buffering transform for one outbound SSE frame (⇔ TS
+/// `holdRoundFrame`): strip `delta.content`, pass reasoning/other frames
+/// through live, and HOLD the round's terminal frames for the post-audit
+/// release. Frames needing no rewrite are forwarded byte-identical.
+/// Conservative rule (shared with TS): a `data:` line that is neither
+/// [DONE] nor parseable JSON is swallowed on this path — the relay records
+/// nothing from it either, so forwarding it would smuggle unaudited text.
+fn hold_round_frame(frame: &[u8], held: &mut Vec<Vec<u8>>) -> Option<Vec<u8>> {
+    let text = String::from_utf8_lossy(frame).to_string(); // ⇔ TS TextDecoder (lossy)
+    let mut terminal = false;
+    let mut done = false;
+    let mut mutated = false;
+    let mut out: Vec<String> = Vec::new();
+    for line in text.split('\n') {
+        let Some(rest) = line.strip_prefix("data:") else {
+            out.push(line.to_string());
+            continue;
+        };
+        let data = rest.trim();
+        if data == "[DONE]" {
+            done = true;
+            continue;
+        }
+        if data.is_empty() {
+            out.push(line.to_string());
+            continue;
+        }
+        let Ok(mut v) = serde_json::from_str::<Value>(data) else {
+            continue;
+        };
+        let mut terminal_here = false;
+        if let Some(choice) = v.get_mut("choices").and_then(Value::as_array_mut).and_then(|a| a.first_mut()) {
+            if choice.get("finish_reason").and_then(Value::as_str).is_some() {
+                terminal_here = true;
+            }
+            if choice
+                .get("delta")
+                .and_then(|d| d.get("content"))
+                .and_then(Value::as_str)
+                .is_some()
+            {
+                if let Some(delta) = choice.get_mut("delta").and_then(Value::as_object_mut) {
+                    delta.remove("content");
+                    mutated = true;
+                }
+            }
+        }
+        terminal |= terminal_here;
+        out.push(format!("data: {}", v));
+    }
+    if !terminal && !done && !mutated {
+        return Some(frame.to_vec());
+    }
+    let stripped = out.join("\n").into_bytes();
+    if terminal || done {
+        held.push(if mutated { stripped } else { frame.to_vec() });
+        return None;
+    }
+    Some(stripped)
+}
+
+/// Did the turn actually obtain anything? Computed ONLY from server state:
+/// the citation map the pipeline/tools minted, or a successful action in
+/// the ledger snapshot the exec RPCs carried (⇔ TS `retrieveHappened`).
+fn turn_retrieved(merged: &CitationMap, last_ledger: &Option<Value>) -> bool {
+    !merged.is_empty()
+        || last_ledger
+            .as_ref()
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .any(|r| r.get("ok").and_then(Value::as_bool) == Some(true))
+            })
+            .unwrap_or(false)
+}
+
+/// WS06 release point: no round's answer text reaches the client before
+/// the server check has run on it. Content releases as one synthetic delta
+/// (repaired where needed), then the round's held terminal frames follow —
+/// the single-[DONE] grammar and the live reasoning stream stay intact.
+/// ⇔ TS `releaseRound` in lib/chat/web-tool-loop.ts.
+async fn release_round(
+    ch: &mut ProgressChannel,
+    relay: &ToolStreamRelay,
+    merged: &CitationMap,
+    retrieved: bool,
+    held: &mut Vec<Vec<u8>>,
+) {
+    if !relay.content.is_empty() {
+        let ids: HashSet<String> = merged.keys().cloned().collect();
+        let repaired = audit_research_answer(&relay.content, &ids, retrieved);
+        if !repaired.is_empty() {
+            let frame = json!({
+                "choices": [{ "index": 0, "delta": { "content": repaired }, "finish_reason": null }]
+            });
+            let mut bytes = b"data: ".to_vec();
+            bytes.extend_from_slice(serde_json::to_string(&frame).unwrap_or_default().as_bytes());
+            bytes.extend_from_slice(b"\n\n");
+            ch.raw(bytes).await;
+        }
+    }
+    for f in held.drain(..) {
+        ch.raw(f).await;
+    }
 }
 
 /// One upstream request/response round: serialize `payload`, stream the
@@ -160,11 +278,14 @@ async fn stream_round(
         return Round::Done(Outcome::Failed("No response body from model".to_string()));
     }
 
-    // Stream the round: scrubbed bytes pass through the relay so the
-    // model's text answer streams verbatim while tool calls are assembled
-    // out-of-band.
+    // Stream the round: scrubbed bytes pass through the relay so tool
+    // calls are assembled out-of-band while non-content frames stream
+    // live. WS06: content is stripped from the live path and terminal
+    // frames park in `held` until the answer text passes the release
+    // audit (see [`release_round`]).
     let mut scrubber = ThinkScrubber::default();
     let mut relay = ToolStreamRelay::new();
+    let mut held: Vec<Vec<u8>> = Vec::new();
     let mut aborted = false;
     loop {
         let chunk = tokio::select! {
@@ -177,7 +298,9 @@ async fn stream_round(
                 let out = scrubber.feed(&bytes);
                 if !out.is_empty() {
                     for piece in relay.feed(&out) {
-                        ch.raw(piece).await;
+                        if let Some(f) = hold_round_frame(&piece, &mut held) {
+                            ch.raw(f).await;
+                        }
                     }
                     if ch.is_closed() {
                         token.cancel();
@@ -199,17 +322,21 @@ async fn stream_round(
     let tail = scrubber.finish();
     if !tail.is_empty() {
         for piece in relay.feed(&tail) {
-            ch.raw(piece).await;
+            if let Some(f) = hold_round_frame(&piece, &mut held) {
+                ch.raw(f).await;
+            }
         }
     }
     if let Some(frame) = relay.finish(&[]) {
-        ch.raw(frame).await;
+        if let Some(f) = hold_round_frame(&frame, &mut held) {
+            ch.raw(f).await;
+        }
     }
     if ch.is_closed() {
         token.cancel();
         return Round::Done(Outcome::Aborted);
     }
-    Round::Relay(relay)
+    Round::Relay(relay, held)
 }
 
 /// A web-tool RPC raced against the turn's cancellation token:
@@ -393,10 +520,25 @@ pub async fn run_web_tool_loop(
             if token.is_cancelled() {
                 break 'outer Outcome::Aborted;
             }
-            let relay = match stream_round(state, &payload, &url, span, token, ch).await {
+            let (relay, mut held) = match stream_round(state, &payload, &url, span, token, ch).await {
                 Round::Done(o) => break 'outer o,
-                Round::Relay(r) => r,
+                Round::Relay(r, h) => (r, h),
             };
+
+            // WS06 release point: this round's answer text passes the
+            // server check (citation map + ledger snapshot — SERVER state,
+            // never prose) before the client may see it; held terminal
+            // frames follow the (possibly repaired) release. ⇔ TS
+            // `releaseRound`, which fires on BOTH the completion and the
+            // tool-narration path.
+            release_round(
+                ch,
+                &relay,
+                &merged,
+                turn_retrieved(&merged, &last_ledger),
+                &mut held,
+            )
+            .await;
 
             if relay.finish.as_deref() != Some("tool_calls") || relay.calls.is_empty() {
                 tracing::info!(
@@ -612,7 +754,18 @@ pub async fn run_web_tool_loop(
         }
         match stream_round(state, &payload, &url, span, token, ch).await {
             Round::Done(o) => break 'outer o,
-            Round::Relay(r) => {
+            Round::Relay(r, mut held) => {
+                // WS06: the forced final answer gets the SAME release check
+                // as every other round — the audit law names "the normal
+                // finish path" and this path explicitly.
+                release_round(
+                    ch,
+                    &r,
+                    &merged,
+                    turn_retrieved(&merged, &last_ledger),
+                    &mut held,
+                )
+                .await;
                 if r.finish.as_deref() == Some("tool_calls") {
                     // The relay swallowed this round's [DONE] (the model
                     // called tools again, which we never execute). The

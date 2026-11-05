@@ -177,9 +177,18 @@ describe("plain-answer round", () => {
     const h = makeHarness();
     const fetchMock = await drive(h, [sseResponse(contentDelta("Hel") + contentDelta("lo") + finishFrame("stop") + DONE, 13)]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    // raw SSE frames survive the byte-level chunk split (relayed verbatim)
-    expect(h.rawText).toContain('"content":"Hel"');
-    expect(h.rawText).toContain('"content":"lo"');
+    // DELIBERATELY EVOLUED 2026-11-05 (WS06, audit item 6): content deltas
+    // are no longer relayed per-piece — the round's answer text is buffered,
+    // run through the server release check (lib/chat/answer-release.ts), and
+    // released as ONE audited delta. The chunk-split law this test originally
+    // pinned still holds: the 13-byte split frames reassembled inside the
+    // relay (both pieces plus the terminal frames below prove it); only the
+    // release SHAPE changed. Release order law pinned here: repaired content
+    // precedes the round's terminal frames.
+    expect(h.rawText).toContain('"content":"Hello"');
+    expect(h.rawText.indexOf('"content":"Hello"')).toBeLessThan(
+      h.rawText.indexOf('"finish_reason":"stop"'),
+    );
     expect(countDone(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
     expect(h.failed).toEqual([]);

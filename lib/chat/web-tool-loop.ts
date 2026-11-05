@@ -52,6 +52,11 @@ import {
   type WebToolDepth,
 } from "../web-search/tools";
 import { retrievalModeForFreshness } from "../web-search/types";
+// WS06 (audit 2026-11-05 item 6): server-enforced action/citation/claim
+// check before any research answer unit reaches the client — including the
+// normal finish path. This is the ENFORCEMENT half of the WEB_TOOL_GUIDANCE
+// laws; a prompt is not enforcement. ⇔ Rust chat/answer_release.rs.
+import { auditResearchAnswer } from "./answer-release";
 import type { StageEvent } from "../types";
 // P5 (Addendum §57): the turn's surface set re-carried on every updated
 // web_meta frame (OVERWRITE law — a later frame replaces the WHOLE set).
@@ -274,8 +279,68 @@ export interface WebToolLoopOptions {
 }
 
 type RoundOutcome =
-  | { kind: "relay"; relay: ToolStreamRelay }
+  // WS06: `held` carries this round's terminal frames (finish_reason and/or
+  // [DONE]) which may only go out AFTER the answer content has been audited
+  // and (if needed) repaired — content is buffered, never released raw.
+  | { kind: "relay"; relay: ToolStreamRelay; held: Uint8Array[] }
   | { kind: "closed" }; // the channel was already closed or failed
+
+const enc = new TextEncoder();
+
+/**
+ * WS06 buffering transform for one outbound SSE frame: strip `delta.content`
+ * (the round's answer units accumulate in `relay.content` and are released
+ * audited), pass reasoning/other frames through live (gating them would
+ * delay thinking for zero verification value), and HOLD the round's
+ * terminal frames (`finish_reason`/`[DONE]`) for the post-audit release.
+ * Frames that need no rewriting are forwarded byte-identical.
+ * Conservative rule: a `data:` line that is neither [DONE] nor parseable
+ * JSON is swallowed on this path — the relay records nothing from it either,
+ * so forwarding it would smuggle unaudited text to the client.
+ */
+function holdRoundFrame(frame: Uint8Array, held: Uint8Array[]): Uint8Array | null {
+  const text = new TextDecoder().decode(frame);
+  const lines = text.split("\n");
+  let terminal = false;
+  let done = false;
+  let mutated = false;
+  const out: string[] = [];
+  for (const line of lines) {
+    if (!line.startsWith("data:")) {
+      out.push(line);
+      continue;
+    }
+    const data = line.slice("data:".length).trim();
+    if (data === "[DONE]") {
+      done = true;
+      continue;
+    }
+    if (data === "") {
+      out.push(line);
+      continue;
+    }
+    let v: any;
+    try {
+      v = JSON.parse(data);
+    } catch {
+      continue;
+    }
+    const choice = Array.isArray(v?.choices) ? v.choices[0] : undefined;
+    if (choice && typeof choice.finish_reason === "string") terminal = true;
+    if (choice?.delta && typeof choice.delta.content === "string") {
+      delete choice.delta.content;
+      mutated = true;
+    }
+    out.push("data: " + JSON.stringify(v));
+  }
+  if (!terminal && !done && !mutated) return frame;
+  const stripped = enc.encode(out.join("\n"));
+  if (terminal || done) {
+    held.push(mutated ? stripped : frame);
+    return null;
+  }
+  return stripped;
+}
 
 /**
  * One upstream request/response round: serialize `payload`, stream the
@@ -305,6 +370,9 @@ async function streamRound(
       return { kind: "closed" };
     }
     const relay = new ToolStreamRelay();
+    // WS06: this round's terminal frames wait here until the answer text
+    // (accumulated in relay.content) passes auditResearchAnswer.
+    const held: Uint8Array[] = [];
     const reader = upstream.body.getReader();
     while (true) {
       const { value, done } = await reader.read();
@@ -312,16 +380,24 @@ async function streamRound(
       if (!value) continue;
       // Same per-chunk think-tag scrubber as forwardStreamInto.
       const bytes = new TextEncoder().encode(scrubThinkTags(new TextDecoder().decode(value)));
-      for (const piece of relay.feed(bytes)) ch.raw(piece);
+      for (const piece of relay.feed(bytes)) {
+        const f = holdRoundFrame(piece, held);
+        if (f) ch.raw(f);
+      }
     }
     if (signal?.aborted) {
-      // Client walked away mid-stream: the stream dies with the request.
+      // Client walked away mid-stream: the stream dies with the request —
+      // the held buffer dies with it (an unterminated stream is fine; the
+      // connection is gone anyway).
       ch.close();
       return { kind: "closed" };
     }
     const tail = relay.finishFrame(new Uint8Array(0));
-    if (tail) ch.raw(tail);
-    return { kind: "relay", relay };
+    if (tail) {
+      const f = holdRoundFrame(tail, held);
+      if (f) ch.raw(f);
+    }
+    return { kind: "relay", relay, held };
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
       log.warn({ model }, "web tool loop stream aborted by client");
@@ -384,6 +460,34 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
     );
 
     const maxRounds = Math.min(session.budget.maxToolRounds, WEB_TOOL_MAX_ROUNDS_CAP);
+
+    // WS06 (audit item 6) release point: no round's answer text reaches the
+    // client before auditResearchAnswer has checked it against the SERVER's
+    // citation map and action ledger. Content releases as one synthetic
+    // delta (repaired where needed); the round's held terminal frames follow
+    // it, preserving the single-[DONE] grammar and live reasoning stream.
+    // ⇔ web_loop.rs release_round mirror.
+    const retrieveHappened = () =>
+      Object.keys(merged).length > 0 || session.actionLedger.some((a) => a.ok);
+    const releaseRound = (relay: ToolStreamRelay, held: Uint8Array[]) => {
+      if (relay.content !== "") {
+        const repaired = auditResearchAnswer(relay.content, Object.keys(merged), retrieveHappened());
+        if (repaired !== "") {
+          ch.raw(
+            enc.encode(
+              "data: " +
+                JSON.stringify({
+                  choices: [{ index: 0, delta: { content: repaired }, finish_reason: null }],
+                }) +
+                "\n\n",
+            ),
+          );
+        }
+      }
+      for (const f of held) ch.raw(f);
+      held.length = 0;
+    };
+
     for (let round = 0; round < maxRounds; round++) {
       if (signal?.aborted) {
         ch.close();
@@ -392,6 +496,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       const res = await streamRound(payload, model, signal, ch);
       if (res.kind === "closed") return;
       const relay = res.relay;
+      releaseRound(relay, res.held);
 
       if (relay.finish !== "tool_calls" || relay.calls.size === 0) {
         log.info(
@@ -539,13 +644,18 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       return;
     }
     const last = await streamRound(payload, model, signal, ch);
-    if (last.kind === "relay" && last.relay.finish === "tool_calls") {
-      // The relay swallowed this round's [DONE] (the model called tools
-      // again, which we never execute). The grammar still carries exactly
-      // one [DONE] for the whole stream: restore the terminal frame.
-      ch.raw(new TextEncoder().encode("data: [DONE]\n\n"));
-    }
     if (last.kind === "relay") {
+      // WS06: the forced final answer gets the SAME release check as every
+      // other round — the audit law names "the normal finish path" and this
+      // path explicitly. A model that never called tools still cannot ship
+      // an uncited volatile claim uncited.
+      releaseRound(last.relay, last.held);
+      if (last.relay.finish === "tool_calls") {
+        // The relay swallowed this round's [DONE] (the model called tools
+        // again, which we never execute). The grammar still carries exactly
+        // one [DONE] for the whole stream: restore the terminal frame.
+        ch.raw(enc.encode("data: [DONE]\n\n"));
+      }
       log.info({ model, ms: Date.now() - started }, "web tool loop final round complete");
       ch.close();
     }

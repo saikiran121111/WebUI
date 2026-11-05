@@ -320,7 +320,10 @@ describe("golden: web-search pipeline", () => {
         "byte-for-byte from the same inputs. The last user turn is UNCHANGED (content stays a plain string). " +
         "web_meta frame carries the full citation map (sourceId -> {sourceId,url,title,domain,publishedAt}) and " +
         "searchGate {depth,freshness,decidedBy,queries[{query,intent}]}. Progress response headers NEVER carry " +
-        "X-Web-Citations/X-Search-Gate.",
+        "X-Web-Citations/X-Search-Gate. WS06 (2026-11-05, audit item 6 — DELIBERATE fixture evolution): the " +
+        "answer round's content no longer streams per-delta; live frames forward with delta.content STRIPPED " +
+        "and the server-audited answer (lib/chat/answer-release.ts ⇔ Rust chat/answer_release.rs) is released " +
+        "as ONE synthetic delta frame (finish_reason null) before the round's held terminal frames.",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       notes:
@@ -345,6 +348,17 @@ describe("golden: web-search pipeline", () => {
     expect(webSeq.filter((s) => s === "web:done").length).toBe(1);
     expect(run.headers["x-web-citations"]).toBeUndefined();
     expect(run.headers["x-search-gate"]).toBeUndefined();
+
+    // WS06 release shape (2026-11-05, audit item 6): the live content delta
+    // forwards with delta.content stripped, and the audited answer rides ONE
+    // synthetic release frame ahead of the round's held [DONE].
+    expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{}}]');
+    expect(
+      run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}'),
+    ).toBeGreaterThan(-1);
+    expect(
+      run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}'),
+    ).toBeLessThan(run.text.indexOf("data: [DONE]"));
 
     const webMeta = logical.frames
       .map((f) => (f.kind === "stage" ? (f.obj as Record<string, unknown>) : null))
@@ -444,7 +458,10 @@ describe("golden: web-search pipeline", () => {
         "runtime_clock, sentinel) and payload.tools offers web_search/read_page, so the model may retry " +
         "research itself; the scripted answer round never calls tools, so still exactly ONE upstream call. " +
         "The chat forward + [DONE] are unaffected: " +
-        "a starved search NEVER turns into an error frame.",
+        "a starved search NEVER turns into an error frame. WS06 (2026-11-05, audit item 6 — DELIBERATE fixture " +
+        "evolution): same release gating as fixture 01 — content deltas are buffered, audited and released as " +
+        "ONE synthetic delta frame (starved turn ⇒ empty citation map, so a research-claiming answer would " +
+        "carry the server check line; the scripted neutral answer passes unmodified).",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       mode: "starved",
@@ -509,7 +526,9 @@ describe("golden: web-search pipeline", () => {
         "turn passes through to the upstream UNCHANGED (content array + data URL byte-identical), and the " +
         "evidence/web_meta/citation behavior matches fixture 01's shape (P2 chain: guidance, user, " +
         "runtime_clock, evidence; tool surface injected; citations map). " +
-        "Exactly ONE upstream call is made for the whole request.",
+        "Exactly ONE upstream call is made for the whole request. WS06 (2026-11-05, audit item 6 — DELIBERATE " +
+        "fixture evolution): answer content release-gated exactly as in fixture 01 (strip live deltas, one " +
+        "audited synthetic release frame before terminal frames).",
       comparison: "structural",
       rawBody: chatBody(content, undefined),
       notes:

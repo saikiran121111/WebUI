@@ -665,9 +665,12 @@ async function runTurnPipeline(
       // continued aliases — an [S#] marker from a prior turn's evidence
       // resolves to a pill, never a dangling reference.
       for (const [alias, entry] of Object.entries(prior.citations)) webCitationMap[alias] = entry;
-      // No post-stream claim audit since 2026-10-22: the answer carries
-      // [S#] citations and the model's own honest wording, which is the
-      // whole verification story now.
+      // WS06 (audit 2026-11-05 item 6): this replaces the 2026-10-22
+      // "no post-stream claim audit" stance — a prompt and the citation
+      // map are not enforcement. The web tool loop now buffers each
+      // round's answer text and runs lib/chat/answer-release.ts (server
+      // check against THIS citation map + the tool action ledger) before
+      // releasing it; ⇔ Rust chat/answer_release.rs wired into web_loop.rs.
       searchGateMeta = {
         depth: researchBundle.searchGate.decision.depth,
         freshness: researchBundle.searchGate.decision.freshness,

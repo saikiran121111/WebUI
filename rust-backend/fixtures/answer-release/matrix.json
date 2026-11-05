@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "_law": "WS06 (audit 2026-11-05 item 6): research answers may only RELEASE after a server-enforced action/citation/claim check — in TypeScript (lib/chat/answer-release.ts, wired by lib/chat/web-tool-loop.ts) and in Rust (crates/ruke-server/src/chat/answer_release.rs, wired by chat/web_loop.rs). This matrix is the ONE truth for the repair semantics: both sides read these exact bytes (vitest reads this file; Rust include_str!'s it). No brand/site rules — inputs are generic.",
+  "serverCheckLine": "(Server check: no successful web retrieval this turn — the text below is unverified background knowledge, not research.)",
+  "cases": [
+    {
+      "name": "invalid citation stripped AND the misattributed claim qualified",
+      "text": "Boreal costs $99 [S9] per seat.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Boreal costs $99 per seat (unverified)."
+    },
+    {
+      "name": "valid citation on a volatile claim releases untouched",
+      "text": "Boreal costs $99 [S1] per seat.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Boreal costs $99 [S1] per seat."
+    },
+    {
+      "name": "uncited price qualified",
+      "text": "The Pro tier costs $49 per month.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "The Pro tier costs $49 per month (unverified)."
+    },
+    {
+      "name": "already-honest wording untouched",
+      "text": "The Pro tier costs $49, unverified.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "The Pro tier costs $49, unverified."
+    },
+    {
+      "name": "fenced code bytes never touched",
+      "text": "Prices:\n```json\n{\"cost\": \"$49 [S9]\"}\n```\nDone.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Prices:\n```json\n{\"cost\": \"$49 [S9]\"}\n```\nDone."
+    },
+    {
+      "name": "inline code untouched; cited prose untouched",
+      "text": "Run `deploy --fee 49` now. See v2.1 [S1] for details.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Run `deploy --fee 49` now. See v2.1 [S1] for details."
+    },
+    {
+      "name": "research-claiming wording with ZERO retrieval gets the server check line",
+      "text": "According to my searches, Boreal is the market leader.",
+      "citations": [],
+      "retrieved": false,
+      "expected": "(Server check: no successful web retrieval this turn — the text below is unverified background knowledge, not research.)\nAccording to my searches, Boreal is the market leader."
+    },
+    {
+      "name": "research-claiming wording is fine once sources were retrieved",
+      "text": "According to my searches, Boreal is the market leader.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "According to my searches, Boreal is the market leader."
+    },
+    {
+      "name": "mixed sentences: uncited date qualified, cited sentence untouched",
+      "text": "Boreal launched in October 2026. The platform supports agents [S1]. Its price is unknown.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Boreal launched in October 2026 (unverified). The platform supports agents [S1]. Its price is unknown."
+    },
+    {
+      "name": "uncited percentage qualified",
+      "text": "Revenue grew 23% YoY.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Revenue grew 23% YoY (unverified)."
+    },
+    {
+      "name": "uncited rating qualified",
+      "text": "Critics rated it 4.6 out of 5.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Critics rated it 4.6 out of 5 (unverified)."
+    },
+    {
+      "name": "uncited temperature qualified",
+      "text": "Expect 31°C today.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Expect 31°C today (unverified)."
+    },
+    {
+      "name": "non-Latin currency qualified",
+      "text": "It costs ₹1,299 per year.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "It costs ₹1,299 per year (unverified)."
+    },
+    {
+      "name": "digit-free prose untouched",
+      "text": "The platform supports agents and workflows.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "The platform supports agents and workflows."
+    },
+    {
+      "name": "invalid citation stripped where the sentence keeps a valid one",
+      "text": "Boreal supports SAML [S1] and SCIM [S7].",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Boreal supports SAML [S1] and SCIM."
+    },
+    {
+      "name": "citation resolving to NOTHING qualifies even without volatile facts",
+      "text": "It supports SCIM [S7].",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "It supports SCIM (unverified)."
+    },
+    {
+      "name": "list lines audited per line; cited line untouched",
+      "text": "- Price: $99\n- Plan: free [S1]",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "- Price: $99 (unverified)\n- Plan: free [S1]"
+    }
+  ]
+}

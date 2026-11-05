@@ -21,7 +21,12 @@
 //!   502 no-body, 503 unreachable) in both paths.
 //! - [`attach`] — payload shape helpers (attachment_ref stripping,
 //!   history slicing, order-preserving key removal).
+//! - [`answer_release`] — WS06 grounded answer release check: the
+//!   server-enforced action/citation/claim audit every web-loop answer
+//!   unit passes BEFORE it reaches the client (⇔ TS
+//!   `lib/chat/answer-release.ts`; wired by [`web_loop`]).
 
+pub mod answer_release;
 pub mod attach;
 pub mod browser_loop;
 pub mod clock;
