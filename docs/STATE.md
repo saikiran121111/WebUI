@@ -3358,3 +3358,41 @@ Loaded: superpowers:test-driven-development (Iron Law active WS14–WS20). No Ti
 2. WS14 TDD: fixture pinning freshness enforcement at the tool-operation level (freshness must bind the actual fetch/refetch decision, not just the prompt); full suite + tsc + cargo; commit+push+STATE 05n.
 3. Then WS15 per brief order (intermediate redirect cookies — net.ts:140 NO_COOKIE for fetchPage fingerprint:'chrome', Pass B ~1073).
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-05n — WS14 LOCKED (freshness at tool-operation level)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-item web-search repair (audit 60fe172) on develop. WS14 LOCKED at 7626988 (pushed; chain ← 63e97a7 STATE 05m ← edac8b3 WS12 ← 8de5846 WS11 ← …). WS01–WS12 + WS14 locked (skip WS13, locked at 8f24d83). Immediate next phase: WS15 (intermediate redirect cookies lost by pinned transport).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS14 production (commit 7626988, verified full-suite):
+  - `lib/web-search/tools.ts` execWebSearchTool: after freshness parse, **monotonic operation strengthening** — `if (retrievalModeForFreshness(freshness) === "live_required") session.liveRequired = true;` (never downgraded; the gate's create-time policy is a floor). Value import added: `retrievalModeForFreshness` from ./types (line 32 type import unchanged).
+  - Consistency by construction: strengthened session.liveRequired IS the 4th extractUrl arg readOneUrl (~:601) already passes ⇒ Tier-0 page cache skip (extractor.ts:1212, covers cached jina/browser/adapter/wayback render tiers) + Wayback-tier gate (extractor.ts:1482 `tier1Failed && !liveRequired`) all flip per turn; engine leg carries op freshness straight to metasearch (~:903).
+  - Zero Rust edits: web_loop.rs:431-438 forwards gate freshness at create ("Freshness→retrieval-mode is a TS law (no Rust mirror)").
+  - New fixture `__tests__/web-search/tool-operation-freshness.test.ts` (6 tests; 4 RED→GREEN: realtime+url-shaped read live=true, later read_page inherits, later "any" op never downgrades, realtime keyword-only op forces later reads live; 2 positive controls: metasearch plans carry op freshness; timeless + "week" ops keep live=false — exactness law).
+  - Existing §9 pins untouched and green: web-tools 70/70 (incl. :621 live_required session test), web-tools-rpc 12/12, research-depth-tools 3/3.
+
+## [8.3 DEPENDENCY MAP (WS14)]
+- tools.ts execWebSearchTool → session.liveRequired (mutable field) → readOneUrl → extractUrl(liveRequired) [extractor.ts tiers] — same op also feeds metasearch(query,intent,freshness).
+- Floor set at web-tool-loop.ts:448 (create, gate meta) and Rust create RPC freshness forwarder; exec RPCs mutate the same TS session object.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- Tool-layer freshness law: retrievalModeForFreshness(f): "realtime"⇒live_required⇒escalate session.liveRequired (monotonic, turn-wide); "day"/"week"⇒live_preferred (query-cache write-TTL law ONLY — never the tool page-cache binary); else cached_preferred.
+- extractUrl(result, deadline?, rankInWindow=0, liveRequired=false): liveRequired skips Tier-0 getCachedPage AND Tier wayback; cache WRITES still happen.
+- WS12 contracts from 05m unchanged and in force (serpCoversQuery ≤3-full-coverage/empty⇒false Unicode tokenization; focusTokens non-Latin ≥2 cp).
+- WS11 contracts from 05l unchanged and in force (selectFocusWindows, droppedSections/continuationHint, selectExcerpt table branch).
+
+## [8.5 VERIFICATION STATE]
+vitest FULL 121 files / 1519 passed | 1 skipped (1520); `tsc --noEmit` exit 0; cargo ruke-server --lib 146/146. No Playwright lock; no dev servers needed.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+None open in WS14. Note: tool-layer binary stays deliberately coarse (live_required only) — day/week cache-TTL laws live in the query-cache write path (cache.ts FRESH_QUERY_TTL_MS), not the tool read path; audit wording honored, do not over-strengthen read_page for week-scoped facts.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS15–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS15 recon: read audit entry verbatim `sed -n '/WS15/,/WS16/p' "C:/Users/Ruku/Documents/Codex/2026-11-02/referenced-chatgpt-conversation-this-is-an/outputs/ruke-60fe172-websearch-regression-audit.md"`; then current bytes of `lib/web-search/net.ts` cookie jar / redirect handling (~:140 NO_COOKIE for fetchPage fingerprint:'chrome', Pass B ~1073) — pinned transport loses redirect-issued cookies across intermediate hops.
+2. WS15 TDD: fixture pinning cookie continuity across intermediate redirects (local server chain or fetch-layer mock per existing net-cookies-caps.test.ts precedent — READ that file's harness first); full suite + tsc + cargo; commit+push+STATE 05o.
+3. Then WS16 per brief order (cancellation — pipeline.ts ~:613-681 wall-clock deadline never settles on combined abort signal).
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
