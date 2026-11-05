@@ -3160,3 +3160,44 @@ Loaded: superpowers:test-driven-development (Iron Law active WS08–WS20). No Ti
 2. WS08 TDD (fixture first, controls: irrelevant nav links still LOSE to relevant content link after ranking — cap-after-ranking; existing absolute-link goldens byte-identical): extend link harvest forms + score-then-cap ordering so a relevant 13th link beats 12 earlier nav links; keep existing harvest/seen guards; full suite, commit+push+STATE 05i.
 3. Then WS09 (answer support vs identifier shape — lib/web-search/query-planner.ts ~:422 evaluateCoverage/hasNovelIdentifier: answer-shaped coverage (identifier patterns) must not count as supported when only identifier-mention evidence exists) per brief order.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-05i — WS08 LOCKED (bounded requirement-driven route expansion)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-item web-search repair (brief item N = audit WS0N), baseline 60fe172, develop branch. WS01–WS08 LOCKED. Just locked WS08 (commit 78c0e28 pushed): the route-follow hop harvests every link form, scores before capping, and CHAINS past the first nav page under three bounds (rank-then-cap fetches, depth-bounded hop count, requirement-driven halt). Active phase now = PHASE A CODE; next WS09 (answer support vs identifier shape).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 61951d0; WS02 853c7d7+06cba20; WS03 c61bda8; WS04+WS13 8f24d83; WS05 6a35fea; WS06 8187bc3; WS07 28e1beb — see 05f/05g/05h snapshots.
+- WS08 (78c0e28, this cycle), three defects:
+  (a) `lib/web-search/route-links.ts`: MD_LINK_RE now `/\[([^\]]{1,160})\]\(([^\s)]{1,600})\)/g` (ANY non-space href; title-syntax limitation preserved); addRoute guard `if (cleaned.startsWith("#") && !cleaned.startsWith("#/")) return;` — same-document anchors never routes, SPA hash-routes (#/view) are; protocol guard (http:/https:) already skipped javascript:/mailto:/data:; `abs.href === baseUrl` skip kept; `cap = 12` DEFAULT param kept (tools.ts:571 read_page inventory byte-untouched); BARE_URL_RE unchanged.
+  (b)+(c) `lib/web-search/pipeline.ts` route-hop block (was :1260-1350, now a `for (let hop = 1; hop <= maxRouteHops && coverage.needsGapSearch; hop++)` loop): harvest `collectRouteLinks(pkt.url, pkt.passages, 48)` (SAFETY bound, not fetch budget); ALL harvested links scored (anchor focusToken ∈ wantWords +2, pathname token +1) and `applyDomainControl(routes,…).sort(b.rrf-a.rrf).slice(0, plannerLaw.budget.maxGapPageFetches)` slices the RANKED list (cap-after-rank — relevant 13th content link beats 12 earlier nav links); `maxRouteHops = deep 3 : quick 1 : standard 2` computed IN THE PIPELINE (PlannerLaw.budget/wire fixtures/goldens UNTOUCHED); `harvestFrom = routePackets` after each hop (next hop chains ONLY from content read by THIS hop); per-hop renumber `nextSourceIndex([...packets, ...secondHopPackets])` keeps S# ids unique; readSet gains each hop's packets; seen/read guards kept; admitWave "route-follow" KEPT on every hop fetch; WS07 admission law intact; gap-search onProgress progress text byte-identical; `if (routeCandidates.length === 0) break;` / `if (routePackets.length === 0) break;`; logs "route-follow hop fired"/"route-follow hop merged" now carry `hop`.
+- WS08 Rust check: no Rust mirror (route hop is TS-only); cargo regression-only 146/146.
+- Test `__tests__/web-search/route-expansion.test.ts` (4 tests; RED 4/4 watched first — repro logs `harvested:12` nav-first and chain dying at docs-hub — then GREEN 4/4): (1) unit collectRouteLinks link forms (root/parent/protocol-relative + #/ kept; absolute control kept; #footnote/void/mailto/base-itself excluded); (2) rank-then-cap: 12 nav links + 13th catalog link → CATALOG read, nav reads ≤2, /nav/privacy never read, Boreal-X17 answer via hop; (3) deep chain overview→docs-hub→catalog answers, BEYOND never fetched (coverage-halt though deep allows 3); (4) standard caps at 2 hops (CATALOG_NO_ANSWER keeps coverage hungry; BEYOND unread) while SAME fixture at deep fetches BEYOND at hop 3. Fictional ArborWorks fixtures only.
+
+## [8.3 DEPENDENCY MAP (WS08)]
+- collectRouteLinks ⇑ callers: tools.ts:30/571 (read_page inventory, cap 12 default — unchanged), pipeline route-hop (cap 48 safety bound). focusTokens shared.
+- Route-hop loop ⇐ coverage.needsGapSearch (evaluateCoverage/hasNovelIdentifier, query-planner.ts :396-541 — SAME predicate WS09 will modify: loop halt stays requirement-driven by construction; after WS09 edits re-run route-expansion.test.ts).
+- admitWave (WS07) still wraps every route-hop extractAll; gate.decision.depth (search-gate) now also sets maxRouteHops.
+- No wire/fixture/golden change: research-depth-pipeline.test.ts (existing absolute-link fixture) 2/2 byte-identical.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- WS08 loop contracts: hop bound quick 1 / standard 2 / deep 3 (pipeline-local, NOT in PlannerLaw.budget); harvest safety cap 48 per packet set; fetch slice = budget.maxGapPageFetches per hop on the RANKED list; halt per hop = coverage.needsGapSearch re-evaluated after each merge; RankedResult route shape unchanged (engine "route-follow", origin "retrieval"); log msgs keep names, add `hop` field.
+- collectRouteLinks(url, passages, cap = 12) signature unchanged; returns {url, anchor}[] resolved against baseUrl (final origin).
+- All WS07 contracts (admitWave verbatim, wave names "gap"|"route-follow"|"demand", applyScopeToPackets law) unchanged; run_turn_pipeline 15 args; SERVER_CHECK_LINE; matrix version 1 — as 05g/05h.
+
+## [8.5 VERIFICATION STATE]
+- vitest FULL (after fix): 116 files, 1489 passed | 1 skipped | 0 failed (115/1485 pre-WS08; +1 file/+4 tests = route-expansion; 1 skip pre-existing). tsc --noEmit exit 0. cargo test -p ruke-server --lib: 146/146. git: develop pushed @ 78c0e28. No Playwright lock; no dev servers owned; pw-80 reserved for the single final loop after WS20.
+- WS08 GREEN hop logs (post-fix): test2 hop1 `{"harvested":13,"followed":[catalog, nav/home, nav/about]}` (catalog ranked FIRST); deep-answer hops 1→2 then halt (BEYOND never fired); standard no-answer hops 1→2 cap; deep no-answer hops 1→2→3.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- None red. Inherited watch items unchanged: flake 12:38:52 unreproduced; CRLF contracts:check pre-existing; rust-analyzer batch-lag (cargo authoritative); tsconfig.tsbuildinfo modified in worktree — NEVER stage; ghidra MCP ECONNREFUSED (diagnostic only).
+- WS08 documented limits: hop chain breadth = links inside each hop's own pages (no cross-hop accumulation); scoring stays lexical focus-token overlap (WS12 multilingual will touch focusTokens/serpCoversQuery); maxRouteHops uses the search-gate depth, not the deep demand-wave flag.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS09–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS09 recon (already fresh in this cycle's reads): lib/web-search/query-planner.ts :396-541 — evaluateCoverage (entities from IDENTIFIER_RES/ENUMERATIVE_ASK_RE, coverage = entity hit-rate over topPassages, answerGap = enumerative ask without hasNovelIdentifier, needsGapSearch = (coverage<0.5 && missing.length>0) || passages<2 || answerGap), hasNovelIdentifier (scrubs URLs, finds identifier-shaped token NOT in prompt), IDENTIFIER_RES (3 patterns: hyphen/dot+digit, camelCase, "Word digits"). Audit item 9 repro: answer support counted from identifier-SHAPE alone (mere mention / question echo) — coverage must require the identifier in an ANSWER-supporting position, and the route-hop halt predicate consumes the SAME predicate (re-run route-expansion.test.ts after edits).
+2. WS09 TDD (fixture first in __tests__/web-search/ — new coverage-support test file; controls: genuine identifier-in-answer evidence still closes coverage and halts the chain; question-echo identifiers and bare mentions in non-answer context never count; generic-entity behavior byte-stable elsewhere): strengthen evaluateCoverage/answer-support discrimination per brief item 9; full suite, commit+push+STATE 05j.
+3. Then WS10 (one admitted packet registry for ALL waves — bundle.packets currently = initial wave only; route.ts + internal/web-research/route.ts line numbers shifted +~30 by WS05; use WS07/WS08 registry knowledge: packets/secondHopPackets/topPassages merge sites in runWebResearch) per brief order.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
