@@ -76,6 +76,22 @@ export function detectUrlsAndDomains(
   // Trailing sentence punctuation is not part of a URL path.
   const stripTail = (t: string) => t.replace(/[.,;:!?)\]}'"`]+$/, "");
 
+  // 2026-11-05 audit fix (item 17 / WS17): ONE page-identity law for all
+  // three passes. A page is origin + path + query, plus the hash only when
+  // it is a fragment ROUTER (SPA route), not a plain anchor — the exact
+  // rule pass 1 already used. Passes 2/3 key on this same formula instead
+  // of the host, so distinct scheme-less paths on one host survive and
+  // the same page written in different forms detects once.
+  const pageKeyOf = (u: URL) =>
+    u.origin + u.pathname + u.search + (FRAGMENT_ROUTE_RE.test(u.hash) ? u.hash : "");
+  const pageKeyOfHref = (href: string): string | null => {
+    try {
+      return pageKeyOf(new URL(href));
+    } catch {
+      return null; // unparsable token — caller falls back to host suppression
+    }
+  };
+
   // Pass 1: full URLs with scheme.
   const urlRe = /https?:\/\/[^\s"'<>[\]]+/gi;
   let m: RegExpExecArray | null;
@@ -88,8 +104,7 @@ export function detectUrlsAndDomains(
       // path/query case preserved; §6: a fragment-router hash IS page
       // identity — two `#/route` pages on one host are distinct targets
       // (pure anchors still collapse onto the page).
-      const key =
-        u.origin + u.pathname + u.search + (FRAGMENT_ROUTE_RE.test(u.hash) ? u.hash : "");
+      const key = pageKeyOf(u);
       if (seenUrl.has(key)) continue;
       seenUrl.add(key);
       seenHost.add(host);
@@ -107,8 +122,20 @@ export function detectUrlsAndDomains(
     const hostPart = slash === -1 ? raw : raw.slice(0, slash);
     const pathPart = slash === -1 ? "" : raw.slice(slash);
     const host = hostPart.slice(4).toLowerCase();
-    if (seenHost.has(host)) continue;
+    // Host suppression belongs ONLY to the path-less bare-domain form —
+    // it stops a bare "example.com" re-detecting a host already surfaced.
+    // A scheme-less www token WITH a path is a full page reference and
+    // dedupes on the shared full-page key; keying it by host dropped every
+    // second distinct path (".../product/A and .../product/B" lost B).
+    const key =
+      pathPart === "" ? null : pageKeyOfHref("https://" + hostPart.toLowerCase() + pathPart);
+    if (pathPart !== "" && key !== null) {
+      if (seenUrl.has(key)) continue;
+    } else if (seenHost.has(host)) {
+      continue; // bare-domain form (or unparsable path) — host law as before
+    }
     seenHost.add(host);
+    if (key !== null) seenUrl.add(key);
     // Host lowercased, path/query case preserved (case-sensitive product paths).
     out.push({ raw, url: "https://" + hostPart.toLowerCase() + pathPart, domain: host, hasScheme: false });
   }
@@ -121,8 +148,15 @@ export function detectUrlsAndDomains(
     const host = m[1].toLowerCase();
     const path = stripTail(m[2] ?? "");
 
-    // Skip tokens already found in pass 1/2.
-    if (seenHost.has(host)) continue;
+    // Skip tokens already found in pass 1/2. Same page-identity law as
+    // pass 2: a token WITH a path dedupes on its full page key; only the
+    // path-less bare-domain token stays suppressed at host level.
+    const key = path === "" ? null : pageKeyOfHref("https://" + host + path);
+    if (path !== "" && key !== null) {
+      if (seenUrl.has(key)) continue;
+    } else if (seenHost.has(host)) {
+      continue;
+    }
 
     // Skip tokens that look like file paths or dotted identifiers that
     // are not domains: "v1.2.3", "e.g.", "i.e."
@@ -150,6 +184,7 @@ export function detectUrlsAndDomains(
     if (excludeFileTokens && FILE_EXTENSIONS.has(pubSuffix)) continue;
 
     seenHost.add(host);
+    if (key !== null) seenUrl.add(key);
     out.push({
       raw: host + path,
       url: "https://" + host + path,
