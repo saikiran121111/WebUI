@@ -614,14 +614,19 @@ async function gotPageFetch(
     };
   } catch (err: unknown) {
     if (isCertError(err)) {
-      const tolerant = await tlsTolerantGet(url, timeoutMs, limitBytes);
+      const tolerant = await tlsTolerantGet(url, jar, timeoutMs, limitBytes);
       if (tolerant) return tolerant;
     }
     return null; // got failed / timed out → impit rotation takes over
   }
 }
 
-/** got-scraping fetch for JSON-ish / form-POST endpoints. */
+/** got-scraping fetch for JSON-ish / form-POST endpoints.
+ *  (WS15 "every transport" leg) Reddit/algolia-class JSON endpoints ride
+ *  this path and are cookie-gated behind redirects — got deletes the
+ *  Cookie header on hops and has no cookie store of its own, so the
+ *  beforeRedirect jar hook (same law as gotPageFetch) is required here
+ *  too, not just in the page path. */
 async function gotUrlFetch(
   url: string,
   opts: {
@@ -631,6 +636,7 @@ async function gotUrlFetch(
     limitBytes?: number;
   },
   headers: Record<string, string>,
+  jar: CookieJar,
 ): Promise<{ status: number; ok: boolean; text: string } | null> {
   try {
     const got = await gotModule();
@@ -644,12 +650,30 @@ async function gotUrlFetch(
       retry: { limit: 0 },
       decompress: true,
       timeout: { request: opts.timeoutMs ?? 40_000 },
-      // SSRF: refuse unsafe redirect targets (mirrors gotPageFetch).
+      // SSRF + cookies: refuse unsafe redirect targets AND replay the
+      // chain's cookies (mirrors gotPageFetch — got 14.6.6 calls the hook
+      // as `hook(updatedOptions, typedResponse)`, TWO arguments; the arity
+      // is pinned in net-cookies-caps.test.ts).
       hooks: {
         beforeRedirect: [
-          (redirectOptions: any) => {
+          (redirectOptions: any, response: any) => {
             const next = String(redirectOptions?.url ?? "");
             if (next && !isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+            const sc = response?.headers?.["set-cookie"];
+            const hopCookies: string[] = Array.isArray(sc)
+              ? sc.map(String)
+              : sc
+                ? [String(sc)]
+                : [];
+            if (hopCookies.length > 0) jar.absorb(String(response?.url ?? url), hopCookies);
+            if (next) {
+              const carry = jar.cookieFor(next);
+              if (carry)
+                redirectOptions.headers = {
+                  ...(redirectOptions.headers ?? {}),
+                  cookie: carry,
+                };
+            }
           },
         ],
       },
@@ -892,6 +916,7 @@ export function isCertError(err: unknown): boolean {
  */
 async function tlsTolerantGet(
   url: string,
+  jar: CookieJar,
   timeoutMs = 45_000,
   limitBytes: number = PAGE_LIMIT_BYTES,
 ): Promise<PageResponse | null> {
@@ -913,11 +938,26 @@ async function tlsTolerantGet(
           {
             rejectUnauthorized: false,
             timeout: Math.max(5_000, timeoutMs),
-            headers: realisticHeaders(),
+            // (WS15 "every transport" leg) The gov-CERT retry is a third
+            // walker of the same chain law: the jar's cookies ride every
+            // hop it issues itself.
+            headers: (() => {
+              const carry = jar.cookieFor(u);
+              return carry
+                ? { ...realisticHeaders(), cookie: carry }
+                : realisticHeaders();
+            })(),
           },
           (res) => {
             const status = res.statusCode ?? 0;
             const loc = res.headers["location"];
+            const scRaw = res.headers["set-cookie"];
+            const hopCookies: string[] = Array.isArray(scRaw)
+              ? scRaw.map(String)
+              : scRaw
+                ? [String(scRaw)]
+                : [];
+            if (hopCookies.length > 0) jar.absorb(u, hopCookies);
             if (
               [301, 302, 303, 307, 308].includes(status) &&
               loc &&
@@ -975,7 +1015,7 @@ async function tlsTolerantGet(
                 contentType,
                 elapsedMs: Math.round(performance.now() - t0),
                 fingerprint: "chrome",
-                cookies: [],
+                cookies: hopCookies,
                 resolvedUrl: u,
                 insecureTls: true,
                 // Node Buffer view over the collected bytes — zero copy.
@@ -996,6 +1036,84 @@ async function tlsTolerantGet(
     };
     visit(url, 0);
   });
+}
+
+/**
+ * (audit 2026-11-05 WS15) Pass B redirect walker.
+ *
+ * impit follows redirect chains INSIDE its Rust stack with no per-hop
+ * hook: Pass B supplied only the ENTRY cookie and absorbed the FINAL
+ * response's Set-Cookie afterwards, so a cookie issued on hop 1 was never
+ * replayed on hop 2 — the pinned-fingerprint NO_COOKIE repro (Walmart/
+ * Flipkart-style session chains 403 and read as a WAF block).  This
+ * mirrors got's beforeRedirect jar hook in TS: every hop is requested
+ * with `redirect: "manual"` (confirmed fetch option in the installed
+ * impit typings), each hop's Set-Cookie is absorbed under the URL that
+ * ISSUED it, and the jar's cookies ride the next request — with the
+ * existing domain/path/secure/expiry rules enforced by the jar itself
+ * (a hop across domains never sees another site's cookies).
+ *
+ * Every redirect TARGET is vetted with isSafeUrl before it is issued (the
+ * old code only revalidated the final landing — intermediate SSRF hops
+ * were never checked).  Method transitions follow the fetch spec: 303 →
+ * GET (except HEAD), POST→GET on 301/302/303, method preserved on
+ * 307/308.  The hop cap mirrors got's maxRedirects:10, so a loop settles
+ * as a failed attempt exactly like the native redirect-limit error did.
+ */
+const MAX_IMPIT_REDIRECTS = 10;
+
+async function impitFollow(
+  client: Impit,
+  url: string,
+  req: {
+    method: string;
+    baseHeaders: Record<string, string>;
+    timeout: number;
+    body?: string;
+  },
+  jar: CookieJar,
+): Promise<{ res: any; finalUrl: string }> {
+  let cur = url;
+  let method = req.method;
+  let body = req.body;
+  for (let hop = 0; ; hop++) {
+    const carry = jar.cookieFor(cur);
+    const res = await client.fetch(cur, {
+      method,
+      headers: carry ? { ...req.baseHeaders, cookie: carry } : { ...req.baseHeaders },
+      timeout: req.timeout,
+      redirect: "manual",
+      ...(body !== undefined ? { body } : {}),
+    } as any);
+    const sc =
+      ((res.headers as any)?.getSetCookie?.() as unknown[] | undefined) ??
+      (typeof (res.headers as any)?.get === "function"
+        ? [(res.headers as any).get("set-cookie")].filter(Boolean)
+        : undefined) ??
+      [];
+    const hopCookies: string[] = Array.from(sc, String);
+    if (hopCookies.length > 0) jar.absorb(cur, hopCookies);
+    const status = Number(res?.status ?? 0);
+    const loc = String((res.headers as any)?.get?.("location") ?? "");
+    if (![301, 302, 303, 307, 308].includes(status) || !loc)
+      return { res, finalUrl: cur }; // terminal response (3xx without Location included)
+    if (hop >= MAX_IMPIT_REDIRECTS) throw new Error("redirect limit exceeded");
+    let next: string;
+    try {
+      next = new URL(loc, cur).toString();
+    } catch {
+      return { res, finalUrl: cur }; // malformed Location — surface the 3xx, never loop
+    }
+    if (!isSafeUrl(next)) throw new Error("SSRF redirect blocked");
+    if (
+      (status === 303 && method !== "HEAD") ||
+      (method === "POST" && status !== 307 && status !== 308)
+    ) {
+      method = "GET";
+      body = undefined;
+    }
+    cur = next;
+  }
 }
 
 /**
@@ -1057,41 +1175,47 @@ export async function fetchPage(
   }
 
   // ── Pass B: impit TLS-impersonation rotation ────────────────────────────
-  // shortcut: impit follows redirects INSIDE its Rust stack with no
-  // per-hop hook, so mid-chain cookies there ride only impit's own
-  // handling (reseeded next attempt from this jar); Pass C (wreq-js)
-  // likewise returns strings only — no rawBytes. Add a per-hop walker
-  // only if a cookie-gated-redirect site is proven to need it
-  // (audit item 4, 2026-11-04 — got's hops now carry cookies via the
-  // beforeRedirect jar hook).
+  // (audit 2026-11-05 WS15) That proof arrived: the pinned-fingerprint NO_
+  // COOKIE repro, so the per-hop walker (impitFollow) now drives Pass B —
+  // redirect:"manual" per hop, jar absorb + carry per hop, isSafeUrl per
+  // target.  Pass C (wreq-js) still follows chains in Rust and returns
+  // strings only (no hop hook possible there) — it is SEEDED from this jar
+  // so at least the entry hop carries the session cookies the failed Pass
+  // B attempts earned.
   // Fattest blocked/errored impit+got body handed to Pass C on the terminal
   // attempt (2026-11-04 audit fix — Pass C used to be unreachable because
   // every Pass B branch returned).
   let impitBest: PageResponse | null = null;
   for (let attempt = 0; attempt < (opts.retryOnBlock === false ? 1 : fpOrder.length); attempt++) {
     const fp = fpOrder[attempt];
-    const cookieVal = jar.cookieFor(url);
-    const headers = {
-      ...realisticHeaders(cookieVal ? { cookie: cookieVal } : {}, fp),
+    // (WS15) No entry-cookie header here: the walker reseeds every hop it
+    // issues (including this attempt's first) from the jar, so a retry
+    // after a block also inherits the session cookies earlier hops earned.
+    const baseHeaders = {
+      ...realisticHeaders({}, fp),
       ...(opts.headers ?? {}),
     };
 
     try {
-      const res = await tlsClient(fp).fetch(url, {
-        method: opts.method ?? "GET",
-        headers,
-        timeout: opts.timeoutMs ?? defaultTimeout,
-      } as any);
+      const { res, finalUrl: walkFinalUrl } = await impitFollow(
+        tlsClient(fp),
+        url,
+        {
+          method: opts.method ?? "GET",
+          baseHeaders,
+          timeout: opts.timeoutMs ?? defaultTimeout,
+        },
+        jar,
+      );
 
       const status: number = res.status;
       const rawCookies: string[] =
         Array.from((res.headers as any)?.getSetCookie?.() ?? []) as string[];
-      const impitFinalUrl = String((res as any)?.url ?? url);
-
-      // Absorb cookies under the FINAL host so a subsequent retry (or a
-      // same-call follow-up) re-sends the session cookie the site just
-      // issued — never under the entry URL of a chain that changed hosts.
-      if (rawCookies.length > 0) jar.absorb(impitFinalUrl, rawCookies);
+      // The walker already absorbed EVERY hop's Set-Cookie — final
+      // included — under the URL that issued it (never the entry URL of a
+      // chain that changed hosts), so rawCookies only feeds the response
+      // contract below; the jar is the single cookie source of truth.
+      const impitFinalUrl = walkFinalUrl;
 
       const contentType = String(
         (res.headers as any)?.get?.("content-type") ??
@@ -1153,7 +1277,7 @@ export async function fetchPage(
       // retry ONCE through a rejectUnauthorized:false path so the page is
       // still readable instead of classifying as FAIL_NETWORK_OR_CRASH.
       if (isCertError(err)) {
-        const tolerant = await tlsTolerantGet(url, opts.timeoutMs ?? defaultTimeout);
+        const tolerant = await tlsTolerantGet(url, jar, opts.timeoutMs ?? defaultTimeout);
         if (tolerant) return tolerant;
       }
       // Timeout / network error: the next attempt uses a different
@@ -1187,9 +1311,14 @@ export async function fetchPage(
      fingerprints, so a site that trips impit's Chrome emulation may
      accept wreq-js's emulation. */
   if (opts.retryOnBlock !== false) {
+    // (WS15 "every transport" leg) wreq-js has no hop hook — seed its
+    // ENTRY request from the jar so cookies the failed impit attempts
+    // earned upstream still open the session on the third TLS stack
+    // (caller-supplied headers win on conflict, as elsewhere).
+    const wrSeed = jar.cookieFor(url);
     const wr = await wreqFetch(url, {
       method: opts.method ?? "GET",
-      headers: opts.headers,
+      headers: { ...(wrSeed ? { cookie: wrSeed } : {}), ...(opts.headers ?? {}) },
       timeoutMs: opts.timeoutMs ?? 30_000,
     });
     // SSRF: wreq-js follows redirects inside its Rust stack — recheck the
@@ -1264,23 +1393,33 @@ export async function fetchUrl(
     headers["content-type"] = "application/x-www-form-urlencoded";
   }
 
+  // (WS15) One jar across BOTH passes, like fetchPage: the JSON transport's
+  // chains carry cookies through got's hook AND impit's hop walker, and a
+  // Pass B retry re-sends what Pass A's chain learned.
+  const jar = newCookieJar();
+
   // ── Pass A: got-scraping. Anything that isn't a block status is final. ──
-  const gotResp = await gotUrlFetch(url, opts, headers);
+  const gotResp = await gotUrlFetch(url, opts, headers, jar);
   if (gotResp && gotResp.ok) return gotResp;
   if (gotResp && !BLOCK_STATUSES.includes(gotResp.status)) return gotResp;
 
   // ── Pass B: impit TLS-impersonation fallback ────────────────────────────
   try {
-    const res = await tlsClient(fp).fetch(url, {
-      method: opts.method ?? "GET",
-      headers,
-      timeout: opts.timeoutMs ?? 40_000,
-      ...(opts.body ? { body: opts.body } : {}),
-    } as any);
+    const { res, finalUrl } = await impitFollow(
+      tlsClient(fp),
+      url,
+      {
+        method: opts.method ?? "GET",
+        baseHeaders: headers,
+        timeout: opts.timeoutMs ?? 40_000,
+        body: opts.body,
+      },
+      jar,
+    );
     const status: number = res.status;
     // SSRF: impit landed somewhere after redirects — the landing host must
     // be public too; unsafe ⇒ surface the Pass A observation instead.
-    if (!isSafeUrl(String((res as any)?.url ?? url))) return gotResp;
+    if (!isSafeUrl(finalUrl)) return gotResp;
     // Detect gzip-encoded response (StackExchange, Reddit JSON APIs, etc.)
     const contentEncoding = String(
       (res.headers as any)?.get?.("content-encoding") ??
