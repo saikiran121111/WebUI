@@ -461,6 +461,9 @@ async function gotPageFetch(
   opts: {
     headers?: Record<string, string>;
     method?: "GET" | "POST";
+    /** (WS16) Cancellation: got aborts the stream natively; the error
+     *  lands in the catch below and settles this pass as null. */
+    signal?: AbortSignal;
   },
   jar: CookieJar,
   limitBytes: number,
@@ -500,6 +503,10 @@ async function gotPageFetch(
       retry: { limit: 0 },
       decompress: true,
       timeout: { request: timeoutMs },
+      // (WS16) The combined cancellation signal rides the transport: an
+      // abort kills the stream (no late body, no abandoned read running
+      // to completion on a cancelled turn).
+      ...(opts.signal ? { signal: opts.signal } : {}),
       // SSRF (§P6): refuse every redirect TARGET before it is followed —
       // a public URL 302-ing to http://169.254.169.254/ is the classic
       // SSRF pivot. The throw kills the stream; the catch below turns it
@@ -634,6 +641,9 @@ async function gotUrlFetch(
     body?: string;
     method?: "GET" | "POST";
     limitBytes?: number;
+    /** (WS16) Cancellation — same law as gotPageFetch: the abort kills
+     *  the request, the catch settles null. */
+    signal?: AbortSignal;
   },
   headers: Record<string, string>,
   jar: CookieJar,
@@ -650,6 +660,9 @@ async function gotUrlFetch(
       retry: { limit: 0 },
       decompress: true,
       timeout: { request: opts.timeoutMs ?? 40_000 },
+      // (WS16) see gotPageFetch — abort propagates into the JSON-endpoint
+      // transport too.
+      ...(opts.signal ? { signal: opts.signal } : {}),
       // SSRF + cookies: refuse unsafe redirect targets AND replay the
       // chain's cookies (mirrors gotPageFetch — got 14.6.6 calls the hook
       // as `hook(updatedOptions, typedResponse)`, TWO arguments; the arity
@@ -919,6 +932,7 @@ async function tlsTolerantGet(
   jar: CookieJar,
   timeoutMs = 45_000,
   limitBytes: number = PAGE_LIMIT_BYTES,
+  signal?: AbortSignal,
 ): Promise<PageResponse | null> {
   const t0 = performance.now();
   let settled = false;
@@ -929,11 +943,27 @@ async function tlsTolerantGet(
         resolve(r);
       }
     };
+    // (WS16) Cancellation: node:http has no fetch-level cancel, so the
+    // abort DESTROYS the in-flight socket and settles null; every queued
+    // redirect hop re-checks, so nothing starts post-cancel.
+    let activeReq: import("node:http").ClientRequest | null = null;
+    if (signal?.aborted) return finish(null);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        try {
+          activeReq?.destroy();
+        } catch {}
+        finish(null);
+      },
+      { once: true },
+    );
     const visit = (u: string, hops: number) => {
+      if (signal?.aborted) return finish(null);
       if (hops > 6 || !isSafeUrl(u)) return finish(null);
       let req: import("node:http").ClientRequest;
       try {
-        req = https.get(
+        activeReq = req = https.get(
           u,
           {
             rejectUnauthorized: false,
@@ -1062,6 +1092,34 @@ async function tlsTolerantGet(
  */
 const MAX_IMPIT_REDIRECTS = 10;
 
+/** (WS16) Abort helper. The impit native binding exposes no per-request
+ *  cancel, so each hop is RACED against the abort: the JS side settles
+ *  promptly while the in-flight Rust request completes briefly in the
+ *  background bounded by its own timeout (a bounded capacity leak, zero
+ *  late state — the jar absorb below only runs if the hop wins the
+ *  race). Documented in net-cancellation.test.ts. */
+function abortedError() {
+  const e = new Error("net request aborted");
+  e.name = "AbortError";
+  return e;
+}
+
+async function withAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) throw abortedError();
+  let off: () => void = () => {};
+  const aborter = new Promise<never>((_, rej) => {
+    const onAbort = () => rej(abortedError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    off = () => signal.removeEventListener("abort", onAbort);
+  });
+  try {
+    return await Promise.race([work, aborter]);
+  } finally {
+    off();
+  }
+}
+
 async function impitFollow(
   client: Impit,
   url: string,
@@ -1072,19 +1130,25 @@ async function impitFollow(
     body?: string;
   },
   jar: CookieJar,
+  signal?: AbortSignal,
 ): Promise<{ res: any; finalUrl: string }> {
   let cur = url;
   let method = req.method;
   let body = req.body;
   for (let hop = 0; ; hop++) {
+    // (WS16) Queued hop: never dispatch the next hop of a cancelled walk.
+    if (signal?.aborted) throw new Error("aborted");
     const carry = jar.cookieFor(cur);
-    const res = await client.fetch(cur, {
-      method,
-      headers: carry ? { ...req.baseHeaders, cookie: carry } : { ...req.baseHeaders },
-      timeout: req.timeout,
-      redirect: "manual",
-      ...(body !== undefined ? { body } : {}),
-    } as any);
+    const res = await withAbort(
+      client.fetch(cur, {
+        method,
+        headers: carry ? { ...req.baseHeaders, cookie: carry } : { ...req.baseHeaders },
+        timeout: req.timeout,
+        redirect: "manual",
+        ...(body !== undefined ? { body } : {}),
+      } as any),
+      signal,
+    );
     const sc =
       ((res.headers as any)?.getSetCookie?.() as unknown[] | undefined) ??
       (typeof (res.headers as any)?.get === "function"
@@ -1150,8 +1214,15 @@ export async function fetchPage(
     /** Byte cap for the response body. Default: PAGE_LIMIT_BYTES (50MB).
      *  Pass PDF_LIMIT_BYTES (150MB) for PDF downloads. */
     limitBytes?: number;
+    /** (WS16) Cancellation signal (the pipeline's combined abort+ceiling
+     *  signal). Checked at every pass boundary and honored mid-flight by
+     *  each transport; a cancelled read settles null promptly. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<PageResponse | null> {
+  // (WS16) Queued-work law: a cancelled turn spends not even the DNS
+  // lookup on a read nobody will use.
+  if (opts.signal?.aborted) return null;
   // DNS-aware entry guard (§P6): a public hostname whose A/AAAA records
   // resolve to a private address (DNS rebinding) is rejected before any
   // pass runs.
@@ -1187,6 +1258,9 @@ export async function fetchPage(
   // every Pass B branch returned).
   let impitBest: PageResponse | null = null;
   for (let attempt = 0; attempt < (opts.retryOnBlock === false ? 1 : fpOrder.length); attempt++) {
+    // (WS16) Cancelled while an earlier pass was in flight: no further
+    // fingerprint attempt starts.
+    if (opts.signal?.aborted) return null;
     const fp = fpOrder[attempt];
     // (WS15) No entry-cookie header here: the walker reseeds every hop it
     // issues (including this attempt's first) from the jar, so a retry
@@ -1206,6 +1280,7 @@ export async function fetchPage(
           timeout: opts.timeoutMs ?? defaultTimeout,
         },
         jar,
+        opts.signal,
       );
 
       const status: number = res.status;
@@ -1277,7 +1352,7 @@ export async function fetchPage(
       // retry ONCE through a rejectUnauthorized:false path so the page is
       // still readable instead of classifying as FAIL_NETWORK_OR_CRASH.
       if (isCertError(err)) {
-        const tolerant = await tlsTolerantGet(url, jar, opts.timeoutMs ?? defaultTimeout);
+        const tolerant = await tlsTolerantGet(url, jar, opts.timeoutMs ?? defaultTimeout, undefined, opts.signal);
         if (tolerant) return tolerant;
       }
       // Timeout / network error: the next attempt uses a different
@@ -1311,6 +1386,9 @@ export async function fetchPage(
      fingerprints, so a site that trips impit's Chrome emulation may
      accept wreq-js's emulation. */
   if (opts.retryOnBlock !== false) {
+    // (WS16) Pass-chain boundary: a cancelled turn hands back what Pass B
+    // already observed — wreq is never dispatched for abandoned work.
+    if (opts.signal?.aborted) return impitBest;
     // (WS15 "every transport" leg) wreq-js has no hop hook — seed its
     // ENTRY request from the jar so cookies the failed impit attempts
     // earned upstream still open the session on the third TLS stack
@@ -1379,8 +1457,12 @@ export async function fetchUrl(
     useRealisticHeaders?: boolean;
     /** Byte cap for the response body. Default: 50MB (up from 1MB). */
     limitBytes?: number;
+    /** (WS16) Cancellation signal — see fetchPage above. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<{ status: number; ok: boolean; text: string } | null> {
+  // (WS16) Queued-work law — see fetchPage above.
+  if (opts.signal?.aborted) return null;
   // DNS-aware entry guard — see fetchPage above.
   if (!(await isSafeUrlWithDns(url))) return null;
 
@@ -1404,6 +1486,9 @@ export async function fetchUrl(
   if (gotResp && !BLOCK_STATUSES.includes(gotResp.status)) return gotResp;
 
   // ── Pass B: impit TLS-impersonation fallback ────────────────────────────
+  // (WS16) Boundary check: once cancelled, no second transport is
+  // dispatched — whatever Pass A settled with (null on abort) is returned.
+  if (opts.signal?.aborted) return gotResp;
   try {
     const { res, finalUrl } = await impitFollow(
       tlsClient(fp),
@@ -1415,6 +1500,7 @@ export async function fetchUrl(
         body: opts.body,
       },
       jar,
+      opts.signal,
     );
     const status: number = res.status;
     // SSRF: impit landed somewhere after redirects — the landing host must
@@ -1460,8 +1546,12 @@ export async function fetchWithLinkPreviewBots(
   opts: {
     timeoutMs?: number;
     limitBytes?: number;
+    /** (WS16) Cancellation signal — see fetchPage above. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<(PageResponse & { botName: string }) | null> {
+  // (WS16) Queued-work law — see fetchPage above.
+  if (opts.signal?.aborted) return null;
   // DNS-aware entry guard — see fetchPage above.
   if (!(await isSafeUrlWithDns(url))) return null;
   const timeout = opts.timeoutMs ?? 45_000;
@@ -1469,6 +1559,8 @@ export async function fetchWithLinkPreviewBots(
   const jar = newCookieJar();
 
   for (const bot of LINK_PREVIEW_UAS) {
+    // (WS16) No further bot is dispatched once cancelled.
+    if (opts.signal?.aborted) return null;
     // The link-preview bots send their own UA; the TLS layer is still the
     // Chrome profile (the bot's UA is what the WAF whitelist matches).
     const fp: BrowserFingerprint = "chrome";
@@ -1477,15 +1569,19 @@ export async function fetchWithLinkPreviewBots(
       // cookie earned under bot 1 was never replayed for bot 2 (mirrors
       // the Pass B reseed in fetchPage).
       const lpCarry = jar.cookieFor(url);
-      const res = await tlsClient(fp).fetch(url, {
-        method: "GET",
-        headers: {
-          "User-Agent": bot.userAgent,
-          ...bot.headers,
-          ...(lpCarry ? { Cookie: lpCarry } : {}),
-        },
-        timeout,
-      } as any);
+      // (WS16) impit hop race — see withAbort's law note above.
+      const res = await withAbort(
+        tlsClient(fp).fetch(url, {
+          method: "GET",
+          headers: {
+            "User-Agent": bot.userAgent,
+            ...bot.headers,
+            ...(lpCarry ? { Cookie: lpCarry } : {}),
+          },
+          timeout,
+        } as any),
+        opts.signal,
+      );
       const status: number = res.status;
       // SSRF: this bot's chain landed on a private host — skip it, never
       // return that body under any bot label.

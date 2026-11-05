@@ -445,10 +445,12 @@ interface TierOutput {
 async function extractDirect(
   url: string,
   fp: "chrome" | "firefox" | "edge" = "chrome",
+  signal?: AbortSignal,
 ): Promise<TierOutput> {
   const page: PageResponse | null = await fetchPage(url, {
     timeoutMs: TIER1_TIMEOUT_MS,
     fingerprint: fp,
+    signal,
   });
   if (!page) {
     return {
@@ -932,10 +934,12 @@ async function extractBrowser(
  */
 async function extractLinkPreview(
   url: string,
+  signal?: AbortSignal,
 ): Promise<TierOutput | null> {
   const page: (PageResponse & { botName: string }) | null =
     await fetchWithLinkPreviewBots(url, {
       timeoutMs: LINK_PREVIEW_TIMEOUT_MS,
+      signal,
     });
   if (!page || !page.ok || page.body.length < 200) return null;
 
@@ -989,12 +993,15 @@ async function extractLinkPreview(
     codeBlockCount: structOut.codeBlockCount,
   };
 }
-async function extractJina(url: string): Promise<TierOutput | null> {
+async function extractJina(url: string, signal?: AbortSignal): Promise<TierOutput | null> {
   return jinaLimit(async () => {
+    // (WS16) Queued jina work: a cancelled turn never enters the limiter.
+    if (signal?.aborted) return null;
     const jinaUrl = "https://r.jina.ai/" + encodeURI(url);
     const page = await fetchPage(jinaUrl, {
       timeoutMs: JINA_TIMEOUT_MS,
       headers: { "user-agent": "Mozilla/5.0" },
+      signal,
     });
     if (!page || !page.ok) return null;
     const body = page.body.trim();
@@ -1020,12 +1027,14 @@ async function extractJina(url: string): Promise<TierOutput | null> {
  * CDX server. Used for hard-blocked / dead / paywalled URLs where no
  * other tier worked.
  */
-async function extractWayback(url: string): Promise<TierOutput | null> {
+async function extractWayback(url: string, signal?: AbortSignal): Promise<TierOutput | null> {
+  // (WS16) Cancelled turn: archive reads never start.
+  if (signal?.aborted) return null;
   // 1. Availability API — returns the closest snapshot
   const availRes = await fetchUrl(
     "https://archive.org/wayback/available?url=" +
       encodeURIComponent(url),
-    { timeoutMs: WAYBACK_TIMEOUT_MS },
+    { timeoutMs: WAYBACK_TIMEOUT_MS, signal },
   );
   let snapshotUrl: string | null = null;
   let snapshotTs = ""; // (audit 2026-11-04) snapshots must SELF-DECLARE their age
@@ -1047,7 +1056,7 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
       "https://web.archive.org/cdx/search/cdx?url=" +
         encodeURIComponent(url) +
         "&limit=1&output=json&fl=original,timestamp,statuscode&from=2020",
-      { timeoutMs: WAYBACK_TIMEOUT_MS },
+      { timeoutMs: WAYBACK_TIMEOUT_MS, signal },
     );
     if (cdxRes && cdxRes.ok) {
       try {
@@ -1065,7 +1074,9 @@ async function extractWayback(url: string): Promise<TierOutput | null> {
   if (!snapshotUrl) return null;
 
   // 3. Fetch the snapshot HTML and extract it
-  const page = await fetchPage(snapshotUrl, { timeoutMs: WAYBACK_TIMEOUT_MS });
+  // (WS16) the availability/CDX legs above may have been cancelled mid-walk
+  if (signal?.aborted) return null;
+  const page = await fetchPage(snapshotUrl, { timeoutMs: WAYBACK_TIMEOUT_MS, signal });
   if (!page || !page.ok || page.body.length < 200) return null;
   const block = detectBlockInText(page.body);
   if (block.blocked) return null;
@@ -1177,6 +1188,11 @@ export async function extractUrl(
       a "price today / latest" answer must never cite a 5h-old cached
       body. Cache WRITES still happen (fresh evidence replenishes it). */
   liveRequired = false,
+  /** (audit 2026-11-05 WS16) Cancellation signal: a cancelled read
+      settles as a network failure WITHOUT dispatching any tier, and
+      mid-cascade the per-tier gates stop further direct/adapter/render/
+      jina/wayback/triangulation work the moment the turn dies. */
+  signal?: AbortSignal,
 ): Promise<EvidencePacket & { classification: string }> {
   // Brief §6: FETCH semantics use the URL exactly as the engine/tool gave
   // it — case-sensitive paths, signed query params, amp/mobile shapes and
@@ -1206,6 +1222,12 @@ export async function extractUrl(
       packet.passages.push(baseline);
       packet.extraction = "snippet-only";
     }
+
+    // (WS16) Pre-dispatch cancellation: settle now as a network failure.
+    // Not a byte of network, no cache read, no browser dispatch is spent
+    // on work nobody will use (the abandoned-work law).
+    if (signal?.aborted)
+      return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
 
     // Tier 0: SQLite cache hit (skipped entirely on live_required turns —
   // the §11.11 freshness law at the page layer, 2026-11-04 audit fix).
@@ -1243,6 +1265,9 @@ export async function extractUrl(
   }
 
   // Tier 1.5: platform API adapter first (cheapest for known hosts)
+  // (WS16) mid-cascade gate: adapters reach the network for known hosts —
+  // never start one for a cancelled turn.
+  if (signal?.aborted) return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
   const adapterOut = await extractAdapter(url);
   if (adapterOut && adapterOut.markdown.length >= 200) {
     packet.extraction = "direct";
@@ -1268,7 +1293,7 @@ export async function extractUrl(
   // substitutes the network-failure shape (status 0, blocked) which keeps
   // the downstream tier gates intact — the page still gets the
   // link-preview tier if it fits, and ALWAYS the browser tier.
-  const directRaw = await withDeadline(deadline, extractDirect(url, "chrome"));
+  const directRaw = await withDeadline(deadline, extractDirect(url, "chrome", signal));
   const directOut: TierOutput | null =
     directRaw === DEADLINE_EXPIRED
       ? ((budgetHit = true),
@@ -1363,7 +1388,9 @@ export async function extractUrl(
     // §11.3 AMENDMENT: the 4-bot link-preview stack is the worst budget
     // burner (4×45s); it is capped by the remaining budget so the browser
     // tier downstream always stays reachable.
-    const lpRaw = await withDeadline(deadline, extractLinkPreview(url));
+    // (WS16) mid-cascade gate — see the adapter gate above.
+    if (signal?.aborted) return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
+    const lpRaw = await withDeadline(deadline, extractLinkPreview(url, signal));
     if (lpRaw === DEADLINE_EXPIRED) budgetHit = true;
     linkPreviewOut = lpRaw === DEADLINE_EXPIRED ? null : lpRaw;
     if (linkPreviewOut && linkPreviewOut.markdown.length >= 200) {
@@ -1417,6 +1444,11 @@ export async function extractUrl(
     rankInWindow < BROWSER_RANK_MAX &&
     !domainOnCooldown(result.domain)
   ) {
+    // (WS16) render-acquisition law: a cancelled turn NEVER dispatches
+    // the browser render rescue (an in-flight render that already
+    // started is owned by the browser bridge and bounded by its own
+    // timeout — honest limit documented in extractor-cancellation).
+    if (signal?.aborted) return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
     const browserOut = await extractBrowser(result);
     if (browserOut && browserOut.markdown.length >= 200 && !browserOut.blocked) {
       // Audit item 8: the browser tier already prints the final URL in
@@ -1448,7 +1480,7 @@ export async function extractUrl(
   // §11.3 AMENDMENT: capped tiers past the browser allowance are the pure
   // anti-stall tail — an expired budget skips them cheaply (the original
   // hard cut used to cut the BROWSER allowance short instead).
-  const jinaRaw = await withDeadline(deadline, extractJina(url));
+  const jinaRaw = await withDeadline(deadline, extractJina(url, signal));
   if (jinaRaw === DEADLINE_EXPIRED) budgetHit = true;
   const jinaOut = jinaRaw === DEADLINE_EXPIRED ? null : jinaRaw;
   if (jinaOut && jinaOut.markdown.length >= 200) {
@@ -1480,7 +1512,7 @@ export async function extractUrl(
   // (audit 2026-11-04) an ARCHIVED snapshot can never answer a live_required
   // question (price/score/status) — skip the wayback tier entirely there.
   if (tier1Failed && !liveRequired) {
-    const waybackRaw = await withDeadline(deadline, extractWayback(url));
+    const waybackRaw = await withDeadline(deadline, extractWayback(url, signal));
     if (waybackRaw === DEADLINE_EXPIRED) budgetHit = true;
     const waybackOut = waybackRaw === DEADLINE_EXPIRED ? null : waybackRaw;
     if (waybackOut && waybackOut.markdown.length >= 200) {
@@ -1521,6 +1553,10 @@ export async function extractUrl(
 
   if ((directBlocked || directEmptyShell || linkPreviewOut === null) && (result.snippet ?? "").length < 20) {
     try {
+      // (WS16) mid-cascade gate: slug triangulation and the URL-search
+      // fallback issue live provider requests — never for a dead turn.
+      if (signal?.aborted)
+        return { ...packet, classification: "FAIL_NETWORK_OR_CRASH" };
       // Tier 6a: slug triangulation (site: + broad keyword queries)
       // §11.3 AMENDMENT: issues live metasearch engine requests (~40s
       // each) — capped by the remaining budget.
@@ -1677,9 +1713,10 @@ async function extractUrlWithBudget(
   budgetMs: number,
   rankInWindow = 0,
   liveRequired = false,
+  signal?: AbortSignal,
 ): Promise<EvidencePacket & { classification: string }> {
   const deadline = Date.now() + budgetMs;
-  const work = extractUrl(result, deadline, rankInWindow, liveRequired);
+  const work = extractUrl(result, deadline, rankInWindow, liveRequired, signal);
   const guard = work.catch(() => undefined); // absorb a post-budget rejection
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -1729,7 +1766,15 @@ export async function extractAll(
   /** §11.11 page-layer freshness law (2026-11-04 audit fix): true ⇒ skip
       the SQLite page cache for every page in this wave. */
   liveRequired = false,
+  /** (audit 2026-11-05 WS16) Cancellation signal: an aborted signal starts
+      no queued page task, mid-wave abort abandons the wave and returns
+      NO packets (the abandoned-wave law), and the wave settles promptly
+      instead of waiting out every page. Honors the upgrade path noted on
+      `stopWhen` above — limit()/extractUrlWithBudget now thread it. */
+  signal?: AbortSignal,
 ): Promise<(EvidencePacket & { classification: string })[]> {
+  // (WS16) Cancelled before the wave: zero tasks, zero network.
+  if (signal?.aborted) return [];
   const top = ranked.slice(0, maxUrls);
   const settled: Array<(EvidencePacket & { classification: string }) | undefined> =
     new Array(top.length).fill(undefined);
@@ -1737,8 +1782,15 @@ export async function extractAll(
   let stopped = false;
   let signalStop: () => void = () => {};
   const stopGate = new Promise<void>((resolve) => { signalStop = resolve; });
-  const tasks = top.map((r, i) => limit(() => extractUrlWithBudget(r, pageBudgetMs, rankBase + i, liveRequired)).then((p) => {
-    if (stopped) return undefined; // abandoned page — Rust cancels these instead
+  const tasks = top.map((r, i) => limit(async () => {
+    // (WS16) Queued-work law: a page still waiting in the limit() queue
+    // when the turn dies NEVER starts — the user's network/render
+    // capacity is not spent on abandoned work.
+    if (signal?.aborted) return undefined;
+    return extractUrlWithBudget(r, pageBudgetMs, rankBase + i, liveRequired, signal);
+  }).then((p) => {
+    if (p === undefined) return undefined; // queued task never started (WS16)
+    if (stopped || signal?.aborted) return undefined; // abandoned page — Rust cancels these instead
     settled[i] = p;
     donePages++;
     onPage?.(donePages, top.length);
@@ -1750,8 +1802,20 @@ export async function extractAll(
   }));
   // Full-wave path is the original Promise.all (rejects like before); the
   // race only ever settles early when the predicate fired.
-  await Promise.race([Promise.all(tasks), stopGate]);
-  if (stopped) for (const t of tasks) t.catch(() => {}); // abandon, don't unhandled-reject
+  // (WS16) The cancellation gate settles the wave alongside the
+  // sufficiency stop, so an aborted read-window never waits out the
+  // slowest page.
+  let abortWave: () => void = () => {};
+  const abortGate = new Promise<void>((resolve) => { abortWave = resolve; });
+  if (signal) {
+    if (signal.aborted) abortWave();
+    else signal.addEventListener("abort", () => abortWave(), { once: true });
+  }
+  await Promise.race([Promise.all(tasks), stopGate, abortGate]);
+  if (stopped || signal?.aborted) for (const t of tasks) t.catch(() => {}); // abandon, don't unhandled-reject
+  // (WS16) An abandoned wave yields NO partial state: packets are
+  // discarded together — a cancelled turn leaves no late evidence.
+  if (signal?.aborted) return [];
   const packets = settled.filter(
     (p): p is EvidencePacket & { classification: string } => p !== undefined,
   );

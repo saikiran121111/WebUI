@@ -673,7 +673,7 @@ export async function runWebResearch(
           // path — stage-0 direct targets included. A "price today / latest
           // X" turn must not read the user's own linked page out of the
           // SQLite page cache; extractUrl's 4th arg honors the policy.
-          const packet = await extractUrl(target, undefined, 0, liveRequired);
+          const packet = await extractUrl(target, undefined, 0, liveRequired, abortSignal);
           log.info(
             { domain: target.domain, classification: packet.classification, passages: packet.passages.length },
             "stage-0 direct target extracted",
@@ -702,34 +702,60 @@ export async function runWebResearch(
     // targets are best-effort garnish (the SERP pool still covers the
     // domain), so a capped race degrades to "no direct results" rather
     // than a stalled research turn.
-    const directDeadline = new Promise<RankedResult[]>((res) => {
-      const t = setTimeout(() => {
-        log.warn({ capMs: DIRECT_TARGET_CAP_MS }, "stage-0 direct hop hit its deadline — proceeding with the SERP pool");
-        res([]);
-      }, DIRECT_TARGET_CAP_MS);
-      t.unref?.();
-      directFut.then((r) => {
-        clearTimeout(t);
-        res(r);
-      });
-    });
+    const directDeadline = new Promise<RankedResult[]>(
+      (res) => {
+        // (audit 2026-11-05 WS16) THE reported defect: this race covered
+        // only the 90s cap and directFut completion — NOT the combined
+        // abort signal — so aborting while the direct-target extractor was
+        // pending left research waiting (bounded by the cap, but waiting).
+        // The abort now settles this wait immediately, and directFut's own
+        // extractUrl call receives abortSignal so the pending read is
+        // cancelled rather than abandoned mid-fetch.
+        const onAbort = () => {
+          clearTimeout(t);
+          log.info("stage-0 direct hop cancelled with the turn — proceeding with the SERP pool");
+          res([]);
+        };
+        const t = setTimeout(() => {
+          log.warn({ capMs: DIRECT_TARGET_CAP_MS }, "stage-0 direct hop hit its deadline — proceeding with the SERP pool");
+          res([]);
+        }, DIRECT_TARGET_CAP_MS);
+        t.unref?.();
+        if (abortSignal.aborted) onAbort();
+        else abortSignal.addEventListener("abort", onAbort, { once: true });
+        directFut.then((r) => {
+          clearTimeout(t);
+          abortSignal.removeEventListener("abort", onAbort);
+          res(r);
+        });
+      },
+    );
 
     const [{ results: fused, freshnessRecoveryUsed }, directResults] = await Promise.all([
       metasearchWithFreshnessRecovery(
         plans.map((p) => ({ ...p, freshness: gate.decision.freshness })),
         20,
+        abortSignal,
       ),
       directDeadline,
     ]);
     // Merge: direct targets first, then SERP results (dedup by canonical).
-    if (directResults.length > 0) {
-      const seen = new Set(directResults.map((d) => d.canonical));
-      const filtered = fused.filter((f) => !seen.has(f.canonical));
-      searchResults = [...directResults, ...filtered];
+    // WS16 late-state law: the SERP leg may resolve AROUND the abort — a
+    // cancelled turn must not write that late state into the query cache
+    // or feed it downstream (searchResults stays the seeded [] and every
+    // wave below is ceiling-gated).
+    if (ceilingHit()) {
+      log.info("first hop settled after cancellation — late SERP state discarded, no cache write");
     } else {
-      searchResults = fused;
+      if (directResults.length > 0) {
+        const seen = new Set(directResults.map((d) => d.canonical));
+        const filtered = fused.filter((f) => !seen.has(f.canonical));
+        searchResults = [...directResults, ...filtered];
+      } else {
+        searchResults = fused;
+      }
+      putCachedQuery(plans, searchResults, gate.decision.freshness);
     }
-    putCachedQuery(plans, searchResults, gate.decision.freshness);
     log.info(
       { ms: Math.round(performance.now() - t), results: searchResults.length, directResults: directResults.length, freshnessRecoveryUsed },
       "metasearch complete",
@@ -738,7 +764,8 @@ export async function runWebResearch(
 
   // ── relevance floor check + automatic broad recovery ─────────────────
   const relevantCount = countRelevantResults(searchResults, ctx.userPrompt);
-  if (relevantCount < MIN_RELEVANT_URLS) {
+  // WS16 queued-work law: recovery passes never fire on a cancelled turn.
+  if (!ceilingHit() && relevantCount < MIN_RELEVANT_URLS) {
     const cleanQuery = stripFillers(ctx.userPrompt);
     const hasRealResults = searchResults.length > 0;
     if (hasRealResults && cleanQuery.length > 3) {
@@ -750,6 +777,7 @@ export async function runWebResearch(
       const recoveryResults = await metasearch(
         [{ query: cleanQuery, intent: "general" as const, freshness: "any" as const }],
         20,
+        abortSignal,
       );
       if (recoveryResults.length > 0) {
         const seen = new Set(searchResults.map((r) => r.canonical));
@@ -772,6 +800,7 @@ export async function runWebResearch(
       searchResults = await metasearch(
         [{ query: cleanQuery, intent: "general" as const, freshness: "any" as const }],
         20,
+        abortSignal,
       );
       log.info({ recovered: searchResults.length }, "zero-result recovery done");
     }
@@ -1096,6 +1125,7 @@ export async function runWebResearch(
         prev,
         stopWhen,
         liveRequired,
+        abortSignal,
       );
       // §11.12: drop off-query / boilerplate segments before the pool joins
       // rerank (⇔ Rust `apply_segment_filter(&mut b, &segment_filter_query)`).
@@ -1252,7 +1282,8 @@ export async function runWebResearch(
   // bundle return, so citation consumers still see one merged registry.
   let secondHopPackets: EvidencePacket[] = [];
 
-  if (coverage.needsGapSearch && coverage.gapQuery) {
+  // WS16 queued-work law: no gap hop on a cancelled turn.
+  if (!ceilingHit() && coverage.needsGapSearch && coverage.gapQuery) {
     onProgress?.({
       stage: "gap-search",
       detail: `Coverage ${Math.round(coverage.coverage * 100)}% - firing targeted 2nd-hop search for missing entities...`,
@@ -1271,7 +1302,7 @@ export async function runWebResearch(
       // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
       // fresh pages, not 5 (mirrors Rust).
       const gapPackets = admitWave(
-        await extractAll(gapResults, 3, undefined, undefined, undefined, undefined, liveRequired),
+        await extractAll(gapResults, 3, undefined, undefined, undefined, undefined, liveRequired, abortSignal),
         "gap",
       );
       // §11.12 gap-hop half (⇔ Rust): the gap query joins the filter query
@@ -1324,7 +1355,8 @@ export async function runWebResearch(
   //    evaluateCoverage still reports the answer unit missing, so the
   //    chain stops the moment an identifier-shaped answer merges.
   // No second retrieval engine, no unbounded fan-out, no crawl.
-  if (coverage.needsGapSearch) {
+  // WS16: the route hop never fires on a cancelled turn (queued-work law).
+  if (!ceilingHit() && coverage.needsGapSearch) {
     const wantWords = new Set(focusTokens(ctx.userPrompt + " " + qTexts.join(" ")));
     const seenRoute = new Set<string>();
     const readSet = new Set(
@@ -1333,7 +1365,7 @@ export async function runWebResearch(
     const maxRouteHops =
       gate.decision.depth === "deep" ? 3 : gate.decision.depth === "quick" ? 1 : 2;
     let harvestFrom = [...packets, ...secondHopPackets];
-    for (let hop = 1; hop <= maxRouteHops && coverage.needsGapSearch; hop++) {
+    for (let hop = 1; hop <= maxRouteHops && coverage.needsGapSearch && !ceilingHit(); hop++) {
       const routes: RankedResult[] = [];
       for (const pkt of harvestFrom) {
         for (const link of collectRouteLinks(pkt.url, pkt.passages, 48)) {
@@ -1388,6 +1420,7 @@ export async function runWebResearch(
           undefined,
           undefined,
           liveRequired,
+          abortSignal,
         ),
         "route-follow",
       );
@@ -1450,7 +1483,9 @@ export async function runWebResearch(
         ...(coverage.gapQuery ? [coverage.gapQuery] : []),
       ];
       gapDemand = buildGapDemand(ctx.userPrompt, coverage, sufficiency, gate.decision, plannerLaw, usedQueries);
-      if (gapDemand && gapDemand.queries.length > 0) {
+      // WS16 queued-work law: the demand wave never starts on a cancelled
+      // turn, and a cancellation mid-wave stops remaining wave queries.
+      if (gapDemand && gapDemand.queries.length > 0 && !ceilingHit()) {
         demandWaveFired = true;
         // REUSES the existing "gap-search" stage kind (no StageEvent
         // contract change in P4) with demand-wave detail text.
@@ -1464,10 +1499,11 @@ export async function runWebResearch(
           "deep demand wave fired",
         );
         for (const q of gapDemand.queries) {
+          if (ceilingHit()) break;
           const waveResults = applyDomainControl(await runGapMetasearch(q), plannerLaw);
           if (waveResults.length === 0) continue;
           const fresh = admitWave(
-            await extractAll(waveResults, 3, undefined, undefined, undefined, undefined, liveRequired),
+            await extractAll(waveResults, 3, undefined, undefined, undefined, undefined, liveRequired, abortSignal),
             "demand",
           );
           applySegmentFilter(fresh, segmentFilterQuery + " " + q);

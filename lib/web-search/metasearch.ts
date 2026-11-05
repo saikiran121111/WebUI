@@ -1063,7 +1063,12 @@ const GRACE_TIMER_MS = 6_000;
 export async function metasearch(
   plans: SearchPlan[],
   maxResults = 20,
+  // (audit 2026-11-05 WS16) Cancellation signal: a cancelled turn must not
+  // fan out to providers (queued-work law) and must not keep waiting for
+  // engines whose results will never be read (settlement law).
+  signal?: AbortSignal,
 ): Promise<RankedResult[]> {
+  if (signal?.aborted) return [];
   // URL-shaped plans are dropped from the engine pool (stripUrlPlans):
   // search engines index pages, not URL strings, and the pipeline's
   // Stage-0 direct-target fetch reads the prompt's own URLs in parallel.
@@ -1111,7 +1116,12 @@ export async function metasearch(
   // Each plan promise, when it resolves, updates the quorum counters
   // and may arm the grace timer.
   const planPromises = effectivePlans.map((p, i) =>
-    searchOne(p.query, p.intent, allQueries, freshness)
+    // WS16 queued-work law: no engine dispatch may START once cancelled.
+    // (Engines already in flight are bounded by their own SEARCH_ONE_CAP_MS
+    // and the grace machinery below — the JS side stops waiting on them.)
+    (signal?.aborted
+      ? Promise.resolve([] as RawSearchResult[])
+      : searchOne(p.query, p.intent, allQueries, freshness))
       .catch(() => [] as RawSearchResult[])
       .then((results: RawSearchResult[]) => {
         settled[i] = results;
@@ -1168,7 +1178,22 @@ export async function metasearch(
   });
 
   // Await the signal. Once it fires, fuse whatever has settled.
-  await graceSignal;
+  // WS16 settlement law: cancellation resolves this quorum wait too — an
+  // aborted turn returns empty instead of fusing late engine state.
+  if (signal && !signal.aborted) {
+    await Promise.race([
+      graceSignal,
+      new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      ),
+    ]);
+  } else {
+    await graceSignal;
+  }
+  if (signal?.aborted) {
+    if (graceTimerHandle) clearTimeout(graceTimerHandle);
+    return [];
+  }
 
   const flat = settled.filter((r): r is RawSearchResult[] => r !== null).flat();
   const preferred = effectivePlans.flatMap((p) => p.preferredDomains ?? []);
@@ -1255,6 +1280,7 @@ export async function metasearch(
 export async function metasearchWithFreshnessRecovery(
   plans: SearchPlan[],
   maxResults = 20,
+  signal?: AbortSignal,
 ): Promise<{ results: RankedResult[]; freshnessRecoveryUsed: boolean }> {
   const anyPlan = plans.every((p) => !p.freshness || p.freshness === "any");
   // (audit 2026-11-04) realtime facts (prices, scores, status) must NEVER
@@ -1262,15 +1288,17 @@ export async function metasearchWithFreshnessRecovery(
   // unstarve time-FILTERED evergreen queries, not to launder stale data
   // into a live_required run. A realtime miss stays an honest miss.
   const realtimePlan = plans.some((p) => p.freshness === "realtime");
-  const firstPass = await metasearch(plans, maxResults);
+  const firstPass = await metasearch(plans, maxResults, signal);
 
-  if (!anyPlan && !realtimePlan && firstPass.length < 5) {
+  // WS16: the recovery second leg is queued work too — it may never fire
+  // for a cancelled turn, and a cancelled first pass returns empty anyway.
+  if (!anyPlan && !realtimePlan && firstPass.length < 5 && !signal?.aborted) {
     log.info(
       { initial: firstPass.length, freshness: plans[0]?.freshness },
       "freshness filter returned <5 results — re-running with freshness='any'",
     );
     const cleared = plans.map((p) => ({ ...p, freshness: "any" as const }));
-    const secondPass = await metasearch(cleared, maxResults);
+    const secondPass = await metasearch(cleared, maxResults, signal);
     if (secondPass.length > firstPass.length) {
       return { results: secondPass, freshnessRecoveryUsed: true };
     }
