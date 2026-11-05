@@ -4,12 +4,18 @@
 - **Repository / branch:** `saikiran121111/WebUI` / `develop`.
 - **Published:** 6 November 2026, Asia/Kolkata.
 - **Publication baseline:** `dcfb2c56cb2d0e54c893f402b74837ef01d9ebd3`.
-- **Priority:** Interactive browser reliability and efficiency first; then worthwhile presentation, document, ingestion and chat UI improvements. Built-in 3D and CAD are removed from the target.
+- **Priority:** Adopt local Microsoft Playwright MCP for interactive browsing, retire the superseded custom browser driver, remove built-in 3D/CAD and their core skills, then complete the retained artifact and chat improvements.
 - **Web-search scope:** Preserve the current TypeScript web-search implementation and its latest evidence work. Do not migrate to SearXNG, restore Rust retrieval, replace search engines or restart the search architecture under this plan.
 
 This document consolidates the conversation's final decisions and the source-backed recommendation into one repository-owned implementation brief. Its execution requirements and latest decisions supersede earlier exploratory suggestions in the conversation. The detailed 45-area review and primary-source references follow the implementation phases.
 
 **Latest scope decision — 6 November 2026:** Retire built-in 3D creation, AI asset generation, 3D viewing/editing and CAD/BIM features from the core product. The inspected CAD implementation is a floor-plan/preview system; no AutoCAD-level architecture-design capability has been demonstrated, so it does not pass the user's retention condition. Defer Blender to a future external MCP integration. This revision updates the implementation plan only; feature removal in application code is pending. Retained browser tasks may still inspect graphical/3D websites—this decision concerns Ruke's own modeling studios.
+
+**Browser implementation decision, 6 November 2026.** Adopt the Apache-2.0 licensed Microsoft Playwright MCP server as Ruke's interactive browser driver. Reuse the main model and the app's browser panel, access checks and login handoff. Replace the custom model-facing browser action implementation as each operation reaches parity. Keep ordinary TypeScript web search on hold. [Playwright MCP source and configuration](https://github.com/microsoft/playwright-mcp), [license](https://github.com/microsoft/playwright-mcp/blob/main/LICENSE).
+
+**Verified source at `16e313ea931d616137ef463f57b3f8fc350a7cd6`.** The interactive path injects `ruke_browser::tools::model_tools()` and dispatches to `BrowserRuntime::command` over Ruke's custom CDP implementation. The installed Playwright dependency and page-level WebMCP features do not establish a Playwright MCP client connection. Source and manifest searches found no Playwright MCP server dependency, MCP client transport or tool-list/call integration. Screenshot results are currently culled and emitted as text. [Browser loop](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L579), [screenshot handling](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L239), [browser host](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/rust-backend/crates/ruke-browser/src/host.rs#L1), [executor](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/rust-backend/crates/ruke-browser/src/executor.rs#L70).
+
+**Execution record.** The implementing agent creates and maintains `plan/ruke-implementation-checklist.md` with the starting commit, branch, completed checkpoints, exact test commands and exit codes, open gates and next resumable action. Every checked item needs evidence from its normal entry point. Treat the user-visible ChatGPT-like workflows as acceptance tests against the configured model and supported hardware.
 
 ## 1. Product outcome and constraints
 
@@ -43,8 +49,8 @@ Evaluation means testing the local open-source software for compatibility and pe
 
 | Area | Existing implementation | Proposed library change |
 |---|---|---|
-| Interactive browser | Playwright is installed; interactive actions use a custom Rust/CDP implementation | Reuse actual Playwright + Chromium for the reference driver. Keep Rust chat/session ownership. Benchmark agent-browser only as an alternative. |
-| Browser vision and speed | Screenshot bytes are omitted for the model; actions commonly take several rounds | Update Ruke's image transport and add checked action batches using existing browser operations. No mandatory new model or package. |
+| Interactive browser | Chromium runs through custom Rust/CDP browser actions. Playwright is installed for other paths. | Adopt local Microsoft `@playwright/mcp` for browser actions. Use the official Rust MCP client SDK (`rmcp`) over stdio behind Ruke's authoritative boundary. |
+| Browser vision and speed | Ruke omits screenshot pixels from the model response and commonly needs several turns for small actions. | Carry MCP image results to the configured model and reuse compact snapshots, native locator actions and `browser_fill_form`. |
 | PowerPoint | PptxGenJS plus chart images | Keep PptxGenJS and use native editable chart objects where appropriate. |
 | Excel | ExcelJS plus a limited custom formula evaluator | Keep ExcelJS and evaluate local LibreOffice Calc for broader recalculation. |
 | Word and PDF output | docx and Playwright/Chromium printing | Keep the existing libraries and improve output validation. |
@@ -53,7 +59,7 @@ Evaluation means testing the local open-source software for compatibility and pe
 | ZIP files | Custom code plus an installed fflate dependency | Reuse fflate on compatible paths and retire redundant code. |
 | Audio/video uploads | Whisper through Transformers.js and FFmpeg | Keep them. Benchmark whisper.cpp only if a measured CPU problem justifies it. |
 | Built-in 3D and CAD | Three.js studio, Meshy provider and custom floor-plan viewer | Retire the built-in features. No replacement 3D/CAD dependency is selected. |
-| Blender | No selected external connection in this plan | Future local MCP integration with separately installed Blender. |
+| Blender | Built-in 3D is being retired. | Future external local MCP connection to separately installed Blender. |
 | UI, model transport, attachment search | Existing Ruke code and local storage | assistant-ui, AI SDK and SQLite FTS5/sqlite-vec remain selective options, not default additions. |
 | Testing | Vitest and Playwright | Keep both; add local model/task comparisons as needed. |
 | Web search | Current TypeScript search and evidence pipeline | Preserve it unchanged. |
@@ -81,24 +87,24 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 - [ ] Replace incomplete browser-path discovery with the maintained browser package's executable resolver or an equally verified portable method. Preserve explicit overrides.
 - [ ] Prove installation/discovery, launch, shutdown, screenshots and file operations on Windows, macOS and Linux.
 
-### Phase 2 — reuse a maintained browser implementation
+### Phase 2 — adopt Microsoft Playwright MCP and retire the old action driver
 
-**Reference implementation for local evaluation: actual Playwright + Chromium.** Ruke's interactive Rust pw.rs is a custom Playwright-style CDP port; the installed Playwright dependency is not proof that this interactive path already uses the upstream driver.
+Use the published `@playwright/mcp` server on the user's machine. Pin the npm package and the compatible official Rust client SDK release after checking the project's Node and Rust toolchains, the actual server schemas and Chromium compatibility. The server runs with a local browser and does not require an account or paid model provider. [Playwright MCP](https://github.com/microsoft/playwright-mcp), [official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk).
 
-- [ ] Put a small maintained-driver adapter behind the existing browser contract. Reuse the existing Node runtime as a long-lived worker where appropriate; keep the rest of the Rust backend.
-- [ ] Prefer the real Playwright locator/action/wait implementation over extending a growing hand-written emulation of it.
-- [ ] Keep Ruke's panel, authenticated RPC/WebSocket boundary, session ownership, human takeover, user login and cancellation behavior.
-- [ ] Have one browser lifecycle owner. Avoid two independently launched browsers or competing action loops for the same page.
-- [ ] Use separate appropriate contexts/profiles for unrelated conversations; serialize actions within one controlled page.
-- [ ] Use Microsoft Playwright MCP as a maintained tool-server option/reference if it fits the application's integration. A direct SDK bridge is also valid; adopting MCP is not required solely to call existing function tools.
-- [ ] Benchmark Vercel agent-browser as an alternative after the reference path works. Select by correctness, latency, tokens, memory and maintenance burden rather than a vendor headline.
-- [ ] Do not select ego(lite) as a required dependency: the reviewed terms allow future paid access and Linux is still a roadmap item.
-- [ ] Keep Lightpanda optional/experimental. It does not provide the full graphical browser baseline and requires WSL on Windows in the reviewed release. No mandatory WSL/container layer for ordinary users.
-- [ ] Do not replace useful application ownership, authentication or permission boundaries with raw unrestricted access to a new browser control socket.
+- [ ] Add one long-lived stdio client to the existing Rust browser service using the official SDK. Reuse the current Node installation to start the pinned server entry point. Resolve the installed package at setup and launch it directly without fetching packages on a user turn. Handle initialization, tool discovery, typed tool errors, cancellation, timeouts and process reaping.
+- [ ] First prove that the MCP tool server and Ruke's panel operate the same authorized browser target. Attach through the loopback CDP endpoint of Ruke's managed Chromium with the upstream connection option. Use the current browser lifecycle and authorized target mapping. When the browser starts, resolve the executable using the upstream package. Verify compatibility on all supported platforms. Keep search's separate Chromium/Playwright reader and its pinned dependency behavior.
+- [ ] Scope every MCP call and result to the authorized conversation, tab and turn. The existing shared Chromium process and the server's current-page state do not provide isolation on their own. Establish isolation with scoped contexts or a dedicated browser session where necessary. Prove it with two-session tests for tabs, snapshots, screenshots, downloads and profile state. Keep the active session count appropriate for 16 GB laptops.
+- [ ] Reuse upstream tools for navigation, semantic snapshots, element actions, form filling, tabs, dialogs, waits, downloads/uploads where supported, and requested screenshots or coordinate actions. Map the existing public callers to the upstream tool contract and validate actual returned results. Use stable Ruke IDs on the UI side and scoped, fresh upstream references on the driver side.
+- [ ] Retain application-level ownership checks, permitted destinations, user approvals, login handoff, pause/resume, permissions, file scoping, live preview and final-state verification. Keep credentials in the human login flow. Re-observe the intended tab before resuming after takeover.
+- [ ] Give the main model the approved driver tools with compact schemas. Use upstream `browser_fill_form` for understood multi-field edits and ordinary locator actions for dependent decisions. Keep unrestricted host-side code execution outside the model-visible tools. [Playwright form tools](https://playwright.dev/mcp/tools/forms).
+- [ ] Convert MCP screenshot image blocks into the configured model provider's valid multimodal request format. Retain the associated tool call, tab and viewport information. Remove the image-omission path for requested visual observations. Text-only providers must surface their actual capabilities. [Playwright screenshot tools](https://playwright.dev/mcp/tools/screenshots).
+- [ ] Keep the app's real action and download evidence available for the final response. Use scoped/targeted observations so the model can retrieve omitted data. Report MCP connection failure and process exits through a typed status.
+- [ ] Inventory old model action handlers and their panel, test and internal callers. Once an operation passes the required regression gates, remove its superseded custom logic in the Rust browser modules and tool registry. Preserve only the CDP/session/preview plumbing that a retained feature still needs. Finish with one interactive action driver and a short rationale for retained app glue.
+- [ ] Validate the selected driver against the old baseline on equivalent tasks. A thin client and typed integration are the intended reuse boundary. Browser Use, agent-browser and Lightpanda remain comparison references outside the production implementation.
 
 ### Phase 3 — faster execution without blind automation
 
-- [ ] Add/reuse a multi-field fill or guarded action-batch capability. The main model selects known operations once; the executor performs normal locator operations and returns their results together.
+- [ ] Use upstream browser_fill_form for known fields and bounded sequential actions where needed. Return one useful readback and let the model decide after genuinely new information.
 - [ ] Check each target and precondition when used. Stop and return partial progress on failure or an unexpected state that invalidates later steps.
 - [ ] Return to the model when the next decision depends on information it has not seen. Do not batch invented future choices across unknown pages.
 - [ ] Use normal fill/check/select/click operations, appropriate page events and actionability checks. Keep consequential-action controls.
@@ -124,6 +130,22 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 - [ ] For a future Blender feature, research a free local MCP server and its licenses/capabilities before selection. The future connection controls separately installed Blender; it does not recreate an inbuilt 3D studio.
 - [ ] Future MCP tools must be discovered from the connected server, exposed only while available, and integrated with the existing main model, session controls and artifact/download cards. No new always-on planner or required paid endpoint.
 - [ ] Treat future Blender connectivity as a separate implementation request. A full CAD integration can be reconsidered only against explicit architecture-design requirements and demonstrated capability.
+
+### Core skill removal inventory
+
+The checked tree has 60 hidden core skill bundles and 60 matching scenario files. The following 24 bundles have a direct role in the retired 3D/CAD feature or belong to its dedicated skill families. All 24 have matching lock entries. Remove their directories, scenario files and exact keys in `skills-lock.json` after tracing shared references.
+
+| Group | Exact baseline IDs |
+|---|---|
+| CAD route | `archify` |
+| React Three Fiber | `r3f-animation`, `r3f-fundamentals`, `r3f-geometry`, `r3f-interaction`, `r3f-lighting`, `r3f-loaders`, `r3f-materials`, `r3f-physics`, `r3f-postprocessing`, `r3f-shaders`, `r3f-textures` |
+| Three.js | `threejs-animation`, `threejs-blender-glb-pipeline`, `threejs-fundamentals`, `threejs-geometry`, `threejs-interaction`, `threejs-lighting`, `threejs-loaders`, `threejs-materials`, `threejs-postprocessing`, `threejs-shaders`, `threejs-skills`, `threejs-textures` |
+
+- [ ] Remove `3d_asset` and `cad_blueprint` activation, output contracts and progress messages across TypeScript and Rust. Trace `lib/decision/client.ts`, `types.ts`, `contracts.ts` and `skill-loader.ts`, Rust `ruke-contracts/src/decision.rs`, `ruke-decision/src/engine.rs` and `ruke-skills/src/core_skill.rs`. The active map explicitly selects `threejs-skills` and `archify`. [Current mode map](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/lib/decision/types.ts#L19).
+- [ ] Rework the retained SVG Anatomy repair path before deleting the CAD mode. `lib/render/fenceRepair.ts` currently lists Anatomy under `cad_blueprint`, and `tests/anatomy-repair.spec.ts` sets that mode. Give independent 2D Anatomy a retained repair route, then run its renderer, repair and export regressions. [Repair mapping](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/lib/render/fenceRepair.ts#L88), [Anatomy test](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/tests/anatomy-repair.spec.ts#L31).
+- [ ] Keep unrelated skills such as `architecture-diagram`, `diagram-design`, `anatomy` for its independent SVG path, Office/document skills and existing user skills. The `architecture-diagram` bundle produces HTML/SVG system diagrams. `archify` has general diagram material upstream, but this installation is wired to the retiring CAD mode. [Diagram skill](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/.cskills/architecture-diagram/SKILL.md), [Archify scenario](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/.cskills-scenarios/archify.json).
+- [ ] Audit core-skill folders, scenario files and lock records. The baseline has three retained bundles without lock entries, `d3-js-visualization`, `html-viewer` and `powerbi`. Preserve their real files and scenario metadata. Record verified provenance before repairing any missing lock record. Keep existing SKILL.md source bodies intact for retained bundles.
+- [ ] Update generated contract inputs and fixtures, then run `npm run contracts:generate` followed by `npm run contracts:check`. Keep Rust/TS golden decision and skill tests passing. Confirm retired names cannot be activated, downloaded automatically or surfaced in UI. Review exact paths before removal and preserve user data and historical artifacts.
 
 ### Phase 5 — presentations, spreadsheets, documents and ingestion
 
@@ -203,8 +225,8 @@ Do not replace Ruke wholesale. Its existing dependencies already cover much of w
 
 The highest-value plan is:
 
-1. Repair the browser-to-model screenshot bridge and benchmark a maintained local browser driver behind Ruke’s current interface.
-2. Keep the panel, main model, session ownership and application-specific integration; reduce custom browser implementation only after a replacement proves it can preserve the needed functions.
+1. Adopt Microsoft Playwright MCP with the app's browser ownership and real model-facing screenshots.
+2. Keep the panel, main model and session controls. Delete superseded model action code after regression coverage proves the new path.
 3. Retire the built-in 3D/CAD studios and related runtime promises; preserve user files and independent 2D features. Defer Blender to a future external MCP connection.
 4. Improve presentations using features of the PptxGenJS dependency already installed.
 5. Replace or consolidate genuinely duplicated infrastructure: ZIP handling, chart drawing, advanced document parsing and spreadsheet calculation.
@@ -251,15 +273,15 @@ ego(lite) is excluded from the selected free/open-source, three-platform baselin
 
 **Lightpanda is an optional experiment, not the default interactive browser.** Its [upstream README](https://github.com/lightpanda-io/browser) documents native Linux/macOS builds and WSL2 for Windows, no graphical renderer and text-only PNG/PDF output. It is a browser engine, whereas Playwright is an automation library. Replacing Chromium with Lightpanda does not accelerate local-model inference and may lose required browser capabilities. Its AGPL-3.0 source has no required hosted subscription, but compatibility and licensing remain relevant. Benchmark total machine overhead and task correctness before including it.
 
-Use actual Playwright with Chromium as the cross-platform reference implementation. Keep agent-browser as an alternative to benchmark. CLI, MCP and a direct SDK bridge are different integration choices, not evidence of a different or inherently faster browser engine. No guaranteed speed multiplier, instant CPU vision or universal website compatibility is established by this audit.
+Microsoft Playwright MCP with local Chromium is the selected cross-platform browser driver. Ruke retains its own panel and model orchestration. Measure successful workflows and resource use with the configured model.
 
 ### Browser driver comparison
 
 | Candidate | What it supplies | Fit for Ruke | Free-only assessment |
 |---|---|---|---|
-| [Playwright library + Chromium](https://playwright.dev/docs/intro) | Maintained browser actions, semantic locators, actionability waits, contexts, screenshots and tracing. | **Primary reference implementation for local evaluation.** Use the existing Node runtime as a long-lived browser worker behind the Rust contract. | Apache-2.0 Playwright and locally installed browser; no required model API subscription. |
+| [Playwright library + Chromium](https://playwright.dev/docs/intro) | Maintained browser actions, semantic locators, actionability waits, contexts, screenshots and tracing. | Upstream engine used by the selected MCP server. | Apache-2.0 Playwright and locally installed browser. |
 | [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) | Native Rust CLI/daemon, compact element refs, browser actions, sessions and CDP connection options. Its documented streaming API supports live frames and human input. | **Benchmark alternative for the Rust backend and live panel.** Wrap its commands/results rather than copying its implementation. | Apache-2.0 local software; no hosted provider or paid model is required. Run with the existing local model and local browser. |
-| [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) | Ready-made model-facing browser tools, accessibility snapshots, screenshots and opt-in coordinate actions. | **Maintained tool-server option/reference.** Standard MCP integration can reduce bespoke tool plumbing, while a direct SDK bridge can avoid adopting another protocol where Ruke already has function tools. Ruke must still supply its panel/session adapter. | Apache-2.0; local browser operation is supported. MCP adds no required paid model. |
+| [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) | Ready-made browser tools, accessibility snapshots, screenshots and coordinate actions. | **Selected driver.** Run locally with a pinned official client and connect it to Ruke's authorized browser target. | Apache-2.0 local software. |
 | [Stagehand](https://github.com/browserbase/stagehand) | Structured extraction and natural-language browser operations; local browser support. | Useful when a specific action/extraction layer is needed. Additional model calls and an overlapping orchestration layer need measurement. | MIT library. Hosted Browserbase and commercial model examples are optional, not selected dependencies. Not the default pilot. |
 | [Browser Use](https://github.com/browser-use/browser-use) | A complete Python browser agent/controller with local execution options. | A larger architectural change: it may duplicate Ruke’s controlling model loop rather than merely replace a driver. | MIT library; its hosted cloud/stealth services are separate products and excluded from this plan. |
 
@@ -279,7 +301,7 @@ The browser loop also has scope and routing decisions before tool execution, a 2
 
 **The original five-row plan is directionally sound, but should be implemented as adaptive capabilities rather than a rigid task classifier.** The model may request text, a richer DOM section or a screenshot whenever that helps. The harness should not decide this using website names or a fixed phrase list.
 
-The refined reference implementation is **actual Playwright + Chromium, compact task-relevant observations, guarded action batches, optional vision and verified outcomes**. This is an engineering recommendation assembled from maintained browser mechanics and published evaluation work; it is not a published guarantee that this exact Ruke implementation is optimal.
+The selected browser stack uses **Microsoft Playwright MCP + local Chromium** with compact observations, guarded batches, optional vision and verified outcomes.
 
 ### What the research establishes
 
@@ -307,7 +329,7 @@ Use standard locator `fill`, `check`, `selectOption` and `click` operations so p
 
 ### Ruke-specific changes established by the checked source
 
-1. **Reuse the real driver instead of extending the Rust Playwright-style port indiscriminately.** [pw.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/pw.rs#L1) is a custom CDP implementation. Its [classify_seg](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/pw.rs#L220) supports a narrower selector surface and rejects other engines. Naming a command `playwright_*` does not mean it uses the upstream Playwright implementation. Evaluate a maintained driver bridge locally and compare its behavior before deleting the port.
+1. **Replace the custom model-facing driver with Playwright MCP.** [pw.rs](https://github.com/saikiran121111/WebUI/blob/16e313ea931d616137ef463f57b3f8fc350a7cd6/rust-backend/crates/ruke-browser/src/pw.rs#L1) is Ruke's custom CDP implementation. Route approved actions through the upstream server and retire superseded handlers after the app's existing callers pass the acceptance gates.
 2. **Add a multi-field/guarded batch capability.** [tools.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/tools.rs#L450) exposes individual fills. The [browser-loop comment](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L66) describes one-call-per-model-round behavior as common for its local model; the loop can already accept several tool calls, so it should not be described as technically limited to one. Measure the actual round count.
 3. **Fix visual output when requested.** [cull_tool_result](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L239) removes images. The [screenshot tool description](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/tools.rs#L239) also promises only a text summary. Update the transport, tool contract and tests together. This is optional vision that works when used, not compulsory vision on every step.
 4. **Make large observations navigable.** [tool_content](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L259) truncates serialized results. Add targeted reads/pagination and explicit truncation metadata so the model can retrieve omitted evidence.
@@ -325,7 +347,7 @@ Track completed tasks, incorrect actions, recoveries, model calls, input/output 
 
 Use BrowserGym/AgentLab selectively as evaluation references or adapters; full benchmark environments do not need to ship with Ruke or run on every end-user laptop. Keep deterministic local fixtures and actual final-state assertions as the inexpensive regression foundation. Do not require paid judge models.
 
-**Verification status:** the browser follow-up was verified against c115256155ce21887633bca5965aeeb880bfe6d1; the publication baseline is recorded at the top of this plan. The existing local code graph was consulted but contains stale paths, so source findings above were verified directly against that commit. This follow-up researched sources and updated the plan; it did not implement the driver, run an agent benchmark or establish cross-platform runtime pass rates.
+**Verification status.** The earlier audit used c115256155ce21887633bca5965aeeb880bfe6d1. This scope revision rechecked the browser, core skills and mode wiring directly at 16e313ea931d616137ef463f57b3f8fc350a7cd6. The local graph contains older paths. The selected driver and retirement are implementation tasks with pending runtime acceptance gates.
 
 ## Feature-by-feature comparison
 
@@ -333,7 +355,7 @@ The table covers 45 feature areas or integration concerns. “Keep” means an a
 
 | Feature | Current code / existing reuse | Best-fit alternative | Recommendation and limits | Priority |
 |---|---|---|---|---|
-| Browser actions and DOM/accessibility snapshots | [rust-backend/crates/ruke-browser/src/executor.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/executor.rs) plus custom pw.rs, ax.rs and CDP modules. | Actual [Playwright](https://playwright.dev/docs/intro) with Chromium as the reference driver; agent-browser as a comparison candidate. | Use the maintained Playwright implementation behind Ruke’s existing boundary; keep the model loop and panel. Compare agent-browser only after establishing correctness and timing on the reference path. | First |
+| Browser actions and DOM/accessibility snapshots | [rust-backend/crates/ruke-browser/src/executor.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/executor.rs) plus custom pw.rs, ax.rs and CDP modules. | [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) with local Chromium. | Use the upstream MCP tools behind Ruke's existing boundary. Keep the model loop and panel. Remove superseded custom actions after regression tests. | First |
 | Browser screenshots reaching the model | [cull_tool_result](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L239) removes image strings over 256 characters; [tool-result append](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L816) sends a text string. | Fix the multimodal bridge with the chosen driver and a vision-capable model. | Required independently of replacement. Do not send raw base64 as ordinary prose, and do not replace requested screenshots with placeholders. | First |
 | Live browser panel and human takeover | [lib/browser-client/browserClient.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/browser-client/browserClient.ts#L1) has RPC, ticketed WebSocket, frames, tab updates and approval/auth cards. | [agent-browser streaming](https://agent-browser.dev/streaming) provides a reusable frame/input transport. | Keep the Ruke UI. Adapt streaming behind its contract; preserve authentication, frame freshness, coordinate mapping and human input. A tool server alone does not replace the panel. | With browser pilot |
 | Browser sessions, login and tab ownership | [rust-backend/crates/ruke-browser/src/session.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/session.rs) and [rust-backend/crates/ruke-browser/src/auth_handoff.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/auth_handoff.rs) own the application-specific lifecycle. | Use the selected driver’s persistent profiles/contexts; preserve Ruke ownership and login handoff. | Keep application semantics. Prove cookies persist and separate conversations cannot manipulate each other’s tabs. Avoid deleting this code just because a replacement can click. | With browser pilot |
@@ -373,7 +395,7 @@ The table covers 45 feature areas or integration concerns. “Keep” means an a
 | ZIP generation and basic ZIP reading | [lib/three3d/zipWriter.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/zipWriter.ts#L32) handwrites ZIP headers/CRC; [lib/server/extract/zip.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/server/extract/zip.ts#L13) handreads ZIP structures. | [fflate](https://github.com/101arrowz/fflate), already in package.json and used by powerbiEngine.ts. | Concrete duplication. Consolidate suitable paths onto the installed dependency, preserving output compatibility and decompression limits. Keep 7-Zip fallback for formats/features the library does not cover. | High value, small scope |
 | Other archives and uncommon formats | [lib/server/extract/archives.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/server/extract/archives.ts) already uses 7zip-bin/node-unrar-js and system compression helpers. | Keep the existing tools and bounded extraction wrapper. | Do not replace a mature decoder with more hand-written format parsing. Extraction limits and recursive archive policy remain application responsibilities. | Keep |
 | Skills installation and lazy loading | [lib/skills/registry.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/skills/registry.ts#L7) uses npx skills; scenario/loading behavior is custom. | [Vercel skills](https://github.com/vercel-labs/skills), already used. | Keep the installer integration. Lazy loading, visible/core skill separation and activation metadata are Ruke features worth preserving. | Keep |
-| External tool protocol | The browser supports page-declared WebMCP; the inventoried main dependencies do not show a general MCP client. | [Official MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk). | Add only when connecting external tool servers, including Playwright MCP if selected. Page WebMCP and an MCP client are different integrations; avoid a new custom transport protocol. | With selected integration |
+| External tool protocol | Page-level WebMCP exists. Source and manifests lack an external MCP client path for the browser. | [Official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk) with local stdio transport. | Connect the existing Rust browser authority to the pinned Playwright MCP tool server. Scope calls and content to the active session. | Browser migration |
 | Title generation and inference scheduling | [lib/server/titles/queue.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/server/titles/queue.ts#L2) prioritizes active chat over queued title inference; Rust has corresponding scheduling support. | Keep the focused queue and shared inference ownership. | A Redis-backed queue would add infrastructure without automatically preserving single-model scheduling. Replace only if durable distributed jobs become a real requirement. | Keep |
 | Logging, automated tests and model evaluations | Pino, Rust tracing, Vitest and Playwright are already present; the repository includes extensive fixtures and regression scripts. | Local [Promptfoo](https://github.com/promptfoo/promptfoo) with existing Vitest/Playwright tests. | Keep existing tests. Add repeatable end-to-end scoring against the local model. Do not require paid judge models or a new hosted dashboard. A self-hosted tracing platform can be evaluated later if its infrastructure is justified. | Evaluations high value |
 | Voice UI and multi-user accounts | [components/ChatInput.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/ChatInput.tsx#L425) identifies inert voice placeholders; [lib/user.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/user.ts#L1) supplies a display name. | No existing working voice-input or account system was established by these components; [Better Auth](https://github.com/better-auth/better-auth) is a future account option. | These are scope clarifications, not components currently being reinvented. Audio attachment transcription is a separate implemented feature. | Future only |
@@ -427,7 +449,7 @@ These recommendations refer to the open-source/local software, not vendor-hosted
 | fflate | MIT; already installed | No | No additional service required. |
 | SQLite FTS5 / sqlite-vec | Public-domain SQLite / Apache-2.0 or MIT sqlite-vec | No | Local storage and extension integration; sqlite-vec is still pre-v1. |
 | assistant-ui / AI SDK | MIT / Apache-2.0 core | No | Optional libraries, not required hosted services; use the local model endpoint. |
-| MCP SDK | Check pinned major; current TypeScript v2 is Apache-2.0 | No | Tool-server process management and protocol integration. |
+| MCP SDK | Official Rust SDK. Check the pinned release's license and minimum Rust version. | No | Local stdio process management and typed tool integration. |
 | Promptfoo | MIT local tooling | No | Evaluations use model compute; keep grading local/deterministic. |
 
 Open-source licenses still impose conditions. Keep notices and review the exact distribution model before bundling applications or modifying copyleft components. This audit is not a complete legal review of transitive dependencies.
@@ -440,7 +462,7 @@ For the consumer-laptop baseline, account for Windows, shared integrated-graphic
 
 ### Stage 1: browser observations and maintained-driver evaluation
 
-Keep the normal web-search routes and provider code unchanged. Introduce one internal driver boundary for navigation, observations, actions, screenshots, tabs and lifecycle. Implement one pilot driver first; avoid maintaining multiple production stacks indefinitely.
+Preserve the current web-search routes, provider code, evidence pipeline and browser reader. Introduce a narrow Playwright MCP adapter for interactive actions, observations, screenshots, tabs and lifecycle integration. Keep one production action driver.
 
 Preserve current user-facing tools where practical, mapping them to the upstream driver. Return structured, actionable failures. Keep session identity server-owned; never trust a caller-supplied session string as authorization. Continue human login inside the actual browser. Never claim a CAPTCHA or authentication wall was solved when it was not.
 
@@ -469,7 +491,7 @@ Record completion rate, wrong actions, recovery rate, latency, tokens and full p
 
 ### Stage 2: retire built-in 3D and CAD coherently
 
-Remove the built-in studio/viewer/generation/drafting paths, their advertised model capabilities and unused dependencies. Trace shared imports and update contracts/tests before deletion. Preserve existing conversation content and artifact files; provide an honest compatibility view for retired fences.
+Remove the built-in studio, viewing, generation and drafting paths, their advertised model capabilities and unused dependencies. Remove the 24 core bundles and corresponding records listed in the verified inventory. Separate retained 2D Anatomy from the CAD mode first. Trace shared imports and update contracts and fixtures before deletion. Preserve existing conversation content and artifact files with a read-only compatibility view for retired fences.
 
 Verify the retained chat, browser, Office, HTML, chart and independent 2D illustration features still work, and that a normal installation no longer requires a 3D/CAD application. Future Blender MCP connectivity is a separate feature and must not be implemented as an automatic replacement during this cleanup.
 
