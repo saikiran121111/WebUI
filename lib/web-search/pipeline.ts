@@ -1138,6 +1138,31 @@ export async function runWebResearch(
     packets = scopeAdmitted;
   }
 
+  // AUDIT 2026-11-05 item 7 (WS07): the §7 recheck above covered only the
+  // INITIAL wave. The gap hop, the route-follow hop and the deep demand
+  // wave each lawed their SERPs (applyDomainControl) but never the FINAL
+  // origins of what extraction returned — a fetch crossing a registrable
+  // boundary after a lawed SERP row still laundered off-site content into
+  // segment filtering, citation renumbering, merging, reranking and
+  // grounding. ONE final-origin packet-admission function, applied to
+  // EVERY acquisition wave's extracted packets BEFORE any downstream
+  // consumer sees them (renumbering is where citation ids are minted).
+  // applyScopeToPackets keeps honest FAIL states (an auth wall behind a
+  // redirect is an access state, not off-site content) and is a no-op
+  // with no armed boundary, so unscoped runs ride every wave byte-
+  // identically. The fetch-layer page cache is keyed by the fetched URL,
+  // so admission at the packet level never re-admits a dropped packet.
+  const admitWave = <T extends EvidencePacket>(wave: T[], waveName: string): T[] => {
+    const admitted = applyScopeToPackets(wave, plannerLaw);
+    if (admitted.length !== wave.length) {
+      log.info(
+        { wave: waveName, dropped: wave.length - admitted.length },
+        "cross-boundary redirect wave packets dropped by the task-scope admission law",
+      );
+    }
+    return admitted;
+  };
+
   const qTexts = gate.decision.queries.map((q) => q.query);
   const singleUrlQuery = promptUrls.length === 1;
 
@@ -1200,7 +1225,10 @@ export async function runWebResearch(
       gapSearchFired = true;
       // §19 gap-hop page budget: targeted second-hop coverage needs at most 3
       // fresh pages, not 5 (mirrors Rust).
-      const gapPackets = await extractAll(gapResults, 3, undefined, undefined, undefined, undefined, liveRequired);
+      const gapPackets = admitWave(
+        await extractAll(gapResults, 3, undefined, undefined, undefined, undefined, liveRequired),
+        "gap",
+      );
       // §11.12 gap-hop half (⇔ Rust): the gap query joins the filter query
       // so coverage for the missing entities survives the drop rules.
       applySegmentFilter(gapPackets, segmentFilterQuery + " " + coverage.gapQuery);
@@ -1288,14 +1316,17 @@ export async function runWebResearch(
         { harvested: routes.length, followed: routeCandidates.map((r) => r.url) },
         "route-follow hop fired",
       );
-      const routePackets = await extractAll(
-        routeCandidates,
-        plannerLaw.budget.maxGapPageFetches,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        liveRequired,
+      const routePackets = admitWave(
+        await extractAll(
+          routeCandidates,
+          plannerLaw.budget.maxGapPageFetches,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          liveRequired,
+        ),
+        "route-follow",
       );
       applySegmentFilter(routePackets, segmentFilterQuery + " " + ctx.userPrompt);
       renumberPackets(routePackets, nextSourceIndex(allHopPackets));
@@ -1366,7 +1397,10 @@ export async function runWebResearch(
         for (const q of gapDemand.queries) {
           const waveResults = applyDomainControl(await runGapMetasearch(q), plannerLaw);
           if (waveResults.length === 0) continue;
-          const fresh = await extractAll(waveResults, 3, undefined, undefined, undefined, undefined, liveRequired);
+          const fresh = admitWave(
+            await extractAll(waveResults, 3, undefined, undefined, undefined, undefined, liveRequired),
+            "demand",
+          );
           applySegmentFilter(fresh, segmentFilterQuery + " " + q);
           renumberPackets(fresh, nextSourceIndex([...packets, ...secondHopPackets, ...wavePackets]));
           wavePackets.push(...fresh);
