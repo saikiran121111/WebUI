@@ -4,10 +4,12 @@
 - **Repository / branch:** `saikiran121111/WebUI` / `develop`.
 - **Published:** 6 November 2026, Asia/Kolkata.
 - **Publication baseline:** `dcfb2c56cb2d0e54c893f402b74837ef01d9ebd3`.
-- **Priority:** Interactive browser reliability and efficiency first; then worthwhile CAD, CPU 3D, presentation, document and UI improvements.
+- **Priority:** Interactive browser reliability and efficiency first; then worthwhile presentation, document, ingestion and chat UI improvements. Built-in 3D and CAD are removed from the target.
 - **Web-search scope:** Preserve the current TypeScript web-search implementation and its latest evidence work. Do not migrate to SearXNG, restore Rust retrieval, replace search engines or restart the search architecture under this plan.
 
 This document consolidates the conversation's final decisions and the source-backed recommendation into one repository-owned implementation brief. Its execution requirements and latest decisions supersede earlier exploratory suggestions in the conversation. The detailed 45-area review and primary-source references follow the implementation phases.
+
+**Latest scope decision — 6 November 2026:** Retire built-in 3D creation, AI asset generation, 3D viewing/editing and CAD/BIM features from the core product. The inspected CAD implementation is a floor-plan/preview system; no AutoCAD-level architecture-design capability has been demonstrated, so it does not pass the user's retention condition. Defer Blender to a future external MCP integration. This revision updates the implementation plan only; feature removal in application code is pending. Retained browser tasks may still inspect graphical/3D websites—this decision concerns Ruke's own modeling studios.
 
 ## 1. Product outcome and constraints
 
@@ -21,8 +23,8 @@ Build a familiar, responsive chat UI in which the model understands the conversa
 - **Exclude TRELLIS and other GPU-dependent 3D generators.** Exclude Meshy or another paid asset API as a requirement of the target implementation.
 - Avoid website/company-specific routing patches. Domain resolution, page interaction and research-related browser behavior must work from the actual user request, current state and available evidence.
 - Keep one controlling main model. Do not add a mandatory YES/NO search classifier, secondary local model, prompt-rewriting worker or separate agent framework merely to route every input.
-- Preserve existing APIs, stored conversations, titles, attachments, settings, user/core skill separation, browser panel and artifacts during incremental changes.
-- Install optional engines lazily/on demand. Do not keep a CAD engine, Blender, OCR/model workers and multiple browser agents resident during normal chat.
+- Preserve retained APIs, stored conversations, titles, attachments, settings, user/core skill separation, browser panel and existing artifacts during incremental changes. Retire only the explicitly scoped 3D/CAD features.
+- Start optional Office/OCR workers on demand. Do not bundle or keep a CAD engine, Blender, 3D generation model or additional browser agent resident during normal chat.
 
 ### Intended chat behavior
 
@@ -34,6 +36,25 @@ Build a familiar, responsive chat UI in which the model understands the conversa
 - On a login-dependent task, offer the real browser handoff, let the human sign in, accept their resume/confirmation action in chat or the panel, and then **verify the resulting page state**. A “logged in” answer alone is not proof.
 - Keep reasoning behavior aligned with the user's preference. Never expose secrets, raw internal routing contracts or infrastructure jargon as normal product UI.
 - Preserve truthful provenance and current search evidence/citations. Treat the search scenarios from the conversation as regression requirements, not authorization to redesign web search in this change set.
+
+### Library choices at a glance
+
+| Area | Existing implementation | Proposed library change |
+|---|---|---|
+| Interactive browser | Playwright is installed; interactive actions use a custom Rust/CDP implementation | Reuse actual Playwright + Chromium for the reference driver. Keep Rust chat/session ownership. Benchmark agent-browser only as an alternative. |
+| Browser vision and speed | Screenshot bytes are omitted for the model; actions commonly take several rounds | Update Ruke's image transport and add checked action batches using existing browser operations. No mandatory new model or package. |
+| PowerPoint | PptxGenJS plus chart images | Keep PptxGenJS and use native editable chart objects where appropriate. |
+| Excel | ExcelJS plus a limited custom formula evaluator | Keep ExcelJS; trial a local LibreOffice Calc worker for broader recalculation. |
+| Word and PDF output | docx and Playwright/Chromium printing | Keep the existing libraries and improve output validation. |
+| Scanned/complex input | unpdf and basic Office text extraction | Trial Docling on demand for OCR, layout and tables; preserve the simple-file path. |
+| Charts | Separate hand-written chart renderers | Trial Apache ECharts as a shared renderer. |
+| ZIP files | Custom code plus an installed fflate dependency | Reuse fflate on compatible paths and retire redundant code. |
+| Audio/video uploads | Whisper through Transformers.js and FFmpeg | Keep them. Benchmark whisper.cpp only if a measured CPU problem justifies it. |
+| Built-in 3D and CAD | Three.js studio, Meshy provider and custom floor-plan viewer | Retire the built-in features. No replacement 3D/CAD dependency is selected. |
+| Blender | No selected external connection in this plan | Future local MCP integration with separately installed Blender. |
+| UI, model transport, attachment search | Existing Ruke code and local storage | assistant-ui, AI SDK and SQLite FTS5/sqlite-vec remain selective options, not default additions. |
+| Testing | Vitest and Playwright | Keep both; add local model/task comparisons as needed. |
+| Web search | Current TypeScript search and evidence pipeline | Preserve it unchanged. |
 
 ## 2. Implementation sequence
 
@@ -86,20 +107,21 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 - [ ] Bound retries, observation sizes and execution time through configurable resource controls, with honest errors and access to more evidence when needed.
 - [ ] Require a readback of the requested outcome; a successful tool call is not sufficient to claim completion.
 
-### Phase 4 — CPU-friendly CAD and 3D assets
+### Phase 4 — retire built-in 3D/CAD; defer Blender to MCP
 
-- [ ] Keep Three.js for lightweight browser delivery and existing useful studio interactions.
-- [ ] Use procedural geometry/code generation as the default CPU-friendly asset path. Evaluate JSCAD only for constructive-solid operations it actually improves.
-- [ ] Pilot FreeCAD for precise parametric engineering geometry, constraints, dimensions and editable CAD documents. Preserve units, layers and native/interchange exports.
-- [ ] Evaluate Maker.js for reusable embedded 2D geometry/export; use LibreCAD only where a real drafting/conversion application is needed.
-- [ ] Add Blender as an optional local CPU modeling/rendering worker for requested richer operations. Keep large meshes, high-resolution textures and costly photorealistic renders out of the default path.
-- [ ] Run one heavy optional job at a time with cancellation and bounded work directories. Include the chat model, OS, browser and integrated-graphics shared memory in the 16 GB budget.
-- [ ] Do not describe procedural objects as equivalent to arbitrary high-detail GPU-generated meshes. Report actual capability limits.
-- [ ] Preserve the existing asset-provider/artifact interface and useful existing jobs while moving toward the free local target; no silent paid fallback.
-- [ ] Validate geometry, dimensions, hierarchy, materials, export re-open and browser preview. Add glTF Transform only for a concrete processing/optimization need.
-- [ ] Use Google model-viewer only if simple asset viewing is sufficient; do not lose the existing editing/outliner/transform features by substituting a basic viewer.
-- [ ] Isolate generated execution properly. The current live-page new Function and same-origin generated HTML issues are in the appendix; passing a few function arguments is not isolation.
-- [ ] Preserve the already-vendored anatomy/illustration kit and attribution; a generic modeling engine does not create correct domain content automatically.
+- [ ] Remove built-in scene3d, asset3d, threejs and cad capability advertising, renderer selection and controls. A removed feature must not still be promised to the model or user.
+- [ ] Trace lib/three3d/, lib/cad/, related components/render/ renderers and app/api/3d/ routes before deletion. Update callers, types, contracts, tests, styles and exports together.
+- [ ] Remove the Meshy-specific provider requirement, polling flows and unused configuration from the retired path. Do not introduce another paid API or GPU-only replacement.
+- [ ] Remove the live-page generated Three.js execution path along with its retired renderer; keep the separate HTML-artifact isolation fix for retained interactive HTML.
+- [ ] Remove 3d_asset/cad_blueprint renderer-routing branches and associated activation metadata where no retained feature uses them. Follow repository skill-management rules; do not rewrite downloaded SKILL.md bodies.
+- [ ] Trace imports before removing Three.js or any shared helper. Retained browser, document, chart and 2D illustration features must not break.
+- [ ] Preserve saved conversations, existing downloaded/exported assets and user files. Display old retired fences through an honest read-only compatibility message/download card instead of executing their old generated code.
+- [ ] Remove built-in CAD/BIM previews and DXF-generation UI from the target. Current floor-plan previews do not establish AutoCAD-level design, constraints, editing or drawing compatibility.
+- [ ] Keep ordinary 2D charts, Mermaid diagrams and independent SVG illustrations. Inspect anatomy-kit dependencies; retain only independent 2D functionality.
+- [ ] Do not install FreeCAD, JSCAD, Maker.js, LibreCAD, model-viewer, glTF Transform or Blender as part of this retirement phase.
+- [ ] For a future Blender feature, research a free local MCP server and its licenses/capabilities before selection. The future connection controls separately installed Blender; it does not recreate an inbuilt 3D studio.
+- [ ] Future MCP tools must be discovered from the connected server, exposed only while available, and integrated with the existing main model, session controls and artifact/download cards. No new always-on planner or required paid endpoint.
+- [ ] Treat future Blender connectivity as a separate implementation request. A full CAD integration can be reconsidered only against explicit architecture-design requirements and demonstrated capability.
 
 ### Phase 5 — presentations, spreadsheets, documents and ingestion
 
@@ -120,7 +142,7 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 
 - [ ] Preserve streaming, stop/cancel, retry, attachments, citations, browser status, recents, protected titles, conversation persistence and follow-up context.
 - [ ] Keep stream updates rAF-batched, completed messages memoized and expensive highlighting deferred while a fence is streaming, as required by CLAUDE.md.
-- [ ] Lazy-load viewers and optional engines. Pause off-screen animation and dispose geometries, materials, textures and graphics contexts on unmount.
+- [ ] Lazy-load retained viewers and optional Office/OCR engines. Dispose resources on unmount and ensure retired 3D/CAD animation loops and workers are no longer started.
 - [ ] Make progress and failures understandable: distinguish “opening,” “reading,” “waiting for login,” “completed” and “could not verify” without pretending success.
 - [ ] Keep keyboard, focus, scrolling, responsive layout and accessible controls working throughout streaming and browser handoff.
 - [ ] Preserve meaningful artifact editing/export and clear generation errors. Avoid a renderer router suppressing a valid generated artifact.
@@ -153,7 +175,7 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 | Performance | Compare the same task/model/settings on the old and selected paths; report cold/warm latency distributions, model rounds/tokens and whole-process-tree memory/CPU. No wrong-action increase in return for speed. |
 | Consumer hardware | Normal chat/browser remains usable on the 16 GB CPU-only baseline with optional workers accounted for; no compulsory GPU service or persistent memory-heavy stack. |
 | Platforms | Native install, discovery, startup, shutdown, files, keyboard modifiers and graphics behavior verified on supported Windows/macOS/Linux builds. |
-| CAD and 3D | Dimension/unit correctness, appropriate geometry/materials, editable/native or interchange files that reopen and match the web preview. |
+| 3D/CAD retirement | No inbuilt 3D/CAD controls or model capability promises remain; old conversations/assets are preserved; retained features work without installing a 3D/CAD engine. Blender MCP remains deferred. |
 | Office artifacts | PPT charts are editable where promised; formulas/cached values are validated; Word/PDF/presentation output is visually checked in suitable applications. |
 | Search preservation | Existing normal research, explicit-site scope, citations, freshness and follow-ups do not regress; no SearXNG migration or default interactive-browser substitution. |
 | Maintainability | Reused libraries replace actual duplicated behavior; no orphan workers, dead parallel harnesses, fabricated skills or incidental framework rewrite. |
@@ -167,9 +189,9 @@ The following review contains the full recommendation matrix, original code evid
 
 Original source-audit evidence: 6 November 2026 (Asia/Kolkata), commit **c115256155ce21887633bca5965aeeb880bfe6d1**. Publication baseline for this plan: **dcfb2c56cb2d0e54c893f402b74837ef01d9ebd3**. The two intervening commits change web-search evidence handling and associated tests/documentation; they do not change the browser files cited below. Their changes are preserved and are not revalidated by this documentation commit.
 
-The revised scope prioritizes interactive browser use, CAD, 3D assets and presentations. Web search stays unchanged. Recommendations target locally run or self-hosted software with no required subscription, trial expiry, vendor request quota or paid API. Ordinary hardware, storage, power and operation costs remain. Software still has technical limits and license conditions; future upstream releases cannot be promised to retain today’s terms. Pin the versions, source, licenses and model weights used in a release.
+The revised scope prioritizes interactive browser use, presentations, documents and chat UI. Built-in 3D and CAD are excluded; Blender is a future external MCP option. Web search stays unchanged. The core target remains local/self-hosted software without a required subscription, trial expiry, vendor quota or paid API. Hardware costs, open-source obligations and future upstream licensing still require attention.
 
-**Hardware baseline: ordinary consumer laptops on Windows, macOS and Linux, with 16 GB total system RAM, an i5-class CPU or comparable Apple Silicon and no dedicated graphics card.** Required features must not depend on CUDA or GPU-only models. Browser previews may use supported integrated graphics. Measure the complete workload, including the operating system, the chat model, browser and optional workers. TRELLIS and other GPU-dependent generators are excluded.
+**Hardware baseline: ordinary consumer laptops on Windows, macOS and Linux, with 16 GB total system RAM, an i5-class CPU or comparable Apple Silicon and no dedicated graphics card.** Measure the complete OS/model/browser workload and start retained optional workers only when needed. TRELLIS, built-in 3D engines and CAD runtimes are outside the core target.
 
 This is a source and alternatives audit, not an implemented migration or a runtime comparison. I inventoried 351 source files under the main application/backend directories (including vendored illustration code and inline Rust tests), inspected subsystem entry points and representative implementations, and checked primary upstream repositories/documentation. I did not manually review every line of that inventory, run model-driven browser tests, install these alternatives or establish an application-wide pass rate.
 
@@ -181,7 +203,7 @@ The highest-value plan is:
 
 1. Repair the browser-to-model screenshot bridge and benchmark a maintained local browser driver behind Ruke’s current interface.
 2. Keep the panel, main model, session ownership and application-specific integration; reduce custom browser implementation only after a replacement proves it can preserve the needed functions.
-3. Keep lightweight Three.js/JSCAD procedural modeling as the consumer-laptop 3D path. Pilot FreeCAD for precise CAD and optional Blender CPU jobs on demand; expensive rendering is not required for normal use.
+3. Retire the built-in 3D/CAD studios and related runtime promises; preserve user files and independent 2D features. Defer Blender to a future external MCP connection.
 4. Improve presentations using features of the PptxGenJS dependency already installed.
 5. Replace or consolidate genuinely duplicated infrastructure: ZIP handling, chart drawing, advanced document parsing and spreadsheet calculation.
 6. Keep the existing web-search system and leave its provider settings untouched.
@@ -314,15 +336,15 @@ The table covers 45 feature areas or integration concerns. “Keep” means an a
 | Live browser panel and human takeover | [lib/browser-client/browserClient.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/browser-client/browserClient.ts#L1) has RPC, ticketed WebSocket, frames, tab updates and approval/auth cards. | [agent-browser streaming](https://agent-browser.dev/streaming) provides a reusable frame/input transport. | Keep the Ruke UI. Adapt streaming behind its contract; preserve authentication, frame freshness, coordinate mapping and human input. A tool server alone does not replace the panel. | With browser pilot |
 | Browser sessions, login and tab ownership | [rust-backend/crates/ruke-browser/src/session.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/session.rs) and [rust-backend/crates/ruke-browser/src/auth_handoff.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/auth_handoff.rs) own the application-specific lifecycle. | Use the selected driver’s persistent profiles/contexts; preserve Ruke ownership and login handoff. | Keep application semantics. Prove cookies persist and separate conversations cannot manipulate each other’s tabs. Avoid deleting this code just because a replacement can click. | With browser pilot |
 | Browser planning, routing and completion | [rust-backend/crates/ruke-server/src/chat/browser_loop.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L1) routes operational intent and drives tools; [rust-backend/crates/ruke-server/src/task_scope.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/task_scope.rs) supplies scope. | Ruke’s main model with the selected local driver. Browser Use and Stagehand are comparison candidates. | Keep one controlling model loop and the local model endpoint. Driver replacement does not remove routing refusals or repair scope extraction. Avoid adding a second agent/controller without evidence it helps. No hosted Browser Use/Browserbase service is required or selected. | With browser pilot |
-| CAD floor plans and simple BIM preview | [lib/cad/cadSchema.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/cadSchema.ts#L4) defines 2D entities, walls/slabs and extruded massing; [lib/cad/cadEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/cadEngine.ts) implements the viewer. | [FreeCAD](https://github.com/FreeCAD/FreeCAD) for precise parametric geometry; retain a web preview. | Use FreeCAD as a separate geometry/document engine for real solids, dimensions and editable CAD files. Keep the current lightweight preview where it is useful. This is a substantial adapter, not an AutoCAD-compatible UI swap. | After browser |
-| 2D geometry, DXF and drafting | [cadToDxf](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/svgToDxf.ts#L26) writes DXF; cad2d/cadBlocks provide drawing primitives. | [Maker.js](https://github.com/microsoft/maker.js) for embedded geometry/export; [LibreCAD](https://github.com/LibreCAD/LibreCAD) for full 2D drafting/conversion. | Pilot Maker.js for reusable geometry/export functions. LibreCAD is a separate desktop application, not a React component. Check round trips and annotations before retiring the current DXF writer. | Selective |
-| Parametric JavaScript solid modeling | Current 3D paths use Three.js meshes and custom scene specifications. | [JSCAD](https://github.com/jscad/OpenJSCAD.org). | Optional browser/Node alternative for constructive solid geometry. Prefer FreeCAD for engineering workflows requiring its constraint and document model. Do not install both without a concrete need. | Optional |
-| Procedural 3D models, materials and rendering | [lib/three3d/sceneBuilder.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/sceneBuilder.ts) and [lib/three3d/studioEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/studioEngine.ts) already build on Three.js. | Three.js/JSCAD for lightweight construction; [Blender](https://github.com/blender/blender) only as an optional CPU worker. | Keep basic modeling and previews lightweight. Launch Blender only for requested operations; bound mesh complexity, textures, render samples and job duration. CPU rendering can be slow; test on the baseline laptop. | Consumer-laptop pilot |
-| AI-generated 3D assets | [lib/three3d/providers/index.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/providers/index.ts#L8) selects only Meshy. No configured key means no AI provider; the comment about local generators is not an implementation. | CPU-based procedural modeling using Three.js/JSCAD; optional Blender CPU jobs. | TRELLIS and other GPU-dependent generators are excluded. Geometry/code generation is not an equivalent CPU replacement for arbitrary high-detail AI mesh generation. Meshy is outside the free-only target. | CPU-first target |
-| 3D asset preview | [components/render/ThreeStudioViewer.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/render/ThreeStudioViewer.tsx) has scene editing, picking, transforms and custom studio controls. | [Google model-viewer](https://github.com/google/model-viewer) for straightforward GLB/glTF viewing. | Use only for simple asset previews if it reduces code. It does not replace the current editing studio, outliner or manipulation features. | Optional |
-| 3D export and asset optimization | [lib/three3d/exporters.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/exporters.ts#L1) already imports Three.js GLTFExporter and mesh exporters. | [glTF Transform](https://github.com/donmccurdy/glTF-Transform) for processing/optimization. | Keep existing exporters. Add glTF Transform only where optimization/normalization is needed; validate resulting assets and external textures. It is not a generation model. | Selective |
-| Executable 3D code isolation | [runThreeCode](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/codeRunner.ts#L37) executes new Function; [components/render/ThreeStudioViewer.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/render/ThreeStudioViewer.tsx#L214) calls it in the live client. | An isolated rendering origin/process; Blender worker for server-side scripts; [Sandpack](https://github.com/codesandbox/sandpack) only if a live code playground is needed. | Fix isolation before widening execution. Passing THREE/root/api as arguments does not restrict access to browser globals. A library named sandbox is not sufficient proof of isolation. | Required fix |
-| Anatomy and technical illustrations | [lib/anatomy/kit/NOTICE.md](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/anatomy/kit/NOTICE.md#L3) records an already-vendored MIT illustration kit. | Keep the existing upstream kit and application adapter. | This feature is already reuse. A generic 3D engine will not supply correct anatomical content or labels automatically. | Keep |
+| CAD floor plans and simple BIM preview | [lib/cad/cadSchema.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/cadSchema.ts#L4) defines 2D entities, walls/slabs and extruded massing; [lib/cad/cadEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/cadEngine.ts) implements the viewer. | Retire built-in CAD from the current core scope. | The current schema provides floor plans and extruded previews, with no demonstrated AutoCAD-level architecture-design capability. Remove the feature coherently and preserve historical artifacts. | Remove from core |
+| 2D geometry, DXF and drafting | [cadToDxf](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/svgToDxf.ts#L26) writes DXF; cad2d/cadBlocks provide drawing primitives. | Retire the CAD-specific built-in drafting/export path. | No new Maker.js or LibreCAD integration is selected. Preserve independent charts/diagrams and existing exported files; reconsider full drafting later against explicit requirements. | Remove from core |
+| Parametric JavaScript solid modeling | Current 3D paths use Three.js meshes and custom scene specifications. | No JSCAD addition. | Built-in solid modeling is removed from the target. Future external capabilities must be separately selected and validated. | Excluded |
+| Procedural 3D models, materials and rendering | [lib/three3d/sceneBuilder.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/sceneBuilder.ts) and [lib/three3d/studioEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/studioEngine.ts) already build on Three.js. | Retire built-in 3D creation and studio controls. | Do not replace them with another embedded engine. Blender is deferred to a separately installed application controlled through a future MCP connection. | Remove from core |
+| AI-generated 3D assets | [lib/three3d/providers/index.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/providers/index.ts#L8) selects only Meshy. No configured key means no AI provider; the comment about local generators is not an implementation. | Remove the inbuilt generation/provider path. | No Meshy subscription, TRELLIS model or local generative replacement is required. Preserve existing user assets and avoid advertising unavailable generation. | Remove from core |
+| 3D asset preview | [components/render/ThreeStudioViewer.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/render/ThreeStudioViewer.tsx) has scene editing, picking, transforms and custom studio controls. | Remove the inbuilt 3D viewer/editor. | No model-viewer replacement is selected. Existing saved assets can remain accessible through read-only metadata/download cards. | Remove from core |
+| 3D export and asset optimization | [lib/three3d/exporters.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/exporters.ts#L1) already imports Three.js GLTFExporter and mesh exporters. | Retire exports tied to the built-in studio. | Preserve existing files. No glTF Transform dependency is proposed now; a future external MCP workflow can return artifacts without a new embedded studio. | Remove from core |
+| Executable 3D code isolation | [runThreeCode](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/codeRunner.ts#L37) executes new Function; [components/render/ThreeStudioViewer.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/render/ThreeStudioViewer.tsx#L214) calls it in the live client. | Remove the retired Three.js execution path. | Remove its callers and capability promises. Generated HTML remains a separate retained feature and still needs proper isolation. | Retirement fix |
+| Anatomy and technical illustrations | [lib/anatomy/kit/NOTICE.md](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/anatomy/kit/NOTICE.md#L3) records an already-vendored MIT illustration kit. | Retain independent 2D/SVG illustrations only. | The already-vendored kit is not a reason to retain the general 3D pipeline. Inspect shared dependencies and remove any 3D-dependent path without breaking independent diagrams. | Keep 2D only |
 | PPT creation | [lib/documents/pptxEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/documents/pptxEngine.ts#L81) already uses PptxGenJS. | [PptxGenJS](https://github.com/gitbrent/PptxGenJS). | Keep it. Replacing it with a Python library would largely repeat an existing capability and add another integration. | Keep |
 | Editable PPT charts | [lib/documents/pptxEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/documents/pptxEngine.ts#L101) renders chart PNGs for the deck. | [PptxGenJS addChart](https://gitbrent.github.io/PptxGenJS/docs/api-charts.html). | Use native chart objects where editability matters. Retain images when fidelity is the goal. This improvement needs no new chart-generation dependency. | High value, small scope |
 | PPT animation and morph processing | [lib/documents/pptxEngine.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/documents/pptxEngine.ts#L213) invokes scripts/pptx_morph_injector.py after generation. | Keep the focused adapter until a proven library feature covers the same transitions. | No verified drop-in replacement for the current morph behavior was established. Separate slide content generation from optional animation post-processing and test in the target presentation application. | Keep / validate |
@@ -355,31 +377,22 @@ The table covers 45 feature areas or integration concerns. “Keep” means an a
 | Voice UI and multi-user accounts | [components/ChatInput.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/ChatInput.tsx#L425) identifies inert voice placeholders; [lib/user.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/user.ts#L1) supplies a display name. | No existing working voice-input or account system was established by these components; [Better Auth](https://github.com/better-auth/better-auth) is a future account option. | These are scope clarifications, not components currently being reinvented. Audio attachment transcription is a separate implemented feature. | Future only |
 | Web search | Existing TypeScript search adapters, extraction, research loop, citations and research journal. | No replacement proposed in this revised audit. | Leave the search implementation and provider configuration unchanged as requested. Browser migration must not silently reroute ordinary search through the interactive browser. | Locked out of changes |
 
-## CAD and 3D: choose the engine by the artifact
+## 3D and CAD scope decision
 
-Ruke’s current CAD contract is explicitly a floor-plan/blueprint schema with extruded massing, not a general parametric CAD kernel ([lib/cad/cadSchema.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/cadSchema.ts#L4)). Its 3D studio is a Three.js application. Those are valuable web experiences, but they do not supply every operation of an engineering or artistic modeling application.
+The inspected [CAD schema](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/cad/cadSchema.ts#L4) describes a floor-plan/blueprint representation with extruded previews. This is not evidence of an AutoCAD-level architecture-design application. Under the user's condition, **built-in CAD is removed from the core plan**, alongside built-in 3D generation, scene construction, viewers/editors and associated exports.
 
-| User goal | Preferred free local engine | What Ruke retains | Main integration work |
-|---|---|---|---|
-| Dimensionally precise parts, sketches, constraints and editable engineering models | [FreeCAD](https://github.com/FreeCAD/FreeCAD) | Chat, artifact cards and web preview | Convert structured operations into validated FreeCAD documents; export preview and editable native/interchange artifacts. |
-| Artistic models, modifiers, materials, animation and rendered images | [Blender](https://github.com/blender/blender) | Chat and Three.js delivery/viewing | Run background modeling/render jobs; validate scripts, geometry and exports; preserve job cancellation and useful error output. |
-| Embedded 2D geometry and drawing export | [Maker.js](https://github.com/microsoft/maker.js) | Floor-plan UI and application schema | Map entities, units, dimensions and layers; compare round-trip outputs. |
-| A separate full 2D drafting application/conversion tool | [LibreCAD](https://github.com/LibreCAD/LibreCAD) | File handoff and generated artifacts | Desktop/CLI integration. It is not a web UI component and is not an unrestricted AutoCAD replacement. |
-| Parametric solid generation in JavaScript | [JSCAD](https://github.com/jscad/OpenJSCAD.org) | Preview and conversation | Optional geometry adapter; avoid duplicating FreeCAD unless this browser/Node capability is needed. |
-| CPU-first 3D creation | Three.js/JSCAD; optional Blender CPU worker | Existing artifact interface and web viewer | Generate and validate procedural geometry. GPU-dependent models are excluded; no equivalent quality or speed promise is made. |
+This does not claim that full CAD can never be integrated. It means the current system has not demonstrated the required capability, and building another CAD application is outside this implementation. Keep independent 2D charts, diagrams and SVG illustrations.
 
-FreeCAD documents Windows support and a Python API. Blender’s source documents background execution and Python script switches ([creator_args.cc](https://github.com/blender/blender/blob/main/source/creator/creator_args.cc)); its [README](https://github.com/blender/blender) identifies it as a GPLv3 3D creation suite. Use separate, controlled worker processes for generated scripts rather than executing them with unrestricted access to application secrets and files.
+**Future direction: external Blender over MCP.** No server is selected or installed by this plan. First review an appropriate local open-source server's license, supported operations, cross-platform packaging and resource behavior. Integrate available tools with the existing main model and artifact cards when that separate feature is requested. Do not rebuild a 3D studio or bundle Blender into ordinary chat startup.
 
-**TRELLIS and other GPU-dependent generators are excluded.** Use procedural geometry/code generation and optional CPU modeling jobs. This can create useful assets, but does not establish equivalent results to GPU generative models for arbitrary detailed objects. Blender supports [CPU rendering](https://docs.blender.org/manual/en/5.0/render/cycles/render_settings/index.html); complex renders remain expensive and its interactive viewport still needs supported graphics.
+Implementation must trace lib/three3d/, lib/cad/, affected renderer fences/modes, API routes, skill activation metadata, configuration, styles, tests and shared imports. Preserve saved conversations, user files and existing artifacts. Remove dependencies only after confirming retained features do not need them.
 
-Do not select Hunyuan3D-2 as an “unrestricted free forever” default: its [community license](https://github.com/Tencent-Hunyuan/Hunyuan3D-2/blob/main/LICENSE) contains territorial and additional commercial terms. Likewise, a hosted free credit allowance is not a qualifying replacement for a local asset generator.
-
-### Two current execution issues to fix before adding more generated code
+### Existing generated-code retirement and isolation
 
 1. [lib/three3d/codeRunner.ts](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/lib/three3d/codeRunner.ts#L46) uses `new Function`, called in the live client by [components/render/ThreeStudioViewer.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/render/ThreeStudioViewer.tsx#L214). This does not create a security boundary. [MDN’s Function documentation](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/Function) establishes that dynamically constructed functions execute with access to the global scope.
 2. [components/render/HtmlArtifactBlock.tsx](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/components/render/HtmlArtifactBlock.tsx#L142) combines `allow-scripts` and `allow-same-origin` on generated `srcDoc`. [MDN’s iframe documentation](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe) specifically warns about that combination for same-origin content.
 
-These are source-established isolation problems, not claims that I executed an exploit. Fix them with actual origin/process isolation and narrowly defined messages. Installing a preview library alone does not prove that generated content is isolated.
+The first execution path is retired with built-in 3D. The retained generated-HTML feature still requires actual origin/process isolation and narrowly defined messages. These are source-established concerns, not claims that an exploit was executed.
 
 ## Presentations, spreadsheets and documents
 
@@ -403,27 +416,21 @@ These recommendations refer to the open-source/local software, not vendor-hosted
 |---|---|---|---|
 | agent-browser | Apache-2.0 | No | Browser processes still consume RAM/CPU; the local model is separate. |
 | Playwright MCP | Apache-2.0 | No | Local Node/browser process plus Ruke integration. |
-| FreeCAD | LGPL-2.1-family | No | Native application/worker install and CAD compute cost. |
-| Blender | GPLv3 as a whole; components vary | No | Optional CPU modeling/rendering worker; verify integrated graphics compatibility for interactive use. |
-| Maker.js / JSCAD | Apache-2.0 / MIT | No | Embedded library/runtime and schema adapter. |
-| LibreCAD | GPLv2 | No | Desktop/CLI application integration. |
 | PptxGenJS / ExcelJS / docx | Existing open-source dependencies; retain pinned releases and license files | No | Local file generation; visual QA still needed. |
 | LibreOffice | [MPL-2.0 distribution with other component licenses](https://www.libreoffice.org/licenses/) | No | Larger local install; start worker only when needed. |
 | Apache ECharts | Apache-2.0 | No | Browser bundle/rendering cost; server SVG support can reduce custom chart code. |
 | Docling | MIT core; selected weights separately licensed | No | Python/models and potentially substantial document-processing RAM. |
 | Transformers.js / Whisper integration | Existing runtime/model setup | No paid endpoint required | CPU/GPU and model storage; check exact pinned weights. |
 | whisper.cpp | MIT | No | Alternative native runtime; output/performance must be compared. |
-| glTF Transform / Google model-viewer | MIT / Apache-2.0 | No | Optional asset processing or simple browser viewing. |
 | fflate | MIT; already installed | No | No additional service required. |
 | SQLite FTS5 / sqlite-vec | Public-domain SQLite / Apache-2.0 or MIT sqlite-vec | No | Local storage and extension integration; sqlite-vec is still pre-v1. |
 | assistant-ui / AI SDK | MIT / Apache-2.0 core | No | Optional libraries, not required hosted services; use the local model endpoint. |
 | MCP SDK | Check pinned major; current TypeScript v2 is Apache-2.0 | No | Tool-server process management and protocol integration. |
 | Promptfoo | MIT local tooling | No | Evaluations use model compute; keep grading local/deterministic. |
-| Lightweight CPU 3D path | Three.js/JSCAD; optional Blender | No | Small procedural models and on-demand workers; GPU-only models excluded. |
 
 Open-source licenses still impose conditions. Keep notices and review the exact distribution model before bundling applications or modifying copyleft components. This audit is not a complete legal review of transitive dependencies.
 
-No fixed RAM or speed improvement is claimed for a proposed migration. Measure Ruke’s entire process tree, including local model, browser workers, Python processes and any WSL/container overhead. Start optional CAD/Blender/Docling jobs lazily rather than keeping every engine resident.
+No fixed RAM or speed improvement is claimed for a proposed migration. Measure the entire process tree, including the local model, browser, retained document/OCR workers and any optional environment overhead. The current plan does not install or launch a CAD/3D engine.
 
 For the consumer-laptop baseline, account for Windows, shared integrated-graphics memory and the local language/vision model before starting optional workers. Run one heavy job at a time, preserve ordinary chat/browser responsiveness, and reduce work or report a resource limit before excessive paging or an out-of-memory failure. A program fitting by itself does not prove the complete Ruke stack fits. This revision did not benchmark a 16 GB/i5-class machine.
 
@@ -458,13 +465,11 @@ Before choosing the driver, run both the current implementation and the pilot ag
 
 Record completion rate, wrong actions, recovery rate, latency, tokens and full process-tree resource use. Run model-driven Playwright tests serially under the repository’s existing inference lock. This audit did not run that benchmark.
 
-### Stage 2: CAD and 3D engine pilots
+### Stage 2: retire built-in 3D and CAD coherently
 
-Choose a small representative set: a dimensioned mechanical part, a drawing with units/layers, a low-complexity multi-part asset and a modest textured export. Check native file re-open, dimensions, topology, materials, hierarchy and preview on the 16 GB/i5-class baseline while accounting for the chat model and browser. CPU-heavy photorealistic rendering is optional.
+Remove the built-in studio/viewer/generation/drafting paths, their advertised model capabilities and unused dependencies. Trace shared imports and update contracts/tests before deletion. Preserve existing conversation content and artifact files; provide an honest compatibility view for retired fences.
 
-Keep the current viewer and adapters until the new engine preserves required behavior. Add capabilities where the current schema is insufficient; do not force a general CAD kernel through a floor-plan-only contract and call it universal.
-
-Use local job processes, bounded work directories, cancellation, timeouts and artifact validation. Do not start a new paid asset service to satisfy the free-only requirement.
+Verify the retained chat, browser, Office, HTML, chart and independent 2D illustration features still work, and that a normal installation no longer requires a 3D/CAD application. Future Blender MCP connectivity is a separate feature and must not be implemented as an automatic replacement during this cleanup.
 
 ### Stage 3: document improvements and consolidation
 
@@ -482,6 +487,6 @@ Keep local inference scheduling, user skill laziness, recents, storage and the e
 
 Established by source: the screenshot omission path; custom formula evaluator; duplicate custom ZIP code despite an existing dependency; separate handwritten chart renderers; existing Office/Three.js reuse; Meshy-only asset provider; simple floor-plan CAD schema; the two generated-code isolation issues.
 
-Not established here: that an alternative completes more tasks than Ruke on the configured model; a performance/RAM win; complete CAD/PowerPoint format fidelity; a measured 16 GB consumer-laptop resource fit; or ChatGPT-level browser success. Those require the targeted integration and comparisons described above.
+Not established here: that an alternative completes more tasks than Ruke on the configured model; a performance/RAM win; complete PowerPoint format fidelity; a measured 16 GB consumer-laptop resource fit; or ChatGPT-level browser success. Those require the targeted integration and comparisons described above.
 
 No application source was modified and no replacement was installed.
