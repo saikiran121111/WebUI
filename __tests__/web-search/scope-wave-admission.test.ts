@@ -49,6 +49,7 @@ const f = vi.hoisted(() => {
     "ArborWorks foundation models overview. The company documents its platform, hardware requirements and support pages. ";
   return {
     depth: "standard",
+    freshness: "any",
     metaCall: 0,
     metaQueue: [] as any[][],
     defaultRows: [] as any[],
@@ -84,7 +85,7 @@ vi.mock("@/lib/web-search/search-gate", () => ({
       search_required: true,
       reason: "controlled lookup",
       depth: f.depth,
-      freshness: "any",
+      freshness: f.freshness,
       queries: [{ query: PROMPT, intent: "general" }],
     },
   }),
@@ -197,6 +198,7 @@ const hasText = (b: any, text: string) =>
 
 beforeEach(() => {
   f.depth = "standard";
+  f.freshness = "any";
   f.metaCall = 0;
   f.metaQueue = [];
   f.defaultRows = [];
@@ -274,6 +276,15 @@ it("control: the UNSCOPED run keeps the identical route-follow mirror", async ()
 
 it("named-site scope: an off-site redirect landed by the DEEP DEMAND wave never reaches topPassages", async () => {
   f.depth = "deep";
+  // WS19 deliberate fixture evolution: this wave USED to arm on the
+  // universal three-domain count alone — for a named-scope run whose own
+  // on-scope evidence already answers the question that count was the
+  // audited defect (the exact-catalog control's needless deep wave), so
+  // sufficiency now stops the wave honestly. The wave is re-armed here
+  // for a REAL gap the fix keeps demanding: a "week" ask with entirely
+  // UNDATED evidence (retrieved-now never evidences published-then).
+  // Admission of off-site demand-wave content is still under test.
+  f.freshness = "week";
   f.initialRows = [f.row("/overview-0")];
   // Gap hop fires with an IN-SCOPE row only (proves on-scope wave evidence
   // is untouched); the demand wave's own queries then land off-site.
@@ -292,8 +303,41 @@ it("named-site scope: an off-site redirect landed by the DEEP DEMAND wave never 
   expect(f.reads).toContain("https://docs.arborworks.example.com/overview-1");
 });
 
+it("WS19 control: a named-scope run whose on-scope evidence answers the question arms NO deep demand wave", async () => {
+  // The audited over-reach made extinct: on the exact-catalog control the
+  // named authority's own pages answered the ask, and ONLY the universal
+  // domain count armed the extra deep wave. With WS19 task-fit
+  // sufficiency the run settles on its primary — no demand wave, no
+  // surplus fetches (the unscoped single-domain mirror above still
+  // legitimately fires, so waves are not being disabled).
+  f.depth = "deep";
+  // The named authority's OWN catalog page is in the initial wave — the
+  // answer-unit law stays enforced (a topical overview page alone would
+  // legitimately keep the ask open; that is not a WS19 softening).
+  f.initialRows = [f.row("/overview-0"), f.row("/reference/model-catalog")];
+  f.defaultRows = [f.row("/redirect-wave")]; // would answer ONLY if a wave wrongly armed
+
+  const b = await scopedRun();
+  expect(b).not.toBeNull();
+  expect(hasText(b, "Boreal-X17")).toBe(true);
+  // The sufficiency-armed DEMAND wave is what WS19 extinguishes here. (A
+  // page-count-target gap wave may still arm — separate mechanism, and
+  // its off-site redirect is bounded by the WAVE-1 admission law, which
+  // is why the mirror content must not appear regardless.)
+  expect(b!.demandWaveFired).toBe(false);
+  expect(hasHost(b, "offsite-demand.example.net")).toBe(false);
+  expect(b!.sufficiency).not.toBeNull();
+  expect(b!.sufficiency!.enoughSources).toBe(true);
+  expect(b!.sufficiency!.independentDomains).toBe(true);
+  expect(b!.sufficiency!.stopEarly).toBe(true);
+});
+
 it("control: the UNSCOPED run keeps the identical deep-demand mirror", async () => {
   f.depth = "deep";
+  // Mirror of the WS19-evolved scoped run above: same "week" band trigger
+  // (plus, unscoped, the open-task independence demand still legitimately
+  // fires on a single domain).
+  f.freshness = "week";
   f.initialRows = [f.row("/overview-0")];
   f.metaQueue = [[f.row("/overview-1")]];
   f.defaultRows = [f.row("/redirect-wave")];

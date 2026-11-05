@@ -338,7 +338,12 @@ describe("planner law (⇔ planner_law.rs)", () => {
     };
     const report = evaluateSufficiency(packets, passages, coverage, std, law);
     expect(report.sourceDomains).toEqual(["a.com", "b.com"]); // z.com excluded
-    expect(report.enoughSources).toBe(false); // 2 < 3
+    // WS19 deliberate evolution: the old pin was `false // 2 < 3` — the
+    // universal three-domain proxy the audit names as the defect. Two
+    // independent usable domains now satisfy an OPEN task's source gate;
+    // this run still stops for the REAL reasons (stale band + price
+    // contradiction), not for the count.
+    expect(report.enoughSources).toBe(true);
     expect(report.independentDomains).toBe(true);
     expect(report.keyClaimsSupported).toBe(true);
     expect(report.freshnessOk).toBe(false); // "week" band, no dated kept passage
@@ -347,6 +352,176 @@ describe("planner law (⇔ planner_law.rs)", () => {
     expect(report.contradictionMetrics).toEqual(["price"]);
     expect(report.pagesUseful).toBe(true);
     expect(report.stopEarly).toBe(false);
+  });
+
+  /* ── WS19 (audit item 19): task-fit sufficiency — no universal
+     source-count proxy; "retrieved now" never evidences "published
+     then". No brand/site names below: example domains only. ── */
+
+  const cov = (needsGapSearch = false): CoverageReport => ({
+    coverage: 0.9,
+    missingEntities: [],
+    needsGapSearch,
+    gapQuery: null,
+  });
+
+  it("sufficiency_named_primary_answers_its_own_catalog_without_more_domains", () => {
+    // The audited exact-catalog control: the task NAMED its authority,
+    // and that authority's own page answered it. Demanding three
+    // domains here is the defect — it fired the extra deep demand wave.
+    const dd = dec("deep", "any");
+    const prompt = "Which models are listed? only search catalog.example.org";
+    const law = emptyLaw(prompt, dd);
+    expect(law.allowedDomains).toEqual(["catalog.example.org"]);
+    const report = evaluateSufficiency(
+      [pk("s1", "catalog.example.org", "direct")],
+      [ep("s1", "catalog.example.org", "Listed models include Boreal-X17 and Cedar-Y23.")],
+      cov(),
+      dd,
+      law,
+    );
+    expect(report.primaryPresent).toBe(true);
+    expect(report.enoughSources).toBe(true); // its own primary covers its own catalog
+    expect(report.independentDomains).toBe(true); // independence not relevant here
+    expect(report.stopEarly).toBe(true);
+    // And nothing left to demand: the deep demand wave must NOT arm.
+    expect(buildGapDemand(prompt, cov(), report, dd, law, [])).toBeNull();
+  });
+
+  it("sufficiency_open_task_two_independent_supported_domains_stop_early", () => {
+    // The universal ">= 3" proxy is the defect: two independent domains
+    // whose evidence already supports the answer are enough; the third
+    // was aspirational busywork.
+    const dd = dec("deep", "any");
+    const law = emptyLaw("how fast is the new harbor train line", dd);
+    const report = evaluateSufficiency(
+      [pk("s1", "rail.example.org", "direct"), pk("s2", "press.example.net", "direct")],
+      [
+        ep("s1", "rail.example.org", "The harbor line tops out at 160 km/h in service."),
+        ep("s2", "press.example.net", "Test runs reached 160 km/h on the harbor line."),
+      ],
+      cov(),
+      dd,
+      law,
+    );
+    expect(report.enoughSources).toBe(true);
+    expect(report.independentDomains).toBe(true);
+    expect(report.stopEarly).toBe(true);
+  });
+
+  it("sufficiency_undated_evidence_cannot_evidence_a_banded_freshness_ask", () => {
+    // "retrieved now" != "published then": every kept passage is UNDATED
+    // while the ask is banded ("week"). The retrieval itself proves only
+    // that the fetch happened today — temporal applicability must be
+    // evidenced by a publication date inside the band.
+    const dd = dec("deep", "week");
+    const prompt = "latest harbor train line speed figures";
+    const law = emptyLaw(prompt, dd);
+    const report = evaluateSufficiency(
+      [pk("s1", "rail.example.org", "direct"), pk("s2", "press.example.net", "direct")],
+      [
+        ep("s1", "rail.example.org", "The harbor line tops out at 160 km/h in service."),
+        ep("s2", "press.example.net", "Test runs reached 160 km/h on the harbor line."),
+      ],
+      cov(),
+      dd,
+      law,
+    );
+    expect(report.freshnessOk).toBe(false);
+    expect(report.stopEarly).toBe(false);
+    // The gap demand must ask for DATED evidence (year-suffixed base).
+    const demand = buildGapDemand(prompt, cov(), report, dd, law, [])!;
+    expect(demand.missing_claims).toContain("fresh dated evidence");
+    expect(demand.reason).toContain('freshness band "week" not evidenced');
+    expect(demand.queries.length).toBe(1);
+    expect(demand.queries[0].endsWith(` ${new Date().getUTCFullYear()}`)).toBe(true);
+  });
+
+  it("control_sufficiency_dated_in_band_evidence_satisfies_the_banded_ask", () => {
+    // Positive control: the fix must not demand the impossible — one
+    // genuinely dated in-band passage settles the band.
+    const dd = dec("deep", "week");
+    const law = emptyLaw("latest harbor train line speed figures", dd);
+    const fresh = (sourceId: string, domain: string, text: string): EvidencePassage => ({
+      ...ep(sourceId, domain, text),
+      publishedAt: new Date().toISOString(),
+    });
+    const report = evaluateSufficiency(
+      [pk("s1", "rail.example.org", "direct"), pk("s2", "press.example.net", "direct")],
+      [
+        fresh("s1", "rail.example.org", "The harbor line tops out at 160 km/h in service."),
+        ep("s2", "press.example.net", "Test runs reached 160 km/h on the harbor line."),
+      ],
+      cov(),
+      dd,
+      law,
+    );
+    expect(report.freshnessOk).toBe(true);
+    expect(report.stopEarly).toBe(true);
+  });
+
+  it("control_sufficiency_three_topic_domains_still_cannot_fake_an_open_answer", () => {
+    // Anti-proxy in the other direction: domain count must never REPLACE
+    // answer support (the 2026-11-05 answer-unit law stays enforced).
+    const dd = dec("deep", "any");
+    const law = emptyLaw("which models does the vendor support officially", dd);
+    const report = evaluateSufficiency(
+      [
+        pk("s1", "a.example.org", "direct"),
+        pk("s2", "b.example.net", "direct"),
+        pk("s3", "c.example.io", "direct"),
+      ],
+      [
+        ep("s1", "a.example.org", "Coverage of the vendor's model support topic."),
+        ep("s2", "b.example.net", "Coverage of the vendor's model support topic."),
+        ep("s3", "c.example.io", "Coverage of the vendor's model support topic."),
+      ],
+      cov(true), // answer unit still open — three sites only echo the question
+      dd,
+      law,
+    );
+    expect(report.enoughSources).toBe(true);
+    expect(report.keyClaimsSupported).toBe(false);
+    expect(report.stopEarly).toBe(false);
+  });
+
+  it("control_sufficiency_named_primary_absent_still_blocks_stop", () => {
+    // The conditional never weakens the primary gate: with the named
+    // authority missing, sufficiency fails even with two other domains.
+    const dd = dec("deep", "any");
+    const law = emptyLaw("vendor menu? only search menu.example.org", dd);
+    const report = evaluateSufficiency(
+      [pk("s1", "aggregator.example.net", "direct"), pk("s2", "blog.example.io", "direct")],
+      [
+        ep("s1", "aggregator.example.net", "Reportedly the vendor's menu changed."),
+        ep("s2", "blog.example.io", "A blog post discusses the vendor's menu."),
+      ],
+      cov(),
+      dd,
+      law,
+    );
+    expect(report.primaryPresent).toBe(false);
+    expect(report.stopEarly).toBe(false);
+  });
+
+  it("control_sufficiency_open_task_single_domain_still_demands_corroboration", () => {
+    // Independence WHEN RELEVANT means an open (no named authority)
+    // single-source run still demands corroboration — the fix removes
+    // the universal count, not the concept.
+    const dd = dec("deep", "any");
+    const prompt = "who won the regional harbor derby final";
+    const law = emptyLaw(prompt, dd);
+    const report = evaluateSufficiency(
+      [pk("s1", "wire.example.org", "direct")],
+      [ep("s1", "wire.example.org", "The harbor derby final was won by the home club 3-1.")],
+      cov(),
+      dd,
+      law,
+    );
+    expect(report.enoughSources).toBe(false);
+    expect(report.stopEarly).toBe(false);
+    const demand = buildGapDemand(prompt, cov(), report, dd, law, [])!;
+    expect(demand.missing_claims).toContain("additional independent sources");
   });
 
   it("gap_demand_variants_never_repeat_a_used_query", () => {

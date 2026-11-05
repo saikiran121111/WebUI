@@ -536,10 +536,16 @@ export function applyScopeToPackets<T extends EvidencePacket>(packets: T[], law:
 /* ── sufficiency (§11.14) ────────────────────────────────────────────── */
 
 export interface SufficiencyReport {
+  /** Task-fit source sufficiency (WS19): named-primary task → settled
+   *  by the named authority itself; open task → ≥2 usable domains. */
   enoughSources: boolean;
   keyClaimsSupported: boolean;
+  /** Banded asks must be EVIDENCED by a dated in-band passage — an
+   *  undated page proves retrieval, not publication (WS19). */
   freshnessOk: boolean;
   primaryPresent: boolean;
+  /** Independence WHEN RELEVANT (WS19): true for named-primary tasks
+   *  (the authority is the source); ≥2 domains for open tasks. */
   independentDomains: boolean;
   contradictionSuspected: boolean;
   pagesUseful: boolean;
@@ -634,8 +640,6 @@ export function evaluateSufficiency(
   const kept = topPassages.filter((p) => counted.has(p.sourceId));
   const sourceDomains = [...new Set(kept.map((p) => p.domain).filter(Boolean))].sort();
 
-  const enoughSources = sourceDomains.length >= 3;
-  const independentDomains = sourceDomains.length >= 2;
   // Answer-unit law (universal research-depth audit 2026-11-05): literal
   // coverage of the QUERY WORDS is not support for the requested ANSWER.
   // While the coverage evaluator still sees an open answer unit
@@ -643,26 +647,50 @@ export function evaluateSufficiency(
   // domains repeating the question vocabulary is the audited failure.
   const keyClaimsSupported = coverage.coverage >= 0.6 && !coverage.needsGapSearch;
 
-  const freshnessBanded = ["day", "week", "month", "year", "realtime"].includes(decision.freshness);
-  // Tightened 2026-11-04 (audit): ANY publication date used to satisfy a
-  // "latest/today" ask — one 2019-dated passage declared a stale packet
-  // sufficient. An UNDATED passage stays admissible (absence of a date is
-  // not proof of staleness, and requiring dates would starve most pages),
-  // but if every dated passage predates the requested band, sufficiency
-  // fails and the loop keeps searching.
-  const freshnessOk =
-    !freshnessBanded ||
-    kept.some((p) => !p.publishedAt || publishedAtWithinBand(p.publishedAt, decision.freshness));
-
   // Primary evidence = what the USER (or the armed task scope) named.
   // preferredDomains is an evidence-corroborated INFERENCE and by design
   // an ordering boost only (see corroborateDestinations) — a lookalike
   // that merely earned corroboration must never satisfy the "primary
   // present" gate (2026-11-04 audit fix).
   const primaries = [...law.mandatoryHosts, ...law.allowedDomains];
+  const namedPrimary = primaries.length > 0;
   const primaryPresent =
-    primaries.length === 0 ||
+    !namedPrimary ||
     kept.some((p) => primaries.some((d) => domainWithin(p.domain || hostOf(p.url), d)));
+
+  // WS19 (audit item 19): TASK-FIT sufficiency. A domain COUNT is not a
+  // stand-in for answer support — answer support is keyClaimsSupported;
+  // the source-side gates are conditioned on task fit:
+  //  • a task that NAMED its authority (user allow-list or an enforced
+  //    task scope — e.g. an exact-catalog ask) is answered BY that
+  //    primary for its own content; demanding extra domains there is
+  //    the audited defect (needless deep demand waves on the
+  //    exact-catalog control), so independence is simply not relevant;
+  //  • an OPEN task's claims are contestable, so independence IS
+  //    relevant — definitionally at least two usable independent
+  //    domains. This is never a universal aspirational count (the old
+  //    ">= 3" fired on every task) and never always-demanded
+  //    multi-source (a named primary settles its own subject alone).
+  // Known limitation (deliberate, no fabricated heuristic): "current
+  // for this LOCATION/VERSION" has no deterministic proxy at this
+  // layer; localization rides on the law.location query terms instead.
+  const enoughSources = namedPrimary ? primaryPresent : sourceDomains.length >= 2;
+  const independentDomains = namedPrimary || sourceDomains.length >= 2;
+
+  const freshnessBanded = ["day", "week", "month", "year", "realtime"].includes(decision.freshness);
+  // Tightened 2026-11-04 (audit): ANY publication date used to satisfy a
+  // "latest/today" ask — one 2019-dated passage declared a stale packet
+  // sufficient. WS19 (audit item 19) tightens the other edge: RETRIEVED
+  // NOW is not PUBLISHED THEN. An undated passage stays admissible as
+  // ANSWER evidence (absence of a date is not proof of staleness, and
+  // requiring dates would starve most pages — that half of the 2026-11-04
+  // law stands), but it cannot EVIDENCE temporal applicability: a banded
+  // ask passes only when at least one kept passage carries a real
+  // publication date inside the band. Dated-but-stale still fails, and
+  // the gap demand asks for dated evidence (`${entity} ${year}` base).
+  const freshnessOk =
+    !freshnessBanded ||
+    kept.some((p) => p.publishedAt && publishedAtWithinBand(p.publishedAt, decision.freshness));
 
   const contradiction = detectContradictions(kept);
   const pagesUseful = counted.size >= 1;
