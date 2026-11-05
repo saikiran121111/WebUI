@@ -3474,3 +3474,41 @@ Loaded: superpowers:test-driven-development (Iron Law active WS17–WS20). No Ti
 2. WS17 TDD: failing url-detector fixture first (RED watched); fix; FULL vitest (baseline 125/1540|1) + tsc + cargo; commit+push+STATE 05q (anchor on 05p [8.8] tail).
 3. Then WS18 per brief order (web-tool-loop.ts ledger sites — failures independent of citations + ToolActionRecord enrichment, counts only).
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-05q — WS17 LOCKED (full page identity across scheme-less URL forms)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Repair 20 audit web-search defects (WS01–WS20, brief item N = WS0N) at baseline 60fe172 on develop. WS17 (audit item 17: distinct scheme-less `www` paths collapse — "Compare www.example.com/product/A and .../product/B" lost a product path; url-detector.ts Pass 2 deduped by host) LOCKED this session (commit bafde3b + this snapshot). WS18 (failures independent of citations + ledger enrichment, web-tool-loop.ts ToolActionRecord sites) is NEXT. After WS18: WS19 (task-fit evidence sufficiency, planner-law.ts evaluateSufficiency, keyClaimsSupported at :644 `coverage.coverage >= 0.6 && !coverage.needsGapSearch`) → WS20 (access-recovery wording ONLY in WEB_TOOL_GUIDANCE + pipeline evidenceBlock/ANTI_REFUSAL_DIRECTIVE, mirrored in Rust — NEVER chat/browser_loop.rs, ruke-browser tools, omnibox, migration). Then ONE final locked Playwright loop (pw-80) → ANALYZE → §4 report → AUTO-SHUTDOWN (`shutdown //s //f //t 60`), never ask.
+
+## [8.2 LOCKED COMPLETED TASKS — DO NOT RE-READ/RE-DO]
+WS01 61951d0 · WS02 853c7d7+06cba20 · WS03 c61bda8 · WS04 8f24d83 · WS05 6a35fea · WS06 8187bc3+2915f0a · WS07 28e1beb · WS08 78c0e28 · WS09 4f47e61 · WS10 1119df6+05k · WS11 8de5846+05l · WS12 edac8b3+05m(63e97a7) · WS13 8f24d83 (srsltid) · WS14 7626988+05n(c844c7f) · WS15 e0a30a5+05o(ab2b6bd) · WS16 e2a7fd6+05p(a8e48ec) · **WS17 bafde3b+05q(this)**.
+WS17 production record (lib/web-search/url-detector.ts ONLY, 1 fixture — zero other files):
+- ONE shared page-identity law: `pageKeyOf(u) = u.origin + u.pathname + u.search + (FRAGMENT_ROUTE_RE.test(u.hash) ? u.hash : "")` (module-local in detectUrlsAndDomains) + `pageKeyOfHref(href)` returning null on unparsable token. Pass 1 switched from inline key to pageKeyOf (byte-identical string; Pass 1 semantics unchanged — pinned by existing tests).
+- Pass 2 (www tokens): path-bearing tokens dedupe via seenUrl full-page key (key via pageKeyOfHref("https://" + hostPart.toLowerCase() + pathPart)); path-LESS tokens keep the seenHost gate (bare-domain interpretation suppression — the ONE place host law belongs per audit); unparsable path falls back to host gate. seenHost.add(host) kept on every emit (stripped www host); seenUrl.add(key) added when key non-null.
+- Pass 3 (bare tokens): identical structure — path-bearing gate = seenUrl key ("https://" + host + path), path-less gate = seenHost as before; seenUrl.add on emit. Validation gates (host<5, version, e.g./i.e., tldts, pubSuffix, FILE_EXTENSIONS) untouched; gate order kept (identity gate first, validation after, state added only on emit).
+- Cross-form www-vs-apex near-dupes unchanged (co-exist as before; downstream canonical dedup folds them) — pre-existing bare-`www.example.co.uk` Pass2/Pass3 double-emit behavior deliberately NOT altered (out of scope, existing test only toContain-pins it).
+- Consumers (pipeline.ts:531 promptUrls/promptDomains, search-gate.ts:189/:676, task-scope.ts:454) get strictly MORE distinct page detections — full suite green proves no pin depends on the collapse.
+Fixture `__tests__/web-search/url-detector-page-identity.test.ts` (7): audit repro both paths survive; host case-folded but path/query case = identity (both `…/Product/A?ref=1` + `…/product/a?ref=2`); SAME www page twice → 1 (kills pre-existing Pass2+Pass3 double-emit); https+scheme-less same page → 1 (cross-form); bare-with-path form (example.com/product/A + /B) both; path-less bare suppression REMAINS (skiran.dev ×3 → 1; bare host after full URL of same host → 0); controls full-https distinct paths + SPA `#/route` ×2 keep passing. RED watched 5f/2p → GREEN 7/7; existing url-detector.test.ts 10/10 intact.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (WS17)]
+detectUrlsAndDomains (lib/web-search/url-detector.ts) ← pipeline.ts:531 (userPrompt → promptUrls YouTube hop + promptDomains), search-gate.ts:189 detectPromptUrls + :676 (instruction URLs), task-scope.ts:454. Downstream dedup/canonicalization unchanged. Zero Rust surface touched (cargo 146/146 unchanged proves bridge opacity holds).
+
+## [8.4 IMMUTABLE CONTRACTS]
+UPDATED (WS17): detectUrlsAndDomains page identity across ALL THREE passes = origin+pathname+search+(FRAGMENT_ROUTE_RE hash); seenHost suppression ONLY for path-less bare-domain tokens; emitted www url form "https://" + hostPart.toLowerCase() + pathPart unchanged; bare emit "https://" + host + path unchanged. Signature + DetectedUrl shape byte-identical → all callers unchanged.
+Carried: WS16 signal contracts (extractUrl/extractUrlWithBudget/extractAll/metasearch/metasearchWithFreshnessRecovery/net opts all gained optional signal; aborted extractUrl = "FAIL_NETWORK_OR_CRASH"); execWebSearchTool monotonic session.liveRequired; retrievalModeForFreshness(types.ts:70); serpCoversQuery WS12; MODE_MAP ↔ MODE_SKILL; Env: RUKE_BROWSER_BRIDGE_BASE_URL/SECRET; Node small-icu \p{L}\p{N}\p{M} only; AbortSignal.timeout NOT faked by vi fake timers.
+PIPELINE CONSTANTS: DIRECT_TARGET_CAP_MS=90_000, PIPELINE_CEILING_MS=240_000, abortSignal :480, ceilingHit :483.
+
+## [8.5 PLAYWRIGHT/E2E STATE]
+No Playwright lock held; no dev servers. Final loop = pw-80, lock .ai-coordination/playwright.lock (foreground PowerShell wait, never delete to bypass, timeout ⇒ stop+ask). Baselines UPDATED: vitest FULL 126 files / 1547 passed | 1 skipped (1548); tsc --noEmit clean (exit 0); cargo ruke-server --lib 146/146. Commands: `node node_modules/vitest/vitest.mjs run [paths]` (ANSI-strip + grep), `node node_modules/typescript/bin/tsc --noEmit; echo "TSC_EXIT=$?"` (no pipe), `cargo test --manifest-path rust-backend/Cargo.toml -p ruke-server --lib`. Git: develop chain bafde3b(WS17) ← a8e48ec(05p) ← e2a7fd6(WS16) ← … ← 60fe172 baseline; all pushed; only ` M tsconfig.tsbuildinfo` unstaged (NEVER stage).
+
+## [8.6 OPEN BUGS / BLOCKERS]
+None open in WS17. Deliberate non-changes documented in code comments: cross-form www/apex near-dupes co-exist exactly as Pass 1 already allowed (canonical dedup downstream); bare `www.example.co.uk` double-entry (Pass 2 + Pass 3, different `domain` fields) pre-existed and is out of scope — no existing assertion depends on it either way.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS18–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS18 recon: audit entry verbatim `sed -n '/WS18/,/WS19/p' "C:/Users/Ruku/Documents/Codex/2026-11-02/referenced-chatgpt-conversation-this-is-an/outputs/ruke-60fe172-websearch-regression-audit.md"`; then recon web-tool-loop.ts ledger sites + ToolActionRecord type.
+2. WS18 TDD: failing fixture first (RED watched); fix (failures independent of citations + ToolActionRecord enrichment, counts only); FULL vitest (baseline 126/1547|1) + tsc + cargo; commit+push+STATE 05r (anchor on 05q [8.8] tail).
+3. Then WS19 (planner-law.ts evaluateSufficiency) per brief order.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
