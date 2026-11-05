@@ -939,6 +939,15 @@ export function isFollowUp(prompt: string): boolean {
  *    follow-up, KEEP the previous destinations — the research-cue heuristic
  *    must not erase an operate destination ("What is its rating?" keeps
  *    Zepto) — while the turn's own restrictions/authorizations merge in.
+ *    NON-INHERITANCE LAW (2026-11-05 repair, brief #3): the turn keeps its
+ *    OWN derived intent. An anaphoric research question about the previous
+ *    site ("What is its rating?") continues the SUBJECT (targets) but never
+ *    the previous turn's ACTION — an inferred operate/site scope must not
+ *    become an immutable permission boundary on a later research turn.
+ *    Continuation of an ongoing site task still survives through rule 3
+ *    (a pure follow-up with no intent of its own inherits the scope whole),
+ *    which is what browser-session operate continuity ("add bread too")
+ *    relies on.
  *    Non-anaphoric intent turns stand alone.
  * 3. A derivation with neither intent nor destinations inherits the previous
  *    scope on a genuine follow-up; otherwise the topic changed and the
@@ -954,7 +963,7 @@ export function mergeTaskScope(prev: TaskScope | null, prompt: string): TaskScop
     if (derived.intent !== "none") {
       if (anaphoric) {
         return {
-          intent: derived.intent === "research" ? prev.intent : derived.intent,
+          intent: derived.intent,
           targets: prev.targets,
           excludedPhrases: [...new Set([...prev.excludedPhrases, ...derived.excludedPhrases])],
           authorizedHosts: [...new Set([...prev.authorizedHosts, ...derived.authorizedHosts])],

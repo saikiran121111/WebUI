@@ -20,19 +20,12 @@ import {
   type DecisionEnvelope,
   type RendererMode,
 } from "../../../lib/decision/types";
-import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
-import {
-  buildPriorEvidenceBlock,
-  journalTurnFromBundle,
-  readResearchJournal,
-  recordResearchTurn,
-  selectPriorEvidence,
-} from "../../../lib/persistence/research-journal";
+// Repair (brief 2026-11-05 §2/§4): the chat path no longer runs the search
+// gate pipeline and no longer imports journal helpers — journal rehydration
+// and research recording live in the tool-loop/session layer (ONE
+// implementation serving the TS loop and the Rust transport alike).
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { runWebToolLoop } from "../../../lib/chat/web-tool-loop";
-import type { WebToolDepth } from "../../../lib/web-search/tools";
-import type { PresentationPlan } from "../../../lib/web-search/presentation";
-import type { RichResult } from "../../../lib/web-search/rich-results";
 import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
 import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
 import type { StageEvent } from "../../../lib/types";
@@ -488,7 +481,7 @@ async function runTurnPipeline(
      *  conversationId contract on the Rust-orchestrated path). */
     conversationId?: string;
   },
-): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null; presentation: PresentationPlan | null; richResults: RichResult[] | null; turnScope: TaskScope }> {
+): Promise<{ researchDisabled: boolean; turnDate: string; turnScope: TaskScope }> {
   const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone, conversationId } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
@@ -529,27 +522,22 @@ async function runTurnPipeline(
     if (hasAttachmentRefs) stage({ stage: "retrieval_done", done: 0, total: 0 });
   }
 
-  // 6) Web-search gate (main model only): the main model decides whether
-  //    this turn needs live web data and writes the queries. No LFM
-  //    router, no verification adjudication of the decision — if it
-  //    doesn't need the internet, the turn is pure chat with zero
-  //    pipeline latency. beginUserTurn() is called here so background
-  //    title jobs yield the local LLM slot to the gate immediately.
-  let researchBundle: Awaited<ReturnType<typeof runWebResearch>> = null;
-  let inferenceTurnActive = false;
-  let webCitationMap: Record<string, any> | null = null;
-  let searchGateMeta: ResearchMeta | null = null;
-  let webDepth: WebToolDepth | null = null;
-  // P5 (Addendum §55/§57): the turn's presentation plan + validated rich
-  // surfaces, derived deterministically from the evidence bundle.
-  let presentation: PresentationPlan | null = null;
-  let richResults: RichResult[] | null = null;
+  // 6) Research availability (repair 2026-11-05, brief §2/§4): the MAIN
+  //    MODEL decides whether to search. NO gate, NO prefetched evidence
+  //    bundle and NO auxiliary model call runs before the answering model
+  //    gets its tools. The route computes exactly two things: (a) the
+  //    server-owned task scope, and (b) whether research is EXPLICITLY
+  //    disabled — WEB_SEARCH_GATE_DISABLED is a settings/deployment kill
+  //    switch preserved verbatim, never a semantic router or a phrase
+  //    rule. Tool arming happens in POST: runWebToolLoop is armed on every
+  //    enabled turn that has no client `tools`; the loop owns journal
+  //    rehydration AND research recording (lib/chat/web-tool-loop.ts +
+  //    lib/web-search/tools.ts ⇔ Rust chat/web_loop.rs + web-tools-rpc).
   // Task-scope contract (audit 2026-11-02, brief #1/#3/#6): fold THIS
   // conversation's user turns — oldest→newest, current turn last — into the
-  // server-owned operational scope before anything searches. Neither the
-  // gate nor the model's tool arguments can widen it; the pipeline and the
-  // web tool session both consume it. Rust mirror: fold_task_scope in the
-  // chat pipeline (stateless fold over the request's user turns).
+  // server-owned operational scope. The model's tool arguments can never
+  // widen it; the web tool session consumes it. Rust mirror: fold_task_scope
+  // in the chat pipeline (stateless fold over the request's user turns).
   const turnScope = foldTaskScope([
     ...(Array.isArray(history)
       ? history
@@ -558,157 +546,19 @@ async function runTurnPipeline(
       : []),
     fullText,
   ]);
-  // Brief §5: ONE request instant + session timezone shared by the research
-  // gate (ctx.currentDate below) and the <runtime_clock> block injected at
-  // step 7 — the gate and the answering model must never reason against
-  // different calendar dates (UTC vs session date at the midnight/year
-  // boundary). Rust mirror: `turn_now` in chat/pipeline.rs.
-  // WS05 (audit item 5): read the journal BEFORE the run — the evidence
-  // selected here reflects only EARLIER turns (the current turn is
-  // recorded after its bundle completes, ⇔ the internal bridge route).
-  const priorTurns = conversationId
-    ? selectPriorEvidence(readResearchJournal(conversationId), fullText)
-    : [];
+  // Brief §5: ONE request instant + session timezone shared by the
+  // <runtime_clock> block injected at step 7 and the research journal's
+  // currentDate label — the answering model and the research record must
+  // never reason against different calendar dates (UTC vs session date at
+  // the midnight/year boundary). Rust mirror: `turn_now` in chat/pipeline.rs.
   const turnInstant = new Date();
-  const webResearchDisabled = gateDisabledByEnv();
-  try {
-    if (webResearchDisabled) {
-      log.info({ prompt: fullText.slice(0, 60) }, "web-research pipeline disabled (WEB_SEARCH_GATE_DISABLED)");
-    } else {
-    beginUserTurn();
-    inferenceTurnActive = true;
-    // Brief §3: recompute where the turn REALLY sits — the step-4 skill and
-    // step-5 evidence injections may have shifted it off lastUserIdx (the raw
-    // read landed on the injected SYSTEM block and dropped the images).
-    const turnIdx = resolveTurnIndex(payload.messages, lastUserIdx);
-    const imageParts = turnImageParts(payload.messages?.[turnIdx]?.content);
-    researchBundle = await runWebResearch(
-      {
-        userPrompt: fullText,
-        history,
-        hasImageAttachment: imageParts.length > 0,
-        // APPROVED PART-10 DEVIATION: the same current-turn flag the
-        // retrieval stage keyed off feeds the attachment-aware gate
-        // (Rust mirror: has_attachment_evidence). §11.2: OR-ed with the
-        // inline-attachment flag — unindexed (small) attachments inline
-        // their content instead of carrying a ref, and that content IS
-        // local evidence for the gate even though retrieval skips it.
-        hasAttachmentEvidence: hasAttachmentRefs || hasInlineAttachment,
-        imageDataUrls: imageParts,
-        scope: turnScope,
-        // Session-timezone date at the turn instant (⇔ the date the step-7
-        // clock block will show; ⇔ Rust body "currentDate"). Without it the
-        // gate would fall back to the bare-UTC calendar date.
-        currentDate: sessionDateString(turnInstant, turnTimezone),
-      },
-      (p) => {
-        log.info({ stage: p.stage, detail: p.detail }, "web-research progress");
-        // Live bridge: every real gate/pipeline boundary becomes a client-
-        // visible phase event carrying the pipeline's own measured counts.
-        stage({
-          stage: "web:" + p.stage,
-          detail: p.detail,
-          total: p.total,
-          done: p.done,
-          coverage: p.coverage,
-          url: p.url,
-          domain: p.domain,
-        });
-      },
-      signal,
+  const researchDisabled = gateDisabledByEnv();
+  if (researchDisabled) {
+    log.info(
+      { prompt: fullText.slice(0, 60) },
+      "web research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn",
     );
-    if (researchBundle) {
-      // WS05 (audit item 5): journal THIS turn server-side, then rehydrate
-      // the selected prior evidence into the same injection contract —
-      // prior passages + server-attested provenance append to the injected
-      // block, and prior sources join the citation map under aliases that
-      // continue after this turn's max S-id (no collision; the [S#] pills
-      // stay real targets). Rehydration read ONLY the journal — the
-      // client's stored prose was never consulted as proof of a fetch.
-      // Journaling is best-effort: a disk failure never fakes or kills a
-      // chat turn (Rule 2.4).
-      if (conversationId) {
-        try {
-          recordResearchTurn(
-            conversationId,
-            journalTurnFromBundle(researchBundle, sessionDateString(turnInstant, turnTimezone)),
-          );
-        } catch {
-          /* best-effort */
-        }
-      }
-      const { systemBlock } = buildMainModelContext(researchBundle);
-      const maxSid = researchBundle.packets.reduce((m, p) => {
-        const n = Number(/\d+$/.exec(p.sourceId)?.[0] ?? 0);
-        return Number.isFinite(n) ? Math.max(m, n) : m;
-      }, 0);
-      const prior = buildPriorEvidenceBlock(priorTurns, maxSid ? `S${maxSid}` : "");
-      injectSystemBefore(
-        payload.messages,
-        lastUserIdx + 1,
-        systemBlock + (prior.block ? `\n\n${prior.block}` : ""),
-      );
-      // Build the [S#] → {url, title, domain} map the browser UI uses
-      // to turn inline citation markers into clickable pills. Every
-      // retrieved source is included so an [S#] marker can never dangle.
-      webCitationMap = {};
-      for (const packet of researchBundle.packets) {
-        webCitationMap[packet.sourceId] = {
-          sourceId: packet.sourceId,
-          url: packet.url,
-          title: packet.title,
-          domain: packet.domain,
-          publishedAt: packet.publishedAt,
-        };
-      }
-      // WS05: rehydrated prior sources join the same map under their
-      // continued aliases — an [S#] marker from a prior turn's evidence
-      // resolves to a pill, never a dangling reference.
-      for (const [alias, entry] of Object.entries(prior.citations)) webCitationMap[alias] = entry;
-      // WS06 (audit 2026-11-05 item 6): this replaces the 2026-10-22
-      // "no post-stream claim audit" stance — a prompt and the citation
-      // map are not enforcement. The web tool loop now buffers each
-      // round's answer text and runs lib/chat/answer-release.ts (server
-      // check against THIS citation map + the tool action ledger) before
-      // releasing it; ⇔ Rust chat/answer_release.rs wired into web_loop.rs.
-      searchGateMeta = {
-        depth: researchBundle.searchGate.decision.depth,
-        freshness: researchBundle.searchGate.decision.freshness,
-        decidedBy: researchBundle.searchGate.source,
-        queries: researchBundle.searchGate.decision.queries.map((q) => ({
-          query: q.query,
-          intent: q.intent,
-        })),
-      };
-      // P2: arm the model-facing web tool loop for this turn
-      // (lib/chat/web-tool-loop.ts ⇔ Rust chat/web_loop.rs).
-      webDepth = researchBundle.searchGate.decision.depth;
-      presentation = researchBundle.presentation ?? null;
-      richResults = researchBundle.richResults.length > 0 ? researchBundle.richResults : null;
-      log.info(
-        {
-          passages: researchBundle.topPassages.length,
-          results: researchBundle.searchResults.length,
-          gateSource: researchBundle.searchGate.source,
-          fromCache: researchBundle.fromCache,
-          citations: Object.keys(webCitationMap).length,
-          gapSearch: researchBundle.gapSearchFired,
-        },
-        "web research evidence injected",
-      );
-    }
-    } // end if (!webResearchDisabled)
-  } catch (err: unknown) {
-    // A failed research run must not kill the chat turn: the main model
-    // still answers from its own knowledge.
-    log.error(
-      { err: err instanceof Error ? err.message : err },
-      "web research pipeline failed — proceeding without web evidence",
-    );
-  } finally {
-    if (inferenceTurnActive) endUserTurn();
   }
-
   // 7) P1 clock grounding (always on for every model-visible turn; the
   //    purpose="compact" passthrough never reaches this function): the main
   //    model has NEVER carried a live clock — RC1's root cause for the
@@ -727,7 +577,7 @@ async function runTurnPipeline(
     "turn decision",
   );
 
-  return { webCitationMap, searchGateMeta, webDepth, presentation, richResults, turnScope };
+  return { researchDisabled, turnDate: sessionDateString(turnInstant, turnTimezone), turnScope };
 }
 
 export async function POST(req: NextRequest) {
@@ -899,51 +749,28 @@ export async function POST(req: NextRequest) {
                 turnTimezone,
                 conversationId,
               });
-              // P5 (§57): the frame also fires when the turn minted rich
-              // surfaces but no citation packets (e.g. news items from
-              // ranked results alone) — surfaces must still reach the UI.
-              const surfaces = meta.richResults ?? [];
-              if ((meta.webCitationMap && Object.keys(meta.webCitationMap).length > 0) || surfaces.length > 0) {
-                // Web metadata rides the stream now: response headers are
-                // written before start(), when the gate has not run yet.
-                ch.stage({
-                  stage: "web_meta",
-                  webCitations: (meta.webCitationMap ?? undefined) as StageEvent["webCitations"],
-                  searchGate: meta.searchGateMeta ?? undefined,
-                  presentation: meta.presentation ?? undefined,
-                  richResults: surfaces.length > 0 ? surfaces : undefined,
-                });
-                // §58 per-surface lifecycle frames: the frame payload is
-                // ONLY id/kind/revision — the envelope itself rides once
-                // on web_meta, never repeated per frame. Surfaces derive
-                // server-side before any model byte, so discovered→ready
-                // arrive back-to-back; `web:surface_updated` remains the
-                // reserved path for mid-turn revisions (none minted yet —
-                // the P2 tool loop does not regenerate surfaces).
-                for (const rr of surfaces) {
-                  ch.stage({ stage: "web:surface_discovered", surfaceId: rr.id, surfaceKind: rr.kind, surfaceRevision: 1 });
-                  ch.stage({ stage: "web:surface_ready", surfaceId: rr.id, surfaceKind: rr.kind, surfaceRevision: 1 });
-                }
-              }
-
               stripAttachmentRefs(payload.messages);
-              // P2: a gate-produced bundle arms the model-facing web tool
-              // loop (web-tool-loop.ts ⇔ Rust web_loop.rs) — the model gets
-              // the read-only web_search / read_page surface instead of a
-              // plain forward. A client-supplied `tools` array (the Browser
-              // Panel passthrough) is never overwritten: those turns keep
-              // the passthrough exactly as before.
-              if (meta.webDepth && !payload.tools) {
+              // Repair (brief §2/§4): THE MODEL DECIDES. The server-owned
+              // web tool surface is armed on EVERY turn where research is
+              // not explicitly disabled — no gate bundle is required and
+              // the loop starts with ZERO prefetched evidence (journal
+              // rehydration of this conversation's own record is the loop's
+              // doing). A client-supplied `tools` array (the Browser Panel
+              // passthrough) is never overwritten: those turns keep the
+              // passthrough exactly as before. web_meta frames now originate
+              // inside the loop (prior citations are real pills from frame
+              // one; new ones follow each retrieval round).
+              if (!meta.researchDisabled && !payload.tools) {
                 await runWebToolLoop({
                   payload,
                   lastUserIdx,
                   fullText,
                   model,
-                  depth: meta.webDepth,
-                  webCitationMap: meta.webCitationMap,
-                  searchGateMeta: meta.searchGateMeta,
-                  presentation: meta.presentation,
-                  richResults: meta.richResults,
+                  depth: "standard",
+                  webCitationMap: null,
+                  searchGateMeta: null,
+                  conversationId,
+                  currentDate: meta.turnDate,
                   scope: meta.turnScope,
                   signal: inner.signal,
                   ch,
@@ -980,7 +807,11 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const meta = await runTurnPipeline(payload, {
+      // Legacy non-streaming chat path: skill/attachment/clock steps only.
+      // Post-repair there is no gate, so this path has no citation map and
+      // no search-gate meta to carry on the response headers (the tool loop
+      // is a streaming construct; this path stays a plain forward).
+      await runTurnPipeline(payload, {
         lastUserIdx,
         fullText,
         env,
@@ -994,8 +825,6 @@ export async function POST(req: NextRequest) {
         turnTimezone,
         conversationId,
       });
-      webCitationMap = meta.webCitationMap;
-      searchGateMeta = meta.searchGateMeta;
     }
   }
 

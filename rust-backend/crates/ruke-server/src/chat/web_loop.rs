@@ -1,9 +1,15 @@
-//! web_loop.rs — P2 model-facing web research loop
-//! (⇔ TS `lib/chat/web-tool-loop.ts`). When the search gate produced an
-//! evidence bundle for the turn (`run_turn_pipeline` returns a `web_depth`)
-//! AND the client is NOT already driving the payload with its own `tools`
-//! passthrough, `pump_progress` streams the turn through HERE instead of
-//! the plain `forward::forward_into`.
+//! web_loop.rs — model-facing web research loop
+//! (⇔ TS `lib/chat/web-tool-loop.ts`). Repair (brief 2026-11-05): THE
+//! MODEL DECIDES — `run_turn_pipeline` arms this loop on every turn (fixed
+//! "standard" depth) unless the kill switch, an OPERATE browser turn, or a
+//! missing bridge excludes it, AND the client is not already driving the
+//! payload with its own `tools` passthrough. `pump_progress` streams the
+//! turn through HERE instead of the plain `forward::forward_into`. There
+//! is NO prefetched evidence bundle: the loop starts empty and the create
+//! RPC rehydrates this conversation's journaled prior research
+//! (`priorEvidence` — the block lands in the message slot, its [S#]
+//! aliases merge into the citation map, and the TS create side numbers
+//! them clear of the session's own seed).
 //!
 //! TS-OWNERSHIP ROLLBACK (2026-11-03): the tool SESSION lives in the Next
 //! process. This module owns only the generic model/SSE transport: each
@@ -65,7 +71,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use tracing::Span;
 
-use ruke_contracts::stages::{CitationMap, ResearchMeta, StageEvent};
+use ruke_contracts::stages::{CitationMap, StageEvent};
 use ruke_skills::lazy::inject_system_before;
 
 use crate::chat::answer_release::audit_research_answer;
@@ -368,15 +374,13 @@ pub async fn run_web_tool_loop(
     model: &str,
     // TS-ownership rollback: the depth is the TS wire string
     // ("quick" | "standard" | "deep") — the TS session picks the budget.
+    // Repair (brief 2026-11-05): chat turns carry the FIXED "standard"
+    // depth — no classifier picks quick/deep anymore. The loop starts
+    // with NO prefetched citations, gate meta, or surfaces (those legacy
+    // parameters are gone; the create RPC's `priorEvidence` is the only
+    // inbound evidence, and it is this conversation's own journaled
+    // record).
     depth: String,
-    mut merged: CitationMap,
-    search_gate: Option<ResearchMeta>,
-    // P5 (§57 ⇔ TS WebToolLoopOptions.presentation/richResults): the turn's
-    // plan + validated surfaces, re-carried verbatim on every updated
-    // web_meta frame so the OVERWRITE law never drops them. The loop mints
-    // no new surfaces — no `web:surface_*` frames here (parity with TS).
-    presentation: Option<Value>,
-    rich_results: Vec<Value>,
     question: &str,
     // Task-scope audit (brief #1/#6): the turn's server-owned contract,
     // folded from the conversation prompts upstream (⇔ TS web-tool-loop.ts
@@ -384,6 +388,12 @@ pub async fn run_web_tool_loop(
     // arguments can only ever NARROW it (targets resolving against real
     // SERP evidence — the TS executors enforce admission).
     scope: Option<crate::task_scope::TaskScope>,
+    // Repair (brief §5): conversation identity ⇔ TS
+    // `opts.conversationId/currentDate` — the TS session journals its own
+    // findings under the id, and the create RPC answers with this
+    // conversation's journaled prior evidence. None ⇒ neither journals
+    // nor rehydrates (identity routes nothing).
+    conversation: Option<(String, String)>,
     span: &Span,
     token: &CancellationToken,
     ch: &mut ProgressChannel,
@@ -407,35 +417,34 @@ pub async fn run_web_tool_loop(
         }
     };
 
-    // Citation seed: continue the pipeline's [S#] numbering. Keys such as
-    // "yt" carry no number and never collide with session numbering.
-    let mut seed = 0usize;
-    for key in merged.keys() {
-        if let Some(rest) = key.strip_prefix('S') {
-            if let Ok(n) = rest.parse::<usize>() {
-                seed = seed.max(n);
-            }
-        }
-    }
     // The TS service creates the session (budget, numbering, scope
     // admission) and returns the model-facing surface: tools + guidance.
+    // Repair (brief 2026-11-05): the loop starts EMPTY — no prefetched
+    // citations, so the session mints from S1; the TS create side numbers
+    // journaled-prior aliases clear of that seed and starts the session
+    // after the highest prior alias (web-tools-rpc.ts numbering law).
     let created = match bridge
         .post_json(
             next_search::TOOLS_PATH,
             &json!({
                 "action": "create",
                 "depth": depth,
-                "citationSeed": (seed + 1) as u64,
+                "citationSeed": 1u64,
                 "question": question,
                 "scope": serde_json::to_value(&scope).unwrap_or(Value::Null),
-                // §9 (audit 2026-11-04): the gate's freshness crosses to the
-                // TS session so read_page honors the live_required page-cache
-                // law. Freshness→retrieval-mode is a TS law (no Rust mirror);
-                // absent gate ⇒ "any" (cached_preferred, legacy behavior).
-                "freshness": search_gate
+                // §9 (audit 2026-11-04): freshness crosses to the TS
+                // session so read_page honors the live_required page-cache
+                // law. Freshness→retrieval-mode is a TS law (no Rust
+                // mirror). Repair: no gate feeds this path anymore — chat
+                // turns research at the default "any" policy.
+                "freshness": "any",
+                // Repair (brief §5): the conversation rides so the session
+                // journals its own findings, and the response carries this
+                // conversation's journaled prior evidence (`priorEvidence`).
+                "conversation": conversation
                     .as_ref()
-                    .map(|m| m.freshness.clone())
-                    .unwrap_or_else(|| "any".to_string()),
+                    .map(|(id, date)| json!({"id": id, "currentDate": date}))
+                    .unwrap_or(Value::Null),
             }),
             // §10: create is bounded in-memory work on the TS side — a
             // header wait past the budget is a wedged Next, not real work.
@@ -475,15 +484,53 @@ pub async fn run_web_tool_loop(
         .unwrap_or(WEB_TOOL_FINAL_DIRECTIVE)
         .to_string();
 
+    // Repair (brief §5): the create RPC rehydrated this conversation's
+    // journaled prior evidence. Its [S#] aliases merge into the loop's
+    // citation map (the create side numbered them clear of the session's
+    // own seed — one sequence, no collisions) and the block is injected
+    // TWO slots under the guidance, ⇔ TS web-tool-loop.ts: guidance at
+    // `lastUserIdx`, the user turn, then prior evidence at
+    // `lastUserIdx + 2`.
+    let mut merged: CitationMap = CitationMap::new();
+    if let Some(obj) = created
+        .get("priorEvidence")
+        .and_then(|p| p.get("citations"))
+        .and_then(Value::as_object)
+    {
+        for (alias, cit) in obj {
+            merged.insert(alias.clone(), cit.clone());
+        }
+    }
+
     // Guidance block + tool surface from the TS session (same slot as the
     // skill block).
     if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
         inject_system_before(messages, last_user_idx, guidance);
+        if let Some(block) = created
+            .get("priorEvidence")
+            .and_then(|p| p.get("block"))
+            .and_then(Value::as_str)
+        {
+            if !block.trim().is_empty() {
+                inject_system_before(messages, last_user_idx + 2, block.to_string());
+            }
+        }
     }
     payload["tools"] = created
         .get("tools")
         .cloned()
         .unwrap_or_else(|| json!([]));
+
+    // Prior citations must reach the client BEFORE the model's first byte,
+    // or an [S#] the model reuses from the rehydrated block renders as
+    // dead text (OVERWRITE law: the map only grows from here). ⇔ the TS
+    // loop's initial web_meta — and like TS, NO `research_ledger` yet:
+    // nothing has run this turn.
+    if !merged.is_empty() {
+        let mut ev = StageEvent::new("web_meta");
+        ev.web_citations = Some(merged.clone());
+        ch.stage(&ev).await;
+    }
 
     tracing::info!(
         parent: span,
@@ -564,11 +611,10 @@ pub async fn run_web_tool_loop(
                 if let Some(actions) = actions {
                     let mut ev = StageEvent::new("web_meta");
                     ev.web_citations = Some(merged.clone());
-                    ev.search_gate = search_gate.clone();
-                    ev.presentation = presentation.clone();
-                    if !rich_results.is_empty() {
-                        ev.rich_results = Some(rich_results.clone());
-                    }
+                    // Repair (brief §4): no gate meta and no surfaces
+                    // exist on this path — the frame carries ONLY the
+                    // citation map + the action ledger (⇔ the TS loop's
+                    // undefined searchGate/presentation).
                     ev.research_ledger =
                         Some(json!({"toolRounds": rounds_used, "actions": actions}));
                     ch.stage(&ev).await;
@@ -699,8 +745,9 @@ pub async fn run_web_tool_loop(
                     "web tool result"
                 );
                 // Merge the [S#] citations these calls minted. The TS
-                // session numbers packets from the create seed, so keys
-                // never collide with the pipeline's map.
+                // session numbers packets from its create seed, and the
+                // create side numbered journaled-prior aliases clear of
+                // that seed — one citation sequence, no collisions.
                 for c in fresh {
                     let key = match c.get("sourceId").and_then(Value::as_str) {
                         Some(k) => k.to_string(),
@@ -729,14 +776,9 @@ pub async fn run_web_tool_loop(
                 // LEDGER with no new citations (failed lookups).
                 let mut ev = StageEvent::new("web_meta");
                 ev.web_citations = Some(merged.clone());
-                ev.search_gate = search_gate.clone();
-                // P5: the OVERWRITE law demands the FULL set each time —
-                // plan and surfaces ride along (empty set serializes absent
-                // ⇔ the TS length>0 gate).
-                ev.presentation = presentation.clone();
-                if !rich_results.is_empty() {
-                    ev.rich_results = Some(rich_results.clone());
-                }
+                // Repair (brief §4): no gate meta / surfaces on this path;
+                // the OVERWRITE law keeps its full shape for citations
+                // only (⇔ TS's undefined gate/presentation).
                 // P3b: the ledger snapshot from this round's exec RPCs
                 // (⇔ web-tool-loop.ts `researchLedger`).
                 if let Some(actions) = last_ledger.as_ref().and_then(Value::as_array) {

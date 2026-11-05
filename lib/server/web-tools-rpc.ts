@@ -22,6 +22,7 @@ import {
   recordAction,
   summarizeActionLedger,
   WEB_TOOL_MAX_ROUNDS_CAP,
+  type WebToolConversation,
   type WebToolSession,
   type WebToolDepth,
   type CitationSeed,
@@ -33,6 +34,11 @@ import {
 import { gateDisabledByEnv } from "@/lib/web-search/search-gate";
 import { retrievalModeForFreshness } from "@/lib/web-search/types";
 import type { TaskScope } from "@/lib/decision/task-scope";
+import {
+  readResearchJournal,
+  selectPriorEvidence,
+  buildPriorEvidenceBlock,
+} from "@/lib/persistence/research-journal";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("web-tools-rpc");
@@ -97,6 +103,18 @@ function validScope(v: unknown): v is TaskScope {
   return stringArray(s.excludedPhrases) && stringArray(s.authorizedHosts);
 }
 
+// Conversation DTO gate (same fail-closed law as validScope): a malformed
+// conversation degrades to "no journaling", never to a half-trusted id.
+function validConversation(v: unknown): WebToolConversation | null {
+  if (!v || typeof v !== "object") return null;
+  const c = v as { id?: unknown; currentDate?: unknown };
+  if (typeof c.id !== "string" || c.id.trim() === "") return null;
+  return {
+    id: c.id.trim().slice(0, 200),
+    currentDate: typeof c.currentDate === "string" ? c.currentDate.slice(0, 32) : "",
+  };
+}
+
 export async function handleWebToolsRpc(
   body: any,
   signal?: AbortSignal,
@@ -122,12 +140,44 @@ export async function handleWebToolsRpc(
     // (no Rust mirror); anything unrecognized maps to cached_preferred.
     const freshness = typeof body.freshness === "string" ? body.freshness : "any";
     const liveRequired = retrievalModeForFreshness(freshness) === "live_required";
-    const session = makeWebToolSession(depth as WebToolDepth, seed, question, scope, liveRequired);
+    // Repair (brief 2026-11-05 §5): the conversation rides the bridge so
+    // the session journals its own findings (see tools.ts), and the create
+    // response carries the prior-evidence rehydration for this turn — the
+    // journal law stays a TS law, the Rust transport just consumes it.
+    const conversation = validConversation(body.conversation);
+    // Citation-numbering law (design-review fix): prior journaled aliases
+    // are numbered FIRST, starting clear of the caller's seed, and the
+    // session's OWN mint then continues after the highest prior alias —
+    // two citations must never share an [S#] label on one turn.
+    let priorAliasMax = seed - 1;
+    let priorEvidence: { block: string; citations: Record<string, unknown> } | null = null;
+    if (conversation) {
+      const priorTurns = selectPriorEvidence(readResearchJournal(conversation.id), question);
+      if (priorTurns.length > 0) {
+        const built = buildPriorEvidenceBlock(priorTurns, `S${Math.max(0, priorAliasMax)}`);
+        if (built.block.trim() !== "") {
+          priorEvidence = { block: built.block, citations: built.citations };
+          for (const alias of Object.keys(built.citations)) {
+            const n = /(\d+)$/.exec(alias);
+            if (n) priorAliasMax = Math.max(priorAliasMax, Number(n[1]));
+          }
+        }
+      }
+    }
+    const session = makeWebToolSession(
+      depth as WebToolDepth,
+      priorAliasMax + 1,
+      question,
+      scope,
+      liveRequired,
+      conversation,
+    );
     sessions.set(session.searchSessionId, { session, lastTouched: now });
     return {
       status: 200,
       json: {
         sessionId: session.searchSessionId,
+        priorEvidence,
         budget: session.budget,
         remainingBudget: remainingBudget(session),
         // §9: observable freshness policy (Rust ignores it; the suite pins

@@ -16,7 +16,7 @@ live Strata backend and without Playwright.
 | `skills/` | 5 | `skills.test.ts` | 6 slash skill (progress+legacy), unknown-slash passthrough, core-tier via decision, decision_mode excel passthrough |
 | `decision/` + `serialization/` | 6 | `decision-serialization.test.ts` | envelope bytes + per-field comparison ledger |
 | `attachments/` | 6 | `attachments.test.ts` | 8 retrieval success, failure non-fatal (02/03), video keyframe paths (04/05), legacy parity (06) |
-| `web-search/` | 5 | `web.test.ts` | 11 success (progress stages+evidence+web_meta+citations; legacy headers), 12 failure non-fatal BOTH shapes (starved sentinel / route catch), 13 image/vision gate ctx (pre-pass DEAD proof) |
+| `web-search/` | 5 | `web.test.ts` | **RE-SCOPED 2026-11-05 (MHR-A..D):** 1 model-directed research (model calls web_search → read_page → answer; tool-message grammar + ledger-gated web_meta), 2 legacy stream:false PLAIN forward (no tools/evidence/headers), 3 starved pool honest empty envelope, 4 search-budget exhausted honest refusal, 5 image parts passthrough + loop ARMED-unused (vision pre-pass DEAD proof) |
 
 Every fixture embeds an inline `_meta` block: originating harness, scenario, expected
 semantics, **comparison class**, env preconditions, normalization notes.
@@ -36,6 +36,10 @@ semantics, **comparison class**, env preconditions, normalization notes.
   Progress-path response bodies are ms-normalized; **logical frames are the contract**, never
   TCP chunk boundaries — the sole exception is the sse 02/03 matrices, which deliberately
   document boundary-dependent buggy behavior.
+- MHR (2026-11-05) web corpus volatile masking: per-turn random session ids mask to `ws-<sid>`
+  (searchSessionId + ledger ids `ws-<sid>-aN`) and action-ledger ISO stamps mask to
+  `"at":"<volatile-at>"` — applied to upstream bodies AND response text before parsing.
+  `publishedDate`/`publishedAt` are NEVER masked (real fixture content).
 - `<active_skill>` / `<decision_skill>` bodies are replaced by **anchors** (block sha256 + byte
   length + source-file hashes) so skill-file churn is visible but bodies aren't duplicated;
   Rust must reproduce the composed block byte-for-byte from the same files. Web-evidence blocks
@@ -47,7 +51,9 @@ semantics, **comparison class**, env preconditions, normalization notes.
 ## Env preconditions (set by each harness via `setGoldenEnv`)
 
 - `LOG_LEVEL=silent`; `WEB_SEARCH_GATE_DISABLED=1` for every NON-web suite; web suite runs with
-  the gate env REMOVED (`webSearchDisabled:false`) so the real gate/pipeline executes.
+  the gate env REMOVED (`webSearchDisabled:false`) so the web pipeline primitives execute.
+  Post-MHR-C the chat route never consults the gate at all (the env var is a kill switch for the
+  tool loop); the gate still serves the `app/api/search` surfaces.
 - `llmApiUrl()/llmApiKey()` mocked to `http://127.0.0.1:9/v1/chat/completions` / `golden-key`
   (unroutable port — the fetch is scripted, never attempted; host text appears in error
   fixtures by design).
@@ -56,13 +62,19 @@ semantics, **comparison class**, env preconditions, normalization notes.
 
 ## Web-search mock boundary (web.test.ts)
 
-MOCKED (I/O seams only): `lib/web-search/cache` (no sqlite native; deterministic miss, injectable
-throw), `lib/web-search/net` (impit never loads; scripted `fetchPage` pages, `fetchUrl=null` kills
-local verticals; REAL `isSafeUrl`), `lib/web-search/engines` (SERP table scripted per HARNESS mode:
-normal / starved / throw-cache; real `deduplicateQueries` + cooldown kept).
-REAL (pure CPU, deterministic): search gate Stage-0 hard bypass, query planner, metasearch RRF +
-relevance floor + freshness recovery, extractor tier cascade (fetchUrl-null path), BM25 reranker,
-coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted SERP + pages.
+MOCKED (I/O seams only, post-MHR 2026-11-05): `lib/web-search/cache` (no sqlite native;
+deterministic miss-only), `lib/web-search/net` (impit never loads; scripted `fetchPage` pages,
+`fetchUrl=null` kills local verticals; REAL `isSafeUrl`), `lib/web-search/engines` (SERP table
+scripted per HARNESS mode normal / starved; an `ENGINE_CALLS` counter lets fixtures PROVE zero
+search traffic; real `deduplicateQueries` + cooldown kept), `lib/web-search/ssrf` (ONLY the DNS
+leg of `isSafeUrlWithDns` replaced — real node:dns would run on the always-armed tool chain;
+literal classification REAL via `actual.isSafeUrl`), `lib/web-search/agentBrowser` (scripted
+browser tier — P7 hermeticity; every unlisted URL is a deterministic miss).
+REAL (pure CPU, deterministic): tool dispatch + budget gate + action ledger + citation minting,
+metasearch RRF + relevance floor, extractor tier cascade (fetchUrl-null path), BM25 reranker.
+The CHAT path runs no gate/planner prefetch at all — the MAIN MODEL (scripted upstream, MHR-G
+mock caveat) chooses web_search/read_page; retrieval bytes therefore derive ONLY from scripted
+SERP + pages via tool envelopes.
 
 ## Pinned contract discoveries (Part 2; production TS left EXACTLY as-is)
 
@@ -72,44 +84,54 @@ coverage/gap logic. The evidence block bytes therefore derive ONLY from scripted
    narrow JS-compatible number serializer (integral f64 → `1`) and skips `lfm_*`; the
    decision 01–05 replays in `crates/ruke-decision/tests/fixture_replay.rs` are byte-exact
    against these fixtures — no fixture or serializer deviation was needed.
-2. Injection-index off-by-one family: web-evidence, attachment-retrieval and (with no skill
-   block) the evidence block land at `lastUserIdx + 1` → system block AFTER the user turn
-   (fixture `web-search/01` pins roles `["user","system"]`; `attachments/01,04,06` pin their
-   variants; `attachments/05` pins the skill-shifted-correct path). RECORDED, not fixed (§8).
+2. Injection-index off-by-one family: attachment-retrieval blocks land at `lastUserIdx + 1` →
+   system block AFTER the user turn (`attachments/01,04,06` pin their variants; `attachments/05`
+   pins the skill-shifted-correct path). RECORDED, not fixed (§8). The web-evidence half of this
+   family is SUPERSEDED 2026-11-05 (MHR): chat turns inject NO evidence block;
+   `web-search/01` now pins roles `["system","user","system"]` (guidance first, clock last).
 3. `runVisionEntityPrepass` is DEAD code (zero call sites); the route's "vision pre-pass" comment
-   is fiction. Image data URLs feed ONLY the gate context. `upstreamCalls.length===1` in
-   `web-search/05` proves no vision hop.
-4. Evidence block layout quirk: `</evidence>` closes the guideline header BEFORE the `[S#]`
-   source lines + quoted excerpts; `buildMainModelContext` prepends `ANTI_REFUSAL_DIRECTIVE +
-   "\n\n"` whenever passages exist — the block NEVER starts with `<evidence>`.
-5. Two distinct web-failure shapes: starved engines → pipeline returns NON-NULL empty bundle →
-   exact honest sentinel `"No web evidence could be retrieved for this request: every search and
-   read attempted came back empty or unusable. Do not present unverified memory as retrieved fact:
-   state plainly which requested facts you could not confirm, and clearly label any background
-   knowledge you offer as unverified."` injected, NO web_meta, NO citation headers (`web-search/03`);
-   internals THROW → route catch swallows, NO block at all (`web-search/04`). Both fully non-fatal.
-   (Sentinel reworded 2026-11-05, research-depth audit: the previous wording — "Proceed with your
-   knowledge only." — instructed the model to answer from memory without evidence; the fixture was
-   regenerated from the live TS oracle, never hand-edited.)
-6. `web_meta` arrives as a **stage frame** (`stage:"web_meta"`) AFTER `web:done`, NOT a data
-   frame; legacy path surfaces the same metadata ONLY via `X-Web-Citations`/`X-Search-Gate`
-   (`encodeURIComponent(JSON)`), only when citations are non-empty.
+   is fiction. `upstreamCalls.length===1` in `web-search/05` (parts passthrough, loop ARMED but
+   unused) proves no vision hop — and simultaneously zero engine legs (ENGINE_CALLS=0).
+4. Evidence block layout quirk (gate-era): SUPERSEDED 2026-11-05 (MHR-C) on the chat path — no
+   evidence block is ever injected there. The quirk (`</evidence>` closing the guideline header
+   before `[S#]` lines; `ANTI_REFUSAL_DIRECTIVE` prefix) applies only where the gate pipeline
+   still runs (`app/api/search` surfaces).
+5. Web-failure honesty (rewritten 2026-11-05, MHR-A..D — supersedes the sentinel-prefetch
+   family): there is no prefetched bundle and no injected "No web evidence" sentinel on chat
+   anymore; honesty lives in the TOOL ENVELOPE the model itself called. Starved pool ⇒
+   `ok:true, results:[], resultCount:0` recorded in the ledger with `retrieved:0`
+   (`web-search/03`). Budget spent ⇒ `ok:false, error:"budget_exhausted"` + detail +
+   remainingBudget; the refused target is named by the action LEDGER (`ok:false` record with the
+   refused queries), NEVER echoed in the envelope (error envelopes never repeat model args)
+   (`web-search/04`). Both fully non-fatal; zero error frames. (History: the old gate-era
+   sentinel string — reworded 2026-11-05 morning, research-depth audit — now belongs only to
+   surfaces that still run the gate pipeline; both old fixtures were regenerated from the live
+   TS oracle, never hand-edited.)
+6. `web_meta` arrives as a **stage frame** (`stage:"web_meta"`), LEDGER-GATED (WS18): one per
+   tool round whose action ledger grew, immediately after that round's `web:tools` census frame,
+   plus one completion snapshot (OVERWRITE law) — `web-search/01` pins the interleaved frame
+   order. The `X-Web-Citations`/`X-Search-Gate` header pair is GONE from EVERY chat response:
+   the legacy stream:false path is a PLAIN FORWARD (`web-search/02`) — headers, stage frames,
+   tools and evidence are all absent there.
 7. `metasearch()` leaves an uncleared 15 s hard-cap `setTimeout` after every call (delays vitest
    worker exit; harmless) — Part 6 port must still honour the 15 s cap semantics.
 8. Gate regexes `KNOWN_SITE_TOKEN_RE`/`DOMAIN_TLD_TOKEN_RE` in `search-gate.ts` are defined but
-   unreferenced (dead).
+   unreferenced (dead). (Post-MHR-C the whole gate is OFF the chat path; it still serves
+   `app/api/search`.)
 9. `POST /api/decision` guard makes `fallbackEnvelope` (`in-process-fallback`) unreachable
    publicly — internal-only (chat empty-turn path); Rust must keep it internal.
 10. Gate under hard-bypass never invokes the main model (gateMs 0, `decidedBy
-    "deterministic"`) — the "gate is a main-model call every turn" perf note (§8) applies only
-    to non-bypass turns.
+    "deterministic"`). SUPERSEDED on chat 2026-11-05 (MHR-C): chat runs NO gate model call
+    EVER — zero gate hops per turn (the `web-search/*` fixtures' single-fetch upstream proofs
+    cover this); the perf note now applies only to `app/api/search` surfaces.
 
 ## Known gaps (recorded, not skipped)
 
 - `whole_video` note path + exhaustive-retrieval mode not exercised by fixtures (prompt shapes
   don't reach them; Part 6 re-records against Rust with the same harness if needed).
 - `sourceClass`/`extractEntities` internal outputs pinned only indirectly through fixtures.
-- Tier-3b/browser-tier of the extractor is neutralized by the net mock (no browser in Part 2).
+- Tier-3b/browser-tier of the extractor is SCRIPTED via the `agentBrowser` mock (P7 hermeticity
+  fix 2026-11-02 — no live Chromium; unlisted URLs are deterministic misses).
 - RESOLVED 2026-10-26 (was: pre-existing chatEngine 2/7 red): the interactive/internal
   browser subsystem was removed repo-wide (architecture change pending; see
   `reverse-engineering/internal-browser/`). The two `chatEngine.test.ts` expectations

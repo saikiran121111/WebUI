@@ -38,6 +38,11 @@ import {
   scopeHosts,
   type TaskScope,
 } from "../decision/task-scope";
+import {
+  recordResearchTurn,
+  type JournalSource,
+  type JournalTurn,
+} from "../persistence/research-journal";
 
 /* ── §11.13 RetrievalFailure taxonomy (⇔ Rust `RetrievalFailure`) ──────── */
 
@@ -230,6 +235,22 @@ export interface WebToolSession {
    * (pipeline.ts liveRequired ⇔ here).
    */
   liveRequired: boolean;
+  /**
+   * Repair (brief 2026-11-05 §5): the conversation this session serves, so
+   * every successful `web_search` journals its sources AS THEY ARE FOUND.
+   * Recording lives HERE (the tool-session layer) — one implementation
+   * serving both the TS loop and the Rust transport — never in a chat
+   * route that only exists when a gate bundle ran. `null` ⇒ no journaling
+   * (stateless direct-session callers).
+   */
+  conversation: WebToolConversation | null;
+}
+
+/** Conversation identity a tool session journals research under. */
+export interface WebToolConversation {
+  id: string;
+  /** Session date stamp the turn was built under (provenance label). */
+  currentDate: string;
 }
 
 /** Hostname of a tool-supplied URL ("" on parse failure — fail closed). */
@@ -247,6 +268,7 @@ export function makeWebToolSession(
   queryContext: string,
   scope: TaskScope | null = null,
   liveRequired = false,
+  conversation: WebToolConversation | null = null,
 ): WebToolSession {
   return {
     searchSessionId: "ws-" + Math.random().toString(36).slice(2, 10),
@@ -259,6 +281,7 @@ export function makeWebToolSession(
     queryContext: queryContext.slice(0, 500),
     scope,
     liveRequired,
+    conversation,
   };
 }
 
@@ -283,6 +306,38 @@ export function recordAction(
     id: `${session.searchSessionId}-a${session.actionLedger.length + 1}`,
     at: new Date().toISOString(),
   });
+}
+
+/**
+ * Repair (brief 2026-11-05 §5): journal the sources a `web_search` round
+ * actually returned, under the session's conversation. Incremental by
+ * design — a session that dies mid-loop still leaves its findings in the
+ * journal, so a later turn's rehydration sees real evidence. Best-effort:
+ * journaling failure must never break a tool round.
+ */
+export function journalWebSearchSources(
+  session: WebToolSession,
+  queries: string[],
+  freshness: string,
+  results: { url: string; title: string; snippet: string; domain: string; publishedDate?: string }[],
+): void {
+  const conv = session.conversation;
+  if (!conv || !conv.id.trim() || results.length === 0) return;
+  const turn: JournalTurn = {
+    at: Date.now(),
+    currentDate: conv.currentDate,
+    queries: queries.slice(0, 8),
+    freshness,
+    sources: results.slice(0, 12).map((r): JournalSource => ({
+      url: r.url,
+      title: r.title,
+      domain: r.domain,
+      publishedAt: r.publishedDate ?? "",
+      fetchedAt: new Date().toISOString(),
+      excerpt: r.snippet,
+    })),
+  };
+  recordResearchTurn(conv.id, turn);
 }
 
 /**
@@ -1067,6 +1122,10 @@ export async function execWebSearchTool(
     failures: failureProvenance(failures),
     sources: citations.length > 0 ? citations.map((c) => c.sourceId) : undefined,
   });
+  // Journal what was REALLY retrieved (post-admission `results`, never the
+  // raw merged list): what lands in the journal is exactly what the model
+  // was allowed to see.
+  journalWebSearchSources(session, searchQueries, freshness, results);
   return out;
 }
 

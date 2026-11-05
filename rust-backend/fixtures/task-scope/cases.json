@@ -550,8 +550,40 @@
       },
       "prompt": "What is its rating?",
       "expect": {
-        "intent": "operate",
+        "intent": "research",
         "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
+    },
+    {
+      "name": "anaphoric-research-keeps-subject-not-action",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "flipkart", "state": "resolved", "host": "flipkart.com", "url": "", "candidates": [], "provenance": "resolved_search" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "what are its latest reviews anywhere",
+      "expect": {
+        "intent": "research",
+        "targets": [{ "phrase": "flipkart", "state": "resolved", "host": "flipkart.com", "url": "", "candidates": [], "provenance": "resolved_search" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
+    },
+    {
+      "name": "pure-followup-still-inherits-site-task",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "resolved", "host": "zepto.com", "url": "", "candidates": [], "provenance": "resolved_search" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "add bread too",
+      "expect": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "resolved", "host": "zepto.com", "url": "", "candidates": [], "provenance": "resolved_search" }],
         "excludedPhrases": [],
         "authorizedHosts": []
       }

@@ -20,12 +20,20 @@ const mocks = vi.hoisted(() => ({
   execReadPage: vi.fn(),
   begin: vi.fn(),
   end: vi.fn(),
+  readJournal: vi.fn((): unknown[] => []),
 }));
 
 vi.mock("@/lib/web-search/tools", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/web-search/tools")>()),
   execWebSearchTool: mocks.execWebSearch,
   execReadPageTool: mocks.execReadPage,
+}));
+// Repair (brief 2026-11-05 §5): journal READS are stubbed, but
+// selectPriorEvidence / buildPriorEvidenceBlock stay REAL — the rehydration
+// grammar (relevance gate + [S#] numbering) is pinned against the law.
+vi.mock("@/lib/persistence/research-journal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/persistence/research-journal")>()),
+  readResearchJournal: mocks.readJournal,
 }));
 vi.mock("@/lib/server/settings", () => ({
   llmApiUrl: () => "http://127.0.0.1:1234/v1/chat/completions",
@@ -131,6 +139,8 @@ async function drive(
     depth?: "quick" | "standard" | "deep";
     citationMap?: Record<string, any> | null;
     signal?: AbortSignal;
+    conversationId?: string;
+    currentDate?: string;
   } = {},
 ): Promise<ReturnType<typeof vi.fn>> {
   const fetchMock = vi.fn(async (_url: string, init: any) => {
@@ -149,6 +159,9 @@ async function drive(
       ? { S1: { sourceId: "S1", url: "https://pipeline.example", title: "P", domain: "pipeline.example" } }
       : opts.citationMap,
     searchGateMeta: { depth: opts.depth ?? "standard", freshness: "any", decidedBy: "llm", queries: [] },
+    ...(opts.conversationId === undefined
+      ? {}
+      : { conversationId: opts.conversationId, currentDate: opts.currentDate ?? "" }),
     signal: opts.signal,
     ch: channelFor(h),
   });
@@ -167,6 +180,8 @@ beforeEach(() => {
   mocks.execReadPage.mockResolvedValue({ ok: true, tool: "read_page", marker: "read-envelope" });
   mocks.begin.mockReset();
   mocks.end.mockReset();
+  mocks.readJournal.mockReset();
+  mocks.readJournal.mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -317,25 +332,26 @@ describe("tool round → merged conversation → final answer", () => {
     // attempts disappear from persisted ledger metadata"): the rejected
     // calls ARE recorded (invalidArgsEnvelope/unknown-tool sites call the
     // real recordAction), so every round's ledger growth now emits its own
-    // web_meta and the completion re-emits the final ledger — 3 frames,
-    // not 1. Each frame still ships the merged (pipeline-seeded) citation
-    // map, and each carries the ledger SNAPSHOT as of its emission round —
-    // frame 0 saw exactly the unknown_tool rejection.
+    // web_meta and the completion re-emits the final ledger. Brief §5
+    // adds the OPENER frame: an armed turn's citation pills must exist
+    // BEFORE the model's first byte, so the turn opens with web_meta —
+    // 4 frames now, the opener carrying no ledger yet.
     const metaStages = h.stages.filter((s) => s.stage === "web_meta");
-    expect(metaStages).toHaveLength(3);
+    expect(metaStages).toHaveLength(4);
+    expect(metaStages[0].researchLedger).toBeUndefined();
     for (const m of metaStages) expect(Object.keys(m.webCitations!)).toEqual(["S1"]);
-    expect(metaStages[0].researchLedger!.actions.map((a) => a.error)).toEqual(["unknown_tool"]);
-    expect(metaStages[1].researchLedger!.actions.map((a) => a.error)).toEqual([
+    expect(metaStages[1].researchLedger!.actions.map((a) => a.error)).toEqual(["unknown_tool"]);
+    expect(metaStages[2].researchLedger!.actions.map((a) => a.error)).toEqual([
       "unknown_tool", "invalid_arguments",
     ]);
-    expect(metaStages[2].researchLedger).toEqual({
+    expect(metaStages[3].researchLedger).toEqual({
       toolRounds: 2,
       actions: [
         expect.objectContaining({ tool: "shell_exec", ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0, round: 1 }),
         expect.objectContaining({ tool: "web_search", ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0, round: 2 }),
       ],
     });
-    for (const [i, a] of metaStages[2].researchLedger!.actions.entries()) {
+    for (const [i, a] of metaStages[3].researchLedger!.actions.entries()) {
       expect(a.id).toMatch(new RegExp(`-a${i + 1}$`));
       expect(Number.isNaN(Date.parse(a.at))).toBe(false);
     }
@@ -447,5 +463,121 @@ describe("WS18 — ledger persistence independent of citations", () => {
     expect(metas[0].researchLedger?.actions).toHaveLength(1);
     expect(metas[1].researchLedger?.actions).toHaveLength(2);
     expect(metas[2].researchLedger?.actions).toHaveLength(2);
+  });
+});
+
+/* ── Repair (brief 2026-11-05 §5): the journal is the ONLY cross-turn
+   memory now — no gate, no prefetched bundle. Relevant prior research
+   rehydrates into the armed turn: a <prior_research_evidence> block in
+   the evidence slot plus [S#] aliases that CONTINUE the turn's numbering
+   (never collide). ⇔ the Rust mirror consumes the same law through the
+   create-RPC priorEvidence field (web-tools-rpc.test.ts vectors). ── */
+
+const JOURNAL_FIXTURE = [
+  {
+    at: 1762200000000,
+    currentDate: "2026-11-04",
+    queries: ["latest Voltara Systems update"],
+    freshness: "week",
+    sources: [
+      {
+        url: "https://voltara.example/news/latest",
+        title: "Voltara Systems: latest update",
+        domain: "voltara.example",
+        publishedAt: "2026-11-01",
+        fetchedAt: "2026-11-04T09:00:00.000Z",
+        excerpt: "Voltara Systems shipped Voltara One this week.",
+      },
+    ],
+  },
+];
+
+describe("brief §5 — prior-evidence rehydration (journal as sole memory)", () => {
+  it("journaled evidence rehydrates into the evidence slot and mints pills before the first byte", async () => {
+    mocks.readJournal.mockReturnValue(JOURNAL_FIXTURE);
+    const h = makeHarness();
+    await drive(h, [answerRound("Voltara One shipped this week [S1].")], {
+      citationMap: null, // no pipeline bundle: the journal is the ONLY source
+      conversationId: "conv-loop-1",
+      currentDate: "2026-11-05",
+    });
+    // Slot law ⇔ web_loop.rs: guidance@0, user@1, prior evidence@2.
+    const sent = h.fetchBodies[0];
+    expect(sent.messages[0]).toEqual({ role: "system", content: WEB_TOOL_GUIDANCE });
+    expect(sent.messages[1].role).toBe("user");
+    expect(sent.messages[2].role).toBe("system");
+    expect(sent.messages[2].content).toContain("<prior_research_evidence>");
+    expect(sent.messages[2].content).toContain("[S1]");
+    expect(sent.messages[2].content).toContain("voltara.example/news/latest");
+    // The journaled alias is a REAL pill target from frame one — the web_meta
+    // frame precedes any model byte, and it carries ONLY the prior map.
+    expect(h.stages[0].stage).toBe("web_meta");
+    expect(Object.keys(h.stages[0].webCitations!)).toEqual(["S1"]);
+    expect(h.stages[0].researchLedger).toBeUndefined();
+    // The model cited it; the release audit saw S1 in the merged map.
+    expect(h.rawText).toContain("Voltara One shipped this week [S1].");
+    expect(h.closed).toBe(1);
+    expect(mocks.readJournal).toHaveBeenCalledWith("conv-loop-1");
+  });
+
+  it("prior aliases continue the turn's numbering — never collide with existing [S#] keys", async () => {
+    mocks.readJournal.mockReturnValue(JOURNAL_FIXTURE);
+    const h = makeHarness();
+    await drive(h, [answerRound("done")], {
+      conversationId: "conv-loop-2", // default citationMap carries S1
+      currentDate: "2026-11-05",
+    });
+    const sent = h.fetchBodies[0];
+    expect(sent.messages[2].content).toContain("[S2]");
+    expect(h.stages[0].stage).toBe("web_meta");
+    // ONE sequence, no duplicates: existing S1, journaled source continues
+    // at S2 — a collision would show as a dropped/overwritten key.
+    expect(Object.keys(h.stages[0].webCitations!)).toEqual(["S1", "S2"]);
+  });
+
+  it("without conversation identity NOTHING rehydrates (identity routes no journal read)", async () => {
+    mocks.readJournal.mockReturnValue(JOURNAL_FIXTURE);
+    const h = makeHarness();
+    await drive(h, [answerRound("The capital of France is Paris.")], { citationMap: null });
+    expect(mocks.readJournal).not.toHaveBeenCalled();
+    const sent = h.fetchBodies[0];
+    // guidance + user only: no evidence slot, no pills frame.
+    expect(sent.messages).toHaveLength(2);
+    expect(h.stages.filter((s) => s.stage === "web_meta")).toHaveLength(0);
+    expect(h.closed).toBe(1);
+  });
+
+  it("an irrelevant journal is never dumped into context (relevance gate)", async () => {
+    // Scoring reads queries + titles + domains + urls (research-journal
+    // tokens()) — so "irrelevant" must be irrelevant in ALL of them, not
+    // just the query line (the fixture's original title/url said "latest").
+    mocks.readJournal.mockReturnValue([
+      {
+        at: JOURNAL_FIXTURE[0].at,
+        currentDate: "2026-11-04",
+        queries: ["Voltara Series B funding valuation"],
+        freshness: "any",
+        sources: [
+          {
+            url: "https://voltara.example/news/series-b",
+            title: "Voltara Systems raises Series B",
+            domain: "voltara.example",
+            publishedAt: "",
+            fetchedAt: "2026-11-04T09:00:00.000Z",
+            excerpt: "Halden Capital led the round.",
+          },
+        ],
+      },
+    ]);
+    const h = makeHarness();
+    await drive(h, [answerRound("done")], {
+      citationMap: null,
+      conversationId: "conv-loop-3",
+      currentDate: "2026-11-05",
+    });
+    expect(mocks.readJournal).toHaveBeenCalledWith("conv-loop-3");
+    const sent = h.fetchBodies[0];
+    expect(sent.messages).toHaveLength(2); // the read happened; nothing matched
+    expect(h.stages.filter((s) => s.stage === "web_meta")).toHaveLength(0);
   });
 });

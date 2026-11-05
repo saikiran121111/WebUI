@@ -1,10 +1,14 @@
 /**
  * web-tool-loop.ts — P2 model-facing web research loop
- * (⇔ Rust `crates/ruke-server/src/chat/web_loop.rs`). When the search gate
- * produced an evidence bundle for the turn (the pipeline returns a `depth`)
- * AND the client is NOT already driving the payload with its own `tools`
- * passthrough (client.ts preserves `tools` verbatim), the route streams the
- * turn through HERE instead of a plain `forwardStreamInto`.
+ * (⇔ Rust `crates/ruke-server/src/chat/web_loop.rs`). Repair 2026-11-05
+ * (brief §2/§4): the MAIN MODEL decides whether to search — the route arms
+ * this loop on every chat turn where research is not explicitly disabled
+ * (WEB_SEARCH_GATE_DISABLED) and the client is NOT already driving the
+ * payload with its own `tools` passthrough (client.ts preserves `tools`
+ * verbatim). No gate bundle and no prefetched evidence are required; the
+ * loop creates its session cold and the model calls the tools itself.
+ * (The retired gate still serves the explicit user search surfaces —
+ * `app/api/search*` — unchanged.)
  *
  * The shape mirrors the browser tool loop (`browser_loop.rs`) — this twin is
  * read-only research:
@@ -52,6 +56,15 @@ import {
   type WebToolDepth,
 } from "../web-search/tools";
 import { retrievalModeForFreshness } from "../web-search/types";
+// Repair (brief 2026-11-05 §5): follow-up turns rehydrate from the WS05
+// research journal INSIDE the loop — the loop is now the only research
+// entry for chat turns, so state retention lives here, not behind a gate.
+// ⇔ Rust web_loop.rs consumes the same law via the create-RPC response.
+import {
+  readResearchJournal,
+  selectPriorEvidence,
+  buildPriorEvidenceBlock,
+} from "../persistence/research-journal";
 // WS06 (audit 2026-11-05 item 6): server-enforced action/citation/claim
 // check before any research answer unit reaches the client — including the
 // normal finish path. This is the ENFORCEMENT half of the WEB_TOOL_GUIDANCE
@@ -266,6 +279,15 @@ export interface WebToolLoopOptions {
   webCitationMap: Record<string, any> | null;
   /** Gate summary re- carried on every updated web_meta frame. */
   searchGateMeta: StageEvent["searchGate"] | null;
+  /**
+   * Repair (brief 2026-11-05 §5): the conversation this turn belongs to.
+   * When set, relevant earlier research rehydrates into the armed turn
+   * (<prior_research_evidence> block + continuing [S#] aliases) and the
+   * tool session journals this turn's findings AS THEY ARE RETRIEVED
+   * (`lib/web-search/tools.ts`). Absent ⇒ no rehydration, no journaling.
+   */
+  conversationId?: string;
+  currentDate?: string;
   /** Task-scope audit (2026-11-02, brief #1/#6): the server-owned scope
    *  threaded into the tool session. Tool arguments can never widen it.
    *  Absent ⇒ no scope enforcement (legacy callers/tests). */
@@ -437,6 +459,27 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       const m = /^S(\d+)$/.exec(key);
       if (m) seed = Math.max(seed, parseInt(m[1], 10));
     }
+    // Repair (brief 2026-11-05 §5): model-directed research still keeps
+    // state across turns — the WS05 journal is the ONLY memory (no gate,
+    // no prefetch). Relevant prior turns rehydrate as server-minted [S#]
+    // aliases continuing after this map, plus a <prior_research_evidence>
+    // block. ⇔ web-tools-rpc create's priorEvidence for the Rust mirror.
+    const conversation =
+      opts.conversationId && opts.conversationId.trim() !== ""
+        ? { id: opts.conversationId.trim().slice(0, 200), currentDate: opts.currentDate ?? "" }
+        : null;
+    let priorBlock = "";
+    if (conversation) {
+      const priorTurns = selectPriorEvidence(readResearchJournal(conversation.id), fullText);
+      if (priorTurns.length > 0) {
+        const built = buildPriorEvidenceBlock(priorTurns, `S${seed}`);
+        for (const [alias, cit] of Object.entries(built.citations)) {
+          merged[alias] = { ...cit };
+          seed = Math.max(seed, Number(/\d+$/.exec(alias)?.[0] ?? 0) || 0);
+        }
+        priorBlock = built.block;
+      }
+    }
     const session = makeWebToolSession(
       depth,
       seed + 1,
@@ -446,13 +489,31 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       // tool session — on a live_required (realtime) turn, read_page never
       // replays the SQLite page cache. ⇔ web-tools-rpc create payload.
       retrievalModeForFreshness(opts.searchGateMeta?.freshness ?? "any") === "live_required",
+      conversation,
     );
 
     // Guidance block + tool surface (same slot as the skill block).
     if (Array.isArray(payload.messages)) {
       injectSystemBefore(payload.messages, lastUserIdx, WEB_TOOL_GUIDANCE);
+      if (priorBlock !== "") {
+        // After the shifted user turn: guidance@idx, user@idx+1,
+        // evidence@idx+2 — the slot layout the Rust transport mirrors.
+        injectSystemBefore(payload.messages, lastUserIdx + 2, priorBlock);
+      }
     }
     payload.tools = webToolDefinitions();
+
+    // Prior citations are REAL [S#] targets from frame one — the pills
+    // must exist in the UI before the model cites them this turn.
+    if (Object.keys(merged).length > 0) {
+      ch.stage({
+        stage: "web_meta",
+        webCitations: merged as StageEvent["webCitations"],
+        searchGate: opts.searchGateMeta ?? undefined,
+        presentation: opts.presentation ?? undefined,
+        richResults: opts.richResults && opts.richResults.length > 0 ? opts.richResults : undefined,
+      });
+    }
 
     log.info(
       { model, depth, session: session.searchSessionId, budget: session.budget },

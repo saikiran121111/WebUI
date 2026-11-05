@@ -1,0 +1,80 @@
+{
+  "_meta": {
+    "scenario": "legacy stream:false chat turn: plain forward — zero stage frames, zero tool grammar, zero header pair",
+    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the header-pair scenario): the gate-era X-Web-Citations/X-Search-Gate pair existed ONLY because the gate prefetched. Post-repair NOTHING is prefetched on any chat path, so the legacy tail is a PLAIN FORWARD: runTurnPipeline still runs (skill slot + task-scope + clock injection; stage callbacks dropped) but NO web tool loop runs (it belongs to the progress path), so payload.tools is absent, no guidance block is injected and no evidence block exists. Response: ZERO ruke_stage/web_meta frames, headers carry NEITHER x-web-citations NOR x-search-gate, and the body is the upstream SSE bytes byte-exact (the legacy path performs no WS06 answer audit).",
+    "comparison": "byte-exact",
+    "harness": "__tests__/rust-golden/web.test.ts",
+    "env": {
+      "WEB_SEARCH_GATE_DISABLED": "unset",
+      "WEB_SEARCH_LFM_DISABLED": "unset",
+      "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions",
+      "web_mock_boundary": "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP + ENGINE_CALLS counter), agentBrowser(scripted browser tier: golden1 rendered, every other URL misses), ssrf(isSafeUrlWithDns => literal isSafeUrl, no DNS)"
+    },
+    "normalization": "Stage-event \"ms\" timing values replaced with \"<ms>\" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests). MHR (2026-11-05): random per-turn web-session ids mask to \"ws-<sid>\" (bodies + ledger ids) and action-ledger ISO stamps mask to \"at\":\"<volatile-at>\"; publishedDate/publishedAt are NEVER masked."
+  },
+  "request": {
+    "rawBody": "{\"model\":\"strata-mock\",\"messages\":[{\"role\":\"user\",\"content\":\"what is the latest roadmap news for project nimbus\"}],\"stream\":false}"
+  },
+  "upstreamCalls": [
+    {
+      "url": "http://127.0.0.1:9/v1/chat/completions",
+      "method": "POST",
+      "headers": {
+        "accept": "text/event-stream",
+        "authorization": "Bearer golden-key",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"model\":\"strata-mock\",\"messages\":[{\"role\":\"user\",\"content\":\"what is the latest roadmap news for project nimbus\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"}],\"stream\":false}",
+      "bodyJson": {
+        "model": "strata-mock",
+        "messages": [
+          {
+            "role": "user",
+            "content": "what is the latest roadmap news for project nimbus"
+          },
+          {
+            "role": "system",
+            "content": "<runtime_clock>MASKED</runtime_clock>"
+          }
+        ],
+        "stream": false
+      }
+    }
+  ],
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "standard_chat"
+    },
+    "body": {
+      "bytes": 93,
+      "utf8Lossy": "data: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\n"
+    }
+  },
+  "logicalFrames": [
+    {
+      "kind": "data",
+      "obj": {
+        "id": "w1",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "search answer"
+            }
+          }
+        ]
+      },
+      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}"
+    },
+    {
+      "kind": "done"
+    }
+  ],
+  "streamDone": true,
+  "unterminatedTail": ""
+}

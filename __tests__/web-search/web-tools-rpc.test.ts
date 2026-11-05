@@ -7,8 +7,18 @@
  * Hermetic: no network — exec vectors stop before retrieval (bad args /
  * unknown tool), discover vectors carry no unresolved targets.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handleWebToolsRpc } from "@/lib/server/web-tools-rpc";
+
+// Repair (brief 2026-11-05 §5): journal READS are stubbed for hermetic
+// determinism, but selectPriorEvidence / buildPriorEvidenceBlock stay
+// REAL — the rehydration grammar (relevance gate + [S#] alias numbering)
+// must be pinned against the actual law, not a fake of it.
+const journalMock = vi.hoisted(() => ({ readResearchJournal: vi.fn((): unknown[] => []) }));
+vi.mock("@/lib/persistence/research-journal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/persistence/research-journal")>()),
+  readResearchJournal: journalMock.readResearchJournal,
+}));
 
 const ENFORCEABLE_SCOPE = {
   intent: "site_info" as const,
@@ -231,5 +241,136 @@ describe("web-tools RPC (Rust chat-loop bridge)", () => {
   it("unknown action is a 400 (never a silent no-op)", async () => {
     const res = await handleWebToolsRpc({ action: "teleport" });
     expect(res.status).toBe(400);
+  });
+});
+
+/* ── Repair (brief 2026-11-05 §5): journaling + prior-evidence rehydration
+   across the bridge. The create response carries the journaled evidence
+   block the Rust transport injects (⇔ web_loop.rs priorEvidence), and the
+   numbering law guarantees ONE [S#] sequence per turn: prior aliases are
+   numbered FIRST, starting clear of the caller's seed, and the session's
+   own mints continue after the highest prior alias — never a collision. ── */
+
+const JOURNAL_TURNS = [
+  {
+    at: 1762200000000,
+    currentDate: "2026-11-04",
+    queries: ["Voltara Systems funding round"],
+    freshness: "week",
+    sources: [
+      {
+        url: "https://voltara.example/news/series-b",
+        title: "Voltara Systems raises Series B",
+        domain: "voltara.example",
+        publishedAt: "2026-11-01",
+        fetchedAt: "2026-11-04T09:00:00.000Z",
+        excerpt: "Voltara Systems closed a Series B round.",
+      },
+      {
+        url: "https://techwire.example/voltara-series-b",
+        title: "Halden Capital leads Voltara Systems Series B",
+        domain: "techwire.example",
+        publishedAt: "",
+        fetchedAt: "2026-11-04T09:00:00.000Z",
+        excerpt: "The round was led by Halden Capital.",
+      },
+    ],
+  },
+];
+
+/** The pinned globalThis store — the seed pin reads the session object
+    directly, so no networked exec is needed to observe mint numbering. */
+function storedSession(sessionId: string): any {
+  const store = (globalThis as any).__webuiWebToolsSessions as
+    | Map<string, { session: any }>
+    | undefined;
+  const entry = store?.get(sessionId);
+  if (!entry) throw new Error(`session ${sessionId} missing from the store`);
+  return entry.session;
+}
+
+describe("web-tools RPC: journaling + prior-evidence rehydration (brief §5)", () => {
+  beforeEach(() => {
+    // Spy call bookkeeping must not leak across the §5 vectors (the
+    // negative vectors assert NOT-to-have-been-called).
+    journalMock.readResearchJournal.mockReset();
+    journalMock.readResearchJournal.mockReturnValue([]);
+  });
+
+  it("create rehydrates journaled evidence, numbered clear of the caller seed, session mints after", async () => {
+    journalMock.readResearchJournal.mockReturnValue(JOURNAL_TURNS);
+    const res = await handleWebToolsRpc({
+      action: "create",
+      depth: "standard",
+      citationSeed: 5,
+      question: "anything new on the Voltara Systems funding round?",
+      conversation: { id: "conv-rehydrate-1", currentDate: "2026-11-05" },
+    });
+    expect(res.status).toBe(200);
+    const j = res.json as any;
+
+    // The Rust transport injects this verbatim; the grammar is the TS law.
+    expect(typeof j.priorEvidence.block).toBe("string");
+    expect(j.priorEvidence.block).toContain("<prior_research_evidence>");
+    // Numbering law: caller seed 5 ⇒ prior aliases start at S5/S6.
+    expect(Object.keys(j.priorEvidence.citations)).toEqual(["S5", "S6"]);
+    expect(j.priorEvidence.citations.S5).toMatchObject({
+      sourceId: "S5",
+      url: "https://voltara.example/news/series-b",
+      domain: "voltara.example",
+    });
+    expect(j.priorEvidence.block).toContain("[S5]");
+    expect(j.priorEvidence.block).toContain("[S6]");
+
+    // The session's OWN mint continues after the highest prior alias —
+    // two citations must never share one [S#] label on a turn.
+    const session = storedSession(j.sessionId);
+    expect(session.nextSource).toBe(7);
+    expect(session.conversation).toMatchObject({ id: "conv-rehydrate-1", currentDate: "2026-11-05" });
+  });
+
+  it("no conversation ⇒ no rehydration and no journal identity (identity routes nothing else)", async () => {
+    journalMock.readResearchJournal.mockReturnValue(JOURNAL_TURNS);
+    const res = await handleWebToolsRpc({
+      action: "create",
+      depth: "standard",
+      citationSeed: 4,
+      question: "anything new on the Voltara Systems funding round?",
+    });
+    const j = res.json as any;
+    expect(j.priorEvidence).toBeNull();
+    const session = storedSession(j.sessionId);
+    expect(session.conversation).toBeNull();
+    expect(session.nextSource).toBe(4); // untouched by absent journaling
+  });
+
+  it("a malformed conversation DTO degrades to no journaling (fail-closed DTO gate)", async () => {
+    journalMock.readResearchJournal.mockReturnValue(JOURNAL_TURNS);
+    const res = await handleWebToolsRpc({
+      action: "create",
+      depth: "standard",
+      citationSeed: 2,
+      question: "anything new on the Voltara Systems funding round?",
+      conversation: { id: "   ", currentDate: 42 },
+    });
+    const j = res.json as any;
+    expect(res.status).toBe(200);
+    expect(j.priorEvidence).toBeNull();
+    expect(storedSession(j.sessionId).conversation).toBeNull();
+    expect(journalMock.readResearchJournal).not.toHaveBeenCalled();
+  });
+
+  it("irrelevant prior turns are not dumped into context (relevance gate)", async () => {
+    journalMock.readResearchJournal.mockReturnValue(JOURNAL_TURNS);
+    const res = await handleWebToolsRpc({
+      action: "create",
+      depth: "standard",
+      citationSeed: 1,
+      question: "how do I rebase a stale branch safely?",
+      conversation: { id: "conv-irrelevant-1", currentDate: "2026-11-05" },
+    });
+    const j = res.json as any;
+    expect(j.priorEvidence).toBeNull();
+    expect(storedSession(j.sessionId).nextSource).toBe(1);
   });
 });

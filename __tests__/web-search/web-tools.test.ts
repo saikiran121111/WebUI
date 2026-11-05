@@ -827,8 +827,16 @@ describe("WS18 — action-record provenance (id / at / queries / urls / failures
 describe("WS18 ⇔ failed-ledger emission (web-tool-loop.ts ⇔ web_loop.rs)", () => {
   it("completion web_meta is gated on the ACTION LEDGER, not citations, in both mirrors", () => {
     expectOnceIn(TS_LOOP, "if (session.actionLedger.length > 0) {", "ledger-gated completion web_meta");
-    const stale = readSrc(RUST_LOOP).split("if !merged.is_empty() {").length - 1;
-    expect(stale, "web_loop.rs: the no-citations completion gate must be GONE (WS18)").toBe(0);
+    expectOnceIn(RUST_LOOP, "if let Some(actions) = actions {", "ledger-gated completion web_meta (WS18)");
+    // The surviving `!merged.is_empty()` in web_loop.rs is the §5 INITIAL
+    // prior-citations web_meta (rehydration seed frame, NO ledger yet) —
+    // never the completion gate. MHR re-scope (2026-11-05) of the WS18 pin.
+    const initFrame = readSrc(RUST_LOOP).indexOf("if !merged.is_empty() {");
+    expect(initFrame, "web_loop.rs: the §5 initial prior-citations web_meta gate must exist").toBeGreaterThan(-1);
+    expect(
+      readSrc(RUST_LOOP).slice(initFrame, initFrame + 400).includes("research_ledger"),
+      "web_loop.rs: the initial-citations frame must carry NO research_ledger (WS18 completion gate must not hide inside it)",
+    ).toBe(false);
   });
   it("a ledger-growing round re-emits the record in both mirrors", () => {
     expectOnceIn(TS_LOOP, "session.actionLedger.length > actionsBefore", "ledger-growth per-round re-emit");

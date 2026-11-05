@@ -1,19 +1,42 @@
 /**
- * Golden corpus — web-search pipeline through /api/chat (MIGRATION-MAP §6
- * frozen scenarios 11/12/13: web-search SUCCESS (stages + evidence block +
- * web_meta + citations), web-search FAILURE (non-fatal), image/vision turn).
+ * Golden corpus — model-directed web tool loop through /api/chat
+ * (MHR-A..D, 2026-11-05). The chat route runs NO search-gate prefetch: the
+ * read-only web tool surface (web_search / read_page) is armed on EVERY
+ * progress-path chat turn and the MAIN MODEL decides whether/what to
+ * retrieve; the harness only supplies resources, executes valid actions,
+ * preserves evidence and reports actual outcomes. Frozen scenarios (the
+ * gate-era 11/12/13 scenarios were deliberately evolved — §8, brief 2026-11-05):
+ *   - 01: the model calls web_search, then read_page, then answers
+ *     (stages + tool messages + ledger-gated web_meta + [S#] citations);
+ *   - 02: legacy stream:false path = PLAIN FORWARD (no tools, no evidence,
+ *     no header pair — post-repair nothing is prefetched on this path);
+ *   - 03: starved engine pool — the loop runs, the envelope honestly reports
+ *     zero results, the answer still streams (non-fatal);
+ *   - 04: the model exhausts the per-turn search budget — the harness
+ *     refuses HONESTLY (budget_exhausted names the refused query) and the
+ *     turn completes on the next round;
+ *   - 05: image-attachment turn — parts passthrough, loop ARMED, the model
+ *     answers without tools (zero web frames, zero web_meta: nothing was
+ *     attempted, so nothing is reported);
+ *   - 06: pure clock turn — zero search traffic, quiet-clock law verbatim
+ *     in the live request (behavior pin, no fixture file).
  *
  * Determinism seams (the ONLY things mocked; everything else runs REAL —
- * search-gate, query-planner, metasearch RRF + relevance floor, extractor
- * tier cascade, BM25 reranker, coverage/gap evaluator):
+ * metasearch RRF + relevance floor, extractor tier cascade, SSRF literal
+ * gate (DNS leg mocked), budget/ledger/citation grammar):
  *   - @/lib/web-search/cache  : all cache reads MISS (kills better-sqlite3
  *     native + cross-run TTL pollution; the fixture corpus never shares a DB).
  *   - @/lib/web-search/net    : scripted page fetches (kills impit /
  *     got-scraping / wreq native layers and ALL real network; fetchUrl ->
  *     null so metasearch's local verticals — wikipedia/HN/arXiv/SE/wikidata/
  *     semantic-scholar/IMDb — all return [] deterministically).
- *   - @/lib/web-search/engines: the general-web SERP pool is scripted;
- *     deduplicateQueries / engineCooldownRemainingMs stay REAL.
+ *   - @/lib/web-search/engines: the general-web SERP pool is scripted
+ *     (ENGINE_CALLS counts engine legs so zero-search-turn fixtures can prove
+ *     zero engine traffic); deduplicateQueries / engineCooldownRemainingMs
+ *     stay REAL.
+ *   - @/lib/web-search/ssrf   : ONLY the DNS-resolution leg of
+ *     isSafeUrlWithDns is replaced (it performs REAL DNS on the always-armed
+ *     tool chain); the literal classification stays REAL via actual.isSafeUrl.
  *   - @/lib/web-search/agentBrowser: the extractor's stealth-Chromium
  *     browser tier is scripted (P7 hermeticity fix 2026-11-02). Before it,
  *     SERP URL #5 (old.reddit.com — a REAL live domain with no Tier-1 page)
@@ -22,21 +45,28 @@
  *     silently re-pinned the golden bytes — the "long-standing environmental
  *     flake" the old 30000ms timeout comment documented.
  *
+ * VOLATILE MASKING LAW (new chain: the loop mints a random session id per
+ * turn and ISO stamps on every ledger record): session ids mask to
+ * "ws-<sid>" (searchSessionId + ledger ids ws-<sid>-aN) and ledger stamps
+ * mask to "at":"<volatile-at>" — applied to upstream bodies AND to the
+ * response text before parsing/recording, so logicalFrames stay diffable.
+ * NEVER masks publishedDate/publishedAt (real fixture content).
+ *
+ * MOCK CAVEAT (MHR-G three-level proof): these fixtures prove the HARNESS
+ * contract with a scripted upstream playing the model; they prove NOTHING
+ * about a real model's tool-choice quality (that is the semantic-eval +
+ * e2e level's job).
+ *
  * CONTRACT DISCOVERIES pinned here (recorded, NOT fixed — §8):
  *   - runVisionEntityPrepass (lib/web-search/vision-prepass.ts) has ZERO call
- *     sites: the "Vision-to-Search pre-pass" documented in the route comment
- *     at app/api/chat/route.ts and in query-planner docs NEVER RUNS. Image
- *     parts still feed SearchGateContext (hasImageAttachment/imageDataUrls),
- *     which arms the Stage-0 image-intent bypass — but no vision LLM call is
- *     ever made, and entityHints are ALWAYS undefined into planQueries.
- *   - The web evidence block is injected at lastUserIdx + 1 unconditionally
- *     (same off-by-one family as the attachments block): with NO skill block
- *     the evidence system message lands AFTER the user turn.
+ *     sites: the "Vision-to-Search pre-pass" documented in old route comments
+ *     and query-planner docs NEVER RUNS (fixture 05's single-fetch proof).
  *   - search-gate.ts deterministicHardBypass: KNOWN_SITE_TOKEN_RE and
- *     DOMAIN_TLD_TOKEN_RE are dead code (defined, never referenced).
- *   - The web gate NEVER runs the main model on these fixtures: every prompt
- *     hits the Stage-0 deterministic hard bypass (zero LLM calls besides the
- *     single chat forward, gateMs 0).
+ *     DOMAIN_TLD_TOKEN_RE are dead code (defined, never referenced). The
+ *     gate itself still serves app/api/search surfaces — but it is OFF the
+ *     chat path (MHR-C): the route arms the tool loop instead, so no gate
+ *     frame, no evidence block and no X-Web-Citations/X-Search-Gate pair
+ *     ever appear on a chat response (progress OR legacy).
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
@@ -60,7 +90,10 @@ import { injectSystemBefore } from "@/lib/skills/lazy";
 setGoldenEnv({ webSearchDisabled: false });
 
 // Harness knobs the mocks read at CALL time (set per fixture).
-const HARNESS = { mode: "normal" as "normal" | "starved" | "throw-cache" };
+const HARNESS = { mode: "normal" as "normal" | "starved" };
+// Engine legs actually executed (the loop path is ALWAYS armed, so a
+// fixture proves "zero search traffic" by counting these, not frames).
+const ENGINE_CALLS = { n: 0 };
 
 vi.mock("@/lib/server/settings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/settings")>();
@@ -77,10 +110,7 @@ vi.mock("@/lib/web-search/cache", () => ({
   startPurgeSweep: () => {},
   hash: (s: string) => s,
   queryCacheKey: () => "golden-key",
-  getCachedQuery: () => {
-    if (HARNESS.mode === "throw-cache") throw new Error("golden: injected cache failure");
-    return null;
-  },
+  getCachedQuery: () => null,
   putCachedQuery: () => {},
   getCachedPage: () => null,
   putCachedPage: () => {},
@@ -90,19 +120,29 @@ vi.mock("@/lib/web-search/cache", () => ({
 vi.mock("@/lib/web-search/engines", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/web-search/engines")>();
   const empty = async () => [] as never;
+  const serp = async () => { ENGINE_CALLS.n += 1; return HARNESS.mode === "starved" ? [] : SERP; };
   return {
     ...actual, // deduplicateQueries, engineCooldownRemainingMs, caps stay real
     ddgSearch: empty, yahooSearch: empty, googleSearch: empty, braveSearch: empty,
     redditSearch: empty, bingSearch: empty, bingNewsRssSearch: empty,
     githubSearch: empty, devToSearch: empty,
-    runGeneralWebSearch: async () => (HARNESS.mode === "starved" ? [] : SERP),
-    runGeneralWebSearchSharded: async () => (HARNESS.mode === "starved" ? [] : SERP),
+    runGeneralWebSearch: serp,
+    runGeneralWebSearchSharded: serp,
   };
+});
+
+// The always-armed tool chain admits URLs through isSafeUrlWithDns, which
+// performs REAL DNS resolution (node:dns) — a hermeticity break and a
+// determinism hazard on example.com-style hosts. Replace ONLY the DNS leg;
+// the literal SSRF classification runs REAL (shared with the net mock).
+vi.mock("@/lib/web-search/ssrf", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/web-search/ssrf")>();
+  return { ...actual, isSafeUrlWithDns: async (url: string) => actual.isSafeUrl(url) };
 });
 
 // Page bytes served to the extractor Tier-1 (net.fetchPage). Deterministic
 // hand-written articles; universal-extractor's HTML->markdown conversion is
-// pure CPU, so the resulting evidence block is byte-stable across machines.
+// pure CPU, so the resulting tool payload is byte-stable across machines.
 const PAGES: Record<string, { status: number; body: string }> = {
   "https://nimbus.example.com/roadmap-2026": {
     status: 200,
@@ -221,11 +261,32 @@ const CHAT_UPSTREAM: UpstreamScript = {
   ],
 };
 
+// One model round that ENDS WITH A TOOL CALL: the exact SSE frame grammar
+// the loop's relay parses (⇔ the builders in __tests__/chat/web-tool-loop.test.ts).
+function toolCallScript(id: string, name: string, args: unknown): UpstreamScript {
+  const frag = (rest: Record<string, unknown>) => "data: " + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, ...rest }] } }] }) + "\n\n";
+  return {
+    chunks: [
+      frag({ id, function: { name } }),
+      frag({ function: { arguments: JSON.stringify(args) } }),
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      "data: [DONE]\n\n",
+    ],
+  };
+}
+
+// Volatile masking law (see header): random session ids + ledger stamps.
+function maskVolatile(s: string): string {
+  return s
+    .replace(/ws-[a-z0-9]{8}/g, "ws-<sid>")
+    .replace(/"at":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z"/g, '"at":"<volatile-at>"');
+}
+
 const ENV_PRE = {
   WEB_SEARCH_GATE_DISABLED: "unset",
   WEB_SEARCH_LFM_DISABLED: "unset",
   settings_llm_override: MOCK_LLM_URL,
-  web_mock_boundary: "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP), agentBrowser(scripted browser tier: golden1 rendered, every other URL misses)",
+  web_mock_boundary: "cache(miss-only), net(scripted pages, fetchUrl=null), engines(scripted SERP + ENGINE_CALLS counter), agentBrowser(scripted browser tier: golden1 rendered, every other URL misses), ssrf(isSafeUrlWithDns => literal isSafeUrl, no DNS)",
 };
 
 function chatBody(text: unknown, stream: boolean | undefined): string {
@@ -241,16 +302,19 @@ async function runAndRecord(o: {
   semantics: string;
   comparison: "byte-exact" | "structural" | "semantic" | "approved-deviation";
   rawBody: string;
-  mode?: "normal" | "starved" | "throw-cache";
+  mode?: "normal" | "starved";
+  upstream?: UpstreamScript[];
   notes?: string;
 }) {
   HARNESS.mode = o.mode ?? "normal";
-  const calls = installUpstream([CHAT_UPSTREAM]);
+  ENGINE_CALLS.n = 0;
+  const calls = installUpstream(o.upstream ?? [CHAT_UPSTREAM]);
   const run = await runChat(POST as never, o.rawBody);
-  const logical = parseLogical(run.text);
+  const text = maskVolatile(run.text);
+  const logical = parseLogical(text);
   const hasStage = logical.frames.some((f) => f.kind === "stage");
   const upstreamCalls = calls.map((c) => {
-    const bodyText = c.body === null ? null : maskRuntimeClock(c.body);
+    const bodyText = c.body === null ? null : maskVolatile(maskRuntimeClock(c.body));
     let bodyJson: unknown = null;
     try { bodyJson = bodyText ? anchorSkillBlocks(JSON.parse(bodyText)).payload : null; } catch { /* raw */ }
     return { url: c.url, method: c.method, headers: Object.fromEntries(Object.entries(c.headers).sort()), bodyText, bodyJson };
@@ -262,7 +326,7 @@ async function runAndRecord(o: {
       status: run.status,
       headers: run.headers,
       body: hasStage
-        ? { bodyMsNormalized: normalizeBodyMs(run.text), note: "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized" }
+        ? { bodyMsNormalized: normalizeBodyMs(text), note: "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized" }
         : bytesRecord(run.bytes),
     },
     logicalFrames: logical.frames,
@@ -274,7 +338,7 @@ async function runAndRecord(o: {
     comparison: o.comparison,
     harness: "__tests__/rust-golden/web.test.ts",
     env: ENV_PRE,
-    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests).',
+    normalization: 'Stage-event "ms" timing values replaced with "<ms>" in logicalFrames; progress-path bodies are ms-normalized text. P1 (2026-11-01): the live <runtime_clock> system block carries wall-clock text, so its content is MASKED in bodyText/bodyJson (the clock text itself is pinned by clock unit tests). MHR (2026-11-05): random per-turn web-session ids mask to "ws-<sid>" (bodies + ledger ids) and action-ledger ISO stamps mask to "at":"<volatile-at>"; publishedDate/publishedAt are NEVER masked.',
     notes: o.notes,
   });
   return { run, logical, upstreamCalls };
@@ -284,8 +348,19 @@ const stages = (frames: ReturnType<typeof parseLogical>["frames"]) =>
   frames.filter((f) => f.kind === "stage").map((f) => (f.obj as { stage?: string }).stage);
 const stageFrames = (frames: ReturnType<typeof parseLogical>["frames"]) =>
   frames.filter((f) => f.kind === "stage").map((f) => f.obj as Record<string, unknown>);
+const webMeta = (frames: ReturnType<typeof parseLogical>["frames"]) =>
+  stageFrames(frames).filter((o) => o.stage === "web_meta");
 
-describe("golden: web-search pipeline", () => {
+/** The role:"tool" message contents (JSON envelopes) carried by an upstream body. */
+function toolEnvelopes(bodyJson: unknown): Record<string, unknown>[] {
+  const messages = (bodyJson as { messages: { role: string; content: unknown }[] }).messages;
+  return messages.filter((m) => m.role === "tool").map((m) => JSON.parse(String(m.content)));
+}
+function toolCallsOf(bodyJson: unknown, msgIdx: number): { id: string; type: string; function: { name: string; arguments: string } }[] {
+  return (bodyJson as { messages: { tool_calls?: never }[] }).messages[msgIdx].tool_calls as never;
+}
+
+describe("golden: model-directed web tool loop", () => {
   beforeAll(() => {
     HARNESS.mode = "normal";
   });
@@ -293,222 +368,271 @@ describe("golden: web-search pipeline", () => {
   // FULLY HERMETIC since the P7 browser-tier fix (2026-11-02): the old
   // live-stealth-Chromium cliff (the documented long-standing flake) is gone
   // — see the agentBrowser entry in the header seams list. The 30000ms is
-  // now only slow-machine headroom for the §11 progressive read batches;
+  // now only slow-machine headroom for the extractor read in round 2;
   // every byte comparison still runs and still fails hangs.
-  it("01 search success — progress path (stages, evidence block, web_meta)", { timeout: 30000 }, async () => {
+  it("01 model-directed research — web_search → read_page → answer (progress path)", { timeout: 30000 }, async () => {
+    const R1_ARGS = { queries: ["project nimbus roadmap 2026"], missing_claims: ["the current milestone dates for project nimbus"] };
+    const R2_ARGS = { urls: ["https://nimbus.example.com/roadmap-2026"] };
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/01-search-success-progress.json",
-      scenario: "web search SUCCESS: deterministic hard-bypass gate -> full pipeline (progress path)",
+      scenario: "model-directed web research: the (scripted) main model calls web_search, then read_page, then answers; the harness executes, records and cites",
       semantics:
-        "Gate Stage-0 hard bypass (WEB_INTENT_RE 'latest') decides WITHOUT any model call: search_required true, " +
-        "freshness week (newsy), depth standard, one keyword query, source 'deterministic', gateMs 0. Pipeline " +
-        "streams web:gate -> web:planning -> web:searching -> web:reading(+progress) -> web:reranking -> web:done " +
-        "as ruke_stage frames with stage names prefixed 'web:' (the web_meta frame follows web:done and is NOT " +
-        "'web:'-prefixed). P2 (2026-11-02): the bundle arms the model-facing web tool " +
-        "loop — WEB_TOOL_GUIDANCE rides as the FIRST system block (skill-slot law: " +
-        "immediately before the last user turn) and payload.tools carries the read-only " +
-        "web_search/read_page surface. The scripted upstream never ends a round with " +
-        "finish_reason 'tool_calls', so the loop still makes exactly ONE upstream call " +
-        "and the single-[DONE] grammar is unchanged. Message chain: guidance, user, " +
-        "runtime_clock, evidence. One evidence system message is injected at " +
-        "lastUserIdx+1 (CONTRACT DISCOVERY: with no skill block that index is AFTER the user turn — same " +
-        "off-by-one family as the attachments block; recorded, not fixed). The block = ANTI_REFUSAL_DIRECTIVE + " +
-        "'\\n\\n' + evidenceBlock() and is pinned VERBATIM: the <evidence> header, the 8 guideline bullets, the " +
-        "CLOSING </evidence> tag BEFORE any [S#] line (LAYOUT QUIRK: passages are appended AFTER the closing tag, " +
-        "so </evidence> never ends the message), then [S#] source lines with '(published ...)' suffix and quoted " +
-        "excerpts (4000-char cap, whitespace-collapsed, '(BM25=x.xx)' suffix) — its bytes derive ONLY from the scripted SERP + scripted pages, so Rust must reproduce it " +
-        "byte-for-byte from the same inputs. The last user turn is UNCHANGED (content stays a plain string). " +
-        "web_meta frame carries the full citation map (sourceId -> {sourceId,url,title,domain,publishedAt}) and " +
-        "searchGate {depth,freshness,decidedBy,queries[{query,intent}]}. Progress response headers NEVER carry " +
-        "X-Web-Citations/X-Search-Gate. WS06 (2026-11-05, audit item 6 — DELIBERATE fixture evolution): the " +
-        "answer round's content no longer streams per-delta; live frames forward with delta.content STRIPPED " +
-        "and the server-audited answer (lib/chat/answer-release.ts ⇔ Rust chat/answer_release.rs) is released " +
-        "as ONE synthetic delta frame (finish_reason null) before the round's held terminal frames.",
+        "MHR-A..D (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the gate-era prefetch scenario): the route arms the read-only tool " +
+        "surface on every progress turn with ZERO prefetched evidence — the model decides. THREE upstream calls: round 1 calls " +
+        "web_search (the harness executes it against the scripted engine pool; a plain-text query mints NO [S#] citations — only " +
+        "pages actually read mint them), round 2 calls read_page on a SERP URL (extractor cascade REAL, mints [S1] for the page), " +
+        "round 3 answers. Tool results travel as role:\"tool\" messages with the exact envelope JSON, and each tool round appends an " +
+        "assistant message carrying tool_calls {id,type:'function',function:{name,arguments}} — never an injected evidence block. " +
+        "Message chain for the FIRST call: guidance (skill slot, FIRST system block), user, runtime_clock; roles " +
+        "[system,user,system]. Every round's payload carries payload.tools = [web_search,read_page]. Stage grammar: " +
+        "decision_done, then per tool round ONE 'web:tools' census frame (detail = called names, done/total rounds) immediately " +
+        "followed by that round's ledger-gated web_meta frame — NO web:gate/planning/searching/reading/reranking/done frames " +
+        "EVER (the prefetch chain is gone from chat). " +
+        "EVIDENCE-HONESTY NOTE (recorded, MHR-E observation): a read_page URL carries no SERP title entry, so packet.title stays " +
+        "EMPTY — the [S#] citation records title:'' and the tool's page entry falls back to the DOMAIN (extractor packets pass " +
+        "through the search-result title, never an HTML <title> sniff). " +
+        "web_meta is " +
+        "LEDGER-GATED (WS18): round 1 emits one (ledger grew, zero new citations — webCitations {}), round 2 emits one with the " +
+        "full merged map ([S1]), and completion emits one final snapshot {toolRounds:2, actions:[web_search,read_page]} — the " +
+        "OVERWRITE law. searchGate/presentation/richResults are ABSENT from every frame (route passes null). Progress response " +
+        "headers NEVER carry X-Web-Citations/X-Search-Gate. WS06: the answer round's content is server-audited and released as " +
+        "ONE synthetic delta frame before the held terminal frames; tool rounds' terminal frames release per round and their " +
+        "[DONE] is swallowed (single-[DONE] grammar). Volatile masking: ws-<sid> / <volatile-at> (header law).",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
+      upstream: [toolCallScript("call-a1", "web_search", R1_ARGS), toolCallScript("call-a2", "read_page", R2_ARGS), CHAT_UPSTREAM],
       notes:
-        "Mock boundary: cache always-miss; net scripted (fetchUrl=null kills local verticals); engines SERP " +
-        "scripted, agentBrowser browser tier scripted. Everything else (gate/planner/metasearch " +
-        "RRF+floor/extractor/BM25/coverage) runs REAL and deterministic. The 4th SERP result has no Tier-1 " +
-        "page and misses the scripted browser tier + Jina/wayback tail -> its packet keeps only the " +
-        "SERP-snippet baseline passage (FAIL_NETWORK_OR_CRASH classification) yet still gets cited. The 5th " +
-        "SERP result (reddit URL) has no Tier-1 page but a scripted browser-tier render -> SUCCESS_BROWSER. " +
-        "Vision pre-pass NEVER runs (runVisionEntityPrepass has zero call sites — dead module).",
+        "Mock boundary: cache always-miss; net scripted (fetchUrl=null kills local verticals); engines SERP scripted with an " +
+        "ENGINE_CALLS counter; agentBrowser scripted; ssrf DNS leg scripted (literal gate REAL). Everything else (metasearch " +
+        "RRF+floor, extractor, budget/ledger/citation grammar) runs REAL and deterministic. The scripted upstream PLAYS the main " +
+        "model — these bytes prove the harness contract, not model quality (MHR-G semantic evals cover that).",
     });
     expect(run.status).toBe(200);
+
+    // Stage grammar: census frames ONLY on tool rounds; no prefetch chain.
     const seq = stages(logical.frames);
-    expect(seq[0]).toBe("decision_done");
-    const webSeq = seq.filter((s) => s?.startsWith("web:"));
-    expect(webSeq[0]).toBe("web:gate");
-    expect(webSeq[1]).toBe("web:planning");
-    expect(webSeq[2]).toBe("web:searching");
-    expect(webSeq).toContain("web:reading");
-    expect(webSeq).toContain("web:reranking");
-    expect(webSeq[webSeq.length - 1]).toBe("web:done");
-    expect(webSeq.filter((s) => s === "web:done").length).toBe(1);
+    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
+    const census = stageFrames(logical.frames).filter((o) => o.stage === "web:tools");
+    expect(census.map((f) => f.detail)).toEqual(["web_search", "read_page"]);
+    expect(census.map((f) => [f.done, f.total])).toEqual([[1, 4], [2, 4]]); // standard budget: maxToolRounds 4
     expect(run.headers["x-web-citations"]).toBeUndefined();
     expect(run.headers["x-search-gate"]).toBeUndefined();
 
-    // WS06 release shape (2026-11-05, audit item 6): the live content delta
-    // forwards with delta.content stripped, and the audited answer rides ONE
-    // synthetic release frame ahead of the round's held [DONE].
+    // WS06 release shape: live deltas forward with delta.content stripped;
+    // the audited answer rides ONE synthetic release frame ahead of [DONE].
     expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{}}]');
-    expect(
-      run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}'),
-    ).toBeGreaterThan(-1);
-    expect(
-      run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}'),
-    ).toBeLessThan(run.text.indexOf("data: [DONE]"));
+    const releaseAt = run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}');
+    expect(releaseAt).toBeGreaterThan(-1);
+    expect(releaseAt).toBeLessThan(run.text.indexOf("data: [DONE]"));
+    // Tool rounds honestly end in front of the browser:
+    expect(run.text).toContain('"finish_reason":"tool_calls"');
 
-    const webMeta = logical.frames
-      .map((f) => (f.kind === "stage" ? (f.obj as Record<string, unknown>) : null))
-      .filter((o) => o && o.stage === "web_meta");
-    expect(webMeta.length).toBe(1);
-    const citations = webMeta[0]!.webCitations as Record<string, { sourceId: string; url: string; title: string; domain: string; publishedAt?: string }>;
-    expect(Object.keys(citations).length).toBeGreaterThanOrEqual(3);
-    const sg = webMeta[0]!.searchGate as { depth: string; freshness: string; decidedBy: string; queries: { query: string; intent: string }[] };
-    expect(sg.decidedBy).toBe("deterministic");
-    expect(sg.depth).toBe("standard");
-    expect(sg.freshness).toBe("week");
-    expect(sg.queries.length).toBeGreaterThanOrEqual(1);
+    // web_meta: ledger-gated OVERWRITE frames (round1, round2, completion).
+    const metas = webMeta(logical.frames);
+    expect(metas.length).toBe(3);
+    const led = (i: number) => metas[i]!.researchLedger as { toolRounds: number; actions: Record<string, unknown>[] };
+    expect(Object.keys(metas[0]!.webCitations as object)).toEqual([]); // plain query minted nothing
+    expect(led(0).toolRounds).toBe(1);
+    expect(led(0).actions.length).toBe(1);
+    expect(led(0).actions[0]).toMatchObject({ tool: "web_search", ok: true, id: "ws-<sid>-a1" });
+    expect(metas[0]!.searchGate).toBeUndefined();
+    expect(metas[1]!.webCitations).toEqual({
+      S1: { sourceId: "S1", url: "https://nimbus.example.com/roadmap-2026", title: "", domain: "nimbus.example.com" },
+    });
+    expect(led(1).toolRounds).toBe(2);
+    expect(led(1).actions.length).toBe(2);
+    expect(led(1).actions[1]).toMatchObject({ tool: "read_page", ok: true, id: "ws-<sid>-a2", sources: ["S1"] });
+    // Completion frame: the final ledger snapshot.
+    expect(Object.keys(metas[2]!.webCitations as object)).toEqual(["S1"]);
+    expect(led(2).toolRounds).toBe(2);
+    expect(led(2).actions.map((a) => a.tool)).toEqual(["web_search", "read_page"]);
+    expect(led(2).actions.map((a) => a.id)).toEqual(["ws-<sid>-a1", "ws-<sid>-a2"]);
+    for (const a of led(2).actions) expect(a.at).toBe("<volatile-at>");
 
-    // single LLM call: no gate model, no vision pre-pass; the tool loop
-    // closed after one answer round (no tool_calls in the script)
-    expect(upstreamCalls.length).toBe(1);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] };
-    const roles = payload.messages.map((m) => m.role);
-    const evidenceIdx = payload.messages.findIndex(
-      (m) => m.role === "system" && typeof m.content === "string" && m.content.includes("<evidence>"),
-    );
-    expect(evidenceIdx).toBeGreaterThanOrEqual(0);
-    const evidenceBlock = payload.messages[evidenceIdx].content as string;
-    // ANTI_REFUSAL_DIRECTIVE is prepended whenever the bundle has passages,
-    // so the block NEVER starts with "<evidence>" (buildMainModelContext).
-    // (audit 2026-11-04) the directive was rewritten to honest evidence-
-    // level wording ("IMPORTANT: Before this turn the server attempted live
-    // web retrieval…" ⇔ pipeline.ts ANTI_REFUSAL_DIRECTIVE); stale pin
-    // refreshed to the CURRENT constant's lead-in — pin verbatim again.
-    expect(evidenceBlock.includes("IMPORTANT: Before this turn the server attempted live web retrieval")).toBe(true);
-    expect(evidenceBlock.indexOf("<evidence>")).toBeLessThan(evidenceBlock.indexOf("</evidence>"));
-    // LAYOUT QUIRK: </evidence> closes the GUIDELINE header only; the [S#]
-    // source lines + quoted excerpts are appended AFTER the closing tag.
-    expect(evidenceBlock.indexOf("</evidence>")).toBeLessThan(evidenceBlock.indexOf("[S1]"));
-    expect(evidenceBlock).toContain('    "');
-    expect(evidenceBlock).toMatch(/\(BM25=\d+\.\d{2}\)/);
-    // The user turn itself is never rewritten by the web pipeline.
-    const lastUser = payload.messages.filter((m) => m.role === "user").pop();
-    expect(lastUser!.content).toBe("what is the latest roadmap news for project nimbus");
-    // CONTRACT DISCOVERY: off-by-one injection index -> evidence AFTER the user
-    // turn. P1 (2026-11-01): the live-clock injection adds one system block
-    // ahead of the evidence block. P2 (2026-11-02): the bundle arms the web tool
-    // loop — guidance leads the chain (skill slot) and the read-only tool
-    // surface rides the payload; the contract (evidence directly after the user
-    // turn chain) still holds.
-    expect(roles).toEqual(["system", "user", "system", "system"]);
-    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
-    expect(String(payload.messages[2].content).startsWith("<runtime_clock>")).toBe(true);
-    expect(evidenceIdx).toBe(3);
-    const tools = (upstreamCalls[0].bodyJson as { tools?: { function: { name: string } }[] }).tools;
-    expect(tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
+    // Three upstream calls: the tool loop, not the harness, drove retrieval.
+    expect(upstreamCalls.length).toBe(3);
+
+    // Round 1 request: guidance → user → clock; tools armed; no evidence.
+    const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
+    expect(p0.messages.map((m) => m.role)).toEqual(["system", "user", "system"]);
+    expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(p0.messages[1].content).toBe("what is the latest roadmap news for project nimbus");
+    expect(String(p0.messages[2].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(p0.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
+    expect(p0.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
+
+    // Round 2 request: the assistant's tool call survives VERBATIM and the
+    // tool envelope (masked) comes back as the role:"tool" turn.
+    const p1 = upstreamCalls[1]!.bodyJson as { messages: Record<string, unknown>[] };
+    expect(p1.messages.map((m) => m.role)).toEqual(["system", "user", "system", "assistant", "tool"]);
+    const asst1 = p1.messages[3] as { content: unknown; tool_calls: { id: string; type: string; function: { name: string; arguments: string } }[] };
+    expect(asst1.content).toBeNull();
+    expect(asst1.tool_calls).toEqual([{ id: "call-a1", type: "function", function: { name: "web_search", arguments: JSON.stringify(R1_ARGS) } }]);
+    const [env1] = toolEnvelopes(p1);
+    expect(env1).toMatchObject({ ok: true, tool: "web_search", searchSessionId: "ws-<sid>" });
+    expect((env1!.queryResults as { query: string }[])[0]!.query).toBe("project nimbus roadmap 2026");
+    expect((env1!.resultsReturned as number)).toBeGreaterThanOrEqual(3);
+    expect((env1!.results as { url: string }[])[0]!.url).toBe("https://nimbus.example.com/roadmap-2026"); // RRF stable order, REAL fusion
+    expect(env1!.remainingBudget).toBeTruthy();
+
+    // Round 3 request: both tool rounds on the transcript; the model answers.
+    const p2 = upstreamCalls[2]!.bodyJson as { messages: Record<string, unknown>[]; tools?: unknown[] };
+    expect(p2.messages.map((m) => m.role)).toEqual(["system", "user", "system", "assistant", "tool", "assistant", "tool"]);
+    const asst2 = p2.messages[5] as { tool_calls: { id: string; type: string; function: { name: string; arguments: string } }[] };
+    expect(asst2.tool_calls).toEqual([{ id: "call-a2", type: "function", function: { name: "read_page", arguments: JSON.stringify(R2_ARGS) } }]);
+    const env2 = toolEnvelopes(p2)[1];
+    expect(env2).toMatchObject({ ok: true, tool: "read_page", searchSessionId: "ws-<sid>" });
+    const pages = env2!.pages as { url: string; sourceId: string; title: string }[];
+    expect(pages[0]).toMatchObject({ url: "https://nimbus.example.com/roadmap-2026", sourceId: "S1", title: "nimbus.example.com" });
+    // The ledger's web_search retrieval count ⇔ the envelope's count (provenance, not decoration).
+    const retrievedA1 = led(2).actions[0]!.retrieved as number;
+    expect(retrievedA1).toBe(env1!.resultsReturned as number);
   });
 
-  // browser tier scripted (P7) — headroom budget, see note on test 01
-  it("02 search success — legacy path headers (X-Web-Citations / X-Search-Gate)", { timeout: 30000 }, async () => {
+  // Legacy stream:false tail: post-repair there is NOTHING to prefetch, so
+  // this path is a plain forward — no tools, no evidence, no header pair.
+  it("02 legacy stream:false — plain forward (NO tools, NO evidence, NO citation/gate headers)", { timeout: 30000 }, async () => {
     const { run, logical, upstreamCalls } = await runAndRecord({
-      rel: "web-search/02-search-success-legacy-headers.json",
-      scenario: "web search SUCCESS (legacy stream:false path): ZERO stage frames; citations travel as headers",
+      rel: "web-search/02-legacy-stream-false-plain-forward.json",
+      scenario: "legacy stream:false chat turn: plain forward — zero stage frames, zero tool grammar, zero header pair",
       semantics:
-        "Same pipeline run with stream:false: runTurnPipeline still runs (stage callbacks dropped), the evidence " +
-        "block still lands in the upstream payload, but the response contains NO ruke_stage/web_meta frames. " +
-        "Metadata surfaces ONLY as response headers: X-Web-Citations = encodeURIComponent(JSON.stringify(citation " +
-        "map)) and X-Search-Gate = encodeURIComponent(JSON.stringify(searchGate meta)) — emitted ONLY when the " +
-        "map is non-empty. Response body bytes are byte-exact (legacy forward, no stage noise). The legacy " +
-        "headers carry upstream content-type 'application/json'.",
+        "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the header-pair scenario): the gate-era X-Web-Citations/X-Search-Gate " +
+        "pair existed ONLY because the gate prefetched. Post-repair NOTHING is prefetched on any chat path, so the legacy tail is a " +
+        "PLAIN FORWARD: runTurnPipeline still runs (skill slot + task-scope + clock injection; stage callbacks dropped) but NO web " +
+        "tool loop runs (it belongs to the progress path), so payload.tools is absent, no guidance block is injected and no evidence " +
+        "block exists. Response: ZERO ruke_stage/web_meta frames, headers carry NEITHER x-web-citations NOR x-search-gate, and the " +
+        "body is the upstream SSE bytes byte-exact (the legacy path performs no WS06 answer audit).",
       comparison: "byte-exact",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", false),
     });
     expect(logical.frames.some((f) => f.kind === "stage")).toBe(false);
-    expect(run.headers["x-web-citations"]).toBeTruthy();
-    expect(run.headers["x-search-gate"]).toBeTruthy();
-    const citations = JSON.parse(decodeURIComponent(run.headers["x-web-citations"]));
-    expect(Object.keys(citations).length).toBeGreaterThanOrEqual(3);
-    const gate = JSON.parse(decodeURIComponent(run.headers["x-search-gate"]));
-    expect(gate.decidedBy).toBe("deterministic");
+    expect(run.headers["x-web-citations"]).toBeUndefined();
+    expect(run.headers["x-search-gate"]).toBeUndefined();
+    expect(run.text).toBe('data: {"id":"w1","choices":[{"index":0,"delta":{"content":"search answer"}}]}\n\ndata: [DONE]\n\n');
+
     expect(upstreamCalls.length).toBe(1);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] };
-    // Same ANTI_REFUSAL-prepended block as fixture 01 (preamble, not the <evidence> header, leads the content).
-    expect(payload.messages.some((m) => m.role === "system" && String(m.content).includes("<evidence>"))).toBe(true);
+    const payload = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: unknown[] };
+    expect(payload.messages[0].role).toBe("user");
+    expect(payload.messages[0].content).toBe("what is the latest roadmap news for project nimbus");
+    expect(payload.messages.some((m) => m.content === WEB_TOOL_GUIDANCE)).toBe(false);
+    expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
+    expect(payload.messages.some((m) => String(m.content).includes("No web evidence"))).toBe(false);
+    expect(payload.tools).toBeUndefined();
   });
 
-  it("03 search starved — non-fatal, 'No web evidence' block, NO web_meta", async () => {
+  it("03 starved engine pool — the loop reports ZERO honestly, the answer still streams", async () => {
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/03-search-starved-progress.json",
-      scenario: "web search engine pool returns ZERO results (starved; non-fatal)",
+      scenario: "engine pool returns ZERO results: the harness reports the empty result honestly (no sentinel block), non-fatal",
       semantics:
-        "All engines return []: the relevance floor fires web:recovery (broad retry, still empty), then " +
-        "web:done('No search results returned') — runWebResearch returns a NON-NULL empty bundle. The route " +
-        "still injects the EXACT honest sentinel block 'No web evidence could be retrieved for this request: "
-        + "every search and read attempted came back empty or unusable. Do not present unverified memory as "
-        + "retrieved fact: state plainly which requested facts you could not confirm, and clearly label any "
-        + "background knowledge you offer as unverified.' — reworded 2026-11-05 (research-depth audit): the "
-        + "old 'Proceed with your knowledge only.' INSTRUCTED unsupported-memory answering; the empty bundle " +
-        "now states the acquisition failure as fact (no ANTI_REFUSAL preamble — topPassages empty) at lastUserIdx+1, but the empty " +
-        "citation map means NO web_meta frame and NO citation headers. P2 (2026-11-02): even the starved " +
-        "bundle arms the web tool loop — WEB_TOOL_GUIDANCE leads the message chain (guidance, user, " +
-        "runtime_clock, sentinel) and payload.tools offers web_search/read_page, so the model may retry " +
-        "research itself; the scripted answer round never calls tools, so still exactly ONE upstream call. " +
-        "The chat forward + [DONE] are unaffected: " +
-        "a starved search NEVER turns into an error frame. WS06 (2026-11-05, audit item 6 — DELIBERATE fixture " +
-        "evolution): same release gating as fixture 01 — content deltas are buffered, audited and released as " +
-        "ONE synthetic delta frame (starved turn ⇒ empty citation map, so a research-claiming answer would " +
-        "carry the server check line; the scripted neutral answer passes unmodified).",
+        "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the sentinel-block scenario): there is no prefetched bundle anymore, " +
+        "so there is no injected 'No web evidence' sentinel — honesty lives in the TOOL ENVELOPE the model itself called: " +
+        "web_search returns ok:true with queryResults[0].resultCount=0 and results=[] (the engines genuinely came back empty; " +
+        "metasearch does NOT throw for an empty pool). The loop records the attempt (ledger ok:true, retrieved:0) and emits " +
+        "ledger-gated web_meta frames (empty citation map — nothing was retrieved, nothing is cited). The answer round still " +
+        "streams through the WS06 release path; a starved turn NEVER produces an error frame. Engine legs: ENGINE_CALLS ≥ 1 " +
+        "proves the retrieval actually ran against the scripted pool.",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       mode: "starved",
+      upstream: [toolCallScript("call-a1", "web_search", { queries: ["project nimbus roadmap 2026"], missing_claims: ["milestone dates"] }), CHAT_UPSTREAM],
     });
+    expect(ENGINE_CALLS.n).toBeGreaterThanOrEqual(1); // the search genuinely ran
     const seq = stages(logical.frames);
-    expect(seq).toContain("web:recovery");
-    expect(seq.filter((s) => s === "web:done").length).toBe(1);
-    expect(seq.some((s) => s === "web:reading" || s === "web:reranking")).toBe(false);
-    expect(logical.frames.some((f) => f.kind === "stage" && (f.obj as { stage?: string }).stage === "web_meta")).toBe(false);
-    expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: string }[]; tools?: { function: { name: string } }[] };
-    // Exact-string pin of the HONEST starved sentinel (reworded 2026-11-05:
-    // it states the acquisition failure and forbids unverified-memory
-    // answering — the old wording instructed exactly that).
-    expect(payload.messages.some((m) => m.role === "system" && m.content === "No web evidence could be retrieved for this request: every search and read attempted came back empty or unusable. Do not present unverified memory as retrieved fact: state plainly which requested facts you could not confirm, and clearly label any background knowledge you offer as unverified.")).toBe(true);
-    // P2: a starved bundle still arms the tool loop — the model can retry.
-    expect(payload.messages.map((m) => m.role)).toEqual(["system", "user", "system", "system"]);
-    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
-    expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
-  });
-
-  it("04 search pipeline throws — route catch keeps the chat alive (non-fatal)", async () => {
-    const { run, logical, upstreamCalls } = await runAndRecord({
-      rel: "web-search/04-search-throw-nonfatal-progress.json",
-      scenario: "web-search internals THROW mid-pipeline (cache read failure): route catch, NO evidence, NO web_meta",
-      semantics:
-        "getCachedQuery throws inside runWebResearch after the web:searching stage frame: the route's try/catch " +
-        "logs and CONTINUES — no evidence block is injected, no web_meta frame, no error frame; stage frames " +
-        "emitted BEFORE the throw survive verbatim. This pins the route-side non-fatal contract independently " +
-        "of the starved case (03), which never throws. The upstream forward is a clean single call with the " +
-        "unmodified messages array.",
-      comparison: "structural",
-      rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
-      mode: "throw-cache",
-    });
-    const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:gate", "web:planning", "web:searching"]);
+    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web_meta"]);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(logical.done).toBe(true);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] };
-    // P1 (2026-11-01): user turn + the live-clock system block; still NO evidence block.
-    expect(payload.messages.length).toBe(2);
-    expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
+
+    const metas = webMeta(logical.frames);
+    expect(metas.length).toBe(2); // per-round + completion, both ledger-gated
+    const led = (i: number) => metas[i]!.researchLedger as { toolRounds: number; actions: Record<string, unknown>[] };
+    expect(Object.keys(metas[0]!.webCitations as object)).toEqual([]);
+    expect(led(0).actions[0]).toMatchObject({ tool: "web_search", ok: true, retrieved: 0 });
+    expect(led(1).actions.length).toBe(1);
+    // Nothing retrieved ⇒ nothing citable, on BOTH frames:
+    expect(Object.keys(metas[1]!.webCitations as object)).toEqual([]);
+
+    expect(upstreamCalls.length).toBe(2);
+    const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
+    expect(p0.messages.map((m) => m.role)).toEqual(["system", "user", "system"]);
+    expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    // No sentinel block, no evidence block — the loop injects NOTHING at turn start:
+    expect(p0.messages.some((m) => String(m.content).includes("No web evidence"))).toBe(false);
+    expect(p0.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
+    expect(p0.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
+
+    // The model sees the HONEST empty envelope it asked for:
+    const p1 = upstreamCalls[1]!.bodyJson as { messages: Record<string, unknown>[] };
+    const [env] = toolEnvelopes(p1);
+    expect(env).toMatchObject({ ok: true, tool: "web_search" });
+    expect(env!.results).toEqual([]);
+    expect(env!.resultsReturned).toBe(0);
+    expect((env!.queryResults as { resultCount: number }[])[0]!.resultCount).toBe(0);
+  });
+
+  it("04 search budget exhausted — the harness refuses honestly (named target), turn completes", async () => {
+    const R1_ARGS = { queries: ["project nimbus roadmap"], missing_claims: ["roadmap dates"] };
+    const R2_ARGS = { queries: ["project nimbus sync engine"], missing_claims: ["sync engine status"] };
+    const R3_ARGS = { queries: ["project nimbus offline mode"], missing_claims: ["offline mode timeline"] };
+    const { run, logical, upstreamCalls } = await runAndRecord({
+      rel: "web-search/04-search-budget-exhausted-progress.json",
+      scenario: "the model spends the per-turn search budget (standard: 2 calls) — the third web_search is refused with a named target",
+      semantics:
+        "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the injected-throw scenario): budgets are harness resources, not " +
+        "model judgment. Standard depth gives TWO search calls; the model spends them, and the third is refused with the exact " +
+        "budget_exhausted envelope: ok:false, error:'budget_exhausted', a detail naming what was spent and instructing the model " +
+        "to answer from the evidence it HAS and say what is still missing, plus remainingBudget. The refusal is RECORDED in the " +
+        "action ledger (ok:false, error:'budget_exhausted', queries:[the refused query]) — the third web_meta frame re-emits the " +
+        "full record, and the completion snapshot carries all three actions. Only 4 rounds exist (maxToolRounds): three tool " +
+        "rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered within the cap).",
+      comparison: "structural",
+      rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
+      upstream: [
+        toolCallScript("call-a1", "web_search", R1_ARGS),
+        toolCallScript("call-a2", "web_search", R2_ARGS),
+        toolCallScript("call-a3", "web_search", R3_ARGS),
+        CHAT_UPSTREAM,
+      ],
+    });
+    const seq = stages(logical.frames);
+    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
+    expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
+    expect(logical.done).toBe(true);
+
+    const metas = webMeta(logical.frames);
+    expect(metas.length).toBe(4); // three tool rounds (WS18 ledger-gated) + completion
+    const led = (i: number) => metas[i]!.researchLedger as { toolRounds: number; actions: Record<string, unknown>[] };
+    expect(led(0).toolRounds).toBe(1);
+    expect(led(1).toolRounds).toBe(2);
+    expect(led(2).toolRounds).toBe(3);
+    expect(led(2).actions.length).toBe(3);
+    expect(led(2).actions[2]).toMatchObject({
+      tool: "web_search", ok: false, error: "budget_exhausted", id: "ws-<sid>-a3", queries: ["project nimbus offline mode"],
+    });
+    // The refusal NAMED its target; the completed rounds recorded their spend:
+    expect(led(2).actions.map((a) => a.ok)).toEqual([true, true, false]);
+    expect(led(3).toolRounds).toBe(3);
+    expect(led(3).actions.length).toBe(3);
+
+    expect(upstreamCalls.length).toBe(4);
+    const p3 = upstreamCalls[3]!.bodyJson as { messages: Record<string, unknown>[] };
+    const envs = toolEnvelopes(p3);
+    const refused = envs[2];
+    expect(refused).toMatchObject({ ok: false, tool: "web_search", searchSessionId: "ws-<sid>", error: "budget_exhausted" });
+    expect(String(refused!.detail)).toContain("budget spent (2 search call(s))");
+    expect(refused!.remainingBudget).toBeTruthy();
+    // Envelope discipline: an error envelope NEVER echoes the model's args
+    // back (the refused target is named where it belongs — the ledger pin
+    // above); the model already holds its own tool-call arguments.
+    expect((refused as Record<string, unknown>).queries).toBeUndefined();
+    expect((refused as Record<string, unknown>).urls).toBeUndefined();
+    // Rounds 1-2 spent the budget (REAL budget gate, standard depth = 2):
+    expect(envs[0]!.remainingBudget).toBeTruthy();
+    expect(envs[1]!.ok).toBe(true);
   });
 
   // browser tier scripted (P7) — headroom budget, see note on test 01
-  it("05 image attachment — Stage-0 image-intent gate, vision pre-pass DEAD, parts passthrough", { timeout: 30000 }, async () => {
+  it("05 image attachment — parts passthrough, loop ARMED, model answers without tools", { timeout: 30000 }, async () => {
     const text = "who is this person";
     const imgUrl = "data:image/jpeg;base64,Z29sZGVuLWltYWdlLWJ5dGVz";
     const content = [
@@ -516,64 +640,66 @@ describe("golden: web-search pipeline", () => {
       { type: "image_url", image_url: { url: imgUrl } },
     ];
     const { run, logical, upstreamCalls } = await runAndRecord({
-      rel: "web-search/05-image-attachment-intent-gate-progress.json",
-      scenario: "image attachment turn: hasImageAttachment arms the image-intent hard bypass; NO vision pre-pass call",
+      rel: "web-search/05-image-attachment-parts-passthrough-progress.json",
+      scenario: "image attachment turn: parts passthrough byte-identical; the tool loop is ARMED but the model never calls it — nothing attempted, nothing reported",
       semantics:
-        "turnImageParts collects image_url data URLs from the last user turn -> SearchGateContext." +
-        "hasImageAttachment=true, so deterministicHardBypass fires hit='image_intent' (IMAGE_LOOKUP_INTENT_RE " +
-        "'who is ... person') with ZERO model calls. CONTRACT DISCOVERY: runVisionEntityPrepass is DEAD " +
-        "(zero call sites) — no vision LLM fetch ever happens and planner entityHints stay undefined. The user " +
-        "turn passes through to the upstream UNCHANGED (content array + data URL byte-identical), and the " +
-        "evidence/web_meta/citation behavior matches fixture 01's shape (P2 chain: guidance, user, " +
-        "runtime_clock, evidence; tool surface injected; citations map). " +
-        "Exactly ONE upstream call is made for the whole request. WS06 (2026-11-05, audit item 6 — DELIBERATE " +
-        "fixture evolution): answer content release-gated exactly as in fixture 01 (strip live deltas, one " +
-        "audited synthetic release frame before terminal frames). WS10 (2026-11-05, audit item 10 — " +
-        "DELIBERATE fixture evolution): the recovery wave minted S6–S8 whose packets were never registered, " +
-        "so the evidence-block lookup fell back to the passage and dropped dates and web_meta webCitations " +
-        "had no entries for emitted sources (the audit defect). With the one admitted packet registry, S6–S8 " +
-        "packets join bundle.packets: [S6]/[S8] headers now carry their publishedAt suffixes and the " +
-        "webCitations map gains S6–S8 entries with full URL/title/domain/publishedAt metadata.",
+        "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the image-intent-gate scenario): the gate no longer sits on the chat " +
+        "path, so there is no image-intent hard bypass and NO prefetched evidence — the turn behaves like any other: guidance " +
+        "(skill slot) + user + clock, payload.tools armed, model decides. The scripted model answers directly, so the honest " +
+        "report is EMPTY: zero web: frames beyond decision_done (web:tools rides ONLY tool rounds), zero web_meta frames " +
+        "(empty ledger — WS18: frames report ACTIONS, not intent), zero engine legs (ENGINE_CALLS=0) and exactly ONE upstream " +
+        "fetch (installUpstream throws on any extra fetch ⇒ the zero-search-traffic proof). CONTRACT DISCOVERY still pinned: " +
+        "runVisionEntityPrepass is DEAD (zero call sites) — no vision completion ever precedes the chat forward. The user turn " +
+        "passes through to the upstream UNCHANGED (content array + data URL byte-identical). WS06 release grammar unchanged.",
       comparison: "structural",
       rawBody: chatBody(content, undefined),
       notes:
-        "upstreamCalls.length === 1 is the vision pre-pass DEAD proof: had the documented pre-pass run, a " +
-        "vision completion would appear on the scripted fetch before the chat forward (installUpstream throws " +
-        "on any extra fetch).",
+        "upstreamCalls.length === 1 is the double proof: (a) vision pre-pass DEAD — had the documented pre-pass run, a vision " +
+        "completion would appear before the chat forward (installUpstream throws on any extra fetch); (b) zero search traffic — " +
+        "ENGINE_CALLS stays 0 because the loop only retrieves through tool calls the model never made.",
     });
     expect(run.status).toBe(200);
-    const sgFrame = logical.frames
-      .map((f) => (f.kind === "stage" ? (f.obj as Record<string, unknown>) : null))
-      .find((o) => o && o.stage === "web_meta");
-    expect(sgFrame).toBeTruthy();
-    const sg = sgFrame!.searchGate as { decidedBy: string };
-    expect(sg.decidedBy).toBe("deterministic");
+    expect(ENGINE_CALLS.n).toBe(0);
+    const seq = stages(logical.frames);
+    expect(seq).toEqual(["decision_done"]); // no prefetch chain, no tool census
+    expect(webMeta(logical.frames).length).toBe(0);
+    expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
+    expect(run.headers["x-web-citations"]).toBeUndefined();
+    expect(run.headers["x-search-gate"]).toBeUndefined();
+
+    // WS06 release grammar on a toolless turn:
+    expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{}}]');
+    expect(
+      run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}'),
+    ).toBeLessThan(run.text.indexOf("data: [DONE]"));
+
     expect(upstreamCalls.length).toBe(1);
-    const payload = upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
+    const payload = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
     const userTurn = payload.messages.find((m) => m.role === "user");
     expect(userTurn!.content).toEqual(content); // parts + data URL untouched
-    // P2: image-intent turns get the same tool-loop treatment as fixture 01.
-    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(payload.messages.map((m) => m.role)).toEqual(["system", "user", "system"]);
+    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE); // ARMED, unused — capability ≠ prefetch
     expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
-    const seq = stages(logical.frames);
-    expect(seq[0]).toBe("decision_done");
-    expect(seq).toContain("web:gate");
-    expect(seq).toContain("web:done");
+    expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
   });
 });
 
 // Brief §5 behavior test (NO fixture written — the corpus is the Rust replay
 // contract; this pins BEHAVIOR at the real-request level only clock unit
-// tests can't reach). "What time is it?" must: (a) skip search entirely —
-// zero engine, reader or model-gate traffic (installUpstream throws on ANY
-// extra fetch, and exactly ONE chat forward is scripted); (b) show the
-// answering model the NEW quiet-clock law VERBATIM inside the real upstream
-// request body (the per-turn <runtime_clock> block), in the SESSION zone the
-// client declared. A prompt-string unit test alone is NOT an output-
-// behavior test; this exercises the actual route → payload path.
+// tests can't reach). "What time is it?" must: (a) run NO retrieval at all —
+// zero engine legs, zero tool rounds, a single upstream fetch (installUpstream
+// throws on ANY extra fetch); (b) show the answering model the NEW quiet-clock
+// law VERBATIM inside the real upstream request body (the per-turn
+// <runtime_clock> block), in the SESSION zone the client declared. A prompt-
+// string unit test alone is NOT an output-behavior test; this exercises the
+// actual route → payload path. MHR (2026-11-05 — DELIBERATE evolution): the
+// loop is now armed on EVERY progress turn including this one (capability,
+// not intent) — the honest zero-search proof moved from gate frames to the
+// engine counter + single-fetch throw.
 describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffic)", () => {
-  it("06 clock question — no search, no evidence, quiet-clock law in the live request", async () => {
+  it("06 clock question — no retrieval, no evidence, quiet-clock law in the live request", async () => {
     HARNESS.mode = "normal";
+    ENGINE_CALLS.n = 0;
     const calls = installUpstream([CHAT_UPSTREAM]);
     const run = await runChat(
       POST as never,
@@ -584,21 +710,19 @@ describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffi
       }),
     );
     expect(run.status).toBe(200);
-    const logical = parseLogical(run.text);
+    const logical = parseLogical(maskVolatile(run.text));
     expect(logical.done).toBe(true);
-    // (a) The gate force-NOs on CLOCK_ASK before any model/retrieval work:
-    // the pipeline skips entirely (stage "web:skipped"), and the ONLY
-    // upstream fetch in the whole request is the single chat forward —
-    // installUpstream throws on any extra fetch, so zero length beyond 1
-    // here IS the zero-gate-model + zero-search-traffic proof.
+    // (a) Zero retrieval: the loop is ARMED (capability) but never fires a
+    // tool round (web:tools rides tool rounds ONLY), no web_meta (empty
+    // ledger), and the ONLY upstream fetch in the whole request is the
+    // single chat answer round — installUpstream throws on any extra fetch,
+    // so this IS the zero-engine + zero-gate-model proof. ENGINE_CALLS=0
+    // proves no search pipeline touched the scripted pool.
     expect(calls.length).toBe(1);
+    expect(ENGINE_CALLS.n).toBe(0);
     const seq = stages(logical.frames);
-    expect(seq).toContain("web:gate");
-    expect(seq).toContain("web:skipped");
-    for (const s of ["web:planning", "web:searching", "web:reading", "web:reranking", "web:done"]) {
-      expect(seq).not.toContain(s);
-    }
-    // No bundle ⇒ no web_meta frame, no evidence sentinel, no citation map.
+    expect(seq).toEqual(["decision_done"]);
+    expect(seq.some((s) => s?.startsWith("web:"))).toBe(false);
     expect(logical.frames.some((f) => f.kind === "stage" && (f.obj as { stage?: string }).stage === "web_meta")).toBe(false);
     expect(run.headers["x-web-citations"]).toBeUndefined();
 
@@ -632,16 +756,18 @@ describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffi
 
     const payload = anchorSkillBlocks(JSON.parse(body)).payload as {
       messages: { role: string; content: unknown }[];
-      tools?: unknown[];
+      tools?: { function: { name: string } }[];
     };
-    // The user turn is never rewritten; the ONLY injection is the clock
-    // block (lastUserIdx+1); no evidence block, no tool-loop arming
-    // (bundleless turn ⇔ fixture 04's shape).
-    expect(payload.messages.map((m) => m.role)).toEqual(["user", "system"]);
-    expect(payload.messages[0].content).toBe("What time is it?");
-    expect(String(payload.messages[1].content).startsWith("<runtime_clock>")).toBe(true);
+    // The user turn is never rewritten. MHR (2026-11-05): the turn NOW arms
+    // the tool loop — guidance leads (skill slot), the clock follows the
+    // user turn, payload.tools is present (capability, never an action);
+    // still NO evidence block and no retrieval happened.
+    expect(payload.messages.map((m) => m.role)).toEqual(["system", "user", "system"]);
+    expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(payload.messages[1].content).toBe("What time is it?");
+    expect(String(payload.messages[2].content).startsWith("<runtime_clock>")).toBe(true);
     expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
-    expect(payload.tools).toBeUndefined();
+    expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
     // And no answer-content fabrication: the scripted answer streams through.
     expect(run.text).toContain("search answer");
   });

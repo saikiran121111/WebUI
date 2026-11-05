@@ -277,9 +277,11 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                 }
 
                 // Legacy fall-through with the decision already made: the
-                // pipeline still runs (skill block + web gate) but emits
-                // NO frames — TS passes `stage: () => {}` here. The gate's
-                // outputs feed the tail's header pair (Rule 2.3).
+                // pipeline still runs (skill block + research
+                // availability) but emits NO frames — TS passes
+                // `stage: () => {}` here. Post-repair the outcome header
+                // pair is always absent (nothing is prefetched), ⇔ the TS
+                // route's null citation/gate pair.
                 web_outcome = pipeline::run_turn_pipeline(
                     p,
                     &env,
@@ -300,12 +302,6 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // the routing law can actually run the loop (brief
                     // #2/#3).
                     false,
-                    // WS05 (audit item 5): the research journal key rides
-                    // the bridge body on this path too — the conversation
-                    // id is identity, not a marker, so the legacy path may
-                    // still persist/rehydrate research evidence (⇔ the
-                    // streaming pump_progress call site).
-                    browser_session.as_deref(),
                     &span,
                 )
                 .await;
