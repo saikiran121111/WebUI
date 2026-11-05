@@ -319,8 +319,16 @@ const CATALOG_ASK_RE =
  *  catalog-ask ∪ who-won. (Attribution and catalog-ask ride the SAME
  *  web_intent tag: the maintained matrices only assert their own tags,
  *  and one force-YES family keeps the guard union coherent.) */
+/* WS02 (audit 2026-11-05, explicit-verify arm): an explicit "external /
+ * independent + evidence-noun" phrase is an evidence NEED even when the
+ * verb is "verify" (adding bare verify to the frames would resurrect the
+ * boundary-acknowledgment escape — "state that you cannot verify it").
+ * Adjacency-locked so the nouns only count inside the frame. */
+const EXTERNAL_EVIDENCE_RE =
+  /\b(?:external|independent)\s+(?:sources?|evidence|verification|confirmation|validation|corroboration)\b/i;
+
 const WEB_INTENT_RE = new RegExp(
-  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|(?:${ATTRIBUTION_RE.source})|(?:${CATALOG_ASK_RE.source})|\\bwho\\s+won\\b`,
+  `(?:${SEARCH_FRAME_RE.source})|(?:${NAV_RE.source})|(?:${RESEARCH_RE.source})|(?:${ATTRIBUTION_RE.source})|(?:${CATALOG_ASK_RE.source})|(?:${EXTERNAL_EVIDENCE_RE.source})|\\bwho\\s+won\\b`,
   "i",
 );
 
@@ -421,7 +429,7 @@ const IMAGE_LOOKUP_INTENT_RE =
  *  fires WITHOUT an explicit "today/right now" tail — an outage fallback
  *  that misses a plain price ask is the regression this closes. */
 const FRESHNESS_RE =
-  /(?:\b(?:weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:[\w'-]+\s+){0,3}?(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b|\b(?:current|latest)\b[^.!?]{0,24}?\b(?:prices?|costs?|salary|salaries|fees?|fare|fares)\b|\b(?:job|jobs|positions?|hiring)\b[^.!?]{0,20}?\b(?:open|available|listings?|vacanc\w*)\b)/i;
+  /(?:\b(?:weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:[\w'-]+\s+){0,3}?(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b|\b(?:current|latest)\b[^.!?]{0,24}?\b(?:prices?|costs?|salary|salaries|fees?|fare|fares)\b|\b(?:job|jobs|positions?|hiring)\b[^.!?]{0,20}?\b(?:open|available|listings?|vacanc\w*)\b|\b(?:application|portal|service|website|system|platform)\b[^.!?]{0,24}?\b(?:operational|accepting|receiving|offline|outaged?)\b|\b(?:is|whether|check)\b[^.!?]{0,24}?\boperational\b)/i;
 
 /** Layer E1 — the user EXPLICITLY scoped the turn to local evidence.
  *  WS02 (audit 2026-11-05): `browsing?`/`googling?` were defects — the `?`
