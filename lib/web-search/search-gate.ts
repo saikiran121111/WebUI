@@ -361,7 +361,10 @@ const GUARD_EXTERNAL_RE = new RegExp(
  *   ATTACH_ANAPHORA_RE — pronoun anaphora ("this/the/my video"), stripped
  *     ONLY when the turn actually carries local attachment evidence, so a
  *     no-attachment "watch this video on youtube" keeps its web intent.
- * Rust mirror: re_media_self_ref / re_attach_anaphora / web_intent_probe.
+ * (Historical: the ruke-websearch crate carried re_media_self_ref /
+ * re_attach_anaphora / web_intent_probe mirrors; the crate was removed
+ * 2026-11-03 and THIS file is the sole owner — no Rust edit is required
+ * when these probe regexes change.)
  */
 const MEDIA_NOUNS =
   "audio|video|recording|clip|footage|image|photo|picture|screenshot|pdf|doc(?:ument)?|file|transcript|log|code";
@@ -393,9 +396,11 @@ const IMAGE_LOOKUP_INTENT_RE =
  * 2026-11-04 with the attachment force-NO layer: the boolean attachment
  * flag is not evidence sufficiency, and GUARD_EXTERNAL_RE above is the
  * one shared escape for every skip layer.) */
-// Byte-identical bodies to the Rust re_freshness / re_local_only /
-// re_supplied_task / re_codegen / re_math (Rust scopes ASCII \b with
-// (?-u:…); JS \b is already ASCII).
+// (Historical: these bodies were byte-identical mirrors of the Rust
+// re_freshness / re_local_only / re_supplied_task / re_codegen / re_math.
+// The ruke-websearch crate was removed 2026-11-03 — the Rust twins no
+// longer exist and THIS file is the sole owner. grep rust-backend for
+// re_freshness before assuming any lock-step edit is required: none is.)
 
 /** Force-YES freshness — high-confidence, NARROW time-sensitive shapes.
  *  Bare "latest"/"current"/"today"/"price" are NOT here (that bare-token
@@ -416,11 +421,17 @@ const IMAGE_LOOKUP_INTENT_RE =
  *  fires WITHOUT an explicit "today/right now" tail — an outage fallback
  *  that misses a plain price ask is the regression this closes. */
 const FRESHNESS_RE =
-  /(?:\b(?:weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b|\b(?:current|latest)\b[^.!?]{0,24}?\b(?:prices?|costs?|salary|salaries|fees?|fare|fares)\b|\b(?:job|jobs|positions?|hiring)\b[^.!?]{0,20}?\b(?:open|available|listings?|vacanc\w*)\b)/i;
+  /(?:\b(?:weather|forecast)\b|\bhow\s+much\b[^.!?]{0,40}?(?:\bcosts?\b|\bprice\b|\bworth\b)|\bthis\s+(?:week|month|year)\b|\bmost\s+recent\b|\bas\s+of\s+now\b|\bup[\s-]?to[\s-]?date\b|\bstill\s+(?:supported|available|maintained|true|accurate|valid|current)\b|\bwho\s+(?:is|are)\s+the\s+(?:ceo|president|mayor|governor|chairman|director|coach|captain)\b|\b(?:current|latest)\s+(?:version|release)\b|\blatest\b[^.!?]{0,14}?\bnews\b|\bnews\b[^.!?]{0,14}?\blatest\b|\b(?:recent|breaking)\s+news\b|\bnews\s+(?:about|on|regarding)\b|\bopen\s+(?:[\w'-]+\s+){0,3}?(?:positions?|jobs?|roles?|vacancies)\b|\bjob\s+(?:listings?|openings?)\b|\b(?:prices?|costs?)\b[^.!?]{0,30}?\b(?:today|now|right now|currently)\b|\b(?:right now|today|currently)\b[^.!?]{0,30}?\b(?:prices?|costs?)\b|\b(?:current|latest)\b[^.!?]{0,24}?\b(?:prices?|costs?|salary|salaries|fees?|fare|fares)\b|\b(?:job|jobs|positions?|hiring)\b[^.!?]{0,20}?\b(?:open|available|listings?|vacanc\w*)\b)/i;
 
-/** Layer E1 — the user EXPLICITLY scoped the turn to local evidence. */
+/** Layer E1 — the user EXPLICITLY scoped the turn to local evidence.
+ *  WS02 (audit 2026-11-05): `browsing?`/`googling?` were defects — the `?`
+ *  only optionals the trailing "g", so the plain verbs NEVER matched and
+ *  "Do not browse. What is the current milk price?…" force-YESed on
+ *  freshness. The existing "Don't browse; only from the attached…" pin hid
+ *  it (that arm matched the ATTACHED clause, not the prohibition).
+ *  `brows(?:e|ing)?` / `googl(?:e|ing)?` parse the actual verbs. */
 const LOCAL_ONLY_RE =
-  /(?:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|browsing?|googling?|looking\s+online)\b|\bwithout\s+(?:searching|browsing)\b|\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\banswer\s+(?:only|strictly)\s+from\b|\buse\s+only\s+the\s+attached\b|\bnothing\s+else\b)/i;
+  /(?:\b(?:do not|don't|dont|no)\s+(?:web\s+)?(?:search|brows(?:e|ing)?|googl(?:e|ing)?|looking\s+online)\b|\bwithout\s+(?:searching|browsing)\b|\b(?:only|just)\s+(?:from|based on|using)\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\b(?:answer|respond|reply)\s+based on\s+(?:the\s+)?(?:attached|provided|supplied|uploaded|pasted|given)\b|\banswer\s+(?:only|strictly)\s+from\b|\buse\s+only\s+the\s+attached\b|\bnothing\s+else\b)/i;
 // Part-10 follow-up fix (§11.2): "…, nothing else." is the meta-instruction
 // fingerprint (closed-form local answers: "reply YES", "repeat after me").
 // The residual re-test below stays the guard: "watch the launch tomorrow,
