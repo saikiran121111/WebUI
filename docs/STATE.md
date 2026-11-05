@@ -3396,3 +3396,43 @@ Loaded: superpowers:test-driven-development (Iron Law active WS15–WS20). No Ti
 2. WS15 TDD: fixture pinning cookie continuity across intermediate redirects (local server chain or fetch-layer mock per existing net-cookies-caps.test.ts precedent — READ that file's harness first); full suite + tsc + cargo; commit+push+STATE 05o.
 3. Then WS16 per brief order (cancellation — pipeline.ts ~:613-681 wall-clock deadline never settles on combined abort signal).
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05o — WS15 LOCKED (redirect-session continuity, every transport)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Repair 20 audit web-search defects (WS01–WS20, brief item N = WS0N) at baseline 60fe172 on develop. WS15 (audit item 15, pinned native transport loses redirect-issued cookies) LOCKED this session (commit e0a30a5 + this snapshot). WS16 (cancellation does not settle the initial direct-target wait promptly — pipeline.ts ~:613-681) is NEXT. After WS16: WS17 (url-detector.ts:102-113 scheme-less www path host-dedupe loses a page) → WS18 (failures independent of citations + ledger enrichment, web-tool-loop.ts ToolActionRecord sites) → WS19 (task-fit evidence sufficiency, planner-law.ts evaluateSufficiency, keyClaimsSupported at :644 `coverage.coverage >= 0.6 && !coverage.needsGapSearch`) → WS20 (access-recovery wording ONLY in WEB_TOOL_GUIDANCE + pipeline evidenceBlock/ANTI_REFUSAL_DIRECTIVE, mirrored in Rust — NEVER chat/browser_loop.rs, ruke-browser tools, omnibox, migration). Then ONE final locked Playwright loop (pw-80) → ANALYZE → §4 report → AUTO-SHUTDOWN (`shutdown //s //f //t 60`), never ask.
+
+## [8.2 LOCKED COMPLETED TASKS — DO NOT RE-READ/RE-DO]
+WS01 61951d0 · WS02 853c7d7+06cba20 · WS03 c61bda8 · WS04 8f24d83 · WS05 6a35fea · WS06 8187bc3+2915f0a · WS07 28e1beb · WS08 78c0e28 · WS09 4f47e61 · WS10 1119df6+05k · WS11 8de5846+05l · WS12 edac8b3+05m(63e97a7) · WS13 8f24d83 (srsltid) · WS14 7626988+05n(c844c7f) · **WS15 e0a30a5+05o(this)**.
+WS15 production record (net.ts only, +fixture):
+- `impitFollow(client, url, req{method,baseHeaders,timeout,body?}, jar) -> {res, finalUrl}` (module-level, after tlsTolerantGet; MAX_IMPIT_REDIRECTS=10): per-hop `redirect:"manual"` (installed impit typings), jar.absorb under the ISSUING url each hop, jar.cookieFor re-seeds every request incl. retries, isSafeUrl vets every TARGET before issuing (entry stays isSafeUrlWithDns at fetchPage/fetchUrl), fetch-spec transitions (303→GET except HEAD; POST→GET except 307/308), hop-cap throw "redirect limit exceeded" → catch = network-error rotation, new URL(loc,cur) relative Location, malformed Location ⇒ return the 3xx as final. Hop bodies never read (like got).
+- fetchPage Pass B: walker call site (cookieVal/baseHeaders-entry-cookie block removed — walker reseeds per hop); per-attempt jar re-seed now automatic; double absorb at final REMOVED (walker absorbs final too; rawCookies only feeds PageResponse.cookies).
+- Pass C wreq: ENTRY request seeded `jar.cookieFor(url)` under opts.headers (caller wins) — wreq has no hop hook (strings-only).
+- tlsTolerantGet(url, jar, timeoutMs, limitBytes): jar param added (callers gotPageFetch :617, fetchPage catch); absorbs every hop under issuing url, carries jar cookie on self-issued hops, final `cookies: hopCookies` (was []).
+- gotUrlFetch(url, opts, headers, jar): TWO-arity beforeRedirect jar hook (same as gotPageFetch — arity pinned in §8 suite); fetchUrl creates ONE jar shared across got + impit Pass B (now via impitFollow with body support).
+- Jar rules (RFC-6265-lite, registrable confinement, per-call lifetime) UNTOUCHED.
+Fixture: `__tests__/web-search/net-pinned-redirect-cookies.test.ts` (5 tests) — live 127.0.0.1 chain server reflecting per-hop Cookie header, installed impit-win32-x64-msvc + got 14.6.6, ssrf mocked true (net-cookies-caps §8 harness shape). RED watched ×3 (seen '' at hop 2; 'done seen:-'); controls (loop termination, direct read) green pre+post.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (WS15)]
+fetchPage → Pass A gotPageFetch (jar hook, pre-existing) → Pass B impitFollow (NEW) → Pass C wreqFetch(seeded) / tlsTolerantGet(jar, cert retry). fetchUrl → gotUrlFetch(jar hook NEW) + impitFollow(shared jar). Callers of fetchPage/fetchUrl unchanged (extractor, engines, route-links). Rust: untouched (bridge JSON opaque; zero Rust edits).
+
+## [8.4 IMMUTABLE CONTRACTS]
+net.ts: `PageResponse` unchanged (cookies = FINAL-hop Set-Cookie pairs; rawBytes absent only for wreq strings-only pass); `impitFollow` internal; tlsTolerantGet/gotUrlFetch internal signatures as above (private, no external callers). fetchPage/fetchUrl public signatures unchanged. CookieJar interface {cookieFor,absorb} unchanged.
+Carried: extractUrl(result, deadline?, rankInWindow=0, liveRequired=false); execWebSearchTool monotonic session.liveRequired strengthening (realtime only); retrievalModeForFreshness(types.ts:70): realtime⇒live_required, day/week⇒live_preferred, else cached_preferred; serpCoversQuery + focusTokens WS12 tokenization; Rust create-RPC forwards gate freshness (web_loop.rs:420-448), bridge RESEARCH_PATH=/api/internal/web-research + TOOLS_PATH, header x-ruke-internal-secret; MODE_MAP(.decision-engine/worker/schemas.py) ↔ MODE_SKILL(lib/decision/types.ts). Env: RUKE_BROWSER_BRIDGE_BASE_URL/SECRET. Node v26.12.1 small-icu: \p{Script}-name escapes THROW at runtime — only \p{L}\p{N}\p{M} usable; test code uses BMP ranges.
+
+## [8.5 PLAYWRIGHT/E2E STATE]
+No Playwright lock held; no dev servers running. Final loop = pw-80, lock .ai-coordination/playwright.lock (foreground PowerShell wait, never delete to bypass, timeout ⇒ stop+ask). Baselines: vitest FULL 122 files / 1524 passed | 1 skipped (1525); tsc --noEmit clean; cargo ruke-server --lib 146/146. Commands: `node node_modules/vitest/vitest.mjs run [paths]` (ANSI-strip + grep "Tests |Test Files|FAIL"), `node node_modules/typescript/bin/tsc --noEmit`, `cargo test --manifest-path rust-backend/Cargo.toml -p ruke-server --lib`. Git: develop chain e0a30a5(WS15) ← c844c7f(05n) ← 7626988(WS14) ← … ← 60fe172 baseline; all pushed; only ` M tsconfig.tsbuildinfo` untracked-staged (NEVER stage).
+
+## [8.6 OPEN BUGS / BLOCKERS]
+None open in WS15. Untested-but-review-visible consistency legs (no cert/UA-forcing harness available): tlsTolerantGet jar leg (needs broken-cert https server) and Pass C wreq entry seed (needs UA-discriminating server) — both 3-10 line, same jar law, documented in commit message. Audit wording honored: "every transport" = got page, got JSON, impit page, impit JSON, gov-TLS walker, wreq seed.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS16–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS16 recon: audit entry verbatim `sed -n '/WS16/,/WS17/p' "C:/Users/Ruku/Documents/Codex/2026-11-02/referenced-chatgpt-conversation-this-is-an/outputs/ruke-60fe172-websearch-regression-audit.md"`; then `lib/web-search/pipeline.ts` ~:613-681 — wall-clock deadline never settles on the combined abort signal (initial direct-target wait).
+2. WS16 TDD: failing fixture first (abort/deadline race per existing pipeline-test harness precedents); full suite + tsc + cargo; commit+push+STATE 05p (anchor on 05o [8.8] tail).
+3. Then WS17 per brief order (scheme-less www paths — url-detector.ts:102-113 Pass 2 host-dedupe loses a page).
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
