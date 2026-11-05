@@ -2991,3 +2991,45 @@ WS01–WS20 audit repair brief at 60fe172, develop. WS01, WS02 (853c7d7+06cba20)
 1. WS04 RED: subject-preservation fixtures — subjectless follow-ups must search the PRESERVED subject, not instruction words (audit WS04: "through search ... models" follow-up dispatched generic searching words). Cover subjectAnchor/gateKeywordQuery in search-gate.ts ~:532-570: history carries the subject (product/model/site name), current turn is anaphoric/bare; assert gate queries contain the subject token (matrix q900 arm style) and never bare instruction verbs.
 2. GREEN minimal; full vitest + tsc; commit; push; STATE append.
 3. Then WS05 (persist/rehydrate research evidence — lib/chat client.ts:44 drops web metadata; locate the REAL citation/persistence path at baseline, lib/chat/citations.ts does not exist).
+
+---
+
+# SESSION SNAPSHOT 2026-11-05e — WS04 + WS13 LOCKED (8f24d83)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-repair web-search audit mission (brief item N = audit WS0N) at baseline 60fe172 on develop. WS01–WS04 + WS13 LOCKED. Active phase now = CODE, next repair WS05 (persist/rehydrate research evidence). Chain: 60fe172 → 61951d0 (WS01) → 853c7d7+06cba20 (WS02) → c61bda8 (WS03) → 8f24d83 (WS04+WS13). All pushed to origin/develop.
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 routing argument roles (61951d0) — task-scope locative-never-destination; matrix + probes arms re-pinned green.
+- WS02 (853c7d7 + 06cba20) — LOCAL_ONLY_RE prohibition verbs; vendored audit gate matrix 155/155 maintained-suite member via two universal force-YES frames (operational-status frame, EXTERNAL_EVIDENCE_RE). Bare `verify` may NEVER enter WEB_INTENT_RE (E1 residual pin at search-gate.ts:628).
+- WS03 (c61bda8) — parseMainGateJson machine-checks `available_evidence` against ctx.hasAttachmentEvidence||hasImageAttachment; rejected NO → rules plan; fixture __tests__/web-search/search-gate-evidence-basis.test.ts.
+- WS04+WS13 (8f24d83) — gateKeywordQuery anaphoric anchor rewrite (ANAPHORIC_RE + HEAD_OPS + KEYWORD_TASK_WORDS + hasNewEntity: capital non-opener / digit inside letter-bearing identifier / non-Latin script excl. '’_-); SEARCH_FRAME_RE += `search again`; TRACKING_PARAMS += `srsltid` (TS-owned, no Rust twin — grep-verified). Vendored fixture __tests__/web-search/audit-probes-routing.test.ts (verbatim, RED watched 3 failed/7 passed with byte-identical bad query first). Full suite at commit: 110 files, 1435 passed/1 skipped; tsc exit 0.
+- Gate suites: universal, no-browse, evidence-basis, matrix, boundaries, probes = green together (web-search+decision 39 files 666 tests).
+
+## [8.3 GRAPHIFY MAP (current)]
+- search-gate.ts: sole gate owner (no Rust regex mirrors; ruke-websearch crate removed 2026-10-13/…2026-11-03). gateKeywordQuery consumed by rulesBasedPlan path only; subjectAnchor reads ctx.history (user turns). No callers of gateKeywordQuery outside search-gate (grep-verified prior).
+- metasearch.ts normalizeUrl: dedup consumer pipeline.ts waves + route-links; TRACKING_PARAMS TS-only.
+- Rust parity unaffected by WS04/WS13 (bridge bundles SearchDecision verbatim).
+
+## [8.4 IMMUTABLE CONTRACTS]
+- SearchDecision wire frozen (basis never rides wire). NO_SEARCH_BASIS = {local_transform, code_task, creative, math, stable_general, available_evidence}.
+- Env: WEB_SEARCH_GATE_DISABLED==="1" (WEB_SEARCH_LFM_DISABLED honored as alias).
+- Commands: `node node_modules/vitest/vitest.mjs run <paths>`; `node node_modules/typescript/bin/tsc --noEmit`; never stage tsconfig.tsbuildinfo; rust: `cargo test --manifest-path rust-backend/Cargo.toml -p ruke-server --lib` ONLY; never cargo fmt --all.
+- Playwright lock .ai-coordination/playwright.lock; next loop pw-80; launch foreground per CLAUDE.md §1.3; after final green cycle: auto-shutdown `shutdown //s //f //t 60` NEVER ask.
+- Audit workspace fixtures: C:/Users/Ruku/Documents/Codex/2026-11-02/referenced-chatgpt-conversation-this-is-an/outputs/ (+ work/ audit-nov5-*/audit-recheck-*/audit-regate-*, CRLF). 310 checks/68 failing at baseline; maintained suite was green.
+
+## [8.5 E2E/PLAYWRIGHT STATE]
+No lock present; no Playwright run this session. Servers untouched. Loop law: ONE final locked fix-rerun loop at cycle end (pw-80+).
+
+## [8.6 OPEN BUGS / FLAKES]
+- Flake watch (from 05d): one unreproduced single-file failure at 12:38:52, five green runs after. If it recurs capture the failing file name from the summary BEFORE anything else. Current run 110/110 green.
+- Stale editor diagnostic `'GATE_JSON_SCHEMA' is declared but its value is never read` (search-gate.ts:86) — tsc exit 0 repeatedly; ignore.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (TDD Iron Law active — failing test watched for every repair). No Tier-2 .cskills loaded this session. No scenario locks.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS05 recon: locate REAL citation/persistence code at baseline (lib/chat/citations.ts does NOT exist). Read lib/chat/client.ts buildBody (:44 — serializes role/content only), hooks/useChat.ts:449 (stores research metadata, no server rehydration), server-side message persistence path + where web research metadata is emitted (route.ts / web-tool-loop results). Audit fix law: persistent server-owned research references bound to conversation+user; never trust client-provided text/metadata as proof of a fetch.
+2. WS05 TDD: failing fixture first (persist → reload conversation → research evidence rehydrates server-side), then minimal fix; full suite; commit+push+STATE.
+3. Then WS06 (grounded answer release check — web-tool-loop streamRound ~:287 forwards before validation; Rust web_loop.rs parity) per brief order.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
