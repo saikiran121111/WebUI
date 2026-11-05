@@ -3798,3 +3798,40 @@ superpowers:systematic-debugging discipline in force. No Tier-2 loads. Do not re
 1. MHR-G (WS27) level 1+2 design & build: (a) harness structured-decision proof already exists — enumerate/point the suites; (b) NEW configured-model semantic evals: script or suite driving the REAL configured model (settings llmApiUrl) with held-out paraphrases of the five user sentences + unknown entities; deterministic pass criteria on tool-use/evidence/outcome, NOT canned text; mocked-model suites must not count as this proof.
 2. GREEN MHR-G evals (fix harness gaps they expose, never prompt-patch with vocab lists) + commit+push + STATE 05y if work spans.
 3. ONE final locked pw-80 Playwright fix-rerun loop (lock protocol, foreground, build identity first; acceptance list + five user sentences) → ANALYZE → §4 completion report (changes; actual command+counts+exit; failures incl. carried limitations) → AUTO-SHUTDOWN `shutdown //s //f //t 60` WITHOUT asking.
+
+# SESSION SNAPSHOT 2026-11-06y — MHR-G LEVEL 2 LIVE (suite shipped 8faef27; 3/8 cases green; USER PAUSED — continue tomorrow)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+MHR program (WS21–27) per the locked 20-item audit brief; MHR-A…F LOCKED (last: eb23ead + 993fa1d). ACTIVE: MHR-G (WS27) three-level proof — level 1 (harness structured-decision proof) = existing suites (answer-release 44, mhrD loop suites, mhr-e 15, web.test.ts pins, golden fixtures' mock-caveat notes). LEVEL 2 = the NEW gated live-model eval suite __tests__/manual/mhr-g-model-eval.test.ts (shipped 8faef27, pushed): REAL model (llmApiUrl→:8080, qwen3.8-flash-next-iq3_s) + REAL retrieval + REAL runWebToolLoop, 8 cases, criteria A tool-use / B evidence / C integrity / D semantics (diagnosis-as-oracle + evidence-corpus fabrication proof) / E grounding. USER SAID STOP at 3/8 cases run (all pass). Level 3 = the ONE final locked pw-80 Playwright loop (not yet run).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- MHR-A/B/C 6321251, MHR-D 3d55ab2, MHR-E 0b55fff, MHR-F eb23ead — everything in prior snapshots stands; do not re-open.
+- MHR-G suite FILE LOCKED as shipped (8faef27): gate (MHR_G_MODEL_EVAL=1 → runs; else 8 skipped, verified), turn-driver (driveTurn: depth standard, searchGateMeta llm/any, captures web_meta webCitations+researchLedger, evidence corpus = payload.messages tool envelopes — the loop mutates payload in place), fabricatedSentences oracle (flagged numbers absent from humanText+evidence = proven fabrication; present = attribution lapse, reported only), expectTurn A–E, CASE_TIMEOUT 420_000. tsc 0, battery-safe (skip run verified 233ms).
+- CASES GREEN (live, one-shot each): mhr-g-jobs-hyderabad 118s (3 rounds, 8 minted, search×2+read×2 all ok, evidence 38k; first run failed the OLD user-text-only oracle → refined to evidence-corpus proof: flagged numbers were REAL evidence, attribution lapse not fabrication — refinement shipped in 8faef27); mhr-g-apartments-tallinn 185s (4 rounds, 12 minted, honest no-price gap answer); mhr-g-apply-nairobi 189s (4 rounds, 8 minted, 40k evidence).
+- REMOTE (user's own, untouched): 6bfb693 "adopt Playwright MCP and specify core skill retirement" + 1e1fe14 (3D/CAD retirement) — READ plan/ruke-chatgpt-like-implementation-plan.md deltas before the FINAL loop: user may now expect Playwright MCP instead of the old pw-80 launcher; confirm actual expected harness with the plan doc first.
+
+## [8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
+__tests__/manual/mhr-g-model-eval.test.ts → lib/chat/web-tool-loop.ts (runWebToolLoop, real) + lib/chat/answer-release.ts (diagnoseResearchAnswer oracle) + lib/server/settings.ts (llmApiUrl) + research journal via WEBUI_DATA_DIR (temp dir, set before dynamic import, rm after). Consumers: scripts/run-browser-e2e-exclusive.ps1 (level 3 later), package.json unchanged (no new script; run via bash env prefix).
+
+## [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
+Unchanged: MHR-F release law, MHR-E registry, loop signatures, FEEDBACK_HEADER/FOOTER bytes, matrix v3. EVAL RUN CONTRACT (tomorrow): from repo root, ONE case per foreground invocation ≤ ~10 min bash wall:
+  MHR_G_MODEL_EVAL=1 node node_modules/vitest/vitest.mjs run __tests__/manual/mhr-g-model-eval.test.ts -t "<case>" 2>&1 | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -E "\[mhr-g|✓|×|passed|failed|Test Files|Tests |AssertionError"
+Remaining -t names: "mhr-g-amul-zepto", "mhr-g-jobs-paraphrase-pune-qa", "mhr-g-rentals-paraphrase-dublin", "mhr-g-unknown-entity-gap", "mhr-g-purchase-then-followup" (2-turn, journal conv; expects prior aliases preserved: t2 minted>0). Inference prereq: :8080 up (Strata/llama.cpp, model loaded). Single-owner: no parallel model traffic while a case runs.
+
+## [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
+No Playwright lock. :3000 down (npm run dev when needed). :8080 UP (was serving all evals). Level-3 spec choice OPEN: plan doc now names Playwright MCP (6bfb693) — reconcile pw-80 launcher (scripts/run-browser-e2e-exclusive.ps1 -TestFiles <spec>) vs user's new direction BEFORE launching; the five user sentences + acceptance list remain the target; tests/universal-websites.spec.ts exists but is NOT the five-sentences spec; a five-sentence e2e spec may still need writing (grep showed only universal-websites covers Hyderabad/Zepto prompts).
+
+## [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
+- No harness bugs found by the 3 live cases — behavior was grounded/honest-gap throughout; model narration leaks some meta lines ("Let me pull the retained listing blocks") — cosmetic, model-side, not harness.
+- Eval limitation documented in-file: cited-but-irrelevant evidence passes E/C/D (no judge); ANALYZE must eyeball printed action ledgers/excerpts.
+- Carried: WS19 currentness proxy; deferred-cancellation oddity; diagnosis own-turn blindness (re-stated user constraints REPORTED, self-heals); "not ChatGPT parity".
+
+## [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
+superpowers:systematic-debugging loaded (in force). ponytail/graphify always-on. No Tier-2 loads. No playwright sessions.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. Run the 5 remaining eval cases (one bash call each, exact commands in §8.4; order: zepto → pune → dublin → gap → followup). If a case fails, ANALYZE its printed metrics first, fix HARNESS gaps (never vocab/prompt patches — user law), re-run that case, keep suite green + battery hermetic.
+2. Read plan doc for 6bfb693's Playwright-MCP direction; then level 3: ONE final locked Playwright run at the post-MHR-G HEAD covering the five user sentences (write/extend the spec if none exists; build identity first; lock protocol; foreground; fix-rerun loop allowed within the ONE cycle).
+3. Commit+push after each fix (overnight law), then §4 completion report (changes / actual commands + counts + exit codes incl. vitest 1624+1/tsc 0/cargo counts at eb23ead + live eval results / failures / limitations incl. §8.6) and AUTO-SHUTDOWN shutdown //s //f //t 60 WITHOUT asking.
+
+NOTE: cycle PAUSED by user mid-MHR-G on 2026-11-06; PC SHUTTING DOWN per standing cycle-end law immediately after this snapshot was committed and pushed.
