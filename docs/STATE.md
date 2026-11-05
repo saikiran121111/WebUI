@@ -3675,3 +3675,42 @@ superpowers:test-driven-development in force (RED first, full suite, name every 
 2. GREEN MHR-D; re-run six-file batch + golden replay (re-record 01/04 if envelopes/frames intentionally change); tsc; cargo full; contracts:check if wire shape moves.
 3. Commit+push develop + STATE 05v. Then MHR-E (WS25 retrievable evidence: document/section/row refs + continuation, same registry+citation map every wave, rehydrate aliases, journal beyond 500-char preview, fix empty-title finding) → MHR-F (WS26) → MHR-G (WS27 three-level proof: configured-model semantic evals w/ held-out paraphrases + unknown entities; current build e2e) → ONE final locked pw-80 loop → ANALYZE → §4 report (incl. WS19, web-tools-rpc oddity, MHR limits "not universal correctness/ChatGPT parity") → AUTO-SHUTDOWN shutdown //s //f //t 60, never ask.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05v — MHR-D LOCKED (commit 3d55ab2; evidence-driven next action)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+MHR-A…G (WS21–WS27) program after the locked 20-item audit. Law: the MAIN MODEL interprets requests and chooses tools; the HARNESS supplies resources, executes valid actions, preserves evidence, reports actual outcomes — NO semantic patches (word lists/thresholds/refusal paragraphs). MHR-A/B/C locked (6321251). MHR-D (WS24 evidence-driven next action) LOCKED + pushed (3d55ab2). Active phase now: MHR-E (WS25 retrievable evidence).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 3d55ab2 (pushed) MHR-D: non-destructive `diagnoseResearchAnswer` (answer-release.ts ⇔ answer_release.rs `Diagnosis`/`diagnose_research_answer`/`answer_issues`/`build_answer_feedback`) runs the SAME WS06 detectors but REPORTS ONLY (unresolved markers deduped+numeric-sorted, available numeric-sorted, unsupported sentences VERBATIM, claimsResearch); stillValid law evaluated on the ORIGINAL sentence (dangling extra marker → unresolved, never unsupported); fences/inline code contribute NOTHING. matrix.json v2 `mhrD.diagnoseCases` D1–D10 cross-language byte-locked (TS 34 tests + Rust 3 new = lib 148).
+- Loop wiring (web-tool-loop.ts ⇔ web_loop.rs): completion branch diagnoses BEFORE release; feedback fires iff `answer_issues && !feedback_used && round + 1 < max_rounds` (ONE per turn; NEVER faked at the round cap — then the WS06 destructive audit releases); feedback costs an ITERATION not the tool budget (roundsUsed/census count tool rounds only); held answer DISCARDED (`res.held.length=0` / `held.clear()`) — next round owns the single [DONE]; payload.messages gets assistant(held text, content null if empty) + user(buildAnswerFeedback); release_round moved INTO branches (completion + tool-narration paths; narration release position before census preserved).
+- Feedback bytes pinned (header "[Harness feedback] Your answer text was held back…" / footer "Decide the next action yourself…"; lines: `- Citation marker(s) [S9] do not exist. Sources minted this turn: S1, S2.` (avail "none" when empty), `- Unsupported claim sentence(s): "…"` NO trailing period after closing quote, `- The text claims web research, but no retrieval succeeded this turn.`).
+- HALF-STATE (deliberate): destructive R1–R3 audit STILL runs on every release until MHR-F evolves it.
+- __tests__/chat/web-tool-loop-feedback.test.ts NEW (6 wire-law tests incl. quick-depth no-fake guard); release-test replay law: SSE readers are ONE-SHOT ⇒ rounds are SSE STRINGS, fresh `sseResponse` per fetch; bad-answer pins replay [bad,bad] (second pass = destructive release, calls=2).
+- VERIFIED COUNTS at 3d55ab2: vitest 129 files 1599 passed |1 skipped; chat trio 45/45; golden web 7/7 ZERO-DRIFT (01–05 recorded answers clean — feedback silent, no re-record needed); tsc TSC_EXIT=0; cargo ruke-server lib 148 + ALL integration targets green; contracts:check OK; clippy baseline 14 warnings, ZERO in answer_release.rs/web_loop.rs.
+
+## [8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
+- app/api/chat/route.ts → runWebToolLoop(lib/chat/web-tool-loop.ts → answer-release.ts diagnose+audit) → handleWebToolsRpc(lib/server/web-tools-rpc.ts) → lib/web-search/tools.ts; Rust chat/pipeline.rs → chat/web_loop.rs → answer_release.rs → same RPC bridge. matrix.json = ONE vendored truth (include_str! ⇔ readFileSync).
+- MHR-E next touchpoints: lib/web-search/tools.ts read_page exec (title:"" finding, tools.ts:749/785 domain fallback), citation registry + journal preview (500-char), priorEvidence rehydration (RPC create), follow-up alias rehydration.
+
+## [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
+- AnswerDiagnosis {unresolved,available,unsupported,claimsResearch} ⇔ Rust Diagnosis (serde rename claimsResearch); matrix mhrD case shape {name,text,citations,retrieved,expected,feedback}.
+- Loop grammar unchanged (web:tools census only in tool_calls branch; web_meta ledger-gated; completion web_meta gated actionLedger.length>0; budget standard {2,12,4}, cap 20).
+- Env/test facts persist: STATE tracked UPPERCASE `git add "docs/STATE.md"`; cargo from rust-backend/; NEVER stage tsconfig.tsbuildinfo; golden drift ⇒ DELETE+re-record; MOCK_LLM_URL 127.0.0.1:9.
+
+## [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
+No Playwright lock; no dev servers this session. Final pw-80 loop still pending after MHR-G (acceptance list + five user sentences; verify running-app build identity FIRST; launcher scripts/run-browser-e2e-exclusive.ps1 -TestFiles <spec>; NO npm run test:e2e).
+
+## [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
+None active. Carried for final §4: WS19 no deterministic location/version currentness proxy; web-tools-rpc deferred-cancellation oddity; read_page citations title:"" (MHR-E to address — extractor never sniffs HTML <title>).
+
+## [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
+superpowers:test-driven-development in force (RED first, name every witnessed failure). No Tier-2 loads. Do not re-invoke.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. MHR-E/WS25 RED first (TS+Rust, fictional entities): read_page evidence becomes RETRIEVABLE — document/section/row refs + continuation for read_page (same registry + citation map every wave; refs/aliases rehydrate on follow-ups; journal carries beyond the 500-char preview); address the empty-title read_page citation finding honestly. No second engine.
+2. GREEN MHR-E + full battery (vitest all, chat trio, golden replay — re-record ONLY by deletion if frames intentionally change, tsc, cargo full, contracts:check if wire moves) + commit+push develop + STATE 05w.
+3. Then MHR-F (WS26 citation-integrity vs semantic-support separation: evolve answer-release + Rust + both loops; gaps fed back to model, NO silent citation removal, NO rewrites of correct local answers — retire the deliberate half-state) → MHR-G (WS27 three-level proof: harness structured-decision tests + configured-model semantic evals w/ held-out paraphrases & unknown entities — mocked model proves nothing + current identifiable build e2e) → ONE final locked pw-80 loop → §4 report → AUTO-SHUTDOWN shutdown //s //f //t 60, never ask.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
