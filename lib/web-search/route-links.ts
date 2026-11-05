@@ -7,7 +7,16 @@
  * `links` inventory (tools.ts) and the pipeline's route-follow hop.
  */
 
-const MD_LINK_RE = /\[([^\]]{1,160})\]\((https?:\/\/[^)\s]+)\)/g;
+// Anchor href accepts ANY non-space form (audit 2026-11-05 item 8): the
+// harvester always resolved raws through new URL(raw, baseUrl), so
+// root-relative "/docs/x", parent-relative "../x", protocol-relative
+// "//cdn/x" and SPA hash-route "#/view" links were invisible ONLY because
+// the regex demanded an absolute scheme — every one of them resolves
+// correctly against the page that served the content. The href still
+// stops at whitespace (title-syntax links stay skipped — preserved
+// limitation) and addRoute's protocol guard keeps javascript:/mailto:/
+// data: out.
+const MD_LINK_RE = /\[([^\]]{1,160})\]\(([^\s)]{1,600})\)/g;
 const BARE_URL_RE = /(?<![\w/."'(])https?:\/\/[^\s)\]}>,"]+/g;
 
 /** Content-word tokens (length > 3) used for route/row focus ranking. */
@@ -46,6 +55,11 @@ function addRoute(
   anchor: string,
 ): void {
   const cleaned = raw.replace(/[.,;:!?]+$/, "");
+  // Same-document anchors ("#footnote-3": TOC/footnote jumps on the page
+  // just read) are NOT routes — following them refetches the same view.
+  // A SPA hash-ROUTE ("#/models") changes what the page renders, so it IS
+  // a harvestable route (audit 2026-11-05 item 8).
+  if (cleaned.startsWith("#") && !cleaned.startsWith("#/")) return;
   try {
     const abs = new URL(cleaned, baseUrl);
     if (abs.protocol !== "http:" && abs.protocol !== "https:") return;

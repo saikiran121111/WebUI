@@ -1257,63 +1257,81 @@ export async function runWebResearch(
     }
   }
 
-  // ── route-follow hop (universal research-depth law, 2026-11-05) ────────
+  // ── route-follow hops (universal research-depth law, 2026-11-05;
+  //    bounded requirement-driven expansion — audit item 8) ─────────────
   // When retrieved pages confirm the TOPIC but not the requested answer
   // unit, and the fetched content itself NAMES a route to it (a linked
   // detail/catalog page), FOLLOW that route instead of re-guessing it
   // through another search query. A navigation edge is not evidence of a
   // read — the bounded fetch below is what converts a discovered route
-  // into evidence. Same domain law + segment filter + gap-page budget as
-  // the search hop; fires once per run (bounded fan-out, no crawl, no
-  // loop, no second retrieval engine).
+  // into evidence. Same domain law + segment filter + admission law +
+  // gap-page budget as the search hop. The hop now CHAINS past the first
+  // nav page (audit repro: "Overview -> docs -> catalog stops at docs in
+  // standard and deep modes"). Three bounds keep this expansion, never a
+  // crawl:
+  //  - harvest cap is a SAFETY bound (48 per packet set), never a fetch
+  //    decision: EVERY harvested link is scored first and the fetch cap
+  //    (budget.maxGapPageFetches) slices the RANKED list — a relevant
+  //    13th content link beats 12 earlier navigation links (audit repro:
+  //    the old pre-rank cap of 12 decided by position, not relevance).
+  //  - hop count is depth-bounded: quick 1, standard 2, deep 3.
+  //  - requirement-driven halt: each next hop fires ONLY while
+  //    evaluateCoverage still reports the answer unit missing, so the
+  //    chain stops the moment an identifier-shaped answer merges.
+  // No second retrieval engine, no unbounded fan-out, no crawl.
   if (coverage.needsGapSearch) {
     const wantWords = new Set(focusTokens(ctx.userPrompt + " " + qTexts.join(" ")));
-    const allHopPackets = [...packets, ...secondHopPackets];
-    const readSet = new Set(allHopPackets.map((pkt) => normalizeUrl(pkt.url)));
     const seenRoute = new Set<string>();
-    const routes: RankedResult[] = [];
-    for (const pkt of allHopPackets) {
-      for (const link of collectRouteLinks(pkt.url, pkt.passages)) {
-        const key = normalizeUrl(link.url);
-        if (readSet.has(key) || seenRoute.has(key)) continue;
-        seenRoute.add(key);
-        let rdomain = link.url;
-        let pathWords: string[] = [];
-        try {
-          const u = new URL(link.url);
-          rdomain = u.hostname;
-          pathWords = focusTokens(decodeURIComponent(u.pathname));
-        } catch {
-          continue;
+    const readSet = new Set(
+      [...packets, ...secondHopPackets].map((pkt) => normalizeUrl(pkt.url)),
+    );
+    const maxRouteHops =
+      gate.decision.depth === "deep" ? 3 : gate.decision.depth === "quick" ? 1 : 2;
+    let harvestFrom = [...packets, ...secondHopPackets];
+    for (let hop = 1; hop <= maxRouteHops && coverage.needsGapSearch; hop++) {
+      const routes: RankedResult[] = [];
+      for (const pkt of harvestFrom) {
+        for (const link of collectRouteLinks(pkt.url, pkt.passages, 48)) {
+          const key = normalizeUrl(link.url);
+          if (readSet.has(key) || seenRoute.has(key)) continue;
+          seenRoute.add(key);
+          let rdomain = link.url;
+          let pathWords: string[] = [];
+          try {
+            const u = new URL(link.url);
+            rdomain = u.hostname;
+            pathWords = focusTokens(decodeURIComponent(u.pathname));
+          } catch {
+            continue;
+          }
+          let score = 0;
+          for (const w of focusTokens(link.anchor)) if (wantWords.has(w)) score += 2;
+          for (const w of pathWords) if (wantWords.has(w)) score += 1;
+          routes.push({
+            url: link.url,
+            canonical: key,
+            title: link.anchor,
+            snippet: link.anchor,
+            engine: "route-follow",
+            domain: rdomain,
+            rrf: score,
+            engines: ["route-follow"],
+            engineRanks: {},
+            origin: "retrieval", // provenance contract: link expansion
+          });
         }
-        let score = 0;
-        for (const w of focusTokens(link.anchor)) if (wantWords.has(w)) score += 2;
-        for (const w of pathWords) if (wantWords.has(w)) score += 1;
-        routes.push({
-          url: link.url,
-          canonical: key,
-          title: link.anchor,
-          snippet: link.anchor,
-          engine: "route-follow",
-          domain: rdomain,
-          rrf: score,
-          engines: ["route-follow"],
-          engineRanks: {},
-          origin: "retrieval", // provenance contract: link expansion
-        });
       }
-    }
-    const routeCandidates = applyDomainControl(routes, plannerLaw)
-      .sort((a, b) => b.rrf - a.rrf)
-      .slice(0, plannerLaw.budget.maxGapPageFetches);
-    if (routeCandidates.length > 0) {
+      const routeCandidates = applyDomainControl(routes, plannerLaw)
+        .sort((a, b) => b.rrf - a.rrf)
+        .slice(0, plannerLaw.budget.maxGapPageFetches);
+      if (routeCandidates.length === 0) break;
       onProgress?.({
         stage: "gap-search",
         detail: `Following ${routeCandidates.length} route(s) named inside already-read pages toward the missing answer...`,
         coverage: coverage.coverage,
       });
       log.info(
-        { harvested: routes.length, followed: routeCandidates.map((r) => r.url) },
+        { harvested: routes.length, followed: routeCandidates.map((r) => r.url), hop },
         "route-follow hop fired",
       );
       const routePackets = admitWave(
@@ -1329,23 +1347,26 @@ export async function runWebResearch(
         "route-follow",
       );
       applySegmentFilter(routePackets, segmentFilterQuery + " " + ctx.userPrompt);
-      renumberPackets(routePackets, nextSourceIndex(allHopPackets));
-      if (routePackets.length > 0) {
-        secondHopPackets = [...secondHopPackets, ...routePackets];
-        topPassages = rerank(
-          [...packets, ...secondHopPackets],
-          ctx.userPrompt,
-          qTexts,
-          15,
-          {
-            ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
-            freshness: gate.decision.freshness,
-            preferredDomains: designatedDomains,
-          },
-        );
-        coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
-        log.info({ routePackets: routePackets.length, coverage: coverage.coverage }, "route-follow hop merged");
-      }
+      renumberPackets(routePackets, nextSourceIndex([...packets, ...secondHopPackets]));
+      if (routePackets.length === 0) break;
+      for (const pkt of routePackets) readSet.add(normalizeUrl(pkt.url));
+      secondHopPackets = [...secondHopPackets, ...routePackets];
+      topPassages = rerank(
+        [...packets, ...secondHopPackets],
+        ctx.userPrompt,
+        qTexts,
+        15,
+        {
+          ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),
+          freshness: gate.decision.freshness,
+          preferredDomains: designatedDomains,
+        },
+      );
+      coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
+      log.info({ routePackets: routePackets.length, coverage: coverage.coverage, hop }, "route-follow hop merged");
+      // Next hop chains ONLY from content read by THIS hop (bounded
+      // breadth per hop; seen/read sets already block revisits).
+      harvestFrom = routePackets;
     }
   }
 
