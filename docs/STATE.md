@@ -3240,3 +3240,44 @@ Loaded: superpowers:test-driven-development (Iron Law active WS10–WS20). No Ti
 2. WS10 TDD (fixture first, controls: every topPassages sourceId has its packet in the returned registry; initial-wave packets byte-stable; no duplicate sourceIds; journal/bridge round-trip keeps WS05 contract): ONE admitted packet registry — merge initial + gap + route-follow + demand wave packets into the returned bundle.packets (registry = the same packets topPassages derive from); verify BOTH serializers emit hop packets; full suite + tsc + cargo, commit+push+STATE 05k.
 3. Then WS11 (full extracted documents + section retrieval — tools.ts:402 cutPassageWindow / pipeline.ts:303 selectExcerpt; audit: generic footer displaces requested model name; two distant facts retain only last window; long catalog loses required late row after 30 generic matches) per brief order.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05k — WS10 LOCKED (one admitted packet registry for all waves)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-item web-search repair (brief item N = audit WS0N), baseline 60fe172, develop branch. WS01–WS10 LOCKED. Just locked WS10 (commit 1119df6 pushed): runWebResearch now assembles ONE admitted packet registry at bundle return — every wave's packets (initial, gap hop, route-follow hops, deep demand wave) in sourceId mint order; every emitted topPassages sourceId has its packet/URL/extraction status/metadata in bundle.packets. Active phase now = PHASE A CODE; next WS11 (full extracted documents + section retrieval).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 61951d0; WS02 853c7d7+06cba20; WS03 c61bda8; WS04+WS13 8f24d83; WS05 6a35fea; WS06 8187bc3; WS07 28e1beb; WS08 78c0e28; WS09 4f47e61 — see prior snapshots.
+- WS10 (1119df6, this cycle): `lib/web-search/pipeline.ts` ONLY. (a) `demandWavePackets` hoisted to function scope (was demand-block-local `wavePackets`; all refs renamed, log KEY stays "wavePackets"). (b) Registry assembled just before bundle return: `admittedRegistry` = dedupe-by-sourceId over [...packets, ...secondHopPackets, ...demandWavePackets] (mint order; dedupe defensive — renumberPackets always continues past global max so IDs are unique); INFO log "admitted packet registry merged recovery-wave packets" when merged>initial. (c) `packets` var REMAINS the initial-wave pool internally: derivePresentation + deriveRichResults inputs byte-unchanged (P5 golden ⇔ presentation.rs protection); mid-wave sufficiency seed unchanged. (d) EvidenceBundle.packets docstring rewritten ("THE admitted packet registry…").
+- WS10 consumers verified ZERO-edit: every TS consumer already enumerates bundle.packets — chat/route.ts citation map (~:655) + maxSid (~:641), internal/web-research/route.ts citations frame (~:170) + maxSid + prior re-alias, search/route.ts:48 + search-more:80 webCitations, pipeline evidenceBlock bySource packet lookup (~:363), research-journal.ts journalTurnFromBundle (~:138), web-tool-loop.ts (~:432) seed continues pipeline S# numbering (pre-fix tool-minted S# could COLLIDE with a cited-but-unregistered hop S# — now impossible). Rust relays bridge `citations` as OPAQUE serde Value (crates/ruke-server/src/chat/pipeline.rs:448 + web_loop.rs:672); next_search.rs has no packets/sources refs → NO Rust change; "use in Rust bridge" satisfied by same citations field.
+- Golden evolution DELIBERATE (wire-fixture law: prior bytes encoded the defect): `rust-backend/fixtures/web-search/05-image-attachment-intent-gate-progress.json` re-recorded; char-level proof only [S6]/[S8] evidence headers gained "(published …)" and web_meta webCitations gained S6–S8 full entries (logicalFrames + bodyMsNormalized); semantics note extended in web.test.ts + fixture _meta. Rust golden replay does NOT consume fixtures/web-search/* (only chat/errors/attachments/decision/sse/contracts) → evolution is TS-corpus-only.
+- Test `__tests__/web-search/admitted-packet-registry.test.ts` (5 tests; RED watched 4 failed/1 green control: route-hop repro gap [S2], gap-hop [S2], demand [S2,S3,S4], journal [S2]; then GREEN 5/5). Invariants: registryGaps(b)==[] (every emitted sourceId registered), noDuplicateSourceIds, initial-wave byte-stability control exact S1/S2 bytes, journal WS05 provenance carries hop source + excerpt. Fixture correction (documented, NOT assertion weakening): route-follow hop title = link ANCHOR ("foundation models catalog"), pipeline route row built `title: link.anchor` (~:1313) — citation pill gets the text the reader followed.
+
+## [8.3 DEPENDENCY MAP (WS10)]
+- admittedRegistry ⇐ bundle.packets ⇐ all consumers listed in 8.2 (none changed). secondHopPackets += gap + per-hop route packets (unchanged mint sites); demandWavePackets now function-scoped.
+- WS12 (multilingual serpCoversQuery/focusTokens) touches engines.ts + route-links.ts — registry ordering immune; hop-anchor-title contract pinned by admitted-packet-registry.test.ts.
+- WS14/WS15 touch tools.ts/net.ts fetch paths — evidenceBlock lookup now resolves ALL S# (publishedAt suffix appears for registered packets — golden 05 proves).
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- EvidenceBundle.packets contract (exact): every packet admitted by every wave, sourceId mint order (initial → secondHop gap/route → demand), unique IDs; every topPassages sourceId ∈ registry. Presentation/rich-results inputs = initial-wave pool ONLY (byte-protected).
+- Registry dedupe: first occurrence wins; sourceIds globally unique via renumberPackets/nextSourceIndex (`/^S(\d+)$/` max+1).
+- run_turn_pipeline 15 args; journal manifest pin; SERVER_CHECK_LINE; matrix version 1 — as 05g–05j.
+- Golden fixture 05 new bytes ARE the contract: S6–S8 webCitations entries (S6 publishedAt 2026-02-11T09:00:00Z, S7 none, S8 2024-12-30T00:00:00Z) + [S6]/[S8] "(published …)" headers.
+
+## [8.5 VERIFICATION STATE]
+- vitest FULL: 118 files, 1502 passed | 1 skipped (baseline 117/1497+1; +1 file/+5 tests). tsc --noEmit exit 0 (fixed 4 TS annotations in new test file: Set<string> generic + hopMeta cast — type-only, rerun green). cargo test -p ruke-server --lib: 146/146. web.test.ts 7/7 after fixture re-record. git: develop pushed @ 1119df6. No Playwright lock; no dev servers owned; pw-80 reserved for the single final loop after WS20.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- None red. Inherited watch items unchanged: flake 12:38:52 unreproduced; CRLF contracts:check pre-existing; rust-analyzer batch-lag (cargo authoritative); tsconfig.tsbuildinfo modified in worktree — NEVER stage; ghidra MCP ECONNREFUSED (diagnostic only).
+- WS10 documented limits: duplicate-URL packets (same URL re-minted by a later wave, e.g. golden S1/S6) coexist as separate registry entries BY DESIGN (rerank always treated them as distinct evidence entries; citation map keyed by sourceId).
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS11–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS11 recon (fresh reads, line-shifted): `lib/web-search/tools.ts` cutPassageWindow (~:402) + `lib/web-search/pipeline.ts` selectExcerpt (~:303) + extractor passage minting — audit WS11: "A generic matching footer displaces an actual model name earlier in the document. Two distant requested facts retain only the last window. A long catalog loses the required late row after 30 earlier rows match generic terms." Read full current bytes of both functions + their callers BEFORE writing fixtures.
+2. WS11 TDD (fixture first; UNIVERSAL windowing/section law only — no brand tables, no footer word lists): full extracted documents retained (not one-window truncation); section retrieval keeps DISTINCT requested facts (multiple distant windows, not last-only); long-catalog late-row preservation vs 30 generic early matches; controls: short docs byte-stable, existing excerpt tests green. Full suite + tsc + cargo, commit+push+STATE 05l.
+3. Then WS12 per brief order (multilingual relevance + provider recovery — engines.ts:1689 serpCoversQuery strips non-ASCII; route-links.ts focusTokens).
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
