@@ -100,6 +100,11 @@ function docOf(html: string): any {
 const TRACKING_PARAMS = [
   "utm_source", "utm_medium", "utm_campaign", "utm_term",
   "fbclid", "gclid", "ref",
+  // WS13 (audit 2026-11-05): Google Search's per-session id — same page,
+  // different value on every click. The audit fixture pins the collapse AND
+  // the control (variant= params stay distinct). No Rust twin of this list
+  // exists (grep rust-backend for fbclid/gclid: zero matches), TS-owned.
+  "srsltid",
 ];
 
 /**

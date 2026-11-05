@@ -261,7 +261,7 @@ export function extractPromptUrls(prompt: string): string[] {
 // no-brand-tables law bans site names acting as answer targets, not frame
 // words. Provider names only ever pair with a search VERB.
 const SEARCH_FRAME_RE =
-  /(?:\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\bsearch(?:es|ing|ed)?\s+for\b|\b(?:web|google|internet|bing)\s+search(?:es|ing)?\b|\b(?:google|bing)\s+(?:it|that|this)\b|\bsearch(?:es|ing|ed)?\s+(?:in|on|through|using)\s+(?:google|bing|duckduckgo|brave|yandex|the\s+web|the\s+internet|a\s+search\s+engine|search\s+engine)\b|\bthrough\s+(?:a\s+|the\s+)?search\b|\b(?:do|does|perform|conduct|run|execute)\s+(?:a\s+|the\s+|some\s+)?search(?:es)?\b|\blook\s?up\b|\blook\s*online\b|\bcheck\s+(?:the\s+|for\s+)?(?:web|online|internet)\b|\bbrowse\s+(?:the\s+)?(?:web|internet|online)\b)/i;
+  /(?:\bsearch(?:es|ing|ed)?\s+(?:the\s+)?(?:web|internet|online)\b|\bsearch(?:es|ing|ed)?\s+for\b|\b(?:web|google|internet|bing)\s+search(?:es|ing)?\b|\b(?:google|bing)\s+(?:it|that|this)\b|\bsearch(?:es|ing|ed)?\s+(?:in|on|through|using)\s+(?:google|bing|duckduckgo|brave|yandex|the\s+web|the\s+internet|a\s+search\s+engine|search\s+engine)\b|\bthrough\s+(?:a\s+|the\s+)?search\b|\b(?:do|does|perform|conduct|run|execute)\s+(?:a\s+|the\s+|some\s+)?search(?:es)?\b|\bsearch(?:es|ing|ed)?\s+again\b|\blook\s?up\b|\blook\s*online\b|\bcheck\s+(?:the\s+|for\s+)?(?:web|online|internet)\b|\bbrowse\s+(?:the\s+)?(?:web|internet|online)\b)/i;
 
 /**
  * Navigation frames — the user points at a live-web object to open or
@@ -569,19 +569,78 @@ function subjectAnchor(ctx: SearchGateContext): string {
  *  results return null (§4: reject before dispatch — the OLD fallback
  *  pushed the WHOLE prompt as a query, turning operational instructions
  *  into engine traffic). */
+/* WS04 (audit 2026-11-05): subjectless follow-ups were searching their own
+ * instruction words ("take your time through search models because did" —
+ * the audit's exact dispatched query) because the anchor was borrowed only
+ * at ≤1 retained token. Separation law: task words (search/verify/again/
+ * connectives) NEVER carry the answer; entities do. A follow-up borrows
+ * the subject ONLY when it carries no entity of its own and shows an
+ * anaphoric marker — conversation text is never copied indiscriminately.
+ * Entity signal per raw token: any capital at a non-sentence-initial
+ * position, a capital mid-word (CamelCase identifiers), any number inside
+ * an alphanumeric identifier (Q900, Boreal-X17), or a non-Latin script.
+ * The sentence-INITIAL capital is ambiguous (common verbs are capitalized
+ * mid-instruction only as proper nouns — HEAD_OPS absorbs "Search…",
+ * "Take…"), so it counts as an entity only when the word is not a known
+ * task verb. */
+const ANAPHORIC_RE =
+  /\b(?:it|its|this|that|these|those|there|they|them|their|again|same|more|else)\b/i;
+const HEAD_OPS = new Set([
+  "take", "search", "find", "verify", "check", "confirm", "google", "browse",
+  "look", "read", "open", "give", "tell", "show", "compare", "summarize",
+  "explain", "list", "get", "fetch", "please",
+]);
+// Applied ONLY inside the anchor-borrow branch: the current turn has no
+// entity, so its surviving words are task/connective noise unless they
+// also name the relation being asked about ("models", "prices" ride on).
+const KEYWORD_TASK_WORDS = new Set([
+  "search", "searches", "searched", "searching", "googl", "google", "googling",
+  "bing", "browse", "browsing", "verify", "verified", "verifying", "check",
+  "checked", "checking", "confirm", "confirmed", "again", "through", "take",
+  "took", "time", "times", "because", "did", "does", "done", "mention",
+  "mentioned", "mentions", "detail", "details", "used", "using", "being",
+  "gave", "want", "wanna", "gotta",
+]);
+
 function gateKeywordQuery(
   instr: string,
   ctx: SearchGateContext,
   detected: DetectedUrl[],
 ): string | null {
   const text = instr.replace(/https?:\/\/[^\s"'<>[\]]+/gi, " ");
-  const tokens = gateTokenize(text).filter(
-    (w) => w.length > 2 && !GATE_FILLER.has(w) && !GATE_TEMPORAL_STOPS.has(w),
-  );
-  let keywords = tokens.slice(0, 8).join(" ");
-  if (tokens.length <= 1 && detected.length === 0) {
+  // Keep the raw form parallel to the normalized form — the entity signal
+  // lives in the raw casing/script, the engine words in the normalized one.
+  const raw = text.normalize("NFC").match(GATE_TOKEN_RE) ?? [];
+  const norm = raw.map((t) => t.toLowerCase().replace(/^['’_-]+|['’_-]+$/g, ""));
+  const kept: number[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const w = norm[i];
+    if (w.length > 2 && !GATE_FILLER.has(w) && !GATE_TEMPORAL_STOPS.has(w)) kept.push(i);
+  }
+  const joinIdx = (idx: number[]) => idx.map((i) => norm[i]).slice(0, 8).join(" ");
+  let keywords = joinIdx(kept);
+  const hasNewEntity = kept.some((i) => {
+    const t = raw[i];
+    if (i === 0) return /[A-Z]/.test(t) && !HEAD_OPS.has(norm[i]);
+    // Numbers count as entity signals only INSIDE an alphanumeric identifier
+    // (Q900, Boreal-X17) — a bare year ("2020") is temporal noise, not a subject.
+    return (
+      /[A-Z]/.test(t) ||
+      (/\p{N}/u.test(t) && /\p{L}/u.test(t)) ||
+      /[^\p{Script=Latin}\p{N}\p{M}'’_\-]/u.test(t)
+    );
+  });
+  if (
+    detected.length === 0 &&
+    (kept.length <= 1 || (ANAPHORIC_RE.test(instr) && !hasNewEntity))
+  ) {
     const anchor = subjectAnchor(ctx);
-    if (anchor) keywords = `${anchor} ${keywords}`.trim();
+    if (anchor) {
+      // Borrowed-subject branch: the follow-up's own task/connective noise
+      // is dropped; only answer-bearing relation words ride alongside the
+      // borrowed subject.
+      keywords = `${anchor} ${joinIdx(kept.filter((i) => !KEYWORD_TASK_WORDS.has(norm[i])))}`.trim();
+    }
   }
   return keywords.length > 3 ? keywords.slice(0, 300) : null;
 }
