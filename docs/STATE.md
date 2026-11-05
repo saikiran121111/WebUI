@@ -3758,3 +3758,43 @@ superpowers:systematic-debugging discipline in force (root cause before fix — 
 1. MHR-F/WS26 RED first: citation-integrity vs semantic-support separation — evolve the destructive R1–R3 audit in answer-release.ts + Rust answer_release.rs + BOTH loops so integrity gaps feed back to the MODEL (never silent citation removal, never rewrites of correct local answers); retire the deliberate R1–R3 half-state; extend matrix.json cases for the new diagnosis→feedback law.
 2. GREEN MHR-F + full battery (vitest all, golden replay re-record ONLY on intentional frames, tsc, cargo full incl. matrix parity, contracts:check if wire moves) + commit+push develop + STATE 05x.
 3. Then MHR-G (WS27 three-level proof: harness structured-decision tests + configured-model semantic evals w/ held-out paraphrases & unknown entities — mocked model proves nothing + current identifiable build e2e) → ONE final locked pw-80 loop → §4 report → AUTO-SHUTDOWN shutdown //s //f //t 60, never ask.
+
+# SESSION SNAPSHOT 2026-11-06x — MHR-F LOCKED (commit eb23ead; integrity vs semantics separation)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+MHR-A…G (WS21–WS27) program after the locked 20-item audit. Law: the MAIN MODEL interprets requests and chooses tools; the HARNESS supplies resources, executes valid actions, preserves evidence, reports actual outcomes — NO semantic patches (word lists/thresholds/refusal paragraphs). MHR-A/B/C locked (6321251), MHR-D locked (3d55ab2), MHR-E locked (0b55fff). MHR-F (WS26 citation-integrity vs semantic-support separation) LOCKED + pushed (eb23ead, rebased over the user's own plan-doc commit 1e1fe14 "retire built-in 3D and CAD and defer Blender to MCP" — noted, not acted on). Active phase now: MHR-G (WS27 three-level proof).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- eb23ead (pushed) MHR-F, BOTH languages (answer-release.ts ⇔ answer_release.rs), matrix v3 vendored byte-exactly:
+  - RELEASE AUDIT = CITATION INTEGRITY ONLY. A [S#] marker resolving to NO server-minted source = broken reference → bytes stripped + residue cleanup (double-space, punct-space) ONLY. Sentence words otherwise released UNTOUCHED. A resolvable marker is NEVER removed/moved/altered even beside a fabricated one (anti-silent-removal law). auditSentence/audit_sentence: early-return when no markers OR all resolve; else keep-valid/drop-invalid replace + cleanup.
+  - RETIRED from release: R2 volatile qualification + qualify() (TS and Rust: qualify, marker_ids_present, RE_TRAILING_PUNCT deleted). The VOLATILE detectors live in diagnoseResearchAnswer/diagnose_research_answer ONLY. RE_UNVERIFIED kept — diagnosis half only (already-"unverified" wording not re-reported).
+  - KEPT at release: R3 SERVER_CHECK_LINE — attestation from the turn's action ledger, not a claim rewrite. Diagnosis shape UNCHANGED → all mhrD byte-pins untouched.
+  - matrix.json v3: `cases` expectations now integrity-only (no "(unverified)" outputs); NEW mhrF section — _law paragraph + 5 releaseCases (audit===expected + idempotency) + 3 separationCases (audit===expectedRelease AND diagnose===expectedDiagnosis AND buildAnswerFeedback===feedback; incl. the documented-limitation pin: re-stated user budget STILL diagnoses unsupported although it releases byte-intact).
+  - Rust NEW inline tests (+4): the_mhrf_matrix_section_is_present, every_mhrf_release_case_releases_integrity_only, every_mhrf_separation_case_releases_integrity_and_reports_semantics, mhrf_never_removes_a_minted_citation — all green on FIRST run against matrix v3 (cross-language lock held).
+  - TS tests: answer-release.test.ts now 44 (two new mhrF describes + anti-silent-removal 4-pair test); web-tool-loop-release/feedback pins evolved to new release bytes ("Boreal costs $99 per seat.", "It costs $50."; ordering pin now `indexOf("per seat.")` before finish_reason; held-round not.toContain("(unverified)") kept as law pin).
+- VERIFIED COUNTS at eb23ead: vitest 130 files 1624 passed |1 skipped (was 1614; +10 answer-release growth); tsc TSC_EXIT=0; cargo ruke-server lib 152 (was 148, +4 mhrF) + ALL integration targets green (6/1/19/2/6/0) — golden_replay 19 STABLE, zero fixture drift (fixtures' "unverified" bytes are WEB_TOOL_GUIDANCE text, not release rewrites); no contracts change (no wire move).
+
+## [8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
+- Unchanged call sites: lib/chat/web-tool-loop.ts releaseRound + diagnose branch ⇔ rust web_loop.rs release_round + diagnose branch (signatures UNCHANGED — auditResearchAnswer(text, ids, retrieved) / diagnoseResearchAnswer).
+- matrix.json v3 consumers: __tests__/chat/answer-release.test.ts (readFileSync) ⇔ answer_release.rs include_str! — cases + mhrD.diagnoseCases + mhrF.releaseCases + mhrF.separationCases.
+- MHR-G touchpoints: whole harness (harness-level structured-decision suites exist: answer-release, mhrD/mhrE loop suites, web.test.ts pins) + NEW configured-model semantic evals (real model, held-out paraphrases + unknown entities — mocked model proves nothing) + e2e on the CURRENT identifiable build.
+
+## [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
+- Release law (both languages): auditResearchAnswer = strip-invalid-markers + residue cleanup + R3 check line; NOTHING else. Diagnosis/feedback contract byte-locked as in MHR-D (FEEDBACK_HEADER/FOOTER unchanged).
+- Documented limitation (NEW, pinned as separationCase 3 + matrix mhrF _law): the diagnosis cannot see the human's own turn ⇒ a re-stated user constraint is still REPORTED (one self-healing feedback round) although it releases byte-intact.
+- MHR-E contracts (§8.4 of 06w) unchanged and still in force.
+- Env/test facts persist: STATE tracked UPPERCASE docs/STATE.md; cargo from rust-backend/ (or --manifest-path, but NEVER cd inside a batched parallel call — shared cwd race bit once); NEVER stage tsconfig.tsbuildinfo (stash-path it before pull --rebase); golden drift ⇒ DELETE+re-record; vitest no top-level await; vitest from repo root.
+
+## [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
+No Playwright lock; no dev servers this session. Final pw-80 loop still pending after MHR-G (acceptance list + five user sentences; verify running-app build identity FIRST; launcher scripts/run-browser-e2e-exclusive.ps1 -TestFiles <spec>; NO npm run test:e2e).
+
+## [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
+None active. Carried for final §4: WS19 no deterministic location/version currentness proxy; web-tools-rpc deferred-cancellation oddity (pre-dispatch only); NEW: diagnosis-cannot-see-human-turn limitation (self-heals via one feedback round); MHR end-state is "not universal correctness/ChatGPT parity". CLOSED by MHR-F: destructive R2 half-state, re-stated-budget corruption of RELEASED text (release side; diagnosis side documented above).
+
+## [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
+superpowers:systematic-debugging discipline in force. No Tier-2 loads. Do not re-invoke.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. MHR-G (WS27) level 1+2 design & build: (a) harness structured-decision proof already exists — enumerate/point the suites; (b) NEW configured-model semantic evals: script or suite driving the REAL configured model (settings llmApiUrl) with held-out paraphrases of the five user sentences + unknown entities; deterministic pass criteria on tool-use/evidence/outcome, NOT canned text; mocked-model suites must not count as this proof.
+2. GREEN MHR-G evals (fix harness gaps they expose, never prompt-patch with vocab lists) + commit+push + STATE 05y if work spans.
+3. ONE final locked pw-80 Playwright fix-rerun loop (lock protocol, foreground, build identity first; acceptance list + five user sentences) → ANALYZE → §4 completion report (changes; actual command+counts+exit; failures incl. carried limitations) → AUTO-SHUTDOWN `shutdown //s //f //t 60` WITHOUT asking.
