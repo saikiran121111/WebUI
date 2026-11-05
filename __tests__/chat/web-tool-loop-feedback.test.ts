@@ -17,7 +17,7 @@
  *    (roundsUsed / web:tools census only count tool rounds);
  *  - the single-[DONE] grammar survives the extra round;
  *  - when the round budget can't spare an iteration, no feedback is faked —
- *    the answer releases through the (still destructive) WS06 audit.
+ *    the answer releases through the WS06 audit (MHR-F: integrity only).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -194,8 +194,9 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     expect(h.calls).toBe(2);
     const inSecond = feedbackMessages(h.fetchBodies[1]);
     expect(inSecond).toHaveLength(1); // the one and only feedback
-    // The repeated bad answer now goes out through the destructive audit…
-    expect(h.rawText).toContain("Boreal costs $99 per seat (unverified).");
+    // The repeated bad answer now goes out through the integrity audit —
+    // MHR-F: the [S9] bytes are stripped, the words are never qualified…
+    expect(h.rawText).toContain("Boreal costs $99 per seat.");
     expect(h.rawText).not.toContain("[S9]");
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
@@ -264,7 +265,8 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     expect(h.calls).toBe(2);
     expect(h.fetchBodies).toHaveLength(2);
     for (const b of h.fetchBodies) expect(feedbackMessages(b)).toHaveLength(0);
-    expect(h.rawText).toContain("Boreal costs $99 per seat (unverified).");
+    // MHR-F: integrity audit only — marker stripped, words untouched.
+    expect(h.rawText).toContain("Boreal costs $99 per seat.");
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);

@@ -15,11 +15,11 @@
  *    progress-path turn (no gate prefetch); the legacy stream:false path is
  *    a plain forward that never enters here.
  *
- * MHR-D (2026-11-05) half-state note: a diagnosed-bad answer now gets ONE
- * harness-feedback round first; these WS06 pins observe the RELEASE pass —
- * the replayed second answer (feedback already used) exits through the
- * destructive audit. Fresh response per upstream call is therefore required
- * (SSE readers are one-shot).
+ * MHR-D (2026-11-05) note: a diagnosed-bad answer gets ONE harness-feedback
+ * round first; these WS06 pins observe the RELEASE pass — the replayed
+ * second answer (feedback already used) exits through the MHR-F integrity
+ * audit (markers stripped, semantics never rewritten). Fresh response per
+ * upstream call is therefore required (SSE readers are one-shot).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -149,15 +149,17 @@ beforeEach(() => {
 describe("grounded answer release in the web tool loop (WS06)", () => {
   it("normal completion: content is buffered, repaired, and released before terminal frames", async () => {
     // MHR-D: the first pass is diagnosed bad → held back + one feedback
-    // round; the replayed second pass (feedback used) releases repaired.
+    // round; the replayed second pass (feedback used) releases through the
+    // MHR-F integrity audit — the [S9] bytes stripped, the words untouched.
     const h = await drive([answerRound("Boreal costs $99 [S9] per seat."), answerRound("Boreal costs $99 [S9] per seat.")], S1);
     expect(h.calls).toBe(2);
-    // Repaired text reaches the client…
-    expect(h.rawText).toContain("Boreal costs $99 per seat (unverified).");
+    // Integrity-repaired text reaches the client…
+    expect(h.rawText).toContain("Boreal costs $99 per seat.");
     // …and the dangling alias never does.
     expect(h.rawText).not.toContain("[S9]");
     // Buffering law: released content precedes the round's terminal frames.
-    expect(h.rawText.indexOf("(unverified)")).toBeLessThan(h.rawText.indexOf('"finish_reason":"stop"'));
+    expect(h.rawText.indexOf("per seat.")).toBeGreaterThanOrEqual(0);
+    expect(h.rawText.indexOf("per seat.")).toBeLessThan(h.rawText.indexOf('"finish_reason":"stop"'));
     expect(countDone(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
   });
@@ -198,8 +200,9 @@ describe("grounded answer release in the web tool loop (WS06)", () => {
     const h = await drive([round, round], S1);
     // The thinking frame passes through unbuffered, before the gated release.
     expect(h.rawText.indexOf("weighing sources")).toBeLessThan(h.rawText.indexOf("$50"));
-    // The content itself is still repaired.
-    expect(h.rawText).toContain("It costs $50 (unverified).");
+    // The content itself is released (MHR-F integrity: no markers → the
+    // audit owns nothing on this sentence; no qualifier is ever added).
+    expect(h.rawText).toContain("It costs $50.");
     expect(countDone(h.rawText)).toBe(1);
   });
 });

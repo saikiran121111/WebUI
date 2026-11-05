@@ -13,28 +13,36 @@
  * progress-path chat turn (no gate prefetch; the model directs the tools);
  * the legacy stream:false path is a plain forward and never runs here.
  *
- * Enforcement is deterministic — never a vibes-model call:
- *  R1 misattributed citation: every [S#] marker must resolve to a citation
- *    the SERVER actually minted (pipeline bundle or tool-minted seeds). An
- *    unresolvable marker is STRIPPED; if the sentence is then left without
- *    any valid source, it is qualified "(unverified)".
- *  R2 volatile-claim support: a sentence carrying a digit-shaped volatile
- *    fact (currency/percent/rating/temperature/date/coordinate/price- or
- *    weather-word + digit) with NO valid [S#] citation is qualified. This
- *    mirrors the guidance law "give a value only when it appears in
- *    retrieved evidence" — the server, not the model, polices it.
- *  R3 action check: research-claiming wording ("according to my searches…")
- *    on a turn where NOTHING was retrieved (empty citation map and no
- *    successful action in the ledger) gets a prepended server-attested
- *    check line. This reads the LEDGER (server record of tool outcomes),
- *    not the model's prose, to decide whether retrieval happened.
+ * Enforcement is deterministic — never a vibes-model call. MHR-F (WS26,
+ * 2026-11-06) split the checks by OWNER:
+ *  R1 CITATION INTEGRITY (the harness's, enforced at release): every [S#]
+ *    marker must resolve to a citation the SERVER actually minted (pipeline
+ *    bundle or tool-minted seeds). The [S#] grammar is a server mint, so an
+ *    unresolvable marker is a broken REFERENCE — its bytes are stripped
+ *    (whitespace/punctuation residue cleanup only). The sentence's words
+ *    are otherwise released UNTOUCHED: the harness never qualifies a claim
+ *    "(unverified)", and a minted citation is NEVER removed, moved or
+ *    altered — even when an adjacent marker in the same sentence is fake.
+ *  R2 SEMANTIC SUPPORT (the model's, diagnosis-only since MHR-F): the
+ *    volatile-claim detectors (currency/percent/rating/temperature/date/
+ *    coordinate/price- or weather-word + digit, no resolving [S#]) live in
+ *    diagnoseResearchAnswer ONLY — reported to the model once through the
+ *    byte-locked harness feedback, never rewritten on release. Correct
+ *    local answers (re-stated user constraints, conversational numbers)
+ *    release byte-intact.
+ *  R3 action check (kept at release): research-claiming wording
+ *    ("according to my searches…") on a turn where NOTHING was retrieved
+ *    (empty citation map and no successful action in the ledger) gets a
+ *    prepended server-attested check line. This is a fact about the
+ *    HARNESS's own behavior read from the LEDGER (server record of tool
+ *    outcomes), not a rewrite of the model's claims.
  *
  * Protections: fenced code blocks and inline code spans are byte-protected
- * (research answers legitimately carry code/config: auditing digits inside
- * them would corrupt user-facing artifacts). Code fences' [S#] text is
- * literal code content, not a citation contract. Already-qualified wording
- * is never double-qualified (idempotency law: released text is persisted,
- * replayed, and audited again on follow-up turns).
+ * (research answers legitimately carry code/config: stripping [S#]-shaped
+ * bytes inside them would corrupt user-facing artifacts). Code fences'
+ * [S#] text is literal code content, not a citation contract. Idempotency
+ * law: the integrity layer only removes bytes, so released text is safe to
+ * persist, replay, and audit again on follow-up turns.
  *
  * MHR-D (brief 2026-11-05) adds the NON-DESTRUCTIVE half:
  * diagnoseResearchAnswer runs the SAME detectors but only REPORTS the
@@ -45,9 +53,10 @@
  * feedback message (buildAnswerFeedback — pinned by the matrix's mhrD
  * section) enters the EXISTING tool loop; the MODEL then decides the next
  * action: retrieve, re-attach citations, or state the gap. The harness
- * never rewrites semantics with thresholds or phrase patches. The
- * destructive R1–R3 repair still runs on every release until MHR-F evolves
- * it (deliberate half-state).
+ * never rewrites semantics with thresholds or phrase patches. MHR-F
+ * (WS26, 2026-11-06) CLOSED that half-state: the release audit enforces
+ * CITATION INTEGRITY only, and semantic support rides the diagnosis→
+ * feedback channel alone (mhrF matrix section pins the separation).
  *
  * ⇔ Rust `crates/ruke-server/src/chat/answer_release.rs` (wired into
  * chat/web_loop.rs). Both sides read the ONE vendored truth matrix
@@ -165,39 +174,23 @@ function auditSentences(prose: string, ids: Set<string>): string {
   return lines.join("");
 }
 
+/** MHR-F (WS26): INTEGRITY ONLY. A marker that resolves to a minted source
+ * is left byte-intact (never removed, however the sentence reads); a marker
+ * that resolves to NOTHING is a broken reference and its bytes are
+ * stripped. Nothing else on the sentence changes — semantic support is the
+ * model's job via the diagnosis→feedback channel, and volatile-claim
+ * qualification is exactly the semantic patching the harness may not do. */
 function auditSentence(sentence: string, ids: Set<string>): string {
   if (!sentence || !/[^\s]/.test(sentence)) return sentence;
   const markerIds = [...sentence.matchAll(RE_MARKER)].map((m) => "S" + m[1]);
-  if (markerIds.length === 0 && !/\d/.test(sentence)) return sentence;
+  if (markerIds.length === 0) return sentence; // no references — nothing the integrity layer owns
 
-  // R1: unresolvable [S#] markers never survive release.
-  let out = sentence;
-  const invalid = markerIds.filter((id) => !ids.has(id)).length > 0;
-  if (invalid) {
-    out = out.replace(RE_MARKER, (whole, digits) => (ids.has("S" + digits) ? whole : ""));
-    // Residue cleanup only where a marker was removed.
-    out = out.replace(/ {2,}/g, " ").replace(/ ([.,;:!?])/g, "$1");
-  }
-  const stillValid = [...out.matchAll(RE_MARKER)].some((m) => ids.has("S" + m[1]));
-  if (stillValid) return out; // the sentence's source resolved — release as-is
-
-  const misattributed = invalid; // cited, but no cited source is real
-  const volatile = /\d/.test(out) && VOLATILE.some((re) => re.test(out));
-  if ((misattributed || volatile) && !/unverified/i.test(out)) {
-    out = qualify(out);
-  }
+  const invalid = markerIds.some((id) => !ids.has(id));
+  if (!invalid) return sentence; // every reference resolves — release verbatim
+  let out = sentence.replace(RE_MARKER, (whole, digits) => (ids.has("S" + digits) ? whole : ""));
+  // Residue cleanup only where a marker was removed.
+  out = out.replace(/ {2,}/g, " ").replace(/ ([.,;:!?])/g, "$1");
   return out;
-}
-
-/** Insert the qualifier before the sentence's terminal punctuation. */
-function qualify(sentence: string): string {
-  const tw = /\s*$/.exec(sentence)![0];
-  const body = sentence.slice(0, sentence.length - tw.length);
-  const punct = /(?:[.!?]+)$/.exec(body);
-  if (punct) {
-    return body.slice(0, punct.index) + " (unverified)" + body.slice(punct.index) + tw;
-  }
-  return body + " (unverified)" + tw;
 }
 
 /* ══ MHR-D: non-destructive diagnosis (same detectors, report-only) ════

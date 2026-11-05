@@ -12,21 +12,30 @@
 //! turn (no gate prefetch; the model directs the tools); the legacy
 //! stream:false plain forward never runs here.
 //!
-//! Enforcement is deterministic — never a vibes-model call:
-//!  R1 misattributed citation: every [S#] marker must resolve to a citation
-//!    the SERVER minted (pipeline bundle or tool-minted seeds). An
-//!    unresolvable marker is STRIPPED; if the sentence is then left without
-//!    any valid source, it is qualified "(unverified)".
-//!  R2 volatile-claim support: a sentence carrying a digit-shaped volatile
-//!    fact (currency/percent/rating/temperature/date/coordinate/price- or
-//!    weather-word + digit) with NO valid [S#] citation is qualified.
-//!  R3 action check: research-claiming wording on a turn where NOTHING was
-//!    retrieved (empty citation map, no successful ledger action) gets a
-//!    prepended server-attested check line. The LEDGER decides, never prose.
+//! Enforcement is deterministic — never a vibes-model call. MHR-F (WS26,
+//! 2026-11-06) split the checks by OWNER:
+//!  R1 CITATION INTEGRITY (the harness's, enforced at release): every [S#]
+//!    marker must resolve to a citation the SERVER minted (pipeline bundle
+//!    or tool-minted seeds). The [S#] grammar is a server mint, so an
+//!    unresolvable marker is a broken REFERENCE — its bytes are stripped
+//!    (whitespace/punctuation residue cleanup only). The sentence's words
+//!    are otherwise released UNTOUCHED: the harness never qualifies a claim
+//!    "(unverified)", and a minted citation is NEVER removed, moved or
+//!    altered — even when an adjacent marker in the same sentence is fake.
+//!  R2 SEMANTIC SUPPORT (the model's, diagnosis-only since MHR-F): the
+//!    volatile-claim detectors (currency/percent/rating/temperature/date/
+//!    coordinate/price- or weather-word + digit, no resolving [S#]) live in
+//!    diagnose_research_answer ONLY — reported to the model once through
+//!    the byte-locked harness feedback, never rewritten on release.
+//!  R3 action check (kept at release): research-claiming wording on a turn
+//!    where NOTHING was retrieved (empty citation map, no successful ledger
+//!    action) gets a prepended server-attested check line. The LEDGER
+//!    decides, never prose — an attestation about the harness, not a
+//!    rewrite of the model's claims.
 //!
 //! Protections: fenced code blocks and inline code spans are byte-protected;
-//! already-qualified wording is never double-qualified (idempotency law:
-//! released text is persisted, replayed, and audited again on follow-ups).
+//! idempotency law: the integrity layer only REMOVES bytes, so released
+//! text is safe to persist, replay, and audit again on follow-up turns.
 //!
 //! MHR-D (brief 2026-11-05) adds the NON-DESTRUCTIVE half:
 //! [`diagnose_research_answer`] runs the SAME detectors but only REPORTS
@@ -35,9 +44,11 @@
 //! diagnosed-bad answer back and injects ONE byte-locked feedback message
 //! ([`build_answer_feedback`] — pinned by the matrix's mhrD section) into
 //! the EXISTING tool loop; the MODEL then decides the next action. The
-//! harness never rewrites semantics with thresholds or phrase patches. The
-//! destructive R1–R3 repair still runs on every release until MHR-F
-//! evolves it (deliberate half-state).
+//! harness never rewrites semantics with thresholds or phrase patches.
+//! MHR-F (WS26, 2026-11-06) CLOSED that half-state: the release audit
+//! enforces CITATION INTEGRITY only, and semantic support rides the
+//! diagnosis→feedback channel alone (the mhrF matrix section pins the
+//! separation).
 //!
 //! Cross-language byte-lock: BOTH this module and the TS side read the ONE
 //! vendored truth matrix `rust-backend/fixtures/answer-release/matrix.json`
@@ -104,8 +115,10 @@ static RE_RESEARCH_WORDING: LazyLock<Regex> = LazyLock::new(|| {
 static RE_MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[S(\d+)\]").unwrap());
 static RE_DOUBLE_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" {2,}").unwrap());
 static RE_PUNCT_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ([.,;:!?])").unwrap());
+/// Kept for the DIAGNOSIS half only (MHR-F): sentences that already carry
+/// "unverified" wording are not re-reported as unsupported. The release
+/// path no longer produces or inspects qualifiers at all.
 static RE_UNVERIFIED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)unverified").unwrap());
-static RE_TRAILING_PUNCT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?]+\z").unwrap());
 
 fn marker_ids(s: &str) -> Vec<String> {
     RE_MARKER
@@ -226,69 +239,38 @@ fn split_sentences(s: &str) -> Vec<String> {
     out
 }
 
+/// MHR-F (WS26): INTEGRITY ONLY (⇔ TS `auditSentence`). A marker that
+/// resolves to a minted source is left byte-intact (never removed, however
+/// the sentence reads); a marker that resolves to NOTHING is a broken
+/// reference and its bytes are stripped. Nothing else on the sentence
+/// changes — semantic support is the model's job via the diagnosis→
+/// feedback channel, and volatile-claim qualification is exactly the
+/// semantic patching the harness may not do.
 fn audit_sentence(sentence: &str, ids: &HashSet<String>) -> String {
     if sentence.is_empty() || !sentence.chars().any(|c| !c.is_whitespace()) {
         return sentence.to_string();
     }
     let marker_ids = marker_ids(sentence);
-    // ⇔ TS `/\d/` (ASCII digits only in both languages).
-    if marker_ids.is_empty() && !sentence.bytes().any(|b| b.is_ascii_digit()) {
-        return sentence.to_string();
+    if marker_ids.is_empty() {
+        return sentence.to_string(); // no references — nothing the integrity layer owns
     }
-
-    // R1: unresolvable [S#] markers never survive release.
-    let mut out = sentence.to_string();
     let invalid = marker_ids.iter().any(|id| !ids.contains(id));
-    if invalid {
-        out = RE_MARKER
-            .replace_all(&out, |caps: &regex::Captures| {
-                if ids.contains(&format!("S{}", &caps[1])) {
-                    caps[0].to_string()
-                } else {
-                    String::new()
-                }
-            })
-            .to_string();
-        // Residue cleanup only where a marker was removed.
-        out = RE_DOUBLE_SPACE.replace_all(&out, " ").to_string();
-        out = RE_PUNCT_SPACE.replace_all(&out, "$1").to_string();
+    if !invalid {
+        return sentence.to_string(); // every reference resolves — release verbatim
     }
-    let still_valid = marker_ids_present(&out, ids);
-    if still_valid {
-        return out; // the sentence's source resolved — release as-is
-    }
-
-    let misattributed = invalid; // cited, but no cited source is real
-    let digit = out.bytes().any(|b| b.is_ascii_digit());
-    let volatile = digit && VOLATILE.iter().any(|re| re.is_match(&out));
-    if (misattributed || volatile) && !RE_UNVERIFIED.is_match(&out) {
-        out = qualify(&out);
-    }
+    let mut out = RE_MARKER
+        .replace_all(sentence, |caps: &regex::Captures| {
+            if ids.contains(&format!("S{}", &caps[1])) {
+                caps[0].to_string()
+            } else {
+                String::new()
+            }
+        })
+        .to_string();
+    // Residue cleanup only where a marker was removed.
+    out = RE_DOUBLE_SPACE.replace_all(&out, " ").to_string();
+    out = RE_PUNCT_SPACE.replace_all(&out, "$1").to_string();
     out
-}
-
-fn marker_ids_present(s: &str, ids: &HashSet<String>) -> bool {
-    marker_ids(s).iter().any(|id| ids.contains(id))
-}
-
-/// Insert the qualifier before the sentence's terminal punctuation.
-fn qualify(sentence: &str) -> String {
-    let tw_len: usize = sentence
-        .chars()
-        .rev()
-        .take_while(|c| c.is_whitespace())
-        .map(|c| c.len_utf8())
-        .sum();
-    let body = &sentence[..sentence.len() - tw_len];
-    match RE_TRAILING_PUNCT.find(body) {
-        Some(m) => format!(
-            "{} (unverified){}{}",
-            &body[..m.start()],
-            &body[m.start()..],
-            &sentence[sentence.len() - tw_len..]
-        ),
-        None => format!("{} (unverified){}", body, &sentence[sentence.len() - tw_len..]),
-    }
 }
 
 /* ══ MHR-D: non-destructive diagnosis (same detectors, report-only) ════
@@ -300,8 +282,9 @@ fn qualify(sentence: &str) -> String {
  * wording without retrieval), holds the diagnosed-bad answer back, and
  * injects ONE byte-locked feedback message into the EXISTING tool loop;
  * the model decides the next action (retrieve / re-attach / state the gap).
- * Rewrites nothing; the destructive R1–R3 audit still runs on release
- * until MHR-F evolves it (deliberate half-state).
+ * Rewrites nothing; since MHR-F (WS26) the release audit enforces CITATION
+ * INTEGRITY only, and this diagnosis→feedback channel is the SOLE route
+ * for semantic support.
  */
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
@@ -531,9 +514,11 @@ mod tests {
             audit_research_answer("Boreal costs $99 [S1].", &ids, true),
             "Boreal costs $99 [S1]."
         );
+        // MHR-F: the broken REFERENCE is stripped (integrity); the words
+        // are never qualified (semantics is the model's job via feedback).
         assert_eq!(
             audit_research_answer("Boreal costs $99 [S9].", &ids, true),
-            "Boreal costs $99 (unverified)."
+            "Boreal costs $99."
         );
     }
 
@@ -614,8 +599,8 @@ mod tests {
 
     #[test]
     fn mhrd_diagnosis_is_non_destructive_a_clean_answer_stays_silent() {
-        // The report quotes VERBATIM — never the destructive audit's
-        // "(unverified)" rewrite — and a clean fully-cited answer fires
+        // The report quotes VERBATIM — never the retired "(unverified)"
+        // rewrite (MHR-F) — and a clean fully-cited answer fires
         // nothing at all (the feedback round must not haunt good turns).
         let ids: HashSet<String> = ["S1".to_string()].into_iter().collect();
         let d = diagnose_research_answer("Boreal costs $99 [S9] per seat.", &ids, true);
@@ -628,5 +613,137 @@ mod tests {
 
         let clean = diagnose_research_answer("Boreal costs $99 [S1] per seat.", &ids, true);
         assert!(!answer_issues(&clean));
+    }
+
+    /* ── MHR-F (WS26, 2026-11-06): integrity/semantics separation ══════
+     * Same matrix as the TS "MHR-F" describes: the release audit enforces
+     * CITATION INTEGRITY only (a [S#] marker resolving to no minted source
+     * is stripped; semantics are NEVER rewritten; a minted citation is
+     * never removed), while the diagnosis reports the full semantic state
+     * byte-exactly through the mhrD feedback contract.
+     */
+
+    struct FReleaseCase {
+        name: String,
+        text: String,
+        citations: HashSet<String>,
+        retrieved: bool,
+        expected: String,
+    }
+
+    struct FSepCase {
+        name: String,
+        text: String,
+        citations: HashSet<String>,
+        retrieved: bool,
+        expected_release: String,
+        expected_diagnosis: Diagnosis,
+        feedback: String,
+    }
+
+    fn cited(c: &serde_json::Value) -> HashSet<String> {
+        c["citations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn mhrf_release_matrix() -> Vec<FReleaseCase> {
+        let v: serde_json::Value =
+            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        v["mhrF"]["releaseCases"]
+            .as_array()
+            .expect("mhrF.releaseCases array")
+            .iter()
+            .map(|c| FReleaseCase {
+                name: c["name"].as_str().unwrap_or("").to_string(),
+                text: c["text"].as_str().unwrap_or("").to_string(),
+                citations: cited(c),
+                retrieved: c["retrieved"].as_bool().unwrap(),
+                expected: c["expected"].as_str().unwrap().to_string(),
+            })
+            .collect()
+    }
+
+    fn mhrf_sep_matrix() -> Vec<FSepCase> {
+        let v: serde_json::Value =
+            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        v["mhrF"]["separationCases"]
+            .as_array()
+            .expect("mhrF.separationCases array")
+            .iter()
+            .map(|c| FSepCase {
+                name: c["name"].as_str().unwrap_or("").to_string(),
+                text: c["text"].as_str().unwrap_or("").to_string(),
+                citations: cited(c),
+                retrieved: c["retrieved"].as_bool().unwrap(),
+                expected_release: c["expectedRelease"].as_str().unwrap().to_string(),
+                expected_diagnosis: serde_json::from_value(c["expectedDiagnosis"].clone())
+                    .expect("expectedDiagnosis matches Diagnosis shape"),
+                feedback: c["feedback"].as_str().unwrap_or("").to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_mhrf_matrix_section_is_present() {
+        let r = mhrf_release_matrix();
+        assert!(r.len() >= 5, "mhrF must vend ≥5 releaseCases");
+        let s = mhrf_sep_matrix();
+        assert!(s.len() >= 3, "mhrF must vend ≥3 separationCases");
+    }
+
+    #[test]
+    fn every_mhrf_release_case_releases_integrity_only() {
+        for c in &mhrf_release_matrix() {
+            let got = audit_research_answer(&c.text, &c.citations, c.retrieved);
+            assert_eq!(got, c.expected, "mhrF release case: {}", c.name);
+            let twice = audit_research_answer(&got, &c.citations, c.retrieved);
+            assert_eq!(twice, got, "idempotency broken on mhrF case: {}", c.name);
+        }
+    }
+
+    #[test]
+    fn every_mhrf_separation_case_releases_integrity_and_reports_semantics() {
+        for c in &mhrf_sep_matrix() {
+            assert_eq!(
+                audit_research_answer(&c.text, &c.citations, c.retrieved),
+                c.expected_release,
+                "mhrF separation release on case: {}",
+                c.name
+            );
+            let d = diagnose_research_answer(&c.text, &c.citations, c.retrieved);
+            assert_eq!(
+                d, c.expected_diagnosis,
+                "mhrF separation diagnosis on case: {}",
+                c.name
+            );
+            assert_eq!(
+                answer_issues(&d),
+                !c.feedback.is_empty(),
+                "feedback gate on mhrF case: {}",
+                c.name
+            );
+            if !c.feedback.is_empty() {
+                assert_eq!(
+                    build_answer_feedback(&d),
+                    c.feedback,
+                    "feedback bytes on mhrF case: {}",
+                    c.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mhrf_never_removes_a_minted_citation() {
+        // Anti-silent-removal law: every resolvable [S#] stays byte-intact
+        // even when an adjacent marker in the same sentence is fabricated.
+        let ids: HashSet<String> = ["S1".to_string(), "S2".to_string()].into_iter().collect();
+        let out = audit_research_answer("Mixed [S1] real and [S9] fake in one [S2].", &ids, true);
+        assert!(out.contains("[S1]") && out.contains("[S2]"));
+        assert!(!out.contains("[S9]"));
     }
 }
