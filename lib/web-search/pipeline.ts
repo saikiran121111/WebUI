@@ -300,13 +300,18 @@ export interface EvidenceBundle {
  * chunk ranking.
  */
 /**
- * Table-row-aware excerpt selection (universal research-depth law): a
- * blind character-prefix cut drops the REQUESTED rows sitting near the
- * end of a long table — the page was read, the fact was dropped anyway.
- * For table-shaped passages keep the prefix PLUS every whole row past
- * the cap that matches the request's own words, with an honest in-place
- * marker for the skipped middle. Non-table passages ride the
- * byte-identical prefix cut (goldens stay stable).
+ * Table-row-aware excerpt selection (universal research-depth law,
+ * refined by audit 2026-11-05 item 11 / WS11): a blind character-prefix
+ * cut drops the REQUESTED rows sitting near the end of a long table — the
+ * page was read, the fact was dropped anyway. For table-shaped passages
+ * keep the prefix PLUS whole matching rows past the cap with an honest
+ * in-place marker — but the matching rows are now RANKED across the WHOLE
+ * document (not first-30-in-document-order): focus-token rarity weights
+ * the score, so generic terms repeated by a long catalog cannot crowd out
+ * the rare row the request actually asked for. The kept block re-anchors
+ * the table header so each row keeps its column identity, and the marker
+ * discloses how many matching rows went unshown. Non-table passages ride
+ * the byte-identical prefix cut (goldens stay stable).
  */
 function selectExcerpt(text: string, cap: number, focusWords: string[]): string {
   if (text.length <= cap) return text;
@@ -314,11 +319,39 @@ function selectExcerpt(text: string, cap: number, focusWords: string[]): string 
   const lines = text.split("\n");
   if (lines.length < 5) return head;
   const inHead = new Set(head.split("\n"));
-  const past = lines.filter(
-    (l) => !inHead.has(l) && /^\s*\|/.test(l) && focusWords.some((w) => l.toLowerCase().includes(w)),
+  const matched = lines
+    .map((l, i) => ({ l, i }))
+    .filter(({ l }) => !inHead.has(l) && /^\s*\|/.test(l) && focusWords.some((w) => l.toLowerCase().includes(w)));
+  if (matched.length === 0) return head;
+  // Token rarity across the whole document: a term matching hundreds of
+  // rows is generic scaffolding; a term matching one row IS the request.
+  const weighted = focusWords.map((w) => {
+    const rows = lines.reduce((n, l) => n + (l.toLowerCase().includes(w) ? 1 : 0), 0);
+    return { w, weight: 1 / Math.max(1, rows) };
+  });
+  const scored = matched.map(({ l, i }) => {
+    const low = l.toLowerCase();
+    return { l, i, score: weighted.reduce((s, x) => s + (low.includes(x.w) ? x.weight : 0), 0) };
+  });
+  scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  const keptN = Math.min(30, matched.length);
+  const kept = scored.slice(0, keptN).sort((a, b) => a.i - b.i).map((x) => x.l);
+  // Re-anchor the header (+ separator row) above the kept rows.
+  const header: string[] = [];
+  const hIdx = lines.findIndex((l) => /^\s*\|/.test(l));
+  if (hIdx !== -1) {
+    header.push(lines[hIdx]);
+    if (hIdx + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[hIdx + 1])) header.push(lines[hIdx + 1]);
+  }
+  const omitted = matched.length - keptN;
+  return (
+    head +
+    `\n[…table rows past the excerpt cap, kept whole (${keptN} of ${matched.length} focus-matched rows` +
+    (omitted > 0 ? `, ${omitted} not shown; a narrower focus would surface them` : "") +
+    `):]\n` +
+    (header.length > 0 ? header.join("\n") + "\n" : "") +
+    kept.join("\n")
   );
-  if (past.length === 0) return head;
-  return head + "\n[…table rows past the excerpt cap, kept whole:]\n" + past.slice(0, 30).join("\n");
 }
 
 export function evidenceBlock(bundle: EvidenceBundle): string {

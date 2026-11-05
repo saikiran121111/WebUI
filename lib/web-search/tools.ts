@@ -393,22 +393,146 @@ const MAX_PASSAGE_CHARS = 2000;
 const READ_PAGE_TEXT_BUDGET = 20000; // shared across every page of a batch
 const URL_SHAPE = /^https?:\/\//i;
 
+// Boilerplate-token frequency saturation: past this many matches a focus
+// term is generic scaffolding, however many times the page repeats it.
+const FOCUS_FREQ_CAP = 60;
+
 /**
- * Focus-window block cut: when the focus matches past the plain prefix,
- * center the window on the focus's LAST occurrence (requested facts
- * typically sit after the boilerplate intro, not before it). Prefix
- * matches keep the byte-identical plain cut.
+ * Focus-window selection (universal research-depth law, refined by audit
+ * 2026-11-05 item 11 / WS11): a blind 2000-char prefix cannot reach a
+ * requested fact past a long intro — but a SINGLE window centered on the
+ * LAST occurrence of ANY focus term lets a generic boilerplate footer
+ * (repeating tokens already present near the answer) displace the earlier
+ * actual fact, and two distant facts keep only the last. SECTION-AWARE
+ * SELECTION: rank the document's whole sections by DISTINCT focus-token
+ * coverage (each token weighted by rarity, 1/frequency, so a boilerplate
+ * tail repeating already-covered generic tokens scores nothing); take the
+ * best sections whole and non-overlapping until the MAX_PASSAGE_CHARS
+ * budget is spent, with a rarity-centered window inside an oversized
+ * section. Matches confined to the plain prefix keep the byte-identical
+ * plain cut. `dropped` counts contiguous clusters of focus-matched
+ * content left outside the returned windows, so the entry can disclose
+ * remaining sections and offer a continuation handle (re-read with a new
+ * focus).
  */
-function cutPassageWindow(t: string, words: string[]): string {
+function selectFocusWindows(t: string, words: string[]): { text: string; dropped: number } {
+  const plainCut = () => ({ text: t.slice(0, MAX_PASSAGE_CHARS) + "…", dropped: 0 });
   const low = t.toLowerCase();
-  let pos = -1;
+  const occ = new Map<string, number[]>();
+  let beyondPrefix = false;
   for (const w of words) {
-    const i = low.lastIndexOf(w);
-    if (i > pos) pos = i;
+    const positions: number[] = [];
+    let i = low.indexOf(w);
+    while (i !== -1) {
+      if (positions.length >= FOCUS_FREQ_CAP) {
+        if (i >= MAX_PASSAGE_CHARS) beyondPrefix = true;
+        break;
+      }
+      positions.push(i);
+      if (i >= MAX_PASSAGE_CHARS) beyondPrefix = true;
+      i = low.indexOf(w, i + w.length);
+    }
+    if (positions.length > 0) occ.set(w, positions);
   }
-  if (pos < MAX_PASSAGE_CHARS) return t.slice(0, MAX_PASSAGE_CHARS) + "…";
-  const start = Math.min(pos - Math.floor(MAX_PASSAGE_CHARS / 2), t.length - MAX_PASSAGE_CHARS);
-  return "…" + t.slice(start, start + MAX_PASSAGE_CHARS) + "…";
+  let maxPos = -1;
+  for (const ps of occ.values()) maxPos = Math.max(maxPos, ps[ps.length - 1]);
+  if (occ.size === 0 || (!beyondPrefix && maxPos < MAX_PASSAGE_CHARS)) return plainCut();
+  const weight = new Map<string, number>();
+  for (const [w, ps] of occ) weight.set(w, 1 / Math.min(ps.length, FOCUS_FREQ_CAP));
+
+  // Section inventory (paragraph granularity — same granularity the
+  // §11.12 segment filter and the extractor's markdown structure use).
+  const sections: Array<{ start: number; end: number }> = [];
+  let sStart = 0;
+  const sepRe = /\n\n+/g;
+  let m: RegExpExecArray | null;
+  while ((m = sepRe.exec(t)) !== null) {
+    sections.push({ start: sStart, end: m.index });
+    sStart = m.index + m[0].length;
+  }
+  sections.push({ start: sStart, end: t.length });
+
+  const uncoveredScore = (from: number, to: number, covered: Set<string>) => {
+    let s = 0;
+    for (const [w, ps] of occ) {
+      if (covered.has(w)) continue;
+      if (ps.some((p) => p >= from && p < to)) s += weight.get(w)!;
+    }
+    return s;
+  };
+  const bestUncoveredPos = (from: number, to: number, covered: Set<string>) => {
+    let pos = -1;
+    let bw = -1;
+    for (const [w, ps] of occ) {
+      if (covered.has(w)) continue;
+      for (const p of ps) {
+        if (p < from || p >= to) continue;
+        if (weight.get(w)! > bw) {
+          bw = weight.get(w)!;
+          pos = p;
+        }
+      }
+    }
+    return pos;
+  };
+  const markCovered = (from: number, to: number, covered: Set<string>) => {
+    for (const [w, ps] of occ) {
+      if (!covered.has(w) && ps.some((p) => p >= from && p < to)) covered.add(w);
+    }
+  };
+
+  const covered = new Set<string>();
+  const chosen: Array<{ start: number; end: number }> = [];
+  let used = 0;
+  for (;;) {
+    const remaining = MAX_PASSAGE_CHARS - used;
+    if (remaining <= 0) break;
+    let bi = -1;
+    let bs = 0;
+    for (let si = 0; si < sections.length; si++) {
+      const sc = uncoveredScore(sections[si].start, sections[si].end, covered);
+      if (sc > bs || (sc > 0 && sc === bs && bi !== -1 && sections[si].start < sections[bi].start)) {
+        bs = sc;
+        bi = si;
+      }
+    }
+    if (bi === -1) break;
+    const sec = sections[bi];
+    const secLen = sec.end - sec.start;
+    if (secLen <= remaining) {
+      chosen.push({ start: sec.start, end: sec.end });
+      used += secLen;
+      markCovered(sec.start, sec.end, covered);
+    } else if (remaining >= 300) {
+      // Oversized section: a rarity-centered window inside it, then stop —
+      // no other section can share the spent budget.
+      const center = bestUncoveredPos(sec.start, sec.end, covered);
+      const start = Math.max(sec.start, Math.min(center - Math.floor(remaining / 2), sec.end - remaining));
+      chosen.push({ start, end: start + remaining });
+      markCovered(start, start + remaining, covered);
+      break;
+    } else break;
+  }
+  if (chosen.length === 0) return plainCut();
+  chosen.sort((a, b) => a.start - b.start);
+
+  const outside: number[] = [];
+  for (const ps of occ.values()) {
+    for (const p of ps) if (!chosen.some((r) => p >= r.start && p < r.end)) outside.push(p);
+  }
+  outside.sort((a, b) => a - b);
+  let dropped = 0;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const p of outside) {
+    if (p - last > 200) dropped++;
+    last = p;
+  }
+
+  let text = chosen
+    .map((r, i) => (i > 0 || r.start > 0 ? "…" : "") + t.slice(r.start, r.end))
+    .join(" […] ");
+  if (chosen[chosen.length - 1].end < t.length) text += "…";
+  return { text, dropped };
 }
 
 interface PageAttempt {
@@ -505,21 +629,24 @@ async function readOneUrl(
         };
       }
     }
-    // Focus-window law (universal research-depth audit 2026-11-05): a
-    // blind 2000-char prefix cannot reach a requested fact that sits
-    // past a long intro. When a focus word matches deeper in a block,
-    // center the returned window on its last occurrence and mark both
-    // cuts with an ellipsis; the block-level truncation flag below then
-    // discloses honestly that page content was discarded.
+    // Focus-window law (universal research-depth audit 2026-11-05,
+    // refined by WS11): several non-overlapping windows are ranked by
+    // distinct, rarity-weighted focus coverage instead of one window on
+    // the last match; the block-level truncation flag and the
+    // dropped-sections disclosure below report honestly what was left
+    // outside the returned windows.
     const fWords = focusTokens(focus || session.queryContext);
     const blocks: string[] = [];
     let blocksCut = false;
+    let droppedSections = 0;
     for (const p of packet.passages) {
       const t = p.passageText;
       if (t.trim() === "") continue;
       if (t.length > MAX_PASSAGE_CHARS) {
         blocksCut = true;
-        blocks.push(cutPassageWindow(t, fWords));
+        const win = selectFocusWindows(t, fWords);
+        blocks.push(win.text);
+        droppedSections += win.dropped;
       } else {
         blocks.push(t);
       }
@@ -582,7 +709,17 @@ async function readOneUrl(
         passages: kept,
         // Honest disclosure: content was discarded either by dropping
         // whole passage blocks OR by windowing/cutting inside them.
+        // WS11: a window drop is not invisible — count the focus-matched
+        // clusters left outside the returned windows and hand the
+        // investigator an explicit continuation affordance.
         truncated: kept.length < blocks.length || blocksCut,
+        ...(droppedSections > 0
+          ? {
+              droppedSections,
+              continuationHint:
+                "focus-matched sections beyond the window budget were not returned; call read_page again on this URL with a different focus to retrieve them",
+            }
+          : {}),
         ...(routeLinks.length > 0 ? { links: routeLinks } : {}),
       },
       citation,
