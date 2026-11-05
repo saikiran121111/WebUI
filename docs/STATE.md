@@ -2894,3 +2894,35 @@ Tier-1 loaded earlier: graphify, ponytail (ongoing behavioral only). Playwright 
 1. DONE (b708bb9): final locked loop pw-76..79 all-green, one fix-rerun pass, two test-contract fixes — see 8.1/8.2 above.
 2. README web-search section update (honest: staged-research phases shipped, P6 benchmark MEASUREMENT PENDING, no capability claims) + this STATE close-out → ONE docs commit → `git push origin develop` (pushes b708bb9 + docs commit; never stage tsconfig.tsbuildinfo).
 3. §4 completion report to user, THEN SHUTDOWN PC (`shutdown //s //f //t 60`) — automatic at cycle end per standing order + memory playwright-final-run-policy (amended 2026-11-04), NEVER ask.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05b — 20-item web-search REPAIR brief (audit baseline 60fe172; supersedes 8.x above where they conflict; cumulative locks remain valid)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Repair web search/research per the 20-item brief (brief item N = audit WS0N; audit evidence: Codex 2026-11-02 outputs/ruke-60fe172-*.{md,json}, independent fixtures in that workspace work/). Interactive-browser feature work + browser migration OUT of scope. TS owns web research; Rust = transport/orchestration/bridge. ACTIVE: WS01 LOCKED (61951d0); next WS02 (explicit no-network before acquisition). Commit order plan: WS17,13,14,16,15,12 done-first? NO — executed order so far: **WS01 first (task-scope, unblocks routing)**. Remaining: WS02,03,04,10,07,11,08,09,19,05+durable-state,18+06(Rust parity),13,17,12,14,16,15,20-wording-last. Each: RED fixture → minimal fix → GREEN → commit + push + STATE.
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- **WS01 61951d0** (2026-11-05): routing argument roles. 3 root causes: (1) Pass-3 preposition scan licensed post-NP after "in" whenever ANY eligible word preceded → "jobs in Hyderabad" became a site target; FIXED by locative law: preposition=="in" ∧ any CONTENT token (in no closed-class vocab; NON_CONTENT_SETS/is_content_token, TS+Rust) between eligible word and "in" → geographic restriction, never destination; eligible words further back cannot re-license (break). (2) "open/opens/opening" IN OP_VERBS → adjectival "open backend jobs" = OPERATE → Rust pipeline.rs skipped research; FIXED: demoted from OP_VERBS (both langs), NAV_SITE_VERBS subset of DO_SITE_VERBS (open/visit/browse/navigate/access/launch — NOT search/lookup/use) sets nav_operate in Pass-3b → intent `opSeen||navOperate` ⇔ `op_seen||nav_operate`. (3) sentence-final bare domains unresolved forever: token raw keeps trailing "." so target span overshot detector span by 1 → Pass-4 merge never fired; FIXED: push_target/push_target span_end trims last-token trailing punct (strip_tail_punct byte-len, ASCII-safe). Pass-3b entity-qualified guard: object NP followed by "in"+collectible NP → skip ("open positions in Hyderabad"); "in a new tab" survives (collectNp head "new"∈GENERIC_FIRST → null). Corpus cases.json +7 (4 locative, 1 search-cue intent="research" pin [precedent: existing research pins], 2 positive controls incl. careers.example.com host-example.com + "do this in reddit.com" operate). EVIDENCE: RED 5f/65p → 70/70 vitest; FULL vitest 1256p/0f/1s; cargo -p ruke-server --lib 139/139; tsc exit 0. External audit routing probes (audit-nov5-probes-routing) satisfied by these pins (to be re-run in final independent rerun).
+- Inherited from 2026-11-05a (still valid): pw-76..79 final loop closed all-green; universal-websites gap-truth + Myntra regex fixes; P4 evidence-gap law (48d3409); G01 pins; P6 benchmark PROGRAM DEFINED / MEASUREMENT PENDING.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (this cycle)]
+- task-scope.ts deriveTaskScope ⇔ task_scope.rs derive_task_scope ⇔ shared corpus rust-backend/fixtures/task-scope/cases.json (37 derive cases + resolutions + merges) — THE contract; replayed by __tests__/decision/task-scope.test.ts + Rust #[cfg(test)] include_str! (serde: NO deny_unknown_fields — "_why" keys tolerated).
+- routesToBrowserTurn(==operate) ← Rust chat/pipeline.rs:266-296 browser_turn gate (skips general web research); foldTaskScope over history prompts.
+- Downstream consumers (kept green at 61951d0): search-gate, planner-law, destination-affinity, web-tools suites + Rust 139.
+
+## [8.4 IMMUTABLE CODE CONTRACTS (additions)]
+- task-scope vocab law: OP_VERBS NO LONGER contains open/opens/opening (both langs, lock-step); NAV_SITE_VERBS + NON_CONTENT_SETS + isContentToken/is_content_token added (verbatim mirror); Pass-3 locative law + Pass-3b nav_operate/entity-guard + push_target span trim AS ABOVE are now corpus-pinned law. Intent names/wire vocab UNCHANGED (none/research/site_info/operate/compare_sites).
+- Frozen wire contracts from 8.4 above remain in force (SearchDecision, StageEvent ledger order, ToolActionRecord counts, SearchBudget, sentinel text). Brief authorizes DELIBERATE fixture evolution when a golden encodes a defect — document evidence, never blind-weaken.
+
+## [8.5 E2E/PLAYWRIGHT STATE]
+- No lock, no run this cycle yet. Next pw-80; ONE final locked fix-rerun loop at cycle end (memory law) incl. extended e2e list from brief (no-browse zero-network, pronoun follow-ups, unseen sites, job/location, multilingual, cancellation, reload continuity, provider-block recovery, unsupported-claim rejection). Launcher laws + chunking unchanged.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- WS02–WS20 all OPEN (see brief). P6 benchmark measurement pending. CRLF contracts:check noise = CRLF-only (stored blobs match generator; storedMatches true) — diagnose separately, do not "fix" by regenerating.
+- Watch: WS17 (url-detector :102-113 Pass-2 host dedupe) is DISTINCT from WS01's span fix; careers.example.com resolution lives in task-scope merge, NOT url-detector.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS02 RED: extend/add __tests__/web-search gate test — "Do not browse the internet; state that you cannot verify…" must NOT search (search-gate.ts:610-628 strips local-only wording then retests residual intent); assert search_required=false AND zero fetch/provider calls on the turn (mock fetch spy). Also quoted-vs-actual-instruction arm.
+2. GREEN minimal: parse instruction+polarity in search-gate; run full vitest + tsc; commit; push; STATE.
+3. Then WS03 (no_search_basis runtime validation, parseMainGateJson ~:1007).
