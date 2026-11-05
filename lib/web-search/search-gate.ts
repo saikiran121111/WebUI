@@ -1051,6 +1051,20 @@ function parseMainGateJson(raw: string, ctx: SearchGateContext): SearchDecision 
         // frozen for cache/web_meta consumers.
         const basis = String(parsed.no_search_basis ?? "").trim().toLowerCase();
         if (!NO_SEARCH_BASIS.has(basis)) return null;
+        // WS03 (audit 2026-11-05): a recognized enum is a JUSTIFICATION
+        // TYPE, not the justification itself. available_evidence is the one
+        // basis claiming the conversation ALREADY HAS the evidence — that
+        // claim is machine-checkable against the turn's evidence-carrying
+        // context (the same attachment/image flags the retrieval stage
+        // keys off). An ungrounded claim is as invalid as a missing basis:
+        // the verdict is rejected here and the turn escalates to the rules
+        // plan, which force-YESes explicit evidence shapes and keeps
+        // genuine local tasks local. The other five bases are prompt-
+        // intrinsic (transform/code/creative/math/stable) — no evidence
+        // claim to verify.
+        if (basis === "available_evidence" && !(ctx.hasAttachmentEvidence || ctx.hasImageAttachment)) {
+          return null;
+        }
         return {
           search_required: false,
           reason: String(parsed.reason ?? "main model: no live web content needed").slice(0, 300),
