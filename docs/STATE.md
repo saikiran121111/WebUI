@@ -2926,3 +2926,39 @@ Repair web search/research per the 20-item brief (brief item N = audit WS0N; aud
 1. WS02 RED: extend/add __tests__/web-search gate test — "Do not browse the internet; state that you cannot verify…" must NOT search (search-gate.ts:610-628 strips local-only wording then retests residual intent); assert search_required=false AND zero fetch/provider calls on the turn (mock fetch spy). Also quoted-vs-actual-instruction arm.
 2. GREEN minimal: parse instruction+polarity in search-gate; run full vitest + tsc; commit; push; STATE.
 3. Then WS03 (no_search_basis runtime validation, parseMainGateJson ~:1007).
+
+---
+
+# SESSION SNAPSHOT 2026-11-05c — WS02 LOCKED (explicit no-network before acquisition + independent-fixture acceptance)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-repair web-search audit brief (WS01–WS20) at baseline 60fe172, branch develop. WS01 locked (61951d0); WS02 now LOCKED end-to-end: prohibition verbs (browse/google) actually match LOCAL_ONLY_RE (853c7d7), and the independent audit's gate fixtures vendored into the maintained suite go 155/155 via two universal force-YES frames (06cba20). Active phase: WS03 (evidence-backed no-search decisions).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 routing argument roles — locked at 61951d0, corpus-pinned, do not reopen.
+- WS02 core (853c7d7): LOCAL_ONLY_RE `brows(?:e|ing)?`/`googl(?:e|ing)?` defect fixed ("Do not browse." now force-NO local_task/deterministic_self_contained, zero fetch, zero acquisition — runWebResearch null bundle ⇔ no web_depth ⇔ tool loop unarmed TS+Rust); FRESHNESS_RE open-positions descriptor group `{0,3}?`; stale Rust-mirror comments corrected (no Rust gate twins exist — ruke-websearch removed 2026-11-03).
+- WS02 acceptance (06cba20): __tests__/web-search/search-gate-audit-matrix.test.ts (vendored, ONLY deviation = observations-write removal, header-documented) + search-gate-audit-boundaries.test.ts (verbatim) now maintained-suite members. New frames: FRESHNESS_RE operational-status arm; EXTERNAL_EVIDENCE_RE (external|independent + evidence noun) unioned into WEB_INTENT_RE.
+- Evidence (all actually run): combined gate suites 176/176; full vitest 108 files 1420 passed/0 failed/1 skipped; tsc --noEmit exit 0.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (this cycle)]
+- search-gate.ts is the SOLE gate owner: LOCAL_ONLY_RE/FRESHNESS_RE/WEB_INTENT_RE → deterministicHardBypass → runSearchGate ⇐ pipeline.ts runWebResearch (null on NO) ⇐ route.ts + Rust chat/pipeline.rs:691 arming (web_depth only from bridge bundle frame). No Rust regex mirrors — no lock-step needed.
+- Vendored fixtures import runSearchGate only; safe from internal refactors.
+
+## [8.4 IMMUTABLE CODE CONTRACTS (additions)]
+- BARE `verify` may NEVER enter WEB_INTENT_RE: the E1 residual test (:628) uses WEB_INTENT_RE, so a bare-verify frame re-arms the no-browse boundary-acknowledgment escape ("state that you cannot verify it"). External-evidence frames must be noun-anchored (external|independent + sources/evidence/…).
+- Operational-status freshness frame is adjacency-locked (service-family noun … operational|accepting|receiving|offline|outaged; is/whether/check … operational). `open` stays OUT (WS01 adjectival-open law).
+- WEB_SEARCH_GATE_DISABLED === "1" (old LFM name still honored). Matrix fixture pins: outage modes (fetch throws / malformed JSON) require deterministic force-YES for want:true arms; want:false arms assert queries===[]; contextual q900 + mixed-script 東京/牛乳 arms pass under gate-disabled.
+
+## [8.5 E2E/PLAYWRIGHT STATE]
+Unchanged from 2026-11-05b: no lock, no run yet this cycle; next pw-80; ONE final locked fix-rerun loop at cycle end, then auto-shutdown.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+Unchanged: WS03–WS20 open; P6 benchmark pending; CRLF contracts:check noise separate; recurring stale editor hint GATE_JSON_SCHEMA:86 (tsc clean — ignore).
+
+## [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
+superpowers:test-driven-development (loaded, Iron Law in force). No Tier-2 .cskills loaded this session.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS03 RED: __tests__/web-search gate/planner test — (a) parseMainGateJson (search-gate.ts ~:1003-1066) must REJECT a NO decision whose no_search_basis is missing/invalid at runtime (enum-validate, not just schema-declare); (b) a failed/invalid gate must not silently authorize memory answers where evidence is required — pin the rulesBasedPlan fallback law (:708-719: outage with no deterministic shape stays LOCAL BY DESIGN for want:false arms; want:true arms survive via force-YES) and reconcile with brief item 3 carefully before changing any fallback semantics.
+2. GREEN minimal in search-gate.ts; full vitest + tsc; commit (attribution line); push develop; STATE append.
+3. Then WS04 (follow-up subject preservation: subjectAnchor/gateKeywordQuery search-gate.ts ~:532-570).
