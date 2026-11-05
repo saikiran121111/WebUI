@@ -3073,3 +3073,48 @@ Loaded: superpowers:test-driven-development (Iron Law active for WS06–WS20). N
 2. WS06 TDD: failing fixture first — an assistant answer making research claims that lack ledger/citation support must be repaired/qualified server-side BEFORE release (buffer answer units or bounded draft/verify/release); ordinary non-research chat must NOT be delayed. Audit law: "A prompt or attached ledger is not enforcement." Then minimal fix, Rust web_loop.rs parity, full suite, commit+push+STATE 05g.
 3. Then WS07 (final-origin admission after every wave — pipeline.ts applyScopeToPackets not repeated after gap extraction) per brief order.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05g — WS06 LOCKED
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Repair 20 web-search/research defects (brief item N = audit WS0N) at baseline 60fe1723 on develop. WS01–WS06 now LOCKED (WS06 = grounded answer release: server-enforced action/citation/claim audit of every web-loop answer unit BEFORE release, commit 8187bc3, all suites green). Active phase: WS07 (final-origin admission after every wave). Remaining: WS07–WS20 in brief order, then final cycle (audit-fixture rerun 310 checks, P6 benchmark, extended e2e list, ONE locked Playwright loop pw-80, §4 report, auto-shutdown).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 ✅ 61951d0; WS02 ✅ 853c7d7+06cba20; WS03 ✅ c61bda8; WS04+WS13 ✅ 8f24d83; WS05 ✅ 6a35fea (see 05f for full detail).
+- WS06 ✅ 8187bc3 (pushed): lib/chat/answer-release.ts (SERVER_CHECK_LINE byte-locked by matrix; 9 VOLATILE regexes — currency/percent/rating/temp/date/coords/priceword/weather/geoword, digit-gated ASCII; RE_RESEARCH_WORDING English-only (documented shared limitation); auditResearchAnswer(text, citations:Set, retrieved): R1 invalid [S#] stripped + cleanup ("  +"→" ", " ([.,;:!?])"→"$1"), misattributed-without-valid ⇒ qualify; R2 volatile+digit+no-valid-citation ⇒ " (unverified)" inserted before trailing [.!?]+ run; R3 citations.isEmpty && !retrieved && research wording ⇒ SERVER_CHECK_LINE+"\n" prepended (startsWith guard); ``` fences + inline `code` byte-verbatim via indexOf scans; newlines HARD sentence boundaries; /unverified/i idempotency guard).
+- WS06 loop wiring lib/chat/web-tool-loop.ts: RoundOutcome {relay, held:Uint8Array[]}|{closed}; holdRoundFrame (content stripped from live frames, terminal/[DONE] held, unmodified frames byte-identical passthrough, unparseable data swallowed); releaseRound(ch, relay, held) = synthetic frame {"choices":[{"index":0,"delta":{"content":<audited>},"finish_reason":null}]} then held flush, once per round right AFTER the round (covers web_meta completion path, tool narration, forced final — forced-final also restores tool_calls [DONE] after); retrieveHappened() = merged citations non-empty || ledger some ok. route.ts comment replaced (WS06 stance replaces 2026-10-22 "no post-stream claim audit").
+- WS06 Rust parity: chat/answer_release.rs (LazyLock<Regex>; RE_CURRENCY lookahead tail → plain \b documented; include_str!("../../../../fixtures/answer-release/matrix.json"); audit_research_answer/audit_prose/segments/split_sentences/qualify ⇔ TS byte-behaviour); chat/mod.rs pub mod; web_loop.rs Round::Relay(ToolStreamRelay, Vec<Vec<u8>>) + hold_round_frame + turn_retrieved(merged,last_ledger) + async release_round + release sites mirror TS exactly.
+- Cross-language truth matrix rust-backend/fixtures/answer-release/matrix.json (version 1, _law, serverCheckLine, 17 cases) read by BOTH vitest (readFileSync path.join(process.cwd(),...)) and cargo (include_str!). 22 vitest answer-release tests + 5 web-tool-loop-release tests + 6 cargo tests GREEN; matrix byte-lock held in both languages FIRST TRY.
+- DELIBERATE fixture evolution (documented, positive controls kept): __tests__/chat/web-tool-loop.test.ts plain-answer pins now combined "Hello" + release-before-terminal order (chunk-split 13B law kept); golden web-search 01/03/05 re-recorded — ONLY answer-frame tails changed (live delta stripped to {"delta":{}}, one synthetic release frame before [DONE]) + _meta WS06 notes; new shape pinned by 3 new assertions in test 01; stage frames/evidence/citations byte-identical.
+
+## [8.3 DEPENDENCY MAP (WS06)]
+- answer-release.ts ← web-tool-loop.ts (releaseRound in 3 sites); ⇔ Rust answer_release.rs ← web_loop.rs release_round (after each relay round + forced final). ToolStreamRelay shared with browser_loop.rs — browser loop NOT touched (no release gating there; ordinary chat unaffected law).
+- Wire change: research turns' answer deltas now hold-buffered in BOTH languages; golden corpus web-search/01,03,05 encodes it. hooks/useChat consumes synthetic delta + stripped deltas fine (empty delta ignored).
+- matrix.json vendored under rust-backend/fixtures/answer-release/ — never move; both suites path-anchor it.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- SERVER_CHECK_LINE verbatim: "(Server check: no successful web retrieval this turn — the text below is unverified background knowledge, not research.)"
+- auditResearchAnswer(text, citations:Set<string> "S#"-keys, retrieved:boolean) -> string; pure, idempotent. ⇔ pub fn audit_research_answer(text,&HashSet<String>,bool)->String.
+- Release frame verbatim shape: data: {"choices":[{"index":0,"delta":{"content":<audited>},"finish_reason":null}]}  (no id field, TS key order).
+- retrieveHappened ⇔ turn_retrieved: merged citations non-empty OR actionLedger/last_ledger has ≥1 ok. Ledger decides R3, never prose.
+- RoundOutcome/rele as in 8.2; held frames flushed ONLY by releaseRound; abort ⇒ held dies (no release).
+- Golden web-search fixtures 01/03/05 bodyMsNormalized tails now: ...{"id":"w1","choices":[{"index":0,"delta":{}}]} / release frame / data: [DONE].
+
+## [8.5 VERIFICATION STATE]
+- vitest FULL: 114 files, 1479 passed | 1 skipped | 0 failed. cargo test -p ruke-server --lib: 146/146. tsc --noEmit exit 0. git: develop pushed @ 8187bc3. No Playwright lock; no dev servers owned.
+- Flake watch unchanged (12:38:52 unreproduced; capture file name first on recurrence).
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- None red. CRLF drift on contracts:check (pre-existing, don't chase). rust-analyzer batch-lag (cargo authoritative). tsconfig.tsbuildinfo modified in worktree — NEVER stage.
+- WS06 known documented limits: R3 wording English-only; holdRoundFrame swallows unparseable data lines (relay parity); qualifier insertion is English-punctuation-aware ([.!?] tails).
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS07–WS20). No Tier-2 .cskills. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS07 recon (fresh reads): lib/web-search/pipeline.ts ~:1126 initial applyScopeToPackets vs gap-extraction site ~:1198 (final-origin admission not repeated); app/api/internal/web-research/route.ts + app/api/web-research/deep merge sites (line numbers shifted +~30 by WS05 — re-locate by grep applyScopeToPackets/final-origin).
+2. WS07 TDD: failing fixture first — packets admitted by gap/wave paths must pass the SAME final-origin admission as the initial wave (no brand/site hardcoding; controls included). Then minimal fix, full suite, commit+push+STATE 05h.
+3. Then WS08 (bounded requirement-driven expansion — route-links.ts absolute-links-only + 12-link cap before ranking; pipeline.ts route hop once) per brief order.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
