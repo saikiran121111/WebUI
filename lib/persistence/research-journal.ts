@@ -39,6 +39,14 @@ export interface JournalSource {
   fetchedAt: string;
   /** Short passage excerpt carried forward for later turns (bounded). */
   excerpt: string;
+  /**
+   * MHR-E (brief 2026-11-05): the actually-served fetched passages with
+   * their §refs, beyond the 500-char preview. A search snippet is a
+   * pointer; these are EVIDENCE — a follow-up turn rehydrates real
+   * fetched text it can cite by ref, not just the headline. Bounded
+   * (see MAX_JOURNAL_PASSAGES): memory, not an archive.
+   */
+  passages?: { ref: string; text: string }[];
 }
 
 /** One completed research turn, from the server's point of view. */
@@ -54,6 +62,11 @@ export interface JournalTurn {
 const MAX_TURNS = 24;
 const MAX_SOURCES = 12;
 const MAX_EXCERPT = 500;
+// MHR-E: passages ride alongside the excerpt so follow-ups rehydrate
+// fetched EVIDENCE, not a 500-char headline — but still bounded: three
+// passages of 700 chars per document is a memory, not a document store.
+const MAX_JOURNAL_PASSAGES = 3;
+const JOURNAL_PASSAGE_CHARS = 700;
 
 /** Same sanitizer as disk.ts — ids are already safe; be defensive. */
 function safeId(id: string): string {
@@ -85,6 +98,14 @@ function clampTurn(turn: JournalTurn): JournalTurn {
         publishedAt: s.publishedAt,
         fetchedAt: s.fetchedAt ?? new Date().toISOString(),
         excerpt: (s.excerpt ?? "").slice(0, MAX_EXCERPT),
+        ...(Array.isArray(s.passages)
+          ? {
+              passages: s.passages
+                .filter((p) => p && typeof p.ref === "string" && typeof p.text === "string")
+                .slice(0, MAX_JOURNAL_PASSAGES)
+                .map((p) => ({ ref: p.ref, text: p.text.slice(0, JOURNAL_PASSAGE_CHARS) })),
+            }
+          : {}),
       })),
   };
 }
@@ -194,22 +215,48 @@ export function buildPriorEvidenceBlock(
   if (turns.length === 0) return { block: "", citations };
   const base = Number(/\d+$/.exec(currentMaxSourceId ?? "")?.[0] ?? 0) || 0;
   const seen = new Map<string, string>(); // url -> alias
-  const lines: string[] = [];
+  // MHR-E: one document may be read across turns (block 1 early, a
+  // continuation's block 7 later). Group by URL FIRST so every journaled
+  // §passage of that document lands under the ONE alias the url law
+  // mints for it — deduped by §ref, capped, first-seen wins the label
+  // and provenance, and the url still appears exactly once.
+  const grouped = new Map<string, { source: JournalSource; freshness: string; refs: Map<string, string> }>();
   for (const t of turns) {
     for (const s of t.sources) {
-      if (seen.has(s.url)) continue;
-      const alias = `S${base + seen.size + 1}`;
-      seen.set(s.url, alias);
-      citations[alias] = { sourceId: alias, url: s.url, title: s.title, domain: s.domain, publishedAt: s.publishedAt };
-      const provenance = [
-        `fetched ${(s.fetchedAt ?? "").slice(0, 10) || "unknown"}`,
-        s.publishedAt ? `published ${s.publishedAt}` : null,
-        `freshness: ${t.freshness || "unknown"}`,
-      ]
-        .filter(Boolean)
-        .join("; ");
-      lines.push(`[${alias}] ${s.title} — ${s.domain} — ${s.url}\n    ${provenance}\n    passage: "${s.excerpt}"`);
+      let g = grouped.get(s.url);
+      if (!g) {
+        g = { source: s, freshness: t.freshness, refs: new Map() };
+        grouped.set(s.url, g);
+      }
+      for (const p of s.passages ?? []) {
+        if (p && typeof p.ref === "string" && typeof p.text === "string" && !g.refs.has(p.ref)) {
+          g.refs.set(p.ref, p.text);
+        }
+      }
     }
+  }
+  const lines: string[] = [];
+  for (const [url, g] of grouped) {
+    const s = g.source;
+    const alias = `S${base + seen.size + 1}`;
+    seen.set(url, alias);
+    citations[alias] = { sourceId: alias, url: s.url, title: s.title, domain: s.domain, publishedAt: s.publishedAt };
+    const provenance = [
+      `fetched ${(s.fetchedAt ?? "").slice(0, 10) || "unknown"}`,
+      s.publishedAt ? `published ${s.publishedAt}` : null,
+      `freshness: ${g.freshness || "unknown"}`,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    // §-addressed passages when the journal has them; legacy preview only
+    // for pre-MHR-E turns, so old journals keep their exact bytes.
+    const passageLines = [...g.refs.entries()]
+      .slice(0, MAX_JOURNAL_PASSAGES)
+      .map(([ref, text]) => `    ${ref}: "${text}"`);
+    lines.push(
+      `[${alias}] ${s.title} — ${s.domain} — ${url}\n    ${provenance}\n` +
+        (passageLines.length > 0 ? passageLines.join("\n") : `    passage: "${s.excerpt}"`),
+    );
   }
   const block = [
     "<prior_research_evidence>",

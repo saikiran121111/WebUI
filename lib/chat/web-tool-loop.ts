@@ -45,6 +45,7 @@ import { beginUserTurn, endUserTurn } from "../server/inference-busy";
 import { llmApiUrl, llmApiKey } from "../server/settings";
 import {
   makeWebToolSession,
+  seedSessionSourceAliases,
   execWebSearchTool,
   execReadPageTool,
   webToolDefinitions,
@@ -496,6 +497,13 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       retrievalModeForFreshness(opts.searchGateMeta?.freshness ?? "any") === "live_required",
       conversation,
     );
+    // MHR-E: rehydrated prior-turn [S#] aliases seed the registry, so a
+    // document this conversation already fetched keeps ONE alias across
+    // waves instead of forking into a second id the citation map can't
+    // join. (docStore is turn-scoped and never seeded — re-served bytes
+    // must come from what THIS turn fetched; prior passages ride the
+    // evidence block above.)
+    seedSessionSourceAliases(session, merged);
 
     // Guidance block + tool surface (same slot as the skill block).
     if (Array.isArray(payload.messages)) {

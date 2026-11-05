@@ -437,7 +437,7 @@ describe("golden: model-directed web tool loop", () => {
     expect(led(0).actions[0]).toMatchObject({ tool: "web_search", ok: true, id: "ws-<sid>-a1" });
     expect(metas[0]!.searchGate).toBeUndefined();
     expect(metas[1]!.webCitations).toEqual({
-      S1: { sourceId: "S1", url: "https://nimbus.example.com/roadmap-2026", title: "", domain: "nimbus.example.com" },
+      S1: { sourceId: "S1", url: "https://nimbus.example.com/roadmap-2026", title: "nimbus.example.com", domain: "nimbus.example.com" },
     });
     expect(led(1).toolRounds).toBe(2);
     expect(led(1).actions.length).toBe(2);

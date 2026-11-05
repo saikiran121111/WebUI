@@ -15,6 +15,7 @@
  */
 import {
   makeWebToolSession,
+  seedSessionSourceAliases,
   execWebSearchTool,
   execReadPageTool,
   webToolDefinitions,
@@ -171,6 +172,13 @@ export async function handleWebToolsRpc(
       scope,
       liveRequired,
       conversation,
+    );
+    // MHR-E: prior-turn [S#] aliases seed the source registry so a
+    // re-fetched document keeps ONE alias across waves (mirrors the chat
+    // loop's seedSessionSourceAliases call). docStore stays turn-scoped.
+    seedSessionSourceAliases(
+      session,
+      priorEvidence?.citations as Record<string, { url?: unknown; sourceId?: unknown }> | undefined,
     );
     sessions.set(session.searchSessionId, { session, lastTouched: now });
     return {

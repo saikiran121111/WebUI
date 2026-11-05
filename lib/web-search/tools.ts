@@ -72,7 +72,11 @@ export type RetrievalFailure =
   // in-scope URL that 302s to a site OUTSIDE the task scope — the read
   // is honestly refused rather than laundering off-site content past
   // the scope wall (§7 final-origin admission recheck).
-  | "off_scope_redirect";
+  | "off_scope_redirect"
+  // TS-only MHR-E addition (same opaque-passthrough precedent; Rust never
+  // parses tool-result envelopes): a continuation asked for a document
+  // THIS session never fetched — there is no retained copy to serve.
+  | "continuation_unavailable";
 
 export interface RetrievalFailureEntry {
   url?: string;
@@ -244,6 +248,24 @@ export interface WebToolSession {
    * (stateless direct-session callers).
    */
   conversation: WebToolConversation | null;
+  /**
+   * MHR-E (brief 2026-11-05): ONE document → ONE [S#] for the whole
+   * session. Maps normalized URL (requested AND final post-redirect
+   * origin) → the sourceId already minted for that document, so a URL
+   * read in a later wave re-serves the same alias instead of forking the
+   * citation map. Persisted prose is NOT evidence — retrieval addressing
+   * works off the live registry + docStore, never off journal text.
+   */
+  sourceRegistry: Map<string, string>;
+  /**
+   * MHR-E: the session's retained copies of fetched documents (raw
+   * blocks + already-served ranges), bounded per document. They back
+   * `continuation: true` reads: retrieve what the first pass left out
+   * with ZERO network — no re-fetch, no re-mint, no budget charge.
+   * Turn-scoped by design: a follow-up turn rehydrates journaled
+   * passages, not a byte-store that could serve stale text as live.
+   */
+  docStore: Map<string, RetainedDoc>;
 }
 
 /** Conversation identity a tool session journals research under. */
@@ -251,6 +273,77 @@ export interface WebToolConversation {
   id: string;
   /** Session date stamp the turn was built under (provenance label). */
   currentDate: string;
+}
+
+/**
+ * MHR-E retained document. `blocks` are the fetched evidence blocks in
+ * DOCUMENT order (a §ref "§N" addresses block N, 1-based, in its
+ * entirety — the served text for a §N may be a focus-window of it);
+ * `servedRanges` are raw-coordinate [start, end) spans already handed
+ * out, so continuation can compute the honest remainder.
+ */
+export interface RetainedBlock {
+  text: string;
+  servedRanges: Array<[number, number]>;
+}
+
+export interface RetainedDoc {
+  sourceId: string;
+  url: string;
+  title: string;
+  domain: string;
+  blocks: RetainedBlock[];
+}
+
+/** Per-document retention bound: a huge page simply is not retained —
+ *  continuation then says so honestly instead of holding an archive. */
+const RETAINED_DOC_MAX_CHARS = 200_000;
+
+/** selectFocusWindows names its windows `{ start, end }` (readable, and
+ *  the WS11 shape); the continuation range math speaks [start, end)
+ *  tuples — convert once, at the hand-off. */
+function chosenToTuples(chosen: Array<{ start: number; end: number }>): Array<[number, number]> {
+  return chosen.map((c) => [c.start, c.end] as [number, number]);
+}
+
+/** Sorted, merged raw-coordinate range math (continuation bookkeeping). */
+function mergeRanges(rs: Array<[number, number]>): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [s, e] of [...rs].sort((a, b) => a[0] - b[0])) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+
+/** What a served block still does NOT cover, in raw coordinates. */
+function complementRanges(served: Array<[number, number]>, len: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let pos = 0;
+  for (const [s, e] of mergeRanges(served)) {
+    if (s > pos) out.push([pos, s]);
+    pos = Math.max(pos, e);
+  }
+  if (pos < len) out.push([pos, len]);
+  return out;
+}
+
+/** MHR-E: seed the session's registry from prior-turn aliases (the
+ *  rehydrated [S#] citation map) so a fresh fetch of a document this
+ *  conversation already holds re-serves the SAME alias, every wave. */
+export function seedSessionSourceAliases(
+  session: WebToolSession,
+  citations: Record<string, { url?: unknown; sourceId?: unknown } | undefined> | null | undefined,
+): void {
+  for (const cit of Object.values(citations ?? {})) {
+    if (cit && typeof cit.url === "string" && cit.url) {
+      session.sourceRegistry.set(
+        normalizeUrl(cit.url),
+        typeof cit.sourceId === "string" ? cit.sourceId : String(cit.url),
+      );
+    }
+  }
 }
 
 /** Hostname of a tool-supplied URL ("" on parse failure — fail closed). */
@@ -282,6 +375,8 @@ export function makeWebToolSession(
     scope,
     liveRequired,
     conversation,
+    sourceRegistry: new Map(),
+    docStore: new Map(),
   };
 }
 
@@ -341,6 +436,47 @@ export function journalWebSearchSources(
 }
 
 /**
+ * MHR-E (brief 2026-11-05): a `read_page` round journals the FULL served
+ * passages with their §refs, not just a search-snippet preview. A search
+ * snippet is a pointer; fetched passages are EVIDENCE — and evidence a
+ * follow-up turn cannot re-read is evidence that silently decays into a
+ * headline. Best-effort like the web_search journaling; continuation
+ * rounds journal nothing (they serve from the copies this very journal
+ * entry already represents — no double-counting).
+ */
+export function journalReadPageSources(
+  session: WebToolSession,
+  pages: Record<string, unknown>[],
+): void {
+  const conv = session.conversation;
+  if (!conv || !conv.id.trim()) return;
+  const sources: JournalSource[] = [];
+  for (const page of pages) {
+    const passages = Array.isArray(page.passages) ? (page.passages as string[]) : [];
+    if (page.fetched === false || passages.length === 0) continue;
+    const refs = Array.isArray(page.passageRefs) ? (page.passageRefs as string[]) : [];
+    const url = typeof page.redirectedTo === "string" ? page.redirectedTo : String(page.url);
+    sources.push({
+      url,
+      title: String(page.title ?? ""),
+      domain: String(page.domain ?? ""),
+      ...(page.publishedDate !== undefined ? { publishedAt: String(page.publishedDate) } : {}),
+      fetchedAt: new Date().toISOString(),
+      excerpt: passages[0],
+      passages: passages.map((t, i) => ({ ref: refs[i] ?? `§${i + 1}`, text: t })),
+    });
+  }
+  if (sources.length === 0) return;
+  recordResearchTurn(conv.id, {
+    at: Date.now(),
+    currentDate: conv.currentDate,
+    queries: [],
+    freshness: "any",
+    sources: sources.slice(0, 12),
+  });
+}
+
+/**
  * P3b grounded-release law: the action record phrased as a constraint the
  * model must answer against (injected on the forced final round). An empty
  * ledger returns "" — no record, no message.
@@ -381,7 +517,7 @@ export const WEB_SEARCH_TOOL_DESCRIPTION =
   "Search the public web for fresh evidence this turn. Never repeat a query already used: missing_claims must name what the current evidence cannot answer, and queries must be NEW keyword-form searches (3-6 keywords, entity-anchored). URLs written by the human belong in read_page, not here.";
 
 export const READ_PAGE_TOOL_DESCRIPTION =
-  "Fetch up to 8 public web pages as readable text in ONE call (one tool round buys N pages). Pass the exact URLs; unsafe or blocked pages come back as structured failures, never as guesses. focus (optional) prunes off-topic sections of the fetched pages against the given terms.";
+  "Fetch up to 8 public web pages as readable text in ONE call (one tool round buys N pages). Pass the exact URLs; unsafe or blocked pages come back as structured failures, never as guesses. focus (optional) prunes off-topic sections of the fetched pages against the given terms. Returned passages are addressed §1, §2… per fetched document block; when a page reports truncated/dropped content, call read_page again on that URL with continuation:true (optionally a different focus) to retrieve the remaining blocks from the server's retained copy — no re-fetch, same [S#].";
 
 export interface WebToolDefinition {
   type: "function";
@@ -457,6 +593,11 @@ export function webToolDefinitions(): WebToolDefinition[] {
               maximum: 60000,
               description: "optional wall clock for the whole batch in ms (default 20000)",
             },
+            continuation: {
+              type: "boolean",
+              description:
+                "true re-serves sections of THIS session's already-fetched pages that an earlier read left out (dropped blocks, un-returned focus windows) — no re-fetch; use it when a page reports truncated/dropped content instead of fetching it again",
+            },
           },
           required: ["urls"],
           additionalProperties: false,
@@ -498,8 +639,19 @@ const FOCUS_FREQ_CAP = 60;
  * remaining sections and offer a continuation handle (re-read with a new
  * focus).
  */
-function selectFocusWindows(t: string, words: string[]): { text: string; dropped: number } {
-  const plainCut = () => ({ text: t.slice(0, MAX_PASSAGE_CHARS) + "…", dropped: 0 });
+function selectFocusWindows(
+  t: string,
+  words: string[],
+): { text: string; dropped: number; chosen: Array<{ start: number; end: number }> } {
+  // MHR-E: `chosen` are the exact raw-coordinate ranges the returned text
+  // covers — the session's retained copy uses them to compute what a
+  // `continuation: true` read still owes the investigator (never the
+  // marker-joined display text). A plain prefix cut serves [0, cap).
+  const plainCut = () => ({
+    text: t.slice(0, MAX_PASSAGE_CHARS) + "…",
+    dropped: 0,
+    chosen: [{ start: 0, end: Math.min(t.length, MAX_PASSAGE_CHARS) }],
+  });
   const low = t.toLowerCase();
   const occ = new Map<string, number[]>();
   let beyondPrefix = false;
@@ -615,7 +767,7 @@ function selectFocusWindows(t: string, words: string[]): { text: string; dropped
     .map((r, i) => (i > 0 || r.start > 0 ? "…" : "") + t.slice(r.start, r.end))
     .join(" […] ");
   if (chosen[chosen.length - 1].end < t.length) text += "…";
-  return { text, dropped };
+  return { text, dropped, chosen };
 }
 
 interface PageAttempt {
@@ -682,8 +834,6 @@ async function readOneUrl(
     // the 4th extractUrl arg carries the gate's policy to this path too.
     const packet = await extractUrl(synthetic, deadline, 0, session.liveRequired);
     applySegmentFilter([packet], focus || session.queryContext);
-    renumberPackets([packet], session.nextSource);
-    session.nextSource += 1;
     const classification = (packet as { classification?: string }).classification ?? "";
     // §7 final-origin recheck: an on-scope URL can 302 ACROSS a
     // registrable boundary and serve content from a site the scope law
@@ -712,6 +862,23 @@ async function readOneUrl(
         };
       }
     }
+    // MHR-E: ONE document, ONE [S#] for the whole session — the alias
+    // registry is consulted BEFORE any minting, keyed on BOTH the
+    // requested URL and the packet's final URL so a redirect can never
+    // fork a document into two citation aliases. A registry hit
+    // renumbers to the existing id and consumes NO next-source slot.
+    // (Mint moved here from before the redirect recheck: an off-scope
+    // redirect that discards the packet must not burn an id either.)
+    const priorId =
+      session.sourceRegistry.get(normalizeUrl(url)) ??
+      session.sourceRegistry.get(normalizeUrl(packet.url));
+    const priorNum = priorId ? /^S(\d+)$/.exec(priorId) : null;
+    if (priorNum) {
+      renumberPackets([packet], Number(priorNum[1]));
+    } else {
+      renumberPackets([packet], session.nextSource);
+      session.nextSource += 1;
+    }
     // Focus-window law (universal research-depth audit 2026-11-05,
     // refined by WS11): several non-overlapping windows are ranked by
     // distinct, rarity-weighted focus coverage instead of one window on
@@ -720,20 +887,39 @@ async function readOneUrl(
     // outside the returned windows.
     const fWords = focusTokens(focus || session.queryContext);
     const blocks: string[] = [];
+    // Parallel to `blocks`: the retained-copy index of each served
+    // candidate, and its raw chosen-range list when windowed (null =
+    // the whole raw block was served text).
+    const blockNums: number[] = [];
+    const winRanges: Array<Array<[number, number]> | null> = [];
     let blocksCut = false;
     let droppedSections = 0;
+    let droppedBlocks = 0;
+    // MHR-E: EVERY non-blank fetched block is a §addressable block of
+    // the document, in document order — including the ones this pass
+    // drops (the §ref of a dropped block is exactly what continuation
+    // retrieves). The old loop broke at the cap and the seventh block
+    // simply did not exist as far as the session was concerned.
+    const retainedBlocks: RetainedBlock[] = [];
     for (const p of packet.passages) {
       const t = p.passageText;
       if (t.trim() === "") continue;
+      retainedBlocks.push({ text: t, servedRanges: [] });
+      if (blocks.length >= MAX_PASSAGES_PER_PAGE) {
+        droppedBlocks += 1;
+        continue;
+      }
+      blockNums.push(retainedBlocks.length - 1);
       if (t.length > MAX_PASSAGE_CHARS) {
         blocksCut = true;
         const win = selectFocusWindows(t, fWords);
         blocks.push(win.text);
+        winRanges.push(chosenToTuples(win.chosen));
         droppedSections += win.dropped;
       } else {
         blocks.push(t);
+        winRanges.push(null);
       }
-      if (blocks.length >= MAX_PASSAGES_PER_PAGE) break;
     }
     const hasText = blocks.length > 0;
     let failure: RetrievalFailureEntry | null = null;
@@ -754,10 +940,17 @@ async function readOneUrl(
     // Shared per-batch char allowance: trim whole passages, never split one.
     let used = 0;
     const kept: string[] = [];
-    for (const b of blocks) {
+    const keptRefs: string[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
       if (used + b.length > charBudgetLeft) break;
       used += b.length;
       kept.push(b);
+      keptRefs.push(`§${blockNums[i] + 1}`);
+      // MHR-E: record ONLY what was actually handed out, in raw block
+      // coordinates, so a continuation can honestly compute the rest.
+      const rb = retainedBlocks[blockNums[i]];
+      rb.servedRanges.push(...(winRanges[i] ?? [[0, rb.text.length]]));
     }
     if (kept.length === 0) {
       return {
@@ -769,10 +962,33 @@ async function readOneUrl(
     const citation: CitationSeed = {
       sourceId: packet.sourceId,
       url: packet.url,
-      title: packet.title,
+      // MHR-E finding: an empty extracted title used to go out as an
+      // empty citation — the model then had a bare [S#] with nothing to
+      // name. A citation always carries a label.
+      title: packet.title || packet.domain,
       domain: packet.domain,
       ...(packet.publishedAt !== undefined ? { publishedAt: packet.publishedAt } : {}),
     };
+    // MHR-E: mint succeeded and text was served — the document now owns
+    // its alias under BOTH URL keys, and the session keeps a bounded
+    // retained copy so continuation can serve what this pass left out
+    // with zero network. Over the per-document cap the document is
+    // simply NOT retained (a continuation miss then says so honestly —
+    // the harness never pretends to hold an archive it refused to hold).
+    session.sourceRegistry.set(normalizeUrl(url), packet.sourceId);
+    session.sourceRegistry.set(normalizeUrl(packet.url), packet.sourceId);
+    const rawChars = retainedBlocks.reduce((n, b) => n + b.text.length, 0);
+    if (rawChars <= RETAINED_DOC_MAX_CHARS) {
+      const doc: RetainedDoc = {
+        sourceId: packet.sourceId,
+        url: packet.url,
+        title: packet.title || packet.domain,
+        domain: packet.domain,
+        blocks: retainedBlocks,
+      };
+      session.docStore.set(normalizeUrl(url), doc);
+      session.docStore.set(normalizeUrl(packet.url), doc);
+    }
     // Route inventory (universal research-depth law): real links inside
     // the FETCHED content are surfaced so the investigator can follow a
     // named detail/catalog route with one bounded read instead of
@@ -790,17 +1006,23 @@ async function readOneUrl(
         ...(classification ? { classification } : {}),
         sourceId: packet.sourceId,
         passages: kept,
+        // MHR-E: returned passages are ADDRESSABLE — each §ref names
+        // the document block it came from, and the model can point a
+        // follow-up read_page (continuation:true) at exactly what is
+        // missing instead of re-fetching the whole page blind.
+        passageRefs: keptRefs,
         // Honest disclosure: content was discarded either by dropping
         // whole passage blocks OR by windowing/cutting inside them.
         // WS11: a window drop is not invisible — count the focus-matched
         // clusters left outside the returned windows and hand the
         // investigator an explicit continuation affordance.
-        truncated: kept.length < blocks.length || blocksCut,
-        ...(droppedSections > 0
+        truncated: kept.length < blocks.length || blocksCut || droppedBlocks > 0,
+        ...(droppedBlocks > 0 ? { droppedBlocks } : {}),
+        ...(droppedSections > 0 ? { droppedSections } : {}),
+        ...(droppedSections > 0 || droppedBlocks > 0
           ? {
-              droppedSections,
               continuationHint:
-                "focus-matched sections beyond the window budget were not returned; call read_page again on this URL with a different focus to retrieve them",
+                "focus-matched sections beyond the window budget were not returned; call read_page again on this URL with continuation:true (a different focus is allowed) to retrieve them without re-fetching",
             }
           : {}),
         ...(routeLinks.length > 0 ? { links: routeLinks } : {}),
@@ -818,6 +1040,149 @@ async function readOneUrl(
       },
     };
   }
+}
+
+/** Materialize a block's still-unserved raw ranges into candidate text,
+ *  keeping the candidate→raw coordinate map so a focus window over the
+ *  candidate can be traced back to exact raw ranges. */
+function pendingCandidate(
+  text: string,
+  pending: Array<[number, number]>,
+): { text: string; segs: Array<{ from: number; to: number; cand: number }> } {
+  const segs: Array<{ from: number; to: number; cand: number }> = [];
+  const parts: string[] = [];
+  let candPos = 0;
+  for (const [from, to] of pending) {
+    segs.push({ from, to, cand: candPos });
+    parts.push(text.slice(from, to));
+    candPos += to - from + 2; // the "\n\n" join between segments
+  }
+  return { text: parts.join("\n\n"), segs };
+}
+
+/** Trace windows chosen in candidate coordinates back to raw block
+ *  coordinates (a window spanning a synthetic join yields two raw spans —
+ *  that is honest: the served text really came from both). */
+function mapWindowsToRaw(
+  chosen: Array<[number, number]>,
+  segs: Array<{ from: number; to: number; cand: number }>,
+): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [ws, we] of chosen) {
+    for (const s of segs) {
+      const a = Math.max(ws, s.cand);
+      const b = Math.min(we, s.cand + (s.to - s.from));
+      if (a < b) out.push([s.from + (a - s.cand), s.from + (b - s.cand)]);
+    }
+  }
+  return mergeRanges(out);
+}
+
+/**
+ * MHR-E continuation read — retrieve, with ZERO network, what an earlier
+ * read of THIS session left behind in a document it already fetched
+ * (blocks dropped at the per-page cap, focus-window sections outside the
+ * returned windows, budget-trimmed slots). No new [S#] is minted (the
+ * document already owns its alias), no read budget is charged (nothing
+ * was fetched), and a miss fails honestly instead of guessing or
+ * silently re-fetching. Persisted journal prose is NOT the fallback
+ * here — the retained copy is byte-true to what this session fetched.
+ */
+async function readRetainedBatch(
+  session: WebToolSession,
+  urls: string[],
+  focus: string,
+): Promise<{ pages: Record<string, unknown>[]; failures: RetrievalFailureEntry[] }> {
+  const pages: Record<string, unknown>[] = [];
+  const failures: RetrievalFailureEntry[] = [];
+  const fWords = focusTokens(focus || session.queryContext);
+  for (const url of urls) {
+    const doc = session.docStore.get(normalizeUrl(url));
+    if (!doc) {
+      failures.push({
+        url,
+        failure: "continuation_unavailable",
+        detail:
+          "this session has not fetched this document — no retained copy exists; " +
+          "read_page it normally first (continuation re-serves what THIS session already fetched; " +
+          "passages from earlier turns ride in the prior-research-evidence block)",
+      });
+      continue;
+    }
+    // §7 scope law applies to the retained copy exactly as to the fetch:
+    // an off-scope document is never served, even from local memory.
+    if (session.scope && isEnforceableScope(session.scope)) {
+      const sHosts = scopeHosts(session.scope);
+      if (sHosts.length > 0 && !sHosts.some((h) => domainWithin(hostOf(doc.url), h))) {
+        failures.push({
+          url,
+          failure: "continuation_unavailable",
+          detail: `${doc.url} is outside the task scope (${sHosts.join(", ")}) — the retained copy is not served`,
+        });
+        continue;
+      }
+    }
+    // Fresh per-call text allowance: continuation is a NEW delivery
+    // decision, not a smuggled extension of the previous round's budget.
+    let charBudgetLeft = READ_PAGE_TEXT_BUDGET;
+    const servedTexts: string[] = [];
+    const servedRefs: string[] = [];
+    let contSectionsDropped = 0;
+    for (let bi = 0; bi < doc.blocks.length; bi++) {
+      if (servedTexts.length >= MAX_PASSAGES_PER_PAGE) break;
+      const blk = doc.blocks[bi];
+      const pending = complementRanges(blk.servedRanges, blk.text.length);
+      if (pending.length === 0) continue;
+      const cand = pendingCandidate(blk.text, pending);
+      const win = cand.text.length > MAX_PASSAGE_CHARS ? selectFocusWindows(cand.text, fWords) : null;
+      const served = win ? win.text : cand.text;
+      if (served.length > charBudgetLeft) continue; // whole-slot trim; waits for the next continuation
+      charBudgetLeft -= served.length;
+      servedTexts.push(served);
+      servedRefs.push(`§${bi + 1}`);
+      if (win) contSectionsDropped += win.dropped;
+      const rawServed = win
+        ? mapWindowsToRaw(chosenToTuples(win.chosen), cand.segs)
+        : cand.segs.map((s) => [s.from, s.to] as [number, number]);
+      blk.servedRanges = mergeRanges([...blk.servedRanges, ...rawServed]);
+    }
+    const stillPending = doc.blocks.some(
+      (b) => complementRanges(b.servedRanges, b.text.length).length > 0,
+    );
+    if (servedTexts.length === 0) {
+      // Nothing left, honestly stated — never repeat already-served text.
+      pages.push({
+        url,
+        title: doc.title,
+        domain: doc.domain,
+        fetched: true,
+        sourceId: doc.sourceId,
+        passages: [],
+        passageRefs: [],
+        exhausted: true,
+      });
+      continue;
+    }
+    pages.push({
+      url,
+      title: doc.title,
+      domain: doc.domain,
+      fetched: true,
+      sourceId: doc.sourceId,
+      continuation: true,
+      passages: servedTexts,
+      passageRefs: servedRefs,
+      truncated: stillPending,
+      ...(contSectionsDropped > 0 ? { droppedSections: contSectionsDropped } : {}),
+      ...(stillPending || contSectionsDropped > 0
+        ? {
+            continuationHint:
+              "focus-matched sections beyond the window budget were not returned; call read_page again on this URL with continuation:true (a different focus is allowed) to retrieve them without re-fetching",
+          }
+        : {}),
+    });
+  }
+  return { pages, failures };
 }
 
 /** Shared batch reader — returns the page entries + failures + citations. */
@@ -1144,6 +1509,36 @@ export async function execReadPageTool(
   if (urls.length === 0) {
     return invalidArgsEnvelope(session, "read_page", "urls[] must hold 1-8 absolute http(s) URLs", { urls });
   }
+  // MHR-E: continuation runs BEFORE the budget gate — a zero-network
+  // re-serve of the session's own retained copy charges nothing, and a
+  // spent fetch budget must never redefine what is TRUE about a
+  // document the server already demonstrably fetched this turn.
+  if (args.continuation === true) {
+    const focus = typeof args.focus === "string" && args.focus.trim() !== "" ? args.focus.trim() : "";
+    const cont = await readRetainedBatch(session, urls, focus);
+    const out: Record<string, unknown> = {
+      ok: true,
+      tool: "read_page",
+      searchSessionId: session.searchSessionId,
+      pages: cont.pages,
+      remainingBudget: remainingBudget(session),
+    };
+    if (cont.failures.length > 0) out.failures = cont.failures;
+    recordAction(session, {
+      tool: "read_page",
+      ok: true,
+      requested: urls.length,
+      // Continuation RETRIEVES from the retained copy — the ledger must
+      // reflect the evidence actually delivered, not a phantom fetch.
+      retrieved: cont.pages.filter((p) => Array.isArray(p.passages) && p.passages.length > 0).length,
+      failed: cont.failures.length,
+      urls: urls.length > 0 ? urls : undefined,
+      failures: failureProvenance(cont.failures),
+      // NO `sources`: a retained document already owns its [S#] —
+      // re-stamping it would double-count the evidence in the ledger.
+    });
+    return out;
+  }
   const allowed = Math.max(0, session.budget.maxReadUrls - session.readUrlsUsed);
   if (allowed === 0) {
     return budgetExhaustedEnvelope(session, "read_page", "read_page", { urls });
@@ -1162,6 +1557,10 @@ export async function execReadPageTool(
 
   const batch = await readUrlBatch(session, keep, focus, deadline);
   batch.citations.forEach((c) => citations.push(c));
+  // MHR-E: read_page findings journal as REAL passages (with §refs), not
+  // just the search-style snippet preview, so follow-up turns rehydrate
+  // evidence instead of headlines. Continuation rounds never re-journal.
+  journalReadPageSources(session, batch.pages);
   if (batch.omittedCount > 0) notices.push(`${batch.omittedCount} page(s) omitted: read_page char budget spent`);
 
   const out: Record<string, unknown> = {
