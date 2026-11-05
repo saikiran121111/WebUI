@@ -3281,3 +3281,41 @@ Loaded: superpowers:test-driven-development (Iron Law active WS11–WS20). No Ti
 2. WS11 TDD (fixture first; UNIVERSAL windowing/section law only — no brand tables, no footer word lists): full extracted documents retained (not one-window truncation); section retrieval keeps DISTINCT requested facts (multiple distant windows, not last-only); long-catalog late-row preservation vs 30 generic early matches; controls: short docs byte-stable, existing excerpt tests green. Full suite + tsc + cargo, commit+push+STATE 05l.
 3. Then WS12 per brief order (multilingual relevance + provider recovery — engines.ts:1689 serpCoversQuery strips non-ASCII; route-links.ts focusTokens).
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-05l — WS11 LOCKED (full extracted documents + section retrieval)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-item web-search repair (audit 60fe172) on develop. WS11 LOCKED at 8de5846 (pushed; chain ← 1119df6 WS10 ← …). WS01–WS11 locked (skip WS13, already locked at 8f24d83). Immediate next phase: WS12 (multilingual relevance + provider recovery).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS11 production (commit 8de5846, verified full-suite):
+  - `lib/web-search/tools.ts`: `cutPassageWindow` DELETED, replaced by **section-aware `selectFocusWindows(t, words)`** — paragraphs split via `/\n\n+/g` with offsets; whole sections ranked by DISTINCT focus-token coverage weighted by rarity `1/min(freq,FOCUS_FREQ_CAP=60)` (a boilerplate tail repeating already-covered generic tokens scores 0 → footer/footer-displacement law); greedy whole-section packing into MAX_PASSAGE_CHARS=2000, tie → earlier section; oversized section → rarity-centered window (best uncovered token position) if remaining ≥300 then stop; prefix-only matches → byte-identical plain cut (`t.slice(0,2000)+"…"`); returns `{text, dropped}` (dropped = 200-char-gap clusters of focus matches outside chosen ranges).
+  - `readOneUrl`: block loop accumulates `droppedSections += win.dropped`; entry gains optional `droppedSections: number` + `continuationHint` ("…call read_page again on this URL with a different focus…") ONLY when droppedSections>0. Rust relay opaque to envelope — zero Rust edits, no fixture pins it.
+  - `lib/web-search/pipeline.ts` `selectExcerpt`: past-cap table lines matched by focus ranked across the WHOLE document (rarest-token-first weighting `1/lines-containing-w`, top 30 re-sorted in doc order), kept block re-anchors header (`|` line + separator regex `/^\s*\|[\s:|-]+\|\s*$/`), marker `[…table rows past the excerpt cap, kept whole (K of M focus-matched rows[, O not shown; a narrower focus would surface them]):]`. Non-table path byte-identical (matched=0 → head cut unchanged).
+  - New fixture `__tests__/web-search/section-window-retrieval.test.ts` (5 tests): footer-displacement (Boreal/Cedar survive), two-distant-facts (March+August survive), five-section disclosure (3 whole sections returned, ALPHA/BETA/GAMMA-FACT + droppedSections≥1 + continuationHint), byte-identical prefix control, catalog late-row + header re-anchor ≥2 + `\d+ of \d+ focus-matched rows` + "not shown". Fixture geometry deliberate: mkSection ~635 chars ⇒ 3×635 ≤ budget, 4th excluded (remaining 95 <300) — tuned after watching RED fail for defect reasons, NOT to mask a bug.
+- Controls green unchanged: web-tools 70/70, research-depth-tools 3/3, research-depth-policy 5/5.
+
+## [8.3 DEPENDENCY MAP (WS11)]
+- tools.ts: `readOneUrl` → `selectFocusWindows` (module-local; no other callers) — read_page entry envelope → bridge citations relay (opaque serde Value) + web-tool-loop consumers (additive fields only).
+- pipeline.ts: `evidenceBlock` → `selectExcerpt` (module-local) — excerpt lands in evidence prompt + journal excerpts (WS05 rehydrate) — marker text appears in NO fixture (grep-proven) and whitespace-collapses safely in evidenceBlock.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- `selectFocusWindows(t, words): { text: string; dropped: number }` — tools.ts module-private; FOCUS_FREQ_CAP=60, MAX_PASSAGE_CHARS=2000, whole-section packing, ≥300 minimal partial window.
+- read_page entry optional fields: `droppedSections?: number`, `continuationHint?: string` (additive, unnumbered).
+- `selectExcerpt(text, cap, focusWords)` — pipeline.ts module-private; table branch marker bytes as above; non-table branch head-cut only.
+- focusTokens = route-links.ts:23 `lower.split(/[^a-z0-9]+/).filter(w=>w.length>3)`; window matching is substring (indexOf).
+
+## [8.5 VERIFICATION STATE]
+vitest FULL 119 files / 1507 passed | 1 skipped; `tsc --noEmit` exit 0; cargo ruke-server --lib 146/146. No Playwright lock; no dev servers needed.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+None open in WS11. Watch-out for later phases: whole-section packing returns ONE partial window max (oversized section spends remaining budget) — acceptable per audit ("several non-overlapping windows… expose truncation"); re-read with a different focus is the documented continuation path.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS12–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS12 recon (fresh reads): `lib/web-search/engines.ts` serpCoversQuery (~:1689 — strips non-ASCII so multilingual SERPs fail their own query) + `lib/web-search/route-links.ts` focusTokens (:23, ASCII-only class) + provider-failure/recovery paths named in the audit WS12 entry; read full current bytes + callers first.
+2. WS12 TDD: fixtures pin multilingual query coverage (non-ASCII tokens survive comparison; universal unicode law, no language tables) + provider recovery behavior; keep existing engine tests byte-stable; full suite + tsc + cargo; commit+push+STATE 05m.
+3. Then WS14 per brief order (freshness at tool-operation level — tools.ts readOneUrl, session.liveRequired ~:476).
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
