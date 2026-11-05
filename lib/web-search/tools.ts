@@ -181,6 +181,26 @@ export interface ToolActionRecord {
   retrieved: number;
   /** individual lookups that came back failed (engine error, wall, block) */
   failed: number;
+  /**
+   * WS18 (audit 2026-11-05 item 18): counts alone cannot answer "which
+   * action, when". `id` is SERVER-MINTED, unique inside the session
+   * (`<searchSessionId>-a<n>`); `at` is the ISO-8601 record stamp. Both
+   * are stamped centrally in recordAction — no call site can skip them.
+   */
+  id: string;
+  at: string;
+  /**
+   * WS18 exact provenance (absent when the action parsed/attempted
+   * nothing — never a phantom field): `queries`/`urls` name the exact
+   * targets the action was issued against, INCLUDING refusals (a budget
+   * or validation rejection must say WHAT it refused); `failures` pairs
+   * every failed lookup with its classifier code; `sources` are the
+   * sourceIds of the [S#] packets THIS action minted.
+   */
+  queries?: string[];
+  urls?: string[];
+  failures?: { target: string; code: string }[];
+  sources?: string[];
 }
 
 export interface WebToolSession {
@@ -250,12 +270,19 @@ export function remainingBudget(session: WebToolSession) {
   };
 }
 
-/** Append one action-record entry stamped with the current model round. */
+/** Append one action-record entry stamped with the current model round.
+ *  WS18: the unique id and timestamp are stamped HERE — provenance is
+ *  enforced by construction, every call site cannot opt out. */
 export function recordAction(
   session: WebToolSession,
-  rec: Omit<ToolActionRecord, "round">,
+  rec: Omit<ToolActionRecord, "round" | "id" | "at">,
 ): void {
-  session.actionLedger.push({ ...rec, round: session.roundsUsed });
+  session.actionLedger.push({
+    ...rec,
+    round: session.roundsUsed,
+    id: `${session.searchSessionId}-a${session.actionLedger.length + 1}`,
+    at: new Date().toISOString(),
+  });
 }
 
 /**
@@ -765,8 +792,28 @@ async function readUrlBatch(
   return { pages, failures, citations, omittedCount };
 }
 
-function budgetExhaustedEnvelope(session: WebToolSession, tool: string, what: string) {
-  recordAction(session, { tool, ok: false, error: "budget_exhausted", requested: 0, retrieved: 0, failed: 0 });
+/** WS18 failure provenance: target + classifier code per failed lookup. */
+function failureProvenance(
+  f: RetrievalFailureEntry[],
+): { target: string; code: string }[] | undefined {
+  return f.length === 0
+    ? undefined
+    : f.map((e) => ({ target: e.query ?? e.url ?? "?", code: String(e.failure) }));
+}
+
+function budgetExhaustedEnvelope(
+  session: WebToolSession,
+  tool: string,
+  what: string,
+  targets?: { queries?: string[]; urls?: string[] },
+) {
+  // WS18: a refusal still names WHAT it refused — a ledger full of bare
+  // zeros cannot support truthful "what was attempted" diagnostics.
+  recordAction(session, {
+    tool, ok: false, error: "budget_exhausted", requested: 0, retrieved: 0, failed: 0,
+    queries: targets?.queries && targets.queries.length > 0 ? targets.queries : undefined,
+    urls: targets?.urls && targets.urls.length > 0 ? targets.urls : undefined,
+  });
   return {
     ok: false,
     tool,
@@ -777,8 +824,19 @@ function budgetExhaustedEnvelope(session: WebToolSession, tool: string, what: st
   };
 }
 
-function invalidArgsEnvelope(session: WebToolSession, tool: string, detail: string) {
-  recordAction(session, { tool, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0 });
+function invalidArgsEnvelope(
+  session: WebToolSession,
+  tool: string,
+  detail: string,
+  targets?: { queries?: string[]; urls?: string[] },
+) {
+  // WS18: record the PARSEABLE target subset when args were partly valid
+  // (empty after filtering ⇒ no phantom field, nothing was usable).
+  recordAction(session, {
+    tool, ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0,
+    queries: targets?.queries && targets.queries.length > 0 ? targets.queries : undefined,
+    urls: targets?.urls && targets.urls.length > 0 ? targets.urls : undefined,
+  });
   return {
     ok: false,
     tool,
@@ -854,10 +912,10 @@ export async function execWebSearchTool(
   const missing = (Array.isArray(args.missing_claims) ? args.missing_claims : [])
     .filter((c): c is string => typeof c === "string" && c.trim() !== "");
   if (queries.length === 0 || missing.length === 0) {
-    return invalidArgsEnvelope(session, "web_search", "queries[] (1-4) and missing_claims[] (1+) are both required");
+    return invalidArgsEnvelope(session, "web_search", "queries[] (1-4) and missing_claims[] (1+) are both required", { queries });
   }
   if (session.searchesUsed >= session.budget.maxSearchCalls) {
-    return budgetExhaustedEnvelope(session, "web_search", "web_search");
+    return budgetExhaustedEnvelope(session, "web_search", "web_search", { queries });
   }
   session.searchesUsed += 1;
 
@@ -1001,6 +1059,13 @@ export async function execWebSearchTool(
     requested: queryResults.length + readUrls.length,
     retrieved: results.length + pagesOk,
     failed: failures.length,
+    // WS18 exact provenance: every target this call was issued against,
+    // the URL-shaped reads it routed, each failed lookup's classifier
+    // code, and the [S#] sources THIS action minted.
+    queries: queries.length > 0 ? queries : undefined,
+    urls: readUrls.length > 0 ? readUrls : undefined,
+    failures: failureProvenance(failures),
+    sources: citations.length > 0 ? citations.map((c) => c.sourceId) : undefined,
   });
   return out;
 }
@@ -1018,11 +1083,11 @@ export async function execReadPageTool(
     .map((u) => u.trim())
     .slice(0, 8);
   if (urls.length === 0) {
-    return invalidArgsEnvelope(session, "read_page", "urls[] must hold 1-8 absolute http(s) URLs");
+    return invalidArgsEnvelope(session, "read_page", "urls[] must hold 1-8 absolute http(s) URLs", { urls });
   }
   const allowed = Math.max(0, session.budget.maxReadUrls - session.readUrlsUsed);
   if (allowed === 0) {
-    return budgetExhaustedEnvelope(session, "read_page", "read_page");
+    return budgetExhaustedEnvelope(session, "read_page", "read_page", { urls });
   }
   const notices: string[] = [];
   // Task-scope admission for read_page (brief #6/#8): a read_page argument
@@ -1055,6 +1120,10 @@ export async function execReadPageTool(
     requested: urls.length,
     retrieved: batch.pages.filter((p) => p.fetched !== false).length,
     failed: batch.failures.length,
+    // WS18 exact provenance (⇔ the web_search site above).
+    urls: urls.length > 0 ? urls : undefined,
+    failures: failureProvenance(batch.failures),
+    sources: citations.length > 0 ? citations.map((c) => c.sourceId) : undefined,
   });
   return out;
 }

@@ -45,6 +45,9 @@ import {
   WEB_TOOL_FINAL_DIRECTIVE,
   type WebProgressChannel,
 } from "@/lib/chat/web-tool-loop";
+// REAL recordAction: the tools mock only overrides the executors, so a
+// WS18 exec mock can record into the loop's own session like production.
+import { recordAction } from "@/lib/web-search/tools";
 import type { StageEvent } from "@/lib/types";
 
 /* ── SSE plumbing ──────────────────────────────────────────────────────── */
@@ -310,20 +313,32 @@ describe("tool round → merged conversation → final answer", () => {
       detail: "tool arguments are not a JSON object",
     });
     expect(mocks.execWebSearch).not.toHaveBeenCalled();
-    // P3b: no fresh citations still means no mid-loop web_meta frame, but
-    // the turn ends on the grounded-release ledger frame — the rejected
-    // calls ride it so the record of what ACTUALLY happened ships with the
-    // (pipeline-seeded) citations. Exactly one, on the completion.
+    // WS18 deliberate fixture evolution (audit item 18 — "failed research
+    // attempts disappear from persisted ledger metadata"): the rejected
+    // calls ARE recorded (invalidArgsEnvelope/unknown-tool sites call the
+    // real recordAction), so every round's ledger growth now emits its own
+    // web_meta and the completion re-emits the final ledger — 3 frames,
+    // not 1. Each frame still ships the merged (pipeline-seeded) citation
+    // map, and each carries the ledger SNAPSHOT as of its emission round —
+    // frame 0 saw exactly the unknown_tool rejection.
     const metaStages = h.stages.filter((s) => s.stage === "web_meta");
-    expect(metaStages).toHaveLength(1);
-    expect(metaStages[0].webCitations && Object.keys(metaStages[0].webCitations)).toEqual(["S1"]);
-    expect(metaStages[0].researchLedger).toEqual({
+    expect(metaStages).toHaveLength(3);
+    for (const m of metaStages) expect(Object.keys(m.webCitations!)).toEqual(["S1"]);
+    expect(metaStages[0].researchLedger!.actions.map((a) => a.error)).toEqual(["unknown_tool"]);
+    expect(metaStages[1].researchLedger!.actions.map((a) => a.error)).toEqual([
+      "unknown_tool", "invalid_arguments",
+    ]);
+    expect(metaStages[2].researchLedger).toEqual({
       toolRounds: 2,
       actions: [
-        { tool: "shell_exec", ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0, round: 1 },
-        { tool: "web_search", ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0, round: 2 },
+        expect.objectContaining({ tool: "shell_exec", ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0, round: 1 }),
+        expect.objectContaining({ tool: "web_search", ok: false, error: "invalid_arguments", requested: 0, retrieved: 0, failed: 0, round: 2 }),
       ],
     });
+    for (const [i, a] of metaStages[2].researchLedger!.actions.entries()) {
+      expect(a.id).toMatch(new RegExp(`-a${i + 1}$`));
+      expect(Number.isNaN(Date.parse(a.at))).toBe(false);
+    }
     expect(countDone(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
   });
@@ -369,5 +384,68 @@ describe("round-cap behaviour (documented deviation: forced final round)", () =>
     expect(h.closed).toBe(1);
     expect(h.failed).toEqual([]);
     expect(mocks.execWebSearch).toHaveBeenCalledTimes(2); // forced-round calls are never executed
+  });
+});
+
+/* ── WS18 (audit 2026-11-05 item 18): failed research stays persisted ────
+   The completion web_meta used to REQUIRE a nonempty citation map, and the
+   per-round re-emission required NEWLY ADDED citations — so a turn whose
+   tools all failed minted zero citations and its action ledger never
+   reached the persisted message at all. "A no-source failure is when
+   truthful diagnostics matter most." ⇔ web_loop.rs mirror. */
+
+describe("WS18 — ledger persistence independent of citations", () => {
+  it("a zero-citation failed turn still emits web_meta carrying the ledger", async () => {
+    // Production-faithful: the real executor records an ok action whose
+    // every lookup FAILED (failed:1) and mints no citations at all.
+    mocks.execWebSearch.mockImplementation(async (s: any, _a: any, _fresh: any[]) => {
+      recordAction(s, { tool: "web_search", ok: true, requested: 1, retrieved: 0, failed: 1 });
+      return { ok: true, tool: "web_search", failures: [{ query: "latest x", failure: "engine_unavailable" }] };
+    });
+    const h = makeHarness();
+    await drive(
+      h,
+      [
+        toolRound("web_search", "c1", ['{"queries":["latest x"],"missing_claims":["what happened yesterday"]}']),
+        answerRound("Every research lookup failed; nothing could be verified."),
+      ],
+      { citationMap: null },
+    );
+    const metas = h.stages.filter((s) => s.stage === "web_meta");
+    // After the fix: ONE per-round re-emission (the ledger grew) + ONE
+    // completion frame — citations play no part in either gate.
+    expect(metas, "failed attempts with zero citations must still persist the ledger (WS18)").toHaveLength(2);
+    for (const m of metas) {
+      expect(m.webCitations).toEqual({});
+      expect(m.researchLedger?.toolRounds).toBe(1);
+      expect(m.researchLedger?.actions).toHaveLength(1);
+      expect(m.researchLedger?.actions?.[0]).toMatchObject({ tool: "web_search", ok: true, failed: 1 });
+    }
+    // OVERWRITE law untouched: an empty map only ever replaces an empty map.
+    expect(h.closed).toBe(1);
+    expect(countDone(h.rawText)).toBe(1);
+  });
+
+  it("a round that records actions but mints no citations re-emits the ledger that round", async () => {
+    mocks.execWebSearch.mockImplementation(async (s: any, _a: any, _fresh: any[]) => {
+      recordAction(s, { tool: "web_search", ok: true, requested: 1, retrieved: 0, failed: 1 });
+      return { ok: true, tool: "web_search", failures: [{ query: "q", failure: "engine_unavailable" }] };
+    });
+    const h = makeHarness();
+    await drive(
+      h,
+      [
+        toolRound("web_search", "c1", ['{"queries":["q1"],"missing_claims":["m1"]}']),
+        toolRound("web_search", "c2", ['{"queries":["q2"],"missing_claims":["m2"]}']),
+        answerRound("Both searches failed."),
+      ],
+      { citationMap: null },
+    );
+    const metas = h.stages.filter((s) => s.stage === "web_meta");
+    // Per-round emission tracks growth: 1 action, then 2, then completion.
+    expect(metas, "each ledger-growing round re-emits the record (WS18)").toHaveLength(3);
+    expect(metas[0].researchLedger?.actions).toHaveLength(1);
+    expect(metas[1].researchLedger?.actions).toHaveLength(2);
+    expect(metas[2].researchLedger?.actions).toHaveLength(2);
   });
 });

@@ -228,6 +228,38 @@ fn stage_event_citation_gate_field_ledgers() {
     ev.rich_results = Some(vec![serde_json::json!({
         "id": "rich:x", "version": 1, "kind": "generic", "sourceRefs": [], "payload": {}
     })]);
+    // P3b/WS18 (audit item 18): `researchLedger` joins the key-ORDER ledger.
+    // Rust-side it is a serde_json::Value PASS-THROUGH (the TS tool loop
+    // mints the ledger; the Rust chat loop forwards it verbatim through
+    // json!), so there is no Rust struct to derive its inner keys from —
+    // the representative payload below stands in for what production
+    // actually forwards, and its exact shape is pinned to the manifest's
+    // nested ledgers at the bottom of this test. (This field was added to
+    // the TS ledger in P3b 7c91c29 without populating it here — the trip
+    // wire has been red since; populating it now restores the gate.)
+    // Two entries mirror the REAL wire shapes: a success action omits
+    // `error`; a rejection omits empty provenance fields (recordAction
+    // never mints phantom arrays). Together their key union covers the
+    // ledger; each entry's keys ride in ledger order.
+    ev.research_ledger = Some(serde_json::json!({
+        "toolRounds": 2,
+        "actions": [
+            {
+                "tool": "web_search", "round": 0, "ok": true,
+                "requested": 1, "retrieved": 1, "failed": 0,
+                "id": "sess-a1", "at": "2026-01-01T00:00:00.000Z",
+                "queries": ["q one"], "urls": ["https://x.test/a"],
+                "failures": [{ "target": "https://x.test/b", "code": "FAIL_BLOCKED" }],
+                "sources": ["S1"]
+            },
+            {
+                "tool": "web_search", "round": 1, "ok": false, "error": "budget_exhausted",
+                "requested": 0, "retrieved": 0, "failed": 0,
+                "id": "sess-a2", "at": "2026-01-01T00:00:01.000Z",
+                "queries": ["q two"]
+            }
+        ]
+    }));
     ev.surface_id = Some("rich:x".into());
     ev.surface_kind = Some("generic".into());
     ev.surface_revision = Some(1);
@@ -279,6 +311,46 @@ fn stage_event_citation_gate_field_ledgers() {
         top_level_keys(&serde_json::to_string(&GateQuery { query: "q".into(), intent: "i".into() }).unwrap()),
         nested_ledger_names(&qf),
         "GateQuery casing/order"
+    );
+    // researchLedger pass-through binding (WS18, audit item 18): TS owns the
+    // ledger shape; Rust forwards it verbatim. The trip wire: when the TS
+    // record gains/renames a field the manifest moves, and this Rust-side
+    // representative — the exact key set a production pass-through frame
+    // carries — must move with it or this test goes red.
+    let rlf = by_name("researchLedger");
+    assert_eq!(ledger_names(&rlf["fields"]), vec!["toolRounds", "actions"], "researchLedger outer ledger");
+    let ev_json = serde_json::to_value(&ev).unwrap();
+    assert_eq!(
+        top_level_keys(&serde_json::to_string(&ev_json["researchLedger"]).unwrap()),
+        ledger_names(&rlf["fields"]),
+        "researchLedger payload vs manifest outer ledger"
+    );
+    let af = rlf["fields"].as_array().unwrap().iter().find(|f| f["name"] == "actions").cloned().unwrap();
+    let act_ledger = nested_ledger_names(&af);
+    let forwarded = serde_json::to_value(&ev.research_ledger).unwrap();
+    let mut covered: Vec<String> = Vec::new();
+    for (i, a) in forwarded["actions"].as_array().unwrap().iter().enumerate() {
+        let keys = top_level_keys(&serde_json::to_string(a).unwrap());
+        // Optional ledger fields may be omitted; the ones present must ride
+        // in ledger order (never re-ordered by the pass-through).
+        let ordered: Vec<String> = act_ledger.iter().filter(|n| keys.contains(n)).cloned().collect();
+        assert_eq!(ordered, keys, "action[{i}] keys ⊆ ledger, in ledger order (WS18)");
+        for k in &keys {
+            if !covered.contains(k) {
+                covered.push(k.clone());
+            }
+        }
+    }
+    let mut covered_sorted = covered.clone();
+    covered_sorted.sort();
+    let mut ledger_sorted = act_ledger.clone();
+    ledger_sorted.sort();
+    assert_eq!(covered_sorted, ledger_sorted, "success+rejection key union covers the action ledger (WS18)");
+    let ff = af["fields"].as_array().unwrap().iter().find(|f| f["name"] == "failures").cloned().unwrap();
+    assert_eq!(
+        top_level_keys(&serde_json::to_string(&forwarded["actions"][0]["failures"][0]).unwrap()),
+        nested_ledger_names(&ff),
+        "failure provenance payload vs manifest ledger (WS18)"
     );
 }
 

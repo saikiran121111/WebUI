@@ -355,6 +355,16 @@ export interface StageEvent {
       requested: number;
       retrieved: number;
       failed: number;
+      /** WS18 (audit item 18) ⇔ tools.ts ToolActionRecord: server-minted
+       *  session-unique action id + ISO stamp, and exact provenance —
+       *  the targets issued (refusals included), per-failure classifier
+       *  codes, and the [S#] sources this action minted. */
+      id: string;
+      at: string;
+      queries?: string[];
+      urls?: string[];
+      failures?: { target: string; code: string }[];
+      sources?: string[];
     }[];
   };
   /** P5 §58 `web:surface_*` frames: the surface's id / kind / revision. */

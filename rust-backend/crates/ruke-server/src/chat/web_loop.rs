@@ -549,26 +549,29 @@ pub async fn run_web_tool_loop(
                     "web tool loop complete"
                 );
                 // P3b grounded release: the turn's ACTUAL tool outcomes
-                // ride the wire (⇔ web-tool-loop.ts mirror). Only stamped
-                // when tools actually ran (empty ledger = nothing to
-                // record) and citations exist (no-citations-no-web_meta).
-                if !merged.is_empty() {
-                    let actions = last_ledger
-                        .as_ref()
-                        .and_then(Value::as_array)
-                        .filter(|a| !a.is_empty());
-                    if let Some(actions) = actions {
-                        let mut ev = StageEvent::new("web_meta");
-                        ev.web_citations = Some(merged.clone());
-                        ev.search_gate = search_gate.clone();
-                        ev.presentation = presentation.clone();
-                        if !rich_results.is_empty() {
-                            ev.rich_results = Some(rich_results.clone());
-                        }
-                        ev.research_ledger =
-                            Some(json!({"toolRounds": rounds_used, "actions": actions}));
-                        ch.stage(&ev).await;
+                // ride the wire (⇔ web-tool-loop.ts mirror). WS18 (audit
+                // 2026-11-05 item 18): ledger persistence is INDEPENDENT
+                // of citation creation — a no-source failure is when
+                // truthful diagnostics matter most, so the old
+                // no-citations-no-web_meta gate is REVERSED: the non-empty
+                // action ledger drives the frame, citations may ride as an
+                // empty map (the OVERWRITE law only replaces empty with
+                // empty). An empty ledger still means nothing ran.
+                let actions = last_ledger
+                    .as_ref()
+                    .and_then(Value::as_array)
+                    .filter(|a| !a.is_empty());
+                if let Some(actions) = actions {
+                    let mut ev = StageEvent::new("web_meta");
+                    ev.web_citations = Some(merged.clone());
+                    ev.search_gate = search_gate.clone();
+                    ev.presentation = presentation.clone();
+                    if !rich_results.is_empty() {
+                        ev.rich_results = Some(rich_results.clone());
                     }
+                    ev.research_ledger =
+                        Some(json!({"toolRounds": rounds_used, "actions": actions}));
+                    ch.stage(&ev).await;
                 }
                 break 'outer Outcome::Finished;
             }
@@ -612,6 +615,16 @@ pub async fn run_web_tool_loop(
             );
 
             let mut added = 0usize;
+            // WS18: the round re-emits when it GREW THE LEDGER too — a
+            // round whose actions all failed mints no citations, and its
+            // record must still reach the client as it happens (the exec
+            // RPC returns the whole session ledger on every response, so
+            // `last_ledger` reflects this round's actions already).
+            // ⇔ web-tool-loop.ts `actionsBefore`.
+            let ledger_len_before = last_ledger
+                .as_ref()
+                .and_then(Value::as_array)
+                .map_or(0, |a| a.len());
             for (id, name, arguments) in calls {
                 if token.is_cancelled() {
                     break 'outer Outcome::Aborted;
@@ -703,10 +716,17 @@ pub async fn run_web_tool_loop(
                 );
             }
 
-            if added > 0 {
+            if added > 0
+                || last_ledger
+                    .as_ref()
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.len() > ledger_len_before)
+            {
                 // OVERWRITE law (hooks/useChat): a later web_meta REPLACES
                 // the citation map — re-emit the merged map so every new
-                // [S#] is clickable the moment the model cites it.
+                // [S#] is clickable the moment the model cites it. WS18:
+                // the frame also rides when the round GREW THE ACTION
+                // LEDGER with no new citations (failed lookups).
                 let mut ev = StageEvent::new("web_meta");
                 ev.web_citations = Some(merged.clone());
                 ev.search_gate = search_gate.clone();

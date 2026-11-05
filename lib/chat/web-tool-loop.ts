@@ -505,17 +505,24 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         );
         // P3b grounded release: the turn's ACTUAL tool outcomes ride the
         // wire so persisted history and benchmark audits can check the
-        // answer against them. Only stamped when tools actually ran (an
-        // empty ledger = nothing to record) and citations exist (the
-        // no-citations-no-web_meta law stays intact). ⇔ web_loop.rs mirror.
-        if (session.actionLedger.length > 0 && Object.keys(merged).length > 0) {
+        // answer against them. WS18 (audit 2026-11-05 item 18): ledger
+        // persistence is INDEPENDENT of citation creation — a no-source
+        // failure is when truthful diagnostics matter most, so the old
+        // no-citations-no-web_meta gate is REVERSED here: a non-empty
+        // action ledger drives the frame (citations may serialize as an
+        // empty map; the OVERWRITE law only replaces empty with empty).
+        // An empty ledger still means nothing ran — no frame. ⇔ web_loop.rs.
+        if (session.actionLedger.length > 0) {
           ch.stage({
             stage: "web_meta",
             webCitations: merged as StageEvent["webCitations"],
             searchGate: opts.searchGateMeta ?? undefined,
             presentation: opts.presentation ?? undefined,
             richResults: opts.richResults && opts.richResults.length > 0 ? opts.richResults : undefined,
-            researchLedger: { toolRounds: session.roundsUsed, actions: session.actionLedger },
+            // WS18 (audit item 18): snapshot at emission time — never alias
+            // the live ledger array, or later rounds rewrite frames already
+            // emitted (⇔ the Rust mirror's json! clone of last_ledger).
+            researchLedger: { toolRounds: session.roundsUsed, actions: [...session.actionLedger] },
           });
         }
         ch.close();
@@ -545,6 +552,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       log.info({ model, round: round + 1, calls: census.join(",") }, "web round tool calls");
 
       let added = 0;
+      // WS18: this round's ledger growth is tracked alongside citation
+      // growth — a round whose actions all failed mints no citations, and
+      // its record must still reach the client as it happens.
+      const actionsBefore = session.actionLedger.length;
       for (const call of calls) {
         if (signal?.aborted) {
           ch.close();
@@ -603,10 +614,13 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         payload.messages.push({ role: "tool", tool_call_id: call.id, content: toolContent(result) });
       }
 
-      if (added > 0) {
+      if (added > 0 || session.actionLedger.length > actionsBefore) {
         // OVERWRITE law (hooks/useChat): a later web_meta REPLACES the
         // citation map — re-emit the merged map so every new [S#] is
-        // clickable the moment the model cites it.
+        // clickable the moment the model cites it. WS18: the frame also
+        // rides when this round GREW THE ACTION LEDGER with no new
+        // citations (failed lookups) — the researchLedger snapshot is
+        // what a no-source round still has to show for itself.
         ch.stage({
           stage: "web_meta",
           webCitations: merged as StageEvent["webCitations"],
@@ -615,7 +629,9 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
           // surfaces ride along; the loop itself mints no new surfaces.
           presentation: opts.presentation ?? undefined,
           richResults: opts.richResults && opts.richResults.length > 0 ? opts.richResults : undefined,
-          researchLedger: { toolRounds: session.roundsUsed, actions: session.actionLedger },
+          // WS18: snapshot at emission time (⇔ Rust json! clone) — see the
+          // completion-site comment above.
+          researchLedger: { toolRounds: session.roundsUsed, actions: [...session.actionLedger] },
         });
       }
       // Next round re-serializes `payload` with the extended messages;

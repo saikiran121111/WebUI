@@ -319,6 +319,48 @@
                 "name": "failed",
                 "present": "always-present",
                 "nullable": false
+              },
+              {
+                "name": "id",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "at",
+                "present": "always-present",
+                "nullable": false
+              },
+              {
+                "name": "queries",
+                "present": "optional-omit-when-absent",
+                "nullable": false
+              },
+              {
+                "name": "urls",
+                "present": "optional-omit-when-absent",
+                "nullable": false
+              },
+              {
+                "name": "failures",
+                "present": "optional-omit-when-absent",
+                "nullable": false,
+                "fields": [
+                  {
+                    "name": "target",
+                    "present": "always-present",
+                    "nullable": false
+                  },
+                  {
+                    "name": "code",
+                    "present": "always-present",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "name": "sources",
+                "present": "optional-omit-when-absent",
+                "nullable": false
               }
             ]
           }
