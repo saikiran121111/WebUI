@@ -3637,3 +3637,41 @@ superpowers:test-driven-development (Iron Law: watch RED, full suite, name every
 2. MHR-B/WS22: demote parser hints (task-scope.ts word sets :617–627, operate-inference :785–797, merge promotion :957; Rust :286–297/:707–725) — hints ≠ routing authority; browser-session id ≠ action request; keep literal-URL/restriction/source-identity/authorization deterministic; update TS+Rust call sites together; never disable real browser requests nor touch browser_loop.rs/ruke-browser/omnibox/migration.
 3. Keep full MHR map from 05s [8.8] item 2 (C–G details there) + acceptance list from 05s [8.8] item 3 in force; commit+push+STATE 05u… after EACH phase; ONE final locked Playwright loop → ANALYZE → §4 report (incl. WS19 limitation, web-tools-rpc oddity, MHR limits, "not universal correctness/ChatGPT parity") → AUTO-SHUTDOWN, never ask.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-05u — MHR-A/B/C LOCKED (commit 6321251; model-directed harness repair program)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+MHR-A…G (WS21–WS27) program after the locked 20-item audit (WS01–WS20 all LOCKED). Law: the MAIN MODEL interprets requests and chooses tools; the HARNESS supplies resources, executes valid actions, preserves evidence, reports actual outcomes. NO semantic patches via word lists/thresholds/refusal paragraphs. MHR-A (capability-vs-prefetch separation), MHR-B (parser hints demoted), MHR-C (search-gate REMOVED from the chat path — gate retires to app/api/search) are LOCKED + committed (6321251, pushed develop). Active phase now: MHR-D (WS24 evidence-driven next action).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 6321251 (pushed): chat route NO gate prefetch; runWebToolLoop armed EVERY progress-path turn (!meta.researchDisabled && !payload.tools), depth "standard", ZERO prefetched evidence start; journal rehydration + research recording INSIDE loop/RPC; legacy stream:false = PLAIN FORWARD (clock still injected, roles ["user","system"]); Rust pipeline.rs mirrored (−491 lines; armed unless kill switch / OPERATE browser turn via routes_to_browser_turn / missing bridge). WEB_SEARCH_GATE_DISABLED = kill switch only.
+- MHR-B non-inheritance law: anaphoric merge intent = derived.intent (was inherits prev.intent) — TS mergeTaskScope + Rust merge_task_scope mirrored; corpus vectors: "What is its rating?" operate→research; anaphoric-research-keeps-subject-not-action (flipkart); pure-followup-still-inherits-site-task (Zepto "add bread too" keeps operate).
+- Golden web-search corpus re-recorded (renames included): 01 model-directed research (6-frame interleave census/meta; assistant tool_calls grammar pinned; S1 title:"" + page domain fallback = EVIDENCE-HONESTY NOTE, MHR-E observation), 02 legacy plain forward (header pair ABSENT), 03 starved honest empty envelope, 04 budget-exhausted (envelope NEVER echoes model args — refused target named only in ledger), 05 image parts passthrough ARMED-unused. 06 timezone case in-suite only (no fixture): tools ARMED, zero engine legs. Volatile masking law: ws-<sid> + "at":"<volatile-at>"; never publishedDate/publishedAt.
+- route-tool-availability.test.ts (new, green); scripts/gate-cache-bench.mjs committed; fixtures README rewritten (MHR sections, mock boundary, SUPERSEDED pins 2/4/5/6/8/10).
+- VERIFIED COUNTS at 6321251: vitest 128 files 1581 passed |1 skipped; golden web 7/7 zero-drift replay; six-file batch 192/192; tsc --noEmit 0; cargo ruke-server --lib 145 (one gate-era test retired by design) + golden_replay 19/19 + all integration green; ruke-contracts green; contracts:check OK; clippy: no new warnings (pipeline.rs:438 closure fixed).
+
+## [8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
+- app/api/chat/route.ts → runWebToolLoop(lib/chat/web-tool-loop.ts) → handleWebToolsRpc(lib/server/web-tools-rpc.ts) → lib/web-search/tools.ts executors; Rust chat/pipeline.rs → chat/web_loop.rs → same RPC bridge. MHR-B: lib/decision/task-scope.ts ⇄ ruke-server/src/task_scope.rs ⇄ fixtures/task-scope/cases.json. Gate remains ONLY on app/api/search consumers.
+- MHR-D next touchpoints: hasAnswerSupport (answer-support/retrieval signal sites), lib/chat/web-tool-loop.ts round continuation, Rust web_loop.rs parity.
+
+## [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
+- Loop grammar (pinned, unchanged): assistant {role:"assistant",content:null,tool_calls:[{id,type:"function",function:{name,arguments}}]}; web:tools census ONLY inside tool_calls branch (done=roundsUsed,total=maxRounds=4 "standard"); web_meta LEDGER-GATED per round (added>0||ledger grew) {stage:"web_meta",webCitations:merged,researchLedger:{toolRounds,actions}}; completion web_meta gated actionLedger.length>0; tool msg {role:"tool",tool_call_id,content:JSON envelope}; maxRounds 4; budget standard {2,12,4}.
+- Budget-exhausted envelope: {ok:false,tool:"web_search",searchSessionId:"ws-<sid>",error:"budget_exhausted",detail:"web_search budget spent (2 search call(s)). Answer from the evidence you already have and state plainly what is still missing.",remainingBudget:{...}} — NO queries/urls echo.
+- Starved: ok:true,results:[],resultCount:0,ledger retrieved:0. searchGate/presentation/richResults ABSENT on chat route path. X-Web-Citations/X-Search-Gate headers GONE.
+- priorEvidence rehydration (RPC create): numbered clear of citationSeed, session mints continue after highest prior alias (nextSource bump).
+- ENV: setGoldenEnv web suite webSearchDisabled:false (gate env REMOVED); golden law: drift ⇒ DELETE + re-record, never hand-edit; MOCK_LLM_URL http://127.0.0.1:9/v1/chat/completions.
+
+## [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
+No Playwright lock; no dev servers this session. Final pw-80 loop still pending (covers acceptance list + the five user sentences; verify running-app build identity FIRST; launcher scripts/run-browser-e2e-exclusive.ps1 -TestFiles <spec> [-Grep ...]; NO npm run test:e2e).
+
+## [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
+None active. Carried documented limitations for final §4 report: WS19 no deterministic location/version currentness proxy; web-tools-rpc deferred-cancellation oddity (documented shortcut, kept); MHR-E observation: read_page citations carry title:"" (extractor never sniffs HTML <title>; tools.ts:749/785 domain fallback) — address in MHR-E.
+
+## [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
+superpowers:test-driven-development in force (RED first, full suite, name every witnessed failure). No Tier-2 loads. Do not re-invoke.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. MHR-D/WS24 recon+RED: locate hasAnswerSupport + answer-release sites (lib/chat answer-support, app/api/chat/route.ts presentation, lib/decision) + Rust answer_release.rs; write FAILING tests (TS+Rust, fictional entities): an unsupported/undated-evidence answer must trigger FURTHER RETRIEVAL in the existing tool loop (same turn) or an honest gap statement — hasAnswerSupport is a RETRIEVAL SIGNAL handed to the model, never a silent rewrite/refusal/citation-removal engine. NO second research engine — reuse runWebToolLoop rounds; Rust web_loop parity.
+2. GREEN MHR-D; re-run six-file batch + golden replay (re-record 01/04 if envelopes/frames intentionally change); tsc; cargo full; contracts:check if wire shape moves.
+3. Commit+push develop + STATE 05v. Then MHR-E (WS25 retrievable evidence: document/section/row refs + continuation, same registry+citation map every wave, rehydrate aliases, journal beyond 500-char preview, fix empty-title finding) → MHR-F (WS26) → MHR-G (WS27 three-level proof: configured-model semantic evals w/ held-out paraphrases + unknown entities; current build e2e) → ONE final locked pw-80 loop → ANALYZE → §4 report (incl. WS19, web-tools-rpc oddity, MHR limits "not universal correctness/ChatGPT parity") → AUTO-SHUTDOWN shutdown //s //f //t 60, never ask.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
