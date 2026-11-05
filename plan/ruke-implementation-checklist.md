@@ -86,18 +86,68 @@ Overnight implementation run. Source of truth: `plan/ruke-chatgpt-like-implement
   WS ticket `POST /api/browser/ticket`, policy `GET/PUT /api/browser/policy`) → `components/browser/BrowserPanel.tsx`.
 - **Browser process host:** `host.rs` — launches Playwright-vendored Chromium with
   `--remote-debugging-port=0` + `DevToolsActivePort` handshake; persistent profile `.data/ruke-browser-profile`;
-  discovery list (win64/win/linux/linux64) is **missing macOS `chrome-mac/Chromium.app`** (Phase-1 portability fix).
+  discovery list covers win64/win/linux/linux64 + all three macOS `.app` layouts (Phase-1 fix);
+  headless-shell bundles are never candidates.
 - **Cleanup:** `turn_guard.finish()` → engine `end_turn` unparks approval/handoff waits, releases claims,
   closes turn tabs except deliverable/handoff marks.
 
 **Phase 0 status: [LOCKED-DONE] code map + non-model baselines + model-driven baselines (EASY/MEDIUM journeys) recorded under the exclusive lock; both real-model journeys passed on the CURRENT action driver (E2E 11/11, EASY 40.6 s, MEDIUM 12 rounds / 42.7 s).**
 
+## Phase 1 — Screenshot transport, targeted reads, portability — [LOCKED-DONE] (commit `66b76b9`)
+
+### Endpoint probe (live :8080, `.ai-coordination/probe-tool-image.mjs`)
+
+- Probe A (user-role image) ⇒ "Red" — endpoint accepts images at all.
+- Probe B (tool-role image content array) ⇒ "Red" (168 tk) — **tool-role multimodal content accepted**.
+- Probe C (tool-role image + tools) ⇒ `finish_reason:"tool_calls"`, reasoning "The page background is
+  red, not green, so I did not click SUBMIT", follow-up `answer {"text":"No"}` — images are not just
+  accepted, they are **actionable inside the tool loop**. Transport shape settled: multimodal tool messages.
+
+### Implementation (all in `66b76b9`; cargo fmt hunks included)
+
+- `browser_loop.rs`: `cull_tool_result` → **`split_tool_result`** (KEEP_INLINE=256; image parts re-emitted
+  as `{"type":"image_url","image_url":{"url":"data:<mime>;base64,…"}}` inside the tool message;
+  MAX_IMAGE_B64_CHARS=1.4M ⇒ replaced with retake-hint text); per-round trace `browser tool result … images=N`;
+  BROWSER_GUIDANCE teaches screenshot knobs + claim law. 3 new tests (154 ruke-server total).
+- `pw.rs` screenshot rewrite (raw CDP): `format` png/jpeg (jpeg gets `quality`), `max_dim` downscale via
+  `clip.scale`, selector targeting (empty-box + no-match refusals carry actionable messages),
+  clip/full_page geometry (`getLayoutMetrics` + `captureBeyondViewport`); honest `image_width/height`
+  (clip: `w*scale`; uncropped: `viewport*dpr`); `crop`/`selector_box`/`viewport`/`page` metadata emitted.
+- `schemas/contract/executor`: `ScreenshotPayload` (+clip/full_page/selector/format/quality/max_dim) for
+  `tab_screenshot` + `playwright_element_screenshot`; new `DomSnapshotPayload` for `playwright_dom_snapshot`.
+- Targeted dom reads: `search` + `offset_lines`/`limit_lines` (default 500-line cap) + `snapshot_meta`
+  {total_lines, matched_lines, offset_lines, returned_lines, truncated, next_offset_lines} emitted only
+  when needle/offset/truncated — default shape unchanged.
+- `tools.rs`: model-facing schemas teach jpeg/quality 60/max_dim 900 + targeted reads.
+- `host.rs`: `PLATFORM_EXE_CANDIDATES` win64/win/linux/linux64/mac/mac-x64/mac-arm64 (`.app/Contents/MacOS/Chromium`);
+  headless-shell bundles never candidates; 3 discovery tests incl. mac layout + fail-closed.
+
+### Verification actually run
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p ruke-browser --lib` | **180 passed** (incl. host discovery + split transport) |
+| `cargo test -p ruke-server --lib` | **154 passed** (3 new `split_tool_result` tests) |
+| `RUST_MIN_STACK=33554432 cargo test -p ruke-browser --test fixture_journeys -- --ignored --test-threads=1` | **2 passed** — Phase-1 battery vs REAL Chromium: jpeg/quality/max_dim honest dims (base64 decoded, JPEG SOF headers parsed — metadata proven honest), selector crop + `selector_box`, stale-selector refusal ("matched no element"), `search` snapshot window + `snapshot_meta` |
+| Real-model VISION journey (locked launcher, `tests/browser-model-acceptance.spec.ts`, `-Grep "VISION: model"`) | run 1 **FAILED** (fixture bug: echo rendered at `/vision/choose` but spec asserted URL `/vision/echo`); run 2 after fixture fix **PASSED 48.9 s, exit 0**. Transport census both runs: `round=2 tab_screenshot ok=true images=1 args={"format":"jpeg","quality":60,"max_dim":900}`; model named the swatch color from pixels among confusable labels (run 1 want=Sea Green vs Teal/Slate Blue/Magenta — answer text proved `match=yes`; run 2 random want=Violet, server verdict `match=yes` asserted) |
+
+Fixture: `tests/fixtures/browser/server.mjs` `/vision?want=1..12` (pixel-only swatch, opaque palette,
+4 named buttons, verdict echo `pick=… want=… match=yes|no`, marker `VISION-PIXEL-9K31`) — gitignored dir,
+local-only; VISION palette mirrored in the spec, `want` randomized per run (blind-guess luck ≤ 1/4).
+Known cheat channel: `playwright_evaluate` is model-exposed (tools.rs); prompt forbids it for color ID and
+the `images=` census + verdict assertions keep the gate meaningful.
+
+**Operational law discovered: the launcher REUSES any already-listening :3210 — after editing the fixture
+server, kill the stale instance first (it carries old routes).**
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
-- [ ] **P1** screenshot transport: real image parts to the model through the ACTUAL Qwen endpoint;
-      capture metadata (tab/frame/viewport/scale/crop/full-page/format); compact DOM/a11y snapshots kept;
-      targeted reads/search/pagination + truncation metadata w/ retrieval; stale-ref refusal; portable browser discovery
+- [x] **P1** screenshot transport: real image parts to the model through the ACTUAL Qwen endpoint
+      (probe C + real-model VISION journey `images=1`); capture metadata (tab/viewport/scale/crop/full-page/
+      format + honest pixel dims proven by header decode); compact DOM/a11y snapshots kept; targeted
+      search/offset/limit + `snapshot_meta`; stale-ref refusal actionable; portable discovery (win/linux/mac
+      layouts unit-proven; live mac gate blocked — no macOS hardware)
 - [ ] **P2** Playwright MCP replaces custom interactive actions: pinned `@playwright/mcp` + rmcp stdio client in
       ruke-browser; SAME authorized Chromium (loopback CDP attach); lifecycle/preview/permissions/downloads/login
       preserved; session isolation; timeouts/cancellation/cleanup; superseded custom code removed per-regression;
@@ -135,10 +185,13 @@ Overnight implementation run. Source of truth: `plan/ruke-chatgpt-like-implement
 
 ## Next action (updated as the run proceeds)
 
-1. **Phase 1 (CODE):** probe the ACTUAL :8080 endpoint for image-in-tool-message acceptance
-   (multimodal tool transport vs. follow-up-user-message fallback) ⇒ pick transport shape;
-   rewrite `cull_tool_result` into split-into-multimodal with metadata; enrich `pw_element_screenshot`
-   response (tab/frame/viewport/scale/crop/format); targeted-read pagination + truncation metadata;
-   macOS discovery paths in `host.rs` discovery list; replace the omission tests with safe-transport tests.
-2. Verify image receipt + actionable tool calls through the real Qwen endpoint, then cargo/vitest checks.
-3. Then Phase 2 (MCP) — `integrations/playwright-mcp/` scaffold + rmcp pin `rmcp = "3.9.0"` (verify MSRV).
+1. **Phase 2 (CODE):** `integrations/playwright-mcp/` scaffold (README: microsoft/playwright-mcp source,
+   Apache-2.0, pinned `@playwright/mcp@0.0.84`, exact setup + smoke test — run them for real); rmcp stdio
+   client in ruke-browser (`rmcp = "3.9.0"` pinned, MSRV vs rustc 1.99); attach to the SAME authorized
+   Chromium via loopback CDP (`--cdp-endpoint` from the DevToolsActivePort handshake); map Ruke lifecycle/
+   preview/permissions/downloads/login-handoff onto the MCP session; two-session isolation test;
+   timeouts/cancellation/cleanup; retire superseded pw.rs actions per-regression; end with ONE interactive
+   driver.
+2. Then Phase 3 (speed/small tasks) on whichever driver survived Phase 2.
+3. Commits: `66b76b9` (P1 code+spec). develop not yet pushed (offline-safe: push at phase boundaries when
+   network available).
