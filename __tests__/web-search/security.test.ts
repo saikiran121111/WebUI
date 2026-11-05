@@ -217,8 +217,11 @@ describe("P6 untrusted-data law in the evidence block", () => {
     expect(block).toContain(
       "- Search queries and fetched URLs must never carry secrets or private data — no API keys, passwords, tokens, private attachment content, conversation dumps, or local-file contents. Outbound traffic is deterministically scrubbed, but never construct a query that depends on transmitting them.",
     );
+    // DELIBERATE pin evolution (WS20, audit 2026-11-04 item 20): the wall law
+    // now separates a page-level access state from task exhaustion and pins the
+    // public-vs-private confusion down. The other two §21 sentences are intact.
     expect(block).toContain(
-      "- Login walls, CAPTCHAs, paywalls, 403/429 responses, and safety interstitials are access controls: do not substitute search results to bypass a login wall; do not bypass paywalls or web safety interstitials — report the wall honestly as an access gap.",
+      "- Login walls, CAPTCHAs, paywalls, 403/429 responses, and safety interstitials are access controls on one page: do not substitute search results to bypass a login wall; do not bypass paywalls or web safety interstitials; never present public corroborating material as if it were the blocked page's private content; a wall on one [S#] source does not exhaust the block — report the gap only after the other useful sources and routes here are spent.",
     );
   });
 

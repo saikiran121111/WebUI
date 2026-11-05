@@ -89,7 +89,7 @@ const WEB_TOOL_GUIDANCE: &str = "WEB RESEARCH TOOL LAWS FOR THIS TURN:\n\
 - A volatile fact (price, stock, schedule, release, status) from an undated or old page is not 'current': report what the source stated and attribute it; keep a price's exact product/variant, currency and source verbatim.\n\
 - Never repeat a query you already ran. web_search requires missing_claims naming a specific fact your current evidence cannot answer, and every query must differ from all previous queries this turn.\n\
 - URLs the human wrote belong to read_page: fetch the page, do not search for it.\n\
-- Walls are access controls, not puzzles: auth_required or captcha_required means stop reaching for that page. Answer from the sources you can read and name what you could not.\n\
+- Walls are access controls, not puzzles: auth_required or captcha_required means stop reaching for THAT page — but a blocked page or provider is a page-level access state, not an exhausted research task: keep working the other searches, sources and already-discovered public routes, and name the remaining gap only after those useful alternatives run out.\n\
 - Batch every page you need into ONE read_page call: one tool round buys many pages.\n\
 - If the tool budget runs out, answer from the evidence you have and state plainly what is still missing. A budget_exhausted or failure envelope is not permission to guess.\n\
 - If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n\
