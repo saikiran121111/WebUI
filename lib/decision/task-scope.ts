@@ -131,7 +131,12 @@ export function registrableHost(input: string): string | null {
 const PREPS = new Set(["on", "from", "in", "at", "via", "through"]);
 
 // Operational verbs: things done AT/THROUGH a website. "get/got" deliberately
-// absent (false-positive magnet). "open" is both operational and source-ish.
+// absent (false-positive magnet). "open/opens/opening" was demoted OUT on
+// 2026-11-05 (audit WS01): adjectival "open" ("open backend engineering
+// jobs") made any read-only find turn OPERATE and skipped web research
+// entirely. The genuine site-destination reading ("Open Zepto") lives in
+// DO_SITE_VERBS/NAV_SITE_VERBS (Pass 3b) — the only place an "open" that
+// actually governs a destination can set the intent.
 const OP_VERBS = new Set([
   "buy", "buys", "buying", "purchased", "purchases", "purchasing", "purchase",
   "ordered", "orders", "ordering", "order", "booked", "books", "booking", "book",
@@ -141,7 +146,7 @@ const OP_VERBS = new Set([
   "ship", "ships", "shipped", "shipping", "apply", "applies", "applying", "applied",
   "renew", "renews", "renewing", "upgrade", "upgrades", "upgrading",
   "use", "uses", "using", "used", "grab", "signup", "register", "registers",
-  "do", "does", "did", "done", "doing", "open", "opens", "opening",
+  "do", "does", "did", "done", "doing",
   // UI-action verbs (2026-11-03 audit #2): "Click the login button on
   // example.com" must be OPERATE (browser routing accepts only operate),
   // so the click/tap/scroll/select/submit/fill family belongs in the
@@ -161,6 +166,17 @@ const DO_SITE_VERBS = new Set([
   "lookup", "lookups", "use", "uses", "using", "used", "navigate",
   "navigates", "navigating", "access", "accesses", "accessing", "launch",
   "launches", "launching",
+]);
+
+// Site-navigation subset of DO_SITE_VERBS (audit WS01, 2026-11-05): verbs
+// whose direct object IS the destination AND whose use IS an operation on
+// that site ("Open/Visit/Browse Zepto" → operate). "search/lookup/use"
+// deliberately absent — the corpus pins "Search Amazon for milk" as
+// SITE_INFO (read-only flavor preserved).
+const NAV_SITE_VERBS = new Set([
+  "open", "opens", "opening", "visit", "visits", "visiting", "browse",
+  "browses", "browsing", "navigate", "navigates", "navigating", "access",
+  "accesses", "accessing", "launch", "launches", "launching",
 ]);
 
 // Scaffold words that can never be a direct-object site ("Open the login
@@ -269,6 +285,25 @@ const RESEARCH_CUE_WORDS = new Set(["search", "searches", "searching", "research
 const INTERROG = ["who", "what", "when", "where", "why", "how", "which"];
 const COPULAS = new Set(["is", "was", "are", "were", "will", "would", "can", "could", "does", "did", "has", "have"]);
 const FOLLOW_CUES = new Set(["it", "its", "them", "this", "that", "same", "again", "too", "also", "then", "now", "but", "and", "here", "there"]);
+
+// Content-token law (audit WS01, 2026-11-05): a token belonging to NONE of
+// the functional/scaffolding vocabularies above carries lexical meaning —
+// a noun ("backend", "engineering", "jobs", "apartments", or an unseen
+// entity word). This is the gazetteer-free test behind the Pass-3 locative
+// rule: content tokens between an eligible verb and an "in" bind the PP to
+// the entity NP (geographic restriction, NEVER a site destination); only
+// scaffolding in between licenses a platform destination ("do this in
+// Blinkit"). No place names, no brand tables — purely closed-class
+// vocabulary membership.
+const NON_CONTENT_SETS: ReadonlyArray<ReadonlySet<string>> = [
+  PREPS, OP_VERBS, DO_SITE_VERBS, NAV_SITE_VERBS, DO_SCAFFOLD, CONJ_STOPS,
+  FIND_VERBS, CUE_NOUNS, COMPARE_WORDS, COMPARE_ADJ, GENERIC_FIRST,
+  STOP_TOKENS, TRAILING_STRIP, ARTICLES, POST_NP_REJECT, ONLY_LEAD,
+  ONLY_VERB, EXCL_LEAD, EXCL_VERB, AUTH_LEAD1, AUTH_VERB,
+  RESEARCH_CUE_WORDS, COPULAS, FOLLOW_CUES,
+];
+const isContentToken = (c: string) =>
+  !isInterrog(c) && !NON_CONTENT_SETS.some((s) => s.has(c));
 
 // ─── Tokenizer (shared law with task_scope.rs) ─────────────────────────────
 // Punctuation never forms a token on its own; "." stays INSIDE tokens
@@ -433,7 +468,13 @@ export function deriveTaskScope(prompt: string): TaskScope {
     targets.push({
       phrase: npPhrase(np.words),
       spanStart: toks[np.firstTok].start,
-      spanEnd: toks[np.lastTok].end,
+      // The last token's RAW keeps its sentence punctuation (a sentence-
+      // final domain tokenizes as "careers.example.com."), but neither the
+      // phrase nor the detector span does — the target span must end where
+      // the phrase ends (audit WS01: sentence-final explicit domains missed
+      // their detector merge by exactly this off-by-one and stayed
+      // forever-unresolved site targets).
+      spanEnd: toks[np.lastTok].end - (toks[np.lastTok].raw.length - stripTailPunct(toks[np.lastTok].raw).length),
       firstTok: np.firstTok,
       lastTok: np.lastTok,
       state: "unresolved",
@@ -566,7 +607,25 @@ export function deriveTaskScope(prompt: string): TaskScope {
     for (let j = p - 1; j >= 0; j--) {
       if (boundary[j] || CONJ_STOPS.has(toks[j].clean)) break;
       if (eligibleWord(toks[j].clean)) {
-        eligible = true;
+        // Locative rule (audit WS01, 2026-11-05): with the preposition "in",
+        // content tokens between the eligible word and the preposition mean
+        // the PP post-modifies the entity NP ("find open backend engineering
+        // jobs IN Hyderabad" — Hyderabad restricts JOBS; it is never a site
+        // destination). Only scaffolding in between keeps the destination
+        // reading ("do this IN Blinkit"). A locative PP is bound to its NP,
+        // so eligible words further back must not re-license it either.
+        if (toks[p].clean !== "in") {
+          eligible = true;
+        } else {
+          let locative = false;
+          for (let m = j + 1; m < p; m++) {
+            if (isContentToken(toks[m].clean)) {
+              locative = true;
+              break;
+            }
+          }
+          if (!locative) eligible = true;
+        }
         break;
       }
     }
@@ -581,6 +640,11 @@ export function deriveTaskScope(prompt: string): TaskScope {
       if (two && !consumed.has(two.firstTok)) pushTarget(two);
     }
   }
+
+  // Set when a target was admitted as the direct object of a site-
+  // navigation verb (NAV_SITE_VERBS) — the operation ITSELF, even though
+  // "open" is no longer an OP_VERB (audit WS01).
+  let navOperate = false;
 
   // ── Pass 3b: direct-object destinations ("Open Zepto", "Search Amazon
   // for milk") ────────────────────────────────────────────────────────────
@@ -611,11 +675,24 @@ export function deriveTaskScope(prompt: string): TaskScope {
     const np = collectNp(prompt, toks, boundary, v + 1);
     if (!np || np.words.length !== 1 || consumed.has(np.firstTok)) continue;
     if (DO_SCAFFOLD.has(np.words[0].toLowerCase())) continue;
+    // Entity-qualified object guard (audit WS01): "open positions IN
+    // Hyderabad" — a single-word object further restricted by an "in" NP is
+    // an entity being researched, not a destination. "Open Zepto in a new
+    // tab" is unaffected: a scaffold NP ("new" is generic) is never
+    // collectible.
+    if (np.next < n && toks[np.next].clean === "in") {
+      const mod = collectNp(prompt, toks, boundary, np.next + 1);
+      if (mod) continue;
+    }
+    const nav = NAV_SITE_VERBS.has(toks[v].clean);
     pushTarget(np);
     if (np.next < n && (toks[np.next].clean === "and" || toks[np.next].clean === "or")) {
       const two = guardedSingle(prompt, toks, boundary, np.next + 1);
       if (two && !consumed.has(two.firstTok)) pushTarget(two);
     }
+    // The navigation ITSELF is the requested operation: with "open" no
+    // longer in OP_VERBS, "Open Zepto" must still reach the browser loop.
+    if (nav) navOperate = true;
   }
 
   // ── Pass 4: explicit merge / promotion (PSL-verified, never guessed) ───
@@ -716,7 +793,7 @@ export function deriveTaskScope(prompt: string): TaskScope {
   let intent: TaskIntent;
   if (deduped.length === 0) intent = researchCue ? "research" : "none";
   else if (compareCue && deduped.length >= 2) intent = "compare_sites";
-  else if (opSeen) intent = "operate";
+  else if (opSeen || navOperate) intent = "operate";
   else intent = "site_info";
 
   return {

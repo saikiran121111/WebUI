@@ -367,6 +367,68 @@
       ],
       "excludedPhrases": [],
       "authorizedHosts": []
+    },
+    {
+      "_why": "audit WS01 (2026-11-05): a locative 'in <NP>' POST-MODIFYING a content entity NP (jobs/scholarships/apartments) is a GEOGRAPHIC RESTRICTION, never a site destination; adjectival 'open' (inside a find-verb's object phrase) must never make the intent operational.",
+      "name": "locative-in-not-a-site-jobs-city",
+      "prompt": "Find open backend engineering jobs in Hyderabad.",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "locative-in-not-a-site-unseen-city",
+      "prompt": "Find apartments in Westford.",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "locative-in-not-a-site-country",
+      "prompt": "Find open scholarships in India.",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "locative-in-not-a-site-search-verb",
+      "prompt": "Search available jobs in Hyderabad.",
+      "intent": "research",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "adjectival-open-makes-no-site",
+      "prompt": "Find open backend engineering jobs.",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "_why": "positive controls: the locative rule must NOT widen. 'in' after an anaphoric pronoun object still licenses the platform ('do this in Blinkit' pattern); an explicit job-site domain keeps source affinity WITHOUT browser routing.",
+      "name": "locative-rule-keeps-pronoun-platform-in",
+      "prompt": "do this in reddit.com",
+      "intent": "operate",
+      "targets": [
+        { "phrase": "reddit.com", "state": "resolved", "host": "reddit.com", "url": "https://reddit.com", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "name": "locative-rule-keeps-explicit-job-site",
+      "prompt": "Find backend engineering jobs on careers.example.com.",
+      "intent": "site_info",
+      "targets": [
+        { "phrase": "careers.example.com", "state": "resolved", "host": "example.com", "url": "https://careers.example.com", "candidates": [], "provenance": "explicit_domain" }
+      ],
+      "excludedPhrases": [],
+      "authorizedHosts": []
     }
   ],
   "resolutions": [

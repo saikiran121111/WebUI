@@ -167,7 +167,12 @@ pub fn registrable_host(input: &str) -> Option<String> {
 const PREPS: &[&str] = &["on", "from", "in", "at", "via", "through"];
 
 // Operational verbs: things done AT/THROUGH a website. "get/got" deliberately
-// absent (false-positive magnet). "open" is both operational and source-ish.
+// absent (false-positive magnet). "open/opens/opening" was demoted OUT on
+// 2026-11-05 (audit WS01): adjectival "open" ("open backend engineering
+// jobs") made any read-only find turn OPERATE and skipped web research
+// entirely. The genuine site-destination reading ("Open Zepto") lives in
+// DO_SITE_VERBS/NAV_SITE_VERBS (Pass 3b) — the only place an "open" that
+// actually governs a destination can set the intent.
 const OP_VERBS: &[&str] = &[
     "buy",
     "buys",
@@ -235,9 +240,6 @@ const OP_VERBS: &[&str] = &[
     "did",
     "done",
     "doing",
-    "open",
-    "opens",
-    "opening",
     // UI-action verbs (2026-11-03 audit #2): "Click the login button on
     // example.com" must be OPERATE (browser routing accepts only operate),
     // so the click/tap/scroll/select/submit/fill family belongs in the
@@ -288,6 +290,32 @@ const DO_SITE_VERBS: &[&str] = &[
     "uses",
     "using",
     "used",
+    "navigate",
+    "navigates",
+    "navigating",
+    "access",
+    "accesses",
+    "accessing",
+    "launch",
+    "launches",
+    "launching",
+];
+
+// Site-navigation subset of DO_SITE_VERBS (audit WS01, 2026-11-05): verbs
+// whose direct object IS the destination AND whose use IS an operation on
+// that site ("Open/Visit/Browse Zepto" → operate). "search/lookup/use"
+// deliberately absent — the corpus pins "Search Amazon for milk" as
+// SITE_INFO (read-only flavor preserved).
+const NAV_SITE_VERBS: &[&str] = &[
+    "open",
+    "opens",
+    "opening",
+    "visit",
+    "visits",
+    "visiting",
+    "browse",
+    "browses",
+    "browsing",
     "navigate",
     "navigates",
     "navigating",
@@ -742,6 +770,26 @@ const FOLLOW_CUES: &[&str] = &[
     "and", "here", "there",
 ];
 
+// Content-token law (audit WS01, 2026-11-05): a token belonging to NONE of
+// the functional/scaffolding vocabularies above carries lexical meaning —
+// a noun ("backend", "engineering", "jobs", "apartments", or an unseen
+// entity word). This is the gazetteer-free test behind the Pass-3 locative
+// rule: content tokens between an eligible verb and an "in" bind the PP to
+// the entity NP (geographic restriction, NEVER a site destination); only
+// scaffolding in between licenses a platform destination ("do this in
+// Blinkit"). No place names, no brand tables — purely closed-class
+// vocabulary membership.
+const NON_CONTENT_SETS: &[&[&str]] = &[
+    PREPS, OP_VERBS, DO_SITE_VERBS, NAV_SITE_VERBS, DO_SCAFFOLD, CONJ_STOPS, FIND_VERBS, CUE_NOUNS,
+    COMPARE_WORDS, COMPARE_ADJ, GENERIC_FIRST, STOP_TOKENS, TRAILING_STRIP, ARTICLES,
+    POST_NP_REJECT, ONLY_LEAD, ONLY_VERB, EXCL_LEAD, EXCL_VERB, AUTH_LEAD1, AUTH_VERB,
+    RESEARCH_CUE_WORDS, COPULAS, FOLLOW_CUES,
+];
+
+fn is_content_token(clean: &str) -> bool {
+    !is_interrog(clean) && !NON_CONTENT_SETS.iter().any(|s| in_list(s, clean))
+}
+
 fn in_list(list: &[&str], w: &str) -> bool {
     list.iter().any(|x| *x == w)
 }
@@ -975,7 +1023,16 @@ fn push_target(
     targets.push(MutableTarget {
         phrase: np.words.join(" "),
         span_start: toks[np.first_tok].start,
-        span_end: toks[np.last_tok].end,
+        // The last token's RAW keeps its sentence punctuation (a sentence-
+        // final domain tokenizes as "careers.example.com."), but neither
+        // the phrase nor the detector span does — the target span must end
+        // where the phrase ends (audit WS01: sentence-final explicit
+        // domains missed their detector merge by exactly this off-by-one
+        // and stayed forever-unresolved site targets). Trailing CUT chars
+        // are all 1 byte, so byte math mirrors the char math.
+        span_end: toks[np.last_tok].end
+            - (toks[np.last_tok].raw.len()
+                - strip_tail_punct(&toks[np.last_tok].raw).len()),
         first_tok: np.first_tok,
         state: TargetState::Unresolved,
         host: String::new(),
@@ -1245,7 +1302,31 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
                 break;
             }
             if eligible_word(&toks[j].clean) {
-                eligible = true;
+                // Locative rule (audit WS01, 2026-11-05): with the
+                // preposition "in", content tokens between the eligible
+                // word and the preposition mean the PP post-modifies the
+                // entity NP ("find open backend engineering jobs IN
+                // Hyderabad" — Hyderabad restricts JOBS; it is never a site
+                // destination). Only scaffolding in between keeps the
+                // destination reading ("do this IN Blinkit"). A locative PP
+                // is bound to its NP, so eligible words further back must
+                // not re-license it either.
+                if toks[p].clean != "in" {
+                    eligible = true;
+                } else {
+                    let mut locative = false;
+                    let mut m = j + 1;
+                    while m < p {
+                        if is_content_token(&toks[m].clean) {
+                            locative = true;
+                            break;
+                        }
+                        m += 1;
+                    }
+                    if !locative {
+                        eligible = true;
+                    }
+                }
                 break;
             }
         }
@@ -1269,6 +1350,11 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
             }
         }
     }
+
+    // Set when a target was admitted as the direct object of a site-
+    // navigation verb (NAV_SITE_VERBS) — the operation ITSELF, even though
+    // "open" is no longer an OP_VERB (audit WS01).
+    let mut nav_operate = false;
 
     // ── Pass 3b: direct-object destinations ("Open Zepto", "Search Amazon
     // for milk") ────────────────────────────────────────────────────────────
@@ -1314,6 +1400,17 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
             if in_list(DO_SCAFFOLD, &w) {
                 continue;
             }
+            // Entity-qualified object guard (audit WS01): "open positions
+            // IN Hyderabad" — a single-word object further restricted by an
+            // "in" NP is an entity being researched, not a destination.
+            // "Open Zepto in a new tab" is unaffected: a scaffold NP
+            // ("new" is generic) is never collectible.
+            if np.next < n && toks[np.next].clean == "in" {
+                if collect_np(prompt, &toks, &boundary, np.next + 1, None, true).is_some() {
+                    continue;
+                }
+            }
+            let nav = in_list(NAV_SITE_VERBS, &toks[v].clean);
             push_target(&mut targets, &mut consumed, n, &toks, &np);
             if np.next < n && (toks[np.next].clean == "and" || toks[np.next].clean == "or") {
                 if let Some(two) =
@@ -1323,6 +1420,12 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
                         push_target(&mut targets, &mut consumed, n, &toks, &two);
                     }
                 }
+            }
+            // The navigation ITSELF is the requested operation: with
+            // "open" no longer in OP_VERBS, "Open Zepto" must still reach
+            // the browser loop.
+            if nav {
+                nav_operate = true;
             }
         }
     }
@@ -1423,7 +1526,7 @@ pub fn derive_task_scope(prompt: &str) -> TaskScope {
         }
     } else if compare_cue && deduped.len() >= 2 {
         TaskIntent::CompareSites
-    } else if op_seen {
+    } else if op_seen || nav_operate {
         TaskIntent::Operate
     } else {
         TaskIntent::SiteInfo
