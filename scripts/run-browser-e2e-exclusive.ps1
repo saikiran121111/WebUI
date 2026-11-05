@@ -118,9 +118,15 @@ try {
     if (Test-HttpUp "http://localhost:3000") {
         Write-Output "Reusing dev app already answering on :3000"
     } else {
+        # Supervisor stdout/err (ruke-server tracing rides stderr) are
+        # captured so model-round rounds/latency census survives the run
+        # for the ANALYZE phase — display only, never a test input.
+        $supOut = Join-Path $lockDir "dev-supervisor.out.log"
+        $supErr = Join-Path $lockDir "dev-supervisor.err.log"
         $appProc = Start-Process -FilePath "cmd.exe" `
             -ArgumentList "/c", "npm run dev" `
-            -WorkingDirectory $root -WindowStyle Hidden -PassThru
+            -WorkingDirectory $root -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $supOut -RedirectStandardError $supErr
         $up = $false
         $deadline = (Get-Date).AddSeconds($AppWaitSeconds)
         while (-not $up -and (Get-Date) -lt $deadline) {

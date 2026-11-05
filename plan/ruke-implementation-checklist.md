@@ -44,7 +44,9 @@ Overnight implementation run. Source of truth: `plan/ruke-chatgpt-like-implement
 | `cargo test -p ruke-browser --lib` | **177 passed, 0 failed** |
 | `cargo test -p ruke-server --lib` | **152 passed, 0 failed** |
 | `RUST_MIN_STACK=33554432 cargo test -p ruke-browser --test smoke_lifecycle --test fixture_journeys -- --ignored --test-threads=1` | **3 passed** (smoke 4.69 s, journeys 4.54 s — real Chromium cold start + journeys + teardown) |
-| Model-driven browser baseline E2E | **pending** — scheduled as TEST phase #1 (`browser-easy.spec.ts`, one locked run) before Phase 1 edits land, to capture rounds/latency/task-success on the CURRENT action driver |
+| Model-driven E2E (TEST #1, locked, current code): `run-browser-e2e-exclusive.ps1` default suite (easy+medium+hard) | **11/11 passed (7.3 s)**, exit 0, lock released |
+| Real-model EASY journey (`-Grep "EASY: human-armed"`) | **PASSED (40.6 s)** — pre-change baseline |
+| Real-model MEDIUM journey (`-Grep "MEDIUM: model fills"`) | **PASSED (53.9 s)** — **12 rounds, 42.7 s loop**; 3 self-recovered command failures (fill refused before tab claim → `browser_user_claim_tab`; `set_checked` `"True"` string → retried `true`; one fill retry). Round cadence ≈ 1.5–2.5 s over the local model. Server census now captured to `.ai-coordination/dev-supervisor.err.log`+`.out.log` (launcher tooling improvement: supervisor stdio redirect; ruke-server tracing rides stdout) |
 
 ### Browser subsystem entry-point map (current code, file:line anchors)
 
@@ -88,11 +90,11 @@ Overnight implementation run. Source of truth: `plan/ruke-chatgpt-like-implement
 - **Cleanup:** `turn_guard.finish()` → engine `end_turn` unparks approval/handoff waits, releases claims,
   closes turn tabs except deliverable/handoff marks.
 
-**Phase 0 status: [x] code map + non-model baselines recorded · [ ] model-driven baseline run (TEST #1)**
+**Phase 0 status: [LOCKED-DONE] code map + non-model baselines + model-driven baselines (EASY/MEDIUM journeys) recorded under the exclusive lock; both real-model journeys passed on the CURRENT action driver (E2E 11/11, EASY 40.6 s, MEDIUM 12 rounds / 42.7 s).**
 
 ## Phase gates (check only when verified through the feature's normal entry point)
 
-- [ ] **P0** baseline recorded (this doc + model-driven run)
+- [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
 - [ ] **P1** screenshot transport: real image parts to the model through the ACTUAL Qwen endpoint;
       capture metadata (tab/frame/viewport/scale/crop/full-page/format); compact DOM/a11y snapshots kept;
       targeted reads/search/pagination + truncation metadata w/ retrieval; stale-ref refusal; portable browser discovery
@@ -133,8 +135,10 @@ Overnight implementation run. Source of truth: `plan/ruke-chatgpt-like-implement
 
 ## Next action (updated as the run proceeds)
 
-1. **TEST phase #1 (locked, foreground):** boot app (`npm run dev`), run `scripts/run-browser-e2e-exclusive.ps1
-   -TestFiles browser-easy.spec.ts` against CURRENT code; capture per-task rounds/latency from ruke-server logs
-   as the pre-change baseline; ANALYZE before any edit.
-2. Phase 1 implementation (screenshot transport + metadata + portability), then targeted vitest/cargo checks.
-3. Then Phase 2 (MCP) — includes `integrations/playwright-mcp/` scaffold + rmcp pin `rmcp = "3.9.0"` (verify MSRV).
+1. **Phase 1 (CODE):** probe the ACTUAL :8080 endpoint for image-in-tool-message acceptance
+   (multimodal tool transport vs. follow-up-user-message fallback) ⇒ pick transport shape;
+   rewrite `cull_tool_result` into split-into-multimodal with metadata; enrich `pw_element_screenshot`
+   response (tab/frame/viewport/scale/crop/format); targeted-read pagination + truncation metadata;
+   macOS discovery paths in `host.rs` discovery list; replace the omission tests with safe-transport tests.
+2. Verify image receipt + actionable tool calls through the real Qwen endpoint, then cargo/vitest checks.
+3. Then Phase 2 (MCP) — `integrations/playwright-mcp/` scaffold + rmcp pin `rmcp = "3.9.0"` (verify MSRV).
