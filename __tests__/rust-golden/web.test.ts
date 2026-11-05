@@ -528,7 +528,12 @@ describe("golden: web-search pipeline", () => {
         "runtime_clock, evidence; tool surface injected; citations map). " +
         "Exactly ONE upstream call is made for the whole request. WS06 (2026-11-05, audit item 6 — DELIBERATE " +
         "fixture evolution): answer content release-gated exactly as in fixture 01 (strip live deltas, one " +
-        "audited synthetic release frame before terminal frames).",
+        "audited synthetic release frame before terminal frames). WS10 (2026-11-05, audit item 10 — " +
+        "DELIBERATE fixture evolution): the recovery wave minted S6–S8 whose packets were never registered, " +
+        "so the evidence-block lookup fell back to the passage and dropped dates and web_meta webCitations " +
+        "had no entries for emitted sources (the audit defect). With the one admitted packet registry, S6–S8 " +
+        "packets join bundle.packets: [S6]/[S8] headers now carry their publishedAt suffixes and the " +
+        "webCitations map gains S6–S8 entries with full URL/title/domain/publishedAt metadata.",
       comparison: "structural",
       rawBody: chatBody(content, undefined),
       notes:

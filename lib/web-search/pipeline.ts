@@ -227,7 +227,15 @@ export interface EvidenceBundle {
   searchGate: SearchGateResult;
   /** Normalized + fused search results (top N). */
   searchResults: RankedResult[];
-  /** Parsed web pages. */
+  /**
+   * THE admitted packet registry: every packet admitted by every
+   * acquisition wave — initial wave, gap hop, route-follow hops, deep
+   * demand wave — in sourceId mint order (WS10, audit item 10). This is
+   * the ONE registry every citation consumer serializes (chat + bridge
+   * citations, search webCitations, evidenceBlock metadata, journal
+   * sources): every sourceId emitted in topPassages has its packet, URL,
+   * extraction status and metadata here.
+   */
   packets: EvidencePacket[];
   /** Top-ranked BM25 passages (the actual evidence sent to the main LLM). */
   topPassages: EvidencePassage[];
@@ -1202,9 +1210,13 @@ export async function runWebResearch(
   // pre-hop snapshot.
   let coverage = evaluateCoverage(ctx.userPrompt, topPassages.map((p) => p.passageText));
   let gapSearchFired = false;
-  // Packets from the existing gap hop. `packets` itself is NEVER
-  // reassigned (pinned contract), so the deep wave below re-merges
-  // through this list instead of mutating it.
+  // Packets from the gap hop and the route-follow hops (the route hop
+  // appends here per hop). `packets` itself stays the INITIAL-wave list:
+  // the P5 presentation/rich-result producers and the mid-wave sufficiency
+  // seed consume that pool with byte-stable semantics, so later waves
+  // re-merge through this list instead of mutating it. WS10 (audit item
+  // 10): every wave pool joins the admitted packet registry assembled at
+  // bundle return, so citation consumers still see one merged registry.
   let secondHopPackets: EvidencePacket[] = [];
 
   if (coverage.needsGapSearch && coverage.gapQuery) {
@@ -1380,6 +1392,10 @@ export async function runWebResearch(
   let sufficiency: SufficiencyReport | null = null;
   let gapDemand: GapDemand | null = null;
   let demandWaveFired = false;
+  // WS10 (audit item 10): demand-wave packets live at function scope so
+  // the admitted packet registry assembled at bundle return can enumerate
+  // them — the wave pool must never be invisible to citation consumers.
+  let demandWavePackets: (EvidencePacket & { classification: string })[] = [];
   // Research depth law (2026-11-05): the §11.14 sufficiency pass now runs
   // at EVERY depth so the audit trail is honest — quick/standard must not
   // skip the measurement and silently report stopEarly=true. The demand
@@ -1414,7 +1430,6 @@ export async function runWebResearch(
           { queries: gapDemand.queries, missing: gapDemand.missing_claims },
           "deep demand wave fired",
         );
-        const wavePackets: (EvidencePacket & { classification: string })[] = [];
         for (const q of gapDemand.queries) {
           const waveResults = applyDomainControl(await runGapMetasearch(q), plannerLaw);
           if (waveResults.length === 0) continue;
@@ -1423,11 +1438,11 @@ export async function runWebResearch(
             "demand",
           );
           applySegmentFilter(fresh, segmentFilterQuery + " " + q);
-          renumberPackets(fresh, nextSourceIndex([...packets, ...secondHopPackets, ...wavePackets]));
-          wavePackets.push(...fresh);
+          renumberPackets(fresh, nextSourceIndex([...packets, ...secondHopPackets, ...demandWavePackets]));
+          demandWavePackets.push(...fresh);
         }
-        if (wavePackets.length > 0) {
-          const allPackets = [...packets, ...secondHopPackets, ...wavePackets];
+        if (demandWavePackets.length > 0) {
+          const allPackets = [...packets, ...secondHopPackets, ...demandWavePackets];
           topPassages = rerank(
             allPackets,
             ctx.userPrompt + " " + gapDemand.queries.join(" "),
@@ -1441,7 +1456,7 @@ export async function runWebResearch(
             },
           );
           log.info(
-            { wavePackets: wavePackets.length, merged: allPackets.length },
+            { wavePackets: demandWavePackets.length, merged: allPackets.length },
             "demand wave merged",
           );
         }
@@ -1471,10 +1486,39 @@ export async function runWebResearch(
     packets,
     geoPoints,
   });
+  // AUDIT 2026-11-05 item 10 (WS10): ONE ADMITTED PACKET REGISTRY for all
+  // waves. The gap hop, the route-follow hops and the deep demand wave
+  // each merged their packets into reranking (topPassages cites them), but
+  // the returned bundle carried ONLY the initial wave — so every consumer
+  // that enumerates bundle.packets (chat citation map + the maxSid that
+  // continues prior-turn aliases and seeds tool-minted [S#]s, the internal
+  // bridge citations frame the Rust transport relays verbatim, /api/search
+  // + /api/search-more webCitations, evidenceBlock source metadata, the
+  // research journal's WS05 provenance record) cited an [S#] with no URL,
+  // extraction status or metadata behind it: a dangling pill, an
+  // un-journaled source, and a tool-citation numbering collision. The
+  // registry is exactly the pool topPassages derive from, in mint order
+  // (sourceIds are globally unique — renumberPackets always continues
+  // past the current max — so the dedupe is defensive only). Admission
+  // already happened per wave (WS07 admitWave), so only ADMITTED packets
+  // can enter this list.
+  const admittedRegistry: EvidencePacket[] = [];
+  const registeredIds = new Set<string>();
+  for (const pkt of [...packets, ...secondHopPackets, ...demandWavePackets]) {
+    if (registeredIds.has(pkt.sourceId)) continue;
+    registeredIds.add(pkt.sourceId);
+    admittedRegistry.push(pkt);
+  }
+  if (admittedRegistry.length !== packets.length) {
+    log.info(
+      { initial: packets.length, registered: admittedRegistry.length },
+      "admitted packet registry merged recovery-wave packets for citation serialization",
+    );
+  }
   return {
     searchGate: gate,
     searchResults,
-    packets,
+    packets: admittedRegistry,
     topPassages,
     fromCache,
     coverage: coverage.coverage,
