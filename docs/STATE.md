@@ -3319,3 +3319,42 @@ Loaded: superpowers:test-driven-development (Iron Law active WS12–WS20). No Ti
 2. WS12 TDD: fixtures pin multilingual query coverage (non-ASCII tokens survive comparison; universal unicode law, no language tables) + provider recovery behavior; keep existing engine tests byte-stable; full suite + tsc + cargo; commit+push+STATE 05m.
 3. Then WS14 per brief order (freshness at tool-operation level — tools.ts readOneUrl, session.liveRequired ~:476).
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-05m — WS12 LOCKED (multilingual relevance + provider recovery)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-item web-search repair (audit 60fe172) on develop. WS12 LOCKED at edac8b3 (pushed; chain ← ebada73 STATE 05l ← 8de5846 WS11 ← 1119df6 WS10 ← …). WS01–WS12 locked (skip WS13, already locked at 8f24d83). Immediate next phase: WS14 (freshness at tool-operation level).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS12 production (commit edac8b3, verified full-suite):
+  - `lib/web-search/engines.ts` `serpCoversQuery`: tokenization script-complete — `.replace(/[^\p{L}\p{N}\p{M}\s]/gu," ")` (ASCII tokens byte-identical to the old class, only adds scripts); terms filter counts CODE POINTS (`[...w].length > 2`, stop-words excluded); EMPTY term set ⇒ `false` (unjudgeable = UNKNOWN, never success — deliberate evolution of the P4 benefit-of-the-doubt law per audit ruling "Empty/unjudgeable tokenization is unknown relevance, not success"; the cascade's never-lose law at engines.ts runGeneralWebSearch still returns the priority provider's non-empty results when recovery finds nothing better); `terms.length <= 3 ⇒ hits === terms.length` (FULL coverage — closes the audit's "absent distinguishing entity passed on half of two generic fragments" hole); longer queries keep the 0.5 boundary untouched.
+  - `lib/web-search/route-links.ts` `focusTokens`: `split(/[^\p{L}\p{N}\p{M}]+/u)` (boundaries + Latin tokens byte-identical to the old `[^a-z0-9]+` split); filter `/^[a-z0-9]+$/.test(w) ? w.length > 3 : [...w].length >= 2` (Latin noise guard preserved; non-Latin content words need 2 CODE POINTS).
+  - New fixture `__tests__/web-search/multilingual-provider-recovery.test.ts` (6 tests, watched 4/4 RED for defect reasons + 2 positive controls): Hindi query (fictional entity बोरियारंक) vs English gardening SERP ⇒ false; same-script SERP control ⇒ true (pure script parity, no language table); focusTokens Devanagari survive + Latin guards intact; price-guide repro (fixture uses LITERAL "price" — "pricing" does NOT contain "price"; fixture corrected after probing a vacuous RED pass); entity's own price page control ⇒ true; stop-word-only/short-token-only query vs junk SERP ⇒ false (evolution).
+  - `__tests__/web-search/engines-gap-recovery.test.ts`: two empty-set expectations evolved true→false in place with audit citation + docstring "DELIBERATE EVOLUTIONS" paragraph; other 8 tests untouched (all ≤3-term tests fully hit their terms; boundary tests use 4 terms — law unchanged).
+- ENV FACT (critical): Node v26.12.1 on this machine is small-icu — `\p{Script}`-name property escapes (e.g. `\p{Devanagari}`) throw SyntaxError AT RUNTIME; only general-category escapes (`\p{L}\p{N}\p{M}`) work. Production AND test code must avoid script-name properties (use BMP ranges/code-point checks).
+- Golden harness note: rust-golden/web.test.ts MOCKS runGeneralWebSearch/Sharded ⇒ serpCoversQuery never reached in replay ⇒ cargo fixtures untouched by WS12 predicate changes; no fixture pins focusTokens output.
+
+## [8.3 DEPENDENCY MAP (WS12)]
+- engines.ts: `serpCoversQuery` used ONLY inside engines.ts (cascade gates ~:1729/:1742 Google→Brave→pool; sharded variant ~:1831/:1840) — no other module callers.
+- route-links.ts: `focusTokens` callers — pipeline.ts:383 (evidenceBlock focusWords), :1328/:1348/:1353 (route-follow wantWords/link scoring), tools.ts:638 (read_page fWords). Both sides of every comparison tokenize through the same function ⇒ consistent by construction.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- `serpCoversQuery(query, results): boolean` (engines.ts, exported): `results.length===0⇒false`; terms = lowercased query, `[^\p{L}\p{N}\p{M}\s]`→space, split, `[...w].length>2 && !POOL_QUERY_STOPWORDS.has(w)`; `terms.length===0⇒false`; `hits = terms.filter(t => haystack.includes(t)).length` over title+snippet+url lowercase; `terms.length<=3 ⇒ hits===terms.length`, else `hits/terms.length >= 0.5`.
+- `focusTokens(text): string[]` (route-links.ts, exported): `lower.split(/[^\p{L}\p{N}\p{M}]+/u).filter(w => /^[a-z0-9]+$/.test(w) ? w.length>3 : [...w].length>=2)`.
+- Unicode precedents in repo: search-gate.ts:536 GATE_TOKEN_RE general-category classes (gate pattern keeps internal hyphen/apostrophe — deliberately NOT reused for focusTokens/serpCoversQuery to avoid Latin token churn); reranker.ts:185; planner-law.ts:356; metasearch.ts:867.
+- WS11 contracts from 05l unchanged and still in force (selectFocusWindows, read_page droppedSections/continuationHint, selectExcerpt table branch).
+
+## [8.5 VERIFICATION STATE]
+vitest FULL 120 files / 1513 passed | 1 skipped (1514); web-search dir 45 files / 634 passed; `tsc --noEmit` exit 0; cargo ruke-server --lib 146/146. No Playwright lock; no dev servers needed.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+None open in WS12. Note for later phases: the ≤3-terms-full-coverage rule means very short entity queries demand the entity's literal token in the SERP — recovery fires more often for short queries BY DESIGN (audit ruling); never-lose law bounds the downside.
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS14–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS14 recon: read audit entry verbatim — `sed -n '/WS14\[/,/WS15\[/p' "C:/Users/Ruku/Documents/Codex/2026-11-02/referenced-chatgpt-conversation-this-is-an/outputs/ruke-60fe172-websearch-regression-audit.md"` (fallback grep 'WS14'); then current bytes of `lib/web-search/tools.ts` readOneUrl freshness path + `session.liveRequired` (~:476) and any cached-fetch path freshness checks.
+2. WS14 TDD: fixture pinning freshness enforcement at the tool-operation level (freshness must bind the actual fetch/refetch decision, not just the prompt); full suite + tsc + cargo; commit+push+STATE 05n.
+3. Then WS15 per brief order (intermediate redirect cookies — net.ts:140 NO_COOKIE for fetchPage fingerprint:'chrome', Pass B ~1073).
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
