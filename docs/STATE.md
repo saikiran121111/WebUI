@@ -3118,3 +3118,45 @@ Loaded: superpowers:test-driven-development (Iron Law active WS07–WS20). No Ti
 2. WS07 TDD: failing fixture first — packets admitted by gap/wave paths must pass the SAME final-origin admission as the initial wave (no brand/site hardcoding; controls included). Then minimal fix, full suite, commit+push+STATE 05h.
 3. Then WS08 (bounded requirement-driven expansion — route-links.ts absolute-links-only + 12-link cap before ranking; pipeline.ts route hop once) per brief order.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05h — WS07 LOCKED (final-origin admission for every wave)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+20-item web-search repair (brief item N = audit WS0N), baseline 60fe172, develop branch. WS01–WS07 LOCKED. Just locked WS07 (commit 28e1beb pushed): ONE final-origin packet-admission function now runs on EVERY acquisition wave's extracted packets before renumbering/merge/rerank/grounding — the initial wave's §7 applyScopeToPackets no longer runs alone. Active phase now = PHASE A CODE; next WS08 (bounded requirement-driven expansion).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 61951d0; WS02 853c7d7+06cba20; WS03 c61bda8; WS04+WS13 8f24d83 (+STATE 1e52487); WS05 6a35fea (+STATE ae26cac); WS06 8187bc3 (+STATE 2915f0a) — see 05f/05g snapshots.
+- WS07 (28e1beb, this cycle): `lib/web-search/pipeline.ts` — `admitWave<T extends EvidencePacket>(wave, waveName)` helper defined right after the §7 initial-wave block (inside runWebResearch, ~:1141-1165); wraps the EXISTING `applyScopeToPackets(wave, plannerLaw)` (planner-law.ts, unchanged); drops only SUCCESS* packets whose final origin crosses mandatoryHosts∪allowedDomains, keeps non-SUCCESS honest states, no-op when mandatoryHosts empty; logs "cross-boundary redirect wave packets dropped by the task-scope admission law" {wave,dropped}. Applied to extractAll outputs AT: gap hop (`gapPackets`, wave name "gap"), route-follow hop (`routePackets`, "route-follow"), deep demand wave (`fresh`, "demand") — each BEFORE applySegmentFilter/renumberPackets/merge (renumber = where S# citation ids are minted). Initial wave §7 block (:1126-1139) untouched. Test: `__tests__/web-search/scope-wave-admission.test.ts` (6 tests; RED watched per-wave first — off-site host reached topPassages in all three waves; controls: unscoped mirrors kept = no-op law, on-scope catalog route still answers, in-scope gap row merges, wave FAIL_SILENT_LOGIN_WALL packet survives).
+- WS07 Rust check: NO Rust mirror (grep apply_scope*/scope admission in rust-backend/crates → none). TS-only fix; cargo regression-only (146/146 green).
+- Fixture hosts (test data only, fictional): mandatory boundary arborworks.example.com (scope literal intent site_info, resolved target, provenance explicit_domain — passed as ctx.scope, no derivation needed in tests); off-site markers counterfeit-host.example.net (Zephyr-Q91 gap), rewrite-echo.example.org (Quartz-V88 route), offsite-demand.example.net (Iridium-W77 wave), blocked-proxy.example.com (OFFSITE-WALL-MARKER FAIL control). SERP rows all on docs.arborworks.example.com so applyDomainControl passes and only final-origin admission catches them.
+- Test-harness seams proven: metasearch mock = per-call queue shift (gap + demand SERP) with defaultRows fallback; metasearchWithFreshnessRecovery mock returns initialRows; partial query-planner spread keeps REAL runGapMetasearch/evaluateCoverage/buildGapDemand/applyDomainControl/applyScopeToPackets/rerank; extractor full mock scripted redirect table keyed by row-URL path marker; route hop fires from passage-text markdown links (collectRouteLinks real); bundle asserts on topPassages (bundle.packets = initial wave only — WS10 territory).
+
+## [8.3 DEPENDENCY MAP (WS07)]
+- admitWave defined in runWebResearch ← 3 call sites in the same function (gap ~:1227, route ~:1322, demand ~:1406 after edits); ⇑ callers of applyScopeToPackets now = §7 block + admitWave only.
+- page cache (extractor fetch layer) keyed by FETCHED url — cannot launder admitted packets back; noted in commit.
+- No wire/fixture/golden change (no Rust, no golden replay of web-search corpus affected — full vitest goldens rode byte-identical since unscoped no-op).
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- admitWave verbatim: `const admitWave = <T extends EvidencePacket>(wave: T[], waveName: string): T[] => { const admitted = applyScopeToPackets(wave, plannerLaw); if (admitted.length !== wave.length) log.info({ wave: waveName, dropped: wave.length - admitted.length }, "cross-boundary redirect wave packets dropped by the task-scope admission law"); return admitted; };` — wave-name values exactly "gap" | "route-follow" | "demand".
+- applyScopeToPackets law (unchanged, planner-law.ts): keeps p where !(p.classification ?? "").startsWith("SUCCESS"); SUCCESS* kept iff domainWithin(p.domain || hostOf(p.url), d) for d ∈ mandatoryHosts ∪ allowedDomains; no-op when mandatoryHosts empty.
+- Wave extracts keep call shapes: extractAll(results, 3|budget.maxGapPageFetches, undefined×4, liveRequired) — WS07 did NOT alter budgets/caps.
+- Bundle contracts unchanged (EvidenceBundle fields per 05f/05g). run_turn_pipeline 15 args; journal manifest pin; SERVER_CHECK_LINE; matrix version 1 — all as 05g.
+
+## [8.5 VERIFICATION STATE]
+- vitest FULL (after fix): 115 files, 1485 passed | 1 skipped | 0 failed (the +1 file/+6 tests are the new WS07 file; 1 skip pre-existing). tsc --noEmit exit 0. cargo test -p ruke-server --lib: 146/146. git: develop pushed @ 28e1beb. No Playwright lock; no dev servers owned; pw-80 reserved for the single final loop after WS20.
+- WS07 RED evidence: 3 assertion failures at the exact hasHost(…)=false lines before fix; post-fix drop logs show {wave:"gap",dropped:1}, {wave:"route-follow",dropped:1}, {wave:"demand",dropped:1}×2.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- None red. Inherited watch items unchanged: flake 12:38:52 unreproduced (capture file name on recurrence); CRLF contracts:check pre-existing; rust-analyzer batch-lag (cargo authoritative); tsconfig.tsbuildinfo modified in worktree — NEVER stage; ghidra MCP ECONNREFUSED (diagnostic only).
+- WS07 documented limits: admission is registrable-domain match (domainWithin) — subdomain on-scope OK by design; scope only ENFORCEABLE when intent operate/site_info/compare_sites with resolved targets (task-scope law, unchanged).
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active WS08–WS20). No Tier-2 .cskills loaded. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS08 recon (fresh reads): lib/web-search/route-links.ts collectRouteLinks (~:10 — absolute-HTTP-only regexes despite new URL(raw, base): harvest root-relative "/docs/x", parent-relative "../x", protocol-relative "//cdn", SPA "#/route"; the 12-link cap applied BEFORE relevance ranking); pipeline route-hop (~:1255 region post-edits) fires once — audit repro: "Overview → docs → catalog stops at docs in standard and deep modes. A relevant 13th link loses to 12 earlier navigation links."
+2. WS08 TDD (fixture first, controls: irrelevant nav links still LOSE to relevant content link after ranking — cap-after-ranking; existing absolute-link goldens byte-identical): extend link harvest forms + score-then-cap ordering so a relevant 13th link beats 12 earlier nav links; keep existing harvest/seen guards; full suite, commit+push+STATE 05i.
+3. Then WS09 (answer support vs identifier shape — lib/web-search/query-planner.ts ~:422 evaluateCoverage/hasNovelIdentifier: answer-shaped coverage (identifier patterns) must not count as supported when only identifier-mention evidence exists) per brief order.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
