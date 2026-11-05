@@ -11,9 +11,15 @@
  *    assertions — only content is gated);
  *  - the single-[DONE] SSE grammar, tool narration, and the citation/web_meta
  *    law are untouched by the gate;
- *  - ordinary chat never passes through this loop at all (the route calls
- *    runWebToolLoop only when the gate produced a bundle — pinned by the
- *    existing route tests, not re-litigated here).
+ *  - MHR-A (2026-11-05) re-scoped WHEN the loop runs: it is armed for every
+ *    progress-path turn (no gate prefetch); the legacy stream:false path is
+ *    a plain forward that never enters here.
+ *
+ * MHR-D (2026-11-05) half-state note: a diagnosed-bad answer now gets ONE
+ * harness-feedback round first; these WS06 pins observe the RELEASE pass —
+ * the replayed second answer (feedback already used) exits through the
+ * destructive audit. Fresh response per upstream call is therefore required
+ * (SSE readers are one-shot).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -82,7 +88,9 @@ function sseResponse(sse: string, chunkSize = 97): unknown {
     },
   };
 }
-const answerRound = (text: string): unknown => sseResponse(contentDelta(text) + finishFrame("stop") + DONE);
+// Rounds are SSE STRINGS; drive() builds a FRESH reader per upstream call
+// (one-shot readers would starve the MHR-D feedback round).
+const answerRound = (text: string): string => contentDelta(text) + finishFrame("stop") + DONE;
 
 interface Harness {
   stages: any[];
@@ -94,7 +102,7 @@ interface Harness {
 }
 
 async function drive(
-  rounds: unknown[],
+  rounds: string[],
   citationMap: Record<string, any> | null,
 ): Promise<Harness> {
   const h: Harness = { stages: [], rawText: "", closed: 0, failed: [], fetchBodies: [], calls: 0 };
@@ -107,7 +115,7 @@ async function drive(
   const fetchMock = vi.fn(async (_url: string, init: any) => {
     h.fetchBodies.push(JSON.parse(init.body));
     const idx = h.calls++;
-    return rounds[Math.min(idx, rounds.length - 1)];
+    return sseResponse(rounds[Math.min(idx, rounds.length - 1)]);
   });
   vi.stubGlobal("fetch", fetchMock);
   await runWebToolLoop({
@@ -140,7 +148,10 @@ beforeEach(() => {
 
 describe("grounded answer release in the web tool loop (WS06)", () => {
   it("normal completion: content is buffered, repaired, and released before terminal frames", async () => {
-    const h = await drive([answerRound("Boreal costs $99 [S9] per seat.")], S1);
+    // MHR-D: the first pass is diagnosed bad → held back + one feedback
+    // round; the replayed second pass (feedback used) releases repaired.
+    const h = await drive([answerRound("Boreal costs $99 [S9] per seat."), answerRound("Boreal costs $99 [S9] per seat.")], S1);
+    expect(h.calls).toBe(2);
     // Repaired text reaches the client…
     expect(h.rawText).toContain("Boreal costs $99 per seat (unverified).");
     // …and the dangling alias never does.
@@ -158,13 +169,12 @@ describe("grounded answer release in the web tool loop (WS06)", () => {
   });
 
   it("multi-round: tool narration survives, exactly one [DONE], the final answer is audited", async () => {
-    const narrate = sseResponse(
+    const narrate =
       contentDelta("Looking it up. ") +
-        toolCallDelta(0, { id: "c1", function: { name: "web_search" } }) +
-        toolCallDelta(0, { function: { arguments: '{"query":"boreal pricing","missing_claims":"price"}' } }) +
-        finishFrame("tool_calls") +
-        DONE,
-    );
+      toolCallDelta(0, { id: "c1", function: { name: "web_search" } }) +
+      toolCallDelta(0, { function: { arguments: '{"query":"boreal pricing","missing_claims":"price"}' } }) +
+      finishFrame("tool_calls") +
+      DONE;
     const h = await drive([narrate, answerRound("It costs $50 [S1].")], S1);
     expect(h.calls).toBe(2);
     expect(h.rawText).toContain("Looking it up.");
@@ -173,19 +183,23 @@ describe("grounded answer release in the web tool loop (WS06)", () => {
   });
 
   it("zero retrieval + research-claiming wording: the server check line reaches the client", async () => {
-    const h = await drive([answerRound("According to my searches, Boreal leads.")], null);
+    // MHR-D: claimsResearch fires the feedback round first; the second pass
+    // releases through the audit with the server check line prepended.
+    const claim = answerRound("According to my searches, Boreal leads.");
+    const h = await drive([claim, claim], null);
+    expect(h.calls).toBe(2);
     expect(h.rawText).toContain(SERVER_CHECK_LINE);
     expect(countDone(h.rawText)).toBe(1);
   });
 
   it("reasoning streams live; only content is gated", async () => {
-    const h = await drive(
-      [sseResponse(reasoningDelta("weighing sources") + contentDelta("It costs $50.") + finishFrame("stop") + DONE)],
-      S1,
-    );
+    // MHR-D: the bad content round is held; its reasoning already streamed.
+    const round = reasoningDelta("weighing sources") + contentDelta("It costs $50.") + finishFrame("stop") + DONE;
+    const h = await drive([round, round], S1);
     // The thinking frame passes through unbuffered, before the gated release.
     expect(h.rawText.indexOf("weighing sources")).toBeLessThan(h.rawText.indexOf("$50"));
     // The content itself is still repaired.
     expect(h.rawText).toContain("It costs $50 (unverified).");
+    expect(countDone(h.rawText)).toBe(1);
   });
 });

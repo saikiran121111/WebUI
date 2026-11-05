@@ -69,7 +69,12 @@ import {
 // check before any research answer unit reaches the client — including the
 // normal finish path. This is the ENFORCEMENT half of the WEB_TOOL_GUIDANCE
 // laws; a prompt is not enforcement. ⇔ Rust chat/answer_release.rs.
-import { auditResearchAnswer } from "./answer-release";
+import {
+  auditResearchAnswer,
+  answerFeedbackNeeded,
+  buildAnswerFeedback,
+  diagnoseResearchAnswer,
+} from "./answer-release";
 import type { StageEvent } from "../types";
 // P5 (Addendum §57): the turn's surface set re-carried on every updated
 // web_meta frame (OVERWRITE law — a later frame replaces the WHOLE set).
@@ -549,6 +554,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       held.length = 0;
     };
 
+    // MHR-D: at most ONE harness-feedback round per turn. The diagnosis is
+    // report-only; the MODEL decides the next action. ⇔ web_loop.rs.
+    let feedbackUsed = false;
+
     for (let round = 0; round < maxRounds; round++) {
       if (signal?.aborted) {
         ch.close();
@@ -557,9 +566,41 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       const res = await streamRound(payload, model, signal, ch);
       if (res.kind === "closed") return;
       const relay = res.relay;
-      releaseRound(relay, res.held);
 
       if (relay.finish !== "tool_calls" || relay.calls.size === 0) {
+        // MHR-D (brief 2026-11-05): evidence-driven next action. Before a
+        // final answer releases, the harness diagnoses it against the
+        // SERVER's actual state (minted citations, action ledger). A
+        // diagnosed-bad answer is HELD BACK entirely — its content never
+        // streamed live, so dropping the round's terminal frames releases
+        // nothing — and the model receives ONE factual report of what the
+        // server did/didn't do, then decides: retrieve more, re-attach
+        // citations, or state the gap. The harness never rewrites the
+        // model's semantics itself. Needs one spare iteration (the tool
+        // budget itself is untouched); with none to spare, no feedback is
+        // faked and the WS06 audit releases the text as before.
+        const diag = diagnoseResearchAnswer(relay.content, Object.keys(merged), retrieveHappened());
+        if (answerFeedbackNeeded(diag) && !feedbackUsed && round + 1 < maxRounds) {
+          feedbackUsed = true;
+          res.held.length = 0; // never emitted: the NEXT round owns [DONE]
+          log.info(
+            {
+              model,
+              round: round + 1,
+              unresolved: diag.unresolved.length,
+              unsupported: diag.unsupported.length,
+              claimsResearch: diag.claimsResearch,
+            },
+            "web answer held; harness feedback issued",
+          );
+          payload.messages.push({
+            role: "assistant",
+            content: relay.content === "" ? null : relay.content,
+          });
+          payload.messages.push({ role: "user", content: buildAnswerFeedback(diag) });
+          continue;
+        }
+        releaseRound(relay, res.held);
         log.info(
           { model, round: round + 1, finish: relay.finish ?? "none", ms: Date.now() - started },
           "web tool loop complete",
@@ -589,6 +630,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         ch.close();
         return;
       }
+
+      // Tool-narration round: release position preserved from WS06 — the
+      // round's (audited) narration content goes out before the census.
+      releaseRound(relay, res.held);
 
       // ── assistant turn + tool execution (⇔ browser_loop.rs shapes) ────
       const calls = [...relay.calls.values()];

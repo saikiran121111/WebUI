@@ -63,6 +63,16 @@
 //!   The repaired answer then releases as one synthetic delta followed by
 //!   the held frames, preserving the single-`[DONE]` grammar. ⇔ TS
 //!   `holdRoundFrame`/`releaseRound` in lib/chat/web-tool-loop.ts.
+//! - MHR-D (brief 2026-11-05) evidence-driven next action: before the
+//!   release, the completion round is DIAGNOSED (report-only, same
+//!   detectors). A diagnosed-bad answer is HELD BACK entirely and ONE
+//!   byte-locked feedback message (model's held text + the actual server
+//!   state) enters the EXISTING loop — the MODEL decides what to do next
+//!   (retrieve / re-attach citations / state the gap). At most one
+//!   feedback per turn; it costs a loop ITERATION, never the tool budget;
+//!   no feedback is faked when no iteration is spare. ⇔ TS web-tool-loop.ts
+//!   `feedbackUsed` wiring. The destructive WS06 repair still runs on every
+//!   release until MHR-F evolves it (deliberate half-state).
 
 use std::collections::HashSet;
 use std::time::Instant;
@@ -74,7 +84,9 @@ use tracing::Span;
 use ruke_contracts::stages::{CitationMap, StageEvent};
 use ruke_skills::lazy::inject_system_before;
 
-use crate::chat::answer_release::audit_research_answer;
+use crate::chat::answer_release::{
+    answer_issues, audit_research_answer, build_answer_feedback, diagnose_research_answer,
+};
 use crate::chat::browser_loop::{tool_content, ToolStreamRelay};
 use crate::chat::{
     error, next_search,
@@ -557,6 +569,10 @@ pub async fn run_web_tool_loop(
     // into the TS session on every exec call (its `Math.max` mirror keeps
     // the TS budget accounting consistent even though Rust drives).
     let mut rounds_used = 0usize;
+    // MHR-D: at most ONE harness-feedback round per turn — a second
+    // diagnosed-bad answer releases through the (still destructive) WS06
+    // audit instead. ⇔ TS `feedbackUsed` in lib/chat/web-tool-loop.ts.
+    let mut feedback_used = false;
     // P3b action-record law: the TS session owns the ledger (every tool
     // action incl. rejections); Rust only carries the latest snapshot the
     // exec RPC returns — it never reconstructs the record itself.
@@ -572,22 +588,59 @@ pub async fn run_web_tool_loop(
                 Round::Relay(r, h) => (r, h),
             };
 
-            // WS06 release point: this round's answer text passes the
-            // server check (citation map + ledger snapshot — SERVER state,
-            // never prose) before the client may see it; held terminal
-            // frames follow the (possibly repaired) release. ⇔ TS
-            // `releaseRound`, which fires on BOTH the completion and the
-            // tool-narration path.
-            release_round(
-                ch,
-                &relay,
-                &merged,
-                turn_retrieved(&merged, &last_ledger),
-                &mut held,
-            )
-            .await;
-
             if relay.finish.as_deref() != Some("tool_calls") || relay.calls.is_empty() {
+                // MHR-D evidence-driven next action: diagnose the answer
+                // against SERVER state (citation map + ledger snapshot —
+                // never prose). If anything is wrong, the held answer never
+                // reaches the client; ONE byte-locked feedback rides into
+                // the EXISTING loop and the MODEL decides. The feedback
+                // costs a loop iteration, NOT the tool budget (rounds_used
+                // and the census only count tool rounds), and needs a
+                // spare iteration — never faked at the round cap. ⇔ TS
+                // web-tool-loop.ts completion branch.
+                let ids: HashSet<String> = merged.keys().cloned().collect();
+                let diag = diagnose_research_answer(
+                    &relay.content,
+                    &ids,
+                    turn_retrieved(&merged, &last_ledger),
+                );
+                if answer_issues(&diag) && !feedback_used && round + 1 < max_rounds {
+                    feedback_used = true;
+                    held.clear(); // never emitted: the NEXT round owns [DONE]
+                    tracing::info!(
+                        parent: span,
+                        round = round + 1,
+                        unresolved = diag.unresolved.len(),
+                        unsupported = diag.unsupported.len(),
+                        claims_research = diag.claims_research,
+                        "web answer held; harness feedback issued"
+                    );
+                    let messages = payload
+                        .get_mut("messages")
+                        .and_then(Value::as_array_mut)
+                        .expect("messages array present (tool loop only runs with it)");
+                    messages.push(json!({
+                        "role": "assistant",
+                        "content": if relay.content.is_empty() { Value::Null } else { json!(relay.content) }
+                    }));
+                    messages.push(json!({"role": "user", "content": build_answer_feedback(&diag)}));
+                    continue;
+                }
+
+                // WS06 release point: this round's answer text passes the
+                // server check (citation map + ledger snapshot — SERVER
+                // state, never prose) before the client may see it; held
+                // terminal frames follow the (possibly repaired) release.
+                // ⇔ TS `releaseRound`.
+                release_round(
+                    ch,
+                    &relay,
+                    &merged,
+                    turn_retrieved(&merged, &last_ledger),
+                    &mut held,
+                )
+                .await;
+
                 tracing::info!(
                     parent: span,
                     round = round + 1,
@@ -621,6 +674,19 @@ pub async fn run_web_tool_loop(
                 }
                 break 'outer Outcome::Finished;
             }
+
+            // WS06 release point (tool-narration path): narration content
+            // audited + released before the census — release POSITION is
+            // preserved from WS06 (content before `web:tools`). ⇔ TS
+            // `releaseRound` on the tool path.
+            release_round(
+                ch,
+                &relay,
+                &merged,
+                turn_retrieved(&merged, &last_ledger),
+                &mut held,
+            )
+            .await;
 
             // ── assistant turn + tool execution (⇔ browser_loop.rs shapes)
             let messages = payload

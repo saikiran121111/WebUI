@@ -9,8 +9,9 @@
  * WEB_TOOL_GUIDANCE already TELLS the model these rules; this module is the
  * part that ENFORCES them on what the model actually streamed — wired by
  * lib/chat/web-tool-loop.ts (content is buffered per round, audited here,
- * then released). Ordinary non-research chat never runs through this code
- * path (the route only enters the web loop when the gate produced a bundle).
+ * then released). Post-MHR-A (2026-11-05) the loop is armed for EVERY
+ * progress-path chat turn (no gate prefetch; the model directs the tools);
+ * the legacy stream:false path is a plain forward and never runs here.
  *
  * Enforcement is deterministic — never a vibes-model call:
  *  R1 misattributed citation: every [S#] marker must resolve to a citation
@@ -34,6 +35,19 @@
  * literal code content, not a citation contract. Already-qualified wording
  * is never double-qualified (idempotency law: released text is persisted,
  * replayed, and audited again on follow-up turns).
+ *
+ * MHR-D (brief 2026-11-05) adds the NON-DESTRUCTIVE half:
+ * diagnoseResearchAnswer runs the SAME detectors but only REPORTS the
+ * server's actual state (fabricated markers, unsupported sentences verbatim,
+ * research wording without retrieval). The tool loop consults the diagnosis
+ * before releasing: when it finds anything, the held answer is discarded
+ * (its content was already stripped from live frames) and ONE byte-locked
+ * feedback message (buildAnswerFeedback — pinned by the matrix's mhrD
+ * section) enters the EXISTING tool loop; the MODEL then decides the next
+ * action: retrieve, re-attach citations, or state the gap. The harness
+ * never rewrites semantics with thresholds or phrase patches. The
+ * destructive R1–R3 repair still runs on every release until MHR-F evolves
+ * it (deliberate half-state).
  *
  * ⇔ Rust `crates/ruke-server/src/chat/answer_release.rs` (wired into
  * chat/web_loop.rs). Both sides read the ONE vendored truth matrix
@@ -184,4 +198,134 @@ function qualify(sentence: string): string {
     return body.slice(0, punct.index) + " (unverified)" + body.slice(punct.index) + tw;
   }
   return body + " (unverified)" + tw;
+}
+
+/* ══ MHR-D: non-destructive diagnosis (same detectors, report-only) ════
+ * The loop may not "repair" the model's words into semantic correctness —
+ * that is the model's job. The harness's job is to report the ACTUAL
+ * server state truthfully and once: which markers don't exist, which
+ * sentences resolve to NO minted source, whether "research" wording is
+ * backed by retrieval at all. diagnoseResearchAnswer rewrites nothing;
+ * buildAnswerFeedback renders that report byte-exactly (matrix mhrD).
+ * ⇔ Rust answer_release.rs diagnose_research_answer / build_answer_feedback.
+ */
+
+export interface AnswerDiagnosis {
+  /** [S#] marker ids the answer cites that the server never minted. */
+  unresolved: string[];
+  /** ids the server DID mint this turn (numeric order) — the re-attach targets. */
+  available: string[];
+  /** sentences whose claims resolve to no valid source — VERBATIM, unrewritten. */
+  unsupported: string[];
+  /** research-claiming wording on a turn with zero retrieval (R3's signal). */
+  claimsResearch: boolean;
+}
+
+const numSuffix = (id: string): number => {
+  const n = Number(id.slice(1));
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+};
+
+export function diagnoseResearchAnswer(
+  text: string,
+  citations: Iterable<string>,
+  retrieved: boolean,
+): AnswerDiagnosis {
+  const ids = new Set(citations);
+  const unresolved = new Set<string>();
+  const unsupported: string[] = [];
+
+  // Same segmentation law as the audit: fenced blocks and inline code
+  // contribute NOTHING — no markers, no sentences from code bytes.
+  const prose: string[] = [];
+  const segments = (s: string, depth: number): void => {
+    if (s === "") return;
+    if (depth === 0) {
+      const at = s.indexOf("```");
+      if (at >= 0) {
+        segments(s.slice(0, at), 1);
+        const close = s.indexOf("```", at + 3);
+        const end = close < 0 ? s.length : close + 3;
+        segments(s.slice(end), 0); // fence: invisible
+        return;
+      }
+    }
+    if (depth <= 1) {
+      const at = s.indexOf("`");
+      if (at >= 0) {
+        const close = s.indexOf("`", at + 1);
+        const nl = s.indexOf("\n", at + 1);
+        if (close >= 0 && (nl < 0 || close < nl)) {
+          segments(s.slice(0, at), 2);
+          segments(s.slice(close + 1), 1); // inline code: invisible
+          return;
+        }
+      }
+    }
+    for (const line of sentencesOf(s)) prose.push(line);
+  };
+  segments(text, 0);
+
+  for (const sentence of prose) {
+    const markerIds = [...sentence.matchAll(RE_MARKER)].map((m) => "S" + m[1]);
+    const invalid = markerIds.filter((id) => !ids.has(id));
+    for (const id of invalid) unresolved.add(id);
+    if (markerIds.length === 0 && !/\d/.test(sentence)) continue;
+    // stillValid law identical to the audit: one marker that resolves means
+    // the sentence IS sourced — a dangling extra marker is reported under
+    // `unresolved`, never as an unsupported claim.
+    if (markerIds.some((id) => ids.has(id))) continue;
+    const misattributed = invalid.length > 0;
+    const volatile = /\d/.test(sentence) && VOLATILE.some((re) => re.test(sentence));
+    if ((misattributed || volatile) && !/unverified/i.test(sentence)) {
+      unsupported.push(sentence); // VERBATIM — report, never rewrite
+    }
+  }
+
+  return {
+    unresolved: [...unresolved].sort((a, b) => numSuffix(a) - numSuffix(b)),
+    available: [...ids].sort((a, b) => numSuffix(a) - numSuffix(b)),
+    unsupported,
+    claimsResearch: ids.size === 0 && !retrieved && RE_RESEARCH_WORDING.test(text),
+  };
+}
+
+/** Lines, then sentences (same split as auditSentences), non-blank units only. */
+function sentencesOf(prose: string): string[] {
+  const out: string[] = [];
+  const lines = prose.split(/(\n)/);
+  for (let i = 0; i < lines.length; i += 2) {
+    const pieces = lines[i].split(/((?<=[.!?])\s+)/);
+    for (let j = 0; j < pieces.length; j += 2) {
+      if (pieces[j] && /[^\s]/.test(pieces[j])) out.push(pieces[j]);
+    }
+  }
+  return out;
+}
+
+export function answerFeedbackNeeded(d: AnswerDiagnosis): boolean {
+  return d.unresolved.length > 0 || d.unsupported.length > 0 || d.claimsResearch;
+}
+
+const FEEDBACK_HEADER =
+  "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:";
+const FEEDBACK_FOOTER =
+  "Decide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged.";
+
+/** Render the diagnosis as the ONE model-facing message (matrix mhrD bytes). */
+export function buildAnswerFeedback(d: AnswerDiagnosis): string {
+  const lines: string[] = [];
+  if (d.unresolved.length > 0) {
+    const marks = d.unresolved.map((id) => `[${id}]`).join(", ");
+    const avail = d.available.length > 0 ? d.available.join(", ") : "none";
+    lines.push(`- Citation marker(s) ${marks} do not exist. Sources minted this turn: ${avail}.`);
+  }
+  if (d.unsupported.length > 0) {
+    const quoted = d.unsupported.map((s) => `"${s}"`).join(", ");
+    lines.push(`- Unsupported claim sentence(s): ${quoted}`);
+  }
+  if (d.claimsResearch) {
+    lines.push("- The text claims web research, but no retrieval succeeded this turn.");
+  }
+  return FEEDBACK_HEADER + "\n" + lines.join("\n") + "\n" + FEEDBACK_FOOTER;
 }

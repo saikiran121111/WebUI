@@ -8,8 +8,9 @@
 //! The guidance text already TELLS the model these laws; this module ENFORCES
 //! them on what the model actually streamed — [`crate::chat::web_loop`]
 //! buffers each round's content, audits it here, and only then releases.
-//! Ordinary non-research chat never passes through here (the pump enters the
-//! web tool loop only when the gate produced an evidence bundle).
+//! Post-MHR-A (2026-11-05) the loop is armed for EVERY progress-path chat
+//! turn (no gate prefetch; the model directs the tools); the legacy
+//! stream:false plain forward never runs here.
 //!
 //! Enforcement is deterministic — never a vibes-model call:
 //!  R1 misattributed citation: every [S#] marker must resolve to a citation
@@ -26,6 +27,17 @@
 //! Protections: fenced code blocks and inline code spans are byte-protected;
 //! already-qualified wording is never double-qualified (idempotency law:
 //! released text is persisted, replayed, and audited again on follow-ups).
+//!
+//! MHR-D (brief 2026-11-05) adds the NON-DESTRUCTIVE half:
+//! [`diagnose_research_answer`] runs the SAME detectors but only REPORTS
+//! the server's actual state (fabricated markers, unsupported sentences
+//! VERBATIM, research wording without retrieval). The loop holds a
+//! diagnosed-bad answer back and injects ONE byte-locked feedback message
+//! ([`build_answer_feedback`] — pinned by the matrix's mhrD section) into
+//! the EXISTING tool loop; the MODEL then decides the next action. The
+//! harness never rewrites semantics with thresholds or phrase patches. The
+//! destructive R1–R3 repair still runs on every release until MHR-F
+//! evolves it (deliberate half-state).
 //!
 //! Cross-language byte-lock: BOTH this module and the TS side read the ONE
 //! vendored truth matrix `rust-backend/fixtures/answer-release/matrix.json`
@@ -279,6 +291,156 @@ fn qualify(sentence: &str) -> String {
     }
 }
 
+/* ══ MHR-D: non-destructive diagnosis (same detectors, report-only) ════
+ * ⇔ TS `diagnoseResearchAnswer / answerFeedbackNeeded / buildAnswerFeedback`
+ * in lib/chat/answer-release.ts. The loop may not "repair" the model's
+ * words into semantic correctness — that is the model's job. The harness
+ * reports the ACTUAL server state truthfully and ONCE (fabricated markers,
+ * sentences resolving to no minted source — quoted VERBATIM, research
+ * wording without retrieval), holds the diagnosed-bad answer back, and
+ * injects ONE byte-locked feedback message into the EXISTING tool loop;
+ * the model decides the next action (retrieve / re-attach / state the gap).
+ * Rewrites nothing; the destructive R1–R3 audit still runs on release
+ * until MHR-F evolves it (deliberate half-state).
+ */
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct Diagnosis {
+    pub unresolved: Vec<String>,
+    pub available: Vec<String>,
+    pub unsupported: Vec<String>,
+    #[serde(rename = "claimsResearch")]
+    pub claims_research: bool,
+}
+
+fn num_suffix(id: &str) -> u64 {
+    id.get(1..).and_then(|s| s.parse().ok()).unwrap_or(u64::MAX)
+}
+
+pub fn diagnose_research_answer(text: &str, ids: &HashSet<String>, retrieved: bool) -> Diagnosis {
+    let mut unresolved: Vec<String> = Vec::new();
+    let mut unsupported: Vec<String> = Vec::new();
+    for sentence in diagnose_prose(text) {
+        let marker_ids = marker_ids(&sentence);
+        for m in &marker_ids {
+            if !ids.contains(m) && !unresolved.contains(m) {
+                unresolved.push(m.clone()); // dedup; sorted numerically below
+            }
+        }
+        if marker_ids.is_empty() && !sentence.bytes().any(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        // stillValid law identical to the audit: one resolvable marker means
+        // the sentence IS sourced — dangling extras ride under `unresolved`.
+        if marker_ids.iter().any(|id| ids.contains(id)) {
+            continue;
+        }
+        let misattributed = marker_ids.iter().any(|id| !ids.contains(id));
+        let digit = sentence.bytes().any(|b| b.is_ascii_digit());
+        let volatile = digit && VOLATILE.iter().any(|re| re.is_match(&sentence));
+        if (misattributed || volatile) && !RE_UNVERIFIED.is_match(&sentence) {
+            unsupported.push(sentence); // VERBATIM — report, never rewrite
+        }
+    }
+    unresolved.sort_by_key(|id| num_suffix(id));
+    let mut available: Vec<String> = ids.iter().cloned().collect();
+    available.sort_by_key(|id| num_suffix(id));
+    Diagnosis {
+        unresolved,
+        available,
+        unsupported,
+        claims_research: ids.is_empty() && !retrieved && RE_RESEARCH_WORDING.is_match(text),
+    }
+}
+
+/// Same segmentation law as the audit: fenced blocks and inline code
+/// contribute NOTHING — no markers, no sentences from code bytes. Only the
+/// prose units are COLLECTED (never rejoined — diagnosis rewrites nothing).
+fn diagnose_prose(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    diagnose_segments(text, 0, &mut out);
+    out
+}
+
+fn diagnose_segments(s: &str, depth: u8, out: &mut Vec<String>) {
+    if s.is_empty() {
+        return;
+    }
+    if depth == 0 {
+        if let Some(at) = s.find("```") {
+            diagnose_segments(&s[..at], 1, out);
+            let end = match s[at + 3..].find("```") {
+                Some(close) => at + 3 + close + 3,
+                None => s.len(),
+            };
+            diagnose_segments(&s[end..], 0, out); // fence: invisible
+            return;
+        }
+    }
+    if depth <= 1 {
+        if let Some(at) = s.find('`') {
+            let close = s[at + 1..].find('`').map(|c| at + 1 + c);
+            let nl = s[at + 1..].find('\n').map(|n| at + 1 + n);
+            if let Some(close) = close {
+                if nl.map_or(true, |n| close < n) {
+                    diagnose_segments(&s[..at], 2, out);
+                    diagnose_segments(&s[close + 1..], 1, out); // inline code: invisible
+                    return;
+                }
+            }
+        }
+    }
+    out.extend(sentences_of(s));
+}
+
+/// Lines, then sentences (same splits as audit_sentences/split_sentences),
+/// non-blank units only.
+fn sentences_of(prose: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in prose.split('\n') {
+        let pieces = split_sentences(line);
+        for i in (0..pieces.len()).step_by(2) {
+            if !pieces[i].is_empty() && pieces[i].chars().any(|c| !c.is_whitespace()) {
+                out.push(pieces[i].clone());
+            }
+        }
+    }
+    out
+}
+
+pub fn answer_issues(d: &Diagnosis) -> bool {
+    !d.unresolved.is_empty() || !d.unsupported.is_empty() || d.claims_research
+}
+
+/// ⇔ TS FEEDBACK_HEADER/FEEDBACK_FOOTER — the bytes live INSIDE the message
+/// the model reads; the matrix mhrD `feedback` fields pin the full render.
+const FEEDBACK_HEADER: &str = "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:";
+const FEEDBACK_FOOTER: &str = "Decide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged.";
+
+pub fn build_answer_feedback(d: &Diagnosis) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    if !d.unresolved.is_empty() {
+        let marks: Vec<String> = d.unresolved.iter().map(|id| format!("[{id}]")).collect();
+        let avail = if d.available.is_empty() {
+            "none".to_string()
+        } else {
+            d.available.join(", ")
+        };
+        lines.push(format!(
+            "- Citation marker(s) {} do not exist. Sources minted this turn: {avail}.",
+            marks.join(", ")
+        ));
+    }
+    if !d.unsupported.is_empty() {
+        let quoted: Vec<String> = d.unsupported.iter().map(|s| format!("\"{s}\"")).collect();
+        lines.push(format!("- Unsupported claim sentence(s): {}", quoted.join(", ")));
+    }
+    if d.claims_research {
+        lines.push("- The text claims web research, but no retrieval succeeded this turn.".to_string());
+    }
+    format!("{FEEDBACK_HEADER}\n{}\n{FEEDBACK_FOOTER}", lines.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,5 +543,90 @@ mod tests {
             audit_research_answer("The weather is nice.", &HashSet::new(), false),
             "The weather is nice."
         );
+    }
+
+    /* ── MHR-D: the vendored mhrD diagnose cases ══════════════════════
+     * Same matrix, same fictional entities — diagnosis byte-parity with
+     * TS `__tests__/chat/answer-release.test.ts`. Held-answer feedback is
+     * the model-facing contract: byte-exact or the promise is a lie.
+     */
+
+    struct MhrCase {
+        name: String,
+        text: String,
+        citations: HashSet<String>,
+        retrieved: bool,
+        expected: Diagnosis,
+        feedback: String,
+    }
+
+    fn mhr_matrix() -> Vec<MhrCase> {
+        let v: serde_json::Value =
+            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        v["mhrD"]["diagnoseCases"]
+            .as_array()
+            .expect("mhrD.diagnoseCases array")
+            .iter()
+            .map(|c| MhrCase {
+                name: c["name"].as_str().unwrap_or("").to_string(),
+                text: c["text"].as_str().unwrap_or("").to_string(),
+                citations: c["citations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.as_str().unwrap().to_string())
+                    .collect(),
+                retrieved: c["retrieved"].as_bool().unwrap(),
+                expected: serde_json::from_value(c["expected"].clone())
+                    .expect("expected matches Diagnosis shape"),
+                feedback: c["feedback"].as_str().unwrap_or("").to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_mhrd_matrix_section_is_present() {
+        let cases = mhr_matrix();
+        assert!(cases.len() >= 8, "mhrD must vend ≥8 diagnose cases");
+    }
+
+    #[test]
+    fn every_mhrd_case_diagnoses_identically_to_ts() {
+        for c in &mhr_matrix() {
+            let d = diagnose_research_answer(&c.text, &c.citations, c.retrieved);
+            assert_eq!(d, c.expected, "mhrD case: {}", c.name);
+            assert_eq!(
+                answer_issues(&d),
+                !c.feedback.is_empty(),
+                "feedback gate on case: {}",
+                c.name
+            );
+            if !c.feedback.is_empty() {
+                assert_eq!(
+                    build_answer_feedback(&d),
+                    c.feedback,
+                    "feedback bytes on case: {}",
+                    c.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mhrd_diagnosis_is_non_destructive_a_clean_answer_stays_silent() {
+        // The report quotes VERBATIM — never the destructive audit's
+        // "(unverified)" rewrite — and a clean fully-cited answer fires
+        // nothing at all (the feedback round must not haunt good turns).
+        let ids: HashSet<String> = ["S1".to_string()].into_iter().collect();
+        let d = diagnose_research_answer("Boreal costs $99 [S9] per seat.", &ids, true);
+        assert_eq!(
+            d.unsupported,
+            vec!["Boreal costs $99 [S9] per seat.".to_string()]
+        );
+        assert!(!d.unsupported[0].contains("(unverified)"));
+        assert_eq!(d.unresolved, vec!["S9".to_string()]);
+
+        let clean = diagnose_research_answer("Boreal costs $99 [S1] per seat.", &ids, true);
+        assert!(!answer_issues(&clean));
     }
 }

@@ -12,7 +12,13 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-import { auditResearchAnswer, SERVER_CHECK_LINE } from "@/lib/chat/answer-release";
+import {
+  auditResearchAnswer,
+  SERVER_CHECK_LINE,
+  diagnoseResearchAnswer,
+  answerFeedbackNeeded,
+  buildAnswerFeedback,
+} from "@/lib/chat/answer-release";
 
 const matrixPath = path.join(process.cwd(), "rust-backend", "fixtures", "answer-release", "matrix.json");
 const matrix = JSON.parse(fs.readFileSync(matrixPath, "utf-8"));
@@ -72,5 +78,53 @@ describe("answer release audit — vendored matrix (WS06, TS side)", () => {
   it("no retrieval AND no citation map: every claim stays; only research-wording is flagged", () => {
     const out = auditResearchAnswer("The weather is nice.", [], false);
     expect(out).toBe("The weather is nice.");
+  });
+});
+
+/* ── MHR-D (brief 2026-11-05): non-destructive diagnosis + one byte-locked
+ *    harness-feedback message. The SAME mhrD matrix section drives BOTH
+ *    languages (Rust: answer_release.rs tests). Diagnosis REPORTS the actual
+ *    server state; it rewrites nothing. The destructive `cases` audit above
+ *    stays in force until MHR-F — D is deliberately a half-state. ──────── */
+
+interface Diagnosis {
+  unresolved: string[];
+  available: string[];
+  unsupported: string[];
+  claimsResearch: boolean;
+}
+
+interface DiagnoseCase {
+  name: string;
+  text: string;
+  citations: string[];
+  retrieved: boolean;
+  expected: Diagnosis;
+  feedback: string;
+}
+
+describe("MHR-D answer diagnosis — vendored matrix (TS side)", () => {
+  const cases = (matrix.mhrD?.diagnoseCases ?? []) as DiagnoseCase[];
+
+  it("the mhrD section exists and is non-trivial", () => {
+    expect(Array.isArray(matrix.mhrD?.diagnoseCases)).toBe(true);
+    expect(cases.length).toBeGreaterThanOrEqual(8);
+  });
+
+  for (const c of cases) {
+    it(c.name, () => {
+      const d = diagnoseResearchAnswer(c.text, c.citations, c.retrieved);
+      expect(d).toEqual(c.expected);
+      expect(answerFeedbackNeeded(d)).toBe(c.feedback !== "");
+      if (c.feedback !== "") expect(buildAnswerFeedback(d)).toBe(c.feedback);
+    });
+  }
+
+  it("diagnosis is non-destructive — the same text is REPORTED verbatim, not rewritten (audit stays destructive until MHR-F)", () => {
+    const d = diagnoseResearchAnswer("Boreal costs $99 [S9] per seat.", ["S1"], true);
+    expect(d.unsupported).toEqual(["Boreal costs $99 [S9] per seat."]); // verbatim original
+    expect(auditResearchAnswer("Boreal costs $99 [S9] per seat.", ["S1"], true)).toBe(
+      "Boreal costs $99 per seat (unverified).",
+    );
   });
 });
