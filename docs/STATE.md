@@ -2962,3 +2962,32 @@ superpowers:test-driven-development (loaded, Iron Law in force). No Tier-2 .cski
 1. WS03 RED: __tests__/web-search gate/planner test — (a) parseMainGateJson (search-gate.ts ~:1003-1066) must REJECT a NO decision whose no_search_basis is missing/invalid at runtime (enum-validate, not just schema-declare); (b) a failed/invalid gate must not silently authorize memory answers where evidence is required — pin the rulesBasedPlan fallback law (:708-719: outage with no deterministic shape stays LOCAL BY DESIGN for want:false arms; want:true arms survive via force-YES) and reconcile with brief item 3 carefully before changing any fallback semantics.
 2. GREEN minimal in search-gate.ts; full vitest + tsc; commit (attribution line); push develop; STATE append.
 3. Then WS04 (follow-up subject preservation: subjectAnchor/gateKeywordQuery search-gate.ts ~:532-570).
+
+---
+
+# SESSION SNAPSHOT 2026-11-05d — WS03 LOCKED (evidence-backed no-search decisions)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+WS01–WS20 audit repair brief at 60fe172, develop. WS01, WS02 (853c7d7+06cba20), WS03 (c61bda8) LOCKED. Active phase: WS04 (follow-up subject preservation).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS03 (c61bda8): parseMainGateJson NO-branch now machine-checks the ONLY evidence-claiming basis — `available_evidence` requires ctx.hasAttachmentEvidence||ctx.hasImageAttachment, else verdict null → rules-plan escalation. New maintained fixture __tests__/web-search/search-gate-evidence-basis.test.ts (5 tests: ungrounded reject RED→GREEN, attachment-positive control, context-independent bases, missing/confidence basis pins, outage reason names "unreachable"). Other bases prompt-intrinsic — DO NOT add evidence gates to them.
+- Prior: WS01 (61951d0), WS02 core+acceptance (853c7d7, 06cba20) incl. vendored audit matrix/boundaries fixtures.
+
+## [8.3 GRAPHIFY DEPENDENCY MAP (this cycle)]
+- callLlm ⇔ mainModelGate ⇔ parseMainGateJson (WS03 check lives here) ⇐ runSearchGate stage order unchanged (bypass → trivial → model → rules). Vendored matrix model-mode stubs send NO_SEARCH without no_search_basis → parser-null → rules plan; want:false arms still pass via rules (source "rules") — this escalation path is now load-bearing for 53 arms × 2 modes; do not regress parseMainGateJson basis law.
+
+## [8.4 IMMUTABLE CODE CONTRACTS (additions)]
+- Basis law: NO_SEARCH_BASIS enum = justification TYPE; available_evidence = evidence CLAIM checked against ctx flags; basis never rides SearchDecision wire (frozen). Rejected verdict ⇒ rules escalation, never silent memory authorization.
+- SearchGateContext evidence flags = hasAttachmentEvidence, hasImageAttachment (retrieval-stage canonical flags).
+
+## [8.5 / 8.7 E2E + SKILLS] Unchanged from 2026-11-05c (no lock, no run; next pw-80; TDD skill loaded).
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- FLAKE (unreproduced): full-vitest run at 12:38:52 post-WS03-fix showed exactly 1 file failed; the next 5 full consecutive runs 109/109 green. Suspect heavy-timing file under transform load (xlsx/pptx/video/titles-queue all 2–8 s). If it recurs, capture the failing file name from the summary before anything else.
+- WS04–WS20 open; P6 benchmark pending; CRLF contracts:check separate; stale editor hint GATE_JSON_SCHEMA:86 (tsc clean).
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS04 RED: subject-preservation fixtures — subjectless follow-ups must search the PRESERVED subject, not instruction words (audit WS04: "through search ... models" follow-up dispatched generic searching words). Cover subjectAnchor/gateKeywordQuery in search-gate.ts ~:532-570: history carries the subject (product/model/site name), current turn is anaphoric/bare; assert gate queries contain the subject token (matrix q900 arm style) and never bare instruction verbs.
+2. GREEN minimal; full vitest + tsc; commit; push; STATE append.
+3. Then WS05 (persist/rehydrate research evidence — lib/chat client.ts:44 drops web metadata; locate the REAL citation/persistence path at baseline, lib/chat/citations.ts does not exist).
