@@ -30,6 +30,7 @@ import { applySegmentFilter } from "./segment-filter";
 import { collectRouteLinks, focusTokens } from "./route-links";
 import { isSafeUrlWithDns } from "./ssrf";
 import type { SearchDecision, RankedResult } from "./types";
+import { retrievalModeForFreshness } from "./types";
 import { domainWithin } from "./domain-match";
 import {
   isEnforceableScope,
@@ -863,6 +864,22 @@ export async function execWebSearchTool(
   const freshness = typeof args.freshness === "string"
     ? (args.freshness as SearchDecision["freshness"])
     : "any";
+  // WS14 (audit 2026-11-05 item 14): effective freshness PER OPERATION.
+  // The gate's session policy is a floor, never a ceiling — a realtime
+  // web_search call's URL-shaped reads went through the UNCHANGED session
+  // policy, so a cached page body (Tier 0, incl. cached render tiers) or a
+  // Wayback snapshot could answer "the price right now". Strengthening is
+  // monotonic within the turn: once live reads are required, later reads
+  // inherit them (a softer later op never re-opens the page cache). The
+  // strengthened session.liveRequired is the SAME arg readOneUrl already
+  // passes to extractUrl (~:601) — page cache, render-cache and archive
+  // tiers all gate on it; the engine leg carries the op's freshness
+  // directly (metasearch below). Exact mapping: only "realtime" is
+  // live_required; "day"/"week" (live_preferred — a query-cache write-TTL
+  // law) must NOT flip this binary.
+  if (retrievalModeForFreshness(freshness) === "live_required") {
+    session.liveRequired = true;
+  }
   const intent = mapIntent(args.desired_source_types);
   const focus = typeof args.reason === "string" ? args.reason : "";
 
