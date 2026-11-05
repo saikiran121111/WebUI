@@ -14,6 +14,15 @@
  * somewhere in the provider's title/snippet/URL text. Vocabulary
  * self-overlap only — no brand/domain table, no URL template, no genre
  * list, no magic phrase (universal-search law from the repair brief).
+ *
+ * DELIBERATE EVOLUTIONS by audit 2026-11-05 item 12 (WS12), pinned in the
+ * sibling multilingual-provider-recovery.test.ts and reflected in the two
+ * expectations below: tokenization is Unicode-complete (the P4 ASCII class
+ * stripped non-Latin queries to an empty term set), an empty/unjudgeable
+ * term set is UNKNOWN — never success — and content queries of ≤ 3 terms
+ * require FULL coverage (half of two generic fragments is the "absent
+ * distinguishing entity" hole). The 0.5 boundary itself is unchanged for
+ * longer queries.
  */
 import { describe, it, expect } from "vitest";
 import { serpCoversQuery } from "@/lib/web-search/engines";
@@ -28,13 +37,17 @@ describe("serpCoversQuery — evidence-gap recovery predicate (P4)", () => {
     expect(serpCoversQuery("arborworks quarterly revenue report", [])).toBe(false);
   });
 
-  it("a query with no content words is unjudgeable → benefit of the doubt", () => {
+  it("a query with no content words is unjudgeable → UNKNOWN, never success (WS12 evolution)", () => {
     // every token is a stop-word (GAP_STOPWORDS mirror) or ≤2 chars —
-    // nothing to match against, so the provider gets the benefit of the
-    // doubt instead of a forced fall-through
+    // nothing to match against. The P4 benefit-of-the-doubt TRUE was how a
+    // SERP sharing nothing with a query could suppress recovery (the same
+    // auto-pass the audit caught for stripped non-Latin queries), so
+    // unknown now falls through: recovery runs, and the never-lose law in
+    // runGeneralWebSearch still returns the priority provider's non-empty
+    // results when the cascade finds nothing better.
     const junk = [r("Accept cookies", "https://example.invalid/consent", "Continue to site")];
-    expect(serpCoversQuery("who is it for", junk)).toBe(true);
-    expect(serpCoversQuery("a an the of in on", junk)).toBe(true);
+    expect(serpCoversQuery("who is it for", junk)).toBe(false);
+    expect(serpCoversQuery("a an the of in on", junk)).toBe(false);
   });
 
   it("a fully grounded SERP answers (no recovery)", () => {

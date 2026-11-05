@@ -1684,21 +1684,33 @@ const POOL_QUERY_STOPWORDS = new Set([
 const RECOVERY_POOL_TIME_GUARD_MS = 25_000;
 
 /** The recovery predicate: is this provider's SERP grounded in the query's
-   own words? (empty results = never answered; a query with no content
-   words beyond stop-words is unjudgeable → benefit of the doubt.) */
+   own words? (empty results = never answered.) WS12 audit refinements
+   (2026-11-05 item 12): tokenization keeps EVERY script — letters, numbers
+   and combining marks, the same general-category classes the gate tokenizer
+   uses (ICU script-name properties are unavailable on this Node build) —
+   so a non-Latin query gets real content terms instead of being stripped
+   to an empty set; an EMPTY/unjudgeable term set is UNKNOWN relevance,
+   NOT success (the old benefit-of-the-doubt TRUE let stripped queries and
+   junk SERPs suppress recovery; the never-lose law in the cascade still
+   returns the priority provider's non-empty results when recovery finds
+   nothing better). Short content queries (≤ 3 terms) must be FULLY
+   covered — half of a two-term entity+generic fragment is precisely the
+   audit's "absent distinguishing entity" hole; longer queries keep the
+   established 0.5 boundary (same law as query-planner.evaluateCoverage). */
 export function serpCoversQuery(query: string, results: RawSearchResult[]): boolean {
   if (results.length === 0) return false;
   const terms = query
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 2 && !POOL_QUERY_STOPWORDS.has(w));
-  if (terms.length === 0) return true;
+    .filter((w) => [...w].length > 2 && !POOL_QUERY_STOPWORDS.has(w));
+  if (terms.length === 0) return false;
   const haystack = results
     .map((r) => `${r.title} ${r.snippet} ${r.url}`)
     .join(" ")
     .toLowerCase();
   const hits = terms.filter((t) => haystack.includes(t)).length;
+  if (terms.length <= 3) return hits === terms.length;
   return hits / terms.length >= 0.5;
 }
 

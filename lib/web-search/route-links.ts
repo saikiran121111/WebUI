@@ -19,9 +19,20 @@
 const MD_LINK_RE = /\[([^\]]{1,160})\]\(([^\s)]{1,600})\)/g;
 const BARE_URL_RE = /(?<![\w/."'(])https?:\/\/[^\s)\]}>,"]+/g;
 
-/** Content-word tokens (length > 3) used for route/row focus ranking. */
+/** Content-word tokens used for route/row focus ranking. WS12 audit
+ *  (2026-11-05 item 12): the ASCII-only class silently produced NO tokens
+ *  for non-Latin queries — a Hindi question could never rank a route or
+ *  steer read_page focus. Split on the general-category classes (every
+ *  script's letters/numbers/combining marks; boundaries and Latin tokens
+ *  stay byte-identical to the old [^a-z0-9] split); the Latin noise guard
+ *  (length > 3) is preserved, and non-Latin content words need only 2
+ *  code points — scripts like CJK/Devanagari carry meaning far below
+ *  four characters. Counted in CODE POINTS, not UTF-16 units. */
 export function focusTokens(text: string): string[] {
-  return (text || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  return (text || "")
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}\p{M}]+/u)
+    .filter((w) => (/^[a-z0-9]+$/.test(w) ? w.length > 3 : [...w].length >= 2));
 }
 
 /**
