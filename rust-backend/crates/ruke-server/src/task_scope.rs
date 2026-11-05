@@ -780,10 +780,30 @@ const FOLLOW_CUES: &[&str] = &[
 // Blinkit"). No place names, no brand tables — purely closed-class
 // vocabulary membership.
 const NON_CONTENT_SETS: &[&[&str]] = &[
-    PREPS, OP_VERBS, DO_SITE_VERBS, NAV_SITE_VERBS, DO_SCAFFOLD, CONJ_STOPS, FIND_VERBS, CUE_NOUNS,
-    COMPARE_WORDS, COMPARE_ADJ, GENERIC_FIRST, STOP_TOKENS, TRAILING_STRIP, ARTICLES,
-    POST_NP_REJECT, ONLY_LEAD, ONLY_VERB, EXCL_LEAD, EXCL_VERB, AUTH_LEAD1, AUTH_VERB,
-    RESEARCH_CUE_WORDS, COPULAS, FOLLOW_CUES,
+    PREPS,
+    OP_VERBS,
+    DO_SITE_VERBS,
+    NAV_SITE_VERBS,
+    DO_SCAFFOLD,
+    CONJ_STOPS,
+    FIND_VERBS,
+    CUE_NOUNS,
+    COMPARE_WORDS,
+    COMPARE_ADJ,
+    GENERIC_FIRST,
+    STOP_TOKENS,
+    TRAILING_STRIP,
+    ARTICLES,
+    POST_NP_REJECT,
+    ONLY_LEAD,
+    ONLY_VERB,
+    EXCL_LEAD,
+    EXCL_VERB,
+    AUTH_LEAD1,
+    AUTH_VERB,
+    RESEARCH_CUE_WORDS,
+    COPULAS,
+    FOLLOW_CUES,
 ];
 
 fn is_content_token(clean: &str) -> bool {
@@ -1031,8 +1051,7 @@ fn push_target(
         // and stayed forever-unresolved site targets). Trailing CUT chars
         // are all 1 byte, so byte math mirrors the char math.
         span_end: toks[np.last_tok].end
-            - (toks[np.last_tok].raw.len()
-                - strip_tail_punct(&toks[np.last_tok].raw).len()),
+            - (toks[np.last_tok].raw.len() - strip_tail_punct(&toks[np.last_tok].raw).len()),
         first_tok: np.first_tok,
         state: TargetState::Unresolved,
         host: String::new(),

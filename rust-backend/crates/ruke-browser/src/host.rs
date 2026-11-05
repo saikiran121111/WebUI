@@ -39,6 +39,19 @@ pub const DEVTOOLS_ACTIVE_PORT_FILE: &str = "DevToolsActivePort";
 /// (plan §0 profile semantics).
 pub const PROFILE_DIR_NAME: &str = "ruke-browser-profile";
 
+/// Per-platform executable layouts inside a `chromium-<n>` bundle, matching
+/// every platform the product targets (Windows/Linux/macOS). Headless-shell
+/// bundles are deliberately absent: the agent browser must be attachable.
+const PLATFORM_EXE_CANDIDATES: &[&str] = &[
+    "chrome-win64/chrome.exe",
+    "chrome-win/chrome.exe",
+    "chrome-linux/chrome",
+    "chrome-linux64/chrome",
+    "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+    "chrome-mac-x64/Chromium.app/Contents/MacOS/Chromium",
+    "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+];
+
 /// A page target Chromium already had open at launch (the startup tab).
 #[derive(Clone, Debug)]
 pub struct InitialPageTarget {
@@ -88,12 +101,7 @@ impl HostConfig {
                 let Ok(version) = digit_tail.parse::<u32>() else {
                     continue;
                 };
-                for sub in [
-                    "chrome-win64/chrome.exe",
-                    "chrome-win/chrome.exe",
-                    "chrome-linux/chrome",
-                    "chrome-linux64/chrome",
-                ] {
+                for sub in PLATFORM_EXE_CANDIDATES {
                     let cand = entry.path().join(sub);
                     if cand.is_file() {
                         let better = match &best {
@@ -302,5 +310,124 @@ async fn wait_for_devtools_ws_url(dtap: &Path, child: &mut Child) -> Result<Url,
             });
         }
         tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Throwaway temp root, unique per test + process + clock.
+    fn temp_root(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "ruke-host-test-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn fake_bundle(ms: &Path, dir: &str, rel: &str) {
+        let exe = ms.join(dir).join(rel);
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "not a real binary").unwrap();
+    }
+
+    /// The env override would short-circuit discovery; skip rather than fight it.
+    fn env_override_set() -> bool {
+        std::env::var_os(ENV_EXECUTABLE).is_some()
+    }
+
+    #[test]
+    fn discover_prefers_the_newest_real_bundle() {
+        if env_override_set() {
+            eprintln!("skipping: {ENV_EXECUTABLE} is set in this environment");
+            return;
+        }
+        let root = temp_root("newest");
+        let ms = root.join(".data").join("ms-playwright");
+        fake_bundle(&ms, "chromium-1111", "chrome-win64/chrome.exe");
+        fake_bundle(&ms, "chromium-2222", "chrome-win64/chrome.exe");
+        // A higher-versioned HEADLESS-SHELL bundle must never win: the
+        // agent browser needs a real attachable browser, not a shell.
+        std::fs::create_dir_all(ms.join("chromium-9999/chrome-headless-shell-win64")).unwrap();
+        std::fs::write(
+            ms.join("chromium-9999/chrome-headless-shell-win64/chrome-headless-shell.exe"),
+            "shell",
+        )
+        .unwrap();
+
+        let cfg = HostConfig::discover(&root).expect("newest bundle should be discovered");
+        assert!(
+            cfg.executable
+                .ends_with("chromium-2222/chrome-win64/chrome.exe"),
+            "picked {} over the newest real bundle",
+            cfg.executable.display()
+        );
+        assert_eq!(
+            cfg.profile_dir,
+            root.join(".data").join(PROFILE_DIR_NAME),
+            "profile dir must stay under the root's .data"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn discover_matches_macos_bundle_layouts() {
+        if env_override_set() {
+            eprintln!("skipping: {ENV_EXECUTABLE} is set in this environment");
+            return;
+        }
+        // The .app/Contents/MacOS/Chromium layout is just nested dirs on
+        // every filesystem, so this proves candidate + separator handling;
+        // a live macOS run stays the remaining platform gate.
+        let root = temp_root("macos");
+        let ms = root.join(".data").join("ms-playwright");
+        fake_bundle(
+            &ms,
+            "chromium-1234",
+            "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+        );
+
+        let cfg = HostConfig::discover(&root).expect("mac layout is a candidate");
+        assert!(
+            cfg.executable
+                .ends_with("chromium-1234/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium"),
+            "picked {}",
+            cfg.executable.display()
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn discover_fails_closed_with_only_headless_shells() {
+        if env_override_set() {
+            eprintln!("skipping: {ENV_EXECUTABLE} is set in this environment");
+            return;
+        }
+        let root = temp_root("shellonly");
+        let ms = root.join(".data").join("ms-playwright");
+        std::fs::create_dir_all(ms.join("chromium-1111/chrome-headless-shell-win64")).unwrap();
+        std::fs::write(
+            ms.join("chromium-1111/chrome-headless-shell-win64/chrome-headless-shell.exe"),
+            "shell",
+        )
+        .unwrap();
+
+        match HostConfig::discover(&root) {
+            Ok(cfg) => panic!(
+                "headless shells are not candidates, got {}",
+                cfg.executable.display()
+            ),
+            Err(err) => assert!(
+                matches!(err, BrowserError::HostUnavailable),
+                "expected HostUnavailable, got {err}"
+            ),
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

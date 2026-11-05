@@ -268,7 +268,11 @@ fn drain_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut lines = Vec::new();
     while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
         let raw: Vec<u8> = buf.drain(..=pos).collect();
-        lines.push(String::from_utf8_lossy(&raw[..raw.len() - 1]).trim().to_string());
+        lines.push(
+            String::from_utf8_lossy(&raw[..raw.len() - 1])
+                .trim()
+                .to_string(),
+        );
     }
     lines
 }
@@ -312,10 +316,7 @@ mod tests {
             // abort on panic, or abrupt test end) would poison the next
             // test with "received unexpected message from connection".
             // Production keeps pooling (real Next doesn't reset sockets).
-            http: Client::builder()
-                .pool_idle_timeout(None)
-                .build()
-                .unwrap(),
+            http: Client::builder().pool_idle_timeout(None).build().unwrap(),
             base: format!("http://127.0.0.1:{port}"),
             secret: "test-secret".to_string(),
         }
@@ -398,7 +399,12 @@ mod tests {
         let bridge = test_bridge(port);
         let token = CancellationToken::new();
         let res = bridge
-            .post_json(TOOLS_PATH, &serde_json::json!({"action": "ping"}), &token, Some(Duration::from_millis(80)))
+            .post_json(
+                TOOLS_PATH,
+                &serde_json::json!({"action": "ping"}),
+                &token,
+                Some(Duration::from_millis(80)),
+            )
             .await;
         match res {
             Err(BridgeError::Unreachable(m)) => assert!(m.contains("headers"), "msg was {m}"),
@@ -418,7 +424,9 @@ mod tests {
         .await;
         let bridge = test_bridge(port);
         let token = CancellationToken::new();
-        let res = bridge.research(&serde_json::json!({"prompt": "x"}), &token, |_| {}).await;
+        let res = bridge
+            .research(&serde_json::json!({"prompt": "x"}), &token, |_| {})
+            .await;
         match res {
             Err(BridgeError::Protocol(m)) => assert!(m.contains("without a result"), "msg was {m}"),
             other => panic!("expected Protocol, got {other:?}"),
@@ -436,7 +444,9 @@ mod tests {
         .await;
         let bridge = test_bridge(port);
         let token = CancellationToken::new();
-        let res = bridge.research(&serde_json::json!({"prompt": "x"}), &token, |_| {}).await;
+        let res = bridge
+            .research(&serde_json::json!({"prompt": "x"}), &token, |_| {})
+            .await;
         assert!(
             matches!(res, Err(BridgeError::Unreachable(_))),
             "expected Unreachable, got {res:?}"
@@ -452,7 +462,9 @@ mod tests {
         let port = serve_chunked_stream(vec![huge], false).await;
         let bridge = test_bridge(port);
         let token = CancellationToken::new();
-        let res = bridge.research(&serde_json::json!({"prompt": "x"}), &token, |_| {}).await;
+        let res = bridge
+            .research(&serde_json::json!({"prompt": "x"}), &token, |_| {})
+            .await;
         match res {
             Err(BridgeError::Protocol(m)) => assert!(m.contains("frame cap"), "msg was {m}"),
             other => panic!("expected frame-cap Protocol, got {other:?}"),
@@ -468,7 +480,8 @@ mod tests {
             vec![
                 "{\"type\":\"progress\",\"stage\":\"searching\"}\n".to_string(),
                 "{\"type\":\"progress\",\"stage\":\"reading\"}\n".to_string(),
-                "{\"type\":\"result\",\"status\":\"bundle\",\"systemBlock\":\"first\"}\n".to_string(),
+                "{\"type\":\"result\",\"status\":\"bundle\",\"systemBlock\":\"first\"}\n"
+                    .to_string(),
                 "{\"type\":\"result\",\"status\":\"error\",\"message\":\"decoy\"}\n".to_string(),
             ],
             false,

@@ -79,7 +79,8 @@ impl ConversationStore {
     /// files here), `.research.json` suffix so the conversation-document
     /// POST can never clobber the journal.
     fn research_file(&self, id: &str) -> PathBuf {
-        self.dir.join(format!("{}.research.json", Self::safe_id(id)))
+        self.dir
+            .join(format!("{}.research.json", Self::safe_id(id)))
     }
 
     /// The shared `[^a-zA-Z0-9_-]` → "_" sanitizer.

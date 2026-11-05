@@ -54,6 +54,87 @@ const SESSION: &str = "fx";
 /// without approval plumbing.
 const TURN: &str = "ui";
 
+/// Minimal standard-alphabet base64 decoder (test-only; proves the
+/// returned image BYTES, not just the metadata that describes them).
+fn b64_bytes(s: &str) -> Vec<u8> {
+    let sextet = |c: u8| -> Option<u8> {
+        match c {
+            b'A'..=b'Z' => Some(c - b'A'),
+            b'a'..=b'z' => Some(c - b'a' + 26),
+            b'0'..=b'9' => Some(c - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    };
+    let mut out = Vec::new();
+    let mut acc = 0u32;
+    let mut bits = 0u32;
+    for c in s.bytes() {
+        match sextet(c) {
+            Some(v) => {
+                acc = (acc << 6) | u32::from(v);
+                bits += 6;
+                if bits >= 8 {
+                    bits -= 8;
+                    out.push((acc >> bits) as u8);
+                }
+            }
+            None if c == b'=' => break,
+            None => {}
+        }
+    }
+    out
+}
+
+/// True pixel dimensions straight out of the image headers
+/// (PNG IHDR / JPEG SOFn) — what the receiving vision model will see.
+fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") && bytes.len() >= 24 {
+        let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+        let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+        return Some((w, h));
+    }
+    if !bytes.starts_with(b"\xff\xd8\xff") {
+        return None;
+    }
+    let mut i = 2usize;
+    while i + 9 <= bytes.len() {
+        if bytes[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+        let m = bytes[i + 1];
+        if (0xD0..=0xD9).contains(&m) || m == 0x01 || m == 0xFF {
+            i += 2;
+            continue;
+        }
+        let len = ((bytes[i + 2] as usize) << 8) | bytes[i + 3] as usize;
+        if (0xC0..=0xCF).contains(&m) && !matches!(m, 0xC4 | 0xC8 | 0xCC) {
+            let h = ((bytes[i + 5] as u32) << 8) | bytes[i + 6] as u32;
+            let w = ((bytes[i + 7] as u32) << 8) | bytes[i + 8] as u32;
+            return Some((w, h));
+        }
+        i += 2 + len;
+    }
+    None
+}
+
+/// The metadata promise: image_width/height EQUAL the real pixels.
+fn assert_dims_honest(r: &serde_json::Value, what: &str) -> (u32, u32) {
+    let b64 = r["image_base64"].as_str().unwrap_or_default();
+    let real = image_dims(&b64_bytes(b64))
+        .unwrap_or_else(|| panic!("{what}: undecodable image bytes"));
+    let rep_w = r["image_width"].as_u64().unwrap_or(0) as u32;
+    let rep_h = r["image_height"].as_u64().unwrap_or(0) as u32;
+    assert_eq!(
+        (rep_w, rep_h),
+        real,
+        "{what}: metadata {rep_w}x{rep_h} lies about real pixels {real:?}: {r}"
+    );
+    real
+}
+
 fn base_url() -> String {
     format!("http://127.0.0.1:{FIXTURE_PORT}")
 }
@@ -1249,6 +1330,117 @@ async fn run_gap_battery() {
     assert!(
         snap.contains("link"),
         "dom_snapshot missing the link role: {snap}"
+    );
+
+    // ── Phase 1 safe transport + targeted reads (live Chromium proof) ──
+    // The compact capture shape the guidance teaches the model:
+    // jpeg + downscale, with full attribution metadata.
+    let r = locator(
+        rt,
+        "tab_screenshot",
+        json!({"browser_id":"default","tab_id":tab,
+               "format":"jpeg","quality":60,"max_dim":900}),
+        "tab_screenshot jpeg/max_dim",
+    )
+    .await;
+    assert_eq!(r["mime_type"], json!("image/jpeg"), "jpeg capture: {r}");
+    assert!(
+        r["image_base64"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "jpeg image bytes: {r}"
+    );
+    let (iw, ih) = assert_dims_honest(&r, "max_dim jpeg capture");
+    assert!(
+        iw > 0 && iw <= 900 && ih > 0 && ih <= 900,
+        "max_dim=900 honored (real image {iw}x{ih}): {r}"
+    );
+    assert!(
+        r["scale"].as_f64().unwrap_or(9.0) <= 1.0 && r["scale"].as_f64().unwrap_or(0.0) > 0.0,
+        "applied scale reported: {r}"
+    );
+    assert_eq!(
+        r["tab_id"],
+        json!(tab.as_str()),
+        "capture names its tab: {r}"
+    );
+    assert_eq!(r["frame"], json!("main"), "capture names its frame: {r}");
+    assert!(
+        r["viewport"]["width"].as_f64().unwrap_or(0.0) > 0.0,
+        "viewport metadata: {r}"
+    );
+    assert!(
+        r["page"]["width"].as_f64().unwrap_or(0.0) > 0.0,
+        "page metadata: {r}"
+    );
+
+    // Targeted element capture: the SELECTOR itself crops (the tool
+    // schema always advertised this; the wire used to drop it).
+    let r = locator(
+        rt,
+        "playwright_element_screenshot",
+        json!({"browser_id":"default","tab_id":tab,"selector":"#go-arrived","format":"jpeg"}),
+        "element_screenshot selector crop",
+    )
+    .await;
+    assert!(
+        r["image_base64"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "selector crop capture: {r}"
+    );
+    let (cw, ch) = assert_dims_honest(&r, "selector crop capture");
+    assert!(cw > 0 && ch > 0, "selector crop has pixels: {r}");
+    assert!(
+        r["selector_box"]["width"].as_f64().unwrap_or(0.0) > 0.0,
+        "selector box reported: {r}"
+    );
+    assert!(
+        r["crop"]["width"].as_f64().unwrap_or(0.0) <= r["page"]["width"].as_f64().unwrap_or(0.0),
+        "selector crop fits the page: {r}"
+    );
+
+    // A selector that matches nothing REFUSES (stale-target law), never
+    // silently degrades into a full-page capture.
+    let bad = cmd(
+        rt,
+        SESSION,
+        TURN,
+        json!({"commandType":"playwright_element_screenshot","session_id":SESSION,"turn_id":TURN,
+               "payload":{"browser_id":"default","tab_id":tab,"selector":"#no-such-element-xyzzy"}}),
+    )
+    .await;
+    match bad {
+        Ok(v) => panic!("missing selector target must refuse, got: {v}"),
+        Err(e) => assert!(
+            e.to_string().contains("matched no element"),
+            "stale-selector refusal expected, got: {e}"
+        ),
+    }
+
+    // Targeted read: a search-window snapshot keeps its refs actionable
+    // and reports its own window instead of being silently cut.
+    let r = locator(
+        rt,
+        "playwright_dom_snapshot",
+        json!({"browser_id":"default","tab_id":tab,"search":"arrive"}),
+        "dom_snapshot search window",
+    )
+    .await;
+    let hit = r["dom_snapshot"].as_str().unwrap_or_default();
+    assert!(
+        hit.contains("Arrive") && hit.contains("[ref="),
+        "search snapshot keeps matched refs: {hit}"
+    );
+    assert!(
+        r["snapshot_meta"]["matched_lines"].as_u64().unwrap_or(0) >= 1,
+        "search reports its window: {r}"
+    );
+    assert!(
+        !hit.contains("id=\"fixture-nav\"") || !hit.contains("banner"),
+        "searched snapshot is a slice, not the whole page: {hit}"
     );
 
     locator(

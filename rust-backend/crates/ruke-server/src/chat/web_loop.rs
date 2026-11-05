@@ -89,10 +89,7 @@ use crate::chat::answer_release::{
 };
 use crate::chat::browser_loop::{tool_content, ToolStreamRelay};
 use crate::chat::{
-    error, next_search,
-    next_search::BridgeError,
-    scrubber::ThinkScrubber,
-    sse::ProgressChannel,
+    error, next_search, next_search::BridgeError, scrubber::ThinkScrubber, sse::ProgressChannel,
 };
 use crate::AppState;
 
@@ -166,8 +163,16 @@ fn hold_round_frame(frame: &[u8], held: &mut Vec<Vec<u8>>) -> Option<Vec<u8>> {
             continue;
         };
         let mut terminal_here = false;
-        if let Some(choice) = v.get_mut("choices").and_then(Value::as_array_mut).and_then(|a| a.first_mut()) {
-            if choice.get("finish_reason").and_then(Value::as_str).is_some() {
+        if let Some(choice) = v
+            .get_mut("choices")
+            .and_then(Value::as_array_mut)
+            .and_then(|a| a.first_mut())
+        {
+            if choice
+                .get("finish_reason")
+                .and_then(Value::as_str)
+                .is_some()
+            {
                 terminal_here = true;
             }
             if choice
@@ -476,7 +481,11 @@ pub async fn run_web_tool_loop(
             return;
         }
     };
-    let session_id = created.get("sessionId").and_then(Value::as_str).unwrap_or("").to_string();
+    let session_id = created
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if session_id.is_empty() {
         tracing::error!(
             parent: span,
@@ -528,10 +537,7 @@ pub async fn run_web_tool_loop(
             }
         }
     }
-    payload["tools"] = created
-        .get("tools")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
+    payload["tools"] = created.get("tools").cloned().unwrap_or_else(|| json!([]));
 
     // Prior citations must reach the client BEFORE the model's first byte,
     // or an [S#] the model reuses from the rehydrated block renders as
@@ -583,7 +589,8 @@ pub async fn run_web_tool_loop(
             if token.is_cancelled() {
                 break 'outer Outcome::Aborted;
             }
-            let (relay, mut held) = match stream_round(state, &payload, &url, span, token, ch).await {
+            let (relay, mut held) = match stream_round(state, &payload, &url, span, token, ch).await
+            {
                 Round::Done(o) => break 'outer o,
                 Round::Relay(r, h) => (r, h),
             };

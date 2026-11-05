@@ -280,7 +280,11 @@ pub struct AxActionPayload {
 
 // ── Screenshots / dialogs ─────────────────────────────────────────────
 
-/// ScreenshotOptions (`{clip?, fullPage?}`; keys snake-cased `[adapted]`).
+/// ScreenshotOptions (`{clip?, fullPage?, selector?, format?, quality?, max_dim?}`;
+/// keys snake-cased `[adapted]`). Phase 1 safe transport: `format`/`quality`/
+/// `max_dim` let a small vision model request a capture it can actually afford,
+/// and the engine answers every capture with tab/frame/viewport/scale/crop
+/// metadata so the pixels are attributable.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ScreenshotPayload {
     pub browser_id: String,
@@ -289,6 +293,43 @@ pub struct ScreenshotPayload {
     pub clip: Option<ClipRect>,
     #[serde(default)]
     pub full_page: Option<bool>,
+    /// Element selector: the capture crops to the first matching element's
+    /// rect (main frame). Honors the `playwright_element_screenshot` tool
+    /// schema, which always advertised this — until now the wire payload
+    /// silently dropped it.
+    #[serde(default)]
+    pub selector: Option<String>,
+    /// `"png"` (default) or `"jpeg"` — jpeg is the compact shape for
+    /// model-visible vision reads.
+    #[serde(default)]
+    pub format: Option<String>,
+    /// JPEG quality 1–100 (default 75); ignored for png.
+    #[serde(default)]
+    pub quality: Option<u32>,
+    /// Downscale the capture so its longest side is at most this many
+    /// pixels (CDP clip scale; 0/absent = no downscale).
+    #[serde(default)]
+    pub max_dim: Option<u32>,
+}
+
+/// `playwright_dom_snapshot` with targeted-read windows (Phase 1): read a
+/// slice of the aria tree by search term or line range instead of dumping
+/// the whole page. The full text remains under `dom_snapshot`; windowing
+/// metadata rides in `snapshot_meta` only when a window/search applied.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct DomSnapshotPayload {
+    pub browser_id: String,
+    pub tab_id: String,
+    /// Case-insensitive substring: only matching lines are returned (with
+    /// their `[ref=eN]` tokens intact, so a hit is directly actionable).
+    #[serde(default)]
+    pub search: Option<String>,
+    /// Return at most this many lines (default 500).
+    #[serde(default)]
+    pub limit_lines: Option<usize>,
+    /// Skip this many lines before the returned window (pagination).
+    #[serde(default)]
+    pub offset_lines: Option<usize>,
 }
 
 /// Dialog handling: `confirm`/`prompt` accept+dismiss, `alert` dismiss

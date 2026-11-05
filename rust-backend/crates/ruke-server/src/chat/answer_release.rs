@@ -72,23 +72,23 @@ pub const SERVER_CHECK_LINE: &str = "(Server check: no successful web retrieval 
 /// `\b` covers the punctuated tail too (word→non-word transition before
 /// `.`, `,`, etc. matches), so the shapes stay identical in behavior.
 static RE_CURRENCY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)[$€£₹¥]\s?\d|\d[\d.,]*\s?(?:USD|EUR|GBP|INR|dollars?|rupees?|euros?|pounds?)\b").unwrap()
+    Regex::new(
+        r"(?i)[$€£₹¥]\s?\d|\d[\d.,]*\s?(?:USD|EUR|GBP|INR|dollars?|rupees?|euros?|pounds?)\b",
+    )
+    .unwrap()
 });
 static RE_PERCENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\d[\d.,]*\s?(?:%|percent)").unwrap());
-static RE_RATING: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:rated|rating|score|stars?)\b|\bout of \d").unwrap()
-});
-static RE_TEMP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)°\s?[CF]\b|\b(?:degrees?|celsius|fahrenheit)\b").unwrap()
-});
+static RE_RATING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(?:rated|rating|score|stars?)\b|\bout of \d").unwrap());
+static RE_TEMP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)°\s?[CF]\b|\b(?:degrees?|celsius|fahrenheit)\b").unwrap());
 static RE_DATE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b")
         .unwrap()
 });
-static RE_COORDS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,2}\.\d{3,}").unwrap()
-});
+static RE_COORDS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,2}\.\d{3,}").unwrap());
 static RE_PRICEWORD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:price|pricing|cost|costs|fee|fees|paid|subscription|priced|fare|ticket)\b|\bstarts at\b")
         .unwrap()
@@ -99,11 +99,19 @@ static RE_WEATHER: LazyLock<Regex> = LazyLock::new(|| {
 static RE_GEOWORD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?:latitude|longitude|coordinates?|lat|lon)\b").unwrap());
 
-static VOLATILE: LazyLock<Vec<&'static LazyLock<Regex>>> =
-    LazyLock::new(|| vec![
-        &RE_CURRENCY, &RE_PERCENT, &RE_RATING, &RE_TEMP, &RE_DATE, &RE_COORDS, &RE_PRICEWORD,
-        &RE_WEATHER, &RE_GEOWORD,
-    ]);
+static VOLATILE: LazyLock<Vec<&'static LazyLock<Regex>>> = LazyLock::new(|| {
+    vec![
+        &RE_CURRENCY,
+        &RE_PERCENT,
+        &RE_RATING,
+        &RE_TEMP,
+        &RE_DATE,
+        &RE_COORDS,
+        &RE_PRICEWORD,
+        &RE_WEATHER,
+        &RE_GEOWORD,
+    ]
+});
 
 /* ── research-claiming wording (R3; English-only — see header limitation) ─ */
 
@@ -221,9 +229,7 @@ fn split_sentences(s: &str) -> Vec<String> {
     let mut i = 0usize;
     while i < chars.len() {
         let c = chars[i];
-        if c.is_whitespace()
-            && matches!(cur.chars().next_back(), Some('.' | '!' | '?'))
-        {
+        if c.is_whitespace() && matches!(cur.chars().next_back(), Some('.' | '!' | '?')) {
             out.push(std::mem::take(&mut cur));
             let start = i;
             while i < chars.len() && chars[i].is_whitespace() {
@@ -416,10 +422,15 @@ pub fn build_answer_feedback(d: &Diagnosis) -> String {
     }
     if !d.unsupported.is_empty() {
         let quoted: Vec<String> = d.unsupported.iter().map(|s| format!("\"{s}\"")).collect();
-        lines.push(format!("- Unsupported claim sentence(s): {}", quoted.join(", ")));
+        lines.push(format!(
+            "- Unsupported claim sentence(s): {}",
+            quoted.join(", ")
+        ));
     }
     if d.claims_research {
-        lines.push("- The text claims web research, but no retrieval succeeded this turn.".to_string());
+        lines.push(
+            "- The text claims web research, but no retrieval succeeded this turn.".to_string(),
+        );
     }
     format!("{FEEDBACK_HEADER}\n{}\n{FEEDBACK_FOOTER}", lines.join("\n"))
 }
@@ -442,9 +453,11 @@ mod tests {
     }
 
     fn matrix() -> (String, Vec<Case>) {
-        let v: serde_json::Value =
-            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
-        let line = v["serverCheckLine"].as_str().expect("serverCheckLine").to_string();
+        let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        let line = v["serverCheckLine"]
+            .as_str()
+            .expect("serverCheckLine")
+            .to_string();
         let cases = v["cases"]
             .as_array()
             .expect("cases array")
@@ -546,8 +559,7 @@ mod tests {
     }
 
     fn mhr_matrix() -> Vec<MhrCase> {
-        let v: serde_json::Value =
-            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
         v["mhrD"]["diagnoseCases"]
             .as_array()
             .expect("mhrD.diagnoseCases array")
@@ -651,8 +663,7 @@ mod tests {
     }
 
     fn mhrf_release_matrix() -> Vec<FReleaseCase> {
-        let v: serde_json::Value =
-            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
         v["mhrF"]["releaseCases"]
             .as_array()
             .expect("mhrF.releaseCases array")
@@ -668,8 +679,7 @@ mod tests {
     }
 
     fn mhrf_sep_matrix() -> Vec<FSepCase> {
-        let v: serde_json::Value =
-            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
         v["mhrF"]["separationCases"]
             .as_array()
             .expect("mhrF.separationCases array")

@@ -72,9 +72,7 @@ fn bridge_ok(headers: &HeaderMap) -> bool {
         return true; // dev mode: the loopback bind is the guard
     };
     let presented = headers
-        .get(HeaderName::from_static(
-            crate::ipc::SECRET_HEADER,
-        ))
+        .get(HeaderName::from_static(crate::ipc::SECRET_HEADER))
         .and_then(|v| v.to_str().ok());
     if presented != Some(expected.as_str()) {
         tracing::warn!("browser RPC rejected: bridge secret mismatch");

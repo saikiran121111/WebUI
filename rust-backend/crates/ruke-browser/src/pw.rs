@@ -42,11 +42,12 @@ use crate::cdp::CdpConn;
 use crate::engine::BrowserRuntime;
 use crate::errors::{payload_invalid, BrowserError};
 use crate::schemas::{
-    ElementInfoPayload, EvaluatePayload, KeyboardModifier, LoadState, LocatorCheckedPayload,
-    LocatorClickPayload, LocatorKeyPayload, LocatorNamePayload, LocatorPayload,
-    LocatorSelectPayload, LocatorTextPayload, LocatorValuePayload, LocatorWaitPayload, MouseButton,
-    RequiredTimeoutPayload, ScreenshotPayload, SelectOptionInput, SelectOptionOne,
-    SelectOptionSingle, SelectorMode, WaitForLoadStatePayload, WaitForState, WaitForUrlPayload,
+    DomSnapshotPayload, ElementInfoPayload, EvaluatePayload, KeyboardModifier, LoadState,
+    LocatorCheckedPayload, LocatorClickPayload, LocatorKeyPayload, LocatorNamePayload,
+    LocatorPayload, LocatorSelectPayload, LocatorTextPayload, LocatorValuePayload,
+    LocatorWaitPayload, MouseButton, RequiredTimeoutPayload, ScreenshotPayload, SelectOptionInput,
+    SelectOptionOne, SelectOptionSingle, SelectorMode, WaitForLoadStatePayload, WaitForState,
+    WaitForUrlPayload,
 };
 use crate::session::TabRecord;
 
@@ -1094,12 +1095,16 @@ async fn pw_host_attrs(conn: &CdpConn, session: &str, bnid: i64) -> Result<Strin
 impl PwRegistries {
     /// `playwright_dom_snapshot`: aria text with `[ref=eN]` tokens; the
     /// minted map replaces the tab's previous refs (the recovered
-    /// `{dom_snapshot}` return shape).
+    /// `{dom_snapshot}` return shape). Phase 1 targeted reads: `search` /
+    /// line windows slice the tree instead of dumping the whole page, and
+    /// refs mint from the FULL tree, so every returned line stays directly
+    /// actionable for `locator_*` even when the caller only sees a slice.
     pub(crate) async fn pw_dom_snapshot(
         &self,
         rt: &BrowserRuntime,
         conn: &CdpConn,
         rec: &TabRecord,
+        p: &DomSnapshotPayload,
     ) -> Result<Value, BrowserError> {
         let session = rec.cdp_session_id.as_str();
         let nodes = rt.ax.pw_ax_nodes(conn, session).await?;
@@ -1114,9 +1119,53 @@ impl PwRegistries {
             }
         }
         self.set_refs(&rec.tab_id, refs);
-        Ok(json!({ "dom_snapshot": lines.join("\n") }))
+
+        let total = lines.len();
+        let offset = p.offset_lines.unwrap_or(0);
+        let limit = p.limit_lines.unwrap_or(DEFAULT_SNAPSHOT_LIMIT_LINES);
+        let needle = p
+            .search
+            .as_deref()
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty());
+        let matched: Vec<usize> = match &needle {
+            Some(n) => (0..total)
+                .filter(|&i| lines[i].to_lowercase().contains(n))
+                .collect(),
+            None => (0..total).collect(),
+        };
+        let window: Vec<String> = matched
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .map(|&i| lines[i].clone())
+            .collect();
+        let truncated = offset + window.len() < matched.len();
+        let mut out = json!({ "dom_snapshot": window.join("\n") });
+        if needle.is_some() || offset > 0 || truncated {
+            // Retrieval metadata: the model is told what was NOT shown and
+            // exactly how to ask for the rest — never silently truncated.
+            out["snapshot_meta"] = json!({
+                "total_lines": total,
+                "matched_lines": matched.len(),
+                "offset_lines": offset,
+                "returned_lines": window.len(),
+                "truncated": truncated,
+                "next_offset_lines": if truncated {
+                    json!(offset + window.len())
+                } else {
+                    Value::Null
+                },
+            });
+        }
+        Ok(out)
     }
 }
+
+/// Model-visible aria snapshots cap at this many lines unless the caller
+/// asks otherwise; overflow reports itself via `snapshot_meta` with the
+/// exact `next_offset_lines` to continue from.
+const DEFAULT_SNAPSHOT_LIMIT_LINES: usize = 500;
 
 // ── playwright_evaluate ───────────────────────────────────────────────
 
@@ -1404,10 +1453,15 @@ impl PwRegistries {
         Ok(json!({ "x": x, "y": y, "elements": elements }))
     }
 
-    /// `playwright_element_screenshot`: viewport, `clip`, or
-    /// beyond-viewport full-page capture (payload-pinned: the target
-    /// arrives as `clip`/`full_page`, [adapted] wire keys for the
-    /// base64 image).
+    /// `playwright_element_screenshot` / `tab_screenshot`: viewport, `clip`,
+    /// element-`selector`, or beyond-viewport full-page capture.
+    /// Phase 1 safe transport (payload-pinned, [adapted] wire keys):
+    /// `format`/`quality`/`max_dim` let the caller request a capture a small
+    /// vision model can actually afford (jpeg + CDP clip-scale downscale —
+    /// no image re-encode, no new dependency), `selector` finally honors the
+    /// element crop the tool schema always advertised (main frame), and every
+    /// capture answers with tab/frame/viewport/scale/crop metadata so the
+    /// model knows exactly where the pixels came from.
     pub(crate) async fn pw_element_screenshot(
         &self,
         conn: &CdpConn,
@@ -1415,40 +1469,166 @@ impl PwRegistries {
         p: &ScreenshotPayload,
     ) -> Result<Value, BrowserError> {
         let session = rec.cdp_session_id.as_str();
-        let mut params = json!({ "format": "png" });
-        let mut size: Option<(f64, f64)> = None;
+        let format = match p
+            .format
+            .as_deref()
+            .map(|f| f.to_ascii_lowercase())
+            .as_deref()
+        {
+            None | Some("png") => "png",
+            Some("jpeg") | Some("jpg") => "jpeg",
+            Some(other) => {
+                return Err(BrowserError::PayloadInvalid {
+                    command: "tab_screenshot".to_string(),
+                    reason: format!(
+                        "unknown screenshot format {other:?} (use \"png\" or \"jpeg\")"
+                    ),
+                })
+            }
+        };
+        let quality = p.quality.unwrap_or(75).clamp(1, 100);
+
+        // Live viewport/page metrics — needed for max_dim on a bare viewport
+        // capture, and reported as metadata either way. A dead renderer fails
+        // the capture anyway, so a metrics failure only omits metadata.
+        let metrics = pw_eval_main(
+            conn,
+            session,
+            "JSON.stringify({iw:window.innerWidth,ih:window.innerHeight,dpr:window.devicePixelRatio||1,sx:window.scrollX,sy:window.scrollY,cw:document.documentElement.scrollWidth,ch:document.documentElement.scrollHeight})",
+        )
+        .await
+        .ok()
+        .and_then(|v| {
+            v.as_str()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        })
+        .filter(|v| v.is_object());
+        let m_f = |k: &str| metrics.as_ref().and_then(|m| m[k].as_f64()).unwrap_or(0.0);
+
+        // Crop region in page-absolute CSS coords: explicit clip wins, then
+        // the selector element's rect, then the full page, then (only when
+        // max_dim needs a downscale) the visible viewport itself.
+        let mut crop: Option<(f64, f64, f64, f64)> = None;
+        let mut selector_hit: Option<(f64, f64, f64, f64)> = None;
         if let Some(c) = &p.clip {
-            params["clip"] = json!({
-                "x": c.x,
-                "y": c.y,
-                "width": c.width,
-                "height": c.height,
-                "scale": 1,
-            });
-            size = Some((c.width, c.height));
+            crop = Some((c.x, c.y, c.width, c.height));
+        } else if let Some(sel) = &p.selector {
+            let expr = format!(
+                "(() => {{ const el = document.querySelector({}); if (!el) return null; const r = el.getBoundingClientRect(); return {{ x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height }}; }})()",
+                serde_json::to_string(sel).unwrap_or_else(|_| "\"\"".to_string())
+            );
+            let v = pw_eval_main(conn, session, &expr).await?;
+            match v.as_object().filter(|o| !o.is_empty()) {
+                Some(r) => {
+                    let rect = (
+                        r["x"].as_f64().unwrap_or(0.0),
+                        r["y"].as_f64().unwrap_or(0.0),
+                        r["width"].as_f64().unwrap_or(0.0),
+                        r["height"].as_f64().unwrap_or(0.0),
+                    );
+                    if rect.2 <= 0.0 || rect.3 <= 0.0 {
+                        return Err(BrowserError::PayloadInvalid {
+                            command: "playwright_element_screenshot".to_string(),
+                            reason: format!(
+                                "selector {sel:?} matched an element with an empty box; take a fresh playwright_dom_snapshot or pick another selector"
+                            ),
+                        });
+                    }
+                    crop = Some(rect);
+                    selector_hit = Some(rect);
+                }
+                None => {
+                    return Err(BrowserError::PayloadInvalid {
+                        command: "playwright_element_screenshot".to_string(),
+                        reason: format!(
+                            "selector {sel:?} matched no element in the main frame; take a fresh playwright_dom_snapshot"
+                        ),
+                    })
+                }
+            }
         } else if p.full_page.unwrap_or(false) {
-            let metrics = conn
+            let lm = conn
                 .call("Page.getLayoutMetrics", None, Some(session))
                 .await?;
-            let content = metrics
+            let content = lm
                 .get("cssContentSize")
-                .or_else(|| metrics.get("contentSize"))
+                .or_else(|| lm.get("contentSize"))
                 .cloned()
                 .unwrap_or(json!({"width": 0, "height": 0}));
-            let w = content.get("width").and_then(Value::as_f64).unwrap_or(0.0);
-            let h = content.get("height").and_then(Value::as_f64).unwrap_or(0.0);
-            params["clip"] = json!({ "x": 0, "y": 0, "width": w, "height": h, "scale": 1 });
+            crop = Some((
+                0.0,
+                0.0,
+                content.get("width").and_then(Value::as_f64).unwrap_or(0.0),
+                content.get("height").and_then(Value::as_f64).unwrap_or(0.0),
+            ));
+        } else if let Some(md) = p.max_dim.filter(|d| *d > 0) {
+            let (iw, ih) = (m_f("iw"), m_f("ih"));
+            if iw.max(ih) > f64::from(md) {
+                // Downscale the visible viewport: its page-absolute rect is
+                // the current scroll origin.
+                crop = Some((m_f("sx"), m_f("sy"), iw, ih));
+            }
+        }
+
+        // Applied downscale (CDP clip scale encodes it — no re-encode pass).
+        let mut scale = 1.0f64;
+        if let (Some(md), Some((_, _, w, h))) = (p.max_dim.filter(|d| *d > 0), crop) {
+            let longest = w.max(h);
+            if longest > 1.0 {
+                scale = (f64::from(md) / longest).clamp(0.01, 1.0);
+            }
+        }
+
+        let mut params = json!({ "format": format });
+        if format == "jpeg" {
+            params["quality"] = json!(quality);
+        }
+        if let Some((x, y, w, h)) = crop {
+            params["clip"] = json!({ "x": x, "y": y, "width": w, "height": h, "scale": scale });
             params["captureBeyondViewport"] = json!(true);
-            size = Some((w, h));
         }
         let shot = conn
             .call("Page.captureScreenshot", Some(params), Some(session))
             .await?;
         let data = shot.get("data").and_then(Value::as_str).unwrap_or("");
-        let mut out = json!({ "image_base64": data, "mime_type": "image/png" });
-        if let Some((w, h)) = size {
+
+        let mut out = json!({
+            "image_base64": data,
+            "mime_type": if format == "jpeg" { "image/jpeg" } else { "image/png" },
+            "tab_id": rec.tab_id,
+            "frame": "main",
+            "format": format,
+            "scale": scale,
+            "full_page": p.full_page.unwrap_or(false),
+            "captured_at_ms": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        });
+        if let Some((x, y, w, h)) = crop {
             out["width"] = json!(w);
             out["height"] = json!(h);
+            out["crop"] = json!({ "x": x, "y": y, "width": w, "height": h });
+            out["image_width"] = json!((w * scale).max(1.0).round() as u64);
+            out["image_height"] = json!((h * scale).max(1.0).round() as u64);
+        } else if m_f("iw") > 0.0 && m_f("ih") > 0.0 {
+            // Uncropped full-surface capture: Chromium composites the
+            // viewport at the device pixel ratio (no clip ⇒ no scale).
+            let dpr = m_f("dpr").max(1.0);
+            out["image_width"] = json!((m_f("iw") * dpr).max(1.0).round() as u64);
+            out["image_height"] = json!((m_f("ih") * dpr).max(1.0).round() as u64);
+        }
+        if let Some((x, y, w, h)) = selector_hit {
+            out["selector"] = json!(p.selector);
+            out["selector_box"] = json!({ "x": x, "y": y, "width": w, "height": h });
+        }
+        if let Some(m) = metrics {
+            out["viewport"] = json!({
+                "width": m["iw"], "height": m["ih"],
+                "device_scale_factor": m["dpr"],
+                "scroll_x": m["sx"], "scroll_y": m["sy"],
+            });
+            out["page"] = json!({ "width": m["cw"], "height": m["ch"] });
         }
         Ok(out)
     }

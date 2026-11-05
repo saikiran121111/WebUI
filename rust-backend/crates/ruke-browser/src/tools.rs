@@ -215,7 +215,7 @@ pub fn model_tools() -> Value {
     // ── reading the page ────────────────────────────────────────────────
     t(
         "tab_ax_get_state",
-        "Read the tab's accessibility state (element_index refs for tab_ax_action), a screenshot, or both. A screenshot answer is a text summary: the human sees the real capture live in the panel.",
+        "Read the tab's accessibility state (element_index refs for tab_ax_action), a screenshot, or both. The screenshot comes back as a real image you can see; the human also watches the capture live in the panel.",
         json!({
             "tab_id": tab(),
             "content": {"enum": ["axState", "screenshot", "axStateAndScreenshot"]},
@@ -231,20 +231,40 @@ pub fn model_tools() -> Value {
     );
     t(
         "playwright_dom_snapshot",
-        "Playwright-style aria snapshot with role/name selector refs (locator_* tools act on them).",
-        json!({"tab_id": tab()}),
+        "Playwright-style aria snapshot with role/name selector refs (locator_* tools act on them). For big pages use targeted reads: `search` (case-insensitive substring, matched lines keep their refs) and/or a line window (`offset_lines`/`limit_lines`); overflow reports itself in `snapshot_meta` with the exact `next_offset_lines` to continue from.",
+        json!({
+            "tab_id": tab(),
+            "search": {"type": "string", "description": "return only lines containing this text (case-insensitive)"},
+            "offset_lines": {"type": "integer", "minimum": 0},
+            "limit_lines": {"type": "integer", "minimum": 1}
+        }),
         &["tab_id"],
     );
     t(
         "tab_screenshot",
-        "Capture a JPEG of the tab (viewport or full page). The answer is a text summary; the human sees the real capture in the panel.",
-        json!({"tab_id": tab(), "clip": clip(), "full_page": {"type": "boolean"}}),
+        "Capture the tab (viewport or full page). You RECEIVE THE REAL IMAGE alongside capture metadata (tab, frame, viewport, scale, crop). For a vision read prefer format \"jpeg\", quality 60, max_dim 900; the human also sees the capture live in the Browser Panel.",
+        json!({
+            "tab_id": tab(),
+            "clip": clip(),
+            "full_page": {"type": "boolean"},
+            "format": {"enum": ["png", "jpeg"]},
+            "quality": {"type": "integer", "minimum": 1, "maximum": 100, "description": "jpeg quality, default 75"},
+            "max_dim": {"type": "integer", "minimum": 64, "description": "downscale so the longest side is at most this many px"}
+        }),
         &["tab_id"],
     );
     t(
         "playwright_element_screenshot",
-        "Capture the element matching a selector. Answer is a text summary; the panel shows the real capture.",
-        json!({"tab_id": tab(), "clip": clip(), "full_page": {"type": "boolean"}, "selector": {"type": "string"}}),
+        "Capture the element matching a selector (main frame). You RECEIVE THE REAL IMAGE plus metadata; prefer format \"jpeg\", quality 60, max_dim 900 for vision reads. The panel shows the real capture.",
+        json!({
+            "tab_id": tab(),
+            "clip": clip(),
+            "full_page": {"type": "boolean"},
+            "selector": {"type": "string"},
+            "format": {"enum": ["png", "jpeg"]},
+            "quality": {"type": "integer", "minimum": 1, "maximum": 100, "description": "jpeg quality, default 75"},
+            "max_dim": {"type": "integer", "minimum": 64, "description": "downscale so the longest side is at most this many px"}
+        }),
         &["tab_id"],
     );
     t(

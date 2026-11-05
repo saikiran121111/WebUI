@@ -265,8 +265,7 @@ pub async fn run_turn_pipeline(
     // site first. Marker turns with any other intent keep the research
     // path (with the scope enforced through the gate ctx); panel
     // visibility plays no part anywhere in this law.
-    let browser_turn =
-        browser_marker && crate::task_scope::routes_to_browser_turn(&turn_scope);
+    let browser_turn = browser_marker && crate::task_scope::routes_to_browser_turn(&turn_scope);
 
     // ---- 6) research availability (repair 2026-11-05, brief §2/§4) ----
     // THE MODEL DECIDES: no gate, no prefetched bundle, and no auxiliary
@@ -282,8 +281,7 @@ pub async fn run_turn_pipeline(
     //     a plain forward and the warn below is the whole story.
     // No slot is claimed here: this step touches no inference and no
     // network — the web tool loop claims its own slot when it runs.
-    let research_enabled =
-        !browser_turn && !gate_disabled_by_env() && state.next_search.is_some();
+    let research_enabled = !browser_turn && !gate_disabled_by_env() && state.next_search.is_some();
     if browser_turn {
         tracing::info!(
             parent: span,
@@ -436,8 +434,7 @@ pub async fn pump_progress(
         && turn_scope
             .as_ref()
             .is_some_and(crate::task_scope::routes_to_browser_turn);
-    let web_tools =
-        !browser_take && outcome.web_depth.is_some() && payload.get("tools").is_none();
+    let web_tools = !browser_take && outcome.web_depth.is_some() && payload.get("tools").is_none();
     match browser {
         Some((session_id, turn_id)) if browser_take => {
             crate::chat::browser_loop::run_tool_loop(

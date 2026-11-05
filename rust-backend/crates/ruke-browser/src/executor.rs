@@ -551,6 +551,10 @@ impl BrowserRuntime {
                                     tab_id: rec.tab_id.clone(),
                                     clip: None,
                                     full_page: None,
+                                    selector: None,
+                                    format: None,
+                                    quality: None,
+                                    max_dim: None,
                                 },
                             )
                             .await?;
@@ -577,7 +581,7 @@ impl BrowserRuntime {
                 check_browser(&p.browser_id)?;
                 let rec = self.registry.lock().require(&p.tab_id)?;
                 let conn = self.client().await?;
-                self.pw.pw_dom_snapshot(self, &conn, &rec).await
+                self.pw.pw_dom_snapshot(self, &conn, &rec, &p).await
             }
             Command::PlaywrightEvaluate(p) => {
                 check_browser(&p.browser_id)?;

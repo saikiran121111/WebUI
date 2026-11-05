@@ -179,4 +179,45 @@ test.describe("browser real-model acceptance (leg 2, one journey per locked invo
     expect(child?.tab_id, "popup child tab missing").toBeTruthy();
     expect(await e2e.innerText(child!.tab_id as string, "#popup-marker")).toBe(POPUP_CHILD_MARKER);
   });
+
+  // Phase-1 vision gate (screenshot transport, multimodal tool messages):
+  // the swatch color exists ONLY in rendered pixels — no color name appears
+  // anywhere in the page text, hrefs, or attributes, and the want index is
+  // opaque. A pass means the model saw the screenshot pixels the Rust loop
+  // delivered as an image in the tool message (probe C proved the endpoint
+  // accepts tool-role images; this journey proves it end-to-end through the
+  // real product). ANALYZE cross-checks the `images=` census in
+  // .ai-coordination/dev-supervisor.err.log. Blind guessing caps luck at
+  // 1/4 (four buttons); the `want=` name in the server's verdict pins the
+  // fixture side.
+  const VISION_PALETTE = [
+    "Crimson", "Amber", "Sea Green", "Slate Blue", "Magenta", "Teal",
+    "Olive", "Coral", "Indigo", "Lime", "Violet", "Cyan",
+  ];
+
+  test("VISION: model reads screenshot pixels to name the swatch color and clicks the matching button", async ({ page, request }) => {
+    const e2e = await arm(page, request);
+    const want = 1 + Math.floor(Math.random() * VISION_PALETTE.length);
+    const wantName = VISION_PALETTE[want - 1];
+    const tab = await e2e.newTab();
+    await e2e.navigate(tab, `/vision?want=${want}`);
+
+    await runTurn(
+      page,
+      `Use the browser tools on the already-open tab at ${FIXTURE_BASE}/vision?want=${want} (do not open new tabs). ` +
+        `The page shows one large color swatch. You MUST look at the page with the "tab_screenshot" tool ` +
+        `(use format "jpeg", quality 60, max_dim 900) and judge the swatch color from the screenshot image itself. ` +
+        `Do NOT use playwright_evaluate, dom snapshots, or page text to determine the color — it is only visible ` +
+        `in the pixels. Then click the button whose label names that color.`,
+    );
+
+    await until(
+      async () => (await tabUrl(e2e, tab)).includes("/vision/echo"),
+      30_000,
+      "click navigating to /vision/echo",
+    );
+    const verdict = await e2e.innerText(tab, "#vision-verdict");
+    expect(verdict, `verdict: ${JSON.stringify(verdict)}`).toContain(`want=${wantName}`);
+    expect(verdict, `verdict: ${JSON.stringify(verdict)}`).toContain("match=yes");
+  });
 });

@@ -133,7 +133,10 @@ mod tests {
         // line (2026-12-31T19:00Z = 00:30 IST on Jan 1, 2027); New York
         // trails UTC and can never cross while UTC reads 2026.
         let new_year = Utc.with_ymd_and_hms(2026, 12, 31, 19, 0, 0).unwrap();
-        assert_eq!(session_date_string(Some("Asia/Kolkata"), new_year), "2027-01-01");
+        assert_eq!(
+            session_date_string(Some("Asia/Kolkata"), new_year),
+            "2027-01-01"
+        );
         // Consistency: the date baked into the block equals session_date_string.
         let block = build_clock_block(Some("Asia/Kolkata"), midnight);
         assert!(block.contains(&format!(

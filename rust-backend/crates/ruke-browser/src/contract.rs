@@ -130,7 +130,7 @@ command_registry! {
     CuaMove / "cua_move" => CuaMovePayload,
     CuaScroll / "cua_scroll" => CuaScrollPayload,
     CuaType / "cua_type" => TextPayload,
-    PlaywrightDomSnapshot / "playwright_dom_snapshot" => TabTarget,
+    PlaywrightDomSnapshot / "playwright_dom_snapshot" => DomSnapshotPayload,
     PlaywrightEvaluate / "playwright_evaluate" => EvaluatePayload,
     PlaywrightElementInfo / "playwright_element_info" => ElementInfoPayload,
     PlaywrightElementScreenshot / "playwright_element_screenshot" => ScreenshotPayload,
@@ -728,6 +728,10 @@ mod tests {
                 tab_id: "7".into(),
                 clip: None,
                 full_page: None,
+                selector: None,
+                format: None,
+                quality: None,
+                max_dim: None,
             })
         );
 
