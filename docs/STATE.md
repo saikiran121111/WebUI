@@ -3714,3 +3714,47 @@ superpowers:test-driven-development in force (RED first, name every witnessed fa
 2. GREEN MHR-E + full battery (vitest all, chat trio, golden replay — re-record ONLY by deletion if frames intentionally change, tsc, cargo full, contracts:check if wire moves) + commit+push develop + STATE 05w.
 3. Then MHR-F (WS26 citation-integrity vs semantic-support separation: evolve answer-release + Rust + both loops; gaps fed back to model, NO silent citation removal, NO rewrites of correct local answers — retire the deliberate half-state) → MHR-G (WS27 three-level proof: harness structured-decision tests + configured-model semantic evals w/ held-out paraphrases & unknown entities — mocked model proves nothing + current identifiable build e2e) → ONE final locked pw-80 loop → §4 report → AUTO-SHUTDOWN shutdown //s //f //t 60, never ask.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+# SESSION SNAPSHOT 2026-11-06w — MHR-E LOCKED (commit 0b55fff; retrievable read_page evidence)
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+MHR-A…G (WS21–WS27) program after the locked 20-item audit. Law: the MAIN MODEL interprets requests and chooses tools; the HARNESS supplies resources, executes valid actions, preserves evidence, reports actual outcomes — NO semantic patches (word lists/thresholds/refusal paragraphs). MHR-A/B/C locked (6321251), MHR-D locked (3d55ab2). MHR-E (WS25 retrievable evidence) LOCKED + pushed (0b55fff). Active phase now: MHR-F (WS26 citation-integrity vs semantic-support separation).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- 0b55fff (pushed) MHR-E, TS-only (Rust forwards tool defs/results opaquely — ZERO Rust source change; 19-target golden replay reproduces the re-recorded frames byte-exactly):
+  - tools.ts source registry: `session.sourceRegistry` (normalizeUrl→sourceId, BOTH requested+final keys) + `docStore` (turn-scoped retained copy, RETAINED_DOC_MAX_CHARS=200_000); one [S#] per document every wave, no re-mint on hit, off-scope-redirect/failed reads no longer burn an id (renumber moved after the final-origin recheck).
+  - §refs: every non-blank fetched block is §addressable in doc order (dropped blocks included); entry gains `passageRefs`; `truncated` now counts dropped whole blocks (`droppedBlocks`) + window cuts; hint bytes: "focus-matched sections beyond the window budget were not returned; call read_page again on this URL with continuation:true (a different focus is allowed) to retrieve them without re-fetching".
+  - continuation:true (execReadPageTool, BEFORE budget-admission — zero network ⇒ no readUrlsUsed charge, no journaling, no new citation): readRetainedBatch re-serves complementRanges(servedRanges) from the retained copy; pendingCandidate+mapWindowsToRaw keep RAW-coordinate bookkeeping; whole-slot trim; exhausted → `{passages:[],exhausted:true}`; miss → structured `continuation_unavailable` (TS-only RetrievalFailure variant, same opaque-passthrough precedent as off_scope_redirect — Rust never parses envelopes).
+  - selectFocusWindows now returns `chosen: Array<{start,end}>` (WS11 text/dropped unchanged); `chosenToTuples` converts at the hand-off (range math speaks [start,end] tuples — the one real bug caught: objects pushed raw → mergeRanges TypeError).
+  - Citation title fix: `packet.title || packet.domain` (closes the carried title:"" finding).
+  - Model-visible surface: READ_PAGE_TOOL_DESCRIPTION extended (continuation + §refs law) + `continuation` boolean param (required ["urls"], additionalProperties:false).
+  - research-journal.ts: JournalSource.passages? (clamped 3x700); journalReadPageSources journals fetched passages+refs after every real read; buildPriorEvidenceBlock groups same-URL turns under ONE alias with §-addressed lines (alias law unchanged; legacy turns keep exact bytes via `passage:` fallback).
+  - web-tool-loop.ts + web-tools-rpc.ts: `seedSessionSourceAliases(session, priorCitations)` after session create (docStore NEVER seeded — turn-scoped).
+- __tests__/web-search/mhr-e-retrievable-evidence.test.ts NEW 15/15 (registry one-alias, §refs incl. windowed block, dropped-block continuation §7 zero-refetch/no-charge, different-focus windowed continuation, honest miss, budget-spent continuation, exhausted, model-visible params+description-once, journal passages + clamp + prior-evidence merge). tsc-clean import law: dynamic imports in `beforeAll` (no top-level await in the tsc project) — same shape as research-journal.test.ts.
+- Golden fallout (intentional frames): fixtures web-search/01,03,04,05 DELETE+re-recorded (continuation param + description ride every armed turn's tool defs); web.test.ts web_meta pin `S1.title "" → "nimbus.example.com"` (domain fallback law). Zero-drift re-run verified.
+- VERIFIED COUNTS at 0b55fff: vitest 130 files 1614 passed |1 skipped; golden web 7/7 zero-drift; tsc TSC_EXIT=0; cargo ruke-server lib 148 + ALL integration targets green (6/1/19/2/6/0), identical to baseline.
+
+## [8.3 ACTIVE GRAPHIFY DEPENDENCY MAP]
+- app/api/chat/route.ts → runWebToolLoop(web-tool-loop.ts: seedSessionSourceAliases after makeWebToolSession; answer-release diagnose+audit unchanged) → handleWebToolsRpc(web-tools-rpc.ts: seeds priorEvidence.citations) → tools.ts (registry/docStore/continuation/journalReadPageSources). Rust pipeline.rs → web_loop.rs → same RPC bridge (tool defs consumed from create response — MHR-E bytes flow opaquely).
+- MHR-F touchpoints: answer-release.ts (R1–R3 destructive audit + MHR-D diagnose) ⇔ answer_release.rs (Diagnosis, build_answer_feedback) ⇔ both loops' completion branches; matrix.json v2 mhrD cases.
+
+## [8.4 IMMUTABLE CODE CONTRACTS & SCHEMAS]
+- WebToolSession now: + sourceRegistry: Map<string,string>, + docStore: Map<string,RetainedDoc>; RetainedBlock {text, servedRanges: Array<[number,number]>}. seedSessionSourceAliases(session, Record<string,{url?:unknown;sourceId?:unknown}>).
+- read_page entry fields: passages, passageRefs (["§N"] aligned per served slot), sourceId, truncated, droppedBlocks?, droppedSections?, continuationHint?, continuation?, exhausted?, omitted?.
+- RetrievalFailure += "continuation_unavailable" (TS-only). Envelope for continuation batch: {ok:true, tool:"read_page", searchSessionId, pages, remainingBudget, failures}.
+- Journal: passages?: {ref,text}[] clamped MAX_JOURNAL_PASSAGES=3/JOURNAL_PASSAGE_CHARS=700; prior-evidence lines `    §N: "text"`, url once per alias.
+- Env/test facts persist: STATE tracked UPPERCASE; cargo from rust-backend/; NEVER stage tsconfig.tsbuildinfo; golden drift ⇒ DELETE+re-record; vitest no top-level await.
+
+## [8.5 PLAYWRIGHT & E2E VERIFICATION STATE]
+No Playwright lock; no dev servers this session. Final pw-80 loop still pending after MHR-G (acceptance list + five user sentences; verify running-app build identity FIRST; launcher scripts/run-browser-e2e-exclusive.ps1 -TestFiles <spec>; NO npm run test:e2e).
+
+## [8.6 OPEN BUGS, FAILING STACK TRACES & BLOCKERS]
+None active. Carried for final §4: WS19 no deterministic location/version currentness proxy; web-tools-rpc deferred-cancellation oddity (pre-dispatch only — documented shortcut). CLOSED by MHR-E: read_page empty-title citation; preview-only-evidence limitation.
+
+## [8.7 ACTIVE SKILLS & SCENARIO LOCKS]
+superpowers:systematic-debugging discipline in force (root cause before fix — the chosenToTuples bug was Phase-1'd from the raw TypeError). No Tier-2 loads. Do not re-invoke.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. MHR-F/WS26 RED first: citation-integrity vs semantic-support separation — evolve the destructive R1–R3 audit in answer-release.ts + Rust answer_release.rs + BOTH loops so integrity gaps feed back to the MODEL (never silent citation removal, never rewrites of correct local answers); retire the deliberate R1–R3 half-state; extend matrix.json cases for the new diagnosis→feedback law.
+2. GREEN MHR-F + full battery (vitest all, golden replay re-record ONLY on intentional frames, tsc, cargo full incl. matrix parity, contracts:check if wire moves) + commit+push develop + STATE 05x.
+3. Then MHR-G (WS27 three-level proof: harness structured-decision tests + configured-model semantic evals w/ held-out paraphrases & unknown entities — mocked model proves nothing + current identifiable build e2e) → ONE final locked pw-80 loop → §4 report → AUTO-SHUTDOWN shutdown //s //f //t 60, never ask.
