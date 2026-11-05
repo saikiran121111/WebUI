@@ -3033,3 +3033,43 @@ Loaded: superpowers:test-driven-development (TDD Iron Law active — failing tes
 2. WS05 TDD: failing fixture first (persist → reload conversation → research evidence rehydrates server-side), then minimal fix; full suite; commit+push+STATE.
 3. Then WS06 (grounded answer release check — web-tool-loop streamRound ~:287 forwards before validation; Rust web_loop.rs parity) per brief order.
 Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
+
+---
+
+# SESSION SNAPSHOT 2026-11-05f — WS05 LOCKED
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Repair 20 web-search/research defects (brief item N = audit WS0N) at baseline 60fe1723 on develop. WS01–WS05 now LOCKED (WS05 = server-owned per-conversation research journal: persist + rehydrate, commit 6a35fea, all suites green). Active phase: WS06 (grounded answer release check). Remaining: WS06–WS20 in brief order, then final cycle (audit-fixture rerun 310 checks, P6 benchmark, extended e2e list, ONE locked Playwright loop pw-80, §4 report, auto-shutdown).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- WS01 ✅ 61951d0; WS02 ✅ 853c7d7+06cba20; WS03 ✅ c61bda8; WS04+WS13 ✅ 8f24d83.
+- WS05 ✅ 6a35fea (pushed): lib/persistence/research-journal.ts (module: <safe-id>.research.json in disk.ts DATA_DIR; MAX_TURNS 24/MAX_SOURCES 12/MAX_EXCERPT 500; recordResearchTurn/readResearchJournal/deleteResearchJournal/journalTurnFromBundle/selectPriorEvidence (token overlap ≥1, at-desc, default maxTurns 2)/buildPriorEvidenceBlock (aliases continue AFTER current max S-id, url-dedupe, <prior_research_evidence> block + citations map)); app/api/internal/web-research/route.ts (conversationId body field; priorTurns read BEFORE run; record post-bundle; citations merge; systemBlock append); app/api/chat/route.ts (opts.conversationId, capture before browser_session strip, both runTurnPipeline call sites, record+inject+merge); app/api/conversations/[id]/route.ts DELETE + Rust persistence.rs (safe_id/research_file/delete_at unlink); Rust chat/pipeline.rs run_turn_pipeline conversation_id: Option<&str> (after browser_marker) + body["conversationId"]; handler.rs legacy site browser_session.as_deref(); gen-contract-manifest.mjs requestFields += "conversationId" + regen (manifest diff = 1 field only).
+- WS05 fixtures GREEN: __tests__/persistence/research-journal.test.ts (13 tests) + __tests__/web-search/internal-web-research-journal.test.ts (4 tests, wholesale pipeline mock, controls: no conv id ⇒ no rehydration/journal; other conv ⇒ no leak). Fixture correction documented (turn() title derived from own queries — mock validity law).
+
+## [8.3 DEPENDENCY MAP (WS05)]
+- research-journal.ts ← internal/web-research route (bridge, Rust production path via next_search.rs RESEARCH_PATH), chat/route.ts (supervisor-off parity), conversations/[id] DELETE. ⇔ Rust: pump_progress→run_turn_pipeline (browser tuple .0 = key), handler legacy (browser_session.as_deref()), persistence delete_at.
+- Wire: manifest rpc.webResearch.requestFields now includes conversationId (⇔ generator table, ⇔ route parse, ⇔ Rust body insert). contract-manifest.test asserts field-contains-route-source (one direction) — green.
+- Journal file name `<safe-id>.research.json` = ⇔ TS researchJournalFile / Rust research_file; client conversation POST can never write it.
+
+## [8.4 IMMUTABLE CODE CONTRACTS]
+- Bridge body now: prompt, history, hasImageAttachment, hasAttachmentEvidence, imageDataUrls, scope, currentDate, conversationId? (trim, ≤200 chars; absent ⇒ no journaling/rehydration). Identity never routing, never proof of fetch.
+- Terminal result frame unchanged: {type:result,status:bundle,no_bundle,error; systemBlock (now CURRENT block + optional <prior_research_evidence>), citations (merged re-aliased), searchGate, depth, presentation, richResults, stats}. Rust injects systemBlock verbatim — no Rust injection change.
+- run_turn_pipeline = 15 args (conversation_id: Option<&str> between browser_marker and span). Both call sites updated.
+- Journal keys: selectPriorEvidence(prompt tokens /\p{L}+|\p{N}+/gu len>2 vs queries+title+domain+url); aliases S(base+seen+1).
+
+## [8.5 VERIFICATION STATE]
+- cargo test -p ruke-server --lib: 140/140 (journal-delete test named green). vitest: 112 files, 1452 passed | 1 skipped. tsc --noEmit exit 0. No dev server / Playwright session active; no .ai-coordination/playwright.lock.
+- Flake watch: single unreproduced failure 12:38:52 — if it recurs capture failing file name FIRST. Now 2 more full green runs.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- None red. Known non-issues: CRLF drift on contracts:check gate (pre-existing, do not chase); stale editor diagnostics (GATE_JSON_SCHEMA unused; LF/CRLF warnings).
+- currentDate absent from manifest pin (predates WS05; out of scope).
+
+## [8.7 SKILLS/LOCKS]
+Loaded: superpowers:test-driven-development (Iron Law active for WS06–WS20). No Tier-2 .cskills. No scenario locks. No Playwright lock held.
+
+## [8.8 IMMEDIATE NEXT 3 ATOMIC ACTIONS]
+1. WS06 recon (fresh reads): lib/web-search/web-tool-loop.ts streamRound — relay.feed/ch.raw forwards BEFORE validation (~:315/:323 pre-WS05 lines; +~40 after route edits but web-tool-loop itself untouched); :406/:502 ledger metadata at completion without prose validation; Rust web_loop.rs:167 parity; TS chat route comment "No post-stream claim audit since 2026-10-22".
+2. WS06 TDD: failing fixture first — an assistant answer making research claims that lack ledger/citation support must be repaired/qualified server-side BEFORE release (buffer answer units or bounded draft/verify/release); ordinary non-research chat must NOT be delayed. Audit law: "A prompt or attached ledger is not enforcement." Then minimal fix, Rust web_loop.rs parity, full suite, commit+push+STATE 05g.
+3. Then WS07 (final-origin admission after every wave — pipeline.ts applyScopeToPackets not repeated after gap extraction) per brief order.
+Overnight law: never stop/ask; fix yourself; commit+push develop+STATE append after EACH phase.
