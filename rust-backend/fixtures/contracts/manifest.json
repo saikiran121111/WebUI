@@ -478,7 +478,8 @@
         "hasImageAttachment",
         "hasAttachmentEvidence",
         "imageDataUrls",
-        "scope"
+        "scope",
+        "conversationId"
       ],
       "replyKind": "application/x-ndjson",
       "errors": {

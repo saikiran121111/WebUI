@@ -107,7 +107,7 @@ const manifest = {
     webResearch: {
       path: "/api/internal/web-research",
       method: "POST",
-      requestFields: ["prompt", "history", "hasImageAttachment", "hasAttachmentEvidence", "imageDataUrls", "scope"],
+      requestFields: ["prompt", "history", "hasImageAttachment", "hasAttachmentEvidence", "imageDataUrls", "scope", "conversationId"],
       replyKind: "application/x-ndjson",
       errors: { unauthorized: "Unauthorized", malformedBody: "Malformed JSON body", promptRequired: "prompt is required" },
       terminalStatuses: ["bundle", "no_bundle", "error"],

@@ -71,8 +71,20 @@ impl ConversationStore {
 
     /// `file(id)`: `id.replace(/[^a-zA-Z0-9_-]/g, "_")` + ".json".
     fn file(&self, id: &str) -> PathBuf {
-        let safe: String = id
-            .chars()
+        self.dir.join(format!("{}.json", Self::safe_id(id)))
+    }
+
+    /// WS05: ⇔ `researchJournalFile` in TS `lib/persistence/research-journal.ts`
+    /// — the SAME sanitizer and dir (the Next research bridge writes these
+    /// files here), `.research.json` suffix so the conversation-document
+    /// POST can never clobber the journal.
+    fn research_file(&self, id: &str) -> PathBuf {
+        self.dir.join(format!("{}.research.json", Self::safe_id(id)))
+    }
+
+    /// The shared `[^a-zA-Z0-9_-]` → "_" sanitizer.
+    fn safe_id(id: &str) -> String {
+        id.chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
                     c
@@ -80,8 +92,7 @@ impl ConversationStore {
                     '_'
                 }
             })
-            .collect();
-        self.dir.join(format!("{safe}.json"))
+            .collect()
     }
 
     /// `ensureDir()` — recursive mkdir; a failure THROWS out of
@@ -165,6 +176,11 @@ impl ConversationStore {
             .unwrap()
             .insert(id.to_string(), at);
         let _ = fs::remove_file(self.file(id));
+        // WS05 (audit 2026-11-05 item 5): ⇔ deleteResearchJournal in the TS
+        // DELETE route — the server research journal dies with the
+        // conversation; deleting a chat must not leave server-attested
+        // fetch provenance behind. Errors swallowed like the unlink above.
+        let _ = fs::remove_file(self.research_file(id));
     }
 }
 
@@ -275,6 +291,28 @@ mod tests {
         assert!(s.dir().join("we_rd____x.json").exists());
         s.delete("conv_01");
         assert!(s.get("conv_01").is_none());
+    }
+
+    #[test]
+    fn delete_removes_the_research_journal_too() {
+        // WS05 (audit 2026-11-05 item 5): the SERVER research journal
+        // (`<safe-id>.research.json`, written by the Next research bridge
+        // into the same store dir) must die WITH the conversation — TS
+        // mirror: deleteResearchJournal in the DELETE route.
+        let (s, _t) = store();
+        s.save("conv_j", "{}").unwrap();
+        fs::create_dir_all(s.dir()).unwrap();
+        let j = s.dir().join("conv_j.research.json");
+        fs::write(&j, "[]").unwrap();
+        // Control: another conversation's journal is never collateral.
+        let other = s.dir().join("other.research.json");
+        fs::write(&other, "[]").unwrap();
+        s.delete("conv_j");
+        assert!(
+            !j.exists(),
+            "deleting a chat must not leave server-attested fetch provenance on disk"
+        );
+        assert!(other.exists());
     }
 
     #[test]

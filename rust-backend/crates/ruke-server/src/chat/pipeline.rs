@@ -121,6 +121,14 @@ pub async fn run_turn_pipeline(
     // SKIPPED: the browser turn resolves its destination itself
     // (browser_loop bounded discovery), never behind a blind fan-out.
     browser_marker: bool,
+    // WS05 (audit 2026-11-05 item 5): the conversation half of the marker
+    // tuple — the research bridge's journal key. The Next side
+    // (app/api/internal/web-research/route.ts) journals completed research
+    // turns and rehydrates prior evidence under this id. Identity ONLY:
+    // never a routing switch, never proof of a fetch (the journal is
+    // server-written; nothing here trusts client text). None ⇒ the field
+    // is simply absent and the bridge neither journals nor rehydrates.
+    conversation_id: Option<&str>,
     span: &Span,
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
@@ -340,7 +348,7 @@ pub async fn run_turn_pipeline(
         // above feeds the research ctx — the model cannot broaden it via
         // tool arguments. Crosses the wire verbatim (the shared
         // task-scope fixture matrix pins the shape on both sides).
-        let body = json!({
+        let mut body = json!({
             "prompt": question,
             "history": history_json,
             "hasImageAttachment": !image_parts.is_empty(),
@@ -357,6 +365,15 @@ pub async fn run_turn_pipeline(
             // block shows — never the gate's bare-UTC fallback.
             "currentDate": clock::session_date_string(turn_timezone, turn_now),
         });
+        // WS05 (audit item 5): the conversation id rides the research body
+        // so the Next bridge can journal the turn and rehydrate prior
+        // evidence (⇔ app/api/chat/route.ts passes `conversationId` into
+        // runTurnPipeline on the supervisor-off path). Absent/empty ⇒ no
+        // field, and the bridge neither journals nor rehydrates — the id
+        // never gates routing and never proves a fetch happened.
+        if let Some(cid) = conversation_id.map(str::trim).filter(|c| !c.is_empty()) {
+            body["conversationId"] = Value::String(cid.to_string());
+        }
 
         // ⇔ TS `onProgress: (p) => { log.info({…}, "web-research progress");
         //    stage("web:"+p.stage, { detail, total, done, coverage, url,
@@ -596,6 +613,9 @@ pub async fn pump_progress(
         // conjunction itself is re-checked at the arms below against the
         // fold — one fold, one truth).
         browser.is_some(),
+        // WS05: the identity half carries on to the bridge as the journal
+        // key (⇔ TS chat-route conversationId). No marker ⇒ no key.
+        browser.as_ref().map(|b| b.0.as_str()),
         &span,
     )
     .await;

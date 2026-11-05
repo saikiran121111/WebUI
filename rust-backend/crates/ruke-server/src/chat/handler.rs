@@ -300,6 +300,12 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     // the routing law can actually run the loop (brief
                     // #2/#3).
                     false,
+                    // WS05 (audit item 5): the research journal key rides
+                    // the bridge body on this path too — the conversation
+                    // id is identity, not a marker, so the legacy path may
+                    // still persist/rehydrate research evidence (⇔ the
+                    // streaming pump_progress call site).
+                    browser_session.as_deref(),
                     &span,
                 )
                 .await;

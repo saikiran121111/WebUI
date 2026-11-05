@@ -5,6 +5,7 @@ import {
   deleteConversationOnDisk,
 } from "../../../../lib/persistence/disk";
 import { removeIndex } from "../../../../lib/server/attachindex/store";
+import { deleteResearchJournal } from "../../../../lib/persistence/research-journal";
 import { rustEnabled, rustProxy } from "../../../../lib/server/rustProxy";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -33,5 +34,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     for (const id of ids) removeIndex(id);
   }
   deleteConversationOnDisk(params.id);
+  // WS05: the server research journal dies WITH the conversation —
+  // deleting a chat must not leave server-attested fetch provenance
+  // behind on disk.
+  deleteResearchJournal(params.id);
   return NextResponse.json({ ok: true });
 }

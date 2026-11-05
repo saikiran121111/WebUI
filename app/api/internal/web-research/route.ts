@@ -12,10 +12,22 @@
  * SSRF defense-in-depth (this route performs outbound fetches on request).
  *
  * Body:  { prompt, history?, hasImageAttachment?, hasAttachmentEvidence?,
- *          imageDataUrls?, scope?, currentDate? }
+ *          imageDataUrls?, scope?, currentDate?, conversationId? }
  *          (scope = Rust-folded TaskScope JSON; currentDate = the
  *          session-zone date at Rust's turn instant, "YYYY-MM-DD" —
- *          ⇔ the TS chat route's ctx.currentDate law, brief §5)
+ *          ⇔ the TS chat route's ctx.currentDate law, brief §5;
+ *          conversationId = the client's `browser_session` identity the
+ *          Rust handler captured before stripping — WS05 research-journal
+ *          key. Identity only: it NEVER routes anything and is NEVER
+ *          proof of a fetch; it selects which SERVER-OWNED journal to
+ *          append/read. Missing ⇒ no journaling, no rehydration.)
+ * WS05 (audit 2026-11-05, item 5): completed research turns are journaled
+ * server-side (lib/persistence/research-journal.ts) under conversationId,
+ * and a follow-up turn's terminal frame REHYDRATES the relevant prior
+ * evidence: passages + server-attested provenance appended to systemBlock,
+ * citation aliases re-numbered to continue after this turn's S-ids
+ * (deterministic, collision-free). Rehydration reads ONLY the journal —
+ * client text/metadata is never evidence that a fetch happened.
  * Reply: NDJSON stream — zero or more
  *          {"type":"progress","stage","detail?",...}   (PipelineProgress)
  * then exactly one terminal frame:
@@ -33,6 +45,13 @@ import {
   buildMainModelContext,
   type PipelineProgress,
 } from "@/lib/web-search/pipeline";
+import {
+  buildPriorEvidenceBlock,
+  journalTurnFromBundle,
+  readResearchJournal,
+  recordResearchTurn,
+  selectPriorEvidence,
+} from "@/lib/persistence/research-journal";
 import { childLogger } from "@/lib/server/logger";
 
 const log = childLogger("internal/web-research");
@@ -94,6 +113,19 @@ export async function POST(req: NextRequest) {
         : undefined,
   };
 
+  // WS05: conversation identity from the Rust handler (the browser_session
+  // marker it captured before stripping). Selects the SERVER journal —
+  // identity, never a routing switch, never proof of a fetch. Prior
+  // evidence is read BEFORE the run so the journal seen here reflects
+  // only EARLIER turns.
+  const conversationId =
+    typeof body?.conversationId === "string" && body.conversationId.trim()
+      ? body.conversationId.slice(0, 200)
+      : "";
+  const priorTurns = conversationId
+    ? selectPriorEvidence(readResearchJournal(conversationId), prompt)
+    : [];
+
   const t0 = performance.now();
   const encoder = new TextEncoder();
   const ctrl = new AbortController();
@@ -144,10 +176,32 @@ export async function POST(req: NextRequest) {
               publishedAt: packet.publishedAt,
             };
           }
+          // WS05: journal THIS turn server-side (recorded before the frame
+          // goes out, so the next turn sees it), then merge the selected
+          // PRIOR evidence in: re-aliased citations continue after this
+          // turn's max S-id, and the prior passages + provenance ride the
+          // SAME systemBlock string the Rust pipeline injects verbatim.
+          // Journaling is best-effort — a disk failure never fakes or
+          // breaks the research reply (Rule 2.4).
+          if (conversationId) {
+            try {
+              recordResearchTurn(conversationId, journalTurnFromBundle(bundle, ctx.currentDate));
+            } catch {
+              /* best-effort */
+            }
+          }
+          const maxSid = bundle.packets.reduce((m, p) => {
+            const n = Number(/\d+$/.exec(p.sourceId)?.[0] ?? 0);
+            return Number.isFinite(n) ? Math.max(m, n) : m;
+          }, 0);
+          const prior = buildPriorEvidenceBlock(priorTurns, maxSid ? `S${maxSid}` : "");
+          for (const [alias, entry] of Object.entries(prior.citations)) citations[alias] = entry;
+          const systemBlock =
+            buildMainModelContext(bundle).systemBlock + (prior.block ? `\n\n${prior.block}` : "");
           write({
             type: "result",
             status: "bundle",
-            systemBlock: buildMainModelContext(bundle).systemBlock,
+            systemBlock,
             citations,
             // ⇔ ruke-contracts::stages::ResearchMeta (camelCase serde).
             searchGate: {

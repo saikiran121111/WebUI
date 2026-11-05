@@ -21,6 +21,13 @@ import {
   type RendererMode,
 } from "../../../lib/decision/types";
 import { runWebResearch, buildMainModelContext } from "../../../lib/web-search/pipeline";
+import {
+  buildPriorEvidenceBlock,
+  journalTurnFromBundle,
+  readResearchJournal,
+  recordResearchTurn,
+  selectPriorEvidence,
+} from "../../../lib/persistence/research-journal";
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { runWebToolLoop } from "../../../lib/chat/web-tool-loop";
 import type { WebToolDepth } from "../../../lib/web-search/tools";
@@ -471,9 +478,18 @@ async function runTurnPipeline(
     /** P1 clock grounding: the client's IANA zone (captured from the request
      *  body in POST, already deleted there so it never reaches upstream). */
     turnTimezone?: string;
+    /** WS05 (audit 2026-11-05, item 5): conversation identity captured in
+     *  POST from `browser_session` BEFORE it is deleted (same law as
+     *  turnTimezone — consumed, never upstream). Selects the SERVER-OWNED
+     *  research journal: completed research turns are journaled under it,
+     *  and relevant prior evidence is rehydrated from the journal ONLY.
+     *  Identity, never a routing switch, never proof of a fetch. Absent ⇒
+     *  no journaling, no rehydration (⇔ the internal bridge's
+     *  conversationId contract on the Rust-orchestrated path). */
+    conversationId?: string;
   },
 ): Promise<{ webCitationMap: Record<string, any> | null; searchGateMeta: ResearchMeta | null; webDepth: WebToolDepth | null; presentation: PresentationPlan | null; richResults: RichResult[] | null; turnScope: TaskScope }> {
-  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone } = opts;
+  const { lastUserIdx, fullText, env, history, usedSkill, signal, stage, hasAttachmentRefs, hasInlineAttachment, model, turnTimezone, conversationId } = opts;
 
   // 4) exactly ONE skill block for this turn (slash user skill wins)
   let skillBlockBytes = 0;
@@ -547,6 +563,12 @@ async function runTurnPipeline(
   // step 7 — the gate and the answering model must never reason against
   // different calendar dates (UTC vs session date at the midnight/year
   // boundary). Rust mirror: `turn_now` in chat/pipeline.rs.
+  // WS05 (audit item 5): read the journal BEFORE the run — the evidence
+  // selected here reflects only EARLIER turns (the current turn is
+  // recorded after its bundle completes, ⇔ the internal bridge route).
+  const priorTurns = conversationId
+    ? selectPriorEvidence(readResearchJournal(conversationId), fullText)
+    : [];
   const turnInstant = new Date();
   const webResearchDisabled = gateDisabledByEnv();
   try {
@@ -596,11 +618,35 @@ async function runTurnPipeline(
       signal,
     );
     if (researchBundle) {
+      // WS05 (audit item 5): journal THIS turn server-side, then rehydrate
+      // the selected prior evidence into the same injection contract —
+      // prior passages + server-attested provenance append to the injected
+      // block, and prior sources join the citation map under aliases that
+      // continue after this turn's max S-id (no collision; the [S#] pills
+      // stay real targets). Rehydration read ONLY the journal — the
+      // client's stored prose was never consulted as proof of a fetch.
+      // Journaling is best-effort: a disk failure never fakes or kills a
+      // chat turn (Rule 2.4).
+      if (conversationId) {
+        try {
+          recordResearchTurn(
+            conversationId,
+            journalTurnFromBundle(researchBundle, sessionDateString(turnInstant, turnTimezone)),
+          );
+        } catch {
+          /* best-effort */
+        }
+      }
       const { systemBlock } = buildMainModelContext(researchBundle);
+      const maxSid = researchBundle.packets.reduce((m, p) => {
+        const n = Number(/\d+$/.exec(p.sourceId)?.[0] ?? 0);
+        return Number.isFinite(n) ? Math.max(m, n) : m;
+      }, 0);
+      const prior = buildPriorEvidenceBlock(priorTurns, maxSid ? `S${maxSid}` : "");
       injectSystemBefore(
         payload.messages,
         lastUserIdx + 1,
-        systemBlock,
+        systemBlock + (prior.block ? `\n\n${prior.block}` : ""),
       );
       // Build the [S#] → {url, title, domain} map the browser UI uses
       // to turn inline citation markers into clickable pills. Every
@@ -615,6 +661,10 @@ async function runTurnPipeline(
           publishedAt: packet.publishedAt,
         };
       }
+      // WS05: rehydrated prior sources join the same map under their
+      // continued aliases — an [S#] marker from a prior turn's evidence
+      // resolves to a pill, never a dangling reference.
+      for (const [alias, entry] of Object.entries(prior.citations)) webCitationMap[alias] = entry;
       // No post-stream claim audit since 2026-10-22: the answer carries
       // [S#] citations and the model's own honest wording, which is the
       // whole verification story now.
@@ -709,6 +759,13 @@ export async function POST(req: NextRequest) {
   // Browser Use (Phase 10): `browser_session` selects the browser tool loop
   // in the RUST route (rustProxy above leaves it in the body). The TS path
   // has no browser engine, but the key must still never reach upstream.
+  // WS05 (audit item 5): the id is captured HERE (before the delete, same
+  // law as `timezone` below) and handed to the turn pipeline as the
+  // SERVER research-journal key — identity only, never routing.
+  const conversationId =
+    typeof payload?.browser_session === "string" && payload.browser_session.trim()
+      ? payload.browser_session.slice(0, 200)
+      : undefined;
   if (payload) delete payload.browser_session;
   // P1: the client's IANA timezone feeds the <runtime_clock> block and, like
   // browser_session, is consumed here — it must never reach the upstream.
@@ -837,6 +894,7 @@ export async function POST(req: NextRequest) {
                 hasInlineAttachment,
                 model,
                 turnTimezone,
+                conversationId,
               });
               // P5 (§57): the frame also fires when the turn minted rich
               // surfaces but no citation packets (e.g. news items from
@@ -931,6 +989,7 @@ export async function POST(req: NextRequest) {
         hasInlineAttachment: turnHasInlineAttachment(payload.messages[lastUserIdx]?.content),
         model,
         turnTimezone,
+        conversationId,
       });
       webCitationMap = meta.webCitationMap;
       searchGateMeta = meta.searchGateMeta;
