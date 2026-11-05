@@ -39,15 +39,17 @@ Build a familiar, responsive chat UI in which the model understands the conversa
 
 ### Library choices at a glance
 
+Evaluation means testing the local open-source software for compatibility and performance on the target hardware. Select releases and model assets that permit ongoing local use with no subscription, expiry or vendor usage quota.
+
 | Area | Existing implementation | Proposed library change |
 |---|---|---|
 | Interactive browser | Playwright is installed; interactive actions use a custom Rust/CDP implementation | Reuse actual Playwright + Chromium for the reference driver. Keep Rust chat/session ownership. Benchmark agent-browser only as an alternative. |
 | Browser vision and speed | Screenshot bytes are omitted for the model; actions commonly take several rounds | Update Ruke's image transport and add checked action batches using existing browser operations. No mandatory new model or package. |
 | PowerPoint | PptxGenJS plus chart images | Keep PptxGenJS and use native editable chart objects where appropriate. |
-| Excel | ExcelJS plus a limited custom formula evaluator | Keep ExcelJS; trial a local LibreOffice Calc worker for broader recalculation. |
+| Excel | ExcelJS plus a limited custom formula evaluator | Keep ExcelJS and evaluate local LibreOffice Calc for broader recalculation. |
 | Word and PDF output | docx and Playwright/Chromium printing | Keep the existing libraries and improve output validation. |
-| Scanned/complex input | unpdf and basic Office text extraction | Trial Docling on demand for OCR, layout and tables; preserve the simple-file path. |
-| Charts | Separate hand-written chart renderers | Trial Apache ECharts as a shared renderer. |
+| Scanned/complex input | unpdf and basic Office text extraction | Evaluate the MIT-licensed local Docling pipeline for OCR, layout and tables. Start it on demand and retain the lightweight path for ordinary files. |
+| Charts | Separate hand-written chart renderers | Evaluate the Apache-2.0 licensed ECharts library locally as a shared renderer. |
 | ZIP files | Custom code plus an installed fflate dependency | Reuse fflate on compatible paths and retire redundant code. |
 | Audio/video uploads | Whisper through Transformers.js and FFmpeg | Keep them. Benchmark whisper.cpp only if a measured CPU problem justifies it. |
 | Built-in 3D and CAD | Three.js studio, Meshy provider and custom floor-plan viewer | Retire the built-in features. No replacement 3D/CAD dependency is selected. |
@@ -81,7 +83,7 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 
 ### Phase 2 — reuse a maintained browser implementation
 
-**Reference implementation to trial: actual Playwright + Chromium.** Ruke's interactive Rust pw.rs is a custom Playwright-style CDP port; the installed Playwright dependency is not proof that this interactive path already uses the upstream driver.
+**Reference implementation for local evaluation: actual Playwright + Chromium.** Ruke's interactive Rust pw.rs is a custom Playwright-style CDP port; the installed Playwright dependency is not proof that this interactive path already uses the upstream driver.
 
 - [ ] Put a small maintained-driver adapter behind the existing browser contract. Reuse the existing Node runtime as a long-lived worker where appropriate; keep the rest of the Rust backend.
 - [ ] Prefer the real Playwright locator/action/wait implementation over extending a growing hand-written emulation of it.
@@ -132,7 +134,7 @@ Every phase is a separate reviewable checkpoint. Record changes, actual checks a
 - [ ] Do not silently introduce a proprietary HyperFormula license. If a GPL-compatible integration is ever selected, record its implications explicitly; LibreOffice is the current free-only calculation candidate.
 - [ ] Label image-only spreadsheet charts accurately; do not claim editability merely because the file opens.
 - [ ] Consider Apache ECharts to consolidate interactive and document chart drawing while preserving Ruke's schema, theme, sliders and follow-up actions.
-- [ ] Add Docling on demand for scanned/complex PDFs, tables and reading order; retain lightweight extraction for simple files. Audit selected model-weight licenses.
+- [ ] Evaluate local Docling on demand for scanned PDFs, complex tables and reading order. Retain lightweight extraction for simple files. Use prefetched model assets with compatible licenses and keep remote processing disabled.
 - [ ] Consolidate compatible custom ZIP paths onto the installed fflate dependency; preserve decompression limits and 7-Zip fallback where needed.
 - [ ] Keep FFmpeg/Whisper attachment processing. Benchmark whisper.cpp only for a demonstrated CPU accuracy/performance/packaging need.
 - [ ] Keep web-video caption work under the frozen search boundary. Do not present captions as full audiovisual understanding.
@@ -255,7 +257,7 @@ Use actual Playwright with Chromium as the cross-platform reference implementati
 
 | Candidate | What it supplies | Fit for Ruke | Free-only assessment |
 |---|---|---|---|
-| [Playwright library + Chromium](https://playwright.dev/docs/intro) | Maintained browser actions, semantic locators, actionability waits, contexts, screenshots and tracing. | **Primary reference implementation to trial.** Use the existing Node runtime as a long-lived browser worker behind the Rust contract. | Apache-2.0 Playwright and locally installed browser; no required model API subscription. |
+| [Playwright library + Chromium](https://playwright.dev/docs/intro) | Maintained browser actions, semantic locators, actionability waits, contexts, screenshots and tracing. | **Primary reference implementation for local evaluation.** Use the existing Node runtime as a long-lived browser worker behind the Rust contract. | Apache-2.0 Playwright and locally installed browser; no required model API subscription. |
 | [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) | Native Rust CLI/daemon, compact element refs, browser actions, sessions and CDP connection options. Its documented streaming API supports live frames and human input. | **Benchmark alternative for the Rust backend and live panel.** Wrap its commands/results rather than copying its implementation. | Apache-2.0 local software; no hosted provider or paid model is required. Run with the existing local model and local browser. |
 | [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) | Ready-made model-facing browser tools, accessibility snapshots, screenshots and opt-in coordinate actions. | **Maintained tool-server option/reference.** Standard MCP integration can reduce bespoke tool plumbing, while a direct SDK bridge can avoid adopting another protocol where Ruke already has function tools. Ruke must still supply its panel/session adapter. | Apache-2.0; local browser operation is supported. MCP adds no required paid model. |
 | [Stagehand](https://github.com/browserbase/stagehand) | Structured extraction and natural-language browser operations; local browser support. | Useful when a specific action/extraction layer is needed. Additional model calls and an overlapping orchestration layer need measurement. | MIT library. Hosted Browserbase and commercial model examples are optional, not selected dependencies. Not the default pilot. |
@@ -305,7 +307,7 @@ Use standard locator `fill`, `check`, `selectOption` and `click` operations so p
 
 ### Ruke-specific changes established by the checked source
 
-1. **Reuse the real driver instead of extending the Rust Playwright-style port indiscriminately.** [pw.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/pw.rs#L1) is a custom CDP implementation. Its [classify_seg](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/pw.rs#L220) supports a narrower selector surface and rejects other engines. Naming a command `playwright_*` does not mean it uses the upstream Playwright implementation. Trial a maintained driver bridge and compare its behavior before deleting the port.
+1. **Reuse the real driver instead of extending the Rust Playwright-style port indiscriminately.** [pw.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/pw.rs#L1) is a custom CDP implementation. Its [classify_seg](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/pw.rs#L220) supports a narrower selector surface and rejects other engines. Naming a command `playwright_*` does not mean it uses the upstream Playwright implementation. Evaluate a maintained driver bridge locally and compare its behavior before deleting the port.
 2. **Add a multi-field/guarded batch capability.** [tools.rs](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/tools.rs#L450) exposes individual fills. The [browser-loop comment](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L66) describes one-call-per-model-round behavior as common for its local model; the loop can already accept several tool calls, so it should not be described as technically limited to one. Measure the actual round count.
 3. **Fix visual output when requested.** [cull_tool_result](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L239) removes images. The [screenshot tool description](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-browser/src/tools.rs#L239) also promises only a text summary. Update the transport, tool contract and tests together. This is optional vision that works when used, not compulsory vision on every step.
 4. **Make large observations navigable.** [tool_content](https://github.com/saikiran121111/WebUI/blob/c115256155ce21887633bca5965aeeb880bfe6d1/rust-backend/crates/ruke-server/src/chat/browser_loop.rs#L259) truncates serialized results. Add targeted reads/pagination and explicit truncation metadata so the model can retrieve omitted evidence.
@@ -315,7 +317,7 @@ These changes leave normal web search untouched. They do not require migrating t
 
 ### Proof required before calling the implementation better
 
-Compare the existing browser path with the trial using the same model/settings, equivalent initial state and task set. Include routine forms, React rerenders, duplicate labels, nested frames, shadow DOM, popups, visual-only controls, login/resume, multi-tab work, downloads, validation errors, cancellation and process failure. Use varying labels/content to avoid passing only website-specific scripts.
+Compare the existing browser path with the local evaluation build using the same model/settings, equivalent initial state and task set. Include routine forms, React rerenders, duplicate labels, nested frames, shadow DOM, popups, visual-only controls, login/resume, multi-tab work, downloads, validation errors, cancellation and process failure. Use varying labels/content to avoid passing only website-specific scripts.
 
 Run native installation/lifecycle and functional checks on supported Windows, macOS and Linux releases, including Intel/Apple Silicon builds where supported. Evaluate the combined 16 GB consumer-laptop workload; do not spend the whole RAM allowance on the model alone.
 
@@ -406,7 +408,7 @@ The morph injector is a different capability. A replacement must preserve requir
 
 HyperFormula’s [published license](https://github.com/handsontable/hyperformula/blob/master/LICENSE.txt) offers GPLv3 and proprietary options. It is not the unconditional default for this plan; choosing a GPL-compatible integration remains possible, but a recommendation should not quietly depend on purchasing the proprietary option.
 
-For Word/PDF output, keep the current docx and Chromium printing libraries. For reading scanned/complex documents, use Docling as a lazy, optional parser behind the current extraction interface. Its code is MIT; selected model weights have their own published licenses ([Docling model bundle](https://huggingface.co/docling-project/docling-models), [Granite Docling](https://huggingface.co/ibm-granite/granite-docling-258M)). No paid inference service is required for a local configuration.
+For Word/PDF output, keep the current docx and Chromium printing libraries. Use the MIT-licensed Docling parser on demand behind the existing extraction interface. Run it locally with prefetched model assets and verify each selected model license. [Docling license](https://github.com/docling-project/docling/blob/main/LICENSE), [offline configuration](https://docling-project.github.io/docling/usage/advanced_options/#model-prefetching-and-offline-usage).
 
 ## Free-only shortlist and operating cost
 
@@ -418,8 +420,8 @@ These recommendations refer to the open-source/local software, not vendor-hosted
 | Playwright MCP | Apache-2.0 | No | Local Node/browser process plus Ruke integration. |
 | PptxGenJS / ExcelJS / docx | Existing open-source dependencies; retain pinned releases and license files | No | Local file generation; visual QA still needed. |
 | LibreOffice | [MPL-2.0 distribution with other component licenses](https://www.libreoffice.org/licenses/) | No | Larger local install; start worker only when needed. |
-| Apache ECharts | Apache-2.0 | No | Browser bundle/rendering cost; server SVG support can reduce custom chart code. |
-| Docling | MIT core; selected weights separately licensed | No | Python/models and potentially substantial document-processing RAM. |
+| Apache ECharts | [Apache-2.0](https://github.com/apache/echarts/blob/master/LICENSE) | No | Local rendering and server SVG support. |
+| Docling | MIT core with separately licensed model assets | No | On-demand local document processing with prefetched weights. |
 | Transformers.js / Whisper integration | Existing runtime/model setup | No paid endpoint required | CPU/GPU and model storage; check exact pinned weights. |
 | whisper.cpp | MIT | No | Alternative native runtime; output/performance must be compared. |
 | fflate | MIT; already installed | No | No additional service required. |
@@ -436,7 +438,7 @@ For the consumer-laptop baseline, account for Windows, shared integrated-graphic
 
 ## Implementation boundaries and validation order
 
-### Stage 1: browser observations and maintained-driver trial
+### Stage 1: browser observations and maintained-driver evaluation
 
 Keep the normal web-search routes and provider code unchanged. Introduce one internal driver boundary for navigation, observations, actions, screenshots, tabs and lifecycle. Implement one pilot driver first; avoid maintaining multiple production stacks indefinitely.
 
