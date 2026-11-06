@@ -347,6 +347,15 @@ export function handleBrowserStage(
       break;
     case "browser:handoff":
     case "browser:done":
+    // Finding 3 (2026-11-06 audit): the loop now names how it really ended.
+    // A turn that hit its round budget (`browser:capped`) or errored
+    // (`browser:failed`) is OVER as a model-driven turn just as surely as a
+    // finished one — the panel must stop claiming the agent is still driving,
+    // or the "working" indicator would hang forever on a turn that stopped.
+    // The honesty lives in the progress chip ("Stopped early"/"Failed"), not
+    // here; this arm is only the turn-end boundary.
+    case "browser:capped":
+    case "browser:failed":
       set({ agentActive: false, conversation: session ?? state.conversation });
       break;
     case "browser:working_tab": {

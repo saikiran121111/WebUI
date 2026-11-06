@@ -396,6 +396,43 @@ All in `rust-backend/crates/ruke-browser/src/bridge.rs`.
   (`found:false` for missing, ambiguous and invalid targets), and a third test proves pre-flight and read-back never
   write to the page.
 
+### Finding 3 — browser-loop false completion + raw tool args in production logs
+
+Reproduced first: at `RUKE_BROWSER_MAX_TOOL_ROUNDS` exhaustion the loop broke out of `'outer` with
+`Outcome::Finished`, the ending block sent `browser:done`, `lib/progress/turnProgress.ts` mapped that frame to
+`browser:done` → `done("browser")` → 100 % + chip "Done", and the round whose `finish_reason:"tool_calls"`
+swallowed its own `data: [DONE]` left the SSE stream with **no terminal frame at all**. Separately, both tool loops
+logged `args = %arguments.chars().take(200)` — the text typed into live pages (queries, form values, names,
+addresses) in production logs.
+
+Repair, three layers:
+
+* **`chat/browser_loop.rs` — the outcome is now honest.** `Outcome` gained `Capped` ("the round budget ran out while
+  the last round still ended in tool calls … NOT completion"). A pure `terminal_stage_event()` picks the terminal
+  stage frame from the outcome: `browser:done` (finished / human-stopped), **`browser:capped`** with
+  `detail: "stopped after N browser tool rounds without a final answer round"`, **`browser:failed`** on an errored
+  loop. `Aborted` deliberately keeps `browser:done` — the human stopped a turn whose browser work was already at
+  rest and the client's own Stop path already reads "Stopped". Cap path now warns "browser tool loop hit the round
+  cap; ending the turn WITHOUT a final answer round".
+* **`chat/sse.rs` — the grammar is repaired.** `ProgressChannel::ensure_terminal_done(done_already_sent)` backfills
+  the missing `data: [DONE]\n\n` exactly once (no-op when a sentinel already reached the client, when the latch is
+  closed, or after `fail`). Cross-round accounting rides `ToolStreamRelay.done_forwarded`, set inside
+  `accept_frame()` — the same place the swallow decision lives, so the accounting cannot drift from the rule.
+  Mirrors the precedent the TS web loop already set (`lib/chat/web-tool-loop.ts:783-787`). Deliberately NOT
+  adding a forced final no-tools round to the browser loop: that would change Phase-7 round accounting and is
+  outside this finding.
+* **`chat/log_safety.rs` (NEW) — log privacy.** `arg_shape()` logs sorted parameter NAMES + byte size, never
+  values; unparseable/non-object blobs report size only (tool arguments are model output, never trusted content).
+  Wired into both `browser_loop.rs` tool-result logs and `web_loop.rs` "web tool result" (the web arguments ARE the
+  user's search queries).
+* **Client half (the frames are new names, so both consumers had to learn them).**
+  `lib/progress/turnProgress.ts`: `browser:capped` → "Browser task stopped early" band 95, `browser:failed` →
+  "Browser task failed" band 95; a `browserCapped` flag makes `finish("complete")` downgrade the turn to the new
+  `"capped"` state (chip "Stopped early", overall < 100 %, the browser step frozen ≤ 95) — because the stream
+  closing cleanly is NOT evidence the task finished. `lib/browser-client/browserStore.ts`: the turn-end arm now also
+  accepts `browser:capped`/`browser:failed`, otherwise the panel would latch `agentActive: true` on a turn that
+  already stopped (the regression this repair would otherwise have introduced).
+
 ### Verification actually run in this repair phase (real exit codes)
 
 | Check | Result |
@@ -404,12 +441,17 @@ All in `rust-backend/crates/ruke-browser/src/bridge.rs`.
 | `npx tsc --noEmit` | **exit 0** |
 | Locked launcher, three suites | `& 'scripts/run-browser-e2e-exclusive.ps1' -TestFiles tests/form-probe.spec.ts,tests/retired-fences.spec.ts,tests/interactive-ui.spec.ts -AppWaitSeconds 120` → **4 passed / 2 failed**, "Playwright exit code: 1", lock released. The 4 passes were `retired-fences` 2/2 and `interactive-ui` 1/1 (finding 4 green) plus one probe test; both failures were in MY OWN new harness — `page.evaluate` given a bare string expression returns `undefined` instead of invoking it — not in the product. |
 | Locked launcher, form-probe after the harness fix (`new Function` around bridge.rs's own text) | **3 passed (767 ms)**, "Playwright exit code: 0", lock released |
+| `cargo test -p ruke-server --lib --no-fail-fast` (finding 3) | **164 passed / 0 failed** (155 baseline + 5 `log_safety` + 3 `ensure_terminal_done` + 1 terminal-frame mapping), exit 0, after `cargo fmt -p ruke-server`. `--lib` because a running `ruke-server.exe` (PID 7968) holds `target/debug/ruke-server.exe`; every changed line is lib code, and the bin target is rebuilt before the model-driven journeys re-run. |
+| `npx vitest run __tests__/turn-progress.test.ts __tests__/browser-store.test.ts` (finding 3) | **40 passed / 0 failed** (turn-progress 25 = 21 + 4 new capped/failed/done honesty tests; browser-store 15 = 13 + 2 new turn-end-frame tests), exit 0 |
+| `npx tsc --noEmit` after the client half | **exit 0** |
 
 ### Still open in this phase
 
-Findings **3** (browser-loop false completion on budget exhaustion + raw tool args in production logs),
-**5** (anatomy over-trigger), **6** (HTML preview origin isolation + fullscreen fallback) and **7** (PDF export trust
-boundary) are reproduced-but-not-yet-repaired; **8** closed in 5A.
+**3** (browser-loop false completion + raw tool args) is REPAIRED and unit-verified (ledger above). Its last gate is
+model-driven: a `RUKE_BROWSER_MAX_TOOL_ROUNDS`-capped journey that must show the chip reading "Stopped early" with the
+panel back to `agentActive:false` — that spec runs inside the final locked Playwright loop, after `ruke-server` is
+rebuilt. Findings **5** (anatomy over-trigger), **6** (HTML preview origin isolation + fullscreen fallback) and
+**7** (PDF export trust boundary) are reproduced-but-not-yet-repaired; **8** closed in 5A.
 
 ## Phase gates (check only when verified through the feature's normal entry point)
 
@@ -486,10 +528,9 @@ boundary) are reproduced-but-not-yet-repaired; **8** closed in 5A.
    over-trigger ("What is the anatomy of the knee?" / "What is an isometric exercise?" must stay
    conversational), HTML preview origin isolation + fullscreen fallback, PDF export trust boundary.
    Finding 8 (PPTX bypassed the normalizer) is closed in 5A.
-   **Progress: findings 4, 1 and 2 are REPAIRED and verified (see the "Audit repair phase" ledger). Remaining:
-   finding 3 — `ruke-server/src/chat/browser_loop.rs` turns round-cap exhaustion into `Outcome::Finished` +
-   `browser:done` (and `lib/progress/turnProgress.ts` maps that to "finished"), plus raw tool args in production
-   logs; finding 5 — `lib/decision/client.ts` + `ruke-decision/src/engine.rs` match standalone words, so
+   **Progress: findings 4, 1, 2 and 3 are REPAIRED and verified (see the "Audit repair phase" ledger; finding 3's
+   remaining gate is the capped-round model journey in the final locked loop). Remaining:
+   finding 5 — `lib/decision/client.ts` + `ruke-decision/src/engine.rs` match standalone words, so
    "What is an isometric exercise?" routes to the anatomy renderer; finding 6 — `HtmlArtifactBlock.tsx` renders
    model HTML in a srcDoc iframe with `allow-scripts allow-same-origin` (same-origin escape); finding 7 —
    `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts` hand raw HTML to Chromium with JS and networking

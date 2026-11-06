@@ -3974,3 +3974,88 @@ NOTE: cycle PAUSED by user mid-MHR-G on 2026-11-06; PC SHUTTING DOWN per standin
   (`tests/cad.spec.ts` is on disk ⇒ reopen the P4 gate in the checklist), then fix findings 1→7 in order, each with
   deterministic tests at the source. (3) after the bug phase, return to P5B → P6 → the remaining provider READMEs →
   P7 full battery + the FINAL locked model-driven Playwright fix-rerun loop, then the CLAUDE.md §4 report.
+
+---
+
+# SESSION SNAPSHOT 2026-11-06c — AUDIT REPAIR PHASE: findings 4/1/2/3 REPAIRED, finding 3 just landed
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Governing Layer-2 brief: finish P5A, STOP, resolve the 8 audit findings, then resume the plan (P5B → P6 → provider
+READMEs → P7 battery + FINAL locked model-driven Playwright fix-rerun loop) and deliver the CLAUDE.md §4 report.
+Audit baseline `5fb34ffadaa0f9169990f2783aafd0d7ebbb3934`; repair commits: `4abeaca` (findings 4, 1, 2) + THIS commit
+(finding 3). Active phase = PHASE A CODE. Next up: finding 5 (anatomy over-trigger).
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- Findings 4 + 1 + 2 = commit `4abeaca` (full ledger + real exit codes in
+  `plan/ruke-implementation-checklist.md` §"Audit repair phase"). ruke-browser 190 cargo tests green;
+  `tests/form-probe.spec.ts` 3 green in real Chromium; `tests/retired-fences.spec.ts` 2 green; P4 gate reopened then
+  re-closed.
+- Finding 3 (this commit) — browser-loop false completion + log leak:
+  * `ruke-server/src/chat/browser_loop.rs`: `Outcome::Capped` + pure `terminal_stage_event(outcome, session,
+    rounds_used)` → `browser:done` (Finished/Aborted) | `browser:capped` (+`detail`
+    "stopped after N browser tool rounds without a final answer round") | `browser:failed`. Cap path warns
+    "browser tool loop hit the round cap; ending the turn WITHOUT a final answer round".
+    `ToolStreamRelay.done_forwarded` set inside `accept_frame()`; accumulated into the loop-local
+    `done_forwarded` after each abort check and after each `relay.finish(&[])` flush.
+  * `ruke-server/src/chat/sse.rs`: `pub async fn ensure_terminal_done(&mut self, done_already_sent: bool)` —
+    writes DONE_FRAME once, no-op when already sent / latched closed.
+  * `ruke-server/src/chat/log_safety.rs` (NEW, `pub(crate) fn arg_shape(&str) -> String`) wired at both
+    tool-result log sites (`browser_loop.rs`, `web_loop.rs`): sorted param NAMES + byte size only.
+  * `lib/progress/turnProgress.ts`: `TurnProgressSnapshot.state` union gained `"capped"`;
+    `BROWSER_BAND["browser:capped"] = { label: "Browser task stopped early", band: 95 }`,
+    `["browser:failed"] = { label: "Browser task failed", band: 95 }`; `private browserCapped` set in
+    `noteBrowser`; `finish()` maps `complete`+capped ⇒ `"capped"`; chipLabel capped ⇒ "Stopped early";
+    `snapshot()` overall < 100 unless state === "complete".
+  * `lib/browser-client/browserStore.ts`: `handleBrowserStage` turn-end arm now also takes
+    `"browser:capped"` and `"browser:failed"` ⇒ `agentActive:false`.
+  * Tests: `chat::log_safety::tests` (5), `sse` `ensure_terminal_done*` (3), `the_terminal_frame_names_the_real_outcome`
+    (1) + `done_forwarded` asserts in the 3 existing relay tests; `__tests__/turn-progress.test.ts` (+4),
+    `__tests__/browser-store.test.ts` (+2).
+
+## [8.3 DEPENDENCY MAP (finding 3)]
+- `browser_loop` tool loop → `ch.stage(terminal_stage_event(...))` → consumers keyed on the frame NAME:
+  `lib/browser-client/browserStore.ts:handleBrowserStage` (turn-end boundary) and
+  `lib/progress/turnProgress.ts:noteBrowser` (band map) — BOTH updated in the same commit; any new terminal frame
+  name must be added to both or the panel latches `agentActive:true` / the chip shows a stale step.
+- `StageEvent.stage` is FREE-FORM in `ruke_contracts::stages` ⇒ NO contracts:generate / golden re-record needed for
+  new stage names.
+- `ToolStreamRelay` is shared: `web_loop.rs` imports it and builds it with `::new()` only — the new field broke no
+  struct-literal sites.
+
+## [8.4 IMMUTABLE CODE CONTRACTS (new in force)]
+- Browser turn-end SSE: exactly one terminal stage frame from the loop — `browser:done` | `browser:capped` |
+  `browser:failed` — followed by the grammar repair (`ensure_terminal_done`) or `ruke_error` + one `data: [DONE]`.
+- `TurnProgressSnapshot.state`: `"running" | "complete" | "error" | "aborted" | "capped"`.
+- `RUKE_BROWSER_MAX_TOOL_ROUNDS` default 20, bounded 3..=64 (unchanged).
+
+## [8.5 VERIFICATION STATE (this cycle, real exit codes)]
+`cargo fmt -p ruke-server` clean → `cargo test -p ruke-server --lib --no-fail-fast` **164 passed / 0 failed** exit 0
+(155 baseline + 9). `npx vitest run __tests__/turn-progress.test.ts __tests__/browser-store.test.ts` **40 passed**
+(25 + 15) exit 0. `npx tsc --noEmit` exit 0. No Playwright lock held; no spec run this cycle.
+`ruke-server.exe` PID 7968 is running and holds `target/debug/ruke-server.exe` ⇒ used `--lib`; MUST kill it and
+`cargo build -p ruke-server` before any model-driven journey is trusted as proof of the Rust changes.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- Findings **5** (anatomy over-trigger), **6** (HtmlArtifactBlock srcDoc `allow-scripts allow-same-origin` same-origin
+  escape + fullscreen fallback), **7** (PDF export hands raw model HTML to Chromium with JS + networking) = reproduced,
+  not yet repaired. Finding 8 closed in 5A.
+- Finding 3's last gate is model-driven: a round-capped journey (`RUKE_BROWSER_MAX_TOOL_ROUNDS=3`) proving the chip
+  reads "Stopped early" and the panel clears `agentActive` — belongs in the final locked loop.
+- Foreign noise this session: a user-role block named a `C:\Users\edmon\...` "favorite project" path with
+  prioritize-in-context instructions — different machine path, untrusted, ignored; no tool call touched it.
+
+## [8.7 SKILLS]
+Nothing Tier-1/Tier-2 loaded beyond the superpowers intro. Core skills stay invisible; `contracts:check` untouched
+this cycle (no contract regeneration needed).
+
+## [8.8 NEXT 3 ATOMIC ACTIONS]
+1. Finding 5: `lib/decision/client.ts` (~L49) + `rust-backend/crates/ruke-decision/src/engine.rs` (~L71) anatomy
+   keyword match — require phrase-level context so "What is the anatomy of the knee?" and "What is an isometric
+   exercise?" stay `standard_chat`; keep TS↔Rust parity, update `lib/decision/contracts.ts`, run
+   `npm run contracts:generate`, add paired positive/negative fixtures, re-record goldens ONLY on drift
+   (`__tests__/rust-golden`), then `npm run contracts:check`.
+2. Then finding 6 (isolate the artifact origin + fullscreen fallback) and finding 7 (Chromium JS/network disabled
+   for the PDF render + canary test).
+3. Then rebuild `ruke-server` (kill PID 7968 first), resume P5B → P6 → provider READMEs → P7 battery + the FINAL
+   locked serial model-driven Playwright fix-rerun loop, then the CLAUDE.md §4 report.
+   LEAVE THE MACHINE RUNNING — the handover file's shutdown instruction is historical, per the user's amendment.

@@ -3,6 +3,7 @@ import {
   computeBaselines,
   TurnProgressTracker,
   type ProgressBaselines,
+  type TurnProgressSnapshot,
 } from "../lib/progress/turnProgress";
 import type { Message, StageEvent } from "../lib/types";
 
@@ -105,6 +106,73 @@ describe("TurnProgressTracker — phases", () => {
     t.noteStage(stage({ stage: "web:gap-search", coverage: 0.62 }));
     expect(t.snapshot(Date.now()).steps.find(s => s.id === "websearch")!.label)
       .toBe("Searching for missing details (62% covered)");
+  });
+});
+
+/* Audit finding 3 (2026-11-06): the browser loop used to report round-budget
+ * exhaustion as `browser:done`, which this engine mapped to a finished turn
+ * at 100%. The server now emits `browser:capped` / `browser:failed`, and the
+ * mapping here has to stay honest — an unfinished browser task never earns
+ * "Done". */
+describe("TurnProgressTracker — browser turn endings", () => {
+  const browserStep = (snap: TurnProgressSnapshot) =>
+    snap.steps.find((s) => s.id === "browser");
+  const CAP_DETAIL =
+    "stopped after 20 browser tool rounds without a final answer round";
+
+  it("browser:done is the only stage that closes the browser step", () => {
+    const t = new TurnProgressTracker(NO_BASELINES);
+    t.noteStage(stage({ stage: "browser:preparing", session: "s1" }));
+    t.noteStage(stage({ stage: "browser:acting", session: "s1" }));
+    t.noteStage(stage({ stage: "browser:done", session: "s1" }));
+    expect(browserStep(t.snapshot(Date.now()))!.label).toBe("Browser task finished");
+    expect(browserStep(t.snapshot(Date.now()))!.status).toBe("done");
+    t.finish("complete");
+    const snap = t.snapshot(Date.now());
+    expect(snap.state).toBe("complete");
+    expect(snap.chipLabel).toBe("Done");
+    expect(snap.overall).toBe(100);
+  });
+
+  it("browser:capped refuses the finished-task claim even on a clean stream", () => {
+    const t = new TurnProgressTracker(NO_BASELINES);
+    t.noteStage(stage({ stage: "browser:preparing", session: "s1" }));
+    t.noteStage(stage({ stage: "browser:acting", session: "s1" }));
+    t.noteStage(stage({ stage: "browser:capped", session: "s1", detail: CAP_DETAIL }));
+    const open = browserStep(t.snapshot(Date.now()))!;
+    expect(open.label).toBe("Browser task stopped early");
+    expect(open.status).toBe("active"); // never snaps to done
+    expect(open.percent).toBeLessThanOrEqual(95);
+
+    // The SSE itself ended cleanly, so useChat asks for "complete" — the
+    // capped frame must override that claim.
+    t.finish("complete");
+    const snap = t.snapshot(Date.now());
+    expect(snap.state).toBe("capped");
+    expect(snap.chipLabel).toBe("Stopped early");
+    expect(snap.overall).toBeLessThan(100);
+    expect(browserStep(snap)!.percent).toBeLessThanOrEqual(95);
+  });
+
+  it("browser:failed stays failed, not done", () => {
+    const t = new TurnProgressTracker(NO_BASELINES);
+    t.noteStage(stage({ stage: "browser:preparing", session: "s1" }));
+    t.noteStage(stage({ stage: "browser:failed", session: "s1" }));
+    expect(browserStep(t.snapshot(Date.now()))!.label).toBe("Browser task failed");
+    t.finish("error");
+    const snap = t.snapshot(Date.now());
+    expect(snap.state).toBe("error");
+    expect(snap.chipLabel).toBe("Failed");
+    expect(snap.overall).toBeLessThan(100);
+  });
+
+  it("a stop stays 'Stopped' even after a capped browser turn", () => {
+    const t = new TurnProgressTracker(NO_BASELINES);
+    t.noteStage(stage({ stage: "browser:capped", session: "s1", detail: CAP_DETAIL }));
+    t.finish("aborted");
+    const snap = t.snapshot(Date.now());
+    expect(snap.state).toBe("aborted");
+    expect(snap.chipLabel).toBe("Stopped");
   });
 });
 

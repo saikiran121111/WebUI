@@ -814,7 +814,10 @@ pub async fn run_web_tool_loop(
                     round = round + 1,
                     tool = name.as_str(),
                     ok,
-                    args = %arguments.chars().take(200).collect::<String>(),
+                    // Log-safety (2026-11-06 audit finding 3, same rule the
+                    // browser loop follows): the web tool arguments ARE the
+                    // user's search queries. Parameter names and size only.
+                    args = %crate::chat::log_safety::arg_shape(&arguments),
                     "web tool result"
                 );
                 // Merge the [S#] citations these calls minted. The TS

@@ -37,7 +37,12 @@ export interface TurnProgressSnapshot {
   chipLabel: string;
   steps: ProgressStep[];
   outputs: ProgressOutput[];
-  state: "running" | "complete" | "error" | "aborted";
+  /**
+   * "capped" is a browser turn the server stopped at its round budget: the
+   * stream ended cleanly, but the model never got a final answer round, so
+   * claiming "Done"/100% would be false (2026-11-06 audit finding 3).
+   */
+  state: "running" | "complete" | "error" | "aborted" | "capped";
   startedAt: number;
 }
 
@@ -94,6 +99,11 @@ const BROWSER_BAND: Record<string, { label: string; band: number }> = {
   "browser:acting": { label: "Driving the browser for you", band: 45 },
   "browser:handoff": { label: "Waiting for you in the browser", band: 80 },
   "browser:done": { label: "Browser task finished", band: 100 },
+  // Finding 3: the server now says honestly HOW a browser turn ended. A turn
+  // that ran out of rounds or failed never reaches 100% — the band stops at
+  // 95, the same ceiling every unfinished step obeys.
+  "browser:capped": { label: "Browser task stopped early", band: 95 },
+  "browser:failed": { label: "Browser task failed", band: 95 },
 };
 
 const MODE_LABEL: Record<RendererMode, string> = {
@@ -155,6 +165,12 @@ export class TurnProgressTracker {
   private webSkipped = false;
   private contentChars = 0;
   private state: TurnProgressSnapshot["state"] = "running";
+  /**
+   * A `browser:capped` frame was seen this turn: the browser loop hit its
+   * round budget without a final answer round (finding 3). The turn is NOT
+   * "complete" even when the stream itself closed cleanly.
+   */
+  private browserCapped = false;
   /**
    * Monotonic floor for the OVERALL percent. Per-step percents are already
    * monotonic, but discovering a new phase adds weight at a low band — the
@@ -232,7 +248,11 @@ export class TurnProgressTracker {
     const band = BROWSER_BAND[e.stage];
     if (!band) return; // unknown sub-stage: honest no-op, no invented label
     this.done("routing");
+    if (e.stage === "browser:capped") this.browserCapped = true;
     this.addStep("browser", band.label, BROWSER_WEIGHT, "active", band.band);
+    // Only a real completion closes the step. A capped or failed turn keeps
+    // it open so finish() freezes it at the last honest percent instead of
+    // snapping it to 100.
     if (e.stage === "browser:done") this.done("browser");
   }
 
@@ -278,13 +298,16 @@ export class TurnProgressTracker {
   }
 
   finish(state: "complete" | "error" | "aborted"): void {
-    this.state = state;
+    // Finding 3: a browser turn that ran out of rounds never honestly
+    // "completed" — the server said so with `browser:capped` — even though
+    // its stream closed cleanly, so the client would otherwise call it done.
+    this.state = state === "complete" && this.browserCapped ? "capped" : state;
     const now = Date.now();
     for (const s of this.steps) {
       if (s.status === "active") {
-        // Only an actually-finished turn earns 100%; a stopped or failed turn
-        // freezes at the honest last-measured percent.
-        s.percent = state === "complete"
+        // Only an actually-finished turn earns 100%; a stopped, capped or
+        // failed turn freezes at the honest last-measured percent.
+        s.percent = this.state === "complete"
           ? 100
           : Math.max(s.floor, Math.min(95, this.livePercent(s, now)));
         s.status = "done";
@@ -326,7 +349,9 @@ export class TurnProgressTracker {
           ? "Done"
           : this.state === "aborted"
             ? "Stopped"
-            : "Failed";
+            : this.state === "capped"
+              ? "Stopped early"
+              : "Failed";
 
     return {
       overall,

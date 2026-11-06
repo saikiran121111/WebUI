@@ -4,7 +4,9 @@
 //! ```text
 //! data: {"ruke_stage":{…}}\n\n     stage events
 //! data: {"ruke_error":{"message":"…"}}\n\n   terminal failure (then [DONE])
-//! data: [DONE]\n\n                 exactly once, error path only (fail)
+//! data: [DONE]\n\n                 exactly once: the error path (`fail`) or
+//!                                  the repaired grammar
+//!                                  ([`ProgressChannel::ensure_terminal_done`])
 //! ```
 //!
 //! Raw model bytes go through `raw` with NO framing of their own — the
@@ -114,6 +116,27 @@ impl ProgressChannel {
     pub fn close(&mut self) {
         self.closed = true;
     }
+
+    /// Grammar repair for a tool loop whose LAST round ended in
+    /// `tool_calls` (2026-11-06 audit finding 3).
+    ///
+    /// Such a round's `data: [DONE]` is deliberately swallowed — the next
+    /// round was supposed to own the terminal frame — but when the loop
+    /// ends without running another round (the round budget ran out, or the
+    /// human stopped the turn), nothing ever writes it and the client is
+    /// left holding an unterminated stream. `ensure_terminal_done` restores
+    /// that single sentinel, and only then: when a `[DONE]` already reached
+    /// the client (`done_already_sent`), when the channel is latched closed,
+    /// or when [`fail`](Self::fail) already sent one, it writes nothing.
+    /// ⇔ the TS web tool loop's synthetic terminal frame
+    /// (`lib/chat/web-tool-loop.ts`).
+    pub async fn ensure_terminal_done(&mut self, done_already_sent: bool) {
+        if done_already_sent || self.closed {
+            return;
+        }
+        self.closed = true;
+        let _ = self.tx.send(Bytes::from_static(DONE_FRAME)).await;
+    }
 }
 
 #[cfg(test)]
@@ -176,6 +199,63 @@ mod tests {
         ch.fail("late").await;
         drop(ch);
         assert_eq!(drain(&mut rx).await, "data: [DONE]\n\n");
+    }
+
+    /// The finding-3 repair: a tool loop that ended on a `tool_calls` round
+    /// swallowed that round's `[DONE]` and ran out of rounds, so the stream
+    /// has NO terminal frame. `ensure_terminal_done` backfills exactly one.
+    #[tokio::test]
+    async fn ensure_terminal_done_backfills_a_missing_sentinel_once() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut ch = ProgressChannel::new(tx);
+        ch.stage(&StageEvent::new("browser:acting")).await;
+        ch.raw(b"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n".to_vec())
+            .await;
+        ch.ensure_terminal_done(false).await;
+        ch.ensure_terminal_done(false).await; // latch: no duplicate sentinel
+        ch.close();
+        drop(ch);
+        assert_eq!(
+            drain(&mut rx).await,
+            concat!(
+                "data: {\"ruke_stage\":{\"stage\":\"browser:acting\"}}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+                "data: [DONE]\n\n",
+            )
+        );
+    }
+
+    /// A stream the upstream actually ended stays untouched — one `[DONE]`
+    /// per stream, never two.
+    #[tokio::test]
+    async fn ensure_terminal_done_stays_quiet_when_done_was_forwarded() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut ch = ProgressChannel::new(tx);
+        ch.raw(b"data: [DONE]\n\n".to_vec()).await;
+        ch.ensure_terminal_done(true).await;
+        ch.close();
+        drop(ch);
+        assert_eq!(drain(&mut rx).await, "data: [DONE]\n\n");
+    }
+
+    /// Even with nothing forwarded yet, a closed/latched channel gets no
+    /// sentinel: `close()` already owns the end, and a client that walked
+    /// away must not resurrect the stream.
+    #[tokio::test]
+    async fn ensure_terminal_done_writes_nothing_after_close_or_fail() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut ch = ProgressChannel::new(tx);
+        ch.fail("Could not reach the model server.").await; // its own [DONE]
+        ch.ensure_terminal_done(false).await;
+        ch.close();
+        drop(ch);
+        assert_eq!(
+            drain(&mut rx).await,
+            concat!(
+                "data: {\"ruke_error\":{\"message\":\"Could not reach the model server.\"}}\n\n",
+                "data: [DONE]\n\n",
+            )
+        );
     }
 
     #[tokio::test]

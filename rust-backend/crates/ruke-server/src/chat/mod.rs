@@ -34,6 +34,7 @@ pub mod error;
 pub mod forward;
 pub mod handler;
 pub mod headers;
+pub mod log_safety;
 pub mod next_search;
 pub mod pipeline;
 pub mod scrubber;

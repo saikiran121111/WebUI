@@ -134,9 +134,46 @@ pub const BROWSER_GUIDANCE: &str = "You are operating a real browser the human c
 
 /// Outcome of one tool round, deciding how the channel closes at the end.
 enum Outcome {
+    /// The model wrote its answer: the last round ended with a
+    /// `finish_reason` other than `tool_calls`.
     Finished,
+    /// The human stopped the turn (or the client walked away). Reported by
+    /// the client's own Stop path, which already shows "Stopped".
     Aborted,
+    /// The round budget ran out while the last round still ended in tool
+    /// calls: the model never got its own results back and never wrote a
+    /// final answer. NOT completion (2026-11-06 audit finding 3) — the
+    /// terminal stage frame says `browser:capped`, never `browser:done`.
+    Capped,
     Failed(String),
+}
+
+/// The stage frame that ends a browser turn — and it must say honestly HOW
+/// the turn ended (2026-11-06 audit finding 3). Every path gets a frame: the
+/// panel store's turn-end contract (`lib/browser-client/browserStore.ts`)
+/// clears `agentActive` on these names, so a turn that ended early would
+/// otherwise leave the panel showing an agent that is no longer driving
+/// anything. A round-cap exhaustion is not a finished task, so it gets its
+/// own name plus the real round count in `detail`; a failure gets its own
+/// name too rather than borrowing "finished" on its way to the error frame.
+/// `Aborted` keeps the historical `browser:done` name on purpose: the human
+/// stopped a turn whose browser work was already at rest, the client's own
+/// Stop path already shows "Stopped", and the claim "this browser turn is
+/// over" is honest there — unlike the cap, no round is left hanging.
+fn terminal_stage_event(outcome: &Outcome, session: &str, rounds_used: usize) -> StageEvent {
+    let name = match outcome {
+        Outcome::Finished | Outcome::Aborted => "browser:done",
+        Outcome::Capped => "browser:capped",
+        Outcome::Failed(_) => "browser:failed",
+    };
+    let mut ev = StageEvent::new(name);
+    ev.session = Some(session.to_string());
+    if matches!(outcome, Outcome::Capped) {
+        ev.detail = Some(format!(
+            "stopped after {rounds_used} browser tool rounds without a final answer round"
+        ));
+    }
+    ev
 }
 
 #[derive(Default)]
@@ -160,6 +197,12 @@ pub(crate) struct ToolStreamRelay {
     /// llama.cpp-style `timings` (prompt_n = tokens RE-EVALUATED this
     /// call — the direct read on KV-prefix reuse).
     pub timings: Option<Value>,
+    /// Whether a `data: [DONE]` frame from this round actually REACHED the
+    /// client. A `tool_calls` round swallows its own sentinel (the next
+    /// round owns it), so the loop has to know whether anything is still
+    /// owed a terminal frame before it ends the stream — the grammar repair
+    /// behind `ProgressChannel::ensure_terminal_done` (finding 3).
+    pub done_forwarded: bool,
 }
 
 impl Default for ToolStreamRelay {
@@ -177,6 +220,7 @@ impl ToolStreamRelay {
             finish: None,
             usage: None,
             timings: None,
+            done_forwarded: false,
         }
     }
 
@@ -218,7 +262,11 @@ impl ToolStreamRelay {
         }
         // The round's terminal frame: swallowed iff the round ended in
         // tool_calls (the conversation continues on a fresh request).
-        !(saw_done && self.finish.as_deref() == Some("tool_calls"))
+        let forwarded = !(saw_done && self.finish.as_deref() == Some("tool_calls"));
+        if forwarded && saw_done {
+            self.done_forwarded = true;
+        }
+        forwarded
     }
 
     fn absorb_delta(&mut self, v: &Value) {
@@ -684,6 +732,10 @@ pub async fn run_tool_loop(
     // never steer a newer turn.
     let mut last_working_tab: Option<String> = None;
     let rounds_budget = max_tool_rounds();
+    // Cross-round grammar accounting: has a terminal `data: [DONE]` reached
+    // the client yet? A `tool_calls` round swallows its own, so a loop that
+    // ends right after one owes the stream a sentinel (finding 3).
+    let mut done_forwarded = false;
     let outcome = 'outer: {
         for round in 0..rounds_budget {
             if token.is_cancelled() {
@@ -763,6 +815,10 @@ pub async fn run_tool_loop(
                     }
                 }
             }
+            // Grammar accounting for this round, recorded even when the
+            // round was cut short, so the loop knows at the end whether the
+            // client is still owed its terminal frame.
+            done_forwarded |= relay.done_forwarded;
             if aborted {
                 break 'outer Outcome::Aborted;
             }
@@ -775,6 +831,7 @@ pub async fn run_tool_loop(
             if let Some(frame) = relay.finish(&[]) {
                 ch.raw(frame).await;
             }
+            done_forwarded |= relay.done_forwarded;
             if ch.is_closed() {
                 token.cancel();
                 break 'outer Outcome::Aborted;
@@ -950,7 +1007,13 @@ pub async fn run_tool_loop(
                     command = name.as_str(),
                     ok = result.get("error_code").is_none(),
                     images = images.len(),
-                    args = %arguments.chars().take(200).collect::<String>(),
+                    // Log-safety (2026-11-06 audit finding 3): the NAMES of
+                    // the parameters the model used and the call's size, never
+                    // the values. Arguments carry what got typed into live
+                    // pages — queries, form values, names, addresses — and the
+                    // old field pasted the first 200 of them into production
+                    // logs. Call names stay in the round census above.
+                    args = %crate::chat::log_safety::arg_shape(&arguments),
                     err = %msg,
                     "browser tool result"
                 );
@@ -968,12 +1031,17 @@ pub async fn run_tool_loop(
             // Next round re-serializes `payload` with the extended
             // messages; the same tool array stays injected.
         }
+        // Budget exhaustion is NOT completion (2026-11-06 audit finding 3):
+        // the loop only reaches here when the LAST round ended in tool calls,
+        // so the model never received its own results and never wrote a final
+        // answer. Reporting this as `Finished` is what made the panel claim
+        // "Browser task finished" for a task that stopped mid-flight.
         tracing::warn!(
             parent: span,
             rounds = rounds_budget,
-            "browser tool loop hit the round cap; ending the turn"
+            "browser tool loop hit the round cap; ending the turn WITHOUT a final answer round"
         );
-        Outcome::Finished
+        Outcome::Capped
     };
 
     // Turn-end engine cleanup, EXACTLY ONCE per chat turn: fires the
@@ -983,11 +1051,25 @@ pub async fn run_tool_loop(
     // deliverable/handoff (reference-faithful). The guard's Drop would
     // run the same cleanup if this call is ever skipped by unwinding.
     turn_guard.finish().await;
-    stage(ch, "browser:done", &session_id).await;
+    // Honest terminal stage: the name says how the turn ended (finding 3).
+    // The old code staged `browser:done` here on EVERY path, so a turn that
+    // ran out of rounds — or failed outright — reached the panel and the
+    // progress chip as "Browser task finished".
+    ch.stage(&terminal_stage_event(&outcome, &session_id, rounds_budget))
+        .await;
 
     match outcome {
-        Outcome::Finished | Outcome::Aborted => ch.close(),
         Outcome::Failed(msg) => ch.fail(&msg).await,
+        Outcome::Finished | Outcome::Aborted | Outcome::Capped => {
+            // Exactly one terminal frame per stream. On the cap and Stop
+            // paths the LAST round ended in `tool_calls`, and the relay
+            // deliberately swallowed that round's `[DONE]` — a following
+            // round was supposed to own it, and there isn't one. Without
+            // this repair the client sits on an unterminated stream
+            // (finding 3; ⇔ the TS web tool loop's synthetic frame).
+            ch.ensure_terminal_done(done_forwarded).await;
+            ch.close();
+        }
     }
     // `_guard` drops here: exactly once.
 }
@@ -1062,6 +1144,10 @@ mod tests {
             3,
             "the tool_calls round's [DONE] must not reach the client"
         );
+        assert!(
+            !relay.done_forwarded,
+            "the loop must know it still owes the stream a terminal frame"
+        );
         assert_eq!(relay.content, "hello");
         assert_eq!(relay.finish.as_deref(), Some("tool_calls"));
         let call = relay.calls.get(&0).unwrap();
@@ -1081,6 +1167,10 @@ mod tests {
         emitted.extend(relay.feed(&frame("[DONE]")));
         assert_eq!(emitted.len(), 2);
         assert_eq!(emitted[1], b"data: [DONE]\n\n");
+        assert!(
+            relay.done_forwarded,
+            "a forwarded sentinel must not be duplicated at the end of the turn"
+        );
         assert_eq!(relay.content, "the answer");
     }
 
@@ -1119,6 +1209,10 @@ mod tests {
             relay.finish(b"data: [DONE]").is_none(),
             "tool_calls tail [DONE] swallowed"
         );
+        assert!(
+            !relay.done_forwarded,
+            "a swallowed tail sentinel still leaves the stream unterminated"
+        );
 
         let mut relay = ToolStreamRelay::new();
         relay.feed(&frame(
@@ -1126,6 +1220,44 @@ mod tests {
         ));
         let tail = relay.finish(b"data: [DONE]");
         assert_eq!(tail.as_deref(), Some("data: [DONE]".as_bytes()));
+        assert!(
+            relay.done_forwarded,
+            "the returned sentinel counts as sent: the caller writes it verbatim"
+        );
+    }
+
+    /// Audit finding 3: how a browser turn ended must be legible in the
+    /// terminal stage frame. The round cap is NOT completion, and a failure
+    /// must not borrow the "finished" name on its way to the error frame.
+    #[test]
+    fn the_terminal_frame_names_the_real_outcome() {
+        let ok = terminal_stage_event(&Outcome::Finished, "s7", 4);
+        assert_eq!(ok.stage, "browser:done");
+        assert_eq!(ok.session.as_deref(), Some("s7"));
+        assert_eq!(ok.detail, None, "a finished turn gets no apology");
+
+        // The cap: its own name, the real round count, and no fake "done".
+        let capped = terminal_stage_event(&Outcome::Capped, "s7", 20);
+        assert_eq!(capped.stage, "browser:capped");
+        let detail = capped.detail.as_deref().unwrap_or_default();
+        assert!(detail.contains("20"), "the count is honest: {detail}");
+        assert!(
+            detail.contains("browser tool rounds"),
+            "it says WHY: {detail}"
+        );
+
+        // A failure ends the stream through `fail`, but the panel store still
+        // needs a frame that clears agentActive — and it must not say "done".
+        let failed = terminal_stage_event(&Outcome::Failed("upstream 502".into()), "s7", 2);
+        assert_eq!(failed.stage, "browser:failed");
+        assert_eq!(failed.session.as_deref(), Some("s7"));
+
+        // A human stop is honest "done": no round is left hanging, and the
+        // client's own Stop path already labels it "Stopped".
+        assert_eq!(
+            terminal_stage_event(&Outcome::Aborted, "s7", 3).stage,
+            "browser:done"
+        );
     }
 
     /// Safe transport: a real capture LEAVES the text JSON and travels as

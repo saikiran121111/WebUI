@@ -176,3 +176,34 @@ describe("selectTab pins unconditionally", () => {
     expect(s.manualPin).toBe(true);
   });
 });
+
+/* Audit finding 3 (2026-11-06): the browser tool loop now names how a turn
+ * really ended (`browser:capped` on round-budget exhaustion, `browser:failed`
+ * on an errored loop) instead of claiming `browser:done` for every exit.
+ * Those frames are still the turn-end boundary: the panel must stop showing
+ * an agent that is no longer driving anything. */
+describe("turn-end frames clear the agent", () => {
+  it("capped and failed frames end the model turn", () => {
+    for (const stage of ["browser:capped", "browser:failed", "browser:done"]) {
+      resetBrowserStoreForTests();
+      handleBrowserStage("browser:preparing", "s1", undefined, "t1");
+      handleBrowserStage("browser:working_tab", "s1", "tabB", "t1");
+      expect(getBrowserState().agentActive).toBe(true);
+      handleBrowserStage(stage, "s1", undefined, "t1");
+      const s = getBrowserState();
+      expect(s.agentActive).toBe(false);
+      expect(s.conversation).toBe("s1");
+    }
+  });
+
+  it("a capped turn keeps the panel open on the tab the human can inspect", () => {
+    handleBrowserStage("browser:preparing", "s1", undefined, "t1");
+    setTabs([tab("tabA"), tab("tabB")]);
+    handleBrowserStage("browser:working_tab", "s1", "tabB", "t1");
+    handleBrowserStage("browser:capped", "s1", undefined, "t1");
+    const s = getBrowserState();
+    expect(s.open).toBe(true); // the frames never close the panel
+    expect(s.agentActive).toBe(false);
+    expect(s.selected).toBe("tabB"); // follow survives the turn-end frame
+  });
+});
