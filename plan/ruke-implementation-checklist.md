@@ -267,6 +267,38 @@ preconditions before acting; state-wait + read-back guidance laws; bounded confi
 safe fallbacks; warm-stack reuse; cache-prefix reuse MEASURED (~97 %). Five locked launcher
 invocations, all exit 0, no app defects.**
 
+## Phase 4 — Retire built-in 3D/CAD — [LOCKED-DONE]
+
+### Implementation (commits `a02c3bf`, `499a52a`, `94f740b`)
+
+- **Anatomy mode first (remap BEFORE removal, plan law):** `anatomy` renderer mode added with full TS↔Rust parity — `lib/decision/{types,client,contracts}.ts` match `rust-backend/crates/ruke-decision/src/engine.rs` + `ruke-contracts/src/decision.rs`; `MODE_SKILL[anatomy]="anatomy"`, `MODE_FENCE[anatomy]="anatomy"`; precedence chart→anatomy→html_render pinned.
+- **FINAL 8-mode decision set:** `RENDERER_MODES = ["excel","docs","pdf","ppt","anatomy","chart","html_render","standard_chat"]`. `3d_asset`/`cad_blueprint` deleted from types, matchers (`ASSET3D_RE`/`CAD_RE` gone), tables, skill/fence maps; the old spellings now parse to NOTHING (negative pins in `decision.rs` + `contracts.rs` mirror + vitest tables). `contracts_generated.rs` + `contracts/manifest.json` regenerated: `npm run contracts:generate` → 8 modes (shas: excel `7f162016c34aaa90…` 3528 B, docs `6255cb04aa73f57c…` 1502, pdf `37f30a31ec491e47…` 1633, ppt `6152553f909dfb15…` 1864, anatomy `954b7100f104a00c…` 4147, chart `34756d1cc2739854…` 1561, html_render `242788dcf1c899e4…` 1461, standard_chat null). `contracts:check` OK on both artifacts.
+- **Goldens re-recorded (never hand-edited):** four drifted fixtures (`decision/01,02,06`, `skills/06-mode-contracts-hashes`) deleted and re-recorded from the live TS oracle via `npx vitest run __tests__/rust-golden` (10 files / 56 tests green); Rust replay + manifest-drift gates re-passed against the new bytes.
+- **Retirement surface deleted:** `app/api/3d/**`, `lib/three3d/**`, `lib/cad/**`, six studio viewers + `styles/cad-studio.css`, studio/three3d/cad specs, Meshy provider + `MESHY_API_KEY` (+5 `.env.example` lines), `three` + `@types/three` (`npm uninstall`), capability advertising, fence routing + repair (`runRepairRounds` KEPT for anatomy + document fences only; progress label now generic "Auto-repairing the output").
+- **24 core skills removed** exactly per plan §Phase 4 list (archify, 11 r3f-*, 12 threejs-*) with their scenario JSONs and `skills-lock.json` entries; `SCRIPT_CONTRACT_SKILLS` shrank to xlsx/docx/pdf/pptx (TS + Rust mirror + fixtures). Retired names cannot activate, auto-download, or surface in UI (loader/inventory negatives).
+- **Saved conversations preserved:** `components/render/RetiredFenceBlock.tsx` renders `scene3d`/`asset3d`/`threejs`/`cad` fences as an honest read-only compatibility card (copy + download of the verbatim source; source disclosed in `<details>`; NEVER executed). 2D charts, Mermaid, SVG anatomy, independent illustrations kept; NO FreeCAD/JSCAD/Maker.js/LibreCAD/model-viewer/glTF Transform/Blender installed (future Blender = separate MCP request).
+- **Normal-entry-point proof (`94f740b`):** the `?demo=ui` showcase now embeds a legacy `scene3d` fence; `tests/interactive-ui.spec.ts` asserts the card (text, copy/download, disclosed `THREE.Mesh` source) AND never-execution: zero `<canvas>` on the page and `window.THREE === "undefined"`.
+- **fmt note:** `cargo fmt -p` (touched crates only) reformatted previously-unformatted files inside ruke-decision/skills/contracts (stages/jspath/jsstr/lazy/modality/registry/skill_block/fixture_replay/manifest_drift) — inspected: line-wrapping only, knowingly included in `499a52a`.
+
+### Verification actually run (2026-11-06)
+
+| Check | Result |
+| --- | --- |
+| `npm run contracts:generate` + `npm run contracts:check` | 8-mode artifacts generated; drift gates **OK** |
+| `npx vitest run __tests__/rust-golden` | **10 files / 56 tests passed** (4 drifted goldens deleted + re-recorded from oracle) |
+| `npx tsc --noEmit` | **exit 0** |
+| `npx vitest run` | **117 files / 1540 passed / 9 skipped** |
+| `cargo test` (ruke-contracts + ruke-decision + ruke-skills + ruke-server) | all green (server **155**; replay + manifest-drift against new goldens) |
+| Locked browser run (launcher released lock cleanly) | `powershell -NoProfile -Command "& 'scripts/run-browser-e2e-exclusive.ps1' -TestFiles tests/anatomy.spec.ts, tests/anatomy-repair.spec.ts, tests/interactive-ui.spec.ts"` → **21 passed (40.7 s)**, exit 0 |
+
+Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARRAY — pass via `-Command "& '…' -TestFiles a.ts, b.ts"`; a quoted comma-string becomes one argument ⇒ "No tests found". There is no `-Help`; unknown params are ignored and the default suite (easy/medium/hard) runs (11/11, 16.7 s).
+
+**Retained-bundle provenance (no lock entries — verified, not fabricated):** `d3-js-visualization`, `html-viewer`, `powerbi` bundles + scenario JSONs predate `skills-lock.json`; they were retained untouched (html-viewer still routed from `MODE_SKILL[html_render]`), so they legitimately have NO lock hash to record.
+
+**New comparison baseline (post-P4):** Phase-4 regression suite (anatomy + anatomy-repair + interactive-ui) **21/21 (40.7 s)** — feeds the Phase-7 final-loop comparison.
+
+**Phase 4 status: [LOCKED-DONE] — 3D/CAD fully retired through the normal entry point; anatomy is the only illustration route; old saves render read-only compat cards that never execute; TS↔Rust 8-mode parity with regenerated contracts + re-recorded goldens; 24 core skills removed with lock entries; zero regressions (tsc 0, vitest 1540, cargo green, browser 21/21).**
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
@@ -285,9 +317,10 @@ invocations, all exit 0, no app defects.**
       live per-field read-back, state-based waits (guidance law), stable prompt/tool prefixes (~97 % cached
       tokens MEASURED via stream_options + prompt_n probe), final-state readback law, preview frames
       untouched by model requests (scope-matrix WORKING TAB green)
-- [ ] **P4** 3D/CAD retirement: routes, renderers, lib/three3d, lib/cad, Meshy, capability modes, fence routes,
+- [x] **P4** 3D/CAD retirement: routes, renderers, lib/three3d, lib/cad, Meshy, capability modes, fence routes,
       24-skill core inventory removal (exact list in plan §Phase 4), lock entries, SVG-Anatomy remap OFF `cad_blueprint` FIRST,
-      read-only compat for old saves, `contracts:generate` + `contracts:check` green
+      read-only compat for old saves, `contracts:generate` + `contracts:check` green — PROVEN via
+      `94f740b`/`499a52a`/`a02c3bf`; compat-card + never-execute proof through `?demo=ui` (browser 21/21 exit 0)
 - [ ] **P5A** native PowerPoint motion: `@office-kit/pptx@0.28.0` verified Node-compatible; stable object names
       (`objectName`); native Morph + click reveals + timed entrances + emphasis + reduced-motion; ONE motion sequence for
       preview AND export; native charts (PptxGenJS `addChart`); decks generated through Ruke; playback verified in REAL
@@ -315,10 +348,16 @@ invocations, all exit 0, no app defects.**
 
 ## Next action (updated as the run proceeds)
 
-1. **Phase 4 (CODE):** retire built-in 3D/CAD per plan §Phase 4 (lines 143–158): re-read the exact
-   24-skill core inventory FIRST; SVG-Anatomy remap OFF `cad_blueprint` before any removal; then
-   routes/renderers/`lib/three3d`/`lib/cad`/Meshy/capability modes/fence routes/lock entries;
-   read-only compat cards for old saves; `npm run contracts:generate` + `contracts:check` green;
-   do NOT install FreeCAD/JSCAD/Maker.js/LibreCAD/model-viewer/glTF/Blender; preserve saved
-   conversations, 2D art, Mermaid, SVG.
-2. Commits so far: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2, pushed), P3 commit follows.
+1. **Phase 5A (CODE):** native PowerPoint motion — `@office-kit/pptx@0.28.0`: verify the REAL upstream
+   npm package first (`npm view @office-kit/pptx` — identity, MIT license, Node compat); keep PptxGenJS
+   editable content + `addChart` charts + `POST /api/documents/pptx` contract; stable `objectName`;
+   native Morph + click reveals + timed entrances + emphasis + reduced-motion; ONE motion sequence
+   drives BOTH preview AND export; generate a deck through Ruke; verify playback in REAL PowerPoint
+   COM (`POWERPOINT-OK` baseline); then DELETE `scripts/pptx_morph_injector.py`; prove simple export
+   with NO Python; write + run `integrations/office-kit-pptx/` README + smoke test.
+2. Then P5B (LibreOffice/ECharts/Docling real-fixture evaluations + fflate consolidation), P6
+   (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright fix-rerun
+   loop green vs baselines + CLAUDE.md §4 completion report).
+3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3) — all LOCKED-DONE +
+   pushed; P4 `a02c3bf`+`499a52a` (pushed) + `94f740b` (this docs commit carries the push).
+4. Chat handover snapshot for fresh sessions: `handover/2026-11-06-ruke-plan-handover.md`.

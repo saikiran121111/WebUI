@@ -54,7 +54,8 @@ Conditional: `X-Used-Skill: <name>` only when a **user-tier slash skill** was ap
 ### 2.5 Other server contracts
 - `settings.json` (repo root): `{llm_api_url?, llm_api_key?, compact_thresholds?:{auto:0|1,tokens:number}}`; priority file > env > fallback; atomic tmp+rename; corrupt file keeps last parse.
 - Inference slot: single llama.cpp slot; `beginUserTurn/endUserTurn` (chat + web-gate + vision + title calls), `activeUserTurns` counter, background title AbortControllers aborted on `beginUserTurn`. Titles wait `waitForUserIdle` (poll 1 s).
-- Env vars in force: `LLM_API_URL`, `LLM_API_KEY`, `MESHY_API_KEY`, `EMBED_MODEL` (default `Xenova/all-MiniLM-L6-v2`), `WEB_SEARCH_GATE_DISABLED` (via `gateDisabledByEnv`), `RUKE_TEST_FIXTURES=1` (fixture allow-list `lib/web-search/ssrf.ts:isFixtureAllowed`).
+- Env vars in force: `LLM_API_URL`, `LLM_API_KEY`, `EMBED_MODEL`
+  (`MESHY_API_KEY` retired 2026-11-06 with the Meshy provider — Ruke plan Phase 4) (default `Xenova/all-MiniLM-L6-v2`), `WEB_SEARCH_GATE_DISABLED` (via `gateDisabledByEnv`), `RUKE_TEST_FIXTURES=1` (fixture allow-list `lib/web-search/ssrf.ts:isFixtureAllowed`).
 
 ---
 
@@ -81,7 +82,7 @@ skills/registry → (frontmatter, modality, types, fs, child_process[npx install
 decision/skill-loader → (skills/registry, contracts, types, fs)
 conversations routes → persistence/{disk,merge} ; [id]/title → server/titles/queue→(disk,inference-busy,policy,generate→(settings,transcript))
 documents routes → documents/{http,engines…, pdfEngine→documents/browser[playwright]}
-3d routes → three3d/{sceneSchema, providers/{index,meshy,types}}
+(3d routes + three3d/** REMOVED 2026-11-06 — Ruke plan Phase 4 retirement)
 model-stats → server/settings ; settings route → server/settings ; decision route → decision/client
 ```
 Client-only graph (hooks/useChat, lib/stream/*, lib/chat/client, lib/progress, lib/render, components) is FROZEN per Rule 1 — it defines the consuming end of §2.
@@ -147,14 +148,14 @@ Client-only graph (hooks/useChat, lib/stream/*, lib/chat/client, lib/progress, l
 | `lib/files/extensions.ts` | **SHARED_CONTRACT** | |
 | `lib/files/docProcessor.ts`, `index.ts` | **KEEP_CLIENT_TS** | Browser-side attachment prep. |
 | `lib/documents/**` | **KEEP_NODE_REQUIRED** | Engines + Chromium; `documents/schemas.ts` = SHARED_CONTRACT (DTO validation on Rust edge). |
-| `lib/three3d/**` | **KEEP_CLIENT_TS** (viewer) / providers KEEP_NODE_REQUIRED (3d routes) | |
+| `lib/three3d/**` | **RETIRED** (deleted 2026-11-06, Ruke plan Phase 4) | Saved `scene3d`/`threejs` fences render the read-only `RetiredFenceBlock` compat card. |
 | `lib/anatomy/**` | **KEEP_CLIENT_TS** + export engine KEEP_NODE_REQUIRED | |
 | `src/lib/web-verify/types.ts`, `lib/web-verify-types.ts` | **DELETE_AFTER_PARITY** | vestigial. |
 
 ## 6. Tests (classification)
 
 - **Contract/golden candidates (vitest)**: `sse.test.ts`, `sse-stage-events.test.ts`, `parser-multi-chunk.test.ts` (→ Rule 4 split-frame fixtures), `compact-pipeline.test.ts`, `chatEngine.test.ts`, `citation-pills.test.ts`, `attach-index.test.ts`, `attach-retrieval-integration.test.ts`, `titles/*` (3), `token-meter.test.ts`, `turn-progress.test.ts`, `web-search/url-detector.test.ts`, `hardening-payload.test.ts`, `hardening-audio.test.ts`.
-- **Node-only regression (keep as-is)**: documents/*, cad/*, three3d/*, anatomy/*, render/* (client), skills/{registry,installer,modality}.
+- **Node-only regression (keep as-is)**: documents/*, anatomy/*, render/* (client), skills/{registry,installer,modality}. (`cad/*` + `three3d/*` suites retired 2026-11-06 with the feature.)
 - **Playwright (Part 10 only, per brief)**: all `tests/*.spec.ts` run unchanged against cutover stack; `tests/helpers/`, `tests/fixtures/**` reused.
 - **Fixture assets available now**: `scripts/e2e-llm-proxy.mjs` (:8099 recording proxy — reuse for upstream-request-body goldens), `tests/fixtures/**` (archives/audio/images/docs for extract parity).
 
