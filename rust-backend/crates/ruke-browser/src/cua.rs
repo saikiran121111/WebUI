@@ -11,18 +11,21 @@
 //! — the payloads are the same schemas (`KeysPayload`/`TextPayload`),
 //! so one real behavior serves both reference names instead of two
 //! near-duplicate stacks.
+//!
+//! Phase 2 (plan): the pointer EVENTS themselves now ride the
+//! Playwright MCP coordinate driver (`bridge.rs::bridge_cua_*`).
+//! What stays here is the typed surface the model addresses: the
+//! reference payload grammar (`cua_button_str`, `held_modifier_mask`,
+//! `validate_point`) and the recovered `dragPath` interpolation
+//! (`drag_path`) whose waypoints the bridge then drives one by one.
 
-use serde_json::{json, Value};
-
-use crate::cdp::CdpConn;
 use crate::errors::{payload_invalid, BrowserError};
-use crate::pw::{combo_mask, pw_dispatch_click};
-use crate::schemas::{CuaClickPayload, CuaDragPayload, CuaMovePayload, CuaScrollPayload, Xy};
-use crate::session::TabRecord;
+use crate::pw::combo_mask;
+use crate::schemas::Xy;
 
 /// Pause between drag steps (ms): enough for dragover handlers to run
 /// without turning a drag into a slow-motion tour.
-const DRAG_STEP_MS: u64 = 12;
+pub(crate) const DRAG_STEP_MS: u64 = 12;
 
 /// The number of points the recovered reference `dragPath` uses for a
 /// two-endpoint drag (the engine interpolates, so the model never has
@@ -31,7 +34,7 @@ const DRAG_INTERPOLATED_POINTS: usize = 8;
 
 /// Viewport coordinates must be finite non-negative css pixels — the
 /// same floor the panel applies when it maps human pointer events.
-fn validate_point(command: &str, x: f64, y: f64) -> Result<(), BrowserError> {
+pub(crate) fn validate_point(command: &str, x: f64, y: f64) -> Result<(), BrowserError> {
     if !x.is_finite() || !y.is_finite() {
         return Err(payload_invalid(command, "x/y must be finite coordinates"));
     }
@@ -121,171 +124,6 @@ pub(crate) fn drag_path(points: &[Xy]) -> Vec<Xy> {
             }
         })
         .collect()
-}
-
-/// Trusted pointer move (`mouseMoved`) on the tab's CDP session.
-async fn pixel_move(
-    conn: &CdpConn,
-    rec: &TabRecord,
-    x: f64,
-    y: f64,
-    modifiers: u32,
-) -> Result<(), BrowserError> {
-    conn.call(
-        "Input.dispatchMouseEvent",
-        Some(json!({"type": "mouseMoved", "x": x, "y": y, "modifiers": modifiers})),
-        Some(&rec.cdp_session_id),
-    )
-    .await?;
-    Ok(())
-}
-
-pub(crate) async fn cua_click(
-    conn: &CdpConn,
-    rec: &TabRecord,
-    p: &CuaClickPayload,
-    double: bool,
-) -> Result<Value, BrowserError> {
-    let command = if double {
-        "cua_double_click"
-    } else {
-        "cua_click"
-    };
-    validate_point(command, p.x, p.y)?;
-    let button = cua_button_str(command, p.button)?;
-    let modifiers = held_modifier_mask(command, p.keys.as_deref())?;
-    // Hover before pressing: real pointers pass through hover first,
-    // and skipping it leaves hover-only surfaces (menus, video
-    // overlays) unreachable — the reference CUA moved, then clicked.
-    pixel_move(conn, rec, p.x, p.y, modifiers).await?;
-    pw_dispatch_click(
-        conn,
-        &rec.cdp_session_id,
-        p.x,
-        p.y,
-        button,
-        if double { 2 } else { 1 },
-        modifiers,
-    )
-    .await?;
-    Ok(json!({
-        "tab_id": rec.tab_id,
-        "x": p.x,
-        "y": p.y,
-        "button": button,
-        "click_count": if double { 2 } else { 1 },
-    }))
-}
-
-pub(crate) async fn cua_move(
-    conn: &CdpConn,
-    rec: &TabRecord,
-    p: &CuaMovePayload,
-) -> Result<Value, BrowserError> {
-    validate_point("cua_move", p.x, p.y)?;
-    let modifiers = held_modifier_mask("cua_move", p.keys.as_deref())?;
-    pixel_move(conn, rec, p.x, p.y, modifiers).await?;
-    Ok(json!({"tab_id": rec.tab_id, "x": p.x, "y": p.y}))
-}
-
-pub(crate) async fn cua_scroll(
-    conn: &CdpConn,
-    rec: &TabRecord,
-    p: &CuaScrollPayload,
-) -> Result<Value, BrowserError> {
-    validate_point("cua_scroll", p.x, p.y)?;
-    if !p.scroll_x.is_finite() || !p.scroll_y.is_finite() {
-        return Err(payload_invalid(
-            "cua_scroll",
-            "scroll_x/scroll_y must be finite",
-        ));
-    }
-    let modifiers = held_modifier_mask("cua_scroll", p.keys.as_deref())?;
-    // Wheels only service the composited (foreground) tab — raise it
-    // (engine::raise_wheel_target) before any input lands.
-    crate::engine::raise_wheel_target(conn, &rec.cdp_session_id).await;
-    // A wheel always happens over a point: move first, then wheel
-    // (deltaX/deltaY are the CDP wheel deltas; negative scrolls
-    // up/left, matching the reference CUA scroll signs).
-    pixel_move(conn, rec, p.x, p.y, modifiers).await?;
-    conn.call(
-        "Input.dispatchMouseEvent",
-        Some(json!({
-            "type": "mouseWheel",
-            "x": p.x,
-            "y": p.y,
-            "deltaX": p.scroll_x,
-            "deltaY": p.scroll_y,
-            "modifiers": modifiers,
-        })),
-        Some(&rec.cdp_session_id),
-    )
-    .await?;
-    Ok(json!({
-        "tab_id": rec.tab_id,
-        "x": p.x,
-        "y": p.y,
-        "delta_x": p.scroll_x,
-        "delta_y": p.scroll_y,
-    }))
-}
-
-pub(crate) async fn cua_drag(
-    conn: &CdpConn,
-    rec: &TabRecord,
-    p: &CuaDragPayload,
-) -> Result<Value, BrowserError> {
-    if p.path.len() < 2 {
-        return Err(payload_invalid(
-            "cua_drag",
-            "drag needs a path of at least two points",
-        ));
-    }
-    for pt in &p.path {
-        validate_point("cua_drag", pt.x, pt.y)?;
-    }
-    let modifiers = held_modifier_mask("cua_drag", p.keys.as_deref())?;
-    let path = drag_path(&p.path);
-    let session = rec.cdp_session_id.as_str();
-    let start = path[0];
-    let end = path[path.len() - 1];
-    pixel_move(conn, rec, start.x, start.y, modifiers).await?;
-    conn.call(
-        "Input.dispatchMouseEvent",
-        Some(json!({
-            "type": "mousePressed",
-            "x": start.x,
-            "y": start.y,
-            "button": "left",
-            "clickCount": 1,
-            "modifiers": modifiers,
-        })),
-        Some(session),
-    )
-    .await?;
-    for pt in &path[1..] {
-        pixel_move(conn, rec, pt.x, pt.y, modifiers).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(DRAG_STEP_MS)).await;
-    }
-    conn.call(
-        "Input.dispatchMouseEvent",
-        Some(json!({
-            "type": "mouseReleased",
-            "x": end.x,
-            "y": end.y,
-            "button": "left",
-            "clickCount": 1,
-            "modifiers": modifiers,
-        })),
-        Some(session),
-    )
-    .await?;
-    Ok(json!({
-        "tab_id": rec.tab_id,
-        "from": {"x": start.x, "y": start.y},
-        "to": {"x": end.x, "y": end.y},
-        "points": path.len(),
-    }))
 }
 
 #[cfg(test)]

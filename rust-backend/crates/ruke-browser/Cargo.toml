@@ -26,6 +26,12 @@ tokio-util.workspace = true
 rusqlite = { workspace = true }
 parking_lot.workspace = true
 tracing.workspace = true
+# Phase 2 (Playwright MCP driver): the official Rust MCP SDK as a stdio
+# CLIENT only — it talks to the pinned `@playwright/mcp` server (node
+# node_modules/@playwright/mcp/cli.js). No server features; base64 for
+# image content blocks; transport-child-process spawns + reaps the node
+# child (process-wrap) with tokio::process semantics.
+rmcp = { version = "3.9.0", default-features = false, features = ["client", "transport-child-process", "base64"] }
 
 [dev-dependencies]
 tempfile.workspace = true

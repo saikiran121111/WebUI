@@ -60,10 +60,6 @@ pub struct BrowserRuntime {
     /// maps and the FIFO isolated-world cache. Every tab-removal path
     /// forgets here too, so stale handles fail closed.
     pub(crate) dom: Arc<crate::dom_cua::DomRegistries>,
-    /// The AX registries (Phase 6): per-tab navigation state machine,
-    /// committed revisions, and the capture pipeline. Every tab-removal
-    /// path forgets here too, so stale handles fail closed.
-    pub(crate) ax: Arc<crate::ax::AxRegistries>,
     /// The Playwright-style locator registries (Phase 7): per-tab aria
     /// snapshot `[ref=eN]` maps consumed by the `playwright_*` command
     /// family. Every tab-removal path forgets here too, so stale refs
@@ -112,6 +108,28 @@ pub struct BrowserRuntime {
     /// from what it actually saw, never from asking the page, and the
     /// mirror clears with the host like every other session registry.
     pub(crate) dev_logs: Arc<Mutex<HashMap<String, Vec<DevLogEntry>>>>,
+    /// Phase 2 (Playwright MCP driver): the pinned `@playwright/mcp`
+    /// session ATTACHED to the live host's own loopback DevTools port —
+    /// one browser, one owner (Ruke), MCP as actuation driver only.
+    /// Kept warm across turns on purpose (`end_turn` never drops it;
+    /// Phase 3's warm-session round budgets depend on surviving MCP
+    /// state), dropped by host death and `shutdown` so exactly one node
+    /// child exists per live browser.
+    ///
+    /// LOCK ORDERING LAW: `host` slot → `mcp` slot → `mcp_call`. Never
+    /// acquire `host` while holding either MCP lock (a wedged node child
+    /// then blocks on the host lock, not the other way around, and the
+    /// death path that needs `host` can always drain the MCP locks).
+    pub(crate) mcp: AsyncMutex<Option<Arc<crate::mcp::McpSession>>>,
+    /// Serializes pin→select→actuate sequences against MCP's single
+    /// "current tab" model: an unserialized second actuation could steer
+    /// its own actions into the wrong tab by moving the selection.
+    /// Native CDP reads (observation) never take this lock.
+    pub(crate) mcp_call: AsyncMutex<()>,
+    /// Title-probe nonce for the pin procedure: each probe writes a
+    /// unique `document.title` marker through Ruke's own CDP session,
+    /// so a stale marker can never match a later pin attempt.
+    pub(crate) mcp_probe_nonce: std::sync::atomic::AtomicU64,
 }
 
 impl BrowserRuntime {
@@ -134,7 +152,6 @@ impl BrowserRuntime {
             session_names: Mutex::new(HashMap::new()),
             cdp_events: Arc::new(CdpEventBuffer::default()),
             dom: Arc::new(crate::dom_cua::DomRegistries::default()),
-            ax: Arc::new(crate::ax::AxRegistries::default()),
             pw: Arc::new(crate::pw::PwRegistries::default()),
             io,
             authority,
@@ -144,7 +161,31 @@ impl BrowserRuntime {
             turn_affinity: Mutex::new(HashMap::new()),
             submission_verified: Arc::new(Mutex::new(HashMap::new())),
             dev_logs: Arc::new(Mutex::new(HashMap::new())),
+            mcp: AsyncMutex::new(None),
+            mcp_call: AsyncMutex::new(()),
+            mcp_probe_nonce: std::sync::atomic::AtomicU64::new(1),
         }
+    }
+
+    /// Phase 2 (bridge): the loopback CDP port + headless flag of the
+    /// LIVE host — the endpoint Playwright MCP attaches to (same-browser
+    /// gate: one Chromium, one owner). Callers take `client()` first to
+    /// force a launch; `HostUnavailable` here means the host slot died
+    /// between the two locks (raced teardown — honest typed error).
+    pub(crate) async fn mcp_host_info(&self) -> Result<(u16, bool), BrowserError> {
+        let slot = self.host.lock().await;
+        match slot.as_ref() {
+            Some(h) => Ok((h.cdp_port, h.headless)),
+            None => Err(BrowserError::HostUnavailable),
+        }
+    }
+
+    /// Drop the cached MCP session so the next bridge call attaches a
+    /// fresh server (bounded self-heal after an rmcp service failure;
+    /// the engine death path does the same inline). rmcp's Drop reaps
+    /// the node child.
+    pub(crate) async fn mcp_reset(&self) {
+        *self.mcp.lock().await = None;
     }
 
     /// Ensure a live CDP connection, launching Chromium on demand. Startup
@@ -158,13 +199,15 @@ impl BrowserRuntime {
                 return Ok(host.conn.clone());
             }
             // Dead host: child killed on drop (kill_on_drop), registry
-            // wiped — every handle now fails closed.
+            // wiped — every handle now fails closed. The MCP session is
+            // cleared FIRST (lock law host→mcp): dropping it reaps the
+            // node child that was attached to the dead browser.
             let dead = slot.take().expect("slot checked above");
+            *self.mcp.lock().await = None;
             drop(dead);
             self.registry.lock().clear_all();
             self.cdp_events.clear();
             self.dom.clear_all();
-            self.ax.clear_all();
             self.pw.clear_all();
             self.io.clear_all();
             self.approvals.cancel_all();
@@ -184,6 +227,7 @@ impl BrowserRuntime {
             reader,
             initial_page_targets,
             headless,
+            cdp_port,
         } = LaunchedHost::launch(&cfg).await?;
 
         // [adapted] downloads write here (`attach_target` pins the
@@ -213,6 +257,7 @@ impl BrowserRuntime {
             reader,
             initial_page_targets: Vec::new(),
             headless,
+            cdp_port,
         });
         if let Some(rx) = events {
             tokio::spawn(event_pump(
@@ -220,7 +265,6 @@ impl BrowserRuntime {
                 Arc::clone(&self.registry),
                 Arc::clone(&self.cdp_events),
                 Arc::clone(&self.dom),
-                Arc::clone(&self.ax),
                 Arc::clone(&self.pw),
                 Arc::clone(&self.io),
                 Arc::clone(&self.approvals),
@@ -385,7 +429,6 @@ impl BrowserRuntime {
             self.registry.lock().remove_tab(&t.tab_id);
             self.cdp_events.forget_tab(&t.tab_id);
             self.dom.forget_tab(&t.tab_id);
-            self.ax.forget_tab(&t.tab_id);
             self.pw.forget_tab(&t.tab_id);
             self.io.forget_tab(&t.tab_id);
             self.approvals.forget_tab(&t.tab_id);
@@ -397,6 +440,11 @@ impl BrowserRuntime {
 
     /// Graceful browser teardown (supervisor shutdown / server exit).
     pub async fn shutdown(&self) {
+        // The MCP session is dropped BEFORE the browser closes: its
+        // server would otherwise watch the CDP socket die under it and
+        // its tools would fail mid-teardown (reap order: driver first,
+        // then the browser it drives).
+        *self.mcp.lock().await = None;
         let host = {
             let mut slot = self.host.lock().await;
             slot.take()
@@ -407,7 +455,6 @@ impl BrowserRuntime {
         self.registry.lock().clear_all();
         self.cdp_events.clear();
         self.dom.clear_all();
-        self.ax.clear_all();
         self.pw.clear_all();
         self.io.clear_all();
         self.approvals.cancel_all();
@@ -583,8 +630,8 @@ impl BrowserRuntime {
 /// window (and under the `--headless=new` product default) a hidden
 /// tab's compositor does no work at all, so `Input.dispatchMouseEvent
 /// {mouseWheel}` would sit pending until the CDP timeout. Every wheel
-/// path (`cua_scroll`, `dom_cua_scroll`, `tab_ax_action` Scroll, and
-/// the panel wheel) therefore raises the acted-on tab first — the same
+/// path (`cua_scroll`, `dom_cua_scroll`, the MCP bridge wheel route,
+/// and the panel wheel) therefore raises the acted-on tab first — the same
 /// "you act on what the window shows" contract a fresh panel subscribe
 /// establishes in [`BrowserRuntime::ui_subscribe`]. Best-effort: if the
 /// page is already gone the wheel dispatch itself surfaces the error.
@@ -719,7 +766,6 @@ async fn event_pump(
     registry: Arc<Mutex<Registry>>,
     cdp_events: Arc<CdpEventBuffer>,
     dom: Arc<crate::dom_cua::DomRegistries>,
-    ax: Arc<crate::ax::AxRegistries>,
     pw: Arc<crate::pw::PwRegistries>,
     io: Arc<crate::io_state::IoRegistries>,
     approvals: Arc<crate::authority::ApprovalRegistry>,
@@ -853,7 +899,6 @@ async fn event_pump(
                     if let Some(rec) = destroyed {
                         cdp_events.forget_tab(&rec.tab_id);
                         dom.forget_tab(&rec.tab_id);
-                        ax.forget_tab(&rec.tab_id);
                         pw.forget_tab(&rec.tab_id);
                         io.forget_tab(&rec.tab_id);
                         approvals.forget_tab(&rec.tab_id);
@@ -867,39 +912,6 @@ async fn event_pump(
                 // Main-frame navigations only (parentId absent).
                 let frame = ev.params.get("frame");
                 let main = frame.is_some_and(|f| f.get("parentId").is_none());
-                // H-BS-27 committed landing: the AX state machine
-                // settles the frame/loader/url pair, flips pending, and
-                // (bfcache) fast-paints. Subframe navs invalidate the
-                // committed revision outright.
-                if let Some(sid) = ev.session_id.as_deref() {
-                    let tab = registry.lock().by_session(sid).cloned();
-                    if let Some(t) = tab.as_ref() {
-                        if main {
-                            let bfcache = ev
-                                .params
-                                .get("type")
-                                .or_else(|| frame.and_then(|f| f.get("type")))
-                                .and_then(Value::as_str)
-                                .is_some_and(|ty| {
-                                    ty.eq_ignore_ascii_case("BackForwardCacheRestore")
-                                });
-                            ax.on_main_frame_navigated(
-                                &t.tab_id,
-                                frame
-                                    .and_then(|f| f.get("id"))
-                                    .and_then(Value::as_str)
-                                    .unwrap_or(""),
-                                frame
-                                    .and_then(|f| f.get("loaderId"))
-                                    .and_then(Value::as_str),
-                                frame.and_then(|f| f.get("url")).and_then(Value::as_str),
-                                bfcache,
-                            );
-                        } else {
-                            ax.invalidate_subtree(&t.tab_id);
-                        }
-                    }
-                }
                 if main {
                     if let (Some(sid), Some(url)) = (
                         ev.session_id.as_deref(),
@@ -923,10 +935,6 @@ async fn event_pump(
                 let Some(sid) = ev.session_id.as_deref() else {
                     continue;
                 };
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.on_load_event(&t.tab_id);
-                }
                 let title = BrowserRuntime::eval_string(&conn, sid, "document.title")
                     .await
                     .ok()
@@ -963,49 +971,7 @@ async fn event_pump(
                     ev.params.get("metadata"),
                 );
             }
-            // Phase 6: Accessibility domain activity stamps the tab's
-            // last-update instant, which the capture pipeline's quiet
-            // window measures against.
-            "Accessibility.loadComplete" | "Accessibility.nodesUpdated" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.note_ax_update(&t.tab_id);
-                }
-            }
-            // H-BS-27 navigation state machine. The main-frame filter
-            // (and every other rule) lives inside the hooks; the pump
-            // only decodes CDP params and hands them over.
-            "Page.frameStartedLoading" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
-                    continue;
-                };
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.on_frame_started_loading(
-                        &t.tab_id,
-                        frame_id,
-                        ev.params.get("loaderId").and_then(Value::as_str),
-                    );
-                }
-            }
-            "Page.frameDetached" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.invalidate_subtree(&t.tab_id);
-                }
-            }
-            // Dialogs bump the revision: an open dialog blocks page
-            // input, so any AX state captured around one is suspect.
-            // Phase 8: the opening event is ALSO the dialog registry
+            // Phase 8: the opening event is the dialog registry
             // write (the recovered `jsDialogsByTabId` shape: id,
             // message, defaultPrompt, type, url). `beforeunload` is
             // remembered and auto-accepted (the recovered rule — head-
@@ -1021,7 +987,6 @@ async fn event_pump(
                 let tab = registry.lock().by_session(sid).cloned();
                 if let Some(t) = tab.as_ref() {
                     let dialog = io.on_dialog_open(&t.tab_id, &ev.params);
-                    ax.on_dialog_event(&t.tab_id);
                     if dialog.dialog_type == "beforeunload" {
                         let _ = conn
                             .call(
@@ -1040,7 +1005,6 @@ async fn event_pump(
                 let tab = registry.lock().by_session(sid).cloned();
                 if let Some(t) = tab.as_ref() {
                     io.on_dialog_closed(&t.tab_id);
-                    ax.on_dialog_event(&t.tab_id);
                 }
             }
             // Phase 8: file-chooser interception (engineered from the
@@ -1074,70 +1038,6 @@ async fn event_pump(
                 let tab = registry.lock().by_session(sid).cloned();
                 if let Some(t) = tab.as_ref() {
                     io.on_download_progress(&t.tab_id, &ev.params);
-                }
-            }
-            "Page.domContentEventFired" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.on_dom_content_loaded(&t.tab_id);
-                }
-            }
-            "Page.frameStoppedLoading" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
-                    continue;
-                };
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.on_frame_stopped_loading(&t.tab_id, frame_id);
-                }
-            }
-            "Page.navigatedWithinDocument" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
-                    continue;
-                };
-                let Some(url) = ev.params.get("url").and_then(Value::as_str) else {
-                    continue;
-                };
-                let nav_type = ev.params.get("type").and_then(Value::as_str).unwrap_or("");
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.on_navigated_within_document(&t.tab_id, frame_id, url, nav_type);
-                }
-            }
-            "Page.lifecycleEvent" => {
-                let Some(sid) = ev.session_id.as_deref() else {
-                    continue;
-                };
-                let Some(frame_id) = ev.params.get("frameId").and_then(Value::as_str) else {
-                    continue;
-                };
-                let Some(name) = ev.params.get("name").and_then(Value::as_str) else {
-                    continue;
-                };
-                // Loader progress counts as committed unless the engine
-                // explicitly says otherwise.
-                let progress_committed = ev
-                    .params
-                    .get("loaderProgress")
-                    .is_none_or(|p| p.as_str().is_none_or(|s| s == "committed"));
-                let tab = registry.lock().by_session(sid).cloned();
-                if let Some(t) = tab.as_ref() {
-                    ax.on_lifecycle_event(
-                        &t.tab_id,
-                        frame_id,
-                        ev.params.get("loaderId").and_then(Value::as_str),
-                        name,
-                        progress_committed,
-                    );
                 }
             }
             "Runtime.bindingCalled" => {

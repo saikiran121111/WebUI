@@ -41,13 +41,13 @@ use crate::ax::PwAxNode;
 use crate::cdp::CdpConn;
 use crate::engine::BrowserRuntime;
 use crate::errors::{payload_invalid, BrowserError};
+// Phase 2 (plan): the locator ACT payload imports left with the
+// actuators that moved to `bridge.rs`; observation/wait payload
+// schemas stay here.
 use crate::schemas::{
-    DomSnapshotPayload, ElementInfoPayload, EvaluatePayload, KeyboardModifier, LoadState,
-    LocatorCheckedPayload, LocatorClickPayload, LocatorKeyPayload, LocatorNamePayload,
-    LocatorPayload, LocatorSelectPayload, LocatorTextPayload, LocatorValuePayload,
-    LocatorWaitPayload, MouseButton, RequiredTimeoutPayload, ScreenshotPayload, SelectOptionInput,
-    SelectOptionOne, SelectOptionSingle, SelectorMode, WaitForLoadStatePayload, WaitForState,
-    WaitForUrlPayload,
+    DomSnapshotPayload, ElementInfoPayload, EvaluatePayload, LoadState, LocatorNamePayload,
+    LocatorPayload, LocatorWaitPayload, RequiredTimeoutPayload, ScreenshotPayload, SelectorMode,
+    WaitForLoadStatePayload, WaitForState, WaitForUrlPayload,
 };
 use crate::session::TabRecord;
 
@@ -95,8 +95,8 @@ struct PwTabState {
     refs: HashMap<String, i64>,
 }
 
-/// Per-tab locator registries (mirrors `AxRegistries` lifecycle: every
-/// tab-removal path and shutdown calls `forget_tab`/`clear_all`).
+/// Per-tab locator registries: every tab-removal path and shutdown
+/// calls `forget_tab`/`clear_all`.
 #[derive(Default)]
 pub struct PwRegistries {
     tabs: Mutex<HashMap<String, PwTabState>>,
@@ -717,12 +717,38 @@ async fn pw_eval_main(
     Ok(pw_value_of(&res))
 }
 
+/// Invokes a function-declaration body in the session's MAIN world with
+/// no receiver (`Runtime.evaluate`: `(function(){...})(args)`).
+/// `Runtime.callFunctionOn` requires a receiver (`objectId` /
+/// `executionContextId`); page glue that only touches `document` /
+/// `window` — the pin probe's title read/write — has none, so it goes
+/// here instead. (Root-caused live: a receiver-less `callFunctionOn`
+/// is rejected with "Either objectId or executionContextId or
+/// uniqueContextId must be specified".)
+pub(crate) async fn pw_eval_fn(
+    conn: &CdpConn,
+    session: &str,
+    function_decl: &str,
+    args: &[Value],
+) -> Result<Value, BrowserError> {
+    pw_eval_main(conn, session, &pw_eval_fn_expr(function_decl, args)).await
+}
+
+/// The receiver-less IIFE expression: arguments are inlined as compact
+/// JSON literals — `Value`'s Display always emits escaped, parseable
+/// JSON, so an injected title can never break out of its literal.
+fn pw_eval_fn_expr(function_decl: &str, args: &[Value]) -> String {
+    let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    format!("({function_decl})({})", argv.join(","))
+}
+
 // ── Element predicates & geometry ─────────────────────────────────────
 
 const VISIBLE_JS: &str = r"function(){ if (!this.isConnected) return false; const r = this.getBoundingClientRect(); if (r.width <= 0 || r.height <= 0) return false; const cs = getComputedStyle(this); if (cs.visibility === 'hidden' || cs.display === 'none') return false; return true; }";
 const ENABLED_JS: &str = "function(){ return !this.disabled; }";
-const CHECKED_JS: &str = "function(){ return !!this.checked; }";
-const FOCUS_JS: &str = "function(){ if (this.focus) this.focus(); }";
+// Phase 2 (plan): `CHECKED_JS`/`FOCUS_JS` retired with the locator
+// action actuators — the bridge keeps its own checked/focus helpers
+// for the read-backs it still performs natively.
 
 async fn pw_pred(
     conn: &CdpConn,
@@ -850,101 +876,13 @@ async fn sleep_poll() {
     tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
 }
 
-fn button_str(b: MouseButton) -> &'static str {
-    match b {
-        MouseButton::Left => "left",
-        MouseButton::Right => "right",
-        MouseButton::Middle => "middle",
-    }
-}
-
-/// CDP event modifier bits (Alt=1, Control=2, Meta=4, Shift=8).
-fn modifier_mask(mods: &[KeyboardModifier]) -> u32 {
-    mods.iter()
-        .map(|m| match m {
-            KeyboardModifier::Alt => 1,
-            KeyboardModifier::Control | KeyboardModifier::ControlOrMeta => 2,
-            KeyboardModifier::Meta => 4,
-            KeyboardModifier::Shift => 8,
-        })
-        .sum()
-}
-
-impl PwRegistries {
-    /// Playwright click actionability loop: attached (wait), single
-    /// (strict), visible+enabled unless `force`, scrolled, box-present,
-    /// then real trusted input at the content-box center.
-    pub(crate) async fn pw_locator_click(
-        &self,
-        rt: &BrowserRuntime,
-        conn: &CdpConn,
-        rec: &TabRecord,
-        p: &LocatorClickPayload,
-        dblclick: bool,
-    ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
-        let timeout = p.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-        let deadline = Instant::now() + Duration::from_millis(timeout);
-        let button = button_str(p.button.unwrap_or(MouseButton::Left));
-        let click_count = if dblclick {
-            p.click_count.unwrap_or(2).max(2)
-        } else {
-            p.click_count.unwrap_or(1).max(1)
-        };
-        let force = p.force.unwrap_or(false);
-        let modifiers = modifier_mask(p.modifiers.as_deref().unwrap_or(&[]));
-        loop {
-            let nodes = self.pw_nodes(rt, conn, rec, &p.selector).await?;
-            match nodes.len() {
-                0 => {
-                    if Instant::now() >= deadline {
-                        return Err(BrowserError::LocatorTimeout {
-                            selector: p.selector.clone(),
-                            state: "attached".to_string(),
-                            timeout_ms: timeout,
-                        });
-                    }
-                    sleep_poll().await;
-                    continue;
-                }
-                n if n > 1 => {
-                    return Err(BrowserError::LocatorStrict {
-                        selector: p.selector.clone(),
-                        count: n,
-                    })
-                }
-                _ => {}
-            }
-            let bnid = nodes[0];
-            if !force {
-                let oid = pw_handle(conn, session, bnid).await?;
-                let visible = pw_pred(conn, session, &oid, VISIBLE_JS).await?;
-                let enabled = pw_pred(conn, session, &oid, ENABLED_JS).await?;
-                if !(visible && enabled) {
-                    let _ = pw_scroll_into_view(conn, session, bnid).await;
-                    sleep_poll().await;
-                    continue;
-                }
-            }
-            let _ = pw_scroll_into_view(conn, session, bnid).await;
-            let (x, y) = match pw_box_center(conn, session, bnid).await? {
-                Some(c) => c,
-                None => {
-                    if force {
-                        return Err(BrowserError::LocatorFailed {
-                            selector: p.selector.clone(),
-                            reason: "element has no layout box to click (hidden?)".to_string(),
-                        });
-                    }
-                    sleep_poll().await;
-                    continue;
-                }
-            };
-            pw_dispatch_click(conn, session, x, y, button, click_count, modifiers).await?;
-            return Ok(json!({}));
-        }
-    }
-}
+// Phase 2 (plan): the locator CLICK actuator lives in `bridge.rs` —
+// MCP `browser_click` for plain-CSS main-frame targets, MCP
+// coordinate clicks for everything the selector cannot address
+// directly. The actionability/strictness pre-resolution it builds on
+// (`pw_actionable`/`pw_strict_one`) stays here, so typed locator
+// errors and waits are unchanged. `button_str`/`modifier_mask` left
+// with it (the bridge maps the same typed enums to MCP arguments).
 
 // ── aria snapshot (mode:"ai") ─────────────────────────────────────────
 
@@ -1101,13 +1039,12 @@ impl PwRegistries {
     /// actionable for `locator_*` even when the caller only sees a slice.
     pub(crate) async fn pw_dom_snapshot(
         &self,
-        rt: &BrowserRuntime,
         conn: &CdpConn,
         rec: &TabRecord,
         p: &DomSnapshotPayload,
     ) -> Result<Value, BrowserError> {
         let session = rec.cdp_session_id.as_str();
-        let nodes = rt.ax.pw_ax_nodes(conn, session).await?;
+        let nodes = crate::ax::pw_ax_nodes(conn, session).await?;
         let (mut lines, refs, iframe_lines) = snapshot_lines(&nodes);
         for (li, token, bnid) in iframe_lines {
             let attrs = match pw_host_attrs(conn, session, bnid).await {
@@ -1618,6 +1555,13 @@ impl PwRegistries {
             out["image_width"] = json!((m_f("iw") * dpr).max(1.0).round() as u64);
             out["image_height"] = json!((m_f("ih") * dpr).max(1.0).round() as u64);
         }
+        // Honest pixels beat predicted pixels (live-caught: a 138.625 px
+        // fractional clip rasterizes to 138 real pixels while `round()`
+        // claims 139). Whenever the encoded bytes parse, they win.
+        if let Some((iw, ih)) = crate::imgdims::dims_from_b64(data) {
+            out["image_width"] = json!(iw);
+            out["image_height"] = json!(ih);
+        }
         if let Some((x, y, w, h)) = selector_hit {
             out["selector"] = json!(p.selector);
             out["selector_box"] = json!({ "x": x, "y": y, "width": w, "height": h });
@@ -2051,42 +1995,12 @@ impl PwRegistries {
     }
 }
 
-// ── locator action surface ────────────────────────────────────────────
-
-const FILL_JS: &str = r#"function(v){
-  if (this.focus) this.focus();
-  if (this.isContentEditable) {
-    const r = document.createRange(); r.selectNodeContents(this);
-    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-    document.execCommand('insertText', false, v);
-  } else if (this.tagName === 'INPUT' || this.tagName === 'TEXTAREA') {
-    this.value = v;
-  } else {
-    return 'not-editable';
-  }
-  this.dispatchEvent(new Event('input', {bubbles:true}));
-  this.dispatchEvent(new Event('change', {bubbles:true}));
-  return 'filled';
-}"#;
-
-const SELECT_JS: &str = r#"function(opts){
-  if (this.tagName !== 'SELECT') return { error: 'target is not a <select>' };
-  const arr = Array.prototype.slice.call(this.options);
-  const picked = [];
-  for (const o of opts) {
-    let m = null;
-    if (o.index !== null && o.index !== undefined) m = arr[o.index] || null;
-    if (!m && o.any != null) m = arr.find(x => x.value === o.any || x.text.trim() === o.any) || null;
-    if (!m && o.value != null) m = arr.find(x => x.value === o.value) || null;
-    if (!m && o.label != null) m = arr.find(x => x.text.trim() === o.label) || null;
-    if (!m) return { error: 'no matching option: ' + (o.value ?? o.label ?? String(o.index)) };
-    if (!this.multiple) { this.selectedIndex = arr.indexOf(m); picked.push(m.value); break; }
-    m.selected = true; picked.push(m.value);
-  }
-  this.dispatchEvent(new Event('input', {bubbles:true}));
-  this.dispatchEvent(new Event('change', {bubbles:true}));
-  return { ok: true, values: picked };
-}"#;
+// Phase 2 (plan): the locator ACTION actuators (fill / press /
+// press_sequentially / select_option / set_checked) live in
+// `bridge.rs`, driving the Playwright MCP tool surface on top of the
+// native resolution prelude. Their in-page helpers (`FILL_JS`,
+// `SELECT_JS`) left with them; the bridge reads selected/checked
+// state back natively so response shapes stay byte-identical.
 
 /// One resolved logical key for `Input.dispatchKeyEvent` (Playwright
 /// key grammar: named keys plus single characters; printable keys carry
@@ -2188,193 +2102,6 @@ pub(crate) fn combo_mask(mods: &[&str]) -> Result<u32, BrowserError> {
 }
 
 impl PwRegistries {
-    /// `playwright_locator_fill` — actionability prelude, then focus +
-    /// value set + `input`/`change` events (the pinned Playwright fill
-    /// behavior; not trusted key input by design).
-    pub(crate) async fn pw_locator_fill(
-        &self,
-        rt: &BrowserRuntime,
-        conn: &CdpConn,
-        rec: &TabRecord,
-        p: &LocatorValuePayload,
-    ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
-        let (_bnid, oid) = self
-            .pw_actionable(rt, conn, rec, &p.selector, DEFAULT_TIMEOUT_MS)
-            .await?;
-        let v = pw_call_value(
-            conn,
-            session,
-            Some(&oid),
-            FILL_JS,
-            Some(vec![json!(p.value)]),
-        )
-        .await?;
-        if v.as_str() == Some("not-editable") {
-            return Err(BrowserError::LocatorFailed {
-                selector: p.selector.clone(),
-                reason: "fill targets an <input>, <textarea> or contenteditable only".to_string(),
-            });
-        }
-        Ok(json!({}))
-    }
-
-    /// `playwright_locator_press` — focus the resolved element, then
-    /// real `Input.dispatchKeyEvent` traffic (named keys, single
-    /// characters, and `Modifier+Key` combos).
-    pub(crate) async fn pw_locator_press(
-        &self,
-        rt: &BrowserRuntime,
-        conn: &CdpConn,
-        rec: &TabRecord,
-        p: &LocatorKeyPayload,
-    ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
-        let (_bnid, oid) = self
-            .pw_actionable(rt, conn, rec, &p.selector, DEFAULT_TIMEOUT_MS)
-            .await?;
-        pw_call_raw(conn, session, Some(&oid), FOCUS_JS, None, false).await?;
-        let (base, mods) = match p.key.rsplit_once('+') {
-            Some((m, k)) if !m.is_empty() && !k.is_empty() => (k, m),
-            _ => (p.key.as_str(), ""),
-        };
-        let parts: Vec<&str> = if mods.is_empty() {
-            Vec::new()
-        } else {
-            mods.split('+').collect()
-        };
-        let mask = combo_mask(&parts)?;
-        let spec = pw_key_spec(base)
-            .ok_or_else(|| payload_invalid("key", format!("unknown key \"{}\"", p.key)))?;
-        pw_send_key(conn, session, &spec, mask, p.delay.unwrap_or(0)).await?;
-        Ok(json!({}))
-    }
-
-    /// `playwright_locator_press_sequentially` — focus, then one
-    /// `Input.insertText` per character (real renderer-side input,
-    /// probe-equivalent to the keyDown/char/keyUp triple that reaches
-    /// inner-frame inputs), with `delay` between characters.
-    pub(crate) async fn pw_locator_press_sequentially(
-        &self,
-        rt: &BrowserRuntime,
-        conn: &CdpConn,
-        rec: &TabRecord,
-        p: &LocatorTextPayload,
-    ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
-        let (_bnid, oid) = self
-            .pw_actionable(rt, conn, rec, &p.selector, DEFAULT_TIMEOUT_MS)
-            .await?;
-        pw_call_raw(conn, session, Some(&oid), FOCUS_JS, None, false).await?;
-        let delay = p.delay.unwrap_or(0);
-        for ch in p.text.chars() {
-            if ch == '\n' || ch == '\r' {
-                let spec = PwKey {
-                    key: "Enter".to_string(),
-                    code: Some("Enter".to_string()),
-                    vk: Some(13),
-                    text: None,
-                };
-                pw_send_key(conn, session, &spec, 0, 0).await?;
-            } else {
-                conn.call(
-                    "Input.insertText",
-                    Some(json!({ "text": ch.to_string() })),
-                    Some(session),
-                )
-                .await?;
-            }
-            if delay > 0 {
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-            }
-        }
-        Ok(json!({}))
-    }
-
-    /// `playwright_locator_select_option` — actionability, then in-page
-    /// option matching by index, exact value/label, or value-or-label
-    /// (string form), with `input`/`change` dispatch.
-    pub(crate) async fn pw_locator_select_option(
-        &self,
-        rt: &BrowserRuntime,
-        conn: &CdpConn,
-        rec: &TabRecord,
-        p: &LocatorSelectPayload,
-    ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
-        let (_bnid, oid) = self
-            .pw_actionable(rt, conn, rec, &p.selector, DEFAULT_TIMEOUT_MS)
-            .await?;
-        let opt_json = |s: &SelectOptionSingle| json!({ "index": s.index, "label": s.label, "value": s.value });
-        let opts: Vec<Value> = match &p.option {
-            SelectOptionInput::Many(list) => list
-                .iter()
-                .map(|o| match o {
-                    SelectOptionOne::Single(s) => opt_json(s),
-                    SelectOptionOne::Text(t) => json!({ "any": t }),
-                })
-                .collect(),
-            SelectOptionInput::Single(s) => vec![opt_json(s)],
-            SelectOptionInput::Text(t) => vec![json!({ "any": t })],
-        };
-        let v = pw_call_value(
-            conn,
-            session,
-            Some(&oid),
-            SELECT_JS,
-            Some(vec![json!(opts)]),
-        )
-        .await?;
-        if let Some(err) = v.get("error").and_then(Value::as_str) {
-            return Err(BrowserError::LocatorFailed {
-                selector: p.selector.clone(),
-                reason: err.to_string(),
-            });
-        }
-        Ok(json!({ "selected_values": v.get("values").cloned().unwrap_or(json!([])) }))
-    }
-
-    /// `playwright_locator_set_checked` — actionability, then a real
-    /// trusted click only when the state differs, verified afterwards.
-    pub(crate) async fn pw_locator_set_checked(
-        &self,
-        rt: &BrowserRuntime,
-        conn: &CdpConn,
-        rec: &TabRecord,
-        p: &LocatorCheckedPayload,
-    ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
-        let (_bnid, oid) = self
-            .pw_actionable(rt, conn, rec, &p.selector, DEFAULT_TIMEOUT_MS)
-            .await?;
-        if pw_pred(conn, session, &oid, CHECKED_JS).await? == p.checked {
-            return Ok(json!({ "checked": p.checked }));
-        }
-        let click = LocatorClickPayload {
-            browser_id: p.browser_id.clone(),
-            tab_id: p.tab_id.clone(),
-            selector: p.selector.clone(),
-            button: None,
-            click_count: None,
-            force: None,
-            modifiers: None,
-            timeout_ms: None,
-        };
-        self.pw_locator_click(rt, conn, rec, &click, false).await?;
-        let bnid = self
-            .pw_strict_one(rt, conn, rec, &p.selector, 2_000)
-            .await?;
-        let oid = pw_handle(conn, session, bnid).await?;
-        let now = pw_pred(conn, session, &oid, CHECKED_JS).await?;
-        if now != p.checked {
-            return Err(BrowserError::LocatorFailed {
-                selector: p.selector.clone(),
-                reason: "checked state did not change after the click".to_string(),
-            });
-        }
-        Ok(json!({ "checked": now }))
-    }
-
     /// `playwright_locator_wait_for` — attached/detached/visible/hidden
     /// polling with the pinned timeout grammar.
     pub(crate) async fn pw_locator_wait_for(
@@ -2512,6 +2239,24 @@ mod tests {
     fn plain_css_is_one_group() {
         assert_eq!(segs("button.go"), vec![vec![Seg::Css("button.go".into())]]);
         assert_eq!(segs("css:div > p"), vec![vec![Seg::Css("div > p".into())]]);
+    }
+
+    #[test]
+    fn receiverless_call_is_a_wrapped_iife() {
+        assert_eq!(
+            pw_eval_fn_expr("function(){ return document.title; }", &[]),
+            "(function(){ return document.title; })()"
+        );
+    }
+
+    #[test]
+    fn eval_fn_args_are_escaped_json_literals() {
+        // An adversarial title can never break out of its literal.
+        let expr = pw_eval_fn_expr("function(t){ document.title = t; }", &[json!("a\"b\\c\nd")]);
+        assert_eq!(
+            expr,
+            "(function(t){ document.title = t; })(\"a\\\"b\\\\c\\nd\")"
+        );
     }
 
     #[test]

@@ -214,16 +214,6 @@ pub fn model_tools() -> Value {
 
     // ── reading the page ────────────────────────────────────────────────
     t(
-        "tab_ax_get_state",
-        "Read the tab's accessibility state (element_index refs for tab_ax_action), a screenshot, or both. The screenshot comes back as a real image you can see; the human also watches the capture live in the panel.",
-        json!({
-            "tab_id": tab(),
-            "content": {"enum": ["axState", "screenshot", "axStateAndScreenshot"]},
-            "disable_diffing": {"type": "boolean", "description": "set true to force a full (non-diffed) snapshot"}
-        }),
-        &["tab_id", "content"],
-    );
-    t(
         "dom_cua_get_visible_dom",
         "Read the visible DOM as a tree with stable node_id refs for dom_cua_* actions.",
         json!({"tab_id": tab()}),
@@ -324,38 +314,11 @@ pub fn model_tools() -> Value {
     );
 
     // ── acting on the page ──────────────────────────────────────────────
-    t(
-        "tab_ax_action",
-        "Act on an accessibility ref from the latest tab_ax_get_state. `action` is a tagged object: {kind, …} where kind is one of paste{element_index?,text,format?}, click{target: a BARE integer element_index (not an object) or an {x,y} point, mouse_button?, click_count?}, drag{from:{x,y},to:{x,y}}, perform_secondary_action{element_index,action}, press_key{element_index?,key,duration?}, scroll{target,direction,pages?}, select_text{element_index,text,prefix?,suffix?,selection_type?}, set_value{element_index,value}, type_text{element_index?,text}. A stale ref means the page changed: re-read first.",
-        json!({
-            "tab_id": tab(),
-            "action": {
-                "type": "object",
-                "properties": {
-                    "kind": {"enum": ["paste", "click", "drag", "perform_secondary_action", "press_key", "scroll", "select_text", "set_value", "type_text"]},
-                    "element_index": {"type": "integer"},
-                    "target": any(),
-                    "from":{"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}}, "required": ["x", "y"]},
-                    "to": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}}, "required": ["x", "y"]},
-                    "text": {"type": "string"},
-                    "value": {"type": "string"},
-                    "format": {"enum": ["text", "md", "html"]},
-                    "key": {"type": "string"},
-                    "duration": {"type": "integer", "minimum": 0, "maximum": 30},
-                    "mouse_button": {"enum": ["left", "right", "middle", "l", "r", "m"]},
-                    "click_count": {"type": "integer", "minimum": 1},
-                    "direction": {"enum": ["up", "down", "left", "right", "u", "d", "l", "r"]},
-                    "pages": {"type": "number"},
-                    "prefix": {"type": "string"},
-                    "suffix": {"type": "string"},
-                    "selection_type": {"enum": ["text", "cursor_before", "cursor_after"]},
-                    "action": {"type": "string"}
-                },
-                "required": ["kind"]
-            }
-        }),
-        &["tab_id", "action"],
-    );
+    // `tab_ax_action`/`tab_ax_get_state` are RETIRED (Phase 2, plan):
+    // the element_index action protocol is gone with the custom
+    // interactive-action driver — `locator_*` acts on aria-snapshot
+    // refs and the MCP coordinate path serves pixel actions. See
+    // contract.rs::RETIRED_REFERENCE_COMMANDS.
     t(
         "dom_cua_click",
         "Click a node_id from the latest dom_cua_get_visible_dom.",

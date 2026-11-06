@@ -261,33 +261,33 @@ async fn eval_value(
         .unwrap_or(Value::Null)
 }
 
-/// Phase-6 helper: `tab_ax_get_state` over the axState content mode
-/// (the screenshot modes land with Phase 8), optionally disabling the
-/// diff so the full-tree answer is testable too.
-async fn ax_state(
+/// Phase-2 helper: `playwright_dom_snapshot` — the aria snapshot that
+/// replaced the retired `tab_ax_get_state` (Phase 2 MCP cutover; see
+/// `contract.rs::RETIRED_REFERENCE_COMMANDS`). Returns the rendered
+/// window string under `dom_snapshot`.
+async fn aria_snapshot(
     rt: &BrowserRuntime,
     gate_rx: &mut UnboundedReceiver<Value>,
     session: &str,
     turn: &str,
     tab: &str,
-    disable_diffing: Option<bool>,
-) -> Value {
-    let mut payload = json!({"browser_id": "default", "tab_id": tab, "content": "axState"});
-    if let Some(d) = disable_diffing {
-        payload["disable_diffing"] = json!(d);
-    }
-    ok(
+) -> String {
+    let r = ok(
         cmd(
             rt,
             gate_rx,
             session,
             turn,
-            json!({"commandType":"tab_ax_get_state","session_id":session,"turn_id":turn,
-                   "payload":payload}),
+            json!({"commandType":"playwright_dom_snapshot","session_id":session,"turn_id":turn,
+                   "payload":{"browser_id":"default","tab_id":tab}}),
         )
         .await,
-        "tab_ax_get_state",
-    )
+        "playwright_dom_snapshot",
+    );
+    r["dom_snapshot"]
+        .as_str()
+        .expect("dom_snapshot")
+        .to_string()
 }
 
 #[tokio::test]
@@ -951,16 +951,13 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         "typing must reach the real focused element inside the iframe"
     );
 
-    // ── Phase 6: AX capture against REAL page state through the SAME
-    // session/tab command path — grounded full tree with the pinned
-    // header, the recovered no-change text, REAL changed lines after a
-    // real focus/value mutation, full-tree mode, frame descent, and
-    // full-tree restart on a new document ────────────────────────────
-    const DIFF_HEADER: &str = "The following is a diff from the previous accessibility tree \
-                               with ~ and + representing changed and added elements, \
-                               respectively. Removed elements are summarized by ID range.";
-    const NO_CHANGE: &str = "There has been no change in the accessibility tree.";
-
+    // ── Phase 2 (MCP cutover): ARIA SNAPSHOT battery against REAL page
+    // state through the SAME session/tab command path — the aria
+    // snapshot (`playwright_dom_snapshot`) replaced the retired
+    // `tab_ax_get_state`. Grounded names from the live page, the
+    // password-value leak guard, ref tokens for the locator tools,
+    // snapshot FRESHNESS across a real click-navigation, frame
+    // descent, and a full re-answer on a new document. ──────────────
     ok(
         cmd(
             &rt,
@@ -974,43 +971,35 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
         "navigate /form (AX battery)",
     );
 
-    // First capture: the full tree with the pinned header contract.
-    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
-    let ax1 = r["rendered"].as_str().expect("rendered").to_string();
+    // First snapshot: real names from the live page rendered in the
+    // pinned line format (`- role "name" … [ref=eN]`), ref tokens the
+    // locator tools bind to, and the password leak guard — the aria
+    // snapshot never carries typed VALUES (SNAPSHOT_PROPS has no
+    // "value" property, and Chromium never exposes a password
+    // field's value as accessible text).
+    let ax1 = aria_snapshot(&rt, &mut gate_rx, "s1", "t1", &tab1).await;
     assert!(
-        ax1.starts_with(&format!(
-            "Browser tab: {tab1}, Title: \"Ruke Form Page\", URL: \"{url_form}\".\n"
-        )),
-        "the pinned header line is missing: {ax1}"
+        ax1.contains("- button \"Go to receipt\""),
+        "the real button name must render in the pinned line format: {ax1}"
     );
     assert!(
-        ax1.contains("Go to receipt"),
-        "the button name is missing: {ax1}"
+        ax1.contains("\"your name\""),
+        "the input's accessible name (placeholder) must appear: {ax1}"
+    );
+    assert!(
+        ax1.contains("[ref=e"),
+        "snapshot lines carry ref tokens the locator tools bind to: {ax1}"
     );
     assert!(
         !ax1.contains("Sup3rS3cret!"),
-        "the AX tree must never leak a page-JS-set password value: {ax1}"
-    );
-    assert!(
-        r["element_count"].as_u64().unwrap() >= 6,
-        "the form controls belong in the tree: {r}"
-    );
-    assert!(
-        r["document_key"].as_str().is_some_and(|k| !k.is_empty()),
-        "a committed revision answers its document key: {r}"
+        "the aria snapshot must never leak a page-JS-set password value: {ax1}"
     );
 
-    // Same document, no mutation: the recovered no-change text.
-    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
-    let ax2 = r["rendered"].as_str().expect("rendered").to_string();
-    assert_eq!(
-        ax2.lines().last().unwrap_or(""),
-        NO_CHANGE,
-        "an unchanged document must answer the no-change text: {ax2}"
-    );
-
-    // A REAL click + type mutates focus (and the input's value): the
-    // next capture is a diff carrying changed/added lines.
+    // Freshness through a REAL navigation: the same-tab click drives
+    // the page to /receipt (pump-verified by the registry poll), and
+    // the next snapshot must describe the NEW document — the retired
+    // diff CAS owned this freshness contract; the live aria walk
+    // answers it instead.
     let snap = ok(
         cmd(
             &rt,
@@ -1021,10 +1010,10 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
                    "payload":{"browser_id":"default","tab_id":tab1}}),
         )
         .await,
-        "dom_cua_get_visible_dom /form (AX battery)",
+        "dom_cua_get_visible_dom /form (aria battery)",
     );
     let dom = snap["dom"].as_str().expect("dom string").to_string();
-    let name_node = dom_node_id(&dom, "placeholder=\"your name\"");
+    let btn_node = dom_node_id(&dom, "Go to receipt");
     ok(
         cmd(
             &rt,
@@ -1032,62 +1021,42 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
             "s1",
             "t1",
             json!({"commandType":"dom_cua_click","session_id":"s1","turn_id":"t1",
-                   "payload":{"browser_id":"default","tab_id":tab1,"node_id":name_node}}),
+                   "payload":{"browser_id":"default","tab_id":tab1,"node_id":btn_node}}),
         )
         .await,
-        "dom_cua_click input#name (AX battery)",
+        "dom_cua_click button -> /receipt (aria battery)",
     );
-    ok(
-        cmd(
-            &rt,
-            &mut gate_rx,
-            "s1",
-            "t1",
-            json!({"commandType":"dom_cua_type","session_id":"s1","turn_id":"t1",
-                   "payload":{"browser_id":"default","tab_id":tab1,"text":"Ruke AX"}}),
-        )
-        .await,
-        "dom_cua_type (AX battery)",
-    );
-    assert_eq!(
-        eval_value(
-            &rt,
-            &mut gate_rx,
-            "s1",
-            "t1",
-            &tab1,
-            "document.getElementById('name').value"
-        )
-        .await,
-        json!("Ruke AX"),
-        "the mutation the diff must describe is real page state"
-    );
-    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
-    let ax3 = r["rendered"].as_str().expect("rendered").to_string();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let r = ok(
+            cmd(
+                &rt,
+                &mut gate_rx,
+                "s1",
+                "t1",
+                json!({"commandType":"get_tab","session_id":"s1","turn_id":"t1",
+                       "payload":{"browser_id":"default","tab_id":tab1}}),
+            )
+            .await,
+            "get_tab after aria-battery click",
+        );
+        if r["url"] == json!(receipt_url) && r["title"] == json!(PAGE_R) {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("the aria-battery click never drove the navigation (registry: {r})");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let ax2 = aria_snapshot(&rt, &mut gate_rx, "s1", "t1", &tab1).await;
     assert!(
-        ax3.contains(DIFF_HEADER),
-        "the second committed revision turns the next capture into a diff: {ax3}"
-    );
-    assert_eq!(r["diff"], json!(true), "the answer flags the diff: {r}");
-    assert!(
-        ax3.lines().any(|l| {
-            let t = l.trim_start();
-            t.starts_with("~ ") || t.starts_with("+ ")
-        }),
-        "a real focus/value change must produce at least one changed \
-         or added line: {ax3}"
+        !ax2.contains("Go to receipt"),
+        "after a real navigation the snapshot must describe the NEW \
+         document, not a stale form tree: {ax2}"
     );
 
-    // disable_diffing: full tree again, diff or not.
-    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, Some(true)).await;
-    let ax4 = r["rendered"].as_str().expect("rendered").to_string();
-    assert!(
-        !ax4.contains(DIFF_HEADER) && ax4.contains("your name"),
-        "disable_diffing must answer the full tree: {ax4}"
-    );
-
-    // Frames: the AX walk descends into the iframe document, and the
-    // addressable elements carry the id tags the action path binds to.
+    // Frames: the aria walk descends into the iframe document, and the
+    // nested addressable elements carry ref tokens too.
     ok(
         cmd(
             &rt,
@@ -1098,21 +1067,19 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
                    "payload":{"browser_id":"default","tab_id":tab1,"url":url_frames}}),
         )
         .await,
-        "navigate /frames (AX battery)",
+        "navigate /frames (aria battery)",
     );
-    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
-    let ax5 = r["rendered"].as_str().expect("rendered").to_string();
+    let ax3 = aria_snapshot(&rt, &mut gate_rx, "s1", "t1", &tab1).await;
     assert!(
-        ax5.contains("inner field"),
-        "the AX capture must descend into the iframe document: {ax5}"
+        ax3.contains("inner field"),
+        "the aria walk must descend into the iframe document: {ax3}"
     );
     assert!(
-        ax5.contains("[id=0]"),
-        "the first addressable element carries an [id=N] tag: {ax5}"
+        ax3.contains("[ref=e"),
+        "frame-descent elements carry ref tokens as well: {ax3}"
     );
 
-    // A fresh navigation is a new document: the diff baseline resets
-    // and the tree is answered in full.
+    // A fresh navigation re-answers the form tree in full.
     ok(
         cmd(
             &rt,
@@ -1123,13 +1090,12 @@ async fn phase2_lifecycle_smoke_against_real_chromium() {
                    "payload":{"browser_id":"default","tab_id":tab1,"url":url_form}}),
         )
         .await,
-        "navigate /form again (AX battery)",
+        "navigate /form again (aria battery)",
     );
-    let r = ax_state(&rt, &mut gate_rx, "s1", "t1", &tab1, None).await;
-    let ax6 = r["rendered"].as_str().expect("rendered").to_string();
+    let ax4 = aria_snapshot(&rt, &mut gate_rx, "s1", "t1", &tab1).await;
     assert!(
-        !ax6.contains(DIFF_HEADER) && ax6.contains("Go to receipt"),
-        "a new document must restart with the full tree: {ax6}"
+        ax4.contains("Go to receipt"),
+        "a new document must re-answer the full tree: {ax4}"
     );
 
     // ── turn cleanup: unmarked tab closes, deliverable survives ──────

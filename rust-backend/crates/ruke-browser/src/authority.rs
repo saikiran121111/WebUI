@@ -825,7 +825,6 @@ pub(crate) fn gate_for(cmd: &Command) -> Option<(String, Vec<Gate>)> {
         // ── observeContent (access) ───────────────────────────────────
         Command::DomCuaGetVisibleDom(p) => observe(p.tab_id.clone()),
         Command::PlaywrightDomSnapshot(p) => observe(p.tab_id.clone()),
-        Command::TabAxGetState(p) => observe(p.tab_id.clone()),
         Command::PlaywrightElementInfo(p) => observe(p.tab_id.clone()),
         Command::PlaywrightElementScreenshot(p) => observe(p.tab_id.clone()),
         Command::TabScreenshot(p) => observe(p.tab_id.clone()),
@@ -852,7 +851,6 @@ pub(crate) fn gate_for(cmd: &Command) -> Option<(String, Vec<Gate>)> {
         Command::DomCuaScroll(p) => act(p.tab_id.clone()),
         Command::DomCuaType(p) => act(p.tab_id.clone()),
         Command::DomCuaKeypress(p) => act(p.tab_id.clone()),
-        Command::TabAxAction(p) => act(p.tab_id.clone()),
         Command::PlaywrightEvaluate(p) => act(p.tab_id.clone()),
         Command::PlaywrightLocatorClick(p) => act(p.tab_id.clone()),
         Command::PlaywrightLocatorDblclick(p) => act(p.tab_id.clone()),

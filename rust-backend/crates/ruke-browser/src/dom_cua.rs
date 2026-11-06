@@ -44,8 +44,9 @@ use serde_json::{json, Value};
 use crate::cdp::CdpConn;
 use crate::engine::BrowserRuntime;
 use crate::errors::BrowserError;
-use crate::pw::{combo_mask, pw_key_spec, pw_send_key};
-use crate::session::TabRecord;
+use crate::mcp::tool;
+use crate::pw::pw_key_spec;
+use crate::session::{TabRecord, TurnKey};
 
 // ── Budget constants (verbatim `oc, ic, nY, oY, bD, gD`) ───────────────
 pub const MAX_SNAPSHOT_CHARS: usize = 20_000; // oc
@@ -1071,7 +1072,7 @@ impl BrowserRuntime {
     /// `ux` + `pD`: public node id → a page-space CDP `Input.*` point.
     /// Stale/absent refs answer the pinned `DOM node N is stale or
     /// missing` error (both the registry miss and a detached element).
-    async fn resolve_dom_point(
+    pub(crate) async fn resolve_dom_point(
         &self,
         conn: &CdpConn,
         rec: &TabRecord,
@@ -1129,32 +1130,38 @@ impl BrowserRuntime {
     }
 
     /// `dom_cua_click` / `dom_cua_double_click` (`clickDomCuaNode`):
-    /// resolve → real `Input.dispatchMouseEvent` press+release with
-    /// `clickCount` 1/2 on the tab's own session (the hit-test settle
-    /// loop belongs to the AX action engine, Phase 6).
+    /// native node resolution (`resolve_dom_point`) to the page-space
+    /// point, then the press/release rides the Playwright MCP
+    /// coordinate driver (`browser_mouse_move_xy` hover +
+    /// `browser_mouse_click_xy` with `clickCount`) — Phase 2 (plan):
+    /// one interactive-action driver for every pointer action.
     pub(crate) async fn dom_click(
         &self,
+        tkey: &TurnKey,
         conn: &CdpConn,
         rec: &TabRecord,
         node_id: u64,
         click_count: i64,
     ) -> Result<Value, BrowserError> {
         let (x, y) = self.resolve_dom_point(conn, rec, node_id).await?;
-        for event_type in ["mousePressed", "mouseReleased"] {
-            conn.call(
-                "Input.dispatchMouseEvent",
-                Some(json!({
-                    "type": event_type,
-                    "x": x,
-                    "y": y,
-                    "button": "left",
-                    "clickCount": click_count,
-                    "modifiers": 0,
-                })),
-                Some(&rec.cdp_session_id),
-            )
-            .await?;
-        }
+        let _guard = self.mcp_guard().await;
+        let sess = self.mcp_ready(conn, rec).await?;
+        self.mcp_call1(
+            &sess,
+            tkey,
+            tool::MOUSE_MOVE_XY,
+            json!({"x": x, "y": y}),
+            None,
+        )
+        .await?;
+        self.mcp_call1(
+            &sess,
+            tkey,
+            tool::MOUSE_CLICK_XY,
+            json!({"x": x, "y": y, "button": "left", "clickCount": click_count}),
+            None,
+        )
+        .await?;
         Ok(json!({"tab_id": rec.tab_id, "node_id": node_id, "x": x, "y": y}))
     }
 
@@ -1163,6 +1170,7 @@ impl BrowserRuntime {
     /// lands at the visual viewport center (`Page.getLayoutMetrics`).
     pub(crate) async fn dom_scroll(
         &self,
+        tkey: &TurnKey,
         conn: &CdpConn,
         rec: &TabRecord,
         node_id: Option<u64>,
@@ -1196,19 +1204,25 @@ impl BrowserRuntime {
             }
         };
         // Wheels only service the composited (foreground) tab — raise
-        // it before the dispatch (engine::raise_wheel_target).
+        // it (native, engine::raise_wheel_target) before the MCP
+        // driver moves and wheels over the point.
         crate::engine::raise_wheel_target(conn, &rec.cdp_session_id).await;
-        conn.call(
-            "Input.dispatchMouseEvent",
-            Some(json!({
-                "type": "mouseWheel",
-                "x": point.0,
-                "y": point.1,
-                "deltaX": scroll_x,
-                "deltaY": scroll_y,
-                "modifiers": 0,
-            })),
-            Some(&rec.cdp_session_id),
+        let _guard = self.mcp_guard().await;
+        let sess = self.mcp_ready(conn, rec).await?;
+        self.mcp_call1(
+            &sess,
+            tkey,
+            tool::MOUSE_MOVE_XY,
+            json!({"x": point.0, "y": point.1}),
+            None,
+        )
+        .await?;
+        self.mcp_call1(
+            &sess,
+            tkey,
+            tool::MOUSE_WHEEL,
+            json!({"deltaX": scroll_x, "deltaY": scroll_y}),
+            None,
         )
         .await?;
         Ok(
@@ -1246,14 +1260,19 @@ impl BrowserRuntime {
     /// the `Input.dispatchKeyEvent` mask (the same primitive
     /// `playwright_locator_press` combos use — modifier *state*, not
     /// held physical keys, is what the wire contract needs), and the
-    /// final token rides `pw_send_key` on the tab session.
+    /// final token rides the MCP driver's `browser_press_key` combo
+    /// grammar (Phase 2: one key driver; modifiers ride the wire as
+    /// `Control+…` combo names instead of the CDP dispatch mask —
+    /// [adapted], same held-modifier semantics the pages observe).
     pub(crate) async fn dom_cua_keypress(
         &self,
+        tkey: &TurnKey,
         conn: &CdpConn,
         rec: &TabRecord,
         keys: &[String],
     ) -> Result<Value, BrowserError> {
-        let session = rec.cdp_session_id.as_str();
+        let _guard = self.mcp_guard().await;
+        let sess = self.mcp_ready(conn, rec).await?;
         for combo in keys {
             let (mods, final_tok) = split_combo(combo);
             let mut names: Vec<&str> = Vec::with_capacity(mods.len());
@@ -1265,7 +1284,6 @@ impl BrowserRuntime {
                     )
                 })?);
             }
-            let mask = combo_mask(&names)?;
             let key = normalize_key_token(final_tok);
             let spec = pw_key_spec(&key).ok_or_else(|| {
                 crate::errors::payload_invalid(
@@ -1273,7 +1291,13 @@ impl BrowserRuntime {
                     format!("unknown key \"{combo}\" (xdotool token grammar)"),
                 )
             })?;
-            pw_send_key(conn, session, &spec, mask, 0).await?;
+            let expr = if names.is_empty() {
+                spec.key.clone()
+            } else {
+                format!("{}+{}", names.join("+"), spec.key)
+            };
+            self.mcp_call1(&sess, tkey, tool::PRESS_KEY, json!({"key": expr}), None)
+                .await?;
         }
         Ok(json!({"tab_id": rec.tab_id, "keys_sent": keys.len()}))
     }
@@ -1287,6 +1311,7 @@ impl BrowserRuntime {
     /// makes any path handed back later name a real file.
     pub(crate) async fn dom_cua_download_media(
         &self,
+        tkey: &TurnKey,
         conn: &CdpConn,
         rec: &TabRecord,
         node_id: u64,
@@ -1297,8 +1322,30 @@ impl BrowserRuntime {
         // the trigger count (pump-recorded, race-free).
         let gen = self.io.download_generation(&rec.tab_id);
         // A single left click is the media-download trigger primitive
-        // — exactly `dom_cua_click`'s dispatch path.
-        self.dom_click(conn, rec, node_id, 1).await?;
+        // — exactly `dom_cua_click`'s drive (native point resolution,
+        // MCP coordinate click). The driver lock is RELEASED before
+        // the io waits so a slow download never holds the MCP slot.
+        let (x, y) = self.resolve_dom_point(conn, rec, node_id).await?;
+        {
+            let _guard = self.mcp_guard().await;
+            let sess = self.mcp_ready(conn, rec).await?;
+            self.mcp_call1(
+                &sess,
+                tkey,
+                tool::MOUSE_MOVE_XY,
+                json!({"x": x, "y": y}),
+                None,
+            )
+            .await?;
+            self.mcp_call1(
+                &sess,
+                tkey,
+                tool::MOUSE_CLICK_XY,
+                json!({"x": x, "y": y, "button": "left", "clickCount": 1}),
+                None,
+            )
+            .await?;
+        }
         let began = self.io.wait_for_download(&rec.tab_id, gen, timeout).await?;
         self.io
             .wait_for_download_complete(&began.guid, timeout)
@@ -1310,7 +1357,7 @@ impl BrowserRuntime {
 /// Split one `dom_cua_keypress` combo into held-modifier tokens and
 /// the final actioned token (xdotool `+`-chain grammar; a lone `"+"`
 /// is the plus key itself).
-fn split_combo(combo: &str) -> (Vec<&str>, &str) {
+pub(crate) fn split_combo(combo: &str) -> (Vec<&str>, &str) {
     if combo == "+" {
         return (Vec::new(), "+");
     }
@@ -1322,7 +1369,7 @@ fn split_combo(combo: &str) -> (Vec<&str>, &str) {
 }
 
 /// xdotool modifier token → the modifier name `combo_mask` accepts.
-fn normalize_modifier(tok: &str) -> Option<&'static str> {
+pub(crate) fn normalize_modifier(tok: &str) -> Option<&'static str> {
     match tok.to_ascii_lowercase().as_str() {
         "ctrl" | "control" => Some("Control"),
         "alt" | "option" => Some("Alt"),
@@ -1335,7 +1382,7 @@ fn normalize_modifier(tok: &str) -> Option<&'static str> {
 /// xdotool key aliases → Playwright key names (`pw_key_spec`'s
 /// grammar). Keypad digits normalize to plain digits; unknown tokens
 /// pass through so `pw_key_spec` decides (and errors honestly).
-fn normalize_key_token(tok: &str) -> String {
+pub(crate) fn normalize_key_token(tok: &str) -> String {
     match tok {
         "Enter" | "Return" | "Linefeed" | "KP_Enter" => "Enter".into(),
         "BackSpace" => "Backspace".into(),

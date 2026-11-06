@@ -73,12 +73,6 @@ pub(crate) struct Download {
 struct Inner {
     seq: u64,
     dialogs: HashMap<String, JsDialog>,
-    /// Bumped on every dialog open/close — the "dialog appeared during
-    /// this action" detector (the recovered `tl` race's Ruke stand-in).
-    dialog_gen: HashMap<String, u64>,
-    /// Last closed dialog per tab: the interrupt message detail must
-    /// survive long enough for the action that raced it to report.
-    last_closed: HashMap<String, JsDialog>,
     chooser_intercept_on: HashMap<String, bool>,
     choosers: Vec<FileChooser>,
     chooser_gen: HashMap<String, u64>,
@@ -139,47 +133,22 @@ impl IoRegistries {
         // One active dialog per tab at most (a modal JS dialog blocks the
         // renderer, so a second opening cannot predate the first close).
         inner.dialogs.insert(tab_id.to_string(), dialog.clone());
-        *inner.dialog_gen.entry(tab_id.to_string()).or_insert(0) += 1;
         dialog
     }
 
     pub(crate) fn on_dialog_closed(&self, tab_id: &str) {
-        let mut inner = self.inner.lock();
-        if let Some(closed) = inner.dialogs.remove(tab_id) {
-            inner.last_closed.insert(tab_id.to_string(), closed);
-        }
-        *inner.dialog_gen.entry(tab_id.to_string()).or_insert(0) += 1;
+        self.inner.lock().dialogs.remove(tab_id);
     }
 
     /// Remove the dialog after `tab_handle_js_dialog` succeeded (the
     /// `javascriptDialogClosed` event will also arrive; removal is
     /// idempotent).
     pub(crate) fn take_dialog(&self, tab_id: &str) -> Option<JsDialog> {
-        let mut inner = self.inner.lock();
-        let taken = inner.dialogs.remove(tab_id);
-        if taken.is_some() {
-            *inner.dialog_gen.entry(tab_id.to_string()).or_insert(0) += 1;
-        }
-        taken
+        self.inner.lock().dialogs.remove(tab_id)
     }
 
     pub(crate) fn js_dialog(&self, tab_id: &str) -> Option<JsDialog> {
         self.inner.lock().dialogs.get(tab_id).cloned()
-    }
-
-    pub(crate) fn dialog_generation(&self, tab_id: &str) -> u64 {
-        *self.inner.lock().dialog_gen.get(tab_id).unwrap_or(&0)
-    }
-
-    /// The dialog to name in a `JsDialogInterrupted` message: still-open
-    /// first, else the most recently closed one.
-    pub(crate) fn interrupt_dialog(&self, tab_id: &str) -> Option<JsDialog> {
-        let inner = self.inner.lock();
-        inner
-            .dialogs
-            .get(tab_id)
-            .or_else(|| inner.last_closed.get(tab_id))
-            .cloned()
     }
 
     // ── File choosers ──────────────────────────────────────────────────
@@ -468,8 +437,6 @@ impl IoRegistries {
     pub(crate) fn forget_tab(&self, tab_id: &str) {
         let mut inner = self.inner.lock();
         inner.dialogs.remove(tab_id);
-        inner.dialog_gen.remove(tab_id);
-        inner.last_closed.remove(tab_id);
         inner.chooser_intercept_on.remove(tab_id);
         inner.chooser_gen.remove(tab_id);
         inner.choosers.retain(|c| c.tab_id != tab_id);
@@ -501,12 +468,8 @@ mod tests {
         assert_eq!(d.id, "1");
         assert_eq!(r.js_dialog("1").unwrap().dialog_type, "confirm");
         assert!(r.js_dialog("2").is_none());
-        let gen_after_open = r.dialog_generation("1");
         r.on_dialog_closed("1");
         assert!(r.js_dialog("1").is_none());
-        assert!(r.dialog_generation("1") > gen_after_open);
-        // The closed dialog is what an interrupted action quotes.
-        assert_eq!(r.interrupt_dialog("1").unwrap().message, "Leave?");
     }
 
     #[test]

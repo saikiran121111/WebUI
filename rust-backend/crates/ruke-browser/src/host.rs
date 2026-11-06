@@ -152,6 +152,11 @@ pub struct LaunchedHost {
     /// unset ⇒ true). Read by `browser_visibility_get` (Phase 15):
     /// a headless host has no OS window anyone can see.
     pub headless: bool,
+    /// Loopback DevTools port of this host (from the DevToolsActivePort
+    /// handshake). Phase 2: the Playwright MCP server attaches to THIS
+    /// port — the same Chromium the raw CDP bridge owns, never a second
+    /// browser.
+    pub cdp_port: u16,
 }
 
 impl LaunchedHost {
@@ -255,6 +260,7 @@ impl LaunchedHost {
             writer: opened.writer,
             reader: opened.reader,
             initial_page_targets,
+            cdp_port: ws_url.port().unwrap_or(0),
             headless: cfg.headless,
         })
     }

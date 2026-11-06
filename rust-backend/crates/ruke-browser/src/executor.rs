@@ -10,9 +10,8 @@
 //! `tab_cdp_call`/`tab_cdp_events` (Phase 4), the five DOM CUA
 //! commands `dom_cua_get_visible_dom`/`dom_cua_click`/
 //! `dom_cua_double_click`/`dom_cua_scroll`/`dom_cua_type` (Phase 5),
-//! the AX read command `tab_ax_get_state` with ALL three content
-//! modes (Phases 6/8), the Phase-7 locator runtime, and the Phase-8
-//! surface — `tab_ax_action`, `tab_screenshot`, the JS-dialog pair
+//! the Phase-7 locator runtime, and the Phase-8
+//! surface — `tab_screenshot`, the JS-dialog pair
 //! `tab_get_js_dialog`/`tab_handle_js_dialog`, `dom_cua_keypress`,
 //! `dom_cua_download_media`, and the download/file-chooser commands
 //! `playwright_wait_for_download`, `playwright_download_path`,
@@ -23,10 +22,22 @@
 //! `tab_content_export*`, `tab_page_assets_*`, `tab_dev_logs`,
 //! `browser_visibility_get`) landed real arms in Phase 15: the
 //! `execute()` match is now EXHAUSTIVE — rustc enforces an arm per
-//! registry kind, so the Phase-1 coverage ledger (83 rows) is
-//! compile-checked rather than tracked. The `Unsupported` wire code
+//! registry kind, so the Phase-1 coverage ledger (81 rows since the
+//! Phase-2 retirement of the `tab_ax_action`/`tab_ax_get_state` pair)
+//! is compile-checked rather than tracked. The `Unsupported` wire code
 //! stays reserved (the contract grammar keeps it) but no execute()
 //! path returns it.
+//!
+//! Phase 2 (plan): every INTERACTIVE action command (locator clicks/
+//! fills/presses/selects/checks, `cua_*` pointer input, and the
+//! DOM-CUA click/scroll/keypress/download triggers) is actuated
+//! through the Playwright MCP driver (`bridge.rs` — one pinned
+//! `@playwright/mcp` session attached to the SAME authorized Chromium
+//! over loopback CDP, per-turn serialization + cancellation in the
+//! bridge guard). Observation (reads, waits, aria snapshots,
+//! screenshots, downloads, lifecycle) stays native CDP. The retired
+//! `element_index` protocol answers `browser_command_unknown` — see
+//! `contract.rs::RETIRED_REFERENCE_COMMANDS`.
 //!
 //! Security floors: navigation is restricted to `http(s)` and
 //! `about:blank` — `file:`, `data:` and `javascript:` URLs are refused
@@ -51,7 +62,7 @@ use crate::contract::Command;
 use crate::engine::{BrowserRuntime, BROWSER_ID};
 use crate::errors::{payload_invalid, BrowserError};
 use crate::io_state::IoRegistries;
-use crate::schemas::{AxStateContent, ContentFormat, ScreenshotPayload};
+use crate::schemas::ContentFormat;
 use crate::session::{TabRecord, TurnKey};
 
 /// Navigation settle budget: bounded polling of `document.readyState`
@@ -272,7 +283,6 @@ impl BrowserRuntime {
                 // must be dropped here (tab ids are never reused).
                 self.cdp_events.forget_tab(&p.tab_id);
                 self.dom.forget_tab(&p.tab_id);
-                self.ax.forget_tab(&p.tab_id);
                 self.pw.forget_tab(&p.tab_id);
                 self.io.forget_tab(&p.tab_id);
                 // Parked approval cards for a closed tab resolve as
@@ -433,146 +443,20 @@ impl BrowserRuntime {
                 } else {
                     1
                 };
-                self.dom_click(&conn, &rec, p.node_id, click_count).await
+                self.dom_click(key, &conn, &rec, p.node_id, click_count)
+                    .await
             }
             Command::DomCuaScroll(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.dom_scroll(&conn, &rec, p.node_id, p.x, p.y).await
+                self.dom_scroll(key, &conn, &rec, p.node_id, p.x, p.y).await
             }
             Command::DomCuaType(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
                 self.dom_type(&conn, &rec, &p.text).await
-            }
-            Command::TabAxGetState(p) => {
-                check_browser(&p.browser_id)?;
-                match p.content {
-                    AxStateContent::AxState => {
-                        // Read-only like the visible-DOM read: the
-                        // handle must exist, but the capture pipeline
-                        // (H-BS-26) drives its own navigation settle,
-                        // so no actable-tab gate.
-                        let rec = self.registry.lock().require(&p.tab_id)?;
-                        let conn = self.client().await?;
-                        // H-BS-28 [adapted]: the pipeline already
-                        // re-anchors candidates whose document moved
-                        // mid-read, so a surfaced
-                        // AxCaptureChangedBeforeCommitted means the
-                        // committed-revision CAS lost a race. Bound the
-                        // retry (diff disabled past attempt 0 keeps the
-                        // prev anchor honest under churn) instead of
-                        // looping unbounded on a flapping page.
-                        for attempt in 0..3u32 {
-                            match self
-                                .ax
-                                .capture(
-                                    &conn,
-                                    &rec,
-                                    p.disable_diffing.unwrap_or(false) || attempt > 0,
-                                )
-                                .await
-                            {
-                                Ok(r) => {
-                                    return Ok(json!({
-                                        "tab_id": rec.tab_id,
-                                        "document_key": r.document_key,
-                                        "element_count": r.element_count,
-                                        "diff": r.used_diff,
-                                        "rendered": r.state,
-                                    }))
-                                }
-                                Err(BrowserError::AxCaptureChangedBeforeCommitted)
-                                    if attempt < 2 =>
-                                {
-                                    continue;
-                                }
-                                Err(e) => return Err(e),
-                            }
-                        }
-                        Err(BrowserError::AxCaptureChangedBeforeCommitted)
-                    }
-                    AxStateContent::Screenshot | AxStateContent::AxStateAndScreenshot => {
-                        // Phase 8: capture rides the same
-                        // `Page.captureScreenshot` primitive as
-                        // `playwright_element_screenshot` (viewport
-                        // mode — no clip, no beyond-viewport), and the
-                        // blend keeps the state capture's retry loop
-                        // above. A live JS dialog makes the viewport
-                        // unshottable (recovered fallback text).
-                        let rec = self.registry.lock().require(&p.tab_id)?;
-                        if let Some(dialog) = self.io.js_dialog(&rec.tab_id) {
-                            return Err(BrowserError::ScreenshotUnavailable {
-                                dialog_type: dialog.dialog_type,
-                            });
-                        }
-                        let conn = self.client().await?;
-                        let blend = matches!(p.content, AxStateContent::AxStateAndScreenshot);
-                        let mut ax_state: Option<Value> = None;
-                        if blend {
-                            for attempt in 0..3u32 {
-                                match self
-                                    .ax
-                                    .capture(
-                                        &conn,
-                                        &rec,
-                                        p.disable_diffing.unwrap_or(false) || attempt > 0,
-                                    )
-                                    .await
-                                {
-                                    Ok(r) => {
-                                        ax_state = Some(json!({
-                                            "tab_id": rec.tab_id,
-                                            "document_key": r.document_key,
-                                            "element_count": r.element_count,
-                                            "diff": r.used_diff,
-                                            "rendered": r.state,
-                                        }));
-                                        break;
-                                    }
-                                    Err(BrowserError::AxCaptureChangedBeforeCommitted)
-                                        if attempt < 2 =>
-                                    {
-                                        continue;
-                                    }
-                                    Err(e) => return Err(e),
-                                }
-                            }
-                        }
-                        let shot = self
-                            .pw
-                            .pw_element_screenshot(
-                                &conn,
-                                &rec,
-                                &ScreenshotPayload {
-                                    browser_id: BROWSER_ID.to_string(),
-                                    tab_id: rec.tab_id.clone(),
-                                    clip: None,
-                                    full_page: None,
-                                    selector: None,
-                                    format: None,
-                                    quality: None,
-                                    max_dim: None,
-                                },
-                            )
-                            .await?;
-                        match ax_state {
-                            None => Ok(json!({
-                                "tab_id": rec.tab_id,
-                                "data": shot["image_base64"],
-                                "mime_type": shot["mime_type"],
-                            })),
-                            Some(state) => {
-                                let mut out = state;
-                                out["data"] = shot["image_base64"].clone();
-                                out["mime_type"] = shot["mime_type"].clone();
-                                Ok(out)
-                            }
-                        }
-                    }
-                }
             }
             // ── Playwright-style locator runtime (Phase 7) ──────────
             // Reads require the tab handle to exist; actions obey the
@@ -581,7 +465,7 @@ impl BrowserRuntime {
                 check_browser(&p.browser_id)?;
                 let rec = self.registry.lock().require(&p.tab_id)?;
                 let conn = self.client().await?;
-                self.pw.pw_dom_snapshot(self, &conn, &rec, &p).await
+                self.pw.pw_dom_snapshot(&conn, &rec, &p).await
             }
             Command::PlaywrightEvaluate(p) => {
                 check_browser(&p.browser_id)?;
@@ -676,85 +560,48 @@ impl BrowserRuntime {
                 let conn = self.client().await?;
                 self.pw.pw_locator_wait_for(self, &conn, &rec, p).await
             }
+            // ── Phase 2 (plan): locator ACTUATION routes through the
+            //    Playwright MCP driver (bridge.rs). Observation arms
+            //    (reads/waits/screenshots above) stay native CDP.
             Command::PlaywrightLocatorClick(p) | Command::PlaywrightLocatorDblclick(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
                 let dblclick = matches!(cmd, Command::PlaywrightLocatorDblclick(_));
-                self.pw
-                    .pw_locator_click(self, &conn, &rec, p, dblclick)
-                    .await
+                self.bridge_click(key, &conn, &rec, p, dblclick).await
             }
             Command::PlaywrightLocatorFill(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.pw.pw_locator_fill(self, &conn, &rec, p).await
+                self.bridge_fill(key, &conn, &rec, p).await
             }
             Command::PlaywrightLocatorPress(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.pw.pw_locator_press(self, &conn, &rec, p).await
+                self.bridge_press(key, &conn, &rec, p).await
             }
             Command::PlaywrightLocatorPressSequentially(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.pw
-                    .pw_locator_press_sequentially(self, &conn, &rec, p)
-                    .await
+                self.bridge_press_sequentially(key, &conn, &rec, p).await
             }
             Command::PlaywrightLocatorSelectOption(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.pw.pw_locator_select_option(self, &conn, &rec, p).await
+                self.bridge_select_option(key, &conn, &rec, p).await
             }
             Command::PlaywrightLocatorSetChecked(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.pw.pw_locator_set_checked(self, &conn, &rec, p).await
+                self.bridge_set_checked(key, &conn, &rec, p).await
             }
-            // ── Phase 8: AX actions, dialogs, screenshots, downloads,
+            // ── Phase 8: dialogs, screenshots, downloads,
             //    file choosers, DOM-CUA keys/media ────────────────────
-            Command::TabAxAction(p) => {
-                check_browser(&p.browser_id)?;
-                let rec = self.actable_tab(&p.tab_id, key)?;
-                let conn = self.client().await?;
-                match self.tab_ax_action(&conn, &rec, p).await {
-                    Ok(v) => Ok(v),
-                    Err(source) => {
-                        // Recovered contract: a failed AX action
-                        // re-raises with the CURRENT rendered state
-                        // appended, so the model re-grounds without a
-                        // second round-trip. If the state re-capture
-                        // itself fails (tab churn mid-action), keep the
-                        // bare source error rather than lie about it.
-                        let state = match self.ax.capture(&conn, &rec, true).await {
-                            Ok(r) => {
-                                let v = json!({
-                                    "tab_id": rec.tab_id,
-                                    "document_key": r.document_key,
-                                    "element_count": r.element_count,
-                                    "rendered": r.state,
-                                });
-                                serde_json::to_string(&v).unwrap_or_default()
-                            }
-                            Err(_) => String::new(),
-                        };
-                        if state.is_empty() {
-                            Err(source)
-                        } else {
-                            Err(BrowserError::AxActionFailed {
-                                source: Box::new(source),
-                                state,
-                            })
-                        }
-                    }
-                }
-            }
             Command::TabScreenshot(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.registry.lock().require(&p.tab_id)?;
@@ -804,13 +651,13 @@ impl BrowserRuntime {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.dom_cua_keypress(&conn, &rec, &p.keys).await
+                self.dom_cua_keypress(key, &conn, &rec, &p.keys).await
             }
             Command::DomCuaDownloadMedia(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.dom_cua_download_media(&conn, &rec, p.node_id, p.timeout_ms)
+                self.dom_cua_download_media(key, &conn, &rec, p.node_id, p.timeout_ms)
                     .await
             }
             Command::PlaywrightWaitForDownload(p) => {
@@ -897,56 +744,76 @@ impl BrowserRuntime {
                     })?;
                 IoRegistries::validate_set_files(&p.files, &chooser, &rec.tab_id)?;
                 let conn = self.client().await?;
-                match chooser.backend_node_id {
-                    Some(bnid) => {
-                        conn.call(
-                            "DOM.setFileInputFiles",
-                            Some(json!({ "files": p.files, "backendNodeId": bnid })),
-                            Some(&rec.cdp_session_id),
-                        )
-                        .await?;
-                    }
-                    None => {
-                        // [adapted] chooser event carried no node id:
-                        // the input whose activation opened the chooser
-                        // is the focused element; resolve it and set
-                        // files through the object id.
-                        let res = conn
-                            .call(
-                                "Runtime.evaluate",
-                                Some(json!({
-                                    "expression": "document.activeElement && \
-                                        document.activeElement.tagName === 'INPUT' && \
-                                        document.activeElement.type === 'file' ? \
-                                        document.activeElement : null",
-                                    "objectGroup": "ruke-file-chooser",
-                                })),
+                // MCP-first actuation: when the driver's page has
+                // seen this same chooser, its `browser_file_upload
+                // {paths}` is the single actuation (one change event,
+                // full form round-trip — proven in
+                // `.ai-coordination/mcp-chooser-proto.mjs` stage B4).
+                // `false` hands the apply to the native CDP path,
+                // for every honest fallback: the driver never saw
+                // this chooser (its "only be used when there is
+                // related modal state" refusal), pinning could not
+                // scope the driver to this tab (the native path
+                // stays tab-exact through the chooser event's
+                // backendNodeId), or the driver is absent/failed —
+                // and Playwright's setFiles REPLACES the input's
+                // files, so a double apply of the SAME paths is
+                // idempotent (proto B2).
+                if !self
+                    .bridge_file_chooser_set_files(key, &conn, &rec, &p.files)
+                    .await?
+                {
+                    match chooser.backend_node_id {
+                        Some(bnid) => {
+                            conn.call(
+                                "DOM.setFileInputFiles",
+                                Some(json!({ "files": p.files, "backendNodeId": bnid })),
                                 Some(&rec.cdp_session_id),
                             )
                             .await?;
-                        let object_id = res
-                            .pointer("/result/objectId")
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
-                        let object_id = object_id.ok_or_else(|| {
-                            crate::errors::payload_invalid(
-                                "playwright_file_chooser_set_files",
-                                "no focused file input to receive the files",
-                            )
-                        })?;
-                        conn.call(
-                            "DOM.setFileInputFiles",
-                            Some(json!({ "files": p.files, "objectId": object_id })),
-                            Some(&rec.cdp_session_id),
-                        )
-                        .await?;
-                        let _ = conn
-                            .call(
-                                "Runtime.releaseObjectGroup",
-                                Some(json!({ "objectGroup": "ruke-file-chooser" })),
+                        }
+                        None => {
+                            // [adapted] chooser event carried no node id:
+                            // the input whose activation opened the chooser
+                            // is the focused element; resolve it and set
+                            // files through the object id.
+                            let res = conn
+                                .call(
+                                    "Runtime.evaluate",
+                                    Some(json!({
+                                        "expression": "document.activeElement && \
+                                            document.activeElement.tagName === 'INPUT' && \
+                                            document.activeElement.type === 'file' ? \
+                                            document.activeElement : null",
+                                        "objectGroup": "ruke-file-chooser",
+                                    })),
+                                    Some(&rec.cdp_session_id),
+                                )
+                                .await?;
+                            let object_id = res
+                                .pointer("/result/objectId")
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            let object_id = object_id.ok_or_else(|| {
+                                crate::errors::payload_invalid(
+                                    "playwright_file_chooser_set_files",
+                                    "no focused file input to receive the files",
+                                )
+                            })?;
+                            conn.call(
+                                "DOM.setFileInputFiles",
+                                Some(json!({ "files": p.files, "objectId": object_id })),
                                 Some(&rec.cdp_session_id),
                             )
-                            .await;
+                            .await?;
+                            let _ = conn
+                                .call(
+                                    "Runtime.releaseObjectGroup",
+                                    Some(json!({ "objectGroup": "ruke-file-chooser" })),
+                                    Some(&rec.cdp_session_id),
+                                )
+                                .await;
+                        }
                     }
                 }
                 // The chooser is consumed: the OS dialog never opened
@@ -1328,31 +1195,34 @@ impl BrowserRuntime {
             // tab (the same pixels the panel maps human pointer events
             // onto). Locator-first stays the recommended surface — the
             // tool descriptions say so — and these arms are the raw
-            // trusted-pointer path for what no locator can reach.
+            // pointer path for what no locator can reach. Phase 2
+            // (plan): the pointer EVENTS themselves now ride the
+            // Playwright MCP driver (bridge_cua_*); the typed payload
+            // grammar in `cua.rs` is unchanged.
             Command::CuaClick(p) | Command::CuaDoubleClick(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
                 let double = matches!(cmd, Command::CuaDoubleClick(_));
-                crate::cua::cua_click(&conn, &rec, p, double).await
+                self.bridge_cua_click(key, &conn, &rec, p, double).await
             }
             Command::CuaMove(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                crate::cua::cua_move(&conn, &rec, p).await
+                self.bridge_cua_move(key, &conn, &rec, p).await
             }
             Command::CuaScroll(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                crate::cua::cua_scroll(&conn, &rec, p).await
+                self.bridge_cua_scroll(key, &conn, &rec, p).await
             }
             Command::CuaDrag(p) => {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                crate::cua::cua_drag(&conn, &rec, p).await
+                self.bridge_cua_drag(key, &conn, &rec, p).await
             }
             Command::CuaType(p) => {
                 // [adapted] cua_type reuses the DOM-CUA text primitive
@@ -1369,7 +1239,7 @@ impl BrowserRuntime {
                 check_browser(&p.browser_id)?;
                 let rec = self.actable_tab(&p.tab_id, key)?;
                 let conn = self.client().await?;
-                self.dom_cua_keypress(&conn, &rec, &p.keys).await
+                self.dom_cua_keypress(key, &conn, &rec, &p.keys).await
             }
             // ── Phase 15: clipboard (the page's own clipboard API) ──────
             // Reads are page-API reads: without focus or permission
@@ -1985,9 +1855,8 @@ pub(crate) fn known_destination(cmd: &Command) -> Option<(&str, &str)> {
 /// JS-dialog pair (the guard error names it as the dismissal route),
 /// lifecycle/discovery reads (`tabs`/`get_tab`/`tab_new`/`tab_close`/
 /// the claim pair/`tab_cdp_events`), pure state snapshots
-/// (`dom_cua_get_visible_dom`, `playwright_dom_snapshot`,
-/// `tab_ax_get_state` — its screenshot mode raises the dedicated
-/// `screenshot_unavailable` contract instead), and the download /
+/// (`dom_cua_get_visible_dom`, `playwright_dom_snapshot` — pure reads,
+/// no page input), and the download /
 /// file-chooser wait + resolve commands (legitimately armed BEFORE a
 /// dialog opens; they must stay serviceable while one is up, and they
 /// touch no page input). The raw bridge guards every method EXCEPT
@@ -2011,7 +1880,6 @@ fn guarded_tab_id(cmd: &Command) -> Option<String> {
         Command::DomCuaKeypress(p) => Some(p.tab_id.clone()),
         Command::DomCuaDownloadMedia(p) => Some(p.tab_id.clone()),
         Command::TabScreenshot(p) => Some(p.tab_id.clone()),
-        Command::TabAxAction(p) => Some(p.tab_id.clone()),
         Command::PlaywrightEvaluate(p) => Some(p.tab_id.clone()),
         Command::PlaywrightElementInfo(p) => Some(p.tab_id.clone()),
         Command::PlaywrightElementScreenshot(p) => Some(p.tab_id.clone()),

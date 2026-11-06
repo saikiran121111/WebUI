@@ -123,8 +123,8 @@ fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
 /// The metadata promise: image_width/height EQUAL the real pixels.
 fn assert_dims_honest(r: &serde_json::Value, what: &str) -> (u32, u32) {
     let b64 = r["image_base64"].as_str().unwrap_or_default();
-    let real = image_dims(&b64_bytes(b64))
-        .unwrap_or_else(|| panic!("{what}: undecodable image bytes"));
+    let real =
+        image_dims(&b64_bytes(b64)).unwrap_or_else(|| panic!("{what}: undecodable image bytes"));
     let rep_w = r["image_width"].as_u64().unwrap_or(0) as u32;
     let rep_h = r["image_height"].as_u64().unwrap_or(0) as u32;
     assert_eq!(
@@ -2069,6 +2069,381 @@ async fn run_gap_battery() {
         !after.contains(&g1) && !after.contains(&g2),
         "claimed handoff tabs lingered"
     );
+
+    rt.shutdown().await;
+    if let Some(mut child) = node {
+        let _ = child.start_kill();
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Phase-2 two-session scoping proof (plan: "Prove it with two-session tests
+// for tabs, snapshots, screenshots, downloads and profile state"). One
+// BrowserRuntime = ONE shared Chromium host and ONE MCP child (the active
+// session count stays irrelevant to memory on 16 GB laptops); isolation is
+// the bridge's law, not the process topology. Every actuation below runs
+// INTERLEAVED across the two sessions (`tokio::join!`): the `mcp_call`
+// guard serializes driver calls, so the driver's single "current tab" is
+// re-pinned A→B→A→B between consecutive actuations — if any leg steered
+// the wrong tab, the per-tab readbacks below catch it.
+// What each leg proves:
+// - tabs: sessions own disjoint tab sets; acting in another session's tab
+//   is a typed refusal naming the claim flow.
+// - fills: two concurrent form fills land in each session's OWN input.
+// - snapshots: each session's dom_snapshot carries only its own page.
+// - screenshots: element crops target the REQUESTED tab's DOM (a selector
+//   that exists only in the other session's tab must fail there).
+// - downloads: concurrent downloads attribute to each requesting tab as
+//   distinct artifacts under the runtime downloads dir (per-tab CDP event
+//   routing is structural; this proves both sessions' download flows work
+//   concurrently and neither steals the other's completion path).
+// - profile state: the profile is ONE authorized browser — storage
+//   written by one session persists across a NEW tab of the writing
+//   session and is visible to the other session (the product model keeps
+//   intentional login state shared in the human's profile; the isolation
+//   boundary is per-tab actuation authority, not hidden per-session
+//   storage — asserted here honestly, in both directions).
+#[tokio::test]
+#[ignore = "launches real Chromium against the fixture server (see file header)"]
+async fn phase2_two_session_scoping_against_real_chromium() {
+    Box::pin(run_two_session_scoping()).await;
+}
+
+async fn sc_cmd(rt: &BrowserRuntime, sess: &str, command: &str, payload: Value) -> Value {
+    ok(
+        cmd(
+            rt,
+            sess,
+            TURN,
+            json!({"commandType":command,"session_id":sess,"turn_id":TURN,"payload":payload}),
+        )
+        .await,
+        &format!("[{sess}] {command}"),
+    )
+}
+
+async fn sc_navigate(rt: &BrowserRuntime, sess: &str, tab: &str, path: &str) {
+    sc_cmd(
+        rt,
+        sess,
+        "navigate_tab_url",
+        json!({"browser_id":"default","tab_id":tab,
+               "url":format!("{}{}", base_url(), path)}),
+    )
+    .await;
+}
+
+async fn run_two_session_scoping() {
+    const SA: &str = "p2-scope-A-81f1";
+    const SB: &str = "p2-scope-B-82e2";
+    const FILL_A: &str = "SCOPING-A-4T71";
+    const FILL_B: &str = "SCOPING-B-8Q30";
+    const PROFILE_KEY: &str = "p2_scope_marker";
+    const PROFILE_VAL: &str = "PROFILE-STATE-5D19";
+    // Page-unique text on /hard/form vs /hard/download (server.mjs).
+    const FORM_ONLY: &str = "Download fixture file";
+    const DL_ONLY: &str = "Fixture Hard Form";
+
+    let product_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("crate sits three levels below the project root")
+        .to_path_buf();
+    let exe = discover_product_chromium(&product_root);
+    std::env::set_var(ENV_EXECUTABLE, &exe);
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+    let node = start_fixture_server(&product_root).await;
+    let rt = &BrowserRuntime::new(root.clone());
+
+    // ── tabs: disjoint session-owned tab sets ─────────────────────────────
+    let tab_a = tab_id_of(&sc_cmd(rt, SA, "tab_new", json!({"browser_id":"default"})).await);
+    let tab_b = tab_id_of(&sc_cmd(rt, SB, "tab_new", json!({"browser_id":"default"})).await);
+    assert_ne!(tab_a, tab_b, "sessions must not share a tab handle");
+
+    // Acting in the other session's tab: typed refusal naming the claim
+    // flow — never a silent actuation on someone else's page.
+    let e = cmd(
+        rt,
+        SA,
+        TURN,
+        json!({"commandType":"playwright_locator_click","session_id":SA,"turn_id":TURN,
+               "payload":{"browser_id":"default","tab_id":tab_b,"selector":"#q-input"}}),
+    )
+    .await
+    .expect_err("session A acted on session B's tab");
+    assert!(
+        e.to_string().contains("browser_user_claim_tab"),
+        "cross-session actuation error: {e}"
+    );
+
+    // ── concurrent fills: each value lands in its OWN session's input ───
+    tokio::join!(
+        sc_navigate(rt, SA, &tab_a, "/hard/form"),
+        sc_navigate(rt, SB, &tab_b, "/hard/form")
+    );
+    tokio::join!(
+        sc_cmd(
+            rt,
+            SA,
+            "playwright_locator_fill",
+            json!({"browser_id":"default","tab_id":tab_a,
+                   "selector":"#q-input","value":FILL_A})
+        ),
+        sc_cmd(
+            rt,
+            SB,
+            "playwright_locator_fill",
+            json!({"browser_id":"default","tab_id":tab_b,
+                   "selector":"#q-input","value":FILL_B})
+        )
+    );
+    // Move B to a DIFFERENT page: from here on, the driver's current tab
+    // is B's page while A's actuations run — every A readback below that
+    // sees A's content (and every cross-page failure below that refuses)
+    // proves the pin, not a lucky current-tab alignment.
+    sc_navigate(rt, SB, &tab_b, "/hard/download").await;
+    for (sess, tab, own, other) in [(SA, &tab_a, FILL_A, FILL_B), (SB, &tab_b, FILL_B, FILL_A)] {
+        let v = sc_cmd(
+            rt,
+            sess,
+            "playwright_evaluate",
+            json!({"browser_id":"default","tab_id":tab,
+                   "script":"document.querySelector('#q-input') ? document.querySelector('#q-input').value : null"}),
+        )
+        .await;
+        if sess == SA {
+            assert_eq!(
+                v["result"],
+                json!(own),
+                "A's input must hold ONLY A's value (B's value anywhere = crossed pin): {v}"
+            );
+        } else {
+            // B navigated away; its old value is gone from THIS page, and
+            // A's value must never have appeared in B's tab.
+            assert_ne!(
+                v["result"],
+                json!(other),
+                "A's fill crossed into B's tab: {v}"
+            );
+        }
+    }
+
+    // ── snapshots: each session sees only its own page ───────────────────
+    let (snap_a, snap_b) = tokio::join!(
+        sc_cmd(
+            rt,
+            SA,
+            "playwright_dom_snapshot",
+            json!({"browser_id":"default","tab_id":tab_a})
+        ),
+        sc_cmd(
+            rt,
+            SB,
+            "playwright_dom_snapshot",
+            json!({"browser_id":"default","tab_id":tab_b})
+        )
+    );
+    let snap_a = snap_a["dom_snapshot"].as_str().unwrap_or_default();
+    let snap_b = snap_b["dom_snapshot"].as_str().unwrap_or_default();
+    assert!(
+        !snap_a.contains(FORM_ONLY) && snap_a.contains("Query"),
+        "A's snapshot leaked B's page or lost its own: {snap_a}"
+    );
+    assert!(
+        snap_b.contains(FORM_ONLY) && !snap_b.contains(DL_ONLY),
+        "B's snapshot leaked A's page or lost its own: {snap_b}"
+    );
+
+    // ── screenshots: element crops are targeted to the REQUESTED tab ────
+    // Each selector exists ONLY on its own session's page; while the
+    // driver's current tab is the other session's page, the crop must
+    // still succeed on the owning tab and the foreign-selector crop must
+    // fail with a locator error naming the selector.
+    let (crop_a, crop_b) = tokio::join!(
+        sc_cmd(
+            rt,
+            SA,
+            "playwright_element_screenshot",
+            json!({"browser_id":"default","tab_id":tab_a,"selector":"#hard-form"})
+        ),
+        sc_cmd(
+            rt,
+            SB,
+            "playwright_element_screenshot",
+            json!({"browser_id":"default","tab_id":tab_b,"selector":"#dl-link"})
+        )
+    );
+    assert_dims_honest(&crop_a, "A's #hard-form crop");
+    assert_dims_honest(&crop_b, "B's #dl-link crop");
+    for (sess, tab, foreign) in [(SA, &tab_a, "#dl-link"), (SB, &tab_b, "#hard-form")] {
+        let e = cmd(
+            rt,
+            sess,
+            TURN,
+            json!({"commandType":"playwright_element_screenshot","session_id":sess,"turn_id":TURN,
+                   "payload":{"browser_id":"default","tab_id":tab,"selector":foreign}}),
+        )
+        .await
+        .expect_err(&format!("{foreign} must not resolve on {sess}'s tab")[..]);
+        let msg = e.to_string();
+        assert!(
+            matches!(
+                e,
+                BrowserError::PayloadInvalid { .. }
+                    | BrowserError::LocatorStrict { .. }
+                    | BrowserError::LocatorTimeout { .. }
+                    | BrowserError::LocatorFailed { .. }
+            ),
+            "foreign-selector crop error: {msg}"
+        );
+        assert!(
+            msg.contains(foreign),
+            "crop error must name the selector: {msg}"
+        );
+    }
+
+    // ── downloads: concurrent, per-tab attributed, distinct artifacts ───
+    sc_navigate(rt, SA, &tab_a, "/hard/download").await;
+    let (dl_a, dl_b, _, _) = tokio::join!(
+        sc_cmd(
+            rt,
+            SA,
+            "playwright_wait_for_download",
+            json!({"browser_id":"default","tab_id":tab_a,"timeout_ms":20000})
+        ),
+        sc_cmd(
+            rt,
+            SB,
+            "playwright_wait_for_download",
+            json!({"browser_id":"default","tab_id":tab_b,"timeout_ms":20000})
+        ),
+        sc_cmd(
+            rt,
+            SA,
+            "playwright_locator_click",
+            json!({"browser_id":"default","tab_id":tab_a,"selector":"#dl-link"})
+        ),
+        sc_cmd(
+            rt,
+            SB,
+            "playwright_locator_click",
+            json!({"browser_id":"default","tab_id":tab_b,"selector":"#dl-link"})
+        )
+    );
+    for dl in [&dl_a, &dl_b] {
+        assert_eq!(
+            dl["suggested_filename"],
+            json!(DOWNLOAD_FILENAME),
+            "wait: {dl}"
+        );
+        assert!(dl["download_id"].is_string(), "wait: {dl}");
+    }
+    assert_ne!(
+        dl_a["download_id"], dl_b["download_id"],
+        "both sessions were handed the same download"
+    );
+    let mut paths = Vec::new();
+    for (sess, tab) in [(SA, &tab_a), (SB, &tab_b)] {
+        let mut found: Option<String> = None;
+        for _ in 0..40 {
+            let r = sc_cmd(
+                rt,
+                sess,
+                "playwright_download_path",
+                json!({"browser_id":"default","tab_id":tab}),
+            )
+            .await;
+            if let Some(p) = r["path"].as_str() {
+                found = Some(p.to_string());
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        let p = found.unwrap_or_else(|| panic!("tab {tab} never completed a download"));
+        assert!(
+            Path::new(&p).starts_with(root.join("downloads")),
+            "download landed outside the runtime downloads dir: {p}"
+        );
+        let bytes = std::fs::read(&p).unwrap_or_else(|e| panic!("download unreadable at {p}: {e}"));
+        assert_eq!(bytes, DOWNLOAD_CONTENT, "downloaded bytes mismatch at {p}");
+        paths.push(p);
+    }
+    assert_ne!(
+        paths[0], paths[1],
+        "the two sessions share one artifact path"
+    );
+
+    // ── profile state: ONE authorized profile, honestly asserted ────────
+    sc_cmd(
+        rt,
+        SA,
+        "playwright_evaluate",
+        json!({"browser_id":"default","tab_id":tab_a,
+               "script":format!("localStorage.setItem('{PROFILE_KEY}','{PROFILE_VAL}')")}),
+    )
+    .await;
+    // Same origin, other session's tab: the shared profile makes the
+    // write visible — login state reuse across conversations is a
+    // FEATURE of the authorized browser, not a scoping bug.
+    let seen_b = sc_cmd(
+        rt,
+        SB,
+        "playwright_evaluate",
+        json!({"browser_id":"default","tab_id":tab_b,
+               "script":format!("localStorage.getItem('{PROFILE_KEY}')")}),
+    )
+    .await;
+    assert_eq!(
+        seen_b["result"],
+        json!(PROFILE_VAL),
+        "B's tab must see the ONE profile's storage: {seen_b}"
+    );
+    // And a NEW tab of the writing session persists it across navigations.
+    let tab_a2 = tab_id_of(&sc_cmd(rt, SA, "tab_new", json!({"browser_id":"default"})).await);
+    sc_navigate(rt, SA, &tab_a2, "/hard/success").await;
+    let seen_a2 = sc_cmd(
+        rt,
+        SA,
+        "playwright_evaluate",
+        json!({"browser_id":"default","tab_id":tab_a2,
+               "script":format!("localStorage.getItem('{PROFILE_KEY}')")}),
+    )
+    .await;
+    assert_eq!(
+        seen_a2["result"],
+        json!(PROFILE_VAL),
+        "A's new tab must persist its own session's profile write: {seen_a2}"
+    );
+
+    // ── cleanup: end_turn sweeps per-session tabs; user tabs untouched ──
+    rt.end_turn(SA, TURN).await;
+    rt.end_turn(SB, TURN).await;
+    let after: Vec<String> = tab_ids(
+        &sc_cmd(rt, SA, "tabs", json!({})).await["tabs"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default(),
+    );
+    assert!(
+        !after.contains(&tab_a) && !after.contains(&tab_b) && !after.contains(&tab_a2),
+        "session tabs survived end_turn: {after:?}"
+    );
+    let mut startup = false;
+    for t in after {
+        let g = sc_cmd(
+            rt,
+            SA,
+            "get_tab",
+            json!({"browser_id":"default","tab_id":t}),
+        )
+        .await;
+        if g["created_by_agent"] == json!(false) {
+            startup = true;
+            break;
+        }
+    }
+    assert!(startup, "the startup (user) tab must never be swept");
 
     rt.shutdown().await;
     if let Some(mut child) = node {

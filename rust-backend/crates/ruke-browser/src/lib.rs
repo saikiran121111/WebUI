@@ -25,7 +25,7 @@
 pub mod auth_handoff;
 pub mod authority;
 pub mod ax;
-pub mod ax_action;
+pub mod bridge;
 pub mod cdp;
 pub mod cdp_buffer;
 pub mod content_api;
@@ -37,7 +37,9 @@ pub mod errors;
 pub mod executor;
 pub mod history;
 pub mod host;
+pub mod imgdims;
 pub mod io_state;
+pub mod mcp;
 pub mod page_runtime;
 pub mod pw;
 pub mod schemas;

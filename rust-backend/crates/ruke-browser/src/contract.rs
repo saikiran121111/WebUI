@@ -92,8 +92,11 @@ command_registry! {
     NavigateTabBack / "navigate_tab_back" => TabTarget,
     NavigateTabForward / "navigate_tab_forward" => TabTarget,
     NavigateTabReload / "navigate_tab_reload" => TabTarget,
-    TabAxAction / "tab_ax_action" => AxActionPayload,
-    TabAxGetState / "tab_ax_get_state" => AxGetStatePayload,
+    // Phase 2 (plan): `tab_ax_action`/`tab_ax_get_state` RETIRED — the
+    // Playwright MCP driver replaced the element_index action path, and
+    // the aria snapshot + `tab_screenshot` cover the read modes. The
+    // names stay in the §2.1 ledger below (`RETIRED_REFERENCE_COMMANDS`);
+    // the wire now answers them as `browser_command_unknown`, honestly.
     TabScreenshot / "tab_screenshot" => ScreenshotPayload,
     TabHandleJsDialog / "tab_handle_js_dialog" => HandleJsDialogPayload,
     TabGetJsDialog / "tab_get_js_dialog" => TabTarget,
@@ -187,8 +190,11 @@ command_registry! {
     AnnotationCapture / "browser_annotation_capture" => TabTarget,
 }
 
-/// The exact §2.1 reference pool (73 names) — the coverage test asserts
-/// every one of these parses to a distinct registry kind.
+/// The exact §2.1 reference pool (73 names, kept VERBATIM as a
+/// historical ledger) — the coverage test asserts every one of these
+/// EXCEPT the Phase-2 retirements below parses to a distinct registry
+/// kind; each retired name must instead parse to NOTHING (the wire
+/// answers `browser_command_unknown`, never a fake success).
 pub const REFERENCE_COMMAND_POOL: [&str; 73] = [
     "tabs",
     "navigate_tab_url",
@@ -264,6 +270,17 @@ pub const REFERENCE_COMMAND_POOL: [&str; 73] = [
     "site_status",
     "site_submission_verified",
 ];
+
+/// Phase 2 (plan): reference names RETIRED by the Playwright MCP driver
+/// cutover. The §2.1 pool above keeps them (the recovery record stays
+/// intact); these names deliberately have NO registry row any more —
+/// `element_index` addressing was the custom action driver's private
+/// protocol, and the MCP locator/snapshot surfaces (`locator_*` on the
+/// aria snapshot, `playwright_dom_snapshot`, `tab_screenshot`) replaced
+/// both the actions and the state read. A wire message using a retired
+/// name gets `browser_command_unknown` — an honest refusal, not a
+/// silently re-routed old behavior.
+pub const RETIRED_REFERENCE_COMMANDS: [&str; 2] = ["tab_ax_action", "tab_ax_get_state"];
 
 /// [adapted] lifecycle names (10).
 pub const ADAPTED_COMMAND_POOL: [&str; 10] = [
@@ -389,15 +406,6 @@ fn validate_command(cmd: &Command) -> Result<(), BrowserError> {
         }
     }
 
-    if let Command::TabAxAction(p) = cmd {
-        if let AxAction::PressKey { duration, .. } = &p.action {
-            // Recovered zod bound: 0..30 seconds.
-            if duration.is_some_and(|d| !(0.0..=30.0).contains(&d)) {
-                return Err(bad("duration must be within 0..=30 seconds"));
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -438,7 +446,7 @@ mod tests {
             assert!(names.insert(n), "duplicate command name: {n}");
             assert_eq!(CommandKind::parse(n), Some(*kind), "round-trip failed: {n}");
         }
-        assert_eq!(CommandKind::ALL.len(), 83);
+        assert_eq!(CommandKind::ALL.len(), 81);
     }
 
     #[test]
@@ -450,11 +458,6 @@ mod tests {
         // contract can't populate.
         let augment: &[(&str, Value)] = &[
             ("navigate_tab_url", json!({"url": "https://example.org/"})),
-            (
-                "tab_ax_action",
-                json!({"action": {"kind": "type_text", "text": "x"}}),
-            ),
-            ("tab_ax_get_state", json!({"content": "axState"})),
             ("tab_handle_js_dialog", json!({"accept": true})),
             ("tab_content_export_gsuite", json!({"type": "pdf"})),
             ("tab_clipboard_write", json!({"items": []})),
@@ -607,8 +610,30 @@ mod tests {
     #[test]
     fn reference_pool_all_parse_to_distinct_kinds() {
         assert_eq!(REFERENCE_COMMAND_POOL.len(), 73);
+        assert_eq!(RETIRED_REFERENCE_COMMANDS.len(), 2);
         let mut kinds = std::collections::HashSet::new();
         for name in REFERENCE_COMMAND_POOL {
+            if RETIRED_REFERENCE_COMMANDS.contains(&name) {
+                // Retired (Phase 2 MCP cutover): the ledger name must
+                // parse to NOTHING — no silent alias back to live
+                // commands, just the honest unknown refusal.
+                assert_eq!(
+                    CommandKind::parse(name),
+                    None,
+                    "retired name still live: {name}"
+                );
+                assert!(
+                    matches!(
+                        parse_command(&envelope(
+                            name,
+                            json!({"browser_id": "default", "tab_id": "1"})
+                        )),
+                        Err(BrowserError::UnknownCommand { .. })
+                    ),
+                    "retired name must answer browser_command_unknown: {name}"
+                );
+                continue;
+            }
             let k = CommandKind::parse(name)
                 .unwrap_or_else(|| panic!("§2.1 pool name not registered: {name}"));
             assert_eq!(k.as_str(), name);
@@ -619,6 +644,7 @@ mod tests {
             assert_eq!(k.as_str(), name);
             assert!(kinds.insert(k));
         }
+        // 71 live reference kinds + 10 adapted = the full registry.
         assert_eq!(kinds.len(), CommandKind::ALL.len());
     }
 
@@ -741,30 +767,10 @@ mod tests {
         assert!(e.to_string().contains("tab_screenshot"));
     }
 
-    #[test]
-    fn ax_get_state_content_enum_verbatim() {
-        for (raw, expected) in [
-            ("axState", AxStateContent::AxState),
-            ("screenshot", AxStateContent::Screenshot),
-            ("axStateAndScreenshot", AxStateContent::AxStateAndScreenshot),
-        ] {
-            let cmd = parse_command(&envelope(
-                "tab_ax_get_state",
-                json!({ "browser_id": "b", "tab_id": "1", "content": raw }),
-            ))
-            .unwrap();
-            let Command::TabAxGetState(p) = cmd else {
-                panic!("wrong variant");
-            };
-            assert_eq!(p.content, expected);
-        }
-        let e = parse_command(&envelope(
-            "tab_ax_get_state",
-            json!({ "browser_id": "b", "tab_id": "1", "content": "ax_state" }),
-        ))
-        .unwrap_err();
-        assert_eq!(e.code(), ErrorCode::PayloadInvalid);
-    }
+    // `ax_get_state_content_enum_verbatim` and `ax_action_union_all_kinds`
+    // were retired with the tab_ax pair (Phase 2 MCP cutover); the
+    // retirement is pinned instead by the RETIRED ledger assertions in
+    // `reference_pool_all_parse_to_distinct_kinds`.
 
     #[test]
     fn vr_evaluate_payload_and_timeout_bounds() {
@@ -828,91 +834,6 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(e.code(), ErrorCode::PayloadInvalid);
-    }
-
-    #[test]
-    fn ax_action_union_all_kinds() {
-        let cases = [
-            (
-                json!({"kind": "paste", "text": "hi", "format": "html"}),
-                "paste",
-            ),
-            (json!({"kind": "click", "target": 5}), "click"),
-            (
-                json!({"kind": "click", "target": {"x": 1.5, "y": 2.5}, "mouse_button": "r", "click_count": 2}),
-                "click",
-            ),
-            (
-                json!({"kind": "drag", "from": 1, "to": {"x": 0.0, "y": 0.0}}),
-                "drag",
-            ),
-            (
-                json!({"kind": "perform_secondary_action", "element_index": 4, "action": "Expand"}),
-                "perform_secondary_action",
-            ),
-            (
-                json!({"kind": "press_key", "key": "Enter", "duration": 30.0}),
-                "press_key",
-            ),
-            (
-                json!({"kind": "scroll", "target": 2, "direction": "u", "pages": 1.5}),
-                "scroll",
-            ),
-            (
-                json!({"kind": "select_text", "element_index": 6, "text": "abc", "prefix": "x", "suffix": "y", "selection_type": "cursor_after"}),
-                "select_text",
-            ),
-            (
-                json!({"kind": "set_value", "element_index": 8, "value": "7"}),
-                "set_value",
-            ),
-            (
-                json!({"kind": "type_text", "element_index": 9, "text": "go"}),
-                "type_text",
-            ),
-        ];
-        for (action, kind_name) in cases {
-            let cmd = parse_command(&envelope(
-                "tab_ax_action",
-                json!({"browser_id": "b", "tab_id": "1", "action": action}),
-            ))
-            .unwrap_or_else(|e| panic!("{kind_name}: {e}"));
-            let Command::TabAxAction(p) = cmd else {
-                panic!("wrong variant");
-            };
-            assert_eq!(p.action.kind_name(), kind_name);
-        }
-
-        // Missing/unknown `kind` discriminator ⇒ PayloadInvalid.
-        let e = parse_command(&envelope(
-            "tab_ax_action",
-            json!({"browser_id": "b", "tab_id": "1", "action": {"text": "x"}}),
-        ))
-        .unwrap_err();
-        assert_eq!(e.code(), ErrorCode::PayloadInvalid);
-        let e = parse_command(&envelope(
-            "tab_ax_action",
-            json!({"browser_id": "b", "tab_id": "1", "action": {"kind": "hover", "x": 1.0}}),
-        ))
-        .unwrap_err();
-        assert_eq!(e.code(), ErrorCode::PayloadInvalid);
-
-        // press_key duration bound: recovered 0..30.
-        for dur in [json!(30.0), json!(0.0)] {
-            parse_command(&envelope(
-                "tab_ax_action",
-                json!({"browser_id": "b", "tab_id": "1", "action": {"kind": "press_key", "key": "a", "duration": dur}}),
-            ))
-            .expect("duration within 0..=30 must pass");
-        }
-        for dur in [json!(31.0), json!(-1.0)] {
-            let e = parse_command(&envelope(
-                "tab_ax_action",
-                json!({"browser_id": "b", "tab_id": "1", "action": {"kind": "press_key", "key": "a", "duration": dur}}),
-            ))
-            .unwrap_err();
-            assert_eq!(e.code(), ErrorCode::PayloadInvalid);
-        }
     }
 
     #[test]

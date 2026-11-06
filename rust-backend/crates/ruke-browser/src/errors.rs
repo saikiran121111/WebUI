@@ -31,17 +31,7 @@ pub enum ErrorCode {
     WebmcpDisabled,
     // Engine state failures.
     StaleDomNode,
-    StaleAxElement,
-    AxPreviousPage,
-    AxCapturePreviousPage,
-    AxCaptureEmpty,
-    AxCaptureChangedBeforeCommitted,
-    NoSettableValue,
-    ClickTargetUnavailable,
-    ShadowRootCheckFailed,
     ClickFailed,
-    ClickNotSettled,
-    ClickCovered,
     DialogBlocking,
     JsDialogGone,
     OnlyPromptAcceptsText,
@@ -50,12 +40,6 @@ pub enum ErrorCode {
     FileChooserTabMismatch,
     FileChooserNoFiles,
     FileChooserNotMultiple,
-    JsDialogInterrupted,
-    InputPrepareTimeout,
-    SelectChangedBeforeActivation,
-    SelectTextNotFound,
-    SelectTextAmbiguous,
-    SecondaryActionNotAllowed,
     // Playwright-style locator runtime (Phase 7).
     LocatorStrict,
     LocatorFailed,
@@ -65,6 +49,11 @@ pub enum ErrorCode {
     CdpFailed,
     HostUnavailable,
     Internal,
+    // Playwright MCP driver layer (Phase 2).
+    McpUnavailable,
+    McpTimeout,
+    McpToolFailed,
+    McpCancelled,
 }
 
 impl ErrorCode {
@@ -79,19 +68,8 @@ impl ErrorCode {
             ErrorCode::ContextUnavailable => "browser_context_unavailable",
             ErrorCode::WebmcpDisabled => "webmcp_disabled",
             ErrorCode::StaleDomNode => "dom_node_stale",
-            ErrorCode::StaleAxElement => "ax_element_stale",
-            ErrorCode::AxPreviousPage => "ax_element_previous_page",
-            ErrorCode::AxCapturePreviousPage => "ax_capture_previous_page",
-            ErrorCode::AxCaptureEmpty => "ax_capture_empty",
-            ErrorCode::AxCaptureChangedBeforeCommitted => "ax_capture_changed_before_committed",
-            ErrorCode::NoSettableValue => "ax_no_settable_value",
-            ErrorCode::ClickTargetUnavailable => "click_target_unavailable",
-            ErrorCode::ShadowRootCheckFailed => "click_shadow_root_check_failed",
             ErrorCode::ClickFailed => "click_failed",
-            ErrorCode::ClickNotSettled => "click_not_settled",
-            ErrorCode::ClickCovered => "click_covered",
             ErrorCode::DialogBlocking => "dialog_blocking",
-            ErrorCode::JsDialogInterrupted => "js_dialog_interrupted",
             ErrorCode::JsDialogGone => "js_dialog_gone",
             ErrorCode::OnlyPromptAcceptsText => "only_prompt_accepts_text",
             ErrorCode::ScreenshotUnavailable => "screenshot_unavailable",
@@ -99,11 +77,6 @@ impl ErrorCode {
             ErrorCode::FileChooserTabMismatch => "file_chooser_tab_mismatch",
             ErrorCode::FileChooserNoFiles => "file_chooser_no_files",
             ErrorCode::FileChooserNotMultiple => "file_chooser_not_multiple",
-            ErrorCode::InputPrepareTimeout => "input_prepare_timeout",
-            ErrorCode::SelectChangedBeforeActivation => "select_changed_before_activation",
-            ErrorCode::SelectTextNotFound => "select_text_not_found",
-            ErrorCode::SelectTextAmbiguous => "select_text_ambiguous",
-            ErrorCode::SecondaryActionNotAllowed => "secondary_action_not_allowed",
             ErrorCode::LocatorStrict => "locator_strict_violation",
             ErrorCode::LocatorFailed => "locator_failed",
             ErrorCode::Unsupported => "browser_operation_unsupported",
@@ -112,6 +85,10 @@ impl ErrorCode {
             ErrorCode::CdpFailed => "browser_cdp_failed",
             ErrorCode::HostUnavailable => "browser_host_unavailable",
             ErrorCode::Internal => "browser_internal_error",
+            ErrorCode::McpUnavailable => "browser_mcp_unavailable",
+            ErrorCode::McpTimeout => "browser_mcp_timeout",
+            ErrorCode::McpToolFailed => "browser_mcp_tool_failed",
+            ErrorCode::McpCancelled => "browser_mcp_cancelled",
         }
     }
 }
@@ -158,69 +135,16 @@ pub enum BrowserError {
     #[error("DOM node {node_id} is stale or missing")]
     StaleDomNode { node_id: u64 },
 
-    // ── AX engine (strings verbatim) ──────────────────────────────────
-    #[error("Accessibility element {element_index} is stale or missing")]
-    StaleAxElement { element_index: u64 },
-
-    #[error("Accessibility element {element_index} belongs to a previous page")]
-    AxPreviousPage { element_index: u64 },
-
-    #[error("Accessibility capture belongs to a previous page")]
-    AxCapturePreviousPage,
-
-    /// Verbatim: the capture state machine's empty-tree error (H-BS-26
-    /// `capture()`: `if(b==null&&r!=="screenshot")throw new Error(
-    /// "Accessibility capture was empty")`).
-    #[error("Accessibility capture was empty")]
-    AxCaptureEmpty,
-
-    /// Verbatim terminal error (H-BS-26 final commit attempt):
-    /// "Accessibility capture changed before it was committed". (The
-    /// §5.1 summary paraphrase said "stabilized"; the recovered code
-    /// string is authoritative and is what the model sees.)
-    #[error("Accessibility capture changed before it was committed")]
-    AxCaptureChangedBeforeCommitted,
-
-    #[error("Accessibility element {element_index} has no settable value")]
-    NoSettableValue { element_index: u64 },
-
-    #[error("Click target is no longer available")]
-    ClickTargetUnavailable,
-
-    #[error("Could not check the click target's shadow root")]
-    ShadowRootCheckFailed,
-
+    // ── Click / JS-dialog surfaces ────────────────────────────────────
+    // The retired AX capture pipeline's other click diagnostics
+    // (target-unavailable, shadow-root check, settle, coverage), the
+    // dialog-blocking capture guard, and the dialog-race interrupt all
+    // retired with the `tab_ax_*` pair in Phase 2 — see
+    // contract.rs::RETIRED_REFERENCE_COMMANDS.
     /// Verbatim: `Element ${id} couldn't be clicked. Try another element.`
     #[error("Element {element} couldn't be clicked. Try another element.")]
     ClickFailed { element: String },
 
-    /// `[adapted]` composition: recovered fragments give "couldn't be
-    /// clicked", "did not settle after scrolling" and the retry advice;
-    /// the settle deadline (500 ms) and its behavior are pinned in Phase 5.
-    #[error("Element {element} did not settle after scrolling. Try another element.")]
-    ClickNotSettled { element: String },
-
-    /// `[adapted]` composition of the recovered fragment
-    /// "is covered by ${hitTag?\"another element\"} or otherwise not hittable".
-    #[error("Element {element} is covered by {covering} or otherwise not hittable. Try another element.")]
-    ClickCovered { element: String, covering: String },
-
-    /// Verbatim: dialog-aware action capture throws this when the AX
-    /// target carries a pending JavaScript dialog.
-    #[error("A JavaScript dialog is blocking the requested page element")]
-    DialogBlocking,
-
-    /// Verbatim (tl-wrapper race against `Page.javascriptDialogOpening`;
-    /// `beforeunload` is skipped by design):
-    /// "Browser action \"kind\" interrupted by JavaScript type: detail
-    /// The action may already have taken effect; do not retry it. Inspect
-    /// or dismiss the dialog before continuing."
-    #[error("Browser action \"{action_kind}\" interrupted by JavaScript {dialog_type}: {detail} The action may already have taken effect; do not retry it. Inspect or dismiss the dialog before continuing.")]
-    JsDialogInterrupted {
-        action_kind: String,
-        dialog_type: String,
-        detail: String,
-    },
     /// `tab_handle_js_dialog` with no active dialog (already dismissed or
     /// never opened). Recovered pinned message.
     #[error("JavaScript dialog is no longer active")]
@@ -234,31 +158,13 @@ pub enum BrowserError {
     /// Ruke's snake_case name.
     #[error("A {dialog_type} JavaScript dialog is active in this tab. Use `tab_get_js_dialog` to get it and dismiss it first.")]
     JsDialogBlocksMethod { dialog_type: String },
-    /// `tab_ax_get_state` screenshot content mode while a JS dialog is
-    /// open — the reference's fallback text with Ruke's command names.
-    #[error("Screenshot unavailable while a JavaScript {dialog_type} dialog is open. Use tab_ax_get_state with content \"axState\" and a tab_ax_action click action (element_index) to interact with its controls.")]
+    /// A capture requested while a JS dialog is open. The retired
+    /// `tab_ax_get_state` screenshot mode was this contract's original
+    /// producer (Phase 2 retirement); the wire code and text stay
+    /// reserved, and the guidance now names the command pair that is
+    /// actually the dismissal route.
+    #[error("Screenshot unavailable while a JavaScript {dialog_type} dialog is open. Use `tab_get_js_dialog` to inspect it and `tab_handle_js_dialog` to dismiss it, then retry the capture.")]
     ScreenshotUnavailable { dialog_type: String },
-
-    /// Verbatim: focus-then-input budget (3e3 ms) —
-    /// "Could not prepare accessibility element N for input within 3000 ms. No input was sent."
-    #[error("Could not prepare accessibility element {element_index} for input within 3000 ms. No input was sent.")]
-    InputPrepareTimeout { element_index: u64 },
-
-    #[error("Select changed before option activation")]
-    SelectChangedBeforeActivation,
-
-    /// Verbatim fragments: "Text to select was not found" /
-    /// "matches multiple locations" (uniqueness via prefix+text+suffix).
-    #[error("Text to select was not found")]
-    SelectTextNotFound,
-
-    #[error("Text to select matches multiple locations")]
-    SelectTextAmbiguous,
-
-    /// Secondary actions are restricted to Expand/Collapse AND must be
-    /// present in the element's `actionDescriptions` (Phase 6).
-    #[error("Secondary action \"{action}\" is not available on this element")]
-    SecondaryActionNotAllowed { action: String },
 
     // ── File-chooser registry (Phase 8; strings verbatim from the
     //    recovered r2 handler, schemas-and-ipc.md) ─────────────────────
@@ -316,16 +222,9 @@ pub enum BrowserError {
     #[error("{operation} is not supported by the Ruke browser runtime")]
     Unsupported { operation: String },
 
-    /// A `tab_ax_action` failure re-raised after a fresh state capture —
-    /// the reference's `${message}\n\n\n${state}` rethrow (the appended
-    /// payload is the axState result serialized, Ruke shape). The wire
-    /// code stays the SOURCE's code so model-side handling is unchanged.
-    #[error("{source}\n\n\n{state}")]
-    AxActionFailed {
-        source: Box<BrowserError>,
-        state: String,
-    },
-
+    // `AxActionFailed` (the retired `tab_ax_action` rethrow wrapper) was
+    // deleted with the Phase-2 retirement of the `tab_ax_*` pair —
+    // see contract.rs::RETIRED_REFERENCE_COMMANDS.
     #[error("Invalid navigation URL: {url}")]
     InvalidUrl { url: String },
 
@@ -337,6 +236,24 @@ pub enum BrowserError {
 
     #[error("The browser host is not running")]
     HostUnavailable,
+
+    // ── Playwright MCP driver layer (Phase 2) ─────────────────────────
+    // The actuation driver attaches to the SAME Chromium (same-browser
+    // gate). These strings stay honest about what the driver layer
+    // means — a timed-out or cancelled MCP action may already have
+    // applied, so the message tells the model to re-observe rather
+    // than blindly retry.
+    #[error("Playwright MCP driver is unavailable: {reason}")]
+    McpUnavailable { reason: String },
+
+    #[error("Timeout {timeout_ms}ms exceeded running browser action \"{tool}\"; the action may or may not have been applied — re-observe the page before retrying")]
+    McpTimeout { tool: String, timeout_ms: u64 },
+
+    #[error("Browser action \"{tool}\" failed: {reason}")]
+    McpToolFailed { tool: String, reason: String },
+
+    #[error("Browser action \"{tool}\" was cancelled mid-action; it may or may not have been applied — re-observe the page before retrying")]
+    McpCancelled { tool: String },
 
     #[error("Internal browser error: {detail}")]
     Internal { detail: String },
@@ -354,20 +271,7 @@ impl BrowserError {
             BrowserError::ContextUnavailable => ErrorCode::ContextUnavailable,
             BrowserError::WebmcpDisabled => ErrorCode::WebmcpDisabled,
             BrowserError::StaleDomNode { .. } => ErrorCode::StaleDomNode,
-            BrowserError::StaleAxElement { .. } => ErrorCode::StaleAxElement,
-            BrowserError::AxPreviousPage { .. } => ErrorCode::AxPreviousPage,
-            BrowserError::AxCapturePreviousPage => ErrorCode::AxCapturePreviousPage,
-            BrowserError::AxCaptureEmpty => ErrorCode::AxCaptureEmpty,
-            BrowserError::AxCaptureChangedBeforeCommitted => {
-                ErrorCode::AxCaptureChangedBeforeCommitted
-            }
-            BrowserError::NoSettableValue { .. } => ErrorCode::NoSettableValue,
-            BrowserError::ClickTargetUnavailable => ErrorCode::ClickTargetUnavailable,
-            BrowserError::ShadowRootCheckFailed => ErrorCode::ShadowRootCheckFailed,
             BrowserError::ClickFailed { .. } => ErrorCode::ClickFailed,
-            BrowserError::ClickNotSettled { .. } => ErrorCode::ClickNotSettled,
-            BrowserError::ClickCovered { .. } => ErrorCode::ClickCovered,
-            BrowserError::DialogBlocking => ErrorCode::DialogBlocking,
             BrowserError::JsDialogBlocksMethod { .. } => ErrorCode::DialogBlocking,
             BrowserError::JsDialogGone => ErrorCode::JsDialogGone,
             BrowserError::OnlyPromptAcceptsText => ErrorCode::OnlyPromptAcceptsText,
@@ -377,19 +281,16 @@ impl BrowserError {
             BrowserError::FileChooserNoFiles => ErrorCode::FileChooserNoFiles,
             BrowserError::FileChooserNotMultiple => ErrorCode::FileChooserNotMultiple,
             BrowserError::FileChooserPendingMissing { .. } => ErrorCode::FileChooserUnknown,
-            BrowserError::JsDialogInterrupted { .. } => ErrorCode::JsDialogInterrupted,
-            BrowserError::InputPrepareTimeout { .. } => ErrorCode::InputPrepareTimeout,
-            BrowserError::SelectChangedBeforeActivation => ErrorCode::SelectChangedBeforeActivation,
-            BrowserError::SelectTextNotFound => ErrorCode::SelectTextNotFound,
-            BrowserError::SelectTextAmbiguous => ErrorCode::SelectTextAmbiguous,
-            BrowserError::SecondaryActionNotAllowed { .. } => ErrorCode::SecondaryActionNotAllowed,
             BrowserError::LocatorStrict { .. } => ErrorCode::LocatorStrict,
             BrowserError::LocatorTimeout { .. } => ErrorCode::TimedOut,
             BrowserError::PwTimeout { .. } => ErrorCode::TimedOut,
             BrowserError::LocatorStaleRef { .. } => ErrorCode::StaleDomNode,
             BrowserError::LocatorFailed { .. } => ErrorCode::LocatorFailed,
             BrowserError::Unsupported { .. } => ErrorCode::Unsupported,
-            BrowserError::AxActionFailed { source, .. } => source.code(),
+            BrowserError::McpUnavailable { .. } => ErrorCode::McpUnavailable,
+            BrowserError::McpTimeout { .. } => ErrorCode::McpTimeout,
+            BrowserError::McpToolFailed { .. } => ErrorCode::McpToolFailed,
+            BrowserError::McpCancelled { .. } => ErrorCode::McpCancelled,
             BrowserError::InvalidUrl { .. } => ErrorCode::InvalidUrl,
             BrowserError::TimedOut { .. } => ErrorCode::TimedOut,
             BrowserError::CdpFailed { .. } => ErrorCode::CdpFailed,
@@ -415,6 +316,32 @@ pub(crate) fn payload_invalid(command: &str, reason: impl Into<String>) -> Brows
     BrowserError::PayloadInvalid {
         command: command.to_string(),
         reason: reason.into(),
+    }
+}
+
+/// Map an MCP-layer failure onto the typed command surface. Service
+/// failures collapse into `McpUnavailable` (the bridge clears its cached
+/// session and re-attaches once; a second service failure is surfaced
+/// honestly to the model, naming the pinned package in the reason).
+impl From<crate::mcp::McpError> for BrowserError {
+    fn from(e: crate::mcp::McpError) -> Self {
+        match e {
+            crate::mcp::McpError::Unavailable { why } => {
+                BrowserError::McpUnavailable { reason: why }
+            }
+            crate::mcp::McpError::Service { detail } => BrowserError::McpUnavailable {
+                reason: format!(
+                    "driver connection failed ({}): {detail}",
+                    crate::mcp::MCP_PACKAGE
+                ),
+            },
+            crate::mcp::McpError::Timeout { tool, timeout_ms } => {
+                BrowserError::McpTimeout { tool, timeout_ms }
+            }
+            crate::mcp::McpError::Tool { tool, text } => {
+                BrowserError::McpToolFailed { tool, reason: text }
+            }
+        }
     }
 }
 
@@ -519,73 +446,15 @@ mod tests {
             "DOM node 42 is stale or missing"
         );
         assert_eq!(
-            BrowserError::StaleAxElement { element_index: 7 }.to_string(),
-            "Accessibility element 7 is stale or missing"
-        );
-        assert_eq!(
-            BrowserError::AxPreviousPage { element_index: 7 }.to_string(),
-            "Accessibility element 7 belongs to a previous page"
-        );
-        assert_eq!(
-            BrowserError::AxCapturePreviousPage.to_string(),
-            "Accessibility capture belongs to a previous page"
-        );
-        assert_eq!(
-            BrowserError::AxCaptureEmpty.to_string(),
-            "Accessibility capture was empty"
-        );
-        assert_eq!(
-            BrowserError::AxCaptureChangedBeforeCommitted.to_string(),
-            "Accessibility capture changed before it was committed"
-        );
-        assert_eq!(
-            BrowserError::NoSettableValue { element_index: 3 }.to_string(),
-            "Accessibility element 3 has no settable value"
-        );
-        assert_eq!(
-            BrowserError::ClickTargetUnavailable.to_string(),
-            "Click target is no longer available"
-        );
-        assert_eq!(
-            BrowserError::ShadowRootCheckFailed.to_string(),
-            "Could not check the click target's shadow root"
-        );
-        assert_eq!(
             BrowserError::ClickFailed {
                 element: "5".into()
             }
             .to_string(),
             "Element 5 couldn't be clicked. Try another element."
         );
-        assert_eq!(
-            BrowserError::DialogBlocking.to_string(),
-            "A JavaScript dialog is blocking the requested page element"
-        );
-        assert_eq!(
-            BrowserError::InputPrepareTimeout { element_index: 9 }.to_string(),
-            "Could not prepare accessibility element 9 for input within 3000 ms. No input was sent."
-        );
-        assert_eq!(
-            BrowserError::SelectChangedBeforeActivation.to_string(),
-            "Select changed before option activation"
-        );
-        assert_eq!(
-            BrowserError::SelectTextNotFound.to_string(),
-            "Text to select was not found"
-        );
-        assert_eq!(
-            BrowserError::SelectTextAmbiguous.to_string(),
-            "Text to select matches multiple locations"
-        );
-        assert_eq!(
-            BrowserError::JsDialogInterrupted {
-                action_kind: "click".into(),
-                dialog_type: "alert".into(),
-                detail: "\"Leave?\"".into(),
-            }
-            .to_string(),
-            "Browser action \"click\" interrupted by JavaScript alert: \"Leave?\" The action may already have taken effect; do not retry it. Inspect or dismiss the dialog before continuing."
-        );
+        // The retired `tab_ax_*` capture pipeline pinned its own verbatim
+        // strings; they left with the capture engine in Phase 2 (see
+        // contract.rs::RETIRED_REFERENCE_COMMANDS). The live surfaces keep:
         // Phase-8 dialog registry + file-chooser strings (chooser set
         // verbatim from the recovered r2 handler).
         assert_eq!(
@@ -637,18 +506,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ax_action_rethrow_keeps_the_source_code() {
-        let e = BrowserError::AxActionFailed {
-            source: Box::new(BrowserError::StaleAxElement { element_index: 5 }),
-            state: "{\"tab_id\":\"1\"}".into(),
-        };
-        assert_eq!(e.code(), ErrorCode::StaleAxElement);
-        assert_eq!(
-            e.to_string(),
-            "Accessibility element 5 is stale or missing\n\n\n{\"tab_id\":\"1\"}"
-        );
-    }
+    // The `ax_action_rethrow_keeps_the_source_code` test retired with the
+    // `AxActionFailed` wrapper (Phase 2), and the recovered ax-state
+    // strings retired with the capture engine they came from. What still
+    // lives is pinned by the tests above and below.
 
     #[test]
     fn blocked_codes_are_verbatim_registry_strings() {
@@ -673,6 +534,91 @@ mod tests {
             BrowserError::WebmcpDisabled.code(),
             ErrorCode::WebmcpDisabled
         );
+    }
+
+    /// Phase-2 MCP driver strings + codes are pinned (model recovery
+    /// keys off the re-observe-before-retry wording).
+    #[test]
+    fn mcp_driver_strings_and_codes_are_pinned() {
+        assert_eq!(
+            BrowserError::McpUnavailable {
+                reason: "npm ci needed".into()
+            }
+            .to_string(),
+            "Playwright MCP driver is unavailable: npm ci needed"
+        );
+        assert_eq!(
+            BrowserError::McpUnavailable { reason: "x".into() }.code(),
+            ErrorCode::McpUnavailable
+        );
+        assert_eq!(
+            BrowserError::McpTimeout {
+                tool: "browser_click".into(),
+                timeout_ms: 15_000
+            }
+            .to_string(),
+            "Timeout 15000ms exceeded running browser action \"browser_click\"; the action may or may not have been applied — re-observe the page before retrying"
+        );
+        assert_eq!(
+            BrowserError::McpTimeout {
+                tool: "t".into(),
+                timeout_ms: 1
+            }
+            .code(),
+            ErrorCode::McpTimeout
+        );
+        assert_eq!(ErrorCode::McpTimeout.as_str(), "browser_mcp_timeout");
+        assert_eq!(
+            BrowserError::McpToolFailed {
+                tool: "browser_click".into(),
+                reason: "boom".into()
+            }
+            .to_string(),
+            "Browser action \"browser_click\" failed: boom"
+        );
+        assert_eq!(
+            BrowserError::McpToolFailed {
+                tool: "t".into(),
+                reason: "r".into()
+            }
+            .code(),
+            ErrorCode::McpToolFailed
+        );
+        assert_eq!(
+            BrowserError::McpCancelled { tool: "browser_type".into() }.to_string(),
+            "Browser action \"browser_type\" was cancelled mid-action; it may or may not have been applied — re-observe the page before retrying"
+        );
+        assert_eq!(
+            BrowserError::McpCancelled { tool: "t".into() }.code(),
+            ErrorCode::McpCancelled
+        );
+    }
+
+    #[test]
+    fn mcp_error_mapping_collapses_service_into_unavailable() {
+        let e: BrowserError = crate::mcp::McpError::Service {
+            detail: "died".into(),
+        }
+        .into();
+        match e {
+            BrowserError::McpUnavailable { reason } => {
+                assert!(reason.contains("@playwright/mcp"), "{reason}");
+                assert!(reason.contains("died"), "{reason}");
+            }
+            other => panic!("expected McpUnavailable, got {other:?}"),
+        }
+        let e: BrowserError = crate::mcp::McpError::Tool {
+            tool: "browser_click".into(),
+            text: "strict".into(),
+        }
+        .into();
+        assert!(matches!(e, BrowserError::McpToolFailed { .. }));
+        let e: BrowserError = crate::mcp::McpError::Timeout {
+            tool: "browser_click".into(),
+            timeout_ms: 15_000,
+        }
+        .into();
+        assert!(matches!(e, BrowserError::McpTimeout { .. }));
     }
 
     #[test]
