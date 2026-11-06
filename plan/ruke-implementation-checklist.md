@@ -299,6 +299,11 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
 
 **Phase 4 status: [LOCKED-DONE] — 3D/CAD fully retired through the normal entry point; anatomy is the only illustration route; old saves render read-only compat cards that never execute; TS↔Rust 8-mode parity with regenerated contracts + re-recorded goldens; 24 core skills removed with lock entries; zero regressions (tsc 0, vitest 1540, cargo green, browser 21/21).**
 
+**2026-11-06 audit addendum:** the evidence above did NOT cover the persisted-conversation history path, and a stale
+`tests/cad.spec.ts` was left asserting the deleted viewer — so the gate was reopened and re-closed by the repair in
+"Audit repair phase" below (stale suite removed, `tests/retired-fences.spec.ts` seeds old saves through
+`POST /api/conversations` and proves card + reload + real Download + zero execution, label now "Download source").
+
 ## Phase 5A — Native PowerPoint motion (PptxGenJS + @office-kit/pptx) — [LOCKED-DONE]
 
 ### Implementation
@@ -340,6 +345,72 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
 
 **Phase 5A status: [LOCKED-DONE] — native Morph + click reveals + timed entrances + emphasis + reduced-motion through one motion plan; preview and export agree per slide (transition, duration, animation, click gates) in deterministic tests AND in four real-model journeys; decks generated through Ruke were opened AND played in real PowerPoint (Morph observed running, on-click reveals gated live, charts/text editable); charts are native parts with embedded workbooks; the Python injector is deleted and simple export proven with no interpreter on PATH.**
 
+## Audit repair phase (2026-11-06) — the 8-finding brief
+
+Audit baseline `5fb34ffadaa0f9169990f2783aafd0d7ebbb3934`; repair started at HEAD `f1092c1` (5A). Every finding was
+re-verified against the working tree BEFORE editing it — three of them were re-confirmed as still reproducing, and
+finding 4 contradicted a locked gate, so that gate was reopened first.
+
+### Finding 4 — stale CAD suite + legacy download label ⇒ P4 gate REOPENED, then re-closed
+
+* `git rm tests/cad.spec.ts` — 9 tests still asserting the DELETED CAD viewer (`cad-block`/`cad-stage`/`cad-3d`,
+  layer solo, measure, DXF export). The suite contradicted the retirement gate it was cited as proof of.
+* `components/render/RetiredFenceBlock.tsx`: the action label is now **"Download source"**, not "Download" — what
+  comes down is the saved fence TEXT, never a runnable 3D/CAD artifact (the label is part of the card's honesty contract).
+* `tests/interactive-ui.spec.ts`: the card's Download is now actually CLICKED and the downloaded file's CONTENTS are
+  checked (`retired-scene3d.json` contains `THREE.Mesh`), next to the zero-`<canvas>` + `window.THREE === undefined` proofs.
+* NEW `tests/retired-fences.spec.ts` (deterministic, ZERO model traffic): seeds `scene3d` and `cad` conversations
+  through `POST /api/conversations` — the real entry point for old saves, same document shape as
+  `conversations-crud.spec.ts` — opens them from the sidebar, asserts the honest card, asserts
+  `[data-testid=cad-block|cad-stage|cad-3d|scene3d-block|asset3d-block|threejs-block]` all absent, zero `<canvas>`,
+  `window.THREE === undefined`, clicks Download and byte-checks the saved source, then RELOADS and repeats.
+  That covers the PERSISTED-history path the P4 gate had never exercised, and it replaces the retired-CAD coverage
+  the deleted suite used to give — by proving the old viewer can no longer materialize at all.
+
+### Findings 1 + 2 — form-batch false verification + pre-flight accepting unusable targets
+
+All in `rust-backend/crates/ruke-browser/src/bridge.rs`.
+
+* **Finding 1 root cause:** `FORM_READ_JS` answers `{found:false, actual:""}` when the target vanished, matched twice
+  or was an invalid selector, and the success path counted `field_holds` alone — so an intended `""` (clearing a text
+  box) was reported `verified: true` without the page ever having been read.
+* **Repair:** `field_verdict()` gives each field one of exactly three states — `applied` / `not-applied` /
+  `unverifiable` — and `form_readback_response()` emits per-row `state` + `verified`, counts `applied` ONLY from
+  `verified`, and returns `"READ-BACK NOT FULLY CONFIRMED: …"` unless `all_verified`. An unverifiable field can never
+  inflate the applied count. Kept as pure functions so the honesty law is unit-testable without a browser.
+* **Finding 2 root cause:** the pre-apply probe's only enabled check was `el.disabled`, and the caller treated the
+  response as "is there any string in it" — so a custom `[role=combobox]` with `aria-disabled`, a control inside a
+  disabled `<fieldset>` (whose own `disabled` property stays `false`), or an element that cannot receive pointer
+  input passed pre-flight and failed mid-batch; and a missing/malformed probe response read as ALL-CLEAR.
+* **Repair:** the probe now also rejects `aria-disabled="true"`, controls inside `<fieldset disabled>` (LEGEND excepted),
+  and computed `pointer-events:none` / `visibility:hidden` / `display:none`; `probe_verdicts()` requires EXACTLY one
+  verdict per field (`null` = usable, a string = the reason) and converts any other shape into a typed `LocatorFailed`
+  that states nothing was applied.
+* NEW `tests/form-probe.spec.ts` (deterministic: `page.setContent` fixtures, no dev server, no model): extracts
+  `FORM_PROBE_JS` / `FORM_READ_JS` straight out of `bridge.rs` and instantiates THAT text, so there is no copy in the
+  test to drift. In real Chromium it proves the probe rejects the aria-disabled combobox, the disabled-fieldset control,
+  `visibility:hidden`, `pointer-events:none`, `display:none`, `disabled`, `readonly`, a missing target, a non-unique
+  target (`not unique (2 elements match)`) and an invalid selector (`##oops`), plus five type mismatches — while the
+  eight genuinely usable controls (including a custom `[role=combobox]` and `aria-disabled="false"`) read as `null`.
+  The read-back test distinguishes filled / genuinely-cleared (`found:true, actual:""`) / UNVERIFIABLE
+  (`found:false` for missing, ambiguous and invalid targets), and a third test proves pre-flight and read-back never
+  write to the page.
+
+### Verification actually run in this repair phase (real exit codes)
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt -p ruke-browser` then `cargo test -p ruke-browser --no-fail-fast` | **190 passed / 0 failed** (187 baseline + 3 new honesty tests), exit 0 |
+| `npx tsc --noEmit` | **exit 0** |
+| Locked launcher, three suites | `& 'scripts/run-browser-e2e-exclusive.ps1' -TestFiles tests/form-probe.spec.ts,tests/retired-fences.spec.ts,tests/interactive-ui.spec.ts -AppWaitSeconds 120` → **4 passed / 2 failed**, "Playwright exit code: 1", lock released. The 4 passes were `retired-fences` 2/2 and `interactive-ui` 1/1 (finding 4 green) plus one probe test; both failures were in MY OWN new harness — `page.evaluate` given a bare string expression returns `undefined` instead of invoking it — not in the product. |
+| Locked launcher, form-probe after the harness fix (`new Function` around bridge.rs's own text) | **3 passed (767 ms)**, "Playwright exit code: 0", lock released |
+
+### Still open in this phase
+
+Findings **3** (browser-loop false completion on budget exhaustion + raw tool args in production logs),
+**5** (anatomy over-trigger), **6** (HTML preview origin isolation + fullscreen fallback) and **7** (PDF export trust
+boundary) are reproduced-but-not-yet-repaired; **8** closed in 5A.
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
@@ -358,10 +429,24 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
       live per-field read-back, state-based waits (guidance law), stable prompt/tool prefixes (~97 % cached
       tokens MEASURED via stream_options + prompt_n probe), final-state readback law, preview frames
       untouched by model requests (scope-matrix WORKING TAB green)
-- [x] **P4** 3D/CAD retirement: routes, renderers, lib/three3d, lib/cad, Meshy, capability modes, fence routes,
+- [x] **P4 (reopened AND re-closed by the 2026-11-06 audit — finding 4; full ledger in "Audit repair phase")** 3D/CAD retirement: routes, renderers, lib/three3d, lib/cad, Meshy,
+      capability modes, fence routes,
       24-skill core inventory removal (exact list in plan §Phase 4), lock entries, SVG-Anatomy remap OFF `cad_blueprint` FIRST,
       read-only compat for old saves, `contracts:generate` + `contracts:check` green — PROVEN via
       `94f740b`/`499a52a`/`a02c3bf`; compat-card + never-execute proof through `?demo=ui` (browser 21/21 exit 0)
+      REOPENED BECAUSE: `tests/cad.spec.ts` (9 tests) was left on disk still asserting the deleted CAD viewer
+      (`cad-block`/`cad-stage`/`cad-3d`), so the suite contradicted the retirement gate; and the compat path was only
+      ever proven on the client-side `?demo=ui` fixture — the PERSISTED-conversation history path and the card's
+      Download action were never exercised. Repair: stale suite removed (`git rm`), new deterministic
+      `tests/retired-fences.spec.ts` seeds `scene3d` + `cad` conversations through `POST /api/conversations` and
+      proves the compat card from persisted history survives reload, never executes, and downloads the real source;
+      `interactive-ui.spec.ts` now CLICKS Download and checks the file contents. RE-Locked on that evidence: the locked
+      launcher run of `tests/retired-fences.spec.ts,tests/interactive-ui.spec.ts` (with `tests/form-probe.spec.ts`)
+      showed retired-fences **2/2** and interactive-ui **1/1** — i.e. the compat card renders from PERSISTED history
+      after a reload, no retired viewer chrome/canvas/THREE ever appears, and the downloaded file really is the saved
+      source (`retired-scene3d.json` contains `THREE.Mesh`). The pre-existing P4 evidence (21/21 anatomy/anatomy-repair/
+      interactive-ui, contracts, goldens, cargo) predates only the label change, which these same specs now assert.
+      The whole 40-suite Playwright inventory is re-run in the P7 final battery.
 - [x] **P5A** native PowerPoint motion — PROVEN in the 5A ledger above: pinned `@office-kit/pptx@0.28.0` (MIT) smoke
       17/17 exit 0; stable `objectName` ids; native Morph (`EntryEffect 3954`, `p14:dur=900`) + on-click reveals
       (`<p:cond delay="indefinite"/>` == live `GetClickCount()`) + timed entrances (400/300/600 ms + staggers) +
@@ -401,6 +486,15 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
    over-trigger ("What is the anatomy of the knee?" / "What is an isometric exercise?" must stay
    conversational), HTML preview origin isolation + fullscreen fallback, PDF export trust boundary.
    Finding 8 (PPTX bypassed the normalizer) is closed in 5A.
+   **Progress: findings 4, 1 and 2 are REPAIRED and verified (see the "Audit repair phase" ledger). Remaining:
+   finding 3 — `ruke-server/src/chat/browser_loop.rs` turns round-cap exhaustion into `Outcome::Finished` +
+   `browser:done` (and `lib/progress/turnProgress.ts` maps that to "finished"), plus raw tool args in production
+   logs; finding 5 — `lib/decision/client.ts` + `ruke-decision/src/engine.rs` match standalone words, so
+   "What is an isometric exercise?" routes to the anatomy renderer; finding 6 — `HtmlArtifactBlock.tsx` renders
+   model HTML in a srcDoc iframe with `allow-scripts allow-same-origin` (same-origin escape); finding 7 —
+   `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts` hand raw HTML to Chromium with JS and networking
+   enabled. Each gets deterministic tests at the source; the model-driven browser journeys re-run afterwards under
+   the lock, and the rebuilt `ruke-server` must pick up the ruke-browser changes before those journeys are trusted.**
 2. Then P5B (LibreOffice/ECharts/Docling real-fixture evaluations + fflate consolidation), P6
    (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright fix-rerun
    loop green vs baselines + CLAUDE.md §4 completion report).

@@ -1,16 +1,22 @@
 import { test, expect, type Page } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
 
 // The ?demo=ui showcase is fully client-side (no model server needed):
 // interactive chart + mermaid step playback + SVG anatomy figure + KPI
 // widget + table + a retired scene3d fence proving the read-only
 // compatibility card (3D/CAD viewers retired 2026-11-06 — Phase 4).
 const DEMO_URL = "http://localhost:3000/?demo=ui";
+// Downloaded artifacts land here (same convention as anatomy-export.spec.ts).
+const EXPORT_DIR = path.join(process.cwd(), ".data", "exports");
 
 // Network-level logs from the intentional "Ask AI" send (the llama.cpp
 // server may be down) are not UI defects; uncaught exceptions never are.
 // The [PARSER] AbortError log is the stream parser's diagnostic for the
 // deliberate Stop click that releases the one-send-at-a-time guard.
 const IGNORED_CONSOLE_ERRORS = [/Failed to load resource/i, /net::ERR_/i, /AbortError/];
+
+test.beforeAll(() => fs.mkdirSync(EXPORT_DIR, { recursive: true }));
 
 function watchConsole(page: Page, errors: string[]) {
   page.on("console", msg => {
@@ -134,10 +140,21 @@ test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table
   await expect(retired).toBeVisible();
   await expect(retired).toContainText("3D scene viewer retired");
   await expect(retired).toContainText("never executed");
-  await expect(retired.locator('[data-testid="retired-fence-copy"]')).toBeVisible();
-  await expect(retired.locator('[data-testid="retired-fence-download"]')).toBeVisible();
+  await expect(retired.getByRole("button", { name: "Copy source" })).toBeVisible();
   await retired.locator("summary").click();
   await expect(retired.locator(".retired-fence-source")).toContainText("THREE.Mesh");
+
+  // The download is REAL, not merely present (audit finding 4): clicking it must
+  // produce a file whose contents are the saved fence source verbatim. The name
+  // says "Download source" because the artifact is text, never a runnable scene.
+  const downloadBtn = retired.getByRole("button", { name: "Download source" });
+  await expect(downloadBtn).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent("download"), downloadBtn.click()]);
+  expect(download.suggestedFilename()).toBe("retired-scene3d.json");
+  const outFile = path.join(EXPORT_DIR, `demo-${download.suggestedFilename()}`);
+  await download.saveAs(outFile);
+  expect(fs.readFileSync(outFile, "utf8")).toContain("THREE.Mesh");
+
   // Proof it never executes: no viewer canvas anywhere, THREE never on page.
   await expect(page.locator("canvas")).toHaveCount(0);
   expect(

@@ -68,8 +68,10 @@ export default function RetiredFenceBlock({ kind, source }: { kind: string; sour
         <button type="button" className="retired-fence-btn" onClick={copy} data-testid="retired-fence-copy">
           {copied ? "Copied" : "Copy source"}
         </button>
+        {/* "Download source", not "Download": what comes down is the saved fence TEXT, never a
+            runnable 3D/CAD artifact — the label is part of the honesty contract of this card. */}
         <button type="button" className="retired-fence-btn" onClick={download} data-testid="retired-fence-download">
-          Download
+          Download source
         </button>
       </div>
     </div>

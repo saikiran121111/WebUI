@@ -249,7 +249,8 @@ struct FormFieldState {
 /// Pre-apply probe (single round-trip law): validate each target as
 /// unique, visible, enabled, and type-correct BEFORE the driver touches
 /// the page. Pushes the failure reason (a string) or null when the
-/// field is good — the Rust side keys on `is_string()`.
+/// field is good — `probe_verdicts` below enforces the one-verdict-per-
+/// field shape instead of letting an unreadable response mean "all good".
 const FORM_PROBE_JS: &str = r#"(specs)=>{
     const out=[];
     for (const s of specs){
@@ -261,6 +262,17 @@ const FORM_PROBE_JS: &str = r#"(specs)=>{
         const el=els[0];
         if (el.getClientRects().length===0){ out.push("element is not visible"); continue; }
         if (el.disabled===true){ out.push("element is disabled"); continue; }
+        // Usability is more than the DOM `disabled` property, which only
+        // exists on form controls: a custom [role=combobox] widget or a
+        // control wrapped in a disabled <fieldset> reports `undefined`
+        // here and used to pass pre-flight, only for the driver to fail
+        // mid-batch (audit finding 2).
+        if ((el.getAttribute("aria-disabled")||"").toLowerCase()==="true"){ out.push("element is aria-disabled"); continue; }
+        if (el.tagName!=="LEGEND" && el.closest("fieldset[disabled]")!==null){ out.push("element sits inside a disabled <fieldset>"); continue; }
+        let cs=null; try { cs=window.getComputedStyle(el); } catch(e){}
+        if (cs && (cs.pointerEvents==="none" || cs.visibility==="hidden" || cs.display==="none")){
+            out.push("element cannot receive input (pointer-events/visibility)"); continue;
+        }
         const tag=el.tagName;
         const ty=(el.getAttribute("type")||"").toLowerCase();
         const role=(el.getAttribute("role")||"").toLowerCase();
@@ -375,6 +387,106 @@ fn describe_form_state(fields: &[FormFormField], states: &[FormFieldState]) -> S
     } else {
         parts.join("; ")
     }
+}
+
+/// What the live read-back can honestly claim about one field
+/// (audit finding 1): a target the page could not be read for is NOT
+/// "not applied" — and it is certainly not "verified". It is the third
+/// state, and it must never inflate the applied count. The old success
+/// path counted `field_holds` alone, so an unfound field whose intended
+/// value was "" (clearing a text box) reported `verified: true`.
+fn field_verdict(f: &FormFormField, st: &FormFieldState) -> &'static str {
+    if !st.found {
+        "unverifiable"
+    } else if field_holds(f, &st.actual, st.alt.as_deref()) {
+        "applied"
+    } else {
+        "not-applied"
+    }
+}
+
+/// The batch's tool result. Kept pure (fields + states in, JSON out) so the
+/// three-state honesty law is unit-testable without a browser.
+fn form_readback_response(fields: &[FormFormField], states: &[FormFieldState]) -> Value {
+    let rows: Vec<Value> = fields
+        .iter()
+        .zip(states)
+        .map(|(f, st)| {
+            let verdict = field_verdict(f, st);
+            json!({
+                "name": f.name,
+                "target": f.target,
+                "intended": f.value,
+                "actual": st.actual,
+                "state": verdict,
+                "verified": verdict == "applied",
+            })
+        })
+        .collect();
+    let applied = rows
+        .iter()
+        .filter(|r| r["verified"].as_bool().unwrap_or(false))
+        .count();
+    let all_verified = applied == fields.len();
+    json!({
+        "applied": applied,
+        "total": fields.len(),
+        "all_verified": all_verified,
+        "fields": rows,
+        "note": if all_verified {
+            "read-back confirms every field holds its intended value".to_string()
+        } else {
+            format!(
+                "READ-BACK NOT FULLY CONFIRMED: {}. Never treat an unverifiable field as \
+                 applied: re-observe the page and fill only what is missing",
+                describe_form_state(fields, states)
+            )
+        },
+    })
+}
+
+/// The pre-flight probe's response contract: EXACTLY one verdict per field —
+/// `null` when the field is usable, a string naming the reason when it is not.
+/// Anything else (no array, a short/long array, a number/object verdict) means
+/// the probe did not run as written, and the batch must not be applied on the
+/// assumption that everything is fine (audit finding 2: the old code keyed on
+/// "is there a string anywhere", so a malformed response read as all-clear).
+fn probe_verdicts(fields: &[FormFormField], probe: &Value) -> Result<Vec<Option<String>>, String> {
+    let arr = match probe.as_array() {
+        Some(a) => a,
+        None => {
+            let got = match probe {
+                Value::Null => "null",
+                Value::Bool(_) => "a boolean",
+                Value::Number(_) => "a number",
+                Value::String(_) => "a string",
+                Value::Object(_) => "an object",
+                Value::Array(_) => "an array",
+            };
+            return Err(format!(
+                "expected an array of {} verdict(s), got {got}",
+                fields.len()
+            ));
+        }
+    };
+    if arr.len() != fields.len() {
+        return Err(format!(
+            "returned {} verdict(s) for {} field(s)",
+            arr.len(),
+            fields.len()
+        ));
+    }
+    arr.iter()
+        .enumerate()
+        .map(|(i, v)| match v {
+            Value::Null => Ok(None),
+            Value::String(reason) => Ok(Some(reason.clone())),
+            other => Err(format!(
+                "verdict for field {:?} is neither null nor a string ({other})",
+                fields[i].name
+            )),
+        })
+        .collect()
 }
 
 // ── Key grammar → MCP press grammar ────────────────────────────────────
@@ -1223,12 +1335,21 @@ impl BrowserRuntime {
             &[form_spec(&p.fields)],
         )
         .await?;
-        if let Some(idx) = probe
-            .as_array()
-            .and_then(|a| a.iter().position(|r| r.is_string()))
+        let verdicts =
+            probe_verdicts(&p.fields, &probe).map_err(|why| BrowserError::LocatorFailed {
+                selector: String::new(),
+                reason: format!(
+                    "playwright_fill_form stopped before applying ANY field: the pre-flight probe \
+                 could not be trusted ({why}). Nothing was applied — re-observe the page, or use \
+                 single-field commands"
+                ),
+            })?;
+        if let Some((idx, why)) = verdicts
+            .iter()
+            .enumerate()
+            .find_map(|(i, v)| v.as_deref().map(|w| (i, w.to_string())))
         {
             let f = &p.fields[idx];
-            let why = probe[idx].as_str().unwrap_or("precondition failed");
             return Err(BrowserError::LocatorFailed {
                 selector: f.target.clone(),
                 reason: format!(
@@ -1262,38 +1383,7 @@ impl BrowserRuntime {
             });
         }
         let states = self.form_field_state(conn, rec, &p.fields).await;
-        let mut verified = 0usize;
-        let read: Vec<Value> = p
-            .fields
-            .iter()
-            .zip(&states)
-            .map(|(f, st)| {
-                let holds = field_holds(f, &st.actual, st.alt.as_deref());
-                if holds {
-                    verified += 1;
-                }
-                json!({
-                    "name": f.name,
-                    "target": f.target,
-                    "intended": f.value,
-                    "actual": st.actual,
-                    "verified": holds,
-                })
-            })
-            .collect();
-        let all_verified = verified == p.fields.len();
-        Ok(json!({
-            "applied": verified,
-            "total": p.fields.len(),
-            "all_verified": all_verified,
-            "fields": read,
-            "note": if all_verified {
-                "read-back confirms every field holds its intended value"
-            } else {
-                "READ-BACK DISAGREES: some fields do not hold their intended values; \
-                 re-observe before continuing"
-            },
-        }))
+        Ok(form_readback_response(&p.fields, &states))
     }
 
     /// Read-back that can never fail the command: a broken probe just
@@ -1972,6 +2062,118 @@ mod tests {
         assert!(d.contains("applied: a"), "{d}");
         assert!(d.contains("not applied: b"), "{d}");
         assert!(d.contains("unverifiable: c"), "{d}");
+    }
+
+    // ── Audit findings 1 + 2 (2026-11-06): the batch must never claim
+    // success it cannot prove, in EITHER direction ────────────────────
+
+    fn st(found: bool, actual: &str) -> FormFieldState {
+        FormFieldState {
+            found,
+            actual: actual.into(),
+            alt: None,
+        }
+    }
+
+    #[test]
+    fn readback_never_verifies_a_field_the_page_could_not_be_read_for() {
+        // The exact false-positive the audit found: the model CLEARS a text
+        // box (intended ""), the target vanished between apply and read-back
+        // (found:false, actual:""), and `field_holds` alone called that
+        // "verified". An unread field is unverifiable, never applied.
+        let fields = vec![ff("query", FormFieldType::Textbox, "#q", "")];
+        let resp = form_readback_response(&fields, &[st(false, "")]);
+        assert_eq!(resp["applied"], json!(0));
+        assert_eq!(resp["all_verified"], json!(false));
+        assert_eq!(resp["fields"][0]["state"], json!("unverifiable"));
+        assert_eq!(resp["fields"][0]["verified"], json!(false));
+        let note = resp["note"].as_str().unwrap_or_default();
+        assert!(note.contains("unverifiable: query"), "{note}");
+
+        // The same intended value IS verifiable when the read actually saw
+        // the element — clearing a field is a legitimate applied state.
+        let ok = form_readback_response(&fields, &[st(true, "")]);
+        assert_eq!(ok["applied"], json!(1));
+        assert_eq!(ok["all_verified"], json!(true));
+        assert_eq!(ok["fields"][0]["state"], json!("applied"));
+    }
+
+    #[test]
+    fn readback_response_labels_applied_not_applied_unverifiable_per_field() {
+        let fields = vec![
+            ff("a", FormFieldType::Textbox, "#a", "x"),
+            ff("b", FormFieldType::Checkbox, "#b", "true"),
+            ff("c", FormFieldType::Combobox, "#c", "business"),
+            ff("d", FormFieldType::Textbox, "#d", "y"),
+        ];
+        let states = vec![
+            st(true, "x"),
+            st(true, "false"),
+            FormFieldState {
+                found: true,
+                actual: "Business Plan".into(),
+                alt: Some("business".into()),
+            },
+            st(false, ""),
+        ];
+        let resp = form_readback_response(&fields, &states);
+        let states_out: Vec<&str> = resp["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["state"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            states_out,
+            ["applied", "not-applied", "applied", "unverifiable"]
+        );
+        assert_eq!(resp["applied"], json!(2));
+        assert_eq!(resp["total"], json!(4));
+        assert_eq!(resp["all_verified"], json!(false));
+    }
+
+    #[test]
+    fn probe_verdicts_demands_the_probe_answered_the_contract() {
+        let fields = vec![
+            ff("a", FormFieldType::Textbox, "#a", "x"),
+            ff("b", FormFieldType::Combobox, "#b", "y"),
+        ];
+        // Well-formed: one verdict per field, null = usable.
+        let good = probe_verdicts(
+            &fields,
+            &json!([
+                null,
+                "element is not a combobox (<select> or [role=combobox])"
+            ]),
+        )
+        .unwrap();
+        assert_eq!(good[0], None);
+        assert_eq!(
+            good[1].as_deref(),
+            Some("element is not a combobox (<select> or [role=combobox])")
+        );
+
+        // Malformed responses must NOT read as "all clear" (finding 2: the
+        // old code keyed on "is any row a string", so these silently applied
+        // the whole batch).
+        for bad in [
+            json!(null),
+            json!("ok"),
+            json!([]),
+            json!([null]),
+            json!([null, 7]),
+            json!({"0": "x"}),
+        ] {
+            let e = probe_verdicts(&fields, &bad).unwrap_err();
+            assert!(!e.is_empty(), "{bad} must be rejected");
+        }
+        // A short/long array and a non-string verdict name what went wrong.
+        assert!(probe_verdicts(&fields, &json!([null]))
+            .unwrap_err()
+            .contains("1 verdict(s) for 2 field(s)"));
+        assert!(probe_verdicts(&fields, &json!([null, true]))
+            .unwrap_err()
+            .contains("neither null nor a string"));
     }
 
     #[test]
