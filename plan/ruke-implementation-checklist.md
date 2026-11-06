@@ -299,6 +299,47 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
 
 **Phase 4 status: [LOCKED-DONE] — 3D/CAD fully retired through the normal entry point; anatomy is the only illustration route; old saves render read-only compat cards that never execute; TS↔Rust 8-mode parity with regenerated contracts + re-recorded goldens; 24 core skills removed with lock entries; zero regressions (tsc 0, vitest 1540, cargo green, browser 21/21).**
 
+## Phase 5A — Native PowerPoint motion (PptxGenJS + @office-kit/pptx) — [LOCKED-DONE]
+
+### Implementation
+
+| File | Change |
+| --- | --- |
+| `package.json` / `package-lock.json` | `@office-kit/pptx@0.28.0` pinned (MIT, ESM-only, `engines.node >=22.18.0`, sole runtime dep `fflate ^0.8.3` — already a Ruke dep); PptxGenJS 4.0.1 kept for editable text/charts |
+| `lib/documents/schemas.ts` | contract fields `motion:{transition,reveal}`, `morphGroup`, `reducedMotion`; `pptxSpecIssues` rejects bad spellings (`transition:"explode"`, `reveal:"sometimes"`) |
+| `lib/documents/pptxMotion.ts` | **ONE** motion planner (`buildMotionPlan`) whose output drives preview AND export; stable semantic `objectName` ids (`OBJ.*`, `!!` prefix, pair ids shared verbatim by both slides of a Morph pair); `clickRevealCount`, `stepFor`, `stepSchedule`, `TRANSITION_MS = { morph: 900, fade: 450 }` |
+| `lib/documents/pptxEngine.ts` | native motion pass through office-kit (`findShapeByName` + `setShapeAnimation` + transition write), structural Morph art (crop-fill entry instances, punched `custGeom` spotlights, rotated split masks), transition durations from `TRANSITION_MS`, `validatePresentation` **error gate**, spawns nothing (no `child_process`) |
+| `lib/documents/pptxPackageMotion.ts` | **NEW** shared plan↔file predicates (`inspectSlideMotion`, `motionPlanDiff`, `motionSummary`, `planClickReveals`) used by BOTH the deterministic engine tests and the model-driven journeys — one definition of "what a click build is" |
+| `components/render/PptxSlideBody.tsx` (new) + `PptxBlock.tsx` | preview renders the SAME plan (`stepSchedule`/`stepFor`); slideshow `advance()` consumes exactly `clickRevealCount` presses before the slide counter moves; reduced-motion path |
+| `app/api/documents/pptx/route.ts` | finding 8 closed: the spec goes through `pptxSpecIssues`/`normalizePptx` before the builder — a truthy `slides` array is no longer trusted |
+| `scripts/pptx_morph_injector.py` | **DELETED** (`git rm`) after replacement coverage landed |
+| `integrations/office-kit-pptx/README.md` + `smoke.mjs` | official upstream source, license, pinned version, platforms, setup, smoke test |
+| `tests/pptx-5a.spec.ts` | 4 model-driven journeys (pitch / explainer / data-heavy / simple) through the chat UI |
+| `__tests__/documents/pptxMotion.test.ts` (9) + `pptxEngine.test.ts` (10) | deterministic plan + package round-trip proofs |
+
+### Verification actually run (2026-11-06, all exit codes real)
+
+| Check | Result |
+| --- | --- |
+| `node integrations/office-kit-pptx/smoke.mjs` | **17 PASS / "SMOKE: ALL GREEN"**, exit **0** (identity `@office-kit/pptx@0.28.0` + upstream git URL, license MIT, lockfile integrity, fflate-only dep, Node engine gate on v26.12.1, native chart part survives, `objectName` resolves, morph pair one name on both slides, `morph/byObject` round-trip `durationMs:900`, animation effect/start/duration round-trip, crop-fill round-trip, `custGeom` round-trip, 0 validation errors, motion lives in OOXML `<p:transition>/<p:timing>`, `p:spTgt spid` targets the NAMED shape) |
+| `npx vitest run __tests__/documents/pptxEngine.test.ts __tests__/documents/pptxMotion.test.ts` | **19 passed**, exit 0 — incl. the NEW parity test: `motionPlanDiff(...) === []`, file transitions `[none,morph×4]`, `p14:dur` `[0,900,900,900,900]`, per-slide click gates `[0,0,2,0,3]` == the plan's byParagraph reveals, reducedMotion ⇒ `[none,fade×4]` @450 ms with zero gates, `TRANSITION_MS` exact |
+| `npx vitest run` (whole repo) | **118 files / 1557 passed / 9 skipped (1 skipped file)**, exit 0 |
+| `npx tsc --noEmit` | exit **0** (tsconfig `**/*.ts` covers `tests/`) |
+| `npm run contracts:check` | OK — `ppt` contract sha `dd1a703a…` bytes 2423; manifest up to date |
+| `npx vitest run __tests__/rust-golden` | **10 files / 56 passed**, exit 0 |
+| Simple export with **NO Python** | PATH stripped of python (`mcp-out/pystub.ps1` proves the stub is never called); app started with no interpreter resolvable; `mcp-out/no-python-proof.mjs` verifier **10/10 PASS "NO-PYTHON EXPORT: ALL GREEN"**, exit **0**; artifact carried `ppt/charts/chart1.xml` + `ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx` |
+| Locked model-driven journeys — **one launcher invocation each, serial** (`powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'scripts/run-browser-e2e-exclusive.ps1' -TestFiles tests/pptx-5a.spec.ts -Grep '<title>' -AppWaitSeconds 60"`) | **4/4 passed, each launcher exit 0, lock acquired+released every time**: simple **31.1 s** (`simple-ui.pptx` 109,508 B, 3 slides, zero motion); pitch **2.6 m** (`pitch.pptx` 1,204,020 B, 6 slides, plan `none,morph×5`, clicks preview=file=`0/4/4/0/0/0`, file durs all 900); explainer **3.3 m** (`explainer.pptx` 34,072 B, 5 slides); data-heavy **1.6 m** (`data-heavy.pptx` 3,561,257 B, 10 slides, native `ppt/charts/chart8..10.xml` + embedded workbooks). Every journey read the model's OWN `pptx` fence back out of the persisted conversation, re-normalized + re-planned it, and asserted `motionPlanDiff === []` + preview press gating vs the plan. |
+| **REAL PowerPoint slideshow playback** (installed PowerPoint via COM; observer `mcp-out/pptx-playback.ps1`, show rendered on `\\.\DISPLAY2 1920x1080`) | Structural opening is NOT the proof — live shows were driven and screenshotted mid-transition. **pitch:** `SlideShowTransition.EntryEffect` = `0, 3954×5` (3954 = Morph) matching the plan; `MainSequence` items `1/5/5/9/1/1` (a 2-step plan with a 4-bullet `byParagraph` build = 5 sequence items); 16/16 in-between frames captured; title text edit round-trip True; 1 chart `ChartType=1` series values `2.61…19.27` from a live embedded workbook. **explainer:** `3954×4`, 15/15 in-between frames, 28 `!!` shapes, chart `65` values `13.65/17.11/97.37`. **data-heavy:** `3954×9`, 16/24 in-between frames, 68 `!!` shapes, **3 charts** `51`/`65`/`-4120` all with live values. **simple-ui:** `EntryEffect=0` on all 3 slides, 0 in-between frames, 0 `!!` shapes, text still editable — honest zero motion. |
+| Timing evidence (`mcp-out/dump-timing.mjs` reads the OOXML PowerPoint actually parses) | `<p:timing>` carries real durations: 400 ms entrances, 300 ms `flyIn` staggered 400/700/1000/1300 ms, 600 ms `growShrink` at 1600/2200/2800/3400 ms; transitions `p14:dur="900"` (Morph, inside `mc:Choice Requires="p159"` with a `mc:Fallback` fade) and `"450"` (fade); per-slide `<p:cond delay="indefinite"/>` counts equalled PowerPoint's live `View.GetClickCount()` (4/5/6/4 on the earlier deck set) and `View.Next()` consumed exactly that many presses before the show position advanced — the same gating the preview performs. There is no literal `evt="onClick"` attribute in OOXML. |
+
+### Laws / corrections discovered in 5A
+
+- Normal-tier Morph is the **model's** signal, not the tier's: the model may declare `motion.transition` per slide AND `morphGroup`. A journey assertion of "morph count == morphGroup pairs" failed one real run (3 morphs vs 2 pairs) because the model explicitly overrode transitions — the engine honoring explicit overrides is correct, so the assertion was fixed (at the test) to per-slide signal equality: a slide morphs iff the model said so. Re-ran green (3.3 m).
+- `office-kit` reports effect `Name`/`Duration`/`Timing.Duration` as `0`/`''` through the COM interop path — durations had to be verified in the exported `<p:timing>` tree instead of trusting COM.
+- The plan↔file predicates must be shared (one module) — two regex copies is how the preview/export split stayed hidden.
+
+**Phase 5A status: [LOCKED-DONE] — native Morph + click reveals + timed entrances + emphasis + reduced-motion through one motion plan; preview and export agree per slide (transition, duration, animation, click gates) in deterministic tests AND in four real-model journeys; decks generated through Ruke were opened AND played in real PowerPoint (Morph observed running, on-click reveals gated live, charts/text editable); charts are native parts with embedded workbooks; the Python injector is deleted and simple export proven with no interpreter on PATH.**
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
@@ -321,10 +362,13 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
       24-skill core inventory removal (exact list in plan §Phase 4), lock entries, SVG-Anatomy remap OFF `cad_blueprint` FIRST,
       read-only compat for old saves, `contracts:generate` + `contracts:check` green — PROVEN via
       `94f740b`/`499a52a`/`a02c3bf`; compat-card + never-execute proof through `?demo=ui` (browser 21/21 exit 0)
-- [ ] **P5A** native PowerPoint motion: `@office-kit/pptx@0.28.0` verified Node-compatible; stable object names
-      (`objectName`); native Morph + click reveals + timed entrances + emphasis + reduced-motion; ONE motion sequence for
-      preview AND export; native charts (PptxGenJS `addChart`); decks generated through Ruke; playback verified in REAL
-      PowerPoint (COM); `scripts/pptx_morph_injector.py` deleted after replacement; simple export works with NO Python
+- [x] **P5A** native PowerPoint motion — PROVEN in the 5A ledger above: pinned `@office-kit/pptx@0.28.0` (MIT) smoke
+      17/17 exit 0; stable `objectName` ids; native Morph (`EntryEffect 3954`, `p14:dur=900`) + on-click reveals
+      (`<p:cond delay="indefinite"/>` == live `GetClickCount()`) + timed entrances (400/300/600 ms + staggers) +
+      emphasis + reduced-motion (fade 450, zero gates); ONE plan drives preview AND export — `motionPlanDiff === []`
+      in vitest and in 4 real-model journeys; native editable charts + embedded workbooks; decks generated through
+      Ruke and PLAYED in real PowerPoint (mid-Morph frames captured, text/charts edited live); injector deleted and
+      simple export proven with NO Python on PATH
 - [ ] **P5B** evaluate LibreOffice (recalc/convert), ECharts (vs Ruke chart schema), Docling (scanned PDF/tables) on real
       fixtures; adopt only where comparison wins; record decisions; keep ExcelJS/docx/Chromium-PDF; fflate consolidation of
       zipWriter/extract paths preserving decompression limits + 7-Zip fallback; verify actual Power BI exports before claims
@@ -341,23 +385,26 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
 | Provider | Dir | Package pinned | License | README | Smoke test |
 | --- | --- | --- | --- | --- | --- |
 | Playwright MCP | `integrations/playwright-mcp/` | `@playwright/mcp@0.0.84` (+ rmcp 3.9.0 client) | Apache-2.0 (verified) | ✓ | ✓ ALL GREEN exit 0 (2026-11-06) |
-| Office Kit PPTX | `integrations/office-kit-pptx/` | — | MIT | — | — |
+| Office Kit PPTX | `integrations/office-kit-pptx/` | `@office-kit/pptx@0.28.0` (ESM-only, node>=22.18.0, sole dep fflate ^0.8.3) | MIT (verified in package.json) | ✓ | ✓ `node integrations/office-kit-pptx/smoke.mjs` → **17 PASS ALL GREEN**, exit 0 (2026-11-06) |
 | LibreOffice | `integrations/libreoffice/` | — | MPL-2.0 | — | — |
 | ECharts | `integrations/echarts/` | — | Apache-2.0 | — | — |
 | Docling | `integrations/docling/` | — | MIT | — | — |
 
 ## Next action (updated as the run proceeds)
 
-1. **Phase 5A (CODE):** native PowerPoint motion — `@office-kit/pptx@0.28.0`: verify the REAL upstream
-   npm package first (`npm view @office-kit/pptx` — identity, MIT license, Node compat); keep PptxGenJS
-   editable content + `addChart` charts + `POST /api/documents/pptx` contract; stable `objectName`;
-   native Morph + click reveals + timed entrances + emphasis + reduced-motion; ONE motion sequence
-   drives BOTH preview AND export; generate a deck through Ruke; verify playback in REAL PowerPoint
-   COM (`POWERPOINT-OK` baseline); then DELETE `scripts/pptx_morph_injector.py`; prove simple export
-   with NO Python; write + run `integrations/office-kit-pptx/` README + smoke test.
+1. **STOP — bug phase (per the governing brief: "after finising this phase stop there and resolve these
+   bugs").** Audit baseline `5fb34ffadaa0f9169990f2783aafd0d7ebbb3934`; re-verify each of the 8 findings
+   against the working tree before touching it, and reopen any gate the evidence contradicts (finding 4:
+   `tests/cad.spec.ts` still expects the deleted viewer ⇒ the P4 gate must be reopened until that test is
+   corrected). Findings 1–7 = form-batch false verification, preflight accepting unusable targets, browser
+   loop false completion on budget exhaustion, stale CAD tests + legacy download label, anatomy
+   over-trigger ("What is the anatomy of the knee?" / "What is an isometric exercise?" must stay
+   conversational), HTML preview origin isolation + fullscreen fallback, PDF export trust boundary.
+   Finding 8 (PPTX bypassed the normalizer) is closed in 5A.
 2. Then P5B (LibreOffice/ECharts/Docling real-fixture evaluations + fflate consolidation), P6
    (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright fix-rerun
    loop green vs baselines + CLAUDE.md §4 completion report).
-3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3) — all LOCKED-DONE +
-   pushed; P4 `a02c3bf`+`499a52a` (pushed) + `94f740b` (this docs commit carries the push).
+3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3), P4
+   `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff` — all LOCKED-DONE + pushed; **P5A = this commit** (the
+   short SHA is the 2026-11-06 HEAD entry in `git log --oneline`).
 4. Chat handover snapshot for fresh sessions: `handover/2026-11-06-ruke-plan-handover.md`.

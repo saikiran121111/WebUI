@@ -369,14 +369,31 @@ export interface PptxSlide {
   stats: { label: string; value: string; suffix?: string }[];
   chart?: ChartSpecLite; table?: { headers: string[]; rows: string[][] };
   morphGroup?: string;
+  /** PHASE 5A (additive): per-slide overrides for the ONE motion plan —
+   * `transition` is how the slide enters, `reveal` whether its objects
+   * animate in at all (so "no motion" is expressible without lying about
+   * the tier). */
+  motion?: { transition?: "auto" | "morph" | "fade" | "none"; reveal?: "auto" | "none" };
 }
 export interface PptxSpec {
   filename: string; title: string; tier: PptxTier;
   theme: { bg: string; accent: string; positive: string };
   slides: PptxSlide[];
+  /** PHASE 5A (additive): replace Morph/step motion with plain fades. */
+  reducedMotion?: boolean;
 }
 
 const LAYOUTS = new Set<PptxLayout>(["title", "hero", "stats", "split", "spotlight", "chart", "table", "bullets"]);
+
+/** Per-slide motion overrides: an unknown token is dropped (the tier default
+ * stands) rather than crashing the export; validation reports it at the route. */
+const MOTION_REVEALS = new Set(["auto", "none"]);
+function normalizeSlideMotion(m: any): PptxSlide["motion"] {
+  if (!m || typeof m !== "object") return undefined;
+  const transition = MOTION_TRANSITIONS.has(str(m.transition)) ? (m.transition as "auto" | "morph" | "fade" | "none") : undefined;
+  const reveal = MOTION_REVEALS.has(str(m.reveal)) ? (m.reveal as "auto" | "none") : undefined;
+  return transition || reveal ? { transition, reveal } : undefined;
+}
 
 export function normalizePptx(raw: any): PptxSpec | null {
   if (!raw || typeof raw !== "object") return null;
@@ -393,6 +410,7 @@ export function normalizePptx(raw: any): PptxSpec | null {
       chart: s?.chart ? normalizeChartLite(s.chart) ?? undefined : undefined,
       table: s?.table ? { headers: arr(s.table.headers ?? s.table.columns).map((x: any) => (typeof x === "object" ? str(x.name ?? x.label) : str(x))), rows: arr(s.table.rows).map((r: any) => arr(r).map((c) => str(c ?? ""))) } : undefined,
       morphGroup: str(s?.morphGroup ?? s?.morph) || undefined,
+      motion: normalizeSlideMotion(s?.motion),
     };
   });
   if (!slides.length) return null;
@@ -403,7 +421,68 @@ export function normalizePptx(raw: any): PptxSpec | null {
     tier,
     theme: { bg: str(theme.bg, "#0A0A0A"), accent: str(theme.accent, "#38E8FF"), positive: str(theme.positive, "#22C55E") },
     slides,
+    reducedMotion: raw.reducedMotion === true ? true : undefined,
   };
+}
+
+// Server-boundary validation for the pptx export (clear 4xx instead of a
+// deep engine crash on malformed colors/targets, plus size bounds).
+const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+const MOTION_TRANSITIONS = new Set(["auto", "morph", "fade", "none"]);
+export const PPTX_LIMITS = {
+  slides: 60, bullets: 60, stats: 12, tableRows: 100, tableCols: 12,
+  chartCategories: 200, chartSeries: 12, chartPoints: 400, jsonChars: 262144,
+};
+
+/** Human-readable list of spec problems; empty means the spec is usable. */
+export function pptxSpecIssues(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ["spec must be a JSON object"];
+  const o = raw as Record<string, unknown>;
+  const slides = o.slides;
+  if (!Array.isArray(slides) || slides.length === 0) return ["slides must be a non-empty array"];
+  const issues: string[] = [];
+  try { if (JSON.stringify(o).length > PPTX_LIMITS.jsonChars) issues.push("spec JSON too large (>256 KB)"); } catch { /* circular caught below */ }
+  if (o.tier !== undefined && !["insane", "normal", "simple"].includes(str(o.tier).toLowerCase())) issues.push(`unknown tier "${String(o.tier)}"`);
+  if (o.reducedMotion !== undefined && typeof o.reducedMotion !== "boolean") issues.push("reducedMotion must be a boolean");
+  const theme = (o.theme ?? {}) as Record<string, unknown>;
+  if (o.theme != null && typeof o.theme !== "object") issues.push("theme must be an object");
+  for (const k of ["bg", "accent", "positive"]) {
+    const v = theme?.[k];
+    if (v !== undefined && (typeof v !== "string" || !HEX_COLOR_RE.test(v))) issues.push(`theme.${k} must be a hex color like "#38E8FF"`);
+  }
+  if (slides.length > PPTX_LIMITS.slides) issues.push(`too many slides (${slides.length} > ${PPTX_LIMITS.slides})`);
+  slides.slice(0, PPTX_LIMITS.slides + 1).forEach((s, i) => {
+    if (!s || typeof s !== "object") { issues.push(`slide ${i + 1} must be an object`); return; }
+    const sl = s as Record<string, unknown>;
+    if (sl.layout !== undefined && !LAYOUTS.has(sl.layout as PptxLayout)) issues.push(`slide ${i + 1}: unknown layout "${String(sl.layout)}"`);
+    if (sl.motion !== undefined) {
+      if (!sl.motion || typeof sl.motion !== "object") issues.push(`slide ${i + 1}: motion must be an object`);
+      else {
+        const mo = sl.motion as Record<string, unknown>;
+        const t = mo.transition;
+        if (t !== undefined && !MOTION_TRANSITIONS.has(t as string)) issues.push(`slide ${i + 1}: motion.transition must be "auto" | "morph" | "fade" | "none"`);
+        if (mo.reveal !== undefined && !MOTION_REVEALS.has(mo.reveal as string)) issues.push(`slide ${i + 1}: motion.reveal must be "auto" | "none"`);
+      }
+    }
+    if (Array.isArray(sl.bullets) && sl.bullets.length > PPTX_LIMITS.bullets) issues.push(`slide ${i + 1}: too many bullets (> ${PPTX_LIMITS.bullets})`);
+    if (Array.isArray(sl.stats) && sl.stats.length > PPTX_LIMITS.stats) issues.push(`slide ${i + 1}: too many stats (> ${PPTX_LIMITS.stats})`);
+    if (sl.table != null && typeof sl.table === "object") {
+      const t = sl.table as Record<string, unknown>;
+      if (Array.isArray(t.rows)) {
+        if (t.rows.length > PPTX_LIMITS.tableRows) issues.push(`slide ${i + 1}: too many table rows (> ${PPTX_LIMITS.tableRows})`);
+        if (t.rows.some((r: unknown) => Array.isArray(r) && r.length > PPTX_LIMITS.tableCols)) issues.push(`slide ${i + 1}: too many table columns (> ${PPTX_LIMITS.tableCols})`);
+      }
+    }
+    if (sl.chart != null && typeof sl.chart === "object") {
+      const c = sl.chart as Record<string, unknown>;
+      if (Array.isArray(c.categories) && c.categories.length > PPTX_LIMITS.chartCategories) issues.push(`slide ${i + 1}: too many chart categories (> ${PPTX_LIMITS.chartCategories})`);
+      if (Array.isArray(c.series)) {
+        if (c.series.length > PPTX_LIMITS.chartSeries) issues.push(`slide ${i + 1}: too many chart series (> ${PPTX_LIMITS.chartSeries})`);
+        for (const s2 of c.series as unknown[]) if (Array.isArray((s2 as Record<string, unknown>)?.data) && ((s2 as Record<string, unknown>).data as unknown[]).length > PPTX_LIMITS.chartPoints) issues.push(`slide ${i + 1}: too many chart points (> ${PPTX_LIMITS.chartPoints})`);
+      }
+    }
+  });
+  return issues;
 }
 
 // ---------- powerbi ----------

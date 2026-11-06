@@ -3888,3 +3888,89 @@ NOTE: cycle PAUSED by user mid-MHR-G on 2026-11-06; PC SHUTTING DOWN per standin
 - [8.6] No open bugs. fmt churn law honored (touched crates only). 94f740b NOT pushed until docs commit (checklist+state+handover+MIGRATION-MAP honesty fix) lands next.
 - [8.7] No Tier-1/Tier-2 bodies loaded beyond superpowers intro.
 - [8.8] Next 3 atomic actions: (1) commit docs checkpoint (checklist P4, state.md, handover file, MIGRATION-MAP) + push origin develop (carries 94f740b); (2) Phase 5A recon: verify real @office-kit/pptx@0.28.0 on npm (npm view, MIT), read documents/pptx route + pptx engines + scripts/pptx_morph_injector.py surface; (3) 5A implement: office-kit motion (Morph/click reveals/timed/emphasis/reduced-motion, stable objectName, ONE sequence preview+export), keep PptxGenJS editable + addChart + POST contract; PowerPoint COM playback; delete morph injector; integrations/office-kit-pptx README+smoke (run it).
+
+## Session block 2026-11-06g — Phase 5A LOCKED-DONE (@office-kit/pptx native motion) — STOP → BUG PHASE next
+- [8.1] Mission unchanged: entire Ruke plan P0→P7 unattended on develop. P0–P4 + **P5A LOCKED-DONE**. Governing
+  amendment in force: finish with the report and LEAVE THE MACHINE RUNNING (the handover shutdown line is history).
+  Immediate next milestone per the brief: STOP and resolve the 8 verified findings (#8 was closed inside 5A).
+- [8.2 LOCKED — do not re-read/re-do] Phase 5A shipped in this commit: `@office-kit/pptx@0.28.0` (MIT, ESM-only,
+  node>=22.18.0, sole dep fflate) pinned + `integrations/office-kit-pptx/{README.md,smoke.mjs}` (smoke **17 PASS
+  ALL GREEN** exit 0); ONE motion plan `lib/documents/pptxMotion.ts` (`buildMotionPlan`, `OBJ` `!!` names,
+  `clickRevealCount`, `stepSchedule`, `TRANSITION_MS={morph:900,fade:450}`) drives BOTH
+  `lib/documents/pptxEngine.ts` (office-kit motion pass + structural Morph art + `validatePresentation` error gate,
+  no child_process) and `components/render/PptxSlideBody.tsx`/`PptxBlock.tsx` (advance() gates exactly
+  `clickRevealCount` presses); shared plan↔file predicates `lib/documents/pptxPackageMotion.ts`
+  (`inspectSlideMotion`/`motionPlanDiff`/`motionSummary`/`planClickReveals`); finding 8 closed in
+  `app/api/documents/pptx/route.ts` (the spec must pass `pptxSpecIssues`/`normalizePptx`);
+  `scripts/pptx_morph_injector.py` DELETED; deterministic proofs `__tests__/documents/pptxMotion.test.ts` (9) +
+  `pptxEngine.test.ts` (10, incl. the parity test: transitions `[none,morph×4]`, `p14:dur [0,900,900,900,900]`,
+  click gates `[0,0,2,0,3]` == the plan's reveals, reducedMotion → fade 450 + zero gates);
+  journeys `tests/pptx-5a.spec.ts` 4/4 green, one launcher invocation per journey (simple 31.1 s 109,508 B zero
+  motion; pitch 2.6 m 1,204,020 B 6 slides; explainer 3.3 m 34,072 B 5 slides; data-heavy 1.6 m 3,561,257 B
+  10 slides + `ppt/charts/chart8..10.xml` + embedded workbooks); REAL PowerPoint slideshow playback observed
+  (`mcp-out/pptx-playback.ps1`, log `mcp-out/playback-5a-current.log`): EntryEffect 3954=Morph / 3849=Fade /
+  0=none per slide matching the plan, MainSequence item counts match the plan (a byParagraph build expands per
+  bullet), 16/16 · 15/15 · 16/24 · 0/3 in-between frames, text edit round-trip True ×4, charts live and editable
+  (ChartType 1/51/65/−4120 with real values), simple deck 0 `!!` shapes; NO-PYTHON export proof 10/10 PASS exit 0.
+  Battery after 5A: vitest 118 files/1557 pass/9 skip exit 0, `__tests__/rust-golden` 10 files/56 exit 0,
+  `npx tsc --noEmit` exit 0, `npm run contracts:check` OK (ppt sha dd1a703a…, 2423 B).
+- [8.3 GRAPHIFY] the `pptx` fence → `components/render/FenceRouter.tsx` → `PptxBlock.tsx` (+lazy
+  `PptxSlideBody.tsx`) → `pptxMotion.stepSchedule/stepFor/clickRevealCount`; POST `/api/documents/pptx` →
+  `pptx/route.ts` → `schemas.pptxSpecIssues` + `normalizePptx` → `pptxEngine.buildPptx` (PptxGenJS build →
+  office-kit motion pass → `validatePresentation`) → download → `pptxPackageMotion` asserts parity. Decision chain
+  unchanged (client.ts ↔ engine.rs ↔ contracts_generated.rs ← gen-mode-contracts.mjs; MODE_MAP ppt → skill `pptx`;
+  `motion.reveal` is part of CONTRACT_PPT). Callers of the changed code = documents tests + the 5A journeys only.
+- [8.4 CONTRACTS] RendererMode set still 8: excel,docs,pdf,ppt,anatomy,chart,html_render,standard_chat.
+  PPTX spec: `{title, filename?, tier: simple|normal|insane, reducedMotion?, theme{bg,accent,positive},
+  slides[] ≤60 {layout: title|hero|bullets|stats|spotlight|split|chart, title, subtitle?, bullets[] ≤60, stats[],
+  chart?, morphGroup?, motion?:{transition?: none|morph|fade|auto, reveal?: auto|none}}}`;
+  `TRANSITION_MS={morph:900,fade:450}` is written as `p14:dur` AND replayed by the preview; object ids
+  `!!Title_sN`, `!!Sub_sN`, `!!Bullets_sN`, `!!HeroNumber_sN`, `!!StatCard_sI_J`, `!!StatValue_sI_J`,
+  `!!SpotlightCard_sN`, `!!SplitMask_sP`, `!!StatFill_sP`, `!!SpotlightOverlay_sP`, `!!MorphBand_<group>`
+  (pair names verbatim on BOTH slides = the Morph pairing). OOXML facts: Morph =
+  `<mc:Choice Requires="p159">` + `<p159:morph option="byObject"/>` with `<mc:Fallback><p:fade/>`; the on-click
+  gate = `<p:cond delay="indefinite"/>` (there is NO `evt="onClick"`); animations require `<p:timing>`.
+  PowerPoint COM: `Presentations.Open` needs an ABSOLUTE path; live counters are
+  `View.CurrentShowPosition/GetClickIndex/GetClickCount` (`View.CurrentSlide` is not marshalled); shows render on
+  the secondary display; set `$pres.Saved=$true` before `Close()`.
+- [8.5 E2E STATE] NO lock held. Stack live and REUSED (do not restart): Next :3000→200, ruke-server :3101→404,
+  model :8080→200, fixture :3210→200. The 5A journeys run through the Playwright runner via
+  `scripts/run-browser-e2e-exclusive.ps1` with `-TestFiles tests/pptx-5a.spec.ts -Grep '<one title>'
+  -AppWaitSeconds 60`, one title per invocation, serially. Artifacts: `.data/exports-5a/{pitch,explainer,
+  data-heavy,simple-ui}.pptx`; playback frames `mcp-out/playback/*.png`. Baselines for the Phase-7 loop: 5A
+  journeys 31.1 s / 2.6 m / 3.3 m / 1.6 m; P4 regression 21/21 (40.7 s); EASY 29.7 s; MEDIUM 49.5 s/8 rounds;
+  HARD ~40 s; VISION ~90 s (the 49→90 s vision gap is still to investigate with controlled repeats).
+- [8.6 OPEN BUGS (the 7 remaining findings — reproduce first, then fix)] (1) `ruke-browser/src/bridge.rs`
+  `FORM_READ_JS`/`form_field_state` returns `found:false,actual:""` and `bridge_fill_form` ignores `found` ⇒
+  false-verified missing field. (2) bridge.rs preflight probe (~L253) only checks `el.disabled` (misses
+  ancestor-fieldset-disabled / visibility / read-only / uniqueness) and the caller (~L1210) proceeds on a missing
+  or malformed probe. (3) `ruke-server/src/chat/browser_loop.rs` (~L953) budget exhaustion ⇒ `Outcome::Finished`
+  + `browser:done` before cancellation/failure handling; `lib/progress/turnProgress.ts` (~L236) maps that stage to
+  finished; the last round's `[DONE]` can be swallowed; raw tool args land in production logs. (4)
+  `tests/cad.spec.ts` still expects the deleted viewer ⇒ **the P4 gate must be reopened**;
+  `tests/interactive-ui.spec.ts` (~L132) never reloads a saved conversation nor clicks Download;
+  `RetiredFenceBlock.tsx` (~L33) label → "Download source". (5) anatomy over-trigger: `lib/decision/client.ts`
+  (~L49) + `ruke-decision/src/engine.rs` (~L71) match standalone words — "What is the anatomy of the knee?" and
+  "What is an isometric exercise?" must stay conversational; fix the contract in `lib/decision/contracts.ts`,
+  keep TS↔Rust parity, add paired positive/negative fixtures, `npm run contracts:generate`. (6)
+  `components/render/HtmlArtifactBlock.tsx` (~L49) srcDoc with allow-scripts+allow-same-origin, plus the
+  fullscreen fallback state bug. (7) `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts` feed raw HTML
+  to Chromium with JS + networking (canary test required). Law learned in 5A: normal-tier Morph follows the MODEL's
+  own signals (an explicit `motion.transition` beats morphGroup pairing) — the journey assertion was corrected to
+  per-slide signal equality, which was a test fix, not a product change.
+- [8.7 SKILLS] Nothing Tier-1/Tier-2 loaded beyond the superpowers intro. The installed core skill `pptx` (visible
+  only to the decision engine through MODE_SKILL[ppt]) must stay preserved and invisible in the UI.
+- [8.8 NEXT 3 ATOMIC ACTIONS] (1) commit/push 5A (this commit) — stage ONLY
+  `__tests__/documents/pptxEngine.test.ts`, `__tests__/documents/pptxMotion.test.ts`,
+  `app/api/documents/pptx/route.ts`, `components/render/PptxBlock.tsx`, `components/render/PptxSlideBody.tsx`,
+  `lib/decision/contracts.ts`, `lib/documents/pptxEngine.ts`, `lib/documents/pptxMotion.ts`,
+  `lib/documents/pptxPackageMotion.ts`, `lib/documents/schemas.ts`, `package.json`, `package-lock.json`,
+  `rust-backend/crates/ruke-decision/src/contracts_generated.rs`,
+  `rust-backend/fixtures/skills/06-mode-contracts-hashes.json`,
+  `rust-backend/fixtures/contracts/manifest.json`, `tests/pptx-5a.spec.ts`, `integrations/office-kit-pptx/`,
+  `plan/ruke-implementation-checklist.md`, `docs/state.md`, plus the already-staged deletion of
+  `scripts/pptx_morph_injector.py`; NEVER stage `tsconfig.tsbuildinfo`, `mcp-out/`, `test-results/` or
+  `rust-backend/.playwright-mcp/`. (2) record the audit baseline SHA, re-verify finding 4 FIRST
+  (`tests/cad.spec.ts` is on disk ⇒ reopen the P4 gate in the checklist), then fix findings 1→7 in order, each with
+  deterministic tests at the source. (3) after the bug phase, return to P5B → P6 → the remaining provider READMEs →
+  P7 full battery + the FINAL locked model-driven Playwright fix-rerun loop, then the CLAUDE.md §4 report.

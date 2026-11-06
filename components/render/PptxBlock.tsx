@@ -1,114 +1,24 @@
 "use client";
 /**
- * PPTX fence (PHASE 4): the downloaded file carries OOXML Morph transitions
- * + viral motion patterns; the in-chat preview mirrors that motion with
- * Framer Motion — directional slide transitions, shared-element morphing for
- * slides that share a morphGroup (layoutId), and count-up stats. Run
- * Slideshow opens a 60fps fullscreen player (arrow keys / click / Esc).
+ * PPTX fence (PHASE 5A): the downloaded file carries NATIVE PowerPoint
+ * motion (Morph transitions, entrance/emphasis animations, click builds —
+ * see lib/documents/pptxEngine.ts). The in-chat preview is driven by the
+ * SAME MotionPlan from lib/documents/pptxMotion: identical transitions,
+ * entrance schedule and per-paragraph click reveals, so what you watch in
+ * the browser is what PowerPoint plays. Run Slideshow opens a fullscreen
+ * player (arrows advance builds then slides / Esc exits).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { normalizePptx, PptxSlide, safeName } from "../../lib/documents/schemas";
-import { chartSvg } from "../../lib/documents/chartHtml";
-import { useTweenedNumbers } from "../../hooks/useTweenedNumbers";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { normalizePptx, safeName } from "../../lib/documents/schemas";
+import { buildMotionPlan, clickRevealCount } from "../../lib/documents/pptxMotion";
+import PptxSlideBody from "./PptxSlideBody";
 import DocumentCard, { FenceBroken, FencePending } from "./DocumentCard";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-function SlideBody({ slide, theme }: { slide: PptxSlide; theme: { bg: string; accent: string; positive: string } }) {
-  const statTargets = useMemo(
-    () => slide.stats.map((st) => { const n = parseFloat(st.value.replace(/[^0-9.\-]/g, "")); return isFinite(n) ? n : 0; }),
-    [slide.stats],
-  );
-  const tweened = useTweenedNumbers(statTargets, 700);
-
-  return (
-    <div className={"pptx-slide pptx-slide--" + slide.layout} style={{ background: theme.bg }}>
-      {(slide.layout === "title" || slide.layout === "hero" || slide.layout === "spotlight") && (
-        <div className="pptx-hero">
-          {slide.subtitle && <div className="pptx-kicker" style={{ color: theme.accent }}>{slide.subtitle}</div>}
-          <h2 className="pptx-big" style={slide.layout === "spotlight" ? { color: theme.accent } : undefined}>{slide.title}</h2>
-          {slide.bullets.length > 0 && (
-            <ul className="pptx-bullets">
-              {slide.bullets.map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
-      {slide.layout === "stats" && (
-        <div className="pptx-stats">
-          <h3 className="pptx-h">{slide.title}</h3>
-          <div className="pptx-stat-row">
-            {slide.stats.map((st, i) => {
-              const prefix = /^[$€£₹]/.test(st.value) ? st.value[0] : "";
-              const suffix = (st.suffix ?? "") + (/[%x+]/.test(st.value.trim().slice(-1)) ? st.value.trim().slice(-1) : "");
-              return (
-                <div key={i} className="pptx-stat-card">
-                  <div className="pptx-stat-value" style={{ color: theme.positive }}>
-                    {prefix}{(tweened[i] ?? 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}{suffix}
-                  </div>
-                  <div className="pptx-stat-label">{st.label}</div>
-                </div>
-              );
-            })}
-          </div>
-          {slide.subtitle && <p className="pptx-sub">{slide.subtitle}</p>}
-        </div>
-      )}
-      {slide.layout === "split" && (
-        <div className="pptx-split">
-          <div>
-            <h3 className="pptx-h">{slide.title}</h3>
-            {slide.subtitle && <p className="pptx-sub">{slide.subtitle}</p>}
-            <ul className="pptx-bullets">
-              {slide.bullets.map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
-          </div>
-          {slide.chart && (
-            <div
-              className="pptx-chart"
-              dangerouslySetInnerHTML={{ __html: chartSvg(slide.chart, { width: 460, height: 300, theme: "dark" }) }}
-            />
-          )}
-        </div>
-      )}
-      {slide.layout === "chart" && (
-        <div className="pptx-chart-slide">
-          <h3 className="pptx-h">{slide.title}</h3>
-          {slide.subtitle && <p className="pptx-sub">{slide.subtitle}</p>}
-          {slide.chart && (
-            <div
-              className="pptx-chart"
-              dangerouslySetInnerHTML={{ __html: chartSvg(slide.chart, { width: 640, height: 340, theme: "dark" }) }}
-            />
-          )}
-        </div>
-      )}
-      {slide.layout === "table" && (
-        <div className="pptx-table-slide">
-          <h3 className="pptx-h">{slide.title}</h3>
-          {slide.table && (
-            <table className="pptx-table">
-              <thead><tr>{slide.table.headers.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
-              <tbody>{slide.table.rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}</tbody>
-            </table>
-          )}
-        </div>
-      )}
-      {slide.layout === "bullets" && (
-        <div className="pptx-bullets-slide">
-          <h3 className="pptx-h">{slide.title}</h3>
-          {slide.subtitle && <p className="pptx-sub">{slide.subtitle}</p>}
-          <ul className="pptx-bullets">
-            {slide.bullets.map((b, i) => <li key={i}>{b}</li>)}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function PptxBlock({ source, streaming }: { source: string; streaming: boolean }) {
+  const reduced = useReducedMotion();
   const spec = useMemo(() => {
     try {
       return normalizePptx(JSON.parse(source));
@@ -116,9 +26,12 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
       return null;
     }
   }, [source]);
+  const plan = useMemo(() => (spec ? buildMotionPlan(spec) : []), [spec]);
+
   const [idx, setIdx] = useState(0);
   const [dir, setDir] = useState(1);
   const [show, setShow] = useState(false);
+  const [revealed, setRevealed] = useState(0); // slideshow click-build progress
   const showRef = useRef<HTMLDivElement>(null);
 
   const go = useCallback((d: number, n: number) => {
@@ -126,37 +39,62 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
     setIdx((i) => Math.max(0, Math.min(n - 1, d === 0 ? n : i + d)));
   }, []);
 
+  // PowerPoint semantics: while a slide has pending click-builds, a click /
+  // → / space reveals the next paragraph before it advances the slide.
+  const advance = useCallback(() => {
+    const n = spec?.slides.length ?? 0;
+    if (!spec || !n) return;
+    const sd = spec.slides[Math.min(idx, n - 1)];
+    const total = clickRevealCount(plan, idx, sd);
+    if (show && revealed < total) {
+      setRevealed((r) => r + 1);
+      return;
+    }
+    go(1, n);
+  }, [spec, plan, idx, show, revealed, go]);
+
+  useEffect(() => setRevealed(0), [idx]);
+
   // True fullscreen: the slideshow layer takes the whole screen via the
-  // native Fullscreen API (no browser URL bar / tabs). If the grant fails,
-  // the fixed-inset CSS layer (.pptx-show) is the fallback.
+  // native Fullscreen API. If the grant fails, the fixed-inset CSS layer
+  // (.pptx-show) is the fallback — and it must NOT be torn down by a
+  // fullscreenchange that never belonged to us (exit only when native FS
+  // was actually granted and then left; Esc in CSS mode is handled by keys).
   useEffect(() => {
     if (!show) return;
     const el = showRef.current;
-    if (el && !document.fullscreenElement) el.requestFullscreen?.().catch(() => { /* CSS fallback */ });
-    const onFsChange = () => { if (!document.fullscreenElement) setShow(false); };
+    let native = false;
+    if (el && !document.fullscreenElement) {
+      Promise.resolve(el.requestFullscreen?.()).then(() => { native = true; }).catch(() => { /* CSS fallback */ });
+    }
+    const onFsChange = () => { if (native && !document.fullscreenElement) setShow(false); };
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, [show]);
 
   useEffect(() => {
     if (!show) return;
+    const n = spec?.slides.length ?? 0;
     const onKey = (e: KeyboardEvent) => {
-      const n = spec?.slides.length ?? 0;
       if (e.key === "Escape") setShow(false);
-      else if (e.key === "ArrowRight" || e.key === " " || e.key === "Enter") go(1, n);
+      else if (e.key === "ArrowRight" || e.key === " " || e.key === "Enter") advance();
       else if (e.key === "ArrowLeft") go(-1, n);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [show, spec, go]);
+  }, [show, spec, advance, go]);
 
   if (streaming) return <FencePending label="PPTX" />;
   if (!spec) return <FenceBroken label="pptx" />;
 
   const n = spec.slides.length;
-  const slide = spec.slides[Math.min(idx, n - 1)];
-  const prev = idx > 0 ? spec.slides[idx - 1] : null;
-  const morphing = !!(slide.morphGroup && prev && prev.morphGroup === slide.morphGroup);
+  const i = Math.min(idx, n - 1);
+  const slide = spec.slides[i];
+  const prev = i > 0 ? spec.slides[i - 1] : null;
+  // Shared-element morph only where the plan actually morphs AND the pair
+  // shares a morphGroup — exactly what the export renders as a band object.
+  const morphing = !reduced && plan[i]?.transition === "morph" && !!slide.morphGroup && prev?.morphGroup === slide.morphGroup;
+  const showDur = reduced ? 0.2 : plan[i]?.transition === "morph" ? 0.9 : plan[i]?.transition === "fade" ? 0.45 : 0.25;
   const filename = safeName(spec.filename) + ".pptx";
 
   const slideshow = (
@@ -170,27 +108,27 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25 }}
-          onClick={() => go(1, n)}
+          onClick={advance}
           role="dialog"
           aria-label="Presentation slideshow"
         >
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
-              key={idx}
+              key={i}
               className="pptx-show-stage"
               initial={{ x: dir >= 0 ? "6%" : "-6%", opacity: 0, scale: 0.985 }}
               animate={{ x: 0, opacity: 1, scale: 1 }}
               exit={{ x: dir >= 0 ? "-6%" : "6%", opacity: 0, scale: 0.985 }}
-              transition={{ duration: morphing ? 0.9 : 0.45, ease: EASE }}
+              transition={{ duration: morphing ? 0.9 : showDur, ease: EASE }}
             >
               {morphing && (
                 <motion.div layoutId={"pptx-morph-" + slide.morphGroup} className="pptx-morph-accent" style={{ background: spec.theme.accent }} />
               )}
-              <SlideBody slide={slide} theme={spec.theme} />
+              <PptxSlideBody slide={slide} idx={i} theme={spec.theme} plan={plan} revealed={revealed} clickBuilt />
             </motion.div>
           </AnimatePresence>
           <div className="pptx-show-hud">
-            <span>{idx + 1} / {n}</span>
+            <span>{i + 1} / {n}</span>
             <span>← → navigate · Esc exit</span>
           </div>
         </motion.div>
@@ -207,7 +145,7 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
       testId="pptx-block"
       hideFullscreen
       actions={
-        <button type="button" className="doc-card-btn" onClick={() => { setIdx(0); setShow(true); }} aria-label="Run Slideshow">
+        <button type="button" className="doc-card-btn" onClick={() => { setIdx(0); setRevealed(0); setShow(true); }} aria-label="Run Slideshow">
           Run Slideshow
         </button>
       }
@@ -218,33 +156,33 @@ export default function PptxBlock({ source, streaming }: { source: string; strea
         <div className="pptx-stage-clip">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
-              key={idx}
+              key={i}
               className="pptx-stage"
               initial={{ x: dir >= 0 ? 48 : -48, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: dir >= 0 ? -48 : 48, opacity: 0 }}
-              transition={{ duration: 0.35, ease: EASE }}
+              transition={{ duration: reduced ? 0.15 : 0.35, ease: EASE }}
             >
-              <SlideBody slide={slide} theme={spec.theme} />
+              <PptxSlideBody slide={slide} idx={i} theme={spec.theme} plan={plan} revealed={slide.bullets.length} clickBuilt={false} />
             </motion.div>
           </AnimatePresence>
         </div>
         <div className="pptx-nav">
-          <button type="button" onClick={() => go(-1, n)} disabled={idx === 0} aria-label="Previous slide">‹</button>
+          <button type="button" onClick={() => go(-1, n)} disabled={i === 0} aria-label="Previous slide">‹</button>
           <span className="pptx-dots" role="tablist" aria-label="Slides">
-            {spec.slides.map((_, i) => (
+            {spec.slides.map((_, k) => (
               <button
-                key={i}
+                key={k}
                 type="button"
                 role="tab"
-                aria-selected={i === idx}
-                aria-label={"Slide " + (i + 1)}
-                className={"pptx-dot" + (i === idx ? " pptx-dot--active" : "")}
-                onClick={() => { setDir(i > idx ? 1 : -1); setIdx(i); }}
+                aria-selected={k === i}
+                aria-label={"Slide " + (k + 1)}
+                className={"pptx-dot" + (k === i ? " pptx-dot--active" : "")}
+                onClick={() => { setDir(k > i ? 1 : -1); setIdx(k); }}
               />
             ))}
           </span>
-          <button type="button" onClick={() => go(1, n)} disabled={idx >= n - 1} aria-label="Next slide">›</button>
+          <button type="button" onClick={() => go(1, n)} disabled={i >= n - 1} aria-label="Next slide">›</button>
         </div>
       </div>
       {slideshow}

@@ -21,6 +21,7 @@
     "@crawlee/playwright": "^3.18.2",
     "@huggingface/transformers": "^4.3.1",
     "@mozilla/readability": "^0.6.0",
+    "@office-kit/pptx": "0.28.0",
     "@playwright/mcp": "0.0.84",
     "@shikijs/langs": "^4.5.0",
     "@shikijs/themes": "^4.5.0",
