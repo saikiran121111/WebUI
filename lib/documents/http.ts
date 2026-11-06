@@ -17,13 +17,19 @@ export async function parseSpec(req: NextRequest): Promise<{ ok: true; spec: unk
   return { ok: true, spec };
 }
 
-export function fileResponse(data: Buffer | string, contentType: string, filename: string): NextResponse {
+export function fileResponse(
+  data: Buffer | string,
+  contentType: string,
+  filename: string,
+  extraHeaders?: Record<string, string>,
+): NextResponse {
   return new NextResponse(data instanceof Uint8Array ? new Uint8Array(data) : data, {
     status: 200,
     headers: {
       "Content-Type": contentType,
       "Content-Disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
       "Cache-Control": "no-store",
+      ...extraHeaders,
     },
   });
 }

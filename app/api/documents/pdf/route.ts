@@ -21,7 +21,11 @@ export async function POST(req: NextRequest) {
       html = resumeHtml(resume);
     }
     const out = await renderPdf(html, typeof (spec as { filename?: string })?.filename === "string" ? (spec as { filename: string }).filename : "document");
-    return fileResponse(out.buffer, out.contentType, out.filename);
+    // Observability for the egress guard (finding 7): a count only. The URLs it
+    // refused and the artifact's contents never enter the response or the logs.
+    return fileResponse(out.buffer, out.contentType, out.filename, {
+      "x-pdf-blocked-requests": String(out.blockedRequests),
+    });
   } catch (err) {
     return engineError(err);
   }

@@ -221,4 +221,79 @@ test.describe("browser real-model acceptance (leg 2, one journey per locked invo
     expect(verdict, `verdict: ${JSON.stringify(verdict)}`).toContain(`want=${wantName}`);
     expect(verdict, `verdict: ${JSON.stringify(verdict)}`).toContain("match=yes");
   });
+
+  /**
+   * AUDIT FINDING 3 — the last open gate: a browser turn that runs OUT of its
+   * round budget must say so. The loop used to end silently with no final
+   * answer and no [DONE] marker, and the raw tool arguments leaked into the
+   * transcript; the repair made the ending explicit (`browser:capped` /
+   * `browser:failed`). This journey proves the cap is what actually stopped the
+   * work AND that the UI reports it honestly.
+   *
+   * ENV REQUIREMENT: the launcher's app must run with
+   * `RUKE_BROWSER_MAX_TOOL_ROUNDS=3` (ruke-server chat/browser_loop.rs,
+   * bounded_env, range 3..=64, read per turn so no rebuild is needed). The
+   * dev supervisor forwards `...process.env` to ruke-server
+   * (scripts/dev-supervisor.mjs), and the launcher's `Start-Process cmd.exe
+   * /c "npm run dev"` inherits the invoking shell's environment, so the ONLY
+   * thing that has to be right is how the variable reaches PowerShell.
+   *
+   * VERIFIED COMMAND (this repo's shell is Git Bash — see the post-mortem):
+   *   powershell -NoProfile -Command '$env:RUKE_BROWSER_MAX_TOOL_ROUNDS="3"; & "scripts\run-browser-e2e-exclusive.ps1" -TestFiles "tests\browser-model-acceptance.spec.ts" -Grep "CAPPED" -AppWaitSeconds 300'
+   *
+   * POST-MORTEM (2026-11-06, first attempt): the same command was written with
+   * DOUBLE quotes around the -Command body. Bash then expanded `$env` to the
+   * empty string before PowerShell ever saw it, so the cap silently never
+   * applied. The tell is in the launcher's captured dev-supervisor log — the
+   * turn ran to `round=20` (the compiled default) and "browser tool loop
+   * complete ... finish=stop", i.e. the model genuinely finished all seven
+   * steps. A journey that finishes every step means the cap never applied and
+   * this test measured NOTHING, so ALWAYS confirm the round count in that log
+   * before trusting a CAPPED pass or blaming the app for a CAPPED failure:
+   *   grep -n "browser tool loop complete\|round=" .ai-coordination/dev-supervisor.out.log
+   * The chain itself is sound: PS → cmd → node all see the variable when the
+   * -Command body is single-quoted in bash.
+   *
+   * The task below deliberately chains SEVEN separate page actions across three
+   * fixture pages: even if the model batches some of them, three rounds cannot
+   * complete it, and the final marker (/hard/success) is the objective tell that
+   * the cap — not the model — ended the turn.
+   */
+  test("CAPPED: a turn that exhausts its round budget says 'Stopped early' and stops claiming the agent is driving", async ({ page, request }) => {
+    test.info().annotations.push({ type: "env", description: "requires RUKE_BROWSER_MAX_TOOL_ROUNDS=3" });
+    const e2e = await arm(page, request);
+    const tab = await e2e.newTab();
+    await e2e.navigate(tab, "/easy");
+
+    await runTurn(
+      page,
+      `Use the browser tools on the already-open tab at ${FIXTURE_BASE}/easy (do not open new tabs). ` +
+        `Do these steps one at a time, in this exact order, using a separate tool call for each: ` +
+        `STEP 1 click the link with CSS selector "#go-arrived". ` +
+        `STEP 2 navigate the same tab to ${FIXTURE_BASE}/medium. ` +
+        `STEP 3 type CAPPED-PROBE-7Z into the input with CSS selector "#note-input". ` +
+        `STEP 4 click the button with CSS selector "#submit-btn". ` +
+        `STEP 5 navigate the same tab to ${FIXTURE_BASE}/hard/form. ` +
+        `STEP 6 fill that form's fields and submit it. ` +
+        `STEP 7 navigate the same tab to ${FIXTURE_BASE}/hard/success and read the marker shown there.`,
+    );
+
+    // Honesty gate 1: the progress chip names the real ending. "Stopped early"
+    // comes from turnProgress.ts only for a turn the server marked capped — it
+    // is never derived from the model's prose or from a timeout.
+    const chip = page.getByTestId("progress-chip");
+    await expect(chip, "the progress chip is missing after a capped turn").toBeVisible({ timeout: 15_000 });
+    await expect(chip.getByText("Stopped early"), "the turn did not report its real ending")
+      .toBeVisible({ timeout: 15_000 });
+
+    // Honesty gate 2: the panel stops claiming the agent is still driving —
+    // `browser:capped` clears agentActive, so the "working" indicator cannot
+    // hang forever on a turn that has actually stopped.
+    await expect(page.getByText("RUKE is driving")).toHaveCount(0, { timeout: 15_000 });
+
+    // Objective proof the cap is what ended the turn: the last step's page was
+    // never reached, while the earlier work really happened.
+    const url = await tabUrl(e2e, tab);
+    expect(url, `the turn completed despite the round cap: ${url}`).not.toContain("/hard/success");
+  });
 });
