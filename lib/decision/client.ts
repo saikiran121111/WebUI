@@ -12,7 +12,7 @@
  * user's message:
  *
  *   1. A lightweight keyword match picks the deliverable intent
- *      (excel / docs / pdf / ppt / 3d / cad / chart / html).
+ *      (excel / docs / pdf / ppt / 3d / cad / anatomy / chart / html).
  *   2. The matched .cskills skill bundle + the mode's output contract are
  *      injected as ONE system block — the main model (:8080) sees the
  *      available studio fences and writes the right fenced block itself.
@@ -48,13 +48,14 @@ const INTENT_MATCHERS: Record<Exclude<RendererMode, "standard_chat">, RegExp> = 
   ppt: /\b(?:power ?point|presentation|\.pptx|pptx|deck)\b/i,
   "3d_asset": /\b3d\b|\bthree\.?js\b|\b(?:render|model|visualise|visualize)\b.*\b(?:3d|scene|mesh)\b/i,
   cad_blueprint: /\b(?:floor ?plan|architect\w*|blueprint|building|room layout|interior)\b/i,
+  anatomy: /\b(?:anatomy|cutaway|cross-section|isometric|exploded)\b/i,
   chart: /\bchart\b/i,
   html_render: /\b(?:web ?page|landing ?page|html|interactive (?:ui|page|demo|prototype))\b/i,
 };
 
 /** First matching intent wins; order follows expected user intent frequency. */
 const INTENT_ORDER: Exclude<RendererMode, "standard_chat">[] = [
-  "excel", "docs", "pdf", "ppt", "chart", "3d_asset", "cad_blueprint", "html_render",
+  "excel", "docs", "pdf", "ppt", "chart", "3d_asset", "cad_blueprint", "anatomy", "html_render",
 ];
 
 function detectDeliverableIntent(message: string): Exclude<RendererMode, "standard_chat"> | null {

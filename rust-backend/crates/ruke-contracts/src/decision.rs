@@ -6,9 +6,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Exact spelling set from `RENDERER_MODES` (order preserved).
-pub const RENDERER_MODE_STRS: [&str; 9] = [
-    "excel", "docs", "pdf", "ppt", "3d_asset", "cad_blueprint", "chart", "html_render",
-    "standard_chat",
+pub const RENDERER_MODE_STRS: [&str; 10] = [
+    "excel", "docs", "pdf", "ppt", "3d_asset", "cad_blueprint", "anatomy", "chart",
+    "html_render", "standard_chat",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -25,6 +25,8 @@ pub enum RendererMode {
     Asset3D,
     #[serde(rename = "cad_blueprint")]
     CadBlueprint,
+    #[serde(rename = "anatomy")]
+    Anatomy,
     #[serde(rename = "chart")]
     Chart,
     #[serde(rename = "html_render")]
@@ -42,6 +44,7 @@ impl RendererMode {
             Self::Ppt => "ppt",
             Self::Asset3D => "3d_asset",
             Self::CadBlueprint => "cad_blueprint",
+            Self::Anatomy => "anatomy",
             Self::Chart => "chart",
             Self::HtmlRender => "html_render",
             Self::StandardChat => "standard_chat",
@@ -60,8 +63,9 @@ impl RendererMode {
                 3 => Self::Ppt,
                 4 => Self::Asset3D,
                 5 => Self::CadBlueprint,
-                6 => Self::Chart,
-                7 => Self::HtmlRender,
+                6 => Self::Anatomy,
+                7 => Self::Chart,
+                8 => Self::HtmlRender,
                 _ => Self::StandardChat,
             })
     }
@@ -86,6 +90,7 @@ pub fn mode_skill(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Ppt => Some("pptx"),
         RendererMode::Asset3D => Some("threejs-skills"),
         RendererMode::CadBlueprint => Some("archify"),
+        RendererMode::Anatomy => Some("anatomy"),
         RendererMode::Chart => None,
         RendererMode::HtmlRender => Some("html-viewer"),
         RendererMode::StandardChat => None,
@@ -101,6 +106,7 @@ pub fn mode_fence(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Ppt => Some("pptx"),
         RendererMode::Asset3D => Some("scene3d"),
         RendererMode::CadBlueprint => Some("cad"),
+        RendererMode::Anatomy => Some("anatomy"),
         RendererMode::Chart => Some("chart"),
         RendererMode::HtmlRender => Some("html"),
         RendererMode::StandardChat => None,
@@ -211,24 +217,26 @@ mod tests {
     #[test]
     fn mode_tables_match_typescript_baseline() {
         // Frozen snapshot of MODE_SKILL / MODE_FENCE in lib/decision/types.ts.
-        let skill: [(&str, Option<&str>); 9] = [
+        let skill: [(&str, Option<&str>); 10] = [
             ("excel", Some("xlsx")),
             ("docs", Some("docx")),
             ("pdf", Some("pdf")),
             ("ppt", Some("pptx")),
             ("3d_asset", Some("threejs-skills")),
             ("cad_blueprint", Some("archify")),
+            ("anatomy", Some("anatomy")),
             ("chart", None),
             ("html_render", Some("html-viewer")),
             ("standard_chat", None),
         ];
-        let fence: [(&str, Option<&str>); 9] = [
+        let fence: [(&str, Option<&str>); 10] = [
             ("excel", Some("xlsx")),
             ("docs", Some("docx")),
             ("pdf", Some("html")),
             ("ppt", Some("pptx")),
             ("3d_asset", Some("scene3d")),
             ("cad_blueprint", Some("cad")),
+            ("anatomy", Some("anatomy")),
             ("chart", Some("chart")),
             ("html_render", Some("html")),
             ("standard_chat", None),
@@ -245,7 +253,7 @@ mod tests {
         let dv = RendererMode::disable_validators_for(RendererMode::Excel);
         assert_eq!(
             dv.iter().map(|m| m.as_str()).collect::<Vec<_>>(),
-            vec!["docs", "pdf", "ppt", "3d_asset", "cad_blueprint", "chart", "html_render", "standard_chat"]
+            vec!["docs", "pdf", "ppt", "3d_asset", "cad_blueprint", "anatomy", "chart", "html_render", "standard_chat"]
         );
     }
 
@@ -255,7 +263,7 @@ mod tests {
         let json = serde_json::to_string(&env).unwrap();
         assert_eq!(
             json,
-            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","3d_asset","cad_blueprint","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
+            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","3d_asset","cad_blueprint","anatomy","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
         );
 
         // Optional diagnostics: ABSENT (not null) when never set; explicit

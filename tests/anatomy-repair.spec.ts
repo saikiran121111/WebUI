@@ -28,10 +28,10 @@ const VALID_BODY = JSON.stringify({
 // The user's real-world failure mode: a dropped colon inside the fence.
 const BROKEN_BODY = VALID_BODY.replace('"r":22', '"r" 22');
 
-// x-decision-mode: cad_blueprint is what lets the ```anatomy fence mount and
-// be validated at all — without the header the fence stays plain code and the
+// x-decision-mode: anatomy is what lets the ```anatomy fence mount and be
+// validated at all — without the header the fence stays plain code and the
 // repair loop never triggers (zero-collision gating).
-async function mockReplies(page: Page, replies: string[], decisionMode = "cad_blueprint") {
+async function mockReplies(page: Page, replies: string[], decisionMode = "anatomy") {
   const requests: any[] = [];
   let calls = 0;
   await page.route("**/api/chat", async (route) => {
@@ -80,7 +80,7 @@ test("a broken anatomy fence is silently repaired and the figure renders", async
   const repairReq = mock.requests[1];
   // The repair turn pins the mode instead of re-running the Decision Engine
   // on an error message (passthrough contract).
-  expect(repairReq.decision_mode).toBe("cad_blueprint");
+  expect(repairReq.decision_mode).toBe("anatomy");
   const repairTurn = repairReq.messages[repairReq.messages.length - 1];
   expect(repairTurn.role).toBe("user");
   expect(repairTurn.content).toContain("failed validation");

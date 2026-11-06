@@ -31,6 +31,7 @@ const CONST_NAMES = {
   ppt: "CONTRACT_PPT",
   "3d_asset": "CONTRACT_3D_ASSET",
   cad_blueprint: "CONTRACT_CAD_BLUEPRINT",
+  anatomy: "CONTRACT_ANATOMY",
   chart: "CONTRACT_CHART",
   html_render: "CONTRACT_HTML_RENDER",
   standard_chat: "CONTRACT_STANDARD_CHAT",

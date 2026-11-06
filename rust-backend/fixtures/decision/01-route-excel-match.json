@@ -17,7 +17,7 @@
     "headers": {
       "content-type": "application/json"
     },
-    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":1,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"put these numbers into my spreadsheet\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"3d_asset\",\"cad_blueprint\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
+    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":1,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"put these numbers into my spreadsheet\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"3d_asset\",\"cad_blueprint\",\"anatomy\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
   },
   "envelope": {
     "active_mode": "excel",
@@ -32,6 +32,7 @@
       "ppt",
       "3d_asset",
       "cad_blueprint",
+      "anatomy",
       "chart",
       "html_render",
       "standard_chat"

@@ -87,7 +87,8 @@ const MODE_SCAN_LANGS: Record<RendererMode, string[]> = {
   pdf: ["html", "resume"],
   ppt: ["pptx"],
   "3d_asset": ["threejs", "scene3d", "asset3d"],
-  cad_blueprint: ["cad", "anatomy"],
+  cad_blueprint: ["cad"],
+  anatomy: ["anatomy"],
   chart: ["chart", "powerbi", "mermaid"],
   html_render: ["html"],
   // standard_chat stays []: heavy validators/auto-repair are strictly disabled

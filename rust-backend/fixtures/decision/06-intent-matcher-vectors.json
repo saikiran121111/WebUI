@@ -274,6 +274,46 @@
       "confidence": 1
     },
     {
+      "prompt": "an exploded view of the reactor core",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an exploded view of the reactor core",
+      "confidence": 1
+    },
+    {
+      "prompt": "cutaway of the marine engine",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cutaway of the marine engine",
+      "confidence": 1
+    },
+    {
+      "prompt": "anatomy of a jet turbine",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "anatomy of a jet turbine",
+      "confidence": 1
+    },
+    {
+      "prompt": "isometric illustration of the server rack",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "isometric illustration of the server rack",
+      "confidence": 1
+    },
+    {
+      "prompt": "cross-section of the pump housing",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cross-section of the pump housing",
+      "confidence": 1
+    },
+    {
       "prompt": "a web page mock",
       "active_mode": "html_render",
       "skill_to_load": "html-viewer",
@@ -407,6 +447,22 @@
       "skill_to_load": null,
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "3 d",
+      "confidence": 1
+    },
+    {
+      "prompt": "isometrically",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "isometrically",
+      "confidence": 1
+    },
+    {
+      "prompt": "cutaways",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cutaways",
       "confidence": 1
     },
     {
@@ -559,6 +615,30 @@
       "skill_to_load": "archify",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "an architectural sketch",
+      "confidence": 1
+    },
+    {
+      "prompt": "a building cutaway diagram",
+      "active_mode": "cad_blueprint",
+      "skill_to_load": "archify",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a building cutaway diagram",
+      "confidence": 1
+    },
+    {
+      "prompt": "exploded isometric chart",
+      "active_mode": "chart",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "exploded isometric chart",
+      "confidence": 1
+    },
+    {
+      "prompt": "exploded diagram in html",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "exploded diagram in html",
       "confidence": 1
     },
     {

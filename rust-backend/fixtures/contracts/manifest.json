@@ -9,6 +9,7 @@
       "ppt",
       "3d_asset",
       "cad_blueprint",
+      "anatomy",
       "chart",
       "html_render",
       "standard_chat"
@@ -20,6 +21,7 @@
       "ppt": "pptx",
       "3d_asset": "threejs-skills",
       "cad_blueprint": "archify",
+      "anatomy": "anatomy",
       "chart": null,
       "html_render": "html-viewer",
       "standard_chat": null
@@ -31,6 +33,7 @@
       "ppt": "pptx",
       "3d_asset": "scene3d",
       "cad_blueprint": "cad",
+      "anatomy": "anatomy",
       "chart": "chart",
       "html_render": "html",
       "standard_chat": null

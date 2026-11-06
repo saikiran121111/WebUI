@@ -27,8 +27,9 @@
 //!   It is redundant in the oracle itself; the uniform group classes stay
 //!   correct without a special branch.
 //!
-//! First-match precedence follows `INTENT_ORDER` (chart BEFORE 3d_asset
-//! and cad_blueprint; pdf BEFORE ppt).
+//! First-match precedence follows `INTENT_ORDER` (chart BEFORE 3d_asset,
+//! cad_blueprint and anatomy; pdf BEFORE ppt; cad_blueprint BEFORE anatomy;
+//! anatomy BEFORE html_render).
 
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -83,6 +84,11 @@ static ASSET3D_RE: LazyLock<Regex> = LazyLock::new(|| {
 static CAD_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:floor ?plan|architect[A-Za-z0-9_]*|blueprint|building|room layout|interior)(?:[^A-Za-z0-9_]|$)").unwrap()
 });
+/// `cross-section`'s interior `-` is a plain literal; JS `\b` only anchors
+/// before "cross" and after "section", exactly as the bridge classes do.
+static ANATOMY_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:anatomy|cutaway|cross-section|isometric|exploded)(?:[^A-Za-z0-9_]|$)").unwrap()
+});
 static HTML_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:web ?page|landing ?page|html|interactive (?:ui|page|demo|prototype))(?:[^A-Za-z0-9_]|$)").unwrap()
 });
@@ -98,6 +104,7 @@ fn match_intent(trimmed: &str) -> Option<RendererMode> {
         (RendererMode::Chart, &*CHART_RE),
         (RendererMode::Asset3D, &*ASSET3D_RE),
         (RendererMode::CadBlueprint, &*CAD_RE),
+        (RendererMode::Anatomy, &*ANATOMY_RE),
         (RendererMode::HtmlRender, &*HTML_RE),
     ];
     rules.into_iter().find_map(|(mode, re)| re.is_match(trimmed).then_some(mode))
@@ -216,6 +223,8 @@ mod tests {
         assert_eq!(mode_for("htmlx dashboard"), RendererMode::StandardChat);
         assert_eq!(mode_for("threejss"), RendererMode::StandardChat);
         assert_eq!(mode_for("3 d"), RendererMode::StandardChat);
+        assert_eq!(mode_for("isometrically"), RendererMode::StandardChat);
+        assert_eq!(mode_for("cutaways"), RendererMode::StandardChat);
         // JS `.` never crosses \n: the render…scene bridge stays line-local
         assert_eq!(mode_for("render\nscene"), RendererMode::StandardChat);
         assert_eq!(mode_for("render scene"), RendererMode::Asset3D);
@@ -254,6 +263,14 @@ mod tests {
         assert_eq!(mode_for("interior design with html"), RendererMode::CadBlueprint);
         // architect[w]* ascii star: "architectural" still cad
         assert_eq!(mode_for("an architectural sketch"), RendererMode::CadBlueprint);
+        // cad (6) before anatomy (7): building+cutaway stays cad until cad retires
+        assert_eq!(mode_for("a building cutaway diagram"), RendererMode::CadBlueprint);
+        // chart (4) before anatomy (7)
+        assert_eq!(mode_for("exploded isometric chart"), RendererMode::Chart);
+        // anatomy (7) before html (8)
+        assert_eq!(mode_for("exploded diagram in html"), RendererMode::Anatomy);
+        // anatomy positive
+        assert_eq!(mode_for("cutaway of the marine engine"), RendererMode::Anatomy);
         // no match at all
         assert_eq!(mode_for("tell me a joke"), RendererMode::StandardChat);
         assert_eq!(intent_for("a model of the city"), None); // no 3d/scene/mesh after model
@@ -277,7 +294,7 @@ mod tests {
         assert_eq!(env.skill_to_load, Some("xlsx"));
         assert_eq!(env.allowed_code_fence, None);
         assert_eq!(env.enable_validator, RendererMode::Excel);
-        assert_eq!(env.disable_validators.len(), 8);
+        assert_eq!(env.disable_validators.len(), 9);
         assert!(!env.disable_validators.contains(&RendererMode::Excel));
         assert_eq!(env.confidence, 1.0);
         assert_eq!(env.lfm_latency_ms, 0);

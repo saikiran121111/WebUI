@@ -7,7 +7,7 @@
 
 export const RENDERER_MODES = [
   "excel", "docs", "pdf", "ppt", "3d_asset",
-  "cad_blueprint", "chart", "html_render", "standard_chat",
+  "cad_blueprint", "anatomy", "chart", "html_render", "standard_chat",
 ] as const;
 
 export type RendererMode = (typeof RENDERER_MODES)[number];
@@ -24,6 +24,7 @@ export const MODE_SKILL: Record<RendererMode, string | null> = {
   ppt: "pptx",
   "3d_asset": "threejs-skills",
   cad_blueprint: "archify",
+  anatomy: "anatomy",
   chart: null,
   html_render: "html-viewer",
   standard_chat: null,
@@ -37,6 +38,7 @@ export const MODE_FENCE: Record<RendererMode, string | null> = {
   ppt: "pptx",
   "3d_asset": "scene3d",
   cad_blueprint: "cad",
+  anatomy: "anatomy",
   chart: "chart",
   html_render: "html",
   standard_chat: null,

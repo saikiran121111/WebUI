@@ -104,6 +104,19 @@ Produce a data chart: one short intro sentence, then ONE \`\`\`chart fence with 
 - Never invent data; every number finite; valid JSON (no comments, no trailing commas). The chart viewer renders it live with Download as PNG.
 </output_contract_chart>`;
 
+const ANATOMY_CONTRACT = `<output_contract_anatomy>
+Produce an INDEPENDENT 2D anatomy illustration (exploded isometric / cutaway technical figure, pure vector SVG): one short intro sentence, then ONE \`\`\`anatomy fence with ONE JSON object. The app compiles the validated JSON into the drawing — the JSON is DATA, never executed code.
+{"title":"...","fig":"FIG 1","label":"one accessible sentence stating what the figure explains","caption":"optional","profile":"standard","width":650,"height":420,"camera":{"azimuth":45,"elevation":30},"parts":[...],"controls":[...],"readouts":[...],"legend":[...],"groups":[...],"floors":[...],"modules":[...],"connections":[...],"flows":[...],"explode":{"label":"Explode"},"export":{"filename":"fig-file-name"}}
+- EVERY part: {"id":"deck","tone":"base|structure|subject|accent","kind":"...",...}. ids match [A-Za-z][A-Za-z0-9_-]* and are unique across the whole spec. Tones: base (mounting planes/plates), structure (frames/housings), subject (the mechanism itself), accent (the one highlighted element — AT MOST ONE accent part per figure, never inside a module).
+- Geometry is planar CAD coords: [x,y] plans plus z heights, all within ±600. kinds: "slab" {plan:{x,y,w,d,r},z,height,steps,bevel}; "cylinder" {center:[x,y],r,z,height,steps,bevel}; "prism" {outline:[[x,y],...],z,height,convex}; "rod" {path:[[x,y,z],...],r}; "coil" {from:[x,y,z],to:[x,y,z],center:[x,y],r,turns,axis}; "dial" {center:[x,y],z,r,ticks,needle,face}; "ruler" {axis:"x|y",from,to,step,every,edge,z,lengths}; "knob" {center:[x,y],r,z,height,knurl}; "screws" {plan,z,inset,size}; "callout" {at:[x,y,z],text,dx,dy,leader,dashed}; "faceLabel" {target:partId,text,size,along,faceTone}.
+- Optional per part: "label", "note", "on":"partId" (stack on top of that part; no circular chains), "offset", "explode":[dx,dy,dz], "slide":{"axis":"x|y|z","from":n,"to":n,"state":"sliderId","oscillate":true}, "group", "floor", "visibleWhen":"toggleId", "info".
+- "controls": slider {"id","label","min","max","step","value"} (min < max); toggle {"id","label","value","group"?}; button {"id","label","action":"explode|restore|play|pause|reset|resetView"}; select {"id","label","target":"floor|system","value"?,"options"?:[{value,label}]}.
+- "readouts": {"id","label","unit"?,"decimals"?,"formula"} — arithmetic over control ids only (+ - * / ( ) and min,max,abs,clamp,floor,ceil,round,sqrt); every name in a formula must be a real control id.
+- Cutaways & exploded views: layer parts along z, give moving parts "slide" ranges bound to sliders, add "explode" so the viewer can separate the layers, and point "callout" leader lines at what matters. Buildings: repeat floor geometry with "floors" + "modules" (a module's parts are instantiated per floor). Machines/vehicles: color systems via "groups", route "connections" {path:[[x,y,z],...],system?} with "flows" {connection,speed} riding them. "export.filename" is lowercase letters/digits/hyphens.
+- Budgets (standard profile — stay inside them): ≤90 logical parts, ≤6 controls, ≤6 readouts, ≤8 legend keys, ≤6 groups, ≤24 rod points, ≤40 outline points, ≤24 floors, ≤4 modules, ≤12 connections, ≤12 flows.
+- Valid JSON only (no comments, no trailing commas). The figure renders live with Download (SVG/PNG); if the spec fails validation the app auto-repairs it: fix EXACTLY the reported problem and re-emit the whole corrected fence.
+</output_contract_anatomy>`;
+
 const withBridge = (contract: string): string => EXECUTION_BRIDGE_MANDATE + "\n" + contract;
 
 /** active_mode -> the ONE output contract injected with the matched skill.
@@ -117,6 +130,7 @@ export const MODE_CONTRACTS: Record<RendererMode, string | null> = {
   ppt: withBridge(PPTX_CONTRACT),
   "3d_asset": withBridge(THREE_CONTRACT),
   cad_blueprint: withBridge(ARCH_CONTRACT),
+  anatomy: withBridge(ANATOMY_CONTRACT),
   chart: withBridge(CHART_CONTRACT),
   html_render: withBridge(HTML_CONTRACT),
   standard_chat: null,
