@@ -1,4 +1,4 @@
-import zlib from "node:zlib";
+import { unzipSync } from "fflate";
 
 export interface ZipEntry {
   name: string;
@@ -6,45 +6,47 @@ export interface ZipEntry {
 }
 
 /**
- * Minimal ZIP reader (store + deflate). Enough for Office/ODF/EPUB containers
- * and plain .zip archives. Zip64 and encrypted entries are not supported —
- * those fall back to 7za in the archive path.
+ * Hard ceiling on a single member's INFLATED size. The declared central
+ * directory sizes are not trusted (fflate does not verify CRCs and a patched
+ * header can claim anything — measured on fflate 0.8.3), so the limit is
+ * applied to what actually came out of the inflate. Oversize members are
+ * dropped rather than fatal: one 300 MB log inside a workbook container must
+ * not make the whole file unreadable.
+ */
+export const MAX_MEMBER_INFLATED_BYTES = 256 * 1024 * 1024;
+
+/**
+ * ZIP container reader for Office/ODF/EPUB packages and plain .zip archives.
+ * fflate (already a dependency — the Power BI writer uses it) replaced the
+ * hand-rolled EOCD/central-directory parser; the fflate version:
+ *   - reads real-world Zip64 archives in full (verified against a 66,001-member
+ *     7za-built archive; the hand parser capped at the 16-bit count field),
+ *   - throws on encrypted or exotic-method members (Zip64 AES, LZMA), which is
+ *     what routes the archive path through the bundled 7za fallback
+ *     (archives.ts → zipMembers) — this is the fallback the old header comment
+ *     promised but never actually wired up,
+ *   - keeps the same error contract: anything unparseable surfaces as
+ *     "Not a readable ZIP file: …".
+ * Do not switch this to fflate's async API: readZip is sync by contract and
+ * every caller (officeText, nested archives) relies on that.
  */
 export function readZip(buf: Buffer): ZipEntry[] {
-  // Locate End Of Central Directory (signature 0x06054b50), scanning back.
-  let eocd = -1;
-  const min = Math.max(0, buf.length - 65557);
-  for (let i = buf.length - 22; i >= min; i--) {
-    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  const view = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  let dict: Record<string, Uint8Array>;
+  try {
+    dict = unzipSync(view);
+  } catch (err) {
+    throw new Error(
+      "Not a readable ZIP file: " + ((err as Error)?.message || String(err)),
+    );
   }
-  if (eocd < 0) throw new Error("Not a readable ZIP file");
-
-  const count = buf.readUInt16LE(eocd + 10);
-  let off = buf.readUInt32LE(eocd + 16);
   const entries: ZipEntry[] = [];
-
-  for (let n = 0; n < count; n++) {
-    if (off + 46 > buf.length || buf.readUInt32LE(off) !== 0x02014b50) break;
-    const method = buf.readUInt16LE(off + 10);
-    const compSize = buf.readUInt32LE(off + 20);
-    const nameLen = buf.readUInt16LE(off + 28);
-    const extraLen = buf.readUInt16LE(off + 30);
-    const commentLen = buf.readUInt16LE(off + 32);
-    const localOff = buf.readUInt32LE(off + 42);
-    const name = buf.toString("utf8", off + 46, off + 46 + nameLen);
-
-    const lhNameLen = buf.readUInt16LE(localOff + 26);
-    const lhExtraLen = buf.readUInt16LE(localOff + 28);
-    const dataOff = localOff + 30 + lhNameLen + lhExtraLen;
-    const raw = buf.subarray(dataOff, dataOff + compSize);
-
-    let data: Buffer;
-    if (method === 0) data = Buffer.from(raw);
-    else if (method === 8) data = zlib.inflateRawSync(raw);
-    else throw new Error("Unsupported ZIP compression method " + method);
-
-    entries.push({ name, data });
-    off += 46 + nameLen + extraLen + commentLen;
+  for (const [name, data] of Object.entries(dict)) {
+    if (name.endsWith("/")) continue; // directory entries carry no content
+    if (data.length > MAX_MEMBER_INFLATED_BYTES) continue;
+    // Views over fflate's buffers — never copies. Safe for the read-only text
+    // paths downstream; do NOT mutate entry bytes in place.
+    entries.push({ name, data: Buffer.from(data.buffer, data.byteOffset, data.byteLength) });
   }
   return entries;
 }

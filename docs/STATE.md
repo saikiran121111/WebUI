@@ -4303,3 +4303,30 @@ edited (approved installers only).
   the P7 four-step final regression (deterministic battery → one exclusive locked serial model-driven loop over
   EASY/MEDIUM/HARD/VISION/scope matrix → research/platform coverage → old-vs-new measurement incl. the VISION 49→90 s
   gap investigation) + the CLAUDE.md §4 report. **LEAVE THE MACHINE RUNNING.**
+
+---
+
+## P5B — fflate ZIP consolidation (2026-11-06) [LOCKED-DONE]
+
+- `lib/server/extract/zip.ts` rewritten onto fflate 0.8.3 `unzipSync` (hand-rolled EOCD/CD parser deleted).
+  New `MAX_MEMBER_INFLATED_BYTES = 256 MiB` filter on ACTUAL inflated length (declared CD sizes are lies —
+  fflate never checks CRCs; measured: 4 KiB-declared/64 MiB-real member returns 64 MiB). Error contract kept:
+  "Not a readable ZIP file: …". readZip stays SYNC by contract (officeText + nested archives depend on it).
+- `lib/server/extract/archives.ts`: new `zipMembers()` — fflate first, bundled-7za fallback ONLY for containers
+  fflate refuses (encrypted → clean /password/ error; LZMA method 14 → extracts fine). `extractWith7za`
+  maxBuffer 1 MiB → 64 MiB (7za ≈1 stdout line/member; 66k members ≈1.5 MB → ENOBUFS hazard fixed).
+- `scripts/make-fixtures.mjs`: hand-rolled STORE-only zip writer + crc32/CRC_TABLE removed; `zip()` =
+  fflate `zipSync` (deflate now actually exercised by fixtures). Regenerated: 106 fixtures, exit 0.
+- New suite `__tests__/server/extract-zip.test.ts` (first unit coverage of the extraction path), 12/12:
+  mixed store+deflate exactness; garbage→error contract; lying-CD real-length truth; oversize-member drop;
+  nested-zip flatten; 66,001-member 7za-built Zip64 read IN FULL (hand parser capped at 65,535; fflate's own
+  writer CANNOT emit valid >65k archives — measured, noted); LZMA via 7za fallback (needs compressible
+  member — 7za STOREs incompressible ones); AES-256 → rejects /password/; fixture-gated entry-point cases
+  (extractFileFromPath zip + 8 office containers, 6 non-zip archive regressions) — skipIf no fixtures.
+- Verified: `npx vitest run __tests__/server/extract-zip.test.ts` exit 0 · `npx tsc --noEmit` exit 0 ·
+  full `npx vitest run` = 122 files pass / 1 skip, 1606 pass / 9 skip, exit 0 (baseline 121/1594/9 + 12).
+- Next P5B items in order: LibreOffice eval (not installed; winget TheDocumentFoundation.LibreOffice; recalc
+  oracle `soffice --headless --convert-to csv` Infilter `-1`), ECharts vs ChartBlock/chartHtml, Docling
+  support window vs Python 3.14.7-only (`py -0p` = only 3.14 → honest finding), image-only chart labeling,
+  Power BI export validity (no Power BI Desktop → structural PBIP validation + install attempt, else report
+  gate not locally satisfiable). HyperFormula stays rejected (proprietary license).

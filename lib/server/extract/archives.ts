@@ -104,7 +104,9 @@ async function extractWith7za(buf: Buffer, ext: string): Promise<{ name: string;
   fs.mkdirSync(dir, { recursive: true });
   try {
     fs.writeFileSync(src, buf);
-    await execFileP(exe, ["x", "-y", `-o${dir}`, src], { timeout: 60000 });
+    // 7za prints one progress line per member — a 66k-member archive floods
+    // the default 1 MiB stdout buffer, so give it real headroom.
+    await execFileP(exe, ["x", "-y", `-o${dir}`, src], { timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
     const members: { name: string; data: Buffer }[] = [];
     const walk = (d: string, rel: string) => {
       for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
@@ -154,13 +156,36 @@ function nameBareStream(members: Member[], originalName: string, ext: string): M
 }
 
 /**
+ * ZIP member reader: native fflate (fflate readZip) first; only containers it
+ * refuses — password-protected, or methods like LZMA that fflate does not
+ * implement — fall back to the bundled 7za. Genuine Zip64 archives do NOT
+ * need the fallback: fflate reads them in full (verified on 0.8.3 against a
+ * 66,001-member 7za-built archive). Nested zips inside another archive stay
+ * on the sync native path — readZip is sync by contract.
+ */
+async function zipMembers(buf: Buffer): Promise<Member[]> {
+  try {
+    return readZip(buf);
+  } catch {
+    try {
+      return await extractWith7za(buf, ".zip");
+    } catch {
+      throw new Error(
+        "Unreadable ZIP archive (it may be password-protected, or use a compression method that 7za cannot open without a password)",
+      );
+    }
+  }
+}
+
+/**
  * Extract readable text from any supported archive format.
- * zip/tar/gz/tgz are parsed natively; bz2/xz/7z go through 7za; rar through unrar WASM.
+ * zip/tar/gz/tgz are parsed natively (zip falls back to 7za when fflate
+ * refuses); bz2/xz/7z go through 7za; rar through unrar WASM.
  */
 export async function archiveText(buf: Buffer, ext: string, originalName = ""): Promise<string> {
   switch (ext) {
     case "zip":
-      return membersToText(readZip(buf));
+      return membersToText(await zipMembers(buf));
     case "tar":
       return membersToText(tarMembers(buf));
     case "gz": {

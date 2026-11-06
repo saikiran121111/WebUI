@@ -714,6 +714,28 @@ vitest), and the end-to-end round-capped model journey (this run).
 - [ ] **P5B** evaluate LibreOffice (recalc/convert), ECharts (vs Ruke chart schema), Docling (scanned PDF/tables) on real
       fixtures; adopt only where comparison wins; record decisions; keep ExcelJS/docx/Chromium-PDF; fflate consolidation of
       zipWriter/extract paths preserving decompression limits + 7-Zip fallback; verify actual Power BI exports before claims
+  - [x] **P5B-fflate ZIP consolidation — COMPLETE 2026-11-06 (measured, not assumed).** All ZIP reads (Office/ODF/EPUB
+        containers, `.zip` archives, nested zips) now go through fflate 0.8.3 `unzipSync` in
+        `lib/server/extract/zip.ts`; the hand-rolled EOCD/central-directory parser is gone. Verified through the
+        product's real entry points by the new suite `__tests__/server/extract-zip.test.ts` (the extraction path had
+        ZERO unit coverage before): 66,001-member genuine 7za-built Zip64 (legacy count 0xFFFF + EOCD64 + locator)
+        reads back IN FULL — the hand parser capped at 65,535; LZMA-method zip → fflate throws (code 14) → the
+        previously promised-but-never-wired bundled-7za fallback (`archives.ts → zipMembers`) extracts it; AES-256
+        encrypted zip → honest "…password-protected…" error; tampered headers lying 4 KiB about a 64 MiB member →
+        fflate (no CRC check) returns the REAL 64 MiB, which is why the new 256 MiB `MAX_MEMBER_INFLATED_BYTES`
+        filter runs on the inflated length and drops oversize members without failing the container; the existing
+        limits survive untouched (1 MiB member / 60,000-char join in `membersToText`, 512 MiB `MAX_PARSED_BYTES`
+        guard, "Not a readable ZIP file" error contract). Fallback hardening: `extractWith7za` stdout buffer
+        1 MiB→64 MiB (7za prints ~1 line/member; 66k members ≈ 1.5 MB → ENOBUFS would have broken big archives).
+        Fixture writer in `scripts/make-fixtures.mjs` consolidated from a hand-rolled STORE-only writer (+crc32)
+        onto fflate `zipSync` — fixtures now genuinely exercise deflate members (106 regenerated, exit 0).
+        Commands + results: `node scripts/make-fixtures.mjs` → 106 generated, exit 0; `npx vitest run
+        __tests__/server/extract-zip.test.ts` → 12/12, exit 0; `npx tsc --noEmit` → exit 0; full `npx vitest run` →
+        **122 files passed / 1 skipped (123), 1606 tests passed / 9 skipped, exit 0** (baseline 121/1594/9 + 12 new).
+        Recorded limits: fflate's own writer cannot emit valid >65,535-entry archives (16-bit count overflows;
+        even `forceZip64:true` writes no EOCD64 — measured), acceptable because Ruke only writes small packages
+        (Power BI/Office-kit); 7za writes CD method 0 (STORE) for incompressible members, so an LZMA-fallback probe
+        needs compressible content (measured with a 25-byte member).
 - [ ] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
       invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
@@ -762,10 +784,19 @@ vitest), and the end-to-end round-capped model journey (this run).
    comma-joined string is ONE argument ("No tests found"), and bare space-separated files bind positionally into
    `-Grep`. Also re-check for a STALE `ruke-server.exe` before trusting any routing journey (kill + rebuild, and
    remember the supervisor takes Next :3000 down with it).**
-2. Then P5B (LibreOffice/ECharts/Docling real-fixture evaluations + fflate consolidation), P6
+2. **NOW ACTIVE — P5B.** The fflate consolidation sub-item is DONE (ledger above, commit in `git log
+   --oneline` 2026-11-06 HEAD entries). Remaining P5B in order: LibreOffice on-demand worker evaluation
+   (recalc oracle + doc conversion + visual checks; record startup/memory on the 16 GB laptop; adopt only
+   if it wins; HyperFormula stays rejected for its proprietary license), image-only spreadsheet-chart
+   labeling, ECharts vs Ruke's chart schema/theme/sliders on real fixtures, Docling support-window check
+   against the Python-3.14.7-only machine (`py -0p`; adoption needs a 3.10–3.13 venv + prefetched model
+   assets; remote processing stays disabled), Power BI export validity (structural PBIP validation;
+   Power BI Desktop is not installed — attempt install, else report the gate honestly). Then P6
    (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright fix-rerun
    loop green vs baselines + CLAUDE.md §4 completion report).
 3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3), P4
-   `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff` — all LOCKED-DONE + pushed; **P5A = this commit** (the
-   short SHA is the 2026-11-06 HEAD entry in `git log --oneline`).
+   `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff`, P5A `f1092c1`, audit repair `4abeaca`, finding 3 `b4f9db0`,
+   finding 5 `e34c591`, findings 5+6 `eb2a43a`, finding 7 + finding 3's last gate `72cabab` — all
+   LOCKED-DONE + pushed; **P5B-ZIP = this commit** (the short SHA is the 2026-11-06 HEAD entry in
+   `git log --oneline`).
 4. Chat handover snapshot for fresh sessions: `handover/2026-11-06-ruke-plan-handover.md`.

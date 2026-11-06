@@ -17,6 +17,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { zipSync } from "fflate";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "tests", "fixtures");
@@ -48,68 +49,22 @@ function skip(name, category, note) {
   manifest.push({ file: null, name, category, skip: true, note });
 }
 
-/* ── tiny binary writers (no external deps) ──────────────────────────────── */
+/* ── tiny binary writers ─────────────────────────────────────────────────── */
 
-const CRC_TABLE = (() => {
-  const t = new Int32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c;
-  }
-  return t;
-})();
-
-function crc32(buf) {
-  let c = 0 ^ -1;
-  for (let i = 0; i < buf.length; i++) c = (c >>> 8) ^ CRC_TABLE[(c ^ buf[i]) & 0xff];
-  return (c ^ -1) >>> 0;
-}
-
-/** Uncompressed (stored) ZIP — readZip in lib/server/extract reads these. */
+/**
+ * ZIP writer via fflate — the same library lib/server/extract/zip.ts reads
+ * with (P5B consolidation of the hand-rolled paths onto the installed fflate
+ * dependency). The old hand-rolled writer was STORE-only, so the reader never
+ * saw a real deflate fixture member; going through fflate (default deflate
+ * level 6) closes that coverage gap. Entry order follows insertion order and
+ * all fixture entry lists use unique names.
+ */
 function zip(entries) {
-  const local = [];
-  const central = [];
-  let offset = 0;
+  const parts = {};
   for (const e of entries) {
-    const name = Buffer.from(e.name, "utf8");
-    const data = Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data), "utf8");
-    const crc = crc32(data);
-
-    const lh = Buffer.alloc(30);
-    lh.writeUInt32LE(0x04034b50, 0);
-    lh.writeUInt16LE(20, 4);
-    lh.writeUInt16LE(0, 8); // flags
-    lh.writeUInt16LE(0, 10); // method: stored
-    lh.writeUInt32LE(crc, 14);
-    lh.writeUInt32LE(data.length, 18);
-    lh.writeUInt32LE(data.length, 22);
-    lh.writeUInt16LE(name.length, 26);
-    local.push(lh, name, data);
-
-    const cd = Buffer.alloc(46);
-    cd.writeUInt32LE(0x02014b50, 0);
-    cd.writeUInt16LE(20, 4);
-    cd.writeUInt16LE(20, 6);
-    cd.writeUInt16LE(0, 10); // method: stored
-    cd.writeUInt32LE(crc, 16);
-    cd.writeUInt32LE(data.length, 20);
-    cd.writeUInt32LE(data.length, 24);
-    cd.writeUInt16LE(name.length, 28);
-    cd.writeUInt32LE(offset, 42);
-    central.push(cd, name);
-
-    offset += lh.length + name.length + data.length;
+    parts[e.name] = Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data), "utf8");
   }
-
-  const cdBuf = Buffer.concat(central);
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0);
-  eocd.writeUInt16LE(entries.length, 8);
-  eocd.writeUInt16LE(entries.length, 10);
-  eocd.writeUInt32LE(cdBuf.length, 12);
-  eocd.writeUInt32LE(offset, 16);
-  return Buffer.concat([...local, cdBuf, eocd]);
+  return Buffer.from(zipSync(parts));
 }
 
 /**
