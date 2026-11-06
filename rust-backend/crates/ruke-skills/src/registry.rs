@@ -19,8 +19,8 @@ use regex::Regex;
 use serde_json::{Map, Value};
 
 use crate::frontmatter;
-use crate::jsstr;
 use crate::jspath;
+use crate::jsstr;
 use crate::modality;
 
 /// `SKILLS_DIR` / `SCENARIOS_DIR` in registry.ts.
@@ -38,7 +38,8 @@ pub fn is_safe_skill_name(name: &str) -> bool {
         Some(c) if c.is_ascii_alphanumeric() => {}
         _ => return false,
     }
-    name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    name.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 /// Node `fs.readFile(path, "utf8")`: lossy UTF-8 decode, BOM **not**
@@ -68,8 +69,14 @@ pub fn skill_exists(root: &Path, name: &str) -> bool {
 /// key order.
 pub fn default_scenario(skill_name: &str, source_repo: &str) -> Map<String, Value> {
     let mut m = Map::new();
-    m.insert("skillName".to_string(), Value::String(skill_name.to_string()));
-    m.insert("sourceRepo".to_string(), Value::String(source_repo.to_string()));
+    m.insert(
+        "skillName".to_string(),
+        Value::String(skill_name.to_string()),
+    );
+    m.insert(
+        "sourceRepo".to_string(),
+        Value::String(source_repo.to_string()),
+    );
     m.insert("enabled".to_string(), Value::Bool(true));
     m.insert("autoUse".to_string(), Value::Bool(false));
     m.insert("whenToUse".to_string(), Value::String(String::new()));
@@ -104,7 +111,13 @@ pub fn read_scenario(root: &Path, name: &str) -> Option<Value> {
     m.insert("skillName".to_string(), Value::String(name.to_string()));
     let tk = m
         .get_mut("triggerKeywords")
-        .and_then(|v| if v.is_array() { Some(std::mem::take(v)) } else { None })
+        .and_then(|v| {
+            if v.is_array() {
+                Some(std::mem::take(v))
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| Value::Array(Vec::new()));
     m.insert("triggerKeywords".to_string(), tk);
     Some(Value::Object(m))
@@ -348,11 +361,7 @@ fn write_scenario(root: &Path, scenario: &Map<String, Value>) -> Result<(), Stri
 /// an existing scenario; the only existing-scenario mutation is the
 /// modality-block safety update when `enabled` is truthy AND
 /// `blockedReason` is falsy.
-pub fn ensure_scenario(
-    root: &Path,
-    skill_name: &str,
-    source_repo: &str,
-) -> Result<Value, String> {
+pub fn ensure_scenario(root: &Path, skill_name: &str, source_repo: &str) -> Result<Value, String> {
     if let Some(Value::Object(mut existing)) = read_scenario(root, skill_name) {
         let needs_check = jsstr::js_truthy(existing.get("enabled").unwrap_or(&Value::Null))
             && !jsstr::js_truthy(existing.get("blockedReason").unwrap_or(&Value::Null));
@@ -410,7 +419,11 @@ pub fn update_scenario(
     if let Some(Value::Array(arr)) = patch.get("triggerKeywords") {
         merged.insert(
             "triggerKeywords".to_string(),
-            Value::Array(arr.iter().map(|v| Value::String(jsstr::js_to_string(v))).collect()),
+            Value::Array(
+                arr.iter()
+                    .map(|v| Value::String(jsstr::js_to_string(v)))
+                    .collect(),
+            ),
         );
     }
     if let Some(Value::String(s)) = patch.get("sourceRepo") {
@@ -603,9 +616,8 @@ pub fn parse_install_request(input: &str) -> Result<ParsedInstall, String> {
 /// misses (trailing slash), the slash strip exposes ".git", and the slug
 /// regex ACCEPTS "owner/repo.git".
 fn normalize_repo(raw: &str) -> Option<String> {
-    static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)^https?://(?:www\.)?github\.com/(.+)$").unwrap()
-    });
+    static URL_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)^https?://(?:www\.)?github\.com/(.+)$").unwrap());
     static SLUG_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
     let mut candidate = match URL_RE.captures(raw) {
@@ -635,7 +647,9 @@ mod tests {
         for ok in ["humanizer", "Pdf-Xlsx.1", "a", "9lives", "A.B_C-D"] {
             assert!(is_safe_skill_name(ok), "{ok} should be safe");
         }
-        for bad in ["", "-x", "_x", ".hidden", "a b", "日本", "a/b", "a\\b", "a.b/../c"] {
+        for bad in [
+            "", "-x", "_x", ".hidden", "a b", "日本", "a/b", "a\\b", "a.b/../c",
+        ] {
             assert!(!is_safe_skill_name(bad), "{bad} should be unsafe");
         }
     }
@@ -651,9 +665,7 @@ mod tests {
 
     #[test]
     fn read_scenario_merges_defaults_like_js_spread() {
-        let tmp = scenario_root(
-            "{\"skillName\":\"WRONG\",\"whenToUse\":\"x\",\"autoUse\":true}",
-        );
+        let tmp = scenario_root("{\"skillName\":\"WRONG\",\"whenToUse\":\"x\",\"autoUse\":true}");
         let s = read_scenario(tmp.path(), "demo").unwrap();
         let o = s.as_object().unwrap();
         assert_eq!(o["skillName"], "demo"); // forced AFTER the spread
@@ -719,18 +731,23 @@ mod tests {
         assert!(bundle.contains("B-BODY"));
         assert!(bundle.contains("C-BODY"));
         assert!(!bundle.contains("MUST-NOT-LOAD"));
-        assert!(bundle.contains("B-BODY\n\n\n\nC-BODY") || {
-            // exact shape: main + "\n\n" + b + "\n\n" + c
-            let expected_links = "\n\nB-BODY".to_string();
-            bundle.contains(&expected_links) && bundle.contains("\n\nC-BODY")
-        });
+        assert!(
+            bundle.contains("B-BODY\n\n\n\nC-BODY") || {
+                // exact shape: main + "\n\n" + b + "\n\n" + c
+                let expected_links = "\n\nB-BODY".to_string();
+                bundle.contains(&expected_links) && bundle.contains("\n\nC-BODY")
+            }
+        );
     }
 
     #[test]
     fn load_skill_bundle_caps_at_160k_units_like_js_slice() {
         let tmp = TempDir::new().unwrap();
         let dir = skill_dir(tmp.path(), "big");
-        write(&dir.join("SKILL.md"), &format!("[l](more.md)\n{}", "a".repeat(150_000)));
+        write(
+            &dir.join("SKILL.md"),
+            &format!("[l](more.md)\n{}", "a".repeat(150_000)),
+        );
         write(&dir.join("more.md"), &"b".repeat(20_000));
         let bundle = load_skill_bundle(tmp.path(), "big").unwrap();
         assert_eq!(jsstr::js_len(&bundle), 160_000);
@@ -769,8 +786,14 @@ mod tests {
 
     #[test]
     fn parse_install_rejects_with_exact_ts_messages() {
-        assert_eq!(parse_install_request("").unwrap_err(), "Install input is empty");
-        assert_eq!(parse_install_request(" \u{feff} ").unwrap_err(), "Install input is empty");
+        assert_eq!(
+            parse_install_request("").unwrap_err(),
+            "Install input is empty"
+        );
+        assert_eq!(
+            parse_install_request(" \u{feff} ").unwrap_err(),
+            "Install input is empty"
+        );
         assert_eq!(
             parse_install_request("--yes -y").unwrap_err(),
             "No repository given in install input"
@@ -804,10 +827,19 @@ mod tests {
     fn normalize_repo_urls_and_dotgit_strip_order_quirk() {
         let n = |s: &str| normalize_repo(s);
         assert_eq!(n("owner/repo").as_deref(), Some("owner/repo"));
-        assert_eq!(n("https://www.github.com/owner/repo").as_deref(), Some("owner/repo"));
-        assert_eq!(n("http://github.com/owner/repo.git").as_deref(), Some("owner/repo"));
+        assert_eq!(
+            n("https://www.github.com/owner/repo").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            n("http://github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
         // QUIRK PIN: `.git$` strips BEFORE `/+$`, so "….git///" keeps ".git".
-        assert_eq!(n("https://github.com/owner/repo.git///").as_deref(), Some("owner/repo.git"));
+        assert_eq!(
+            n("https://github.com/owner/repo.git///").as_deref(),
+            Some("owner/repo.git")
+        );
         assert_eq!(n("owner/repo/"), Some("owner/repo".to_string()));
         assert_eq!(n("o/r/tree/main"), None);
         assert_eq!(n("justowner"), None);
@@ -844,7 +876,7 @@ mod tests {
         assert!(root.join(".agents/skills/nomd").exists()); // no md: untouched
         assert!(root.join(".agents/skills").exists()); // not empty ⇒ kept
         assert!(!root.join(".claude/skills").exists()); // empty ⇒ pruned
-        // ensureScenario ran for every installed name.
+                                                        // ensureScenario ran for every installed name.
         let scen = read_scenario(root, "good").unwrap();
         assert_eq!(scen["sourceRepo"], serde_json::json!(""));
         assert_eq!(scen["enabled"], serde_json::json!(true));
@@ -860,7 +892,10 @@ mod tests {
         assert_eq!(s["sourceRepo"], serde_json::json!("some/repo"));
         let raw = fs::read_to_string(scenario_file(root, "demo")).unwrap();
         assert!(raw.ends_with("\n"));
-        assert!(raw.contains("\n  \"skillName\": \"demo\","), "pretty-2 + key order");
+        assert!(
+            raw.contains("\n  \"skillName\": \"demo\","),
+            "pretty-2 + key order"
+        );
 
         // Existing scenario is NEVER overwritten (sourceRepo stays "").
         fs::write(scenario_file(root, "demo"), "{\"skillName\":\"demo\",\"sourceRepo\":\"keep\",\"enabled\":true,\"autoUse\":false,\"whenToUse\":\"mine\",\"triggerKeywords\":[],\"blockedReason\":null}").unwrap();
@@ -873,7 +908,10 @@ mod tests {
     fn ensure_scenario_blocks_enabled_skill_that_turns_media() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        write(&skill_dir(root, "demo").join("SKILL.md"), "uses Midjourney for art");
+        write(
+            &skill_dir(root, "demo").join("SKILL.md"),
+            "uses Midjourney for art",
+        );
         // New install with blocked content ⇒ created already blocked.
         let s = ensure_scenario(root, "demo", "").unwrap();
         assert_eq!(s["enabled"], serde_json::json!(false));
@@ -885,7 +923,10 @@ mod tests {
         // Existing enabled scenario + newly media-flavored md ⇒ updated once.
         write(&skill_dir(root, "live").join("SKILL.md"), "plain body");
         ensure_scenario(root, "live", "").unwrap();
-        write(&skill_dir(root, "live").join("SKILL.md"), "now stable diffusion");
+        write(
+            &skill_dir(root, "live").join("SKILL.md"),
+            "now stable diffusion",
+        );
         let s = ensure_scenario(root, "live", "").unwrap();
         assert_eq!(s["enabled"], serde_json::json!(false));
         // Already blocked ⇒ md edits don't re-touch it.
@@ -898,7 +939,10 @@ mod tests {
     fn update_scenario_type_gates_and_string_keywords() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        assert_eq!(update_scenario(root, "gone", &serde_json::Map::new()).unwrap(), None);
+        assert_eq!(
+            update_scenario(root, "gone", &serde_json::Map::new()).unwrap(),
+            None
+        );
 
         ensure_scenario(root, "demo", "").unwrap();
         let patch = serde_json::json!({
@@ -924,7 +968,10 @@ mod tests {
         assert_eq!(s["blockedReason"], serde_json::json!(null));
         // Persisted.
         let again = read_scenario(root, "demo").unwrap();
-        assert_eq!(again["triggerKeywords"], serde_json::json!(["1", "two", "null", "true"]));
+        assert_eq!(
+            again["triggerKeywords"],
+            serde_json::json!(["1", "two", "null", "true"])
+        );
     }
 
     #[test]
@@ -950,9 +997,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         assert_eq!(skill_description(root, "nothing"), "");
-        write(&skill_dir(root, "front").join("SKILL.md"), "---\ndescription: FD\n---\n# H1");
+        write(
+            &skill_dir(root, "front").join("SKILL.md"),
+            "---\ndescription: FD\n---\n# H1",
+        );
         assert_eq!(skill_description(root, "front"), "FD");
-        write(&skill_dir(root, "head").join("SKILL.md"), "junk\n#  Head Two \nbody");
+        write(
+            &skill_dir(root, "head").join("SKILL.md"),
+            "junk\n#  Head Two \nbody",
+        );
         assert_eq!(skill_description(root, "head"), "Head Two");
         write(&skill_dir(root, "bare").join("SKILL.md"), "no heading here");
         assert_eq!(skill_description(root, "bare"), "");

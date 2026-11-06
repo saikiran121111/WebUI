@@ -2,14 +2,16 @@
 /**
  * Fence routing — extracted from MarkdownRenderer.tsx so that file stays
  * under 300 lines.  Every heavy studio viewer is lazy-loaded with
- * `next/dynamic` (ssr: false) so Three.js, Mermaid, CAD, and their
- * sibling libraries are NEVER included in the initial page-load bundle.
+ * `next/dynamic` (ssr: false) so Mermaid, D3, the anatomy engine, and
+ * their sibling libraries are NEVER included in the initial page-load
+ * bundle.  Retired 3D/CAD fences (Ruke plan Phase 4, 2026-11-06) route to
+ * a static read-only compatibility card — the preserved source is shown,
+ * never executed.
  */
 import { isValidElement, useContext, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { fenceKind } from "../../lib/render/registry";
 import { looksLikeTree, looksLikeTreeStart } from "../../lib/render/treeParse";
-import { looksLikeThreeCode } from "../../lib/three3d/codeRunner";
 import { RenderContext } from "../MarkdownRenderer";
 import CodeBlock from "./CodeBlock";
 
@@ -18,24 +20,9 @@ import MermaidBlock from "./MermaidBlock";
 import ChartBlock from "./ChartBlock";
 import WidgetBlock from "./WidgetBlock";
 import TreeBlock from "./TreeBlock";
+import RetiredFenceBlock from "./RetiredFenceBlock";
 
-/* ── Heavy WebGL / 3D / CAD viewers — lazy-loaded on first fence mount ─ */
-const Scene3DBlock = dynamic(
-  () => import("./Scene3DBlock"),
-  { ssr: false, loading: () => <BlockSkeleton label="3D scene" /> },
-);
-const Asset3DBlock = dynamic(
-  () => import("./Asset3DBlock"),
-  { ssr: false, loading: () => <BlockSkeleton label="3D asset" /> },
-);
-const ThreeCodeBlock = dynamic(
-  () => import("./ThreeCodeBlock"),
-  { ssr: false, loading: () => <BlockSkeleton label="Three.js" /> },
-);
-const CadBlock = dynamic(
-  () => import("./CadBlock"),
-  { ssr: false, loading: () => <BlockSkeleton label="CAD blueprint" /> },
-);
+/* ── Heavy studio viewers — lazy-loaded on first fence mount ─────────── */
 const AnatomyBlock = dynamic(
   () => import("./AnatomyBlock"),
   { ssr: false, loading: () => <BlockSkeleton label="Anatomy" /> },
@@ -94,7 +81,6 @@ export default function FenceRouter({ children }: { children?: ReactNode }) {
     streaming,
     onSend,
     allowInteractive,
-    onFenceRuntimeError,
     decisionMode,
   } = useContext(RenderContext);
 
@@ -110,12 +96,16 @@ export default function FenceRouter({ children }: { children?: ReactNode }) {
 
   const interactive = allowInteractive; // 2026-10-22: all valid studio fences mount regardless of mode
 
-  const threeOk = allowInteractive;
   const treeOk = allowInteractive;
 
-  const runtimeError = onFenceRuntimeError
-    ? (error: string) => onFenceRuntimeError({ lang: "threejs", body: source, error })
-    : undefined;
+  // --- Retired 3D/CAD fences (Ruke plan Phase 4, 2026-11-06) -----------
+  // Older conversations keep their ```scene3d / ```asset3d / ```threejs /
+  // ```cad fences, but the viewers are gone: render an honest read-only
+  // compatibility card over the preserved source.  The fence code is
+  // NEVER executed, in any mode.
+  if (kind === "scene3d" || kind === "asset3d" || kind === "threejs" || kind === "cad") {
+    return <RetiredFenceBlock kind={kind} source={source} />;
+  }
 
   // --- Light, always-available blocks -----------------------------------
   if (kind === "mermaid" && interactive) return <MermaidBlock source={source} streaming={streaming} onSend={onSend} />;
@@ -130,21 +120,14 @@ export default function FenceRouter({ children }: { children?: ReactNode }) {
   if (kind === "pptx" && interactive)    return <PptxBlock source={source} streaming={streaming} />;
   if (kind === "powerbi" && interactive) return <PowerBiBlock source={source} streaming={streaming} />;
 
-  // --- Heavy WebGL / 3D / CAD -------------------------------------------
-  if (kind === "scene3d" && interactive) return <Scene3DBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "asset3d" && interactive) return <Asset3DBlock source={source} streaming={streaming} />;
+  // --- Anatomy: independent 2D vector illustration ----------------------
   if (kind === "anatomy" && interactive) return <AnatomyBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "cad" && interactive)     return <CadBlock source={source} streaming={streaming} onSend={onSend} />;
-  if (kind === "threejs" && interactive) return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={runtimeError} />;
 
-  // --- Box-drawing trees and plain-JS Three.js ---------------------------
+  // --- Box-drawing trees -------------------------------------------------
   const treeSource = streaming
     ? looksLikeTree(source) || looksLikeTreeStart(source)
     : looksLikeTree(source);
   if (kind === "code" && treeOk && treeSource) return <TreeBlock source={source} />;
-  if (kind === "code" && threeOk && looksLikeThreeCode(source)) {
-    return <ThreeCodeBlock source={source} streaming={streaming} onSend={onSend} onRuntimeError={runtimeError} />;
-  }
 
   return <CodeBlock code={source} lang={language} streaming={streaming} />;
 }

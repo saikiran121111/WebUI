@@ -7,9 +7,9 @@
  * introduces no new colors. §76 greps this file for gradient/glow patterns:
  * the tokens used here must never be gradient definitions.
  *
- * Imported by components/web-results/RichResultRenderer.tsx (lazy style,
- * same pattern as cad-studio.css), never via globals.css, so the web-search
- * surfaces never ride the initial page-load bundle.
+ * Imported by components/web-results/RichResultRenderer.tsx (lazy style),
+ * never via globals.css, so the web-search surfaces never ride the initial
+ * page-load bundle.
  */
 
 /* ── Frame (§54: one primary surface per message) ─────────────────────── */

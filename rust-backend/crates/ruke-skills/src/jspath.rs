@@ -61,7 +61,10 @@ mod tests {
     #[test]
     fn strict_child_edge_table() {
         let dir = Path::new(r"D:\root\.cskills\xlsx");
-        assert!(is_strict_child(&PathBuf::from(r"D:\root\.cskills\xlsx\ref.md"), dir));
+        assert!(is_strict_child(
+            &PathBuf::from(r"D:\root\.cskills\xlsx\ref.md"),
+            dir
+        ));
         assert!(!is_strict_child(dir, dir));
         // Sibling sharing the dir's string prefix must NOT count (JS's
         // dir+sep test rejects it; component compare rejects it too).
@@ -69,6 +72,9 @@ mod tests {
             &PathBuf::from(r"D:\root\.cskills\xlsx2\ref.md"),
             dir
         ));
-        assert!(!is_strict_child(&PathBuf::from(r"D:\root\.cskills\ref.md"), dir));
+        assert!(!is_strict_child(
+            &PathBuf::from(r"D:\root\.cskills\ref.md"),
+            dir
+        ));
     }
 }

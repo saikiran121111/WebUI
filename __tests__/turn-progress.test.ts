@@ -165,7 +165,9 @@ describe("TurnProgressTracker — repair, finish, overall", () => {
     const t = new TurnProgressTracker(NO_BASELINES);
     t.setRepair(2, 3);
     const r = t.snapshot(Date.now()).steps.find(s => s.id === "repair")!;
-    expect(r.label).toBe("Auto-repairing the 3D/CAD model (round 2 of 3)");
+    // Generic wording since 2026-11-06 (Ruke plan Phase 4): repair covers
+    // anatomy + document fences only — the 3D/CAD model route retired.
+    expect(r.label).toBe("Auto-repairing the output (round 2 of 3)");
     expect(r.status).toBe("active");
   });
 

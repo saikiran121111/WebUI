@@ -21,7 +21,6 @@ import {
   extractFenceBody,
   fenceRepairRequest,
   findBrokenRenderFences,
-  findFenceByLang,
   type BrokenFence,
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
@@ -63,7 +62,6 @@ export interface UseChatReturn {
   clearError: () => void;
   setEffort: (level: EffortLevel) => void;
   effort: EffortLevel;
-  requestFenceRepair: (assistantId: string, info: { lang: string; body: string; error: string }) => void;
   /** Live honest turn progress for the top-right chip/panel (null when none). */
   turnProgress: TurnProgressSnapshot | null;
   /** Hide the chip/panel once the turn has ended. */
@@ -517,7 +515,7 @@ export function useChat({
 
       const lang = broken[0].lang ?? "anatomy";
       if (lang !== "anatomy") {
-        setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing 3D/CAD model…" } : m)));
+        setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing the output…" } : m)));
         // Real round count into the progress panel (auto-repair turns only).
         const t = progressRef.current;
         if (t && t.snapshot(Date.now()).state === "running") {
@@ -558,38 +556,10 @@ export function useChat({
     }
   }, [model, apiUrl, apiKey]);
 
-  const fenceRepairAttemptsRef = useRef(new Map<string, number>());
-
-  const requestFenceRepair = useCallback((
-    assistantId: string,
-    info: { lang: string; body: string; error: string },
-  ) => {
-    const idx = messagesRef.current.findIndex(m => m.id === assistantId);
-    if (idx < 0) return;
-    const attempts = fenceRepairAttemptsRef.current;
-    const used = attempts.get(assistantId) ?? 0;
-    if (used >= MAX_FENCE_REPAIRS) return;
-    attempts.set(assistantId, used + 1);
-
-    const message = messagesRef.current[idx];
-    if (message.decisionMode !== "3d_asset") return;
-    const history = messagesRef.current.slice(0, idx);
-    streamContentRef.current = message.content;
-    const controller = new AbortController();
-    void runRepairRounds(
-      assistantId,
-      history,
-      effortRef.current,
-      controller,
-      message.decisionMode ?? null,
-      content => {
-        const fence = findFenceByLang(content, info.lang);
-        if (!fence) return [];
-        return [{ error: info.error, bodyStart: fence.bodyStart, bodyEnd: fence.bodyEnd, closed: fence.closed, lang: info.lang }];
-      },
-      true,
-    );
-  }, [runRepairRounds]);
+  // The 3D/CAD runtime-error repair path (requestFenceRepair) was removed
+  // 2026-11-06 when the Three.js/CAD viewers retired (Ruke plan Phase 4);
+  // streaming-completion auto-repair (runRepairRounds) stays for anatomy
+  // and document fences.
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     if (!text.trim() || sendBusyRef.current) return;
@@ -887,7 +857,7 @@ export function useChat({
     messages, status, error, isThinking, reasoningContent,
     load, clear, send, stop, retry, edit,
     clearError: () => setError(null),
-    setEffort, effort, requestFenceRepair,
+    setEffort, effort,
     turnProgress, dismissProgress,
     // Auto-compact context
     compact,

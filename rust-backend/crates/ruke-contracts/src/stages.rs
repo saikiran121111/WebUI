@@ -164,15 +164,24 @@ mod tests {
             r#"{"stage":"decision_done","mode":"standard_chat","ms":0}"#
         );
         let e2 = StageEvent::new("retrieval");
-        assert_eq!(serde_json::to_string(&e2).unwrap(), r#"{"stage":"retrieval"}"#);
+        assert_eq!(
+            serde_json::to_string(&e2).unwrap(),
+            r#"{"stage":"retrieval"}"#
+        );
     }
 
     #[test]
     fn frame_envelopes_are_exact() {
         let f = stage_frame(&StageEvent::new("web:gate"));
-        assert_eq!(f, serde_json::json!({ "ruke_stage": { "stage": "web:gate" } }));
+        assert_eq!(
+            f,
+            serde_json::json!({ "ruke_stage": { "stage": "web:gate" } })
+        );
         let e = error_frame("Upstream returned 500: boom");
-        assert_eq!(e, serde_json::json!({ "ruke_error": { "message": "Upstream returned 500: boom" } }));
+        assert_eq!(
+            e,
+            serde_json::json!({ "ruke_error": { "message": "Upstream returned 500: boom" } })
+        );
     }
 
     #[test]
@@ -210,13 +219,18 @@ mod tests {
         let f = web_meta_frame(cites, None);
         assert!(f["ruke_stage"].get("webCitations").is_some());
         assert!(f["ruke_stage"].get("searchGate").is_none());
-        assert!(!f["ruke_stage"]["webCitations"]["S1"].get("publishedAt").is_some_and(|v| !v.is_null()));
+        assert!(!f["ruke_stage"]["webCitations"]["S1"]
+            .get("publishedAt")
+            .is_some_and(|v| !v.is_null()));
 
         let gate = ResearchMeta {
             depth: "deep".into(),
             freshness: "week".into(),
             decided_by: None,
-            queries: vec![GateQuery { query: "q".into(), intent: "news".into() }],
+            queries: vec![GateQuery {
+                query: "q".into(),
+                intent: "news".into(),
+            }],
         };
         let g = serde_json::to_string(&gate).unwrap();
         assert_eq!(

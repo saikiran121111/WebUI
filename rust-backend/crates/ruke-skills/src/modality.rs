@@ -90,14 +90,29 @@ mod tests {
             detect_blocked_reason("a three.js skill that also mentions Midjourney"),
             Some(BLOCKED_REASON)
         );
-        assert_eq!(detect_blocked_reason("Use d-all-e for art"), Some(BLOCKED_REASON));
-        assert_eq!(detect_blocked_reason("Stable Diffusion here"), Some(BLOCKED_REASON));
-        assert_eq!(detect_blocked_reason("ComfyUI workflow"), Some(BLOCKED_REASON));
+        assert_eq!(
+            detect_blocked_reason("Use d-all-e for art"),
+            Some(BLOCKED_REASON)
+        );
+        assert_eq!(
+            detect_blocked_reason("Stable Diffusion here"),
+            Some(BLOCKED_REASON)
+        );
+        assert_eq!(
+            detect_blocked_reason("ComfyUI workflow"),
+            Some(BLOCKED_REASON)
+        );
         assert_eq!(detect_blocked_reason("sora2 clips"), Some(BLOCKED_REASON));
         assert_eq!(detect_blocked_reason("runway ml gen"), Some(BLOCKED_REASON));
         assert_eq!(detect_blocked_reason("Veo 3 prompt"), Some(BLOCKED_REASON));
-        assert_eq!(detect_blocked_reason("flux.1-dev model"), Some(BLOCKED_REASON));
-        assert_eq!(detect_blocked_reason("text-to-image pipeline"), Some(BLOCKED_REASON));
+        assert_eq!(
+            detect_blocked_reason("flux.1-dev model"),
+            Some(BLOCKED_REASON)
+        );
+        assert_eq!(
+            detect_blocked_reason("text-to-image pipeline"),
+            Some(BLOCKED_REASON)
+        );
         assert_eq!(detect_blocked_reason("imagen 3"), Some(BLOCKED_REASON));
         // "firefly" alone blocks; word-boundary keeps "Firefly Lighting Co" out.
         assert_eq!(detect_blocked_reason("use Firefly"), Some(BLOCKED_REASON));
@@ -109,7 +124,10 @@ mod tests {
 
     #[test]
     fn weak_signals_block_only_without_code_viz_allow() {
-        assert_eq!(detect_blocked_reason("Image generation notes"), Some(BLOCKED_REASON));
+        assert_eq!(
+            detect_blocked_reason("Image generation notes"),
+            Some(BLOCKED_REASON)
+        );
         assert_eq!(
             detect_blocked_reason("generate AI images with a script"),
             Some(BLOCKED_REASON)
@@ -127,7 +145,10 @@ mod tests {
 
     #[test]
     fn clean_text_passes() {
-        assert_eq!(detect_blocked_reason("# Clean Skill\nPlain body only."), None);
+        assert_eq!(
+            detect_blocked_reason("# Clean Skill\nPlain body only."),
+            None
+        );
         // Word-boundary sanity: substrings must not fire.
         assert_eq!(detect_blocked_reason("fireflies in the garden"), None);
         assert_eq!(detect_blocked_reason("imaginary friends"), None);

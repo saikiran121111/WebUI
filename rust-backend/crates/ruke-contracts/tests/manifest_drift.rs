@@ -20,13 +20,17 @@ use std::path::PathBuf;
 
 use ruke_contracts::decision::{self, DecisionEnvelope, RendererMode};
 use ruke_contracts::settings::{CompactThresholds, SettingsShape};
-use ruke_contracts::stages::{self, stage_frame, Citation, CitationMap, GateQuery, ResearchMeta, StageEvent};
+use ruke_contracts::stages::{
+    self, stage_frame, Citation, CitationMap, GateQuery, ResearchMeta, StageEvent,
+};
 use serde_json::Value;
 
 fn manifest() -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/contracts/manifest.json");
-    let text = fs::read_to_string(&path)
-        .expect("rust-backend/fixtures/contracts/manifest.json missing — run `npm run contracts:generate`");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/contracts/manifest.json");
+    let text = fs::read_to_string(&path).expect(
+        "rust-backend/fixtures/contracts/manifest.json missing — run `npm run contracts:generate`",
+    );
     serde_json::from_str(&text).expect("manifest.json must be valid JSON")
 }
 
@@ -107,7 +111,11 @@ fn decision_modes_order_skill_and_fence_match_manifest() {
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
-    assert_eq!(order, decision::RENDERER_MODE_STRS.to_vec(), "RENDERER_MODES order/spelling");
+    assert_eq!(
+        order,
+        decision::RENDERER_MODE_STRS.to_vec(),
+        "RENDERER_MODES order/spelling"
+    );
 
     for s in &order {
         let mode = RendererMode::parse(s).expect("manifest mode must parse in Rust");
@@ -141,7 +149,10 @@ fn decision_envelope_field_ledger_omission_and_null_rules() {
         })
         .map(|f| f["name"].as_str().unwrap().to_string())
         .collect();
-    assert!(!optional.is_empty() && !always_nullable.is_empty(), "ledger classes populated");
+    assert!(
+        !optional.is_empty() && !always_nullable.is_empty(),
+        "ledger classes populated"
+    );
 
     // Full envelope: exact serialized key order == manifest ledger order
     // (snake_case casing, TS declaration order, confidence integral form).
@@ -153,16 +164,28 @@ fn decision_envelope_field_ledger_omission_and_null_rules() {
         all,
         "serialized envelope field order must match TS declaration order"
     );
-    assert!(serde_json::to_string(&env).unwrap().contains("\"confidence\":1"), "JS-number confidence");
+    assert!(
+        serde_json::to_string(&env)
+            .unwrap()
+            .contains("\"confidence\":1"),
+        "JS-number confidence"
+    );
 
     // Fallback envelope: optional diagnostics OMITTED (never null)…
-    let fb_keys = top_level_keys(&serde_json::to_string(&DecisionEnvelope::fallback("hi")).unwrap());
+    let fb_keys =
+        top_level_keys(&serde_json::to_string(&DecisionEnvelope::fallback("hi")).unwrap());
     for k in &optional {
-        assert!(!fb_keys.contains(k), "{k} must be omitted when absent, got {fb_keys:?}");
+        assert!(
+            !fb_keys.contains(k),
+            "{k} must be omitted when absent, got {fb_keys:?}"
+        );
     }
     // …while always-present nullable fields are explicit null keys (TS writes them).
     for k in &always_nullable {
-        assert!(fb_keys.contains(k), "{k} must always be present (TS writes null), got {fb_keys:?}");
+        assert!(
+            fb_keys.contains(k),
+            "{k} must always be present (TS writes null), got {fb_keys:?}"
+        );
     }
     // Some(None) renders as JSON null, not omission.
     let mut probe = DecisionEnvelope::fallback("hi");
@@ -173,8 +196,15 @@ fn decision_envelope_field_ledger_omission_and_null_rules() {
 
     // Wire casing rule: decision envelope is snake_case end to end.
     for name in &all {
-        assert_eq!(name, &name.to_lowercase(), "envelope names are snake_case: {name}");
-        assert!(!name.chars().any(|c| c.is_ascii_uppercase()), "no camelCase: {name}");
+        assert_eq!(
+            name,
+            &name.to_lowercase(),
+            "envelope names are snake_case: {name}"
+        );
+        assert!(
+            !name.chars().any(|c| c.is_ascii_uppercase()),
+            "no camelCase: {name}"
+        );
     }
 }
 
@@ -190,7 +220,11 @@ fn stage_event_citation_gate_field_ledgers() {
         .map(|e| e["field"].as_str().unwrap().to_string())
         .collect();
     // Rust-emitted ledger = manifest minus documented legacy read-only fields.
-    let rust_expected: Vec<String> = all.iter().filter(|n| !legacy.contains(n)).cloned().collect();
+    let rust_expected: Vec<String> = all
+        .iter()
+        .filter(|n| !legacy.contains(n))
+        .cloned()
+        .collect();
 
     let mut ev = StageEvent::new("web:auth_required");
     ev.detail = Some("d".into());
@@ -219,7 +253,10 @@ fn stage_event_citation_gate_field_ledgers() {
         depth: "deep".into(),
         freshness: "any".into(),
         decided_by: Some("gate".into()),
-        queries: vec![GateQuery { query: "q".into(), intent: "general".into() }],
+        queries: vec![GateQuery {
+            query: "q".into(),
+            intent: "general".into(),
+        }],
     });
     // P5 (Rich-Results Addendum §55/§57/§58): the manifest ledger records
     // these as FLAT named-type references (contractParse nests only inline
@@ -268,7 +305,10 @@ fn stage_event_citation_gate_field_ledgers() {
     ev.turn = Some("turn-1".into());
     ev.tab_id = Some("tab-9".into());
     let keys = top_level_keys(&serde_json::to_string(&ev).unwrap());
-    assert_eq!(keys, rust_expected, "StageEvent key order/casing vs TS ledger");
+    assert_eq!(
+        keys, rust_expected,
+        "StageEvent key order/casing vs TS ledger"
+    );
 
     // Nested ledgers: citation entry object, searchGate object, queries entry.
     let by_name = |n: &str| -> Value {
@@ -281,14 +321,16 @@ fn stage_event_citation_gate_field_ledgers() {
             .unwrap_or_else(|| panic!("manifest stageEvent has no {n}"))
     };
     assert_eq!(
-        top_level_keys(&serde_json::to_string(&Citation {
-            source_id: "S1".into(),
-            url: "u".into(),
-            title: "t".into(),
-            domain: "d".into(),
-            published_at: Some("p".into()),
-        })
-        .unwrap()),
+        top_level_keys(
+            &serde_json::to_string(&Citation {
+                source_id: "S1".into(),
+                url: "u".into(),
+                title: "t".into(),
+                domain: "d".into(),
+                published_at: Some("p".into()),
+            })
+            .unwrap()
+        ),
         nested_ledger_names(&by_name("webCitations")),
         "Citation casing/order"
     );
@@ -299,16 +341,31 @@ fn stage_event_citation_gate_field_ledgers() {
                 depth: "d".into(),
                 freshness: "f".into(),
                 decided_by: Some("x".into()),
-                queries: vec![GateQuery { query: "q".into(), intent: "i".into() }],
+                queries: vec![GateQuery {
+                    query: "q".into(),
+                    intent: "i".into()
+                }],
             })
             .unwrap()
         ),
         nested_ledger_names(&gf),
         "ResearchMeta casing/order"
     );
-    let qf = gf["fields"].as_array().unwrap().iter().find(|f| f["name"] == "queries").cloned().unwrap();
+    let qf = gf["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "queries")
+        .cloned()
+        .unwrap();
     assert_eq!(
-        top_level_keys(&serde_json::to_string(&GateQuery { query: "q".into(), intent: "i".into() }).unwrap()),
+        top_level_keys(
+            &serde_json::to_string(&GateQuery {
+                query: "q".into(),
+                intent: "i".into()
+            })
+            .unwrap()
+        ),
         nested_ledger_names(&qf),
         "GateQuery casing/order"
     );
@@ -318,14 +375,24 @@ fn stage_event_citation_gate_field_ledgers() {
     // representative — the exact key set a production pass-through frame
     // carries — must move with it or this test goes red.
     let rlf = by_name("researchLedger");
-    assert_eq!(ledger_names(&rlf["fields"]), vec!["toolRounds", "actions"], "researchLedger outer ledger");
+    assert_eq!(
+        ledger_names(&rlf["fields"]),
+        vec!["toolRounds", "actions"],
+        "researchLedger outer ledger"
+    );
     let ev_json = serde_json::to_value(&ev).unwrap();
     assert_eq!(
         top_level_keys(&serde_json::to_string(&ev_json["researchLedger"]).unwrap()),
         ledger_names(&rlf["fields"]),
         "researchLedger payload vs manifest outer ledger"
     );
-    let af = rlf["fields"].as_array().unwrap().iter().find(|f| f["name"] == "actions").cloned().unwrap();
+    let af = rlf["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "actions")
+        .cloned()
+        .unwrap();
     let act_ledger = nested_ledger_names(&af);
     let forwarded = serde_json::to_value(&ev.research_ledger).unwrap();
     let mut covered: Vec<String> = Vec::new();
@@ -333,8 +400,15 @@ fn stage_event_citation_gate_field_ledgers() {
         let keys = top_level_keys(&serde_json::to_string(a).unwrap());
         // Optional ledger fields may be omitted; the ones present must ride
         // in ledger order (never re-ordered by the pass-through).
-        let ordered: Vec<String> = act_ledger.iter().filter(|n| keys.contains(n)).cloned().collect();
-        assert_eq!(ordered, keys, "action[{i}] keys ⊆ ledger, in ledger order (WS18)");
+        let ordered: Vec<String> = act_ledger
+            .iter()
+            .filter(|n| keys.contains(n))
+            .cloned()
+            .collect();
+        assert_eq!(
+            ordered, keys,
+            "action[{i}] keys ⊆ ledger, in ledger order (WS18)"
+        );
         for k in &keys {
             if !covered.contains(k) {
                 covered.push(k.clone());
@@ -345,8 +419,17 @@ fn stage_event_citation_gate_field_ledgers() {
     covered_sorted.sort();
     let mut ledger_sorted = act_ledger.clone();
     ledger_sorted.sort();
-    assert_eq!(covered_sorted, ledger_sorted, "success+rejection key union covers the action ledger (WS18)");
-    let ff = af["fields"].as_array().unwrap().iter().find(|f| f["name"] == "failures").cloned().unwrap();
+    assert_eq!(
+        covered_sorted, ledger_sorted,
+        "success+rejection key union covers the action ledger (WS18)"
+    );
+    let ff = af["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "failures")
+        .cloned()
+        .unwrap();
     assert_eq!(
         top_level_keys(&serde_json::to_string(&forwarded["actions"][0]["failures"][0]).unwrap()),
         nested_ledger_names(&ff),
@@ -363,15 +446,32 @@ fn settings_shape_field_ledger() {
     let s = SettingsShape {
         llm_api_url: Some("u".into()),
         llm_api_key: Some("k".into()),
-        compact_thresholds: Some(CompactThresholds { auto: 1, tokens: 96_000 }),
+        compact_thresholds: Some(CompactThresholds {
+            auto: 1,
+            tokens: 96_000,
+        }),
     };
     assert_eq!(top_level_keys(&serde_json::to_string(&s).unwrap()), all);
     for f in fields.as_array().unwrap() {
-        assert_eq!(f["present"].as_str(), Some("optional-omit-when-absent"), "{}", f["name"]);
+        assert_eq!(
+            f["present"].as_str(),
+            Some("optional-omit-when-absent"),
+            "{}",
+            f["name"]
+        );
     }
-    assert_eq!(serde_json::to_string(&SettingsShape::default()).unwrap(), "{}");
+    assert_eq!(
+        serde_json::to_string(&SettingsShape::default()).unwrap(),
+        "{}"
+    );
 
-    let ct = fields.as_array().unwrap().iter().find(|f| f["name"] == "compact_thresholds").cloned().unwrap();
+    let ct = fields
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "compact_thresholds")
+        .cloned()
+        .unwrap();
     assert_eq!(
         top_level_keys(&serde_json::to_string(&CompactThresholds { auto: 0, tokens: 1 }).unwrap()),
         nested_ledger_names(&ct)
@@ -381,8 +481,12 @@ fn settings_shape_field_ledger() {
 #[test]
 fn sse_frame_keys_match_manifest() {
     let m = manifest();
-    assert!(stage_frame(&StageEvent::new("skill")).get(m["sseFrames"]["stageFrameKey"].as_str().unwrap()).is_some());
-    assert!(stages::error_frame("boom").get(m["sseFrames"]["errorFrameKey"].as_str().unwrap()).is_some());
+    assert!(stage_frame(&StageEvent::new("skill"))
+        .get(m["sseFrames"]["stageFrameKey"].as_str().unwrap())
+        .is_some());
+    assert!(stages::error_frame("boom")
+        .get(m["sseFrames"]["errorFrameKey"].as_str().unwrap())
+        .is_some());
     assert_eq!(m["sseFrames"]["doneMarker"].as_str().unwrap(), "[DONE]");
 }
 
@@ -402,6 +506,9 @@ fn header_ledger_names_are_exact_lowercase() {
         "x-search-gate",
         "x-ruke-internal-secret",
     ] {
-        assert!(names.contains(&expected), "manifest headers ledger must contain {expected}: {names:?}");
+        assert!(
+            names.contains(&expected),
+            "manifest headers ledger must contain {expected}: {names:?}"
+        );
     }
 }

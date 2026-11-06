@@ -6,9 +6,19 @@
 use serde::{Deserialize, Serialize};
 
 /// Exact spelling set from `RENDERER_MODES` (order preserved).
-pub const RENDERER_MODE_STRS: [&str; 10] = [
-    "excel", "docs", "pdf", "ppt", "3d_asset", "cad_blueprint", "anatomy", "chart",
-    "html_render", "standard_chat",
+/// `3d_asset` / `cad_blueprint` were retired 2026-11-06 (Ruke plan Phase 4):
+/// the spellings no longer parse, so saved conversations holding their fences
+/// (`scene3d`/`asset3d`/`threejs`/`cad`) fall through to the read-only
+/// compatibility card in the WebUI instead of a 3D/CAD viewer.
+pub const RENDERER_MODE_STRS: [&str; 8] = [
+    "excel",
+    "docs",
+    "pdf",
+    "ppt",
+    "anatomy",
+    "chart",
+    "html_render",
+    "standard_chat",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,10 +31,6 @@ pub enum RendererMode {
     Pdf,
     #[serde(rename = "ppt")]
     Ppt,
-    #[serde(rename = "3d_asset")]
-    Asset3D,
-    #[serde(rename = "cad_blueprint")]
-    CadBlueprint,
     #[serde(rename = "anatomy")]
     Anatomy,
     #[serde(rename = "chart")]
@@ -42,8 +48,6 @@ impl RendererMode {
             Self::Docs => "docs",
             Self::Pdf => "pdf",
             Self::Ppt => "ppt",
-            Self::Asset3D => "3d_asset",
-            Self::CadBlueprint => "cad_blueprint",
             Self::Anatomy => "anatomy",
             Self::Chart => "chart",
             Self::HtmlRender => "html_render",
@@ -61,11 +65,9 @@ impl RendererMode {
                 1 => Self::Docs,
                 2 => Self::Pdf,
                 3 => Self::Ppt,
-                4 => Self::Asset3D,
-                5 => Self::CadBlueprint,
-                6 => Self::Anatomy,
-                7 => Self::Chart,
-                8 => Self::HtmlRender,
+                4 => Self::Anatomy,
+                5 => Self::Chart,
+                6 => Self::HtmlRender,
                 _ => Self::StandardChat,
             })
     }
@@ -88,8 +90,6 @@ pub fn mode_skill(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Docs => Some("docx"),
         RendererMode::Pdf => Some("pdf"),
         RendererMode::Ppt => Some("pptx"),
-        RendererMode::Asset3D => Some("threejs-skills"),
-        RendererMode::CadBlueprint => Some("archify"),
         RendererMode::Anatomy => Some("anatomy"),
         RendererMode::Chart => None,
         RendererMode::HtmlRender => Some("html-viewer"),
@@ -104,8 +104,6 @@ pub fn mode_fence(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Docs => Some("docx"),
         RendererMode::Pdf => Some("html"),
         RendererMode::Ppt => Some("pptx"),
-        RendererMode::Asset3D => Some("scene3d"),
-        RendererMode::CadBlueprint => Some("cad"),
         RendererMode::Anatomy => Some("anatomy"),
         RendererMode::Chart => Some("chart"),
         RendererMode::HtmlRender => Some("html"),
@@ -209,33 +207,43 @@ mod tests {
             assert_eq!(json, format!("\"{s}\""));
             assert_eq!(serde_json::from_str::<RendererMode>(&json).unwrap(), m);
         }
-        for bad in ["Internal", "standard-chat", "", "3d", "excel2"] {
-            assert_eq!(RendererMode::parse(bad), None, "isRendererMode parity for {bad:?}");
+        // "3d_asset"/"cad_blueprint" retired 2026-11-06 (Ruke plan Phase 4):
+        // the old spellings must no longer parse to any mode.
+        for bad in [
+            "Internal",
+            "standard-chat",
+            "",
+            "3d",
+            "excel2",
+            "3d_asset",
+            "cad_blueprint",
+        ] {
+            assert_eq!(
+                RendererMode::parse(bad),
+                None,
+                "isRendererMode parity for {bad:?}"
+            );
         }
     }
 
     #[test]
     fn mode_tables_match_typescript_baseline() {
         // Frozen snapshot of MODE_SKILL / MODE_FENCE in lib/decision/types.ts.
-        let skill: [(&str, Option<&str>); 10] = [
+        let skill: [(&str, Option<&str>); 8] = [
             ("excel", Some("xlsx")),
             ("docs", Some("docx")),
             ("pdf", Some("pdf")),
             ("ppt", Some("pptx")),
-            ("3d_asset", Some("threejs-skills")),
-            ("cad_blueprint", Some("archify")),
             ("anatomy", Some("anatomy")),
             ("chart", None),
             ("html_render", Some("html-viewer")),
             ("standard_chat", None),
         ];
-        let fence: [(&str, Option<&str>); 10] = [
+        let fence: [(&str, Option<&str>); 8] = [
             ("excel", Some("xlsx")),
             ("docs", Some("docx")),
             ("pdf", Some("html")),
             ("ppt", Some("pptx")),
-            ("3d_asset", Some("scene3d")),
-            ("cad_blueprint", Some("cad")),
             ("anatomy", Some("anatomy")),
             ("chart", Some("chart")),
             ("html_render", Some("html")),
@@ -253,7 +261,15 @@ mod tests {
         let dv = RendererMode::disable_validators_for(RendererMode::Excel);
         assert_eq!(
             dv.iter().map(|m| m.as_str()).collect::<Vec<_>>(),
-            vec!["docs", "pdf", "ppt", "3d_asset", "cad_blueprint", "anatomy", "chart", "html_render", "standard_chat"]
+            vec![
+                "docs",
+                "pdf",
+                "ppt",
+                "anatomy",
+                "chart",
+                "html_render",
+                "standard_chat"
+            ]
         );
     }
 
@@ -263,7 +279,7 @@ mod tests {
         let json = serde_json::to_string(&env).unwrap();
         assert_eq!(
             json,
-            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","3d_asset","cad_blueprint","anatomy","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
+            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","anatomy","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
         );
 
         // Optional diagnostics: ABSENT (not null) when never set; explicit
@@ -273,17 +289,27 @@ mod tests {
         let v: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
         assert_eq!(v["lfm_input"], serde_json::Value::Null);
-        assert!(!v.contains_key("lfm_raw"), "omitted field must not serialize");
+        assert!(
+            !v.contains_key("lfm_raw"),
+            "omitted field must not serialize"
+        );
     }
 
     #[test]
     fn confidence_js_number_rendering_integers_and_floats() {
         // JSON.stringify(1) == "1"; JSON.stringify(0) == "0"; JSON.stringify(0.85) == "0.85".
         let mut env = DecisionEnvelope::fallback("hi");
-        for (value, expect) in [(1.0, "\"confidence\":1"), (0.0, "\"confidence\":0"), (0.85, "\"confidence\":0.85")] {
+        for (value, expect) in [
+            (1.0, "\"confidence\":1"),
+            (0.0, "\"confidence\":0"),
+            (0.85, "\"confidence\":0.85"),
+        ] {
             env.confidence = value;
             let json = serde_json::to_string(&env).unwrap();
-            assert!(json.contains(expect), "confidence {value} must serialize as {expect}: {json}");
+            assert!(
+                json.contains(expect),
+                "confidence {value} must serialize as {expect}: {json}"
+            );
         }
     }
 }

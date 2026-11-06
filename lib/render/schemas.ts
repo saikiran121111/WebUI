@@ -169,9 +169,6 @@ export type WidgetField = z.infer<typeof widgetFieldSchema>;
 export type KpiCard = z.infer<typeof kpiCardSchema>;
 export type KpiSlider = z.infer<typeof kpiSliderSchema>;
 
-/* Scene3D v2 schemas live in lib/three3d/sceneSchema.ts (single source of
-   truth for the fence contract; the skill docs reference that file). */
-
 export function parseJsonFence<T extends z.ZodTypeAny>(
   source: string,
   schema: T,

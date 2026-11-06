@@ -8,10 +8,9 @@
 //! word-initial alternative becomes `(?:^|[^A-Za-z0-9_])`, and after a
 //! word-final alternative becomes `(?:[^A-Za-z0-9_]|$)` (existence
 //! semantics only — `.test()` never needs the boundary bytes themselves,
-//! so consuming them is safe). `\w*` becomes `[A-Za-z0-9_]*`. JS's `.`
-//! excludes CR, LF, U+2028 and U+2029, while Rust's `.` excludes only LF
-//! — the 3d_asset bridging `.*` is therefore spelled
-//! `[^\r\n\u{2028}\u{2029}]*` to match.
+//! so consuming them is safe). `\w*` becomes `[A-Za-z0-9_]*`. (The 3d_asset
+//! bridging `.*` that needed the CR/LF/U+2028/U+2029 class retired with the
+//! mode on 2026-11-06 — Ruke plan Phase 4 — so no matcher uses `.` anymore.)
 //!
 //! Boundary polarity depends on the word-ness of the EDGE CHAR of the
 //! matched alternative (JS `\b` = ASCII-word XOR across the position):
@@ -27,9 +26,11 @@
 //!   It is redundant in the oracle itself; the uniform group classes stay
 //!   correct without a special branch.
 //!
-//! First-match precedence follows `INTENT_ORDER` (chart BEFORE 3d_asset,
-//! cad_blueprint and anatomy; pdf BEFORE ppt; cad_blueprint BEFORE anatomy;
-//! anatomy BEFORE html_render).
+//! First-match precedence follows `INTENT_ORDER` (chart BEFORE anatomy;
+//! pdf BEFORE ppt; anatomy BEFORE html_render). `3d_asset`/`cad_blueprint`
+//! were retired 2026-11-06 (Ruke plan Phase 4): their matchers no longer
+//! exist, so old prompts ("render a 3d scene", "floor plan") now fall to
+//! `standard_chat` or, for the shared anatomy vocabulary, `anatomy`.
 
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -41,7 +42,10 @@ use ruke_contracts::decision::{mode_skill, DecisionEnvelope, RendererMode};
 use ruke_skills::jsstr::js_trim;
 
 static EXCEL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:spreadsheet|excel|[.]xlsx|workbook|xlsx)(?:[^A-Za-z0-9_]|$)").unwrap()
+    Regex::new(
+        r"(?i)(?:^|[^A-Za-z0-9_])(?:spreadsheet|excel|[.]xlsx|workbook|xlsx)(?:[^A-Za-z0-9_]|$)",
+    )
+    .unwrap()
 });
 static DOCS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
@@ -59,31 +63,8 @@ static PPT_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static CHART_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])chart(?:[^A-Za-z0-9_]|$)").unwrap());
-/// Branch 3 of the TS matcher is `\b(?:render|model|visualise|visualize)\b`
-/// `.*` `\b(?:3d|scene|mesh)\b`. A naive port that consumes the verb's
-/// trailing boundary breaks "render scene": the SINGLE space serves as both
-/// the verb's trailing `\b` and the target's leading `\b`. Look-around is
-/// unavailable in the Rust crate, so the bridging `.*` is restructured into
-/// an explicit bridge — at least one non-word, non-line-terminator char
-/// directly after the verb, optional same-line filler, and a final non-word
-/// char directly before the target (the one-space case collapses both
-/// boundary requirements onto the same char, matching JS). The bridge
-/// excludes CR/LF/U+2028/U+2029, so `.` parity keeps "render\nscene"
-/// unmatched.
-static ASSET3D_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(concat!(
-        r"(?i)(?:(?:^|[^A-Za-z0-9_])3d(?:[^A-Za-z0-9_]|$)",
-        r"|(?:^|[^A-Za-z0-9_])three[.]?js(?:[^A-Za-z0-9_]|$)",
-        r"|(?:^|[^A-Za-z0-9_])(?:render|model|visualise|visualize)",
-        r"[^A-Za-z0-9_\r\n\u{2028}\u{2029}]",
-        r"(?:[^\r\n\u{2028}\u{2029}]*[^A-Za-z0-9_\r\n\u{2028}\u{2029}])?",
-        r"(?:3d|scene|mesh)(?:[^A-Za-z0-9_]|$))"
-    ))
-    .unwrap()
-});
-static CAD_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:floor ?plan|architect[A-Za-z0-9_]*|blueprint|building|room layout|interior)(?:[^A-Za-z0-9_]|$)").unwrap()
-});
+// ASSET3D_RE / CAD_RE removed 2026-11-06 (Ruke plan Phase 4): the
+// 3d_asset / cad_blueprint modes and their intent rules are retired.
 /// `cross-section`'s interior `-` is a plain literal; JS `\b` only anchors
 /// before "cross" and after "section", exactly as the bridge classes do.
 static ANATOMY_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -102,12 +83,12 @@ fn match_intent(trimmed: &str) -> Option<RendererMode> {
         (RendererMode::Pdf, &*PDF_RE),
         (RendererMode::Ppt, &*PPT_RE),
         (RendererMode::Chart, &*CHART_RE),
-        (RendererMode::Asset3D, &*ASSET3D_RE),
-        (RendererMode::CadBlueprint, &*CAD_RE),
         (RendererMode::Anatomy, &*ANATOMY_RE),
         (RendererMode::HtmlRender, &*HTML_RE),
     ];
-    rules.into_iter().find_map(|(mode, re)| re.is_match(trimmed).then_some(mode))
+    rules
+        .into_iter()
+        .find_map(|(mode, re)| re.is_match(trimmed).then_some(mode))
 }
 
 /// `getDecisionSync(message, conversationHistory)`. The TS accepts history
@@ -221,13 +202,12 @@ mod tests {
         assert_eq!(mode_for("charts"), RendererMode::StandardChat);
         assert_eq!(mode_for("cvx"), RendererMode::StandardChat);
         assert_eq!(mode_for("htmlx dashboard"), RendererMode::StandardChat);
-        assert_eq!(mode_for("threejss"), RendererMode::StandardChat);
-        assert_eq!(mode_for("3 d"), RendererMode::StandardChat);
         assert_eq!(mode_for("isometrically"), RendererMode::StandardChat);
         assert_eq!(mode_for("cutaways"), RendererMode::StandardChat);
-        // JS `.` never crosses \n: the render…scene bridge stays line-local
+        // Post-Phase-4: no 3D matcher exists at all — "render scene" and
+        // friends fall to standard_chat (the vectors fixture replays this).
+        assert_eq!(mode_for("render scene"), RendererMode::StandardChat);
         assert_eq!(mode_for("render\nscene"), RendererMode::StandardChat);
-        assert_eq!(mode_for("render scene"), RendererMode::Asset3D);
         // single space in `word ?document`, `power ?point`, `floor ?plan`
         assert_eq!(mode_for("word  document"), RendererMode::StandardChat);
         assert_eq!(mode_for("word document"), RendererMode::Docs);
@@ -239,8 +219,8 @@ mod tests {
         assert_eq!(mode_for("résumé"), RendererMode::StandardChat);
         assert_eq!(mode_for("my résumé"), RendererMode::StandardChat);
         assert_eq!(mode_for("résumé2"), RendererMode::Docs); // '2' is a word char
-        // Dotted alternatives are dominated by their bare siblings in the
-        // oracle (complementary leading boundary, identical tail) — pins.
+                                                             // Dotted alternatives are dominated by their bare siblings in the
+                                                             // oracle (complementary leading boundary, identical tail) — pins.
         assert_eq!(mode_for("file.docx"), RendererMode::Docs);
         assert_eq!(mode_for("file.xlsx"), RendererMode::Excel);
         assert_eq!(mode_for("file.pptx"), RendererMode::Ppt);
@@ -250,30 +230,45 @@ mod tests {
     fn intent_order_precedence_pins() {
         // pdf (idx 2) before ppt (3): deck-with-pdf stays pdf
         assert_eq!(mode_for("presentation in pdf format"), RendererMode::Pdf);
-        // pdf (2) before cad (6): interior+pdf stays pdf
+        // pdf (2) before html_render (6): interior+pdf stays pdf
+        // (cad_blueprint retired — "interior" no longer routes anywhere)
         assert_eq!(mode_for("the interior of the pdf"), RendererMode::Pdf);
-        // chart (4) before 3d (5) and cad (6)
-        assert_eq!(mode_for("3d chart"), RendererMode::Chart);
-        assert_eq!(mode_for("chart of this building's architecture"), RendererMode::Chart);
+        // chart (4) beats every retired-adjacent vocabulary: the cad/3d
+        // matchers are gone, chart fires first and alone
+        assert_eq!(
+            mode_for("chart of this building's architecture"),
+            RendererMode::Chart
+        );
         // excel (0) beats chart (4)
         assert_eq!(mode_for("spreadsheet and a chart"), RendererMode::Excel);
-        // 3d (5) before cad (6)
-        assert_eq!(mode_for("3D building model"), RendererMode::Asset3D);
-        // cad (6) before html (7)
-        assert_eq!(mode_for("interior design with html"), RendererMode::CadBlueprint);
-        // architect[w]* ascii star: "architectural" still cad
-        assert_eq!(mode_for("an architectural sketch"), RendererMode::CadBlueprint);
-        // cad (6) before anatomy (7): building+cutaway stays cad until cad retires
-        assert_eq!(mode_for("a building cutaway diagram"), RendererMode::CadBlueprint);
-        // chart (4) before anatomy (7)
+        // cad (6) retired 2026-11-06: building+cutaway falls to anatomy (5)
+        assert_eq!(
+            mode_for("a building cutaway diagram"),
+            RendererMode::Anatomy
+        );
+        // chart (4) before anatomy (5)
         assert_eq!(mode_for("exploded isometric chart"), RendererMode::Chart);
-        // anatomy (7) before html (8)
+        // anatomy (5) before html_render (6)
         assert_eq!(mode_for("exploded diagram in html"), RendererMode::Anatomy);
         // anatomy positive
-        assert_eq!(mode_for("cutaway of the marine engine"), RendererMode::Anatomy);
+        assert_eq!(
+            mode_for("cutaway of the marine engine"),
+            RendererMode::Anatomy
+        );
         // no match at all
         assert_eq!(mode_for("tell me a joke"), RendererMode::StandardChat);
-        assert_eq!(intent_for("a model of the city"), None); // no 3d/scene/mesh after model
+        assert_eq!(intent_for("a model of the city"), None); // model matcher retired with 3d_asset
+                                                             // Post-retirement falls to standard_chat:
+        assert_eq!(mode_for("3D building model"), RendererMode::StandardChat);
+        assert_eq!(
+            mode_for("interior design with html"),
+            RendererMode::HtmlRender
+        );
+        assert_eq!(
+            mode_for("an architectural sketch"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(mode_for("3d chart"), RendererMode::Chart);
     }
 
     #[test]
@@ -294,7 +289,7 @@ mod tests {
         assert_eq!(env.skill_to_load, Some("xlsx"));
         assert_eq!(env.allowed_code_fence, None);
         assert_eq!(env.enable_validator, RendererMode::Excel);
-        assert_eq!(env.disable_validators.len(), 9);
+        assert_eq!(env.disable_validators.len(), 7);
         assert!(!env.disable_validators.contains(&RendererMode::Excel));
         assert_eq!(env.confidence, 1.0);
         assert_eq!(env.lfm_latency_ms, 0);
@@ -308,13 +303,22 @@ mod tests {
         assert_eq!(r.body, "{\"error\":\"invalid JSON body\"}");
 
         let r = decision_route("{\"message\":\"   \"}");
-        assert_eq!((r.status, r.body.as_str()), (400, "{\"error\":\"message required\"}"));
+        assert_eq!(
+            (r.status, r.body.as_str()),
+            (400, "{\"error\":\"message required\"}")
+        );
 
         let r = decision_route("{\"history\":[]}"); // no `message` key at all
-        assert_eq!((r.status, r.body.as_str()), (400, "{\"error\":\"message required\"}"));
+        assert_eq!(
+            (r.status, r.body.as_str()),
+            (400, "{\"error\":\"message required\"}")
+        );
 
         let r = decision_route("\"just a string\""); // non-object body
-        assert_eq!((r.status, r.body.as_str()), (400, "{\"error\":\"message required\"}"));
+        assert_eq!(
+            (r.status, r.body.as_str()),
+            (400, "{\"error\":\"message required\"}")
+        );
     }
 
     #[test]
@@ -322,7 +326,9 @@ mod tests {
         let r = decision_route(&json!({ "message": "make a deck" }).to_string());
         assert_eq!(r.status, 200);
         assert!(r.body.contains("\"active_mode\":\"ppt\""));
-        assert!(r.body.contains("\"decided_by\":\"in-process-deliverable-match\""));
+        assert!(r
+            .body
+            .contains("\"decided_by\":\"in-process-deliverable-match\""));
         assert!(r.body.contains("\"skill_to_load\":\"pptx\""));
         assert!(!r.body.contains('\n')); // compact == JSON.stringify
     }

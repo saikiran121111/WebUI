@@ -40,19 +40,17 @@ const VECTORS: string[] = [
   "print this pdf",
   "build a power point", "a powerpoint deck", "give me a presentation", "save the .pptx", "export pptx now", "the deck outline",
   "chart the revenue",
-  "a 3D model viewer", "three.js demo", "threejs scene", "render scene", "model the scene", "visualize mesh parts",
-  "draw a floor plan", "floorplan of the attic", "an architect's sketch", "an architectural drawing", "the blueprint sheet", "the building section", "room layout v2", "interior elevations",
   "an exploded view of the reactor core", "cutaway of the marine engine", "anatomy of a jet turbine", "isometric illustration of the server rack", "cross-section of the pump housing",
   "a web page mock", "the webpage header", "landing page copy", "landingpage hero", "pure html please", "interactive ui", "interactive page demo", "interactive prototype", "an interactive demo",
   // — ASCII \b quirks the Rust port must share —
-  "caféexcel", "the pdfx file", "what is excelent", "charts", "cvx", "htmlx dashboard", "threejss", "3 d",
+  "caféexcel", "the pdfx file", "what is excelent", "charts", "cvx", "htmlx dashboard",
   "isometrically", "cutaways",
   "render\nscene", "word  document", "word-document", "power  point",
   "résumé", "my résumé", "résumé2", "résumébuilder",
   "file.docx", "file.xlsx", "file.pptx",
   // — INTENT_ORDER precedence —
-  "presentation in pdf format", "the interior of the pdf", "3d chart", "chart of this building's architecture",
-  "spreadsheet and a chart", "3D building model", "interior design with html", "an architectural sketch",
+  "presentation in pdf format", "the interior of the pdf", "chart of this building's architecture",
+  "spreadsheet and a chart",
   "a building cutaway diagram", "exploded isometric chart", "exploded diagram in html",
   "tell me a joke", "a model of the city",
   // — trim / case behavior —
@@ -82,11 +80,9 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
     expect(at("résumé2").active_mode).toBe("docs");
     expect(at("file.docx").active_mode).toBe("docs");
     expect(at("caféexcel").active_mode).toBe("excel");
-    expect(at("3d chart").active_mode).toBe("chart");
-    expect(at("render\nscene").active_mode).toBe("standard_chat");
-    expect(at("render scene").active_mode).toBe("3d_asset");
+    expect(at("render\nscene").active_mode).toBe("standard_chat"); // '.' no longer bridges \n; no 3D matcher exists post-Phase-4
     expect(at("anatomy of a jet turbine").active_mode).toBe("anatomy");
-    expect(at("a building cutaway diagram").active_mode).toBe("cad_blueprint"); // cad keeps precedence until retired
+    expect(at("a building cutaway diagram").active_mode).toBe("anatomy"); // cad_blueprint retired 2026-11-06: cutaway falls to anatomy
     expect(at("exploded diagram in html").active_mode).toBe("anatomy");
     expect(at("   make a deck \t").stripped_prompt).toBe("make a deck");
     expect(at("tell me a joke").decided_by).toBe("in-process-deliverable-match");
@@ -135,7 +131,7 @@ describe("golden: Part 3 mode-contract byte hashes (skills/06)", () => {
         utf16Length: c.length,
       };
     });
-    expect(entries).toHaveLength(10); // 9 artifact modes + standard_chat(null)
+    expect(entries).toHaveLength(8); // 7 artifact modes + standard_chat(null) — 3d_asset/cad_blueprint retired 2026-11-06
     writeJsonFixture("skills/06-mode-contracts-hashes.json", { entries }, {
       scenario: "MODE_CONTRACTS content hashes — binds the generated Rust contract constants",
       semantics:

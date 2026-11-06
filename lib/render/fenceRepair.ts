@@ -1,7 +1,7 @@
 /**
  * Fence auto-repair helpers (pure, client-safe).
  *
- * A broken ```anatomy / ```scene3d / ```cad fence is the model's mistake,
+ * A broken ```anatomy / document fence is the model's mistake,
  * and only the model can fix it. These helpers locate the broken fence
  * inside an assistant message, phrase its exact error as a repair request,
  * and splice the corrected fence back into the same bubble — so the user
@@ -9,10 +9,6 @@
  */
 import { anatomySpecSchema } from "../anatomy/anatomySchema";
 import { parseJsonFence, chartSpecSchema } from "./schemas";
-import { normalizeScene3d } from "../three3d/normalizeScene";
-import { asset3dSpecSchema } from "../three3d/sceneSchema";
-import { looksLikeThreeCode } from "../three3d/codeRunner";
-import { normalizeCad } from "../cad/normalizeCad";
 import {
   isBrokenHtmlFence,
   normalizeDocx,
@@ -86,8 +82,6 @@ const MODE_SCAN_LANGS: Record<RendererMode, string[]> = {
   docs: ["docx", "resume"],
   pdf: ["html", "resume"],
   ppt: ["pptx"],
-  "3d_asset": ["threejs", "scene3d", "asset3d"],
-  cad_blueprint: ["cad"],
   anatomy: ["anatomy"],
   chart: ["chart", "powerbi", "mermaid"],
   html_render: ["html"],
@@ -110,25 +104,6 @@ export function findBrokenRenderFences(
   const langs = new Set(MODE_SCAN_LANGS[activeMode] ?? []);
   const broken: BrokenFence[] = [];
   if (langs.has("anatomy")) broken.push(...findBrokenAnatomyFences(content));
-  if (langs.has("scene3d")) {
-    broken.push(...scanBrokenFences(content, "scene3d", body => {
-      const r = normalizeScene3d(body);
-      return r.ok ? null : r.error;
-    }, true));
-  }
-  if (langs.has("asset3d")) {
-    broken.push(...scanBrokenFences(content, "asset3d", body => {
-      const parsed = parseJsonFence(body, asset3dSpecSchema);
-      return parsed.ok ? null : parsed.error;
-    }, true));
-  }
-  if (langs.has("threejs")) {
-    // Static gate only: the viewer executes the code, so a fence counts as
-    // broken only when it isn't Three.js scene code at all. Runtime failures
-    // route through onFenceRuntimeError (same repair prompt).
-    broken.push(...scanBrokenFences(content, "threejs", body =>
-      looksLikeThreeCode(body) ? null : "the fence does not contain executable Three.js scene code", true));
-  }
   if (langs.has("chart")) {
     broken.push(...scanBrokenFences(content, "chart", body => {
       const parsed = parseJsonFence(body, chartSpecSchema);
@@ -140,12 +115,6 @@ export function findBrokenRenderFences(
     // scan only catches structurally-dead fences (empty bodies).
     broken.push(...scanBrokenFences(content, "mermaid", body =>
       body.length > 0 ? null : "the mermaid fence is empty", true));
-  }
-  if (langs.has("cad")) {
-    broken.push(...scanBrokenFences(content, "cad", body => {
-      const r = normalizeCad(body);
-      return r.ok ? null : r.error;
-    }, true));
   }
   // Document modality fences: broken when the JSON won't parse or the SAME
   // lenient normalizer the preview block uses refuses the spec.
@@ -189,7 +158,7 @@ export function fenceRepairRequest(broken: BrokenFence): string {
   return fenceFixRequest(lang, broken.error);
 }
 
-/** Generic repair prompt for any fence language (```threejs / ```scene3d / ```cad …). */
+/** Generic repair prompt for any fence language (```xlsx / ```docx / ```pptx …). */
 export function fenceFixRequest(lang: string, error: string): string {
   return (
     "Your previous ```" + lang + " fence failed to load in the viewer: " + error +

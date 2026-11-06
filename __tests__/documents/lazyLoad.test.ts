@@ -32,15 +32,14 @@ function envelope(mode: RendererMode): DecisionEnvelope {
   };
 }
 
-const MODALITY_SKILLS = ["pdf", "docx", "xlsx", "pptx", "html-viewer", "threejs-skills", "archify"];
+const MODALITY_SKILLS = ["pdf", "docx", "xlsx", "pptx", "html-viewer", "anatomy"];
 
 const MODE_SKILL_TESTS: [RendererMode, string][] = [
   ["excel", "xlsx"],
   ["docs", "docx"],
   ["pdf", "pdf"],
   ["ppt", "pptx"],
-  ["3d_asset", "threejs-skills"],
-  ["cad_blueprint", "archify"],
+  ["anatomy", "anatomy"],
   ["html_render", "html-viewer"],
 ];
 

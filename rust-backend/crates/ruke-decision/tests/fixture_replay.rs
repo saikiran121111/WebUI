@@ -55,7 +55,11 @@ fn upstream_system_content(fix: &Value) -> String {
 }
 
 fn upstream_body(fix: &Value) -> Value {
-    fix["upstreamCalls"][0]["bodyText"].as_str().unwrap().parse().unwrap()
+    fix["upstreamCalls"][0]["bodyText"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap()
 }
 
 // ————— decision route: byte-exact envelope wire bytes (fixtures 01-05) —————
@@ -72,8 +76,16 @@ fn decision_route_fixtures_replay_byte_exact() {
         let fix = load(rel);
         let raw = fix["request"]["rawBody"].as_str().unwrap();
         let r = decision_route(raw);
-        assert_eq!(r.status, fix["response"]["status"].as_u64().unwrap() as u16, "{rel} status");
-        assert_eq!(r.body, fix["response"]["bodyBytes"].as_str().unwrap(), "{rel} body bytes");
+        assert_eq!(
+            r.status,
+            fix["response"]["status"].as_u64().unwrap() as u16,
+            "{rel} status"
+        );
+        assert_eq!(
+            r.body,
+            fix["response"]["bodyBytes"].as_str().unwrap(),
+            "{rel} body bytes"
+        );
     }
 }
 
@@ -82,13 +94,31 @@ fn envelope_confidence_and_key_order_bytes() {
     // §14 resolution: confidence renders as integer `1`, never `1.0`.
     let fix = load("decision/01-route-excel-match.json");
     let r = decision_route(fix["request"]["rawBody"].as_str().unwrap());
-    assert!(r.body.contains("\"confidence\":1,"), "confidence must serialize as `1`: {}", r.body);
-    assert!(!r.body.contains("lfm_input") && !r.body.contains("lfm_raw"), "lfm fields must be OMITTED");
+    assert!(
+        r.body.contains("\"confidence\":1,"),
+        "confidence must serialize as `1`: {}",
+        r.body
+    );
+    assert!(
+        !r.body.contains("lfm_input") && !r.body.contains("lfm_raw"),
+        "lfm fields must be OMITTED"
+    );
     // Recorded key order must be reproduced verbatim.
-    let order: Vec<&str> = fix["envelopeKeyOrder"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    let order: Vec<&str> = fix["envelopeKeyOrder"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
     let body_order: Vec<String> = serde_json::from_str::<serde_json::Map<String, Value>>(&r.body)
-        .unwrap().keys().cloned().collect();
-    assert_eq!(body_order, order, "envelope key order must match JSON.stringify insertion order");
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        body_order, order,
+        "envelope key order must match JSON.stringify insertion order"
+    );
 }
 
 // ————— intent vectors (decision/06) —————
@@ -104,9 +134,20 @@ fn intent_matcher_vectors_replay_full_envelope_fields() {
         let want_mode = RendererMode::parse(v["active_mode"].as_str().unwrap()).unwrap();
         assert_eq!(env.active_mode, want_mode, "active_mode for {prompt:?}");
         let want_skill = v["skill_to_load"].as_str();
-        assert_eq!(env.skill_to_load, want_skill, "skill_to_load for {prompt:?}");
-        assert_eq!(env.decided_by, v["decided_by"].as_str().unwrap(), "decided_by for {prompt:?}");
-        assert_eq!(env.stripped_prompt, v["stripped_prompt"].as_str().unwrap(), "trim for {prompt:?}");
+        assert_eq!(
+            env.skill_to_load, want_skill,
+            "skill_to_load for {prompt:?}"
+        );
+        assert_eq!(
+            env.decided_by,
+            v["decided_by"].as_str().unwrap(),
+            "decided_by for {prompt:?}"
+        );
+        assert_eq!(
+            env.stripped_prompt,
+            v["stripped_prompt"].as_str().unwrap(),
+            "trim for {prompt:?}"
+        );
         assert_eq!(env.confidence, 1.0);
     }
     let blank = &fix["blankMessage"];
@@ -125,12 +166,32 @@ fn generated_mode_contract_constants_hash_match_the_ts_oracle() {
     for e in fix["entries"].as_array().unwrap() {
         let mode = RendererMode::parse(e["mode"].as_str().unwrap()).unwrap();
         if e["present"].as_bool().unwrap() {
-            let c = mode_contract(mode).unwrap_or_else(|| panic!("no contract embedded for {mode:?}"));
-            assert_eq!(sha256_hex(c.as_bytes()), e["sha256"].as_str().unwrap(), "sha for {:?}", e["mode"]);
-            assert_eq!(c.len(), e["bytes"].as_u64().unwrap() as usize, "bytes for {:?}", e["mode"]);
-            assert_eq!(js_len(c), e["utf16Length"].as_u64().unwrap() as usize, "utf16 units for {:?}", e["mode"]);
+            let c =
+                mode_contract(mode).unwrap_or_else(|| panic!("no contract embedded for {mode:?}"));
+            assert_eq!(
+                sha256_hex(c.as_bytes()),
+                e["sha256"].as_str().unwrap(),
+                "sha for {:?}",
+                e["mode"]
+            );
+            assert_eq!(
+                c.len(),
+                e["bytes"].as_u64().unwrap() as usize,
+                "bytes for {:?}",
+                e["mode"]
+            );
+            assert_eq!(
+                js_len(c),
+                e["utf16Length"].as_u64().unwrap() as usize,
+                "utf16 units for {:?}",
+                e["mode"]
+            );
         } else {
-            assert!(mode_contract(mode).is_none(), "{:?} must have no contract", e["mode"]);
+            assert!(
+                mode_contract(mode).is_none(),
+                "{:?} must have no contract",
+                e["mode"]
+            );
         }
     }
 }
@@ -140,37 +201,65 @@ fn generated_mode_contract_constants_hash_match_the_ts_oracle() {
 #[test]
 fn slash_routing_user_tier_block_and_header_fixture_01() {
     let fix = load("skills/01-slash-user-skill-progress.json");
-    let mut payload: Value = serde_json::from_str(fix["request"]["rawBody"].as_str().unwrap()).unwrap();
+    let mut payload: Value =
+        serde_json::from_str(fix["request"]["rawBody"].as_str().unwrap()).unwrap();
     let used = apply_slash_skill_routing(&mut payload, &repo_root());
     assert_eq!(used.as_deref(), Some("humanizer"));
     // The header the TS emitted for the user tier must match our return.
-    assert_eq!(fix["response"]["headers"]["x-used-skill"].as_str().unwrap(), "humanizer");
+    assert_eq!(
+        fix["response"]["headers"]["x-used-skill"].as_str().unwrap(),
+        "humanizer"
+    );
 
     let msgs = payload["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0]["role"], "system");
     let expected = upstream_system_content(&fix);
-    assert_eq!(msgs[0]["content"].as_str().unwrap(), expected, "active_skill block must be byte-identical");
+    assert_eq!(
+        msgs[0]["content"].as_str().unwrap(),
+        expected,
+        "active_skill block must be byte-identical"
+    );
     // Slash prefix stripped from the forwarded user turn.
-    assert_eq!(msgs[1]["content"].as_str().unwrap(), "rewrite this paragraph plainly");
+    assert_eq!(
+        msgs[1]["content"].as_str().unwrap(),
+        "rewrite this paragraph plainly"
+    );
 
     let anchor = &fix["upstreamCalls"][0]["anchors"][0];
-    assert_eq!(sha256_hex(expected.as_bytes()), anchor["block_sha256"].as_str().unwrap());
-    assert_eq!(expected.len(), anchor["block_bytes"].as_u64().unwrap() as usize);
+    assert_eq!(
+        sha256_hex(expected.as_bytes()),
+        anchor["block_sha256"].as_str().unwrap()
+    );
+    assert_eq!(
+        expected.len(),
+        anchor["block_bytes"].as_u64().unwrap() as usize
+    );
     let src = fs::read(repo_root().join("skills/humanizer/SKILL.md")).unwrap();
-    assert_eq!(sha256_hex(&src), anchor["sources"][0]["sha256"].as_str().unwrap(), "skill source drifted since recording");
-    assert_eq!(src.len(), anchor["sources"][0]["bytes"].as_u64().unwrap() as usize);
+    assert_eq!(
+        sha256_hex(&src),
+        anchor["sources"][0]["sha256"].as_str().unwrap(),
+        "skill source drifted since recording"
+    );
+    assert_eq!(
+        src.len(),
+        anchor["sources"][0]["bytes"].as_u64().unwrap() as usize
+    );
 }
 
 #[test]
 fn slash_routing_preserves_other_payload_keys_fixture_02() {
     let fix = load("skills/02-slash-user-skill-legacy.json");
-    let mut payload: Value = serde_json::from_str(fix["request"]["rawBody"].as_str().unwrap()).unwrap();
+    let mut payload: Value =
+        serde_json::from_str(fix["request"]["rawBody"].as_str().unwrap()).unwrap();
     let used = apply_slash_skill_routing(&mut payload, &repo_root());
     assert_eq!(used.as_deref(), Some("humanizer"));
     // Routing must not disturb sibling keys (legacy path carried `stream`).
     assert_eq!(payload["stream"], upstream_body(&fix)["stream"]);
-    assert_eq!(payload["messages"][0]["content"].as_str().unwrap(), upstream_system_content(&fix));
+    assert_eq!(
+        payload["messages"][0]["content"].as_str().unwrap(),
+        upstream_system_content(&fix)
+    );
 }
 
 #[test]
@@ -196,17 +285,33 @@ fn core_skill_decision_block_fixture_04_string_equal() {
 
     let block = build_decision_skill_block(&env, &repo_root()).expect("excel block");
     let expected = upstream_system_content(&fix);
-    assert_eq!(block, expected, "<decision_skill> block must be string-identical to the injected system content");
+    assert_eq!(
+        block, expected,
+        "<decision_skill> block must be string-identical to the injected system content"
+    );
     // 11144 = JS content length (UTF-16 units); block_bytes 11204 = UTF-8
     // bytes — the gap is the skill text's non-ASCII characters.
     assert_eq!(js_len(&block), 11144, "UTF-16 units of the recorded block");
 
     let anchor = &fix["upstreamCalls"][0]["anchors"][0];
-    assert_eq!(sha256_hex(block.as_bytes()), anchor["block_sha256"].as_str().unwrap());
-    assert_eq!(block.len(), anchor["block_bytes"].as_u64().unwrap() as usize);
+    assert_eq!(
+        sha256_hex(block.as_bytes()),
+        anchor["block_sha256"].as_str().unwrap()
+    );
+    assert_eq!(
+        block.len(),
+        anchor["block_bytes"].as_u64().unwrap() as usize
+    );
     let src = fs::read(repo_root().join(".cskills/xlsx/SKILL.md")).unwrap();
-    assert_eq!(sha256_hex(&src), anchor["sources"][0]["sha256"].as_str().unwrap(), ".cskills source drifted since recording");
-    assert_eq!(src.len(), anchor["sources"][0]["bytes"].as_u64().unwrap() as usize);
+    assert_eq!(
+        sha256_hex(&src),
+        anchor["sources"][0]["sha256"].as_str().unwrap(),
+        ".cskills source drifted since recording"
+    );
+    assert_eq!(
+        src.len(),
+        anchor["sources"][0]["bytes"].as_u64().unwrap() as usize
+    );
 
     // §9 core-tier invisibility: the TS never sent a skill header here.
     assert!(fix["response"]["headers"].get("x-used-skill").is_none());
@@ -215,7 +320,10 @@ fn core_skill_decision_block_fixture_04_string_equal() {
 #[test]
 fn repair_passthrough_envelope_block_fixture_05() {
     let fix = load("skills/05-decision-mode-excel-passthrough.json");
-    let env = DecisionEnvelope::passthrough(RendererMode::Excel, "re-emit the deliverable for this request");
+    let env = DecisionEnvelope::passthrough(
+        RendererMode::Excel,
+        "re-emit the deliverable for this request",
+    );
     assert_eq!(env.decided_by, "repair-passthrough");
     assert_eq!(env.confidence, 1.0);
     assert_eq!(env.skill_to_load, Some("xlsx"));
@@ -224,11 +332,23 @@ fn repair_passthrough_envelope_block_fixture_05() {
 
     let block = build_decision_skill_block(&env, &repo_root()).unwrap();
     let expected = upstream_system_content(&fix);
-    assert_eq!(block, expected, "passthrough block must be string-identical");
+    assert_eq!(
+        block, expected,
+        "passthrough block must be string-identical"
+    );
 
     let anchor = &fix["upstreamCalls"][0]["anchors"][0];
-    assert_eq!(sha256_hex(block.as_bytes()), anchor["block_sha256"].as_str().unwrap());
-    assert_eq!(block.len(), anchor["block_bytes"].as_u64().unwrap() as usize);
+    assert_eq!(
+        sha256_hex(block.as_bytes()),
+        anchor["block_sha256"].as_str().unwrap()
+    );
+    assert_eq!(
+        block.len(),
+        anchor["block_bytes"].as_u64().unwrap() as usize
+    );
     let src = fs::read(repo_root().join(".cskills/xlsx/SKILL.md")).unwrap();
-    assert_eq!(sha256_hex(&src), anchor["sources"][0]["sha256"].as_str().unwrap());
+    assert_eq!(
+        sha256_hex(&src),
+        anchor["sources"][0]["sha256"].as_str().unwrap()
+    );
 }

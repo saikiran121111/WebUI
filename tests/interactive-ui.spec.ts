@@ -1,7 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 
 // The ?demo=ui showcase is fully client-side (no model server needed):
-// interactive chart + mermaid step playback + scene3d + KPI widget + table.
+// interactive chart + mermaid step playback + SVG anatomy figure + KPI
+// widget + table. (The scene3d leg retired with the 3D viewers on
+// 2026-11-06 — Ruke plan Phase 4.)
 const DEMO_URL = "http://localhost:3000/?demo=ui";
 
 // Network-level logs from the intentional "Ask AI" send (the llama.cpp
@@ -20,17 +22,9 @@ function watchConsole(page: Page, errors: string[]) {
   page.on("pageerror", err => errors.push(err.message));
 }
 
-test("interactive UI showcase: chart, mermaid, scene3d, kpi widget, table", async ({ page }) => {
+test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table", async ({ page }) => {
   const consoleErrors: string[] = [];
   watchConsole(page, consoleErrors);
-
-  // Keep the asset3d block from starting a real provider job during tests:
-  // the honest 503 path is asserted in tests/three3d.spec.ts instead.
-  await page.route("**/api/3d/assets*", route => route.fulfill({
-    status: 503,
-    contentType: "application/json",
-    body: JSON.stringify({ error: "No 3D generation provider is configured on this server. Procedural scene3d remains available." }),
-  }));
 
   await page.goto(DEMO_URL);
 
@@ -86,28 +80,22 @@ test("interactive UI showcase: chart, mermaid, scene3d, kpi widget, table", asyn
   await page.getByRole("button", { name: "Reset playback" }).click();
   await expect(stepCount).toHaveText("Step 0/4");
 
-  // --- Scene3D: lazy three.js canvas, attitude sliders, click-to-inspect ---
-  const scene = page.locator('[data-testid="scene3d-block"]');
-  await expect(scene).toBeVisible();
-  const stage = page.locator('[data-testid="scene3d-stage"]');
-  const canvas = stage.locator("canvas");
-  let webglOk = true;
-  try {
-    await expect(canvas.first()).toBeVisible({ timeout: 15000 });
-  } catch {
-    webglOk = false;
-  }
-
-  if (webglOk) {
-    await page.locator('[data-testid="scene3d-slider-pitch"]').fill("0.5");
-    await expect(scene.locator(".chart-slider-value").first()).toHaveText("0.5");
-    await stage.click({ position: { x: 10, y: 10 } }); // orbit drag, must not select
-    await expect(page.locator('[data-testid="scene3d-inspect"]')).toHaveCount(0);
-    await stage.click(); // center raycast hits the probe bus
-    await expect(page.locator('[data-testid="scene3d-inspect"]')).toContainText("Main bus");
-  } else {
-    await expect(stage).toContainText("WebGL is unavailable");
-  }
+  // --- Anatomy: lazy SVG figure, engine readout, explode toggle ----------
+  const anatomy = page.locator('[data-testid="anatomy-block"]');
+  await expect(anatomy).toBeVisible({ timeout: 15000 });
+  await anatomy.scrollIntoViewIfNeeded();
+  await expect(anatomy.locator("svg.anatomy-svg").first()).toBeVisible({ timeout: 15000 });
+  await expect(anatomy.locator('[data-testid="anatomy-badge"]'))
+    .toContainText("SVG vector illustration — not a 3D mesh");
+  // The engine parks its animation loop off-screen (IntersectionObserver),
+  // so the readout only animates once the figure is in the viewport — same
+  // readiness pattern tests/anatomy.spec.ts pins.
+  const readout = anatomy.locator('[data-anatomy-readout="pos"]');
+  await expect(readout).toHaveText("30.0", { timeout: 10000 });
+  const explode = anatomy.locator('[data-testid="anatomy-explode"]');
+  await expect(explode).toHaveAttribute("aria-pressed", "false");
+  await explode.click();
+  await expect(explode).toHaveAttribute("aria-pressed", "true");
 
   // --- KPI widget: sliders recompute bound cards live, card click opens callout ---
   const kpi = page.locator('[data-testid="kpi-block"]');

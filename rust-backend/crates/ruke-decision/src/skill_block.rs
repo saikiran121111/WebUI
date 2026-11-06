@@ -23,7 +23,9 @@ pub fn build_decision_skill_block(env: &DecisionEnvelope, root: &Path) -> Option
         if let Some(bundle) = load_core_skill_bundle(root, skill) {
             // JS `if (bundle)` guards falsy "" too — empty bundles skip.
             if !bundle.is_empty() {
-                parts.push(format!("<core_skill name=\"{skill}\">\n{bundle}\n</core_skill>"));
+                parts.push(format!(
+                    "<core_skill name=\"{skill}\">\n{bundle}\n</core_skill>"
+                ));
             }
         }
     }
@@ -77,7 +79,11 @@ mod tests {
     #[test]
     fn standard_chat_with_no_skill_produces_no_block() {
         let tmp = tempfile::TempDir::new().unwrap();
-        assert!(build_decision_skill_block(&envelope(RendererMode::StandardChat, "in-process-fallback"), tmp.path()).is_none());
+        assert!(build_decision_skill_block(
+            &envelope(RendererMode::StandardChat, "in-process-fallback"),
+            tmp.path()
+        )
+        .is_none());
     }
 
     #[test]
@@ -86,7 +92,9 @@ mod tests {
         let env = envelope(RendererMode::Chart, "in-process-deliverable-match");
         assert_eq!(env.skill_to_load, None); // MODE_SKILL[chart] = null
         let block = build_decision_skill_block(&env, tmp.path()).unwrap();
-        assert!(block.starts_with("<decision_skill mode=\"chart\" decided_by=\"in-process-deliverable-match\">\n"));
+        assert!(block.starts_with(
+            "<decision_skill mode=\"chart\" decided_by=\"in-process-deliverable-match\">\n"
+        ));
         assert!(!block.contains("<core_skill"));
         assert!(block.contains(crate::contracts_generated::CONTRACT_CHART));
         assert!(block.ends_with("\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); never emit other renderer fences.\n</decision_skill>"));
@@ -98,17 +106,23 @@ mod tests {
         let dir = tmp.path().join(".cskills/xlsx");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("SKILL.md"), "---\nname: xlsx\n---\nGuide body").unwrap();
-        let block = build_decision_skill_block(&envelope(RendererMode::Excel, "repair-passthrough"), tmp.path()).unwrap();
+        let block = build_decision_skill_block(
+            &envelope(RendererMode::Excel, "repair-passthrough"),
+            tmp.path(),
+        )
+        .unwrap();
         let contract = crate::contracts_generated::CONTRACT_EXCEL;
         assert!(block.contains("<core_skill name=\"xlsx\">\nGuide body\n</core_skill>\n\n"));
         assert!(block.contains(&format!("</core_skill>\n\n{contract}")));
-        assert!(block.starts_with("<decision_skill mode=\"excel\" decided_by=\"repair-passthrough\">\n"));
+        assert!(block
+            .starts_with("<decision_skill mode=\"excel\" decided_by=\"repair-passthrough\">\n"));
     }
 
     #[test]
     fn missing_core_skill_dir_still_emits_contract_only() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let block = build_decision_skill_block(&envelope(RendererMode::Excel, "x"), tmp.path()).unwrap();
+        let block =
+            build_decision_skill_block(&envelope(RendererMode::Excel, "x"), tmp.path()).unwrap();
         assert!(!block.contains("<core_skill"));
         assert!(block.contains(crate::contracts_generated::CONTRACT_EXCEL));
     }

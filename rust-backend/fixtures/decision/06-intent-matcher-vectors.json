@@ -162,118 +162,6 @@
       "confidence": 1
     },
     {
-      "prompt": "a 3D model viewer",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "a 3D model viewer",
-      "confidence": 1
-    },
-    {
-      "prompt": "three.js demo",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "three.js demo",
-      "confidence": 1
-    },
-    {
-      "prompt": "threejs scene",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "threejs scene",
-      "confidence": 1
-    },
-    {
-      "prompt": "render scene",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "render scene",
-      "confidence": 1
-    },
-    {
-      "prompt": "model the scene",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "model the scene",
-      "confidence": 1
-    },
-    {
-      "prompt": "visualize mesh parts",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "visualize mesh parts",
-      "confidence": 1
-    },
-    {
-      "prompt": "draw a floor plan",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "draw a floor plan",
-      "confidence": 1
-    },
-    {
-      "prompt": "floorplan of the attic",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "floorplan of the attic",
-      "confidence": 1
-    },
-    {
-      "prompt": "an architect's sketch",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "an architect's sketch",
-      "confidence": 1
-    },
-    {
-      "prompt": "an architectural drawing",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "an architectural drawing",
-      "confidence": 1
-    },
-    {
-      "prompt": "the blueprint sheet",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the blueprint sheet",
-      "confidence": 1
-    },
-    {
-      "prompt": "the building section",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the building section",
-      "confidence": 1
-    },
-    {
-      "prompt": "room layout v2",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "room layout v2",
-      "confidence": 1
-    },
-    {
-      "prompt": "interior elevations",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "interior elevations",
-      "confidence": 1
-    },
-    {
       "prompt": "an exploded view of the reactor core",
       "active_mode": "anatomy",
       "skill_to_load": "anatomy",
@@ -434,22 +322,6 @@
       "confidence": 1
     },
     {
-      "prompt": "threejss",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "threejss",
-      "confidence": 1
-    },
-    {
-      "prompt": "3 d",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "3 d",
-      "confidence": 1
-    },
-    {
       "prompt": "isometrically",
       "active_mode": "standard_chat",
       "skill_to_load": null,
@@ -570,14 +442,6 @@
       "confidence": 1
     },
     {
-      "prompt": "3d chart",
-      "active_mode": "chart",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "3d chart",
-      "confidence": 1
-    },
-    {
       "prompt": "chart of this building's architecture",
       "active_mode": "chart",
       "skill_to_load": null,
@@ -594,33 +458,9 @@
       "confidence": 1
     },
     {
-      "prompt": "3D building model",
-      "active_mode": "3d_asset",
-      "skill_to_load": "threejs-skills",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "3D building model",
-      "confidence": 1
-    },
-    {
-      "prompt": "interior design with html",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "interior design with html",
-      "confidence": 1
-    },
-    {
-      "prompt": "an architectural sketch",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "an architectural sketch",
-      "confidence": 1
-    },
-    {
       "prompt": "a building cutaway diagram",
-      "active_mode": "cad_blueprint",
-      "skill_to_load": "archify",
+      "active_mode": "anatomy",
+      "skill_to_load": "anatomy",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "a building cutaway diagram",
       "confidence": 1

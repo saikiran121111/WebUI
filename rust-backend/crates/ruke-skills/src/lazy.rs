@@ -15,15 +15,14 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::jsstr::js_truthy;
 use crate::jsstr::js_trim;
+use crate::jsstr::js_truthy;
 use crate::registry::{load_skill_bundle, read_scenario, skill_exists};
 
 /// `SLASH_COMMAND` in lazy.ts: `/^\/([a-z0-9][a-z0-9._-]*)(?:\s+([\s\S]*))?$/i`.
 /// ASCII-only classes; the capture keeps the user's original case.
-static SLASH_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^/([a-z0-9][a-z0-9._-]*)(?:\s+([\s\S]*))?$").unwrap()
-});
+static SLASH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^/([a-z0-9][a-z0-9._-]*)(?:\s+([\s\S]*))?$").unwrap());
 
 /// `extractUserText`: string content passes through; array content joins
 /// its per-part `text` fields (non-string/non-text parts contribute "")
@@ -35,7 +34,11 @@ pub fn extract_user_text(content: &Value) -> String {
             .iter()
             .map(|p| match p {
                 Value::String(s) => s.clone(),
-                _ => p.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+                _ => p
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -55,7 +58,10 @@ pub fn last_user_index(messages: &[Value]) -> Option<usize> {
 /// in-place insertion. `index` is always in-bounds at the call sites; the
 /// clamp keeps the function total.
 pub fn inject_system_before(messages: &mut Vec<Value>, index: usize, content: String) {
-    messages.insert(index.min(messages.len()), json!({ "role": "system", "content": content }));
+    messages.insert(
+        index.min(messages.len()),
+        json!({ "role": "system", "content": content }),
+    );
 }
 
 /// `activeSkillBlock(skillName, skillBody)`.
@@ -152,7 +158,11 @@ fn js_replace_first(re: &Regex, haystack: &str, replacement: &str) -> String {
 pub fn strip_slash_prefix(message: &mut Value, full_text: &str) {
     let caps = SLASH_RE.captures(js_trim(full_text));
     // JS: (match?.[2] ?? "").trim()
-    let remainder = js_trim(caps.as_ref().and_then(|c| c.get(2)).map_or("", |m| m.as_str()));
+    let remainder = js_trim(
+        caps.as_ref()
+            .and_then(|c| c.get(2))
+            .map_or("", |m| m.as_str()),
+    );
 
     match message.get_mut("content") {
         Some(Value::String(_)) => {
@@ -243,7 +253,10 @@ mod tests {
 
     #[test]
     fn slash_name_keeps_case_and_class_ascii() {
-        assert_eq!(slash_skill_name("/Humanizer-2.x do it"), Some("Humanizer-2.x"));
+        assert_eq!(
+            slash_skill_name("/Humanizer-2.x do it"),
+            Some("Humanizer-2.x")
+        );
         assert_eq!(slash_skill_name("  /skill\n\nbody  "), Some("skill"));
         assert_eq!(slash_skill_name("no slash"), None);
         assert_eq!(slash_skill_name("/2skill ok"), Some("2skill"));
@@ -259,7 +272,8 @@ mod tests {
         assert_eq!(msg["content"], "b $1 c");
 
         // Array branch: JS replace EXPANDS $1 -> capture 1 ("alpha").
-        let mut msg = json!({ "role": "user", "content": [{ "type": "text", "text": "/alpha beta $1" }] });
+        let mut msg =
+            json!({ "role": "user", "content": [{ "type": "text", "text": "/alpha beta $1" }] });
         strip_slash_prefix(&mut msg, "/alpha beta $1");
         assert_eq!(msg["content"][0]["text"], "beta alpha");
 
@@ -282,10 +296,16 @@ mod tests {
 
     #[test]
     fn js_replace_dollar_patterns_follow_ecma_getsubstitution() {
-        let r = |re: &str, hay: &str, rep: &str| {
-            js_replace_first(&Regex::new(re).unwrap(), hay, rep)
-        };
-        assert_eq!(r(r"(?i)^/([a-z0-9]+)(?:\s+([\s\S]*))?$", "/ab cd $1 x", "cd $1x"), "cd abx");
+        let r =
+            |re: &str, hay: &str, rep: &str| js_replace_first(&Regex::new(re).unwrap(), hay, rep);
+        assert_eq!(
+            r(
+                r"(?i)^/([a-z0-9]+)(?:\s+([\s\S]*))?$",
+                "/ab cd $1 x",
+                "cd $1x"
+            ),
+            "cd abx"
+        );
         assert_eq!(r(r"(a)(b)", "ab", "$2$1"), "ba");
         // $12: two-digit form falls back to $1, second digit stays literal.
         assert_eq!(r(r"(a)(b)", "ab", "$12"), "a2");
@@ -375,7 +395,10 @@ mod tests {
             { "role": "assistant", "content": "reply" },
             { "role": "user", "content": "/demo new" }
         ] });
-        assert_eq!(apply_slash_skill_routing(&mut payload, tmp.path()).as_deref(), Some("demo"));
+        assert_eq!(
+            apply_slash_skill_routing(&mut payload, tmp.path()).as_deref(),
+            Some("demo")
+        );
         let msgs = payload["messages"].as_array().unwrap();
         assert_eq!(msgs[0]["content"], "old turn");
         assert_eq!(msgs[2]["role"], "system"); // index 2 = last user position

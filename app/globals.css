@@ -4,11 +4,11 @@
  * - base.css      → Tailwind directives + fonts
  * - tokens.css    → CSS custom properties, scrollbars, reduced-motion
  * - code.css      → Shiki, code blocks, block-header controls
- * - markdown.css  → tables, prose, diagrams, charts, widgets, 3D scenes, anatomy
+ * - markdown.css  → tables, prose, diagrams, charts, widgets, anatomy
  * - document-viewers.css → XLSX/DOCX/PPTX/PDF/Resume/HTML/PowerBI viewers
  *
- * cad-studio.css is lazy-loaded by ArchitectureCadViewer / ThreeStudioViewer
- * so CAD workstation styles are never parsed unless a CAD block mounts.
+ * (cad-studio.css was removed 2026-11-06 when the built-in 3D/CAD viewers
+ * were retired — Ruke plan Phase 4.)
  */
 @import "../styles/base.css";
 @import "../styles/tokens.css";

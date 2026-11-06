@@ -5,9 +5,12 @@
  * gate exclusively on active_mode.
  */
 
+// 3d_asset / cad_blueprint were retired 2026-11-06 (Ruke plan Phase 4):
+// saved conversations with ```scene3d/```asset3d/```threejs/```cad fences
+// render a read-only compatibility card, never live 3D/CAD viewers.
 export const RENDERER_MODES = [
-  "excel", "docs", "pdf", "ppt", "3d_asset",
-  "cad_blueprint", "anatomy", "chart", "html_render", "standard_chat",
+  "excel", "docs", "pdf", "ppt", "anatomy",
+  "chart", "html_render", "standard_chat",
 ] as const;
 
 export type RendererMode = (typeof RENDERER_MODES)[number];
@@ -22,8 +25,6 @@ export const MODE_SKILL: Record<RendererMode, string | null> = {
   docs: "docx",
   pdf: "pdf",
   ppt: "pptx",
-  "3d_asset": "threejs-skills",
-  cad_blueprint: "archify",
   anatomy: "anatomy",
   chart: null,
   html_render: "html-viewer",
@@ -36,8 +37,6 @@ export const MODE_FENCE: Record<RendererMode, string | null> = {
   docs: "docx",
   pdf: "html",
   ppt: "pptx",
-  "3d_asset": "scene3d",
-  cad_blueprint: "cad",
   anatomy: "anatomy",
   chart: "chart",
   html_render: "html",

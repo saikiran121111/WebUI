@@ -20,8 +20,6 @@ interface ChatMessageProps {
   onEdit: (messageId: string, newContent: string) => void;
   /** Lets interactive widgets (```widget forms) send validated follow-ups. */
   onSend?: (text: string) => void;
-  /** A 3D code fence reported a runtime failure — ask useChat to auto-repair it. */
-  onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
 }
 
 /**
@@ -29,7 +27,7 @@ interface ChatMessageProps {
  * one-shot entrance animation, so the message tree is stable between stream
  * chunks (only the live message's content changes — no per-token remounts).
  */
-export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRuntimeError }: ChatMessageProps) {
+export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessageProps) {
   const { role, content, reasoning, reasoningMs, state, toolCalls, attachments, citations, error, usedSkill } = message;
   const isUser = role === "user";
   // A pasted URL is a piece of the user's own message — surface it as an
@@ -262,7 +260,6 @@ export default memo(function ChatMessage({ message, onEdit, onSend, onFenceRunti
             content={content}
             streaming={state === "streaming"}
             onSend={onSend}
-            onFenceRuntimeError={onFenceRuntimeError}
             decisionMode={message.decisionMode}
             citationMap={citationMap}
           />

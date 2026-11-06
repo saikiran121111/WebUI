@@ -37,20 +37,6 @@
       "utf16Length": 1856
     },
     {
-      "mode": "3d_asset",
-      "present": true,
-      "sha256": "be98f2e8318f4f376c64ae6fc2595375b79f350019a96bbfe4f5871381897760",
-      "bytes": 4105,
-      "utf16Length": 4087
-    },
-    {
-      "mode": "cad_blueprint",
-      "present": true,
-      "sha256": "14a8ee2dc011b06cc2375809de583584614b278b39e2a4ea2bad7b6a5598e606",
-      "bytes": 4074,
-      "utf16Length": 4046
-    },
-    {
       "mode": "anatomy",
       "present": true,
       "sha256": "954b7100f104a00c8a78fcc3062365e5223ac43ae8ea7c592bad51192afe659b",

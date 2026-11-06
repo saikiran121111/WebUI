@@ -29,8 +29,8 @@ use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 
-use crate::jsstr;
 use crate::jspath::{is_strict_child, resolve_lexically};
+use crate::jsstr;
 use crate::registry::{is_safe_skill_name, read_utf8_file, LINK_RE};
 
 /// `CORE_SKILLS_DIR` in skill-loader.ts.
@@ -40,8 +40,10 @@ const MAX_SKILL_BUNDLE_BYTES: usize = 9_000;
 
 /// `SCRIPT_CONTRACT_SKILLS` in skill-loader.ts: only these get the
 /// executable-stripping pass (both for the main file and for linked ones).
+/// `archify` dropped 2026-11-06 (Ruke plan Phase 4) with the archify core
+/// skill's retirement.
 pub fn is_script_contract_skill(name: &str) -> bool {
-    matches!(name, "xlsx" | "docx" | "pdf" | "pptx" | "archify")
+    matches!(name, "xlsx" | "docx" | "pdf" | "pptx")
 }
 
 pub fn core_skill_dir(root: &Path, name: &str) -> PathBuf {
@@ -90,10 +92,12 @@ pub fn strip_executable_sections(bundle: &str) -> String {
     // Owned String returns: `m.as_str()` borrows the Captures temporary,
     // not the haystack, so `&str` can't escape the closure.
     let no_fences = FENCE_RE.replace_all(bundle, |c: &Captures| {
-        c.name("eol").map_or_else(String::new, |m| m.as_str().to_string())
+        c.name("eol")
+            .map_or_else(String::new, |m| m.as_str().to_string())
     });
     let no_cli = CLI_RE.replace_all(&no_fences, |c: &Captures| {
-        c.name("nl").map_or_else(String::new, |m| m.as_str().to_string())
+        c.name("nl")
+            .map_or_else(String::new, |m| m.as_str().to_string())
     });
     let collapsed = NL_RUN_RE.replace_all(&no_cli, "\n\n");
     jsstr::js_trim(&collapsed).to_string()
@@ -169,9 +173,15 @@ mod tests {
         assert_eq!(strip_frontmatter("---\r\nname: x\r\n---\r\nBody"), "Body");
         assert_eq!(strip_frontmatter("---\nx\n---\nBody"), "Body");
         // Not at byte 0 -> untouched (JS anchored single replace).
-        assert_eq!(strip_frontmatter("a\n---\nx\n---\nBody"), "a\n---\nx\n---\nBody");
+        assert_eq!(
+            strip_frontmatter("a\n---\nx\n---\nBody"),
+            "a\n---\nx\n---\nBody"
+        );
         // BOM defeats the anchor in JS and here (parity).
-        assert_eq!(strip_frontmatter("\u{feff}---\nx\n---\nB"), "\u{feff}---\nx\n---\nB");
+        assert_eq!(
+            strip_frontmatter("\u{feff}---\nx\n---\nB"),
+            "\u{feff}---\nx\n---\nB"
+        );
         // Unterminated frontmatter -> no strip.
         assert_eq!(strip_frontmatter("---\nno end"), "---\nno end");
     }
@@ -313,7 +323,7 @@ mod tests {
         let tmp = TempDirHolder::new();
         let dir = core_skill_fixture(
             tmp.path(),
-            "archify",
+            "pptx",
             &format!(
                 "{}\n[a](big1.md) [b](big2.md) [c](http://x/y.md) [d](/y.md) [e](../out.md)",
                 "m".repeat(8900)
@@ -322,7 +332,7 @@ mod tests {
         fs::write(dir.join("big1.md"), "1".repeat(500)).unwrap();
         fs::write(dir.join("big2.md"), "2".repeat(500)).unwrap();
         fs::write(tmp.path().join("out.md"), "MUST-NOT-LOAD").unwrap();
-        let b = load_core_skill_bundle(tmp.path(), "archify").unwrap();
+        let b = load_core_skill_bundle(tmp.path(), "pptx").unwrap();
         // main = 8900 m + '\n' + 70-char link line = 8971 units (<9000, so
         // iteration 1 appends: +2 +500 = 9473). Iteration 2 sees 9473 >=
         // 9000 and BREAKS before big2. Final bundle is over cap, so the

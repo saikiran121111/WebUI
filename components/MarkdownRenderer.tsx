@@ -15,7 +15,6 @@ import CodeBlock from "./render/CodeBlock";
 import MarkdownTable from "./render/MarkdownTable";
 import FenceRouter from "./render/FenceRouter";
 import { looksLikeTree, looksLikeTreeStart } from "../lib/render/treeParse";
-import { looksLikeThreeCode } from "../lib/three3d/codeRunner";
 import { containsMath } from "../lib/render/mathDetect";
 import type { RendererMode } from "../lib/decision/types";
 import { rehypeCitations } from "./render/citations";
@@ -25,7 +24,6 @@ export interface RenderContextValue {
   streaming: boolean;
   onSend?: (text: string) => void;
   allowInteractive: boolean;
-  onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
   decisionMode?: RendererMode | null;
 }
 
@@ -39,7 +37,6 @@ export interface MarkdownRendererProps {
   streaming?: boolean;
   onSend?: (text: string) => void;
   allowInteractive?: boolean;
-  onFenceRuntimeError?: (info: { lang: string; body: string; error: string }) => void;
   decisionMode?: RendererMode | null;
   citationMap?: Record<string, { url: string; title: string; domain: string; publishedAt?: string }>;
 }
@@ -64,7 +61,6 @@ export default memo(function MarkdownRenderer({
   streaming = false,
   onSend,
   allowInteractive = true,
-  onFenceRuntimeError,
   decisionMode,
   citationMap,
 }: MarkdownRendererProps) {
@@ -97,8 +93,8 @@ export default memo(function MarkdownRenderer({
   }, [mathMod, citationMap]);
 
   const options = useMemo<RenderContextValue>(
-    () => ({ streaming, onSend, allowInteractive, onFenceRuntimeError, decisionMode }),
-    [streaming, onSend, allowInteractive, onFenceRuntimeError, decisionMode],
+    () => ({ streaming, onSend, allowInteractive, decisionMode }),
+    [streaming, onSend, allowInteractive, decisionMode],
   );
 
   const source = useMemo(
@@ -124,7 +120,7 @@ export default memo(function MarkdownRenderer({
  * at module scope: an inline object in the JSX would recreate every function
  * identity on each render, and React treats a changed element TYPE as a full
  * unmount+remount of the subtree.  That silently wiped the internal state of
- * every interactive fence (chart selection, mermaid playback, scene3d/KPI
+ * every interactive fence (chart selection, mermaid playback, anatomy/KPI
  * sliders) on any unrelated page re-render — violating the "message tree is
  * stable between commits" contract (project standards §5.3).  None of these
  * renderers capture component-scope state; `table` reads context as a

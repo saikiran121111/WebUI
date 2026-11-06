@@ -23,14 +23,14 @@ use serde_json::Value;
 pub fn is_js_ws(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202f}'
-            | '\u{205f}'
-            | '\u{3000}'
-            | '\u{feff}'
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
     )
 }
 
@@ -138,7 +138,13 @@ pub fn js_to_string(v: &Value) -> String {
         Value::Number(n) => number_to_string(n),
         Value::Array(a) => a
             .iter()
-            .map(|e| if e.is_null() { String::new() } else { js_to_string(e) })
+            .map(|e| {
+                if e.is_null() {
+                    String::new()
+                } else {
+                    js_to_string(e)
+                }
+            })
             .collect::<Vec<_>>()
             .join(","),
         Value::Object(_) => "[object Object]".to_string(),

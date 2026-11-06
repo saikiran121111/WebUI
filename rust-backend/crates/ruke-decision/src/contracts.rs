@@ -7,8 +7,8 @@
 use ruke_contracts::decision::RendererMode;
 
 use crate::contracts_generated::{
-    CONTRACT_3D_ASSET, CONTRACT_ANATOMY, CONTRACT_CAD_BLUEPRINT, CONTRACT_CHART, CONTRACT_DOCS,
-    CONTRACT_EXCEL, CONTRACT_HTML_RENDER, CONTRACT_PDF, CONTRACT_PPT,
+    CONTRACT_ANATOMY, CONTRACT_CHART, CONTRACT_DOCS, CONTRACT_EXCEL, CONTRACT_HTML_RENDER,
+    CONTRACT_PDF, CONTRACT_PPT,
 };
 
 /// `MODE_CONTRACTS[mode]` lookup.
@@ -18,8 +18,6 @@ pub fn mode_contract(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Docs => Some(CONTRACT_DOCS),
         RendererMode::Pdf => Some(CONTRACT_PDF),
         RendererMode::Ppt => Some(CONTRACT_PPT),
-        RendererMode::Asset3D => Some(CONTRACT_3D_ASSET),
-        RendererMode::CadBlueprint => Some(CONTRACT_CAD_BLUEPRINT),
         RendererMode::Anatomy => Some(CONTRACT_ANATOMY),
         RendererMode::Chart => Some(CONTRACT_CHART),
         RendererMode::HtmlRender => Some(CONTRACT_HTML_RENDER),

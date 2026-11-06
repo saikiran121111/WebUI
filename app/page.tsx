@@ -46,7 +46,7 @@ export default function HomePage() {
 
   const {
     messages, status, error, isThinking, reasoningContent,
-    send, stop, retry, edit, load, clear, setEffort, effort, requestFenceRepair,
+    send, stop, retry, edit, load, clear, setEffort, effort,
     turnProgress, dismissProgress,
     compact, compactState, activeTokenCount,
   } = useChat({
@@ -441,7 +441,6 @@ export default function HomePage() {
                       message={m}
                       onEdit={edit}
                       onSend={(text) => runSend(text)}
-                      onFenceRuntimeError={(info) => requestFenceRepair(m.id, info)}
                     />
                     {/* Context-compaction divider: marks where the model-facing
                         history was folded into a summary. The original

@@ -22,7 +22,9 @@ const MAX_SKILL_BUNDLE_BYTES = 9_000;
  * are filtered out of the injected bundle; the prose best-practices survive
  * and the enriched contract stays authoritative.
  */
-const SCRIPT_CONTRACT_SKILLS = new Set(["xlsx", "docx", "pdf", "pptx", "archify"]);
+// "archify" dropped 2026-11-06 (Ruke plan Phase 4): the archify core skill was
+// retired with the CAD blueprint route, so no script contract may name it.
+const SCRIPT_CONTRACT_SKILLS = new Set(["xlsx", "docx", "pdf", "pptx"]);
 
 /** YAML frontmatter (name/description/license) is router metadata, never prompt content. */
 function stripFrontmatter(md: string): string {
