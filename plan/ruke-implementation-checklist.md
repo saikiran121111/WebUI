@@ -73,6 +73,10 @@ Overnight implementation run. Source of truth: `plan/ruke-chatgpt-like-implement
   lifecycle/handoff: `tab_mark_deliverable, tab_mark_handoff, tab_browser_auth_handoff, tab_bot_detection_report, tab_manual_handoff_request`;
   escape hatches/exports: `tab_cdp_call, tab_cdp_events, tab_content_export(_gsuite/_youtube_transcript), tab_clipboard_*, tab_page_assets_*, tab_dev_logs, playwright_download_path`;
   page-declared tools: `webmcp_list_tools, webmcp_invoke_tool`.
+  *(Phase-2 annotation: the snapshot above lists code as of run start — `tab_ax_get_state` and
+  `tab_ax_action` were retired in Phase 2 (`RETIRED_REFERENCE_COMMANDS` in contract.rs; registry now
+  81 commands); `playwright_locator_click/dblclick/fill/press/press_sequentially/select_option/
+  set_checked` actuators now execute through the MCP bridge, command names unchanged.)*
 - **Guidance + scope:** `BROWSER_GUIDANCE` (:83) + `scope_guidance` (:292) injected as one system block before the
   last user message; server-owned `TaskScope` enforced at the command boundary via `authority::TurnAffinity` hosts;
   destination resolution runs BEFORE round 1 through the TS bridge (`/api/internal/web-tools` action `discover`).
@@ -140,6 +144,68 @@ the `images=` census + verdict assertions keep the gate meaningful.
 **Operational law discovered: the launcher REUSES any already-listening :3210 — after editing the fixture
 server, kill the stale instance first (it carries old routes).**
 
+## Phase 2 — Playwright MCP replaces custom interactive actions — [LOCKED-DONE] (commit `fc03609`)
+
+### Implementation (all in `fc03609`)
+
+- **Pin + client:** `@playwright/mcp@0.0.84` (exact pin, root `package.json`; live identity verified
+  `npm ls` + package.json/LICENSE read ⇒ Apache-2.0), driven by **rmcp 3.9.0**
+  (`default-features=false, features=["client","transport-child-process","base64"]`).
+  `mcp.rs` spawns the CLI from `node_modules` with **version attestation** (mismatch ⇒ refuse,
+  `npm ci` remediation; `RUKE_MCP_CLI` override) and attaches with
+  `--cdp-endpoint http://127.0.0.1:<port>` ⇒ **the SAME authorized Chromium** (no second browser;
+  one global `BrowserRuntime` = one Chromium + one MCP child = 16 GB law),
+  `--caps vision --no-webmcp --image-responses allow --output-dir <root>/mcp-out`,
+  `--timeout-action 10000 --timeout-navigation 30000 --timeout-settle 500`,
+  `--allow-unrestricted-file-access` (file-upload path guard root-caused; Ruke validates upload
+  paths before the call), conditional `--headless`, `kill_on_drop`.
+- **`bridge.rs` (new, the ONE interactive action driver):** model-facing actuation commands map onto
+  MCP tools (`browser_navigate`, `browser_click`, `browser_type`, `browser_fill_form`,
+  `browser_select_option`, `browser_hover`, `browser_drag`, `browser_drop`, `browser_press_key`,
+  mouse_* xy set, `browser_wait_for`, `browser_tabs`, `browser_file_upload`, `browser_handle_dialog`,
+  `browser_find`, `browser_navigate_back`); **tab pin law** (url-unique match else title-nonce probe —
+  probe writes title via CDP into its OWN tab, finds the marker in MCP's tab list, selects, restores);
+  modal-state recovery (chooser/dialog orphan ⇒ clear + retry exactly once; Ruke-owned state ⇒
+  verbatim refusal naming the owner); `McpUnavailable` ⇒ reset + reattach + re-pin once; per-command
+  engine lock (`mcp_call` holds the bridge lock once); `map_tool_error` keeps the typed error contract.
+- **Retired:** `ax_action.rs` deleted; `tab_ax_action`/`tab_ax_get_state` removed from the command
+  registry (`RETIRED_REFERENCE_COMMANDS` ledger; `CommandKind::ALL.len()` 83 → **81**); pw.rs locator
+  click/fill/press/select actuators removed (observation, capture, waits, CDP glue stay native).
+- **Retained app glue (plan §Phase 2 rationale):** pre-resolution/actionability/typed locator errors,
+  tab ownership + permission gates, download attribution (MCP drives the page; Ruke's CDP listeners
+  capture the artifact per tab), login handoff, live preview panel, read-back-of-outcome — MCP never
+  feeds a blind next action. `browser_snapshot`/`browser_take_screenshot`/`browser_run_code_unsafe`
+  are never called by the bridge (Ruke's observation contract + honest-metadata capture stay in force).
+- **Honest metadata law (new `imgdims.rs`):** `image_width`/`image_height` parse from the encoded
+  bytes (PNG IHDR / JPEG SOF, dependency-free bounded base64); computed estimates only when bytes
+  don't parse.
+
+### Bugs caught live by the new proofs (fixed in-product, then re-greened)
+
+| Bug | Root cause | Fix |
+| --- | --- | --- |
+| Two-session journey: `CDP command Runtime.callFunctionOn failed: Either objectId or executionContextId or uniqueContextId must be specified` | `mcp_pin_probe`'s four title get/set calls passed `object_id: None` (receiverless `callFunctionOn` is invalid); ambiguous-URL tabs forced the probe path for the first time | new `pw_eval_fn`/`pw_eval_fn_expr` (session-scoped IIFE via `Runtime.evaluate`), 4 call sites swapped, 2 unit tests |
+| Two-session journey: `B's #dl-link crop: metadata 139x17 lies about real pixels (138, 17)` | clip rect 138.625 px ⇒ Chromium rasterizes 138; prediction `round(w*scale)` claimed 139 | `imgdims::dims_from_b64` override — encoded bytes win (test pins the exact live vector `138x17`) |
+
+### Verification actually run (2026-11-06, all exit codes real)
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p ruke-browser --lib` | **180 passed** (incl. 2 new pw_eval_fn tests + imgdims suite) |
+| `cargo test --workspace --no-fail-fast` | **all ok** (ruke-browser 180, ruke-server 154, golden_replay 19, …) |
+| `RUST_MIN_STACK=33554432 cargo test -p ruke-browser --test fixture_journeys -- --ignored --test-threads=1` | **3 passed** — incl. the **new two-session scoping journey vs real Chromium** (plan gate: tabs, snapshots, screenshots, downloads, profile state; cross-session act refused `CapabilityBlocked` until `browser_user_claim_tab`; per-session fill read-back exact; concurrent per-tab downloads distinct + content-verified; profile state shared both ways; end_turn cleanup) |
+| `RUST_MIN_STACK=33554432 cargo test -p ruke-browser --test smoke_lifecycle -- --ignored --test-threads=1` | **1 passed** (5.77 s) |
+| `node integrations/playwright-mcp/smoke.mjs` | **17/17 PASS, `SMOKE: ALL GREEN`, exit 0** (upstream identity+license, host.rs-style Chromium launch + DevToolsActivePort, MCP stdio handshake, 31-tool inventory, navigate/tabs/fill_form-batch/click/readback/tabs-list-select/vision screenshot/wait_for, raw-CDP same-browser proof). Two smoke bugs fixed en route: tool names invented from memory (`browser_go_back/forward` don't exist in 0.0.84 — corrected from live `tools/list`), Chrome GET submit replaces the action query (fixture corrected) |
+| Non-model E2E suite (locked launcher, easy+medium+hard specs) | **11/11 passed (16.2 s)**, exit 0 — popup adoption, chooser round-trip, exact download bytes, dialog mirror, iframe/shadow reads, CUA pixel click, dev-log mirror, assets/export: preserved features all green through the normal entry point |
+| Real-model EASY journey (`-Grep "EASY: human-armed"`) | **PASSED 37.1 s** vs baseline 40.6 s |
+| Real-model MEDIUM journey (`-Grep "MEDIUM: model fills"`) | **PASSED ~66 s** wall vs baseline 53.9 s (42.7 s loop) — **0 command-failure markers** (baseline had 3 self-recoveries); extra wall time is local-model generation cadence |
+| Real-model HARD journey (`-Grep "HARD: model opens"`) | **PASSED 37.5 s** (first model-driven HARD leg; popup-adopt + deliverable survive turn end) |
+| Real-model VISION journey (`-Grep "VISION: model reads"`) | **PASSED ~84 s** vs baseline 48.9 s — verdict `want=<name> match=yes` asserted; census: 1 `tab_screenshot`, 2 dom snapshots, 4 clicks, 2 claim-tab (model cadence variance, no failure storm, no retry loop) |
+
+**Phase 2 status: [LOCKED-DONE] — one interactive action driver (MCP bridge) with retained app glue;
+two-session proof green; upstream pin + smoke durable in `integrations/playwright-mcp/`; no regressions
+on the preserved-feature battery or the four real-model legs.**
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
@@ -148,7 +214,7 @@ server, kill the stale instance first (it carries old routes).**
       format + honest pixel dims proven by header decode); compact DOM/a11y snapshots kept; targeted
       search/offset/limit + `snapshot_meta`; stale-ref refusal actionable; portable discovery (win/linux/mac
       layouts unit-proven; live mac gate blocked — no macOS hardware)
-- [ ] **P2** Playwright MCP replaces custom interactive actions: pinned `@playwright/mcp` + rmcp stdio client in
+- [x] **P2** Playwright MCP replaces custom interactive actions: pinned `@playwright/mcp` + rmcp stdio client in
       ruke-browser; SAME authorized Chromium (loopback CDP attach); lifecycle/preview/permissions/downloads/login
       preserved; session isolation; timeouts/cancellation/cleanup; superseded custom code removed per-regression;
       ONE interactive action driver at the end
@@ -177,7 +243,7 @@ server, kill the stale instance first (it carries old routes).**
 
 | Provider | Dir | Package pinned | License | README | Smoke test |
 | --- | --- | --- | --- | --- | --- |
-| Playwright MCP | `integrations/playwright-mcp/` | — | — | — | — |
+| Playwright MCP | `integrations/playwright-mcp/` | `@playwright/mcp@0.0.84` (+ rmcp 3.9.0 client) | Apache-2.0 (verified) | ✓ | ✓ ALL GREEN exit 0 (2026-11-06) |
 | Office Kit PPTX | `integrations/office-kit-pptx/` | — | MIT | — | — |
 | LibreOffice | `integrations/libreoffice/` | — | MPL-2.0 | — | — |
 | ECharts | `integrations/echarts/` | — | Apache-2.0 | — | — |
@@ -185,13 +251,12 @@ server, kill the stale instance first (it carries old routes).**
 
 ## Next action (updated as the run proceeds)
 
-1. **Phase 2 (CODE):** `integrations/playwright-mcp/` scaffold (README: microsoft/playwright-mcp source,
-   Apache-2.0, pinned `@playwright/mcp@0.0.84`, exact setup + smoke test — run them for real); rmcp stdio
-   client in ruke-browser (`rmcp = "3.9.0"` pinned, MSRV vs rustc 1.99); attach to the SAME authorized
-   Chromium via loopback CDP (`--cdp-endpoint` from the DevToolsActivePort handshake); map Ruke lifecycle/
-   preview/permissions/downloads/login-handoff onto the MCP session; two-session isolation test;
-   timeouts/cancellation/cleanup; retire superseded pw.rs actions per-regression; end with ONE interactive
-   driver.
-2. Then Phase 3 (speed/small tasks) on whichever driver survived Phase 2.
-3. Commits: `66b76b9` (P1 code+spec). develop not yet pushed (offline-safe: push at phase boundaries when
-   network available).
+1. **Phase 3 (CODE):** fast small browser tasks on the surviving MCP driver — batch actuation via
+   `browser_fill_form` behind one command; preconditions checked before acting (not after failure);
+   partial-progress reporting + fresh observation after partial batches; state-based waits (no fixed
+   sleeps); warm session reuse across turns; cache-friendly stable prompt/tool prefixes; bounded retries
+   on transient failures; read-back-of-outcome law per action (verify final state, never trust the
+   tool echo alone); preview frames independent of model requests. Measure first (baseline round
+   counts from Phase-2 legs), implement, then re-run EASY/MEDIUM legs vs baselines.
+2. Commits so far: `66b76b9` (P1), `074d6b0` (P1 docs), `fc03609` (P2 code). develop push: try at each
+   phase boundary (network permitting).
