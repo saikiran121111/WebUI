@@ -857,8 +857,56 @@ vitest), and the end-to-end round-capped model journey (this run).
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
       invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
       5/5 under the lock, exit 0: opaque origin, storage shim, three fullscreen paths)
+  - **P6 AUDIT COMPLETE 2026-11-07 (static/code + inventory; interactive gate flips only with the P7 locked loop).**
+    Every preserved item maps to LIVE code + an EXISTING Playwright/unit suite — the P7 final loop re-runs
+    the whole inventory serially, and only that green run closes this box. NO regression requiring a code
+    change was found; the two defects found this run were the Power BI gate's (fixed in P5B). Ledger:
+    • streaming: rAF-batched delta flush VERIFIED in `hooks/useChat.ts` (ref-accumulated, one flush per
+      frame, `flushPending(true)` on finish; §5.3 law) — `chat-stream.spec`, `sse(.stage-events).test`,
+      `parser-multi-chunk.test`, `token-meter(.spec/.test)`, `auto-compact.spec`.
+    • stop/regenerate: `ChatInput` "Stop generating" (aria) + `ChatMessage` "Save & regenerate" edit path;
+      there is NO separate "Retry" button in this UI (preserved original behavior, not a regression) —
+      `abort-family.spec`, `edit-stop-collapse.spec`.
+    • attachments: `ChatInput` Paperclip "Add files or photos" — `attach-index.test`,
+      `attach-retrieval-integration.test`, `file-reading.spec` (model-driven, P7).
+    • citations: `citation-pills.test` + `components/render/citations.ts`; reasoning prefs:
+      `reasoning-test.spec` + streamed-reasoning pin/unpin logic in `ChatMessage.tsx:326-370`;
+      scroll-to-bottom pin VERIFIED (one rAF, scroll-up releases).
+    • history/titles/recents: `conversations-crud.spec`, `conversation-title.spec`, `recents-controls.spec`,
+      `recents-modal.spec`, `multi-select-delete.spec`, `__tests__/titles/*`.
+    • browser status: TopBar panel arm/`browserStore` connection state (`browser-store.test`,
+      `browser-client.test`) — journeys `browser-easy/medium/hard`, `browser-model-acceptance`,
+      `search-gate.spec` (all P7).
+    • artifact edit/export: interactive-ui download proven byte-exact (P5 ledger), `anatomy-export.spec`,
+      `pptx-5a.spec`.
+    • keyboard/focus/a11y: `panelShortcuts.test`, `role="dialog"` on SkillsModal/ConfirmDialog/ProgressChip
+      etc.; Stop/Send carry aria labels (`ChatInput.tsx:404-462`) — getByRole locators depend on this.
+    • lazy load + dispose: VERIFIED — `FenceRouter` every studio viewer `dynamic(..., {ssr:false})`;
+      3D/CAD viewers + `cad-studio.css` were RETIRED in P4 (documented in `app/globals.css:10`), so the
+      §5.3 dispose law now applies to anatomy: `IntersectionObserver` + dispose inside
+      `lib/anatomy/kit/react/live.tsx`/`liveEngine.mjs` + `AnatomyBlock.tsx`.
+    • core-skill invisibility: structurally enforced — `GET /api/skills` lists ONLY `./skills/` +
+      `skill-scenarios/` (`listInstalledSkillNames`); `POST /api/skills/install` refuses `.cskills`
+      (route.ts:25); no component reads `./.cskills*` (grep clean); core skills load ONLY via
+      `MODE_SKILL`→`skill-loader.ts`. Proven by `skills.spec` (P7) + `__tests__/skills/*`.
+    • greetings: `greeting.spec`.
 - [ ] **P7** full verification: tsc, vitest, cargo, contracts:check, build; old-vs-new browser path comparison on the same
       tasks; final model-driven Playwright loop (locked, fix-rerun until green); completion report §4
+    - **P7 DETERMINISTIC GATES — ALL GREEN 2026-11-07 (exact commands + real exit codes; the interactive
+      Playwright loop + old-vs-new comparison are the only P7 items still open):**
+      • `npx tsc --noEmit` → **exit 0** (P5B-PowerBI checkpoint).
+      • `npx vitest run` (FULL battery, run at this P7 checkpoint per the xlcalc brief) → **122 files
+        passed / 1 skipped (123); 1,634 tests passed / 9 skipped (1,643); exit 0** in 253.82 s.
+        vs 1,611-test prior baseline: +23 = powerbi +10, xlsxEngine +3, recalc +10.
+      • `npm run contracts:check` → **exit 0** ("contracts_generated.rs is up to date" + manifest OK).
+      • `cargo test --workspace` (in `rust-backend/`) → **exit 0; 542 passed / 0 failed / 4 ignored**
+        (attach 47; browser 190 + 3 fixture journeys ignored + 1 smoke ignored; contracts 9 +
+        manifest_drift 6; core 19; decision 12 + fixture_replay 9; server 164 + attachment_replay 6 +
+        browser_ui_routes 1 + golden_replay 19 + scrubber_vectors 2 + store_compat 6; skills 52).
+      • `npm run build` (`next build`) → **exit 0**. First-Load JS shared-by-all **91.9 kB**; the
+        xlcalc@0.84.0 engine lands ONLY in on-demand chunk `1981.*.js` (728 KB raw) — grep proves 0
+        xlcalc references in the two shared initial chunks, so the §5.1 lazy-load law holds: nothing
+        spreadsheet-related ships in the initial page-load bundle.
 - [ ] **Handoff artifacts:** this checklist completed, commit IDs, exact commands + results, sample artifact paths,
       comparison results, playback evidence, platform coverage, open gates
 
@@ -919,9 +967,12 @@ vitest), and the end-to-end round-capped model journey (this run).
    superseded by the Rust crates). Note the spec comments' "9-mode" wording is stale (8 modes since P4
    retired 3d_asset/cad_blueprint) — conclusion unchanged. Engines stay fully unit-tested; the Power BI
    engine now additionally carries the structural gate + 10 tests.
-   NOW ACTIVE: P6 (chat-UI preservation audit), then P7 (full battery + FINAL locked model-driven
-   Playwright fix-rerun loop green vs baselines + CLAUDE.md §4 completion report; full vitest battery
-   re-run belongs at the P7 checkpoint per the xlcalc brief).
+   P6 static audit DONE (ledger under the P6 item; parent stays [ ] until the loop green). P7
+   DETERMINISTIC GATES DONE (tsc 0 / full vitest 1,634 passed 0 / contracts:check 0 / cargo 542 passed
+   0 / build 0 + xlcalc chunk isolation — full record under the P7 item).
+   NOW ACTIVE: P7 final locked model-driven Playwright fix-rerun loop (rebuild ruke-server first —
+   stale-exe law), then old-vs-new comparison, CLAUDE.md §4 completion report, final commit+push.
+   LEAVE MACHINE RUNNING at cycle end (amendment 2026-11-06; handover shutdown line is historical).
 3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3), P4
    `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff`, P5A `f1092c1`, audit repair `4abeaca`, finding 3 `b4f9db0`,
    finding 5 `e34c591`, findings 5+6 `eb2a43a`, finding 7 + finding 3's last gate `72cabab` — all
