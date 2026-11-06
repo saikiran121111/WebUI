@@ -778,19 +778,44 @@ vitest), and the end-to-end round-capped model journey (this run).
         system-wide change → per the 2026-11-06 user law it requires explicit approval first. Existing
         lightweight extraction (pdf parsing in `lib/documents`, no external model) stays; no
         `integrations/docling/` deliverable while deferred.
-  - [ ] **P5B-xlcalc — ACTIVE (user brief 2026-11-06, added at the fflate/chart checkpoint).** Pin
-        **`xlcalc@0.84.0`** as a project-local npm dependency (package, lockfile and install cache scoped to
-        the repo) and replace Ruke's custom formula evaluator with it; keep ExcelJS for writing `.xlsx`.
-        One shared calculation path for preview AND export, starting at `lib/documents/recalc.ts`,
-        `components/render/XlsxBlock.tsx`, `lib/documents/xlsxEngine.ts`. Preserve live formulas, cached
-        results, formatting and dropdowns. Check xlcalc diagnostics before trusting a value — a circular
-        reference can return `0` alongside a `CYCLE` diagnostic, so flag such cells by sheet+address instead
-        of caching the value as verified; report unsupported formulas clearly. Focused regression tests:
-        whole-column `SUMIFS`, `XLOOKUP`, `LET`, `FILTER`, `MAP`+`LAMBDA` (user-verified working in 0.84.0),
-        cross-sheet refs, invalid formulas, circular refs. Reopen a generated `.xlsx` to verify formulas +
-        cached values; verify dynamic-array spill behavior SEPARATELY before claiming it works in the export.
-        Ledger + test results land here at completion; full regression suite runs at the existing P7
-        checkpoint.
+  - [x] **P5B-xlcalc — SHIPPED (user brief 2026-11-06).** Pinned **`xlcalc@0.84.0`** exact in
+        `package.json` (MIT, **zero runtime dependencies**, `engines.node >=20.19`; installed with
+        `npm install xlcalc@0.84.0 --save-exact --cache .data/npm-cache` — package, lockfile and cache all
+        repo-scoped). It REPLACES the 679-line hand-written evaluator: `lib/documents/recalc.ts` is now a
+        ~150-line xlcalc adapter (`compute()` one-shot) and is the ONE shared calculation path —
+        `components/render/XlsxBlock.tsx` (client preview, still lazy via `FenceRouter` so xlcalc lands only
+        in the xlsx chunk) and `lib/documents/xlsxEngine.ts` (export gate → `XlsxRecalcError` → API 422) both
+        call `recalcWorkbook` unchanged; live formulas, cached results, formatting and dropdown validation are
+        preserved verbatim (public contract `computed`/`errors`/`RecalcSheet` untouched;
+        `_xlfn.`/`_xlws.` prefixes stripped as before — xlcalc itself does NOT strip them).
+        Diagnostics-first law implemented: `errors` is built ENTIRELY from `compute()` diagnostics, and a
+        CYCLE-flagged cell is kept OUT of `computed` no matter what value xlcalc returns (the brief's trap —
+        a cycle returns `0` + CYCLE diagnostic — is reproduced and pinned by test); unsupported formulas are
+        reported with the machine-readable reason inline (`unknown_function:FOO` etc.) so the model sees it in
+        the 422 message; a malformed book that makes xlcalc THROW is caught and reported per-cell, never
+        crashing callers; `clock` option pins TODAY/NOW/RAND for determinism.
+        Two Excel-faithfulness differences the swap surfaced (xlcalc is RIGHT; the old evaluator was buggy):
+        (1) text `"24"` = number `24` is FALSE (Excel semantics; old code coerced loosely) → QA fixture
+        numeric-expected rows now carry live literal cells (`=24`); (2) approximate-match `VLOOKUP("zzz",…)`
+        over a one-row table RETURNS that row rather than #N/A → the IFNA QA row now uses exact match
+        (`FALSE`), which is what it always meant to test.
+        Dynamic arrays: verified SEPARATELY — in the shared path FILTER/MAP+LAMBDA spill lands in blank cells
+        and those values join `computed` (preview parity, incl. `#SPILL!` when blocked and `#CALC!` when
+        empty); in the EXPORTED file only the ANCHOR keeps its formula + cached result — ExcelJS writes no
+        dynamic-array metadata so spill is NOT materialized (pinned by test as a KNOWN, REPORTED limitation;
+        not claimed to work).
+        Focused tests: `__tests__/documents/recalc.test.ts` rewritten (27 tests: whole-column
+        `SUMIFS`=300/`COUNTIFS`, `XLOOKUP` default+#N/A, `LET`=21, `FILTER`+`MAP`/`LAMBDA` spill values,
+        blocked spill `#SPILL!`, empty `FILTER` `#CALC!`, cross-sheet bare+quoted refs, self-cycle + mutual
+        cycles flagged `#CYCLE!` by sheet+address and never cached, invalid formula `SUM(` and
+        `FOOBAR(` flagged with reasons, IF short-circuit, IFNA rethrow, deterministic clock, malformed-book
+        guard, plus the full original 43-function-family parity battery incl. `SUMPRODUCT` over date-strings
+        and new `#NUM!`/`#DIV/0!` cases) and `xlsxEngine.test.ts` gained 3 tests (reopen readback: formulas
+        AND cached results survive in the regenerated file; export spill anchor-only; circular workbook
+        refused with every cycled cell flagged). Results: focused pair **35/35 exit 0**; whole
+        `__tests__/documents` directory **9 files / 72 tests, exit 0**; `npx tsc --noEmit` exit 0. Browser
+        fence/API-level confirmation rides the existing P7 Playwright checkpoint; the FULL vitest battery
+        re-run also belongs there per this brief (the 1611-test baseline shifts with these test changes).
 - [ ] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
       invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
@@ -839,13 +864,13 @@ vitest), and the end-to-end round-capped model journey (this run).
    comma-joined string is ONE argument ("No tests found"), and bare space-separated files bind positionally into
    `-Grep`. Also re-check for a STALE `ruke-server.exe` before trusting any routing journey (kill + rebuild, and
    remember the supervisor takes Next :3000 down with it).**
-2. **NOW ACTIVE — P5B-xlcalc (user brief 2026-11-06; full spec in the P5B-xlcalc sub-item above).**
+2. **P5B-xlcalc — DONE (user brief 2026-11-06; full record in the P5B-xlcalc sub-item above; this commit).**
    Everything stays scoped to the repository (user law 2026-11-06: ask before ANY system-wide change;
    repo-managed deps only — npm installs inside the repo are in-scope per the user's own xlcalc brief).
    DONE so far in P5B: fflate ZIP consolidation (`1a56858`), spreadsheet honest visual labeling (this
    commit), ECharts decision recorded (NOT adopted), Docling facts recorded (install deferred pending
    approval), LibreOffice DEFERRED (nothing installed), HyperFormula stays rejected (proprietary license).
-   AFTER xlcalc: Power BI export validity = structural PBIP validation inside the repo (Power BI Desktop is
+   NOW ACTIVE: Power BI export validity = structural PBIP validation inside the repo (Power BI Desktop is
    NOT to be installed without asking; report the app-level gate honestly) + re-review the two skipped
    Playwright spots in `tests/regression_modalities.spec.ts` (resume ~line 252, Power BI ~line 476).
    Then P6 (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright

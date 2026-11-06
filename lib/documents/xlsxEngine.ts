@@ -57,8 +57,10 @@ export interface XlsxBuildResult {
 }
 
 export class XlsxRecalcError extends Error {
-  constructor(public details: { sheet: string; cell: string; formula: string; error: string }[]) {
-    super("XLSX recalculation found " + details.length + " formula error(s): " + details.map((d) => `${d.sheet}!${d.cell} ${d.error} [${d.formula}]`).join("; "));
+  constructor(public details: { sheet: string; cell: string; formula: string; error: string; reason?: string }[]) {
+    // The diagnostic reason (e.g. "unknown function FOO (unknown_function)" or
+    // "circular reference") rides along so the model can actually fix the formula.
+    super("XLSX recalculation found " + details.length + " formula error(s): " + details.map((d) => `${d.sheet}!${d.cell} ${d.error} [${d.formula}]${d.reason ? " (" + d.reason + ")" : ""}`).join("; "));
   }
 }
 

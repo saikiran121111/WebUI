@@ -95,6 +95,109 @@ describe("xlsx engine", () => {
   }, 30000);
 });
 
+// ================= xlcalc@0.84.0 integration (P5B brief) =================
+// The export gate and the preview share ONE calculation path; these tests
+// verify what the brief demands: reopen a generated .xlsx and check the
+// formulas AND their cached values; check dynamic-array spill behavior
+// SEPARATELY (before claiming anything about the exported file); and prove
+// a circular-reference workbook is refused with the cell flagged.
+describe("xlcalc integration: reopen, dynamic arrays, cycles", () => {
+  const reopenSpec = {
+    filename: "readback",
+    sheets: [{
+      name: "S",
+      columns: [
+        { key: "a", label: "A", format: "number" },
+        { key: "b", label: "B", format: "text" },
+      ],
+      rows: [
+        { a: 10, b: "=A2*2" },
+        { a: 5, b: "=B2/2" },
+        { a: 30, b: '=IF(A4>20,"big","small")' },
+      ],
+      freezeHeader: true, totalRow: false,
+    }],
+  };
+
+  it("reopen readback: formulas survive AND cached values are the shared-path results", async () => {
+    const out = await buildXlsx(reopenSpec);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(out.buffer as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.getWorksheet("S")!;
+
+    // B2: live formula + cached value from xlcalc — reopening shows the
+    // value immediately, and the formula is still there to edit.
+    expect((ws.getCell("B2").value as { formula: string }).formula).toBe("A2*2");
+    expect((ws.getCell("B2").value as { result: number }).result).toBe(20);
+    // B3 chains onto B2's live result (20/2 = 10) — cross-referencing formulas
+    // inside one sheet recalc in dependency order.
+    expect((ws.getCell("B3").value as { formula: string }).formula).toBe("B2/2");
+    expect((ws.getCell("B3").value as { result: number }).result).toBe(10);
+    // A4's value feeds a formula in the same column's neighbor
+    expect((ws.getCell("B4").value as { result: string }).result).toBe("big");
+  }, 30000);
+
+  it("dynamic-array export: the ANCHOR keeps its formula + value, but spill is NOT materialized in the .xlsx (reported, not claimed)", async () => {
+    // xlcalc computes FILTER with full spill information in the SHARED recalc
+    // path (the preview renders the spill), and the export gate passes with
+    // zero errors. ExcelJS, however, writes no dynamic-array metadata, so
+    // only the anchor cell (formula + cached result) lands in the file —
+    // spilled neighbors stay blank. Verified here, honestly, per the brief.
+    const spillSpec = {
+      filename: "spill",
+      sheets: [{
+        name: "F",
+        columns: [
+          { key: "item", label: "Item", format: "text" },
+          { key: "qty", label: "Qty", format: "integer" },
+          { key: "pick", label: "Filter", format: "text" },
+        ],
+        rows: [
+          { item: "apple", qty: 1, pick: '=FILTER(A2:B4,B2:B4>8)' },
+          { item: "orange", qty: 5 },
+          { item: "pear", qty: 10 },
+        ],
+        freezeHeader: true, totalRow: false,
+      }],
+    };
+    const out = await buildXlsx(spillSpec); // recalc gate: FILTER + spill → 0 errors
+    expect(out.recalcErrors).toBe(0);
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(out.buffer as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.getWorksheet("F")!;
+    const anchor = ws.getCell("C2").value as { formula: string; result: unknown };
+    expect(anchor.formula).toBe("FILTER(A2:B4,B2:B4>8)");
+    expect(anchor.result).toBe("pear"); // top-left of the spilled 1×2 array
+
+    // The spill itself is NOT written: D2 (where Excel would spill 10) is empty.
+    expect(ws.getCell("D2").value ?? null).toBeNull();
+    // This is the current export limitation; do not claim spill works in the file.
+  }, 30000);
+
+  it("a circular-reference workbook is refused with every cycled cell flagged by sheet+address", async () => {
+    let err: unknown;
+    try {
+      await buildXlsx({
+        filename: "cycle",
+        sheets: [{
+          name: "Loop",
+          columns: [{ key: "a", label: "A", format: "number" }],
+          rows: [{ a: "=A3+1" }, { a: "=A2+1" }], // mutual cycle in rows 2-3
+          freezeHeader: true, totalRow: false,
+        }],
+      });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(XlsxRecalcError);
+    const details = (err as XlsxRecalcError).details;
+    expect(details.map((d) => d.sheet + "!" + d.cell).sort()).toEqual(["Loop!A2", "Loop!A3"]);
+    expect(details.every((d) => d.error === "#CYCLE!")).toBe(true);
+    // xlcalc returns 0 for a cycled cell — the reason must say why it is untrusted
+    expect(details.every((d) => /circular/i.test(d.reason ?? ""))).toBe(true);
+    expect((err as Error).message).toContain("#CYCLE!");
+  }, 30000);
+});
+
 // ================= PART 2 stress: the exact refused prompt, executed =================
 // "Create and execute a Python script using openpyxl to generate a downloadable
 //  Excel file named UI_Stress_Test.xlsx. Include 6 sheets: Dashboard,
@@ -121,19 +224,25 @@ const qaRows = [
   { test: "COUNT≡COUNTIF(>0)", expected: "=COUNT(Transactions!H2:H501)", actual: "=COUNTIF(Transactions!H2:H501,\">0\")", verdict: "=IF(C4=B4,\"PASS\",\"FAIL\")" },
   { test: "COUNTA≡COUNT", expected: "=COUNT(Transactions!H2:H501)", actual: "=COUNTA(Transactions!A2:A501)", verdict: "=IF(C5=B5,\"PASS\",\"FAIL\")" },
   { test: "MIN/MAX sanity", expected: "OK", actual: "=IF(AND(MIN(Transactions!H2:H501)>0,MAX(Transactions!H2:H501)>MIN(Transactions!H2:H501)),\"OK\",\"BAD\")", verdict: "=IF(C6=B6,\"PASS\",\"FAIL\")" },
-  { test: "PRODUCT", expected: 24, actual: "=PRODUCT(2,3,4)", verdict: "=IF(C7=B7,\"PASS\",\"FAIL\")" },
-  { test: "ROUND", expected: 3, actual: "=ROUND(2.5,0)", verdict: "=IF(C8=B8,\"PASS\",\"FAIL\")" },
-  { test: "ROUNDUP", expected: 1.12, actual: "=ROUNDUP(1.111,2)", verdict: "=IF(C9=B9,\"PASS\",\"FAIL\")" },
-  { test: "ROUNDDOWN", expected: 1.99, actual: "=ROUNDDOWN(1.999,2)", verdict: "=IF(C10=B10,\"PASS\",\"FAIL\")" },
-  { test: "INT", expected: -3, actual: "=INT(-2.5)", verdict: "=IF(C11=B11,\"PASS\",\"FAIL\")" },
-  { test: "ABS", expected: 7, actual: "=ABS(-7)", verdict: "=IF(C12=B12,\"PASS\",\"FAIL\")" },
-  { test: "MOD", expected: 1, actual: "=MOD(10,3)", verdict: "=IF(C13=B13,\"PASS\",\"FAIL\")" },
-  { test: "POWER", expected: 81, actual: "=POWER(3,4)", verdict: "=IF(C14=B14,\"PASS\",\"FAIL\")" },
-  { test: "SQRT", expected: 12, actual: "=SQRT(144)", verdict: "=IF(C15=B15,\"PASS\",\"FAIL\")" },
+  // Numeric expecteds ride as value cells ("=24" → a live literal), not text:
+  // xlcalc compares like real Excel, where text "24" = number 24 is FALSE.
+  // (The retired hand-written evaluator coerced loosely and hid this.)
+  { test: "PRODUCT", expected: "=24", actual: "=PRODUCT(2,3,4)", verdict: "=IF(C7=B7,\"PASS\",\"FAIL\")" },
+  { test: "ROUND", expected: "=3", actual: "=ROUND(2.5,0)", verdict: "=IF(C8=B8,\"PASS\",\"FAIL\")" },
+  { test: "ROUNDUP", expected: "=1.12", actual: "=ROUNDUP(1.111,2)", verdict: "=IF(C9=B9,\"PASS\",\"FAIL\")" },
+  { test: "ROUNDDOWN", expected: "=1.99", actual: "=ROUNDDOWN(1.999,2)", verdict: "=IF(C10=B10,\"PASS\",\"FAIL\")" },
+  { test: "INT", expected: "=-3", actual: "=INT(-2.5)", verdict: "=IF(C11=B11,\"PASS\",\"FAIL\")" },
+  { test: "ABS", expected: "=7", actual: "=ABS(-7)", verdict: "=IF(C12=B12,\"PASS\",\"FAIL\")" },
+  { test: "MOD", expected: "=1", actual: "=MOD(10,3)", verdict: "=IF(C13=B13,\"PASS\",\"FAIL\")" },
+  { test: "POWER", expected: "=81", actual: "=POWER(3,4)", verdict: "=IF(C14=B14,\"PASS\",\"FAIL\")" },
+  { test: "SQRT", expected: "=12", actual: "=SQRT(144)", verdict: "=IF(C15=B15,\"PASS\",\"FAIL\")" },
   { test: "IF+AND+OR+NOT", expected: "TRUE", actual: "=IF(AND(1=1,OR(1>2,2>1)),NOT(1>2),\"no\")", verdict: "=IF(C16,\"PASS\",\"FAIL\")" },
   { test: "IFS", expected: "b", actual: "=IFS(1>2,\"a\",1=1,\"b\",TRUE,\"c\")", verdict: "=IF(C17=B17,\"PASS\",\"FAIL\")" },
   { test: "IFERROR", expected: "caught", actual: "=IFERROR(1/0,\"caught\")", verdict: "=IF(C18=B18,\"PASS\",\"FAIL\")" },
-  { test: "IFNA", expected: "na", actual: "=IFNA(VLOOKUP(\"zzz\",A1:A1,1),\"na\")", verdict: "=IF(C19=B19,\"PASS\",\"FAIL\")" },
+  // FALSE = exact match: like real Excel, an approximate VLOOKUP of "zzz"
+  // over a one-row text table RETURNS that row (it is greater than every
+  // key); only an exact-match miss yields the #N/A that IFNA should catch.
+  { test: "IFNA", expected: "na", actual: "=IFNA(VLOOKUP(\"zzz\",A1:A1,1,FALSE),\"na\")", verdict: "=IF(C19=B19,\"PASS\",\"FAIL\")" },
   { test: "INDEX/MATCH≡VLOOKUP", expected: "=VLOOKUP(Transactions!A2,Transactions!A2:H501,8,FALSE)", actual: "=INDEX(Transactions!H2:H501,MATCH(Transactions!A2,Transactions!A2:A501,0))", verdict: "=IF(C20=B20,\"PASS\",\"FAIL\")" },
   { test: "XLOOKUP≡VLOOKUP", expected: "=VLOOKUP(Transactions!A2,Transactions!A2:H501,8,FALSE)", actual: "=XLOOKUP(Transactions!A2,Transactions!A2:A501,Transactions!H2:H501)", verdict: "=IF(C21=B21,\"PASS\",\"FAIL\")" },
   { test: "NPV", expected: "=100/1.1+200/1.1^2", actual: "=NPV(0.1,100,200)", verdict: "=IF(C22=B22,\"PASS\",\"FAIL\")" },

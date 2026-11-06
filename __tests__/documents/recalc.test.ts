@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { recalcWorkbook, formulaLooksValid, FORMULA_FUNCTIONS, type RecalcSheet } from "@/lib/documents/recalc";
+import { recalcWorkbook, formulaLooksValid, idxToCol, type RecalcSheet } from "@/lib/documents/recalc";
+
+// The calculation path is xlcalc@0.84.0 (see lib/documents/recalc.ts).
+// These tests pin the PUBLIC contract (computed keyed "Sheet!A1", errors
+// flagged by sheet+address, cycles never cached) plus the focused regressions
+// the P5B-xlcalc brief demands: whole-column SUMIFS, XLOOKUP, LET, FILTER,
+// MAP with LAMBDA, cross-sheet refs, invalid formulas, circular references.
 
 function sheet(name: string, cells: Record<string, { formula?: string; value?: string | number | boolean | null }>, rows: number, cols: number): RecalcSheet {
   return { name, rowCount: rows, colCount: cols, cells: new Map(Object.entries(cells)) };
@@ -31,7 +37,7 @@ describe("headless formula recalculation", () => {
     expect(computed.get("S1!C1")).toBe(0);
   });
 
-  it("detects #DIV/0!, #NAME?, #REF! (circular) and #N/A (MATCH miss)", () => {
+  it("detects #DIV/0!, #NAME?, #CYCLE! (circular, flagged not cached) and #N/A (MATCH miss)", () => {
     const s = sheet("S1", {
       A1: { value: 0 },
       B1: { formula: "=5/A1" },
@@ -39,17 +45,37 @@ describe("headless formula recalculation", () => {
       B3: { formula: "=B3+1" },
       B4: { formula: "=MATCH(\"nope\", A1:A1, 0)" },
     }, 4, 2);
-    const { errors } = recalcWorkbook([s]);
+    const { errors, computed } = recalcWorkbook([s]);
     const codes = errors.map((e) => e.error).sort();
-    expect(codes).toEqual(["#DIV/0!", "#N/A", "#NAME?", "#REF!"]);
+    expect(codes).toEqual(["#CYCLE!", "#DIV/0!", "#N/A", "#NAME?"]);
+    // The exact trap: a cycle can return 0 alongside its diagnostic. The cell
+    // must be flagged BY SHEET AND ADDRESS and never cached as verified.
+    const cycle = errors.find((e) => e.error === "#CYCLE!");
+    expect(cycle).toMatchObject({ sheet: "S1", cell: "B3", formula: "=B3+1" });
+    expect(cycle?.reason).toMatch(/circular/i);
+    expect(computed.has("S1!B3")).toBe(false);
   });
 
-  it("INDEX/MATCH and cross-sheet references resolve", () => {
+  it("mutual circular references are all flagged and none cached", () => {
+    const s = sheet("S1", {
+      A1: { formula: "=B1+1" }, B1: { formula: "=A1+1" },
+    }, 1, 2);
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(errors.map((e) => e.error)).toEqual(["#CYCLE!", "#CYCLE!"]);
+    expect(computed.size).toBe(0);
+  });
+
+  it("INDEX/MATCH and cross-sheet references resolve (bare and quoted sheet names)", () => {
     const a = sheet("Data", { A1: { value: "widget" }, B1: { value: 42 } }, 1, 2);
-    const b = sheet("Out", { A1: { formula: "=INDEX(Data!B1:B1, MATCH(\"widget\", Data!A1:A1, 0))" } }, 1, 1);
+    const b = sheet("Out", {
+      A1: { formula: "=INDEX(Data!B1:B1, MATCH(\"widget\", Data!A1:A1, 0))" },
+      B1: { formula: "='Out'!C1+Data!B1*10" },
+      C1: { value: 4 },
+    }, 1, 3);
     const { errors, computed } = recalcWorkbook([a, b]);
     expect(errors).toEqual([]);
     expect(computed.get("Out!A1")).toBe(42);
+    expect(computed.get("Out!B1")).toBe(424); // 4 + 42*10
   });
 
   it("_xlfn. prefixes are accepted (TEXTJOIN)", () => {
@@ -59,14 +85,141 @@ describe("headless formula recalculation", () => {
     expect(computed.get("S1!A1")).toBe("a, b");
   });
 
-  it("formulaLooksValid flags unbalanced parens and empty formulas", () => {
+  it("a malformed book reports per-cell #ERROR! instead of throwing", () => {
+    const s = sheet("S1", { A1: { formula: "=SUM(1,2)" } }, 1, 1);
+    // Illegal A1-style address in the model (the pre-xlcalc evaluator accepted
+    // any key; xlcalc validates — the adapter must report, never crash).
+    (s.cells as Map<string, unknown>).set("NOPE1", { formula: "=1+1" });
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.every((e) => e.error === "#ERROR!")).toBe(true);
+    expect(computed.size).toBe(0);
+  });
+
+  it("fixed clock makes TODAY deterministic", () => {
+    const s = sheet("S1", { A1: { formula: "=YEAR(TODAY())" } }, 1, 1);
+    const { errors, computed } = recalcWorkbook([s], { clock: { now: "2026-11-06T00:00:00Z", seed: 7 } });
+    expect(errors).toEqual([]);
+    expect(computed.get("S1!A1")).toBe(2026);
+  });
+
+  it("formulaLooksValid flags unbalanced parens, empty formulas and unknown functions", () => {
     expect(formulaLooksValid("=SUM(A1:A2)").ok).toBe(true);
     expect(formulaLooksValid("=SUM(A1:A2").ok).toBe(false);
     expect(formulaLooksValid("=").ok).toBe(false);
+    expect(formulaLooksValid("=FOO(1)").ok).toBe(false);
+    expect(formulaLooksValid("=LET(x,1,x)").ok).toBe(true);
   });
 });
 
-// ---------- PART 2: expanded function whitelist, one unit test per function ----------
+// ---------- modern functions / dynamic arrays (the brief's cited cases) ----------
+describe("dynamic arrays and modern functions (xlcalc)", () => {
+  it("whole-column SUMIFS/COUNTIFS", () => {
+    const s = sheet("Data", {
+      A1: { value: "apple" }, A2: { value: "orange" }, A3: { value: "apple" },
+      B1: { value: 1 }, B2: { value: 5 }, B3: { value: 10 },
+      C1: { value: 100 }, C2: { value: 200 }, C3: { value: 300 },
+      D1: { formula: 'SUMIFS(C:C,A:A,"apple",B:B,">=5")' },
+      D2: { formula: 'COUNTIFS(A:A,"apple")' },
+    }, 3, 4);
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(errors).toEqual([]);
+    expect(computed.get("Data!D1")).toBe(300); // only the apple row with B>=5
+    expect(computed.get("Data!D2")).toBe(2);
+  });
+
+  it("XLOOKUP resolves exact matches, defaults, and #N/A without one", () => {
+    const s = sheet("Data", {
+      A1: { value: "apple" }, A2: { value: "orange" }, A3: { value: "apple" },
+      C1: { value: 100 }, C2: { value: 200 }, C3: { value: 300 },
+      X1: { formula: 'XLOOKUP("apple",A1:A3,C1:C3)' },
+      X2: { formula: 'XLOOKUP("kiwi",A1:A3,C1:C3,"nf")' },
+      X3: { formula: 'XLOOKUP("kiwi",A1:A3,C1:C3)' },
+    }, 3, 3);
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(computed.get("Data!X1")).toBe(100);
+    expect(computed.get("Data!X2")).toBe("nf");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ sheet: "Data", cell: "X3", error: "#N/A" });
+  });
+
+  it("LET names intermediate values; MAP maps LAMBDA over a range and spills", () => {
+    const s = sheet("L", {
+      A1: { value: 2 },
+      B1: { formula: "LET(x,A1*10,x+1)" },
+      C1: { value: 2 }, C2: { value: 4 }, C3: { value: 6 },
+      E1: { formula: "MAP(C1:C3,LAMBDA(v,v*2))" },
+    }, 3, 5);
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(errors).toEqual([]);
+    expect(computed.get("L!B1")).toBe(21);
+    // dynamic-array spill lands in blank cells — the preview map carries them
+    expect(computed.get("L!E1")).toBe(4);
+    expect(computed.get("L!E2")).toBe(8);
+    expect(computed.get("L!E3")).toBe(12);
+  });
+
+  it("FILTER spills across blank cells and the spilled values land in the preview map", () => {
+    const s = sheet("F", {
+      A1: { value: "apple" }, A2: { value: "orange" }, A3: { value: "apple" },
+      B1: { value: 1 }, B2: { value: 5 }, B3: { value: 10 },
+      C1: { value: 100 }, C2: { value: 200 }, C3: { value: 300 },
+      E1: { formula: 'FILTER(A1:C3,B1:B3>4)' },
+    }, 3, 3);
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(errors).toEqual([]);
+    expect(computed.get("F!E1")).toBe("orange");
+    expect(computed.get("F!E2")).toBe("apple");
+    expect(computed.get("F!F1")).toBe(5);
+    expect(computed.get("F!G2")).toBe(300);
+  });
+
+  it("a blocked spill and an empty FILTER are reported, not swallowed", () => {
+    const s = sheet("B", {
+      A1: { value: 1 }, A2: { value: 2 }, A3: { value: 3 },
+      B2: { value: "wall" },
+      B1: { formula: "A1:A3" }, // wants B1:B3 but B2 is occupied
+      D1: { formula: 'FILTER(A1:A3,A1:A3=99)' },
+    }, 3, 4);
+    const { errors, computed } = recalcWorkbook([s]);
+    const codes = Object.fromEntries(errors.map((e) => [e.cell, e.error]));
+    expect(codes["B1"]).toBe("#SPILL!");
+    expect(codes["D1"]).toBe("#CALC!");
+    expect(computed.has("B!B1")).toBe(false);
+  });
+
+  it("invalid formulas are flagged by sheet+address with a reason (parse and unknown function)", () => {
+    const s = sheet("S1", {
+      A1: { value: 1 }, A2: { value: 2 },
+      B1: { formula: "=SUM(" },          // does not parse
+      B2: { formula: "=FOOBAR(1)" },     // unknown function
+    }, 2, 2);
+    const { errors, computed } = recalcWorkbook([s]);
+    const byCell = new Map(errors.map((e) => [e.cell, e]));
+    expect(byCell.get("B1")?.error).toMatch(/^#/);
+    expect(byCell.get("B2")).toMatchObject({ sheet: "S1", cell: "B2", error: "#NAME?" });
+    expect(byCell.get("B2")?.reason).toContain("unknown_function");
+    expect(byCell.get("B2")?.reason).toContain("FOOBAR");
+    expect(computed.has("S1!B1")).toBe(false);
+    expect(computed.has("S1!B2")).toBe(false);
+  });
+
+  it("IFERROR/IFNA guard real errors; IFNA rethrows non-#N/A errors", () => {
+    const s = sheet("S1", {
+      A1: { formula: '=IFERROR(1/0,"caught")' },
+      A2: { formula: '=IFNA(MATCH("zz",A3:A3,0),"na")' },
+      A3: { value: 1 },
+      A4: { formula: '=IFNA(1/0,"x")' },
+    }, 4, 1);
+    const { errors, computed } = recalcWorkbook([s]);
+    expect(computed.get("S1!A1")).toBe("caught");
+    expect(computed.get("S1!A2")).toBe("na");
+    expect(errors).toEqual([{ sheet: "S1", cell: "A4", formula: '=IFNA(1/0,"x")', error: "#DIV/0!", reason: "division by zero" }]);
+    expect(computed.has("S1!A4")).toBe(false);
+  });
+});
+
+// ---------- PART 2: every function family the original whitelist covered ----------
 const DATA: Record<string, { value: string | number | boolean | null }> = {
   A1: { value: 10 }, A2: { value: 20 }, A3: { value: 30 },
   B1: { value: "apple" }, B2: { value: "banana" }, B3: { value: "apple" },
@@ -83,19 +236,7 @@ function calc(formula: string): string | number | boolean {
   return computed.get("S1!F1") as string | number | boolean;
 }
 
-describe("expanded formula whitelist (PART 2)", () => {
-  it("whitelist pins every documented function", () => {
-    expect(FORMULA_FUNCTIONS).toEqual(expect.arrayContaining([
-      "SUM", "AVERAGE", "MIN", "MAX", "COUNT", "COUNTA", "PRODUCT",
-      "ROUND", "ROUNDUP", "ROUNDDOWN", "INT", "ABS", "MOD", "POWER", "SQRT",
-      "IF", "IFS", "IFERROR", "IFNA", "AND", "OR", "NOT",
-      "SUMIF", "SUMIFS", "COUNTIF", "COUNTIFS", "AVERAGEIF", "AVERAGEIFS", "SUMPRODUCT",
-      "INDEX", "MATCH", "VLOOKUP", "XLOOKUP", "NPV", "IRR",
-      "DATE", "YEAR", "MONTH", "DAY", "EDATE", "EOMONTH", "TODAY",
-      "LEN", "TRIM", "UPPER", "LOWER", "CONCAT", "CONCATENATE", "TEXTJOIN",
-    ]));
-  });
-
+describe("the original 43-function whitelist families (regression parity)", () => {
   it("SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/PRODUCT", () => {
     expect(calc("=SUM(A1:A3)")).toBe(60);
     expect(calc("=AVERAGE(A1:A3)")).toBe(20);
@@ -152,7 +293,7 @@ describe("expanded formula whitelist (PART 2)", () => {
     expect(calc("=XLOOKUP(\"zzz\",B1:B3,C1:C3,\"none\")")).toBe("none");
   });
 
-  it("NPV discounts each cash flow; IRR bisects to the zero-NPV rate", () => {
+  it("NPV discounts each cash flow; IRR finds the zero-NPV rate", () => {
     expect(calc("=NPV(0.1,100,200)")).toBeCloseTo(100 / 1.1 + 200 / 1.21, 6);
     expect(calc("=IRR(E1:E2)")).toBeCloseTo(0.1, 6); // -100 → +110 ⇒ exactly 10%
   });
@@ -163,7 +304,9 @@ describe("expanded formula whitelist (PART 2)", () => {
     expect(calc("=DAY(DATE(2026,1,15))")).toBe(15);
     expect(calc("=EDATE(DATE(2026,1,31),1)")).toBe(calc("=DATE(2026,2,28)")); // day clamps to month end
     expect(calc("=EOMONTH(DATE(2026,2,5),0)")).toBe(calc("=DATE(2026,2,28)"));
-    expect(calc("=YEAR(TODAY())")).toBe(new Date().getFullYear());
+    const s = sheet("T", { A1: { formula: "=YEAR(TODAY())" } }, 1, 1);
+    const { computed } = recalcWorkbook([s]);
+    expect(computed.get("T!A1")).toBe(new Date().getFullYear());
   });
 
   it("LEN/TRIM/UPPER/LOWER/CONCAT/CONCATENATE/TEXTJOIN text functions", () => {
@@ -195,5 +338,13 @@ describe("expanded formula whitelist (PART 2)", () => {
     }, 1, 2);
     const { errors } = recalcWorkbook([s]);
     expect(errors.map((e) => e.error).sort()).toEqual(["#DIV/0!", "#DIV/0!", "#DIV/0!", "#NUM!", "#NUM!"]);
+  });
+
+  it("address helpers round-trip", () => {
+    expect(idxToCol(0)).toBe("A");
+    expect(idxToCol(26)).toBe("AA");
+    const s = sheet("S1", { AA1: { formula: "=1+1" } }, 1, 27);
+    const { computed } = recalcWorkbook([s]);
+    expect(computed.get("S1!AA1")).toBe(2);
   });
 });

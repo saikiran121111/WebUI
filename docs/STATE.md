@@ -4355,3 +4355,32 @@ edited (approved installers only).
   SEPARATELY before any export claim. Full regression suite at the P7 checkpoint (not after
   every step). Then Power BI structural validation (no Desktop install without asking),
   P6 sweep, P7 final loop.
+
+---
+
+## SESSION 2026-11-06 — P5B-xlcalc SHIPPED (formula engine swap to xlcalc@0.84.0)
+
+- Pinned `xlcalc@0.84.0` exact (MIT, zero runtime deps, engines node>=20.19) via
+  `npm install xlcalc@0.84.0 --save-exact --cache .data/npm-cache` — package/lockfile/cache all repo-scoped.
+  ExcelJS stays for writing `.xlsx`.
+- `lib/documents/recalc.ts` rewritten: 679-line hand-written evaluator → ~150-line xlcalc `compute()`
+  adapter. SAME public contract; ONE shared path: XlsxBlock (client preview, lazy chunk via FenceRouter)
+  and xlsxEngine export gate (→ XlsxRecalcError → 422) both call `recalcWorkbook`. `_xlfn.`/`_xlws.`
+  stripped by the adapter (xlcalc does not). `clock` option pins TODAY/RAND. Malformed-book InputError
+  caught → per-cell `#ERROR!`, never throws at callers. `FORMULA_FUNCTIONS` export deleted (test-only).
+- Diagnostics-first: errors from `compute()` diagnostics ONLY; CYCLE cells flagged `#CYCLE!` by
+  sheet+address and NEVER enter `computed` (the brief's 0+CYCLE trap pinned); reasons ride into the 422
+  message (`unknown_function:FOO`); spilled-into blanks join `computed` (preview parity).
+- Two Excel-faithful differences found (xlcalc right, old engine wrong): text-vs-number `=` is FALSE
+  (QA fixture numeric-expected rows → live literal cells `=24`); approximate VLOOKUP one-row returns the
+  row, not #N/A (IFNA QA row → exact match FALSE).
+- Dynamic arrays verified separately: preview spill parity OK; EXPORT writes anchor formula+result only —
+  ExcelJS emits no dynamic-array metadata, spill NOT materialized (pinned as reported limitation).
+- Tests: recalc.test.ts rewritten (27: whole-column SUMIFS/COUNTIFS, XLOOKUP, LET, FILTER/MAP+LAMBDA
+  spill, #SPILL!/#CALC!, cross-sheet, self+mutual cycles, invalid/unknown formulas, IF short-circuit,
+  deterministic clock, malformed-book guard, original 43-function parity battery). xlsxEngine.test.ts +3
+  (reopen readback formulas+cached values; anchor-only export spill; cycle workbook refused).
+  Focused pair 35/35 exit 0; `__tests__/documents` 9 files/72 tests exit 0; `npx tsc --noEmit` exit 0.
+- Full vitest battery + fence/API browser confirmation → P7 checkpoint (1611-test baseline shifts).
+- Next: Power BI structural PBIP validation (repo-only; Desktop NOT installed without asking), the two
+  skipped Playwright spots, P6, P7.
