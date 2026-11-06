@@ -450,8 +450,60 @@ Repair, three layers:
 **3** (browser-loop false completion + raw tool args) is REPAIRED and unit-verified (ledger above). Its last gate is
 model-driven: a `RUKE_BROWSER_MAX_TOOL_ROUNDS`-capped journey that must show the chip reading "Stopped early" with the
 panel back to `agentActive:false` — that spec runs inside the final locked Playwright loop, after `ruke-server` is
-rebuilt. Findings **5** (anatomy over-trigger), **6** (HTML preview origin isolation + fullscreen fallback) and
-**7** (PDF export trust boundary) are reproduced-but-not-yet-repaired; **8** closed in 5A.
+rebuilt. **5** (anatomy over-trigger) is REPAIRED and verified in both production engines (ledger below); its remaining
+gate is HTTP-level (`/api/decision` + a real chat turn), which rides the same locked browser run as finding 6.
+Findings **6** (HTML preview origin isolation + fullscreen fallback) and **7** (PDF export trust boundary) are
+reproduced-but-not-yet-repaired; **8** closed in 5A.
+
+### Finding 5 — anatomy route over-triggers on a bare keyword
+
+Reproduced first, at `b4f9db0`: the new deterministic suite `__tests__/decision/anatomy-intent.test.ts` went
+**3 failed / 12 passed** — `AssertionError: what is the anatomy of the knee: expected 'anatomy' to be
+'standard_chat'`, and the same for the brief's other example. Root cause: the anatomy intent was ONE regex
+(`/\b(?:anatomy|cutaway|cross-section|isometric|exploded)\b/i`), so a turn that merely *names a topic* got the anatomy
+renderer + its skill block. Anatomy is the only intent whose vocabulary names a SUBJECT rather than a DELIVERABLE —
+"spreadsheet" is always a spreadsheet, "anatomy" is usually just what the user wants to talk about — and the two
+words have other senses entirely (fitness "isometric exercise", school subject "anatomy exam").
+
+Repair shape — vocabulary **MINUS conversational frames**, applied identically in both engines:
+
+* **`lib/decision/client.ts`** — `ANATOMY_FRAMES` (7) + `anatomyIntent()`; `detectDeliverableIntent` special-cases the
+  anatomy arm of `INTENT_ORDER` (`continue` on a rejected frame so it never falls through to a later matcher by
+  accident). Frames: interrogative+copula (`what/how/why is|are|does … <vocab>`), contraction (`what's anatomy`),
+  `define / definition / (meaning) of <vocab>`, `tell me about <vocab>`, `explain / describe / discuss <vocab>`,
+  `isometric` + fitness words, `anatomy` + school words.
+* **`crates/ruke-decision/src/engine.rs`** — `ANATOMY_VOCAB_SRC` / `BRIDGE` / `ARTICLE`, `vocab_tail()`, static
+  `ANATOMY_FRAMES`, `anatomy_intent()`, and `match_intent` restructured to keep `INTENT_ORDER` first-match semantics
+  (excel→docs→pdf→ppt→chart, then anatomy, then html_render). Module doc updated to state the guard.
+* **Why frames instead of an ask-verb whitelist:** the golden corpus positive `"anatomy of a jet turbine"` is a bare
+  noun phrase, indistinguishable in shape from a topic mention — requiring a verb would have destroyed it. Frames are
+  *tight word sequences* over the shared bridge class (`[^A-Za-z0-9_]`, the JS-ASCII-`\b` equivalent) with **no
+  unbounded gaps and no lookaheads**, so the Rust `regex` crate (which has no lookahead, and whose `.` also matches
+  `\r`/`\u{2028}`/`\u{2029}` where JS `.` does not) can mirror them pattern-for-pattern: the rule is a plain
+  match-then-reject pair.
+* **Deliberately accepted false negative:** an unframed bare mention (`"knee anatomy"`) still routes to anatomy —
+  cheap, because the UI never hard-gates fences (`MarkdownRenderer.kindAllowed` is always true) so a mis-picked mode
+  cannot suppress a block the model chose to emit. Documented in the test file and in `client.ts` rather than
+  papered over with an assertion that would contradict the golden corpus.
+
+### Verification actually run for finding 5 (real exit codes)
+
+| Check | Result |
+| --- | --- |
+| `npx vitest run __tests__/decision/anatomy-intent.test.ts` (pre-repair) | **3 failed / 12 passed**, exit 1 — both brief prompts routed to `anatomy`; kept as the reproduction record |
+| `npx vitest run __tests__/decision/anatomy-intent.test.ts` (post-repair) | **15 passed / 0 failed**, exit 0 |
+| `rm rust-backend/fixtures/decision/06-intent-matcher-vectors.json` → `npx vitest run __tests__/rust-golden` | **10 files / 56 tests passed**, exit 0 — the corpus (4 anatomy positives + 14 negatives + new spot-checks: both brief prompts → `standard_chat`, `isometric illustration of the server rack` → `anatomy`) re-recorded from the live TS oracle; the harness refuses silent drift ("Fixture drift detected"), so a deliberate behavior change is a delete-then-re-record, never a hand-edit |
+| `cargo fmt -p ruke-decision` → `cargo test -p ruke-decision --no-fail-fast` (run twice: old fixture, then re-recorded) | **12 unit + 9 fixture-replay passed / 0 failed**, exit 0 both times — the Rust engine reproduces the re-recorded TS corpus, and the new `anatomy_requires_a_request_not_a_topic_mention` test pins the same expectations independently (2 brief examples + 10 frames → `standard_chat`/`None`; 11 illustration asks → `anatomy`) |
+| `npm run contracts:check` | OK — `contracts_generated.rs` and `rust-backend/fixtures/contracts/manifest.json` already current (no regeneration needed) |
+| `cargo test -p ruke-server --lib --no-fail-fast` | **164 passed / 0 failed**, exit 0 |
+| `npx vitest run` (full suite) | **119 files passed / 1 skipped; 1578 passed / 9 skipped**, exit 0 — was 117 files / 1540 tests; +1 file, +38 tests, zero regressions |
+| `npx tsc --noEmit` | **exit 0** |
+
+Graphify note on reachability: both production routing paths are fixed, not just one — TS `getDecisionSync` feeds
+`app/api/chat/route.ts:662`, `app/api/decision/route.ts:31` and `scripts/e2e-search.ts`; Rust `match_intent` feeds
+`ruke-server/src/chat/handler.rs:209` and `decision_routes.rs:34`. No Playwright anatomy journey depends on routing
+(`tests/anatomy*.spec.ts` all drive `?demo=anatomy` fixtures), so this repair could not regress those gates — and no
+existing test asserted the buggy behavior, so nothing had to be renegotiated.
 
 ## Phase gates (check only when verified through the feature's normal entry point)
 
@@ -528,10 +580,10 @@ rebuilt. Findings **5** (anatomy over-trigger), **6** (HTML preview origin isola
    over-trigger ("What is the anatomy of the knee?" / "What is an isometric exercise?" must stay
    conversational), HTML preview origin isolation + fullscreen fallback, PDF export trust boundary.
    Finding 8 (PPTX bypassed the normalizer) is closed in 5A.
-   **Progress: findings 4, 1, 2 and 3 are REPAIRED and verified (see the "Audit repair phase" ledger; finding 3's
-   remaining gate is the capped-round model journey in the final locked loop). Remaining:
-   finding 5 — `lib/decision/client.ts` + `ruke-decision/src/engine.rs` match standalone words, so
-   "What is an isometric exercise?" routes to the anatomy renderer; finding 6 — `HtmlArtifactBlock.tsx` renders
+   **Progress: findings 4, 1, 2, 3 and 5 are REPAIRED and verified (see the "Audit repair phase" ledger; finding 3's
+   remaining gate is the capped-round model journey in the final locked loop, finding 5's remaining gate is HTTP-level
+   proof through `/api/decision` + a real chat turn, which rides the same locked browser run as finding 6). Remaining:
+   finding 6 — `HtmlArtifactBlock.tsx` renders
    model HTML in a srcDoc iframe with `allow-scripts allow-same-origin` (same-origin escape); finding 7 —
    `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts` hand raw HTML to Chromium with JS and networking
    enabled. Each gets deterministic tests at the source; the model-driven browser journeys re-run afterwards under

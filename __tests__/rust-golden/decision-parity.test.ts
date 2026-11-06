@@ -41,6 +41,14 @@ const VECTORS: string[] = [
   "build a power point", "a powerpoint deck", "give me a presentation", "save the .pptx", "export pptx now", "the deck outline",
   "chart the revenue",
   "an exploded view of the reactor core", "cutaway of the marine engine", "anatomy of a jet turbine", "isometric illustration of the server rack", "cross-section of the pump housing",
+  "draw me a cutaway of a jet engine", "can you draw an exploded view of a car engine?", "how do I get an isometric diagram of the rack?", "show the anatomy of a jet turbine as a diagram",
+  // — anatomy frame guard (audit finding 5, 2026-11-06): the vocabulary is a
+  //   topic mention inside a conversational frame, not an illustration ask —
+  "What is the anatomy of the knee?", "What is an isometric exercise?", "what's anatomy?",
+  "what does anatomy mean?", "what is the meaning of cutaway?", "define isometric",
+  "definition of a cross-section", "how does an exploded view work?", "how does a cutaway engine work?",
+  "tell me about the anatomy of the knee", "explain the anatomy of a knee",
+  "isometric exercises for beginners", "anatomy quiz questions", "I have an anatomy exam tomorrow, any tips?",
   "a web page mock", "the webpage header", "landing page copy", "landingpage hero", "pure html please", "interactive ui", "interactive page demo", "interactive prototype", "an interactive demo",
   // — ASCII \b quirks the Rust port must share —
   "caféexcel", "the pdfx file", "what is excelent", "charts", "cvx", "htmlx dashboard",
@@ -84,6 +92,10 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
     expect(at("anatomy of a jet turbine").active_mode).toBe("anatomy");
     expect(at("a building cutaway diagram").active_mode).toBe("anatomy"); // cad_blueprint retired 2026-11-06: cutaway falls to anatomy
     expect(at("exploded diagram in html").active_mode).toBe("anatomy");
+    // Anatomy frame guard (audit finding 5). The brief's two examples.
+    expect(at("What is the anatomy of the knee?").active_mode).toBe("standard_chat");
+    expect(at("What is an isometric exercise?").active_mode).toBe("standard_chat");
+    expect(at("isometric illustration of the server rack").active_mode).toBe("anatomy");
     expect(at("   make a deck \t").stripped_prompt).toBe("make a deck");
     expect(at("tell me a joke").decided_by).toBe("in-process-deliverable-match");
 
@@ -106,7 +118,10 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
         "Pure in-process regex router: ASCII \\b semantics (café boundaries, é-ending résumé demands a " +
         "word char next, dotted \\.docx dominated by bare docx), JS '.' never crosses \\n (render\\nscene " +
         "misses), INTENT_ORDER first-match precedence, JS trim() for stripped_prompt, internal-only " +
-        "fallbackEnvelope for blank input.",
+        "fallbackEnvelope for blank input. Anatomy frame guard (audit finding 5): the vocabulary wins " +
+        "only outside an ask/definition/explanation frame and outside its fitness / school-subject " +
+        "senses; frames are tight bridge-class word sequences (no lookahead, no unbounded gap) so the " +
+        "Rust port can mirror them exactly.",
       comparison: "semantic",
       notes:
         "Field-for-field (mode/skill/decided_by/trim) — regex existence only, no span capture.",

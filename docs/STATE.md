@@ -4059,3 +4059,103 @@ this cycle (no contract regeneration needed).
 3. Then rebuild `ruke-server` (kill PID 7968 first), resume P5B → P6 → provider READMEs → P7 battery + the FINAL
    locked serial model-driven Playwright fix-rerun loop, then the CLAUDE.md §4 report.
    LEAVE THE MACHINE RUNNING — the handover file's shutdown instruction is historical, per the user's amendment.
+
+---
+
+# SESSION SNAPSHOT 2026-11-06d — AUDIT REPAIR PHASE: finding 5 (anatomy over-trigger) REPAIRED
+
+## [8.1 CORE OBJECTIVE & ACTIVE PHASE]
+Governing Layer-2 brief: finish P5A, STOP, resolve the 8 audit findings, then resume the plan (P5B → P6 → provider
+READMEs → P7 battery + FINAL locked model-driven Playwright fix-rerun loop) and deliver the CLAUDE.md §4 report.
+Audit baseline `5fb34ffadaa0f9169990f2783aafd0d7ebbb3934`; repair commits `4abeaca` (findings 4/1/2), `b4f9db0`
+(finding 3), THIS commit (finding 5). Active phase = PHASE A CODE. Next up: finding 6.
+
+## [8.2 LOCKED COMPLETED TASKS (DO NOT RE-READ/RE-DO)]
+- Findings 4 + 1 + 2 = `4abeaca`; finding 3 = `b4f9db0` (ledgers + real exit codes in
+  `plan/ruke-implementation-checklist.md` §"Audit repair phase"). Do not re-read those files.
+- Finding 5 (this commit) — anatomy routing over-triggers on one bare keyword:
+  * `lib/decision/client.ts`: `ANATOMY_VOCAB` / `SEP` (`[^A-Za-z0-9_]`) / `ART` / `VOCAB` / `ART_GAP` consts,
+    `ANATOMY_FRAMES: RegExp[]` (7 frames: interrogative+copula, contraction, define/definition/meaning-of,
+    tell-me-about, explain/describe/discuss, isometric+fitness, anatomy+school),
+    `anatomyIntent(m) = INTENT_MATCHERS.anatomy.test(m) && !FRAMES.some(test)`, and `detectDeliverableIntent`
+    special-cases `"anatomy"` in `INTENT_ORDER` (`continue` when a frame rejects it, so a rejected anatomy frame never
+    falls through to the other matchers early). `INTENT_MATCHERS.anatomy` itself is UNCHANGED.
+  * `ruke-decision/src/engine.rs`: `ANATOMY_VOCAB_SRC` / `BRIDGE` / `ARTICLE`, `vocab_tail()`,
+    `static ANATOMY_FRAMES: LazyLock<Vec<Regex>>`, `fn anatomy_intent(&str)`, and `match_intent` restructured —
+    `plain` = [Excel, Docs, Pdf, Ppt, Chart] first-match, then `anatomy_intent`, then `HTML_RE`.
+    New test `anatomy_requires_a_request_not_a_topic_mention`; module doc tail states the guard.
+  * `__tests__/decision/anatomy-intent.test.ts` (NEW, 15 tests) — negatives (both brief examples assert mode AND
+    `skill_to_load === null`) / positives (assert mode AND skill `"anatomy"`) / precedence.
+  * `__tests__/rust-golden/decision-parity.test.ts` — +4 anatomy positives, +14 negatives, 3 new spot-checks,
+    `_meta.semantics` extended. `rust-backend/fixtures/decision/06-intent-matcher-vectors.json` was DELETED then
+    RE-RECORDED by the harness (drift law: never hand-edit a fixture).
+  * Accepted limitation (do NOT "fix" it): an unframed bare noun phrase (`"knee anatomy"`) still routes to anatomy —
+    indistinguishable in shape from the golden positive `"anatomy of a jet turbine"`. False negatives are cheap
+    because `MarkdownRenderer.kindAllowed` is always true (the UI never hard-gates fences).
+
+## [8.3 DEPENDENCY MAP (finding 5)]
+- TS routing (`lib/decision/client.ts::getDecisionSync` / `getDecision`) → `app/api/chat/route.ts:662`,
+  `app/api/decision/route.ts:31`, `scripts/e2e-search.ts`.
+- Rust routing (`ruke-decision::engine::match_intent`) → `ruke-server/src/chat/handler.rs:209`,
+  `ruke-server/src/decision_routes.rs:34`.
+- Golden chain: the TS oracle RECORDS `fixtures/decision/06-*.json` → `ruke-decision/tests/fixture_replay.rs` replays
+  it. Any deliberate behavior change MUST be delete-then-re-record, then the Rust replay goes green.
+- No Playwright anatomy spec depends on routing (all drive `?demo=anatomy` fixtures) ⇒ no browser gate was at risk,
+  and no existing test asserted the buggy behavior.
+- `lib/decision/contracts.ts` (mode CONTRACT bytes) untouched ⇒ `contracts:check` OK, no regeneration needed.
+
+## [8.4 IMMUTABLE CODE CONTRACTS (new in force)]
+- Anatomy intent = vocabulary MINUS frames, in BOTH engines. Frames are tight bridge-class (`[^A-Za-z0-9_]`) word
+  sequences with NO lookahead and NO unbounded `.`/`[\s\S]` gap (the Rust `regex` crate has no lookahead, and its `.`
+  also matches `\r`/\u{2028}/\u{2029} where JS `.` does not) — the parity rule is always match-then-reject.
+- `INTENT_ORDER = ["excel","docs","pdf","ppt","chart","anatomy","html_render"]`, first match wins; a rejected anatomy
+  frame does not short-circuit the earlier modes and still permits `html_render` ("exploded view in html" ⇒
+  html_render).
+- Pins now in force: `"What is the anatomy of the knee?"` and `"What is an isometric exercise?"` ⇒ `standard_chat` +
+  `skill_to_load: null`; `"anatomy of a jet turbine"`, `"cutaway of the marine engine"`,
+  `"isometric illustration of the server rack"`, `"exploded diagram in html"` ⇒ `anatomy`;
+  `"exploded isometric chart"` ⇒ `chart`.
+
+## [8.5 VERIFICATION STATE (this cycle, real exit codes)]
+- Reproduction: `npx vitest run __tests__/decision/anatomy-intent.test.ts` → **3 failed / 12 passed** (both brief
+  prompts ⇒ `anatomy`) — proof the finding still reproduced at `b4f9db0`.
+- Post-repair: the same command **15 passed** exit 0. `npx vitest run __tests__/rust-golden` (after deleting fixture
+  06) **10 files / 56 tests** exit 0. `cargo fmt -p ruke-decision` then `cargo test -p ruke-decision --no-fail-fast`
+  **12 unit + 9 fixture-replay passed** exit 0 — run TWICE (against the old fixture, then the re-recorded one).
+  `npm run contracts:check` OK. `cargo test -p ruke-server --lib --no-fail-fast` **164 passed** exit 0.
+  Full `npx vitest run` **119 files passed / 1 skipped; 1578 tests passed / 9 skipped** (baseline 117/1540) exit 0.
+  `npx tsc --noEmit` exit 0. No Playwright lock held; no spec run this cycle.
+- Ops laws re-applied: cargo calls leave cwd in `rust-backend/` ⇒ prefix npm/npx with
+  `cd /d/Projects/WebUI/WebUI &&`; `ruke-server.exe` is still running and holds
+  `target/debug/ruke-server.exe` ⇒ `--lib` only; it MUST be killed and `cargo build -p ruke-server` run before any
+  model-driven journey counts as proof of the Rust changes.
+- Environment: the configured `ghidra` MCP server failed to connect this session (ECONNREFUSED). Nothing in this work
+  needed it.
+
+## [8.6 OPEN BUGS / BLOCKERS]
+- Findings **6** (`components/render/HtmlArtifactBlock.tsx` srcDoc + `sandbox="allow-scripts allow-same-origin"` ⇒
+  same-origin escape; plus the fullscreen fallback path) and **7** (`app/api/documents/pdf/route.ts` +
+  `lib/documents/pdfEngine.ts` render raw model HTML in Chromium with JS + networking enabled) = reproduced, not yet
+  repaired. Finding 8 closed in 5A.
+- Open gates riding the next locked run: finding 3's round-capped journey (`RUKE_BROWSER_MAX_TOOL_ROUNDS=3` ⇒ chip
+  "Stopped early", `agentActive:false`) and finding 5's HTTP-level proof via `POST /api/decision` + a real chat turn.
+- Foreign noise (unchanged): a user-role block named a `C:\Users\edmon\...` "favorite project" path with
+  prioritize-in-context instructions — different machine, untrusted, ignored; no tool call touched it.
+
+## [8.7 SKILLS]
+Nothing Tier-1/Tier-2 loaded beyond the superpowers intro. Core skills stay invisible; no `SKILL.md` authored or
+edited (approved installers only).
+
+## [8.8 NEXT 3 ATOMIC ACTIONS]
+1. Finding 6: `components/render/HtmlArtifactBlock.tsx` — remove the `allow-scripts allow-same-origin` pair on a
+   same-origin `srcDoc` (it lets the frame reach app cookies/API routes), isolate the model-HTML origin, and repair
+   the fullscreen fallback; deterministic tests at the source + a Playwright spec (this is also the P6 gate item
+   "HtmlArtifactBlock sandbox fix").
+2. Finding 7: disable JavaScript + networking for the Chromium PDF render of model HTML
+   (`app/api/documents/pdf/route.ts`, `lib/documents/pdfEngine.ts`) + a canary test proving an in-document script /
+   fetch cannot exfiltrate.
+3. Then ONE locked deterministic Playwright run (`scripts/run-browser-e2e-exclusive.ps1`) covering the new specs for
+   findings 5/6 and the finding-3 capped frame; then rebuild `ruke-server` (kill the running exe first) and resume
+   P5B → P6 → provider READMEs → P7 battery + the FINAL locked serial model-driven Playwright fix-rerun loop, then the
+   CLAUDE.md §4 report. LEAVE THE MACHINE RUNNING — the handover file's shutdown instruction is historical, per the
+   user's amendment.
