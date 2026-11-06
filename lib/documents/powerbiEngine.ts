@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import { zipSync, strToU8 } from "fflate";
 import { normalizePowerbi, type PowerbiSpec, type BiVisual } from "./schemas";
 import { safeName } from "./pdfEngine";
+import { validatePbipPackage, PowerbiValidationError } from "./powerbiValidate";
 
 const guid = () => crypto.randomUUID();
 
@@ -50,20 +51,23 @@ ${measures}
         mode: import
         source = inlineQuery
         data = m
-${mExpression()}
+${mExpression(spec.dataset.columns.length)}
     }
 }
 `;
 }
 
-function mExpression(): string {
+function mExpression(colCount: number): string {
+  // Columns= must match the CSV's real column count — the hard-coded `1`
+  // it used to carry collapses every field into one column in Power BI.
+  // The structural validator cross-checks it against sales.csv.
   return `        expression SectionConstant1
         {
             name: m
             data: 5:section m;
 [Version = "5.4"]
 Sales = let
-    Source = Csv.Document(File.Contents("Data/sales.csv"),[Delimiter=",", Columns=1, Encoding=65001, QuoteStyle=QuoteStyle.Csv]),
+    Source = Csv.Document(File.Contents("Data/sales.csv"),[Delimiter=",", Columns=${colCount}, Encoding=65001, QuoteStyle=QuoteStyle.Csv]),
     Promoted = Table.PromoteHeaders(Source, [PromoteAllScalars=true])
 in
     Promoted
@@ -268,7 +272,10 @@ export async function buildPowerbi(rawSpec: unknown): Promise<PowerbiBuildResult
     [`${name}/${name}.pbip`]: pbip,
     [`${name}/${sm}/.platform`]: platformSm,
     [`${name}/${sm}/definition/semanticModel.tmdl`]: `model model\n{\n    culture: en-US\n    defaultName = "${name}"\n}\n`,
-    [`${name}/${sm}/definition/expressions.tmdl`]: `expression SectionConstant1\n{\n    name: m\n    data: 5:section m;\n[Version = "5.4"]\n\n`,
+    // Closing brace required: an unclosed expression block is exactly the
+    // truncated-TMDL defect the structural validator refuses (previously
+    // this file shipped as an unterminated stub).
+    [`${name}/${sm}/definition/expressions.tmdl`]: `expression SectionConstant1\n{\n    name: m\n    data: 5:section m;\n[Version = "5.4"]\n}\n`,
     [`${name}/${sm}/Data/sales.csv`]: csv,
     [`${name}/${rp}/.platform`]: platformRp,
     // PBIR pointer: real PBIP report folders carry definition.pbir next to
@@ -300,6 +307,15 @@ export async function buildPowerbi(rawSpec: unknown): Promise<PowerbiBuildResult
     ...toU8(entries),
     [`${name}/${name}.pbit`]: pbit,
   });
+
+  // MANDATORY structural gate (mirrors the xlsx recalc zero-errors law):
+  // the package must satisfy its own PBIP/PBIR contract — pointers, TMDL
+  // well-formedness, resolvable PBIR model references, CSV integrity, and
+  // a real embedded .pbit — before any download is returned. "Opens in
+  // Power BI Desktop" cannot be asserted locally (Desktop is not
+  // installed); this is the honest, enforced approximation.
+  const issues = validatePbipPackage(withPbit);
+  if (issues.length > 0) throw new PowerbiValidationError(issues);
 
   return {
     buffer: Buffer.from(withPbit),

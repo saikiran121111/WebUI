@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { XlsxRecalcError } from "./xlsxEngine";
+import { PowerbiValidationError } from "./powerbiValidate";
 
 export async function parseSpec(req: NextRequest): Promise<{ ok: true; spec: unknown } | { ok: false; res: NextResponse }> {
   let body: unknown;
@@ -37,6 +38,9 @@ export function fileResponse(
 export function engineError(err: unknown): NextResponse {
   if (err instanceof XlsxRecalcError) {
     return NextResponse.json({ error: err.message, formulaErrors: err.details }, { status: 422 });
+  }
+  if (err instanceof PowerbiValidationError) {
+    return NextResponse.json({ error: err.message, structureErrors: err.details }, { status: 422 });
   }
   const message = err instanceof Error ? err.message : String(err);
   const status = /invalid|did not validate/i.test(message) ? 422 : 500;

@@ -711,9 +711,14 @@ vitest), and the end-to-end round-capped model journey (this run).
       in vitest and in 4 real-model journeys; native editable charts + embedded workbooks; decks generated through
       Ruke and PLAYED in real PowerPoint (mid-Morph frames captured, text/charts edited live); injector deleted and
       simple export proven with NO Python on PATH
-- [ ] **P5B** evaluate LibreOffice (recalc/convert), ECharts (vs Ruke chart schema), Docling (scanned PDF/tables) on real
+- [x] **P5B** evaluate LibreOffice (recalc/convert), ECharts (vs Ruke chart schema), Docling (scanned PDF/tables) on real
       fixtures; adopt only where comparison wins; record decisions; keep ExcelJS/docx/Chromium-PDF; fflate consolidation of
       zipWriter/extract paths preserving decompression limits + 7-Zip fallback; verify actual Power BI exports before claims
+      — **COMPLETE 2026-11-07 except the evaluations the USER explicitly deferred** (LibreOffice, Docling: system-wide
+      installs need approval — decisions recorded in the sub-items, nothing installed; ECharts + HyperFormula evaluated
+      and NOT adopted on merit; xlcalc adopted per user brief; fflate consolidation, visual labeling and the Power BI
+      structural export gate all shipped below). The "verify actual Power BI exports" clause is honored as a mandatory
+      structural gate, honestly reported (Desktop round-trip not locally assertable — see sub-item).
   - [ ] **P5B-LibreOffice — DEFERRED per user instruction (2026-11-06); zero system changes made.** The
         run is scoped to the WebUI repository; anything system-wide requires asking the user first. The
         proposed `winget install TheDocumentFoundation.LibreOffice` (Phase 5B OPTIONAL evaluation) was
@@ -816,6 +821,38 @@ vitest), and the end-to-end round-capped model journey (this run).
         `__tests__/documents` directory **9 files / 72 tests, exit 0**; `npx tsc --noEmit` exit 0. Browser
         fence/API-level confirmation rides the existing P7 Playwright checkpoint; the FULL vitest battery
         re-run also belongs there per this brief (the 1611-test baseline shifts with these test changes).
+  - [x] **P5B-PowerBI export validity — SHIPPED as a mandatory structural PBIP gate (2026-11-07; repo-only
+        per the user scoping law; Power BI Desktop is NOT installed and will not be installed without
+        asking).** New module `lib/documents/powerbiValidate.ts`: `validatePbipPackage(bytes): PbipIssue[]`
+        + `PowerbiValidationError`. `buildPowerbi` runs it on the FINAL package (including the embedded
+        `.pbit`) and THROWS on any issue — the same zero-error law as the xlsx recalc gate — so no
+        download is ever returned for a structurally broken report; `engineError` (`lib/documents/http.ts`)
+        maps it to **422 + `structureErrors`** details (parallel to `formulaErrors`). Checks enforced:
+        `<Name>/<Name>.pbip` format "PBIP" + itemType "Report"; required PBIP/PBIR files present; both
+        `.platform` types; pbir pointer shape (version 5.x, Local, path "definition"); every TMDL
+        brace-balanced with no literal "undefined" and parseable `column`/`measure "X" = <dax>` lines;
+        `report.json` parseable + unique globalIds + parseable per-container configs; **every PBIR
+        projection/queryOptions.measure resolvable against the model tables (dangling model references —
+        the classic "won't open in Desktop" cause — refused)**; pages.json pageOrder ↔ page folders;
+        every `.visual.json` well-formed (slicers intentionally carry none by design — the validator does
+        not require them); CSV rectangular with zero empty cells (quote-aware parser); the M section's
+        `Columns=` declaration equals the actual CSV width; the embedded `.pbit` is a real zip carrying
+        the same model + identical CSV.
+        **The gate caught TWO REAL ENGINE DEFECTS on first run** (both fixed, both pinned by tests):
+        (1) `Csv.Document` hardcoded **`Columns=1`** — Power BI would collapse every CSV field into one
+        column; it is now `Columns=<dataset column count>`. (2) the top-level `expressions.tmdl` was a
+        truncated stub that **never closed its `expression {` block** — now closed. Neither had any other
+        consumer (grep across ts/tsx/rs/json/mjs confirmed).
+        Tests: 10 new in `__tests__/documents/powerbiEngine.test.ts` — validator returns `[]` for BOTH
+        engine outputs (full spec + synthesized defaults), non-zip refused, and a byte-safe re-zip tamper
+        battery: dropped `definition.pbir`, corrupt `report.json`, dangling `Sales.NotAThing` projection,
+        removed `Sales.tmdl` (all Sales.* refs dangle), empty CSV cell, tampered `Columns=1` vs 4-col CSV,
+        corrupt embedded `.pbit`, plus engine-emits-`Columns=4` regression for defect (1).
+        Results: `npx vitest run __tests__/documents` → **9 files / 82 tests, exit 0** (was 9/72);
+        `npx tsc --noEmit` exit 0.
+        HONEST LIMIT (do NOT overclaim): "opens correctly in Power BI Desktop" is NOT assertable on this
+        machine — Desktop is not installed and installing it needs explicit user approval. The gate is the
+        enforced structural approximation; no Desktop round-trip is claimed anywhere.
 - [ ] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
       invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
@@ -870,12 +907,21 @@ vitest), and the end-to-end round-capped model journey (this run).
    DONE so far in P5B: fflate ZIP consolidation (`1a56858`), spreadsheet honest visual labeling (this
    commit), ECharts decision recorded (NOT adopted), Docling facts recorded (install deferred pending
    approval), LibreOffice DEFERRED (nothing installed), HyperFormula stays rejected (proprietary license).
-   NOW ACTIVE: Power BI export validity = structural PBIP validation inside the repo (Power BI Desktop is
-   NOT to be installed without asking; report the app-level gate honestly) + re-review the two skipped
-   Playwright spots in `tests/regression_modalities.spec.ts` (resume ~line 252, Power BI ~line 476).
-   Then P6 (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright
-   fix-rerun loop green vs baselines + CLAUDE.md §4 completion report; full vitest battery re-run belongs
-   at the P7 checkpoint per the xlcalc brief).
+   **P5B-PowerBI validity gate — DONE (this commit; full record in the sub-item): structural validator
+   `lib/documents/powerbiValidate.ts` gates `buildPowerbi` (422 + `structureErrors` via `engineError`)
+   and caught+fixed two real defects (hard-coded M `Columns=1`; never-closed `expression {` stub in
+   expressions.tmdl). `__tests__/documents` 9 files / 82 tests exit 0; tsc exit 0.**
+   Skip-spot re-review DONE — BOTH spots stay SKIPPED BY DESIGN, re-verified against the AUTHORITATIVE
+   contract: the Rust `ruke-contracts` `RendererMode` enum (rust-backend/crates/ruke-contracts/src/
+   decision.rs) and `RENDERER_MODES` in `lib/decision/types.ts` contain NO `resume` and NO `powerbi`
+   mode, so the Decision Engine can never route a chat turn to those journeys (zero-collision law; the
+   legacy Python `.decision-engine/worker/schemas.py` referenced in old comments no longer exists —
+   superseded by the Rust crates). Note the spec comments' "9-mode" wording is stale (8 modes since P4
+   retired 3d_asset/cad_blueprint) — conclusion unchanged. Engines stay fully unit-tested; the Power BI
+   engine now additionally carries the structural gate + 10 tests.
+   NOW ACTIVE: P6 (chat-UI preservation audit), then P7 (full battery + FINAL locked model-driven
+   Playwright fix-rerun loop green vs baselines + CLAUDE.md §4 completion report; full vitest battery
+   re-run belongs at the P7 checkpoint per the xlcalc brief).
 3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3), P4
    `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff`, P5A `f1092c1`, audit repair `4abeaca`, finding 3 `b4f9db0`,
    finding 5 `e34c591`, findings 5+6 `eb2a43a`, finding 7 + finding 3's last gate `72cabab` — all

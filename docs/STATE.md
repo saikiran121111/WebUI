@@ -4384,3 +4384,32 @@ edited (approved installers only).
 - Full vitest battery + fence/API browser confirmation → P7 checkpoint (1611-test baseline shifts).
 - Next: Power BI structural PBIP validation (repo-only; Desktop NOT installed without asking), the two
   skipped Playwright spots, P6, P7.
+
+---
+
+## SESSION 2026-11-07 — P5B-PowerBI export-validity gate SHIPPED (+ skip-spot re-review)
+
+- New `lib/documents/powerbiValidate.ts`: `validatePbipPackage(bytes): PbipIssue[]` +
+  `PowerbiValidationError`. MANDATORY gate at the end of `buildPowerbi` (xlsx recalc zero-error law):
+  structurally broken packages NEVER download. `engineError` (http.ts) → **422 + `structureErrors`**.
+- Checks: pbip format/itemType; required files; `.platform` types; pbir 5.x/Local/definition; TMDL
+  brace-balance + no "undefined" + parseable column/measure lines; report.json parse + unique globalIds +
+  config parse; EVERY PBIR projection/queryOptions measure resolvable vs model (dangling refs refused);
+  pages.json ↔ page folders; `.visual.json` well-formed (slicers carry none by design — not required);
+  CSV rectangular + no empty cells (quote-aware); M `Columns=` == CSV width; embedded `.pbit` real zip,
+  same model + identical CSV.
+- Gate caught TWO REAL DEFECTS (fixed + test-pinned): hard-coded M `Columns=1` (would collapse all
+  fields into one column in Power BI) → now `Columns=<colCount>`; `expressions.tmdl` was a truncated
+  stub whose `expression {` block never closed → closed. No other consumers (grep confirmed).
+- Tests: +10 in `__tests__/documents/powerbiEngine.test.ts` ([] on both engine outputs; byte-safe re-zip
+  tamper battery: drop pbir / corrupt report.json / dangling Sales.NotAThing / removed Sales.tmdl /
+  empty CSV cell / Columns=1-vs-4 / corrupt pbit / non-zip; engine-emits-Columns=4 regression).
+  `npx vitest run __tests__/documents` → **9 files / 82 tests exit 0**; `npx tsc --noEmit` exit 0.
+- HONEST LIMIT: "opens in Power BI Desktop" NOT assertable locally (Desktop not installed; install needs
+  user approval). Structural gate = enforced approximation; no Desktop round-trip claimed.
+- Skip-spot re-review (`tests/regression_modalities.spec.ts` resume ~252 / powerbi ~476): BOTH stay
+  skipped by design — authoritative Rust `RendererMode` (ruke-contracts/decision.rs + lib/decision/
+  types.ts RENDERER_MODES) has NO resume/powerbi mode (zero-collision). Spec's "9-mode" comment stale
+  (8 since P4); conclusion unchanged.
+- Next: P6 chat-UI preservation sweep, then P7 final battery (full vitest re-run + ONE locked
+  model-driven Playwright fix-rerun loop). LEAVE MACHINE RUNNING at cycle end (amendment).
