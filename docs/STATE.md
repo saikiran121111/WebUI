@@ -4413,3 +4413,30 @@ edited (approved installers only).
   (8 since P4); conclusion unchanged.
 - Next: P6 chat-UI preservation sweep, then P7 final battery (full vitest re-run + ONE locked
   model-driven Playwright fix-rerun loop). LEAVE MACHINE RUNNING at cycle end (amendment).
+
+---
+
+## SESSION 2026-11-07 (end) — P7 DETERMINISTIC GATES ALL GREEN; USER PAUSED before the final Playwright loop
+
+- User request: "My pc is running for almost 2 days can we take a break so that we can continue
+  tomorrow." Paused at a clean checkpoint: no `playwright.lock`, no test run started, no servers up.
+- Shipped since last entry: `9536d70` (P5B-PowerBI structural gate + 2 real engine defects fixed)
+  pushed; `8ce2011` = checklist P7-gates record (PUSH NEXT SESSION if not yet pushed).
+- **P7 deterministic gates — ALL GREEN (recorded verbatim under the P7 checklist item):**
+  `npx tsc --noEmit` 0; FULL `npx vitest run` **122 files / 1 skipped; 1634 tests / 9 skipped, exit 0**
+  (253.82 s; +23 vs 1611 baseline); `npm run contracts:check` 0; `cargo test --workspace` **542 passed /
+  4 ignored, exit 0**; `npm run build` 0 — xlcalc ONLY in on-demand chunk 1981.*.js (728 KB), 0 refs in
+  shared initial chunks (91.9 kB First-Load JS) ⇒ §5.1 lazy law holds.
+- `ruke-server` binary freshly rebuilt (`cargo build -p ruke-server`, exit 0, 3 s); stale
+  `playwright test-server` pid 26676 killed; NO ruke-server.exe running at pause.
+- **TOMORROW'S RESUMPTION POINT (exact):** the ONE final locked model-driven Playwright
+  fix-rerun loop over the 41-spec `tests/` inventory — batches via
+  `powershell -Command "& scripts\run-browser-e2e-exclusive.ps1 -TestFiles 'a.spec.ts','b.spec.ts'"`
+  (launcher owns the lock atomically; per-Bash-call foreground ceiling is 10 min → keep batches
+  that size; heavy browser journeys solo: browser-easy/medium/hard/model-acceptance/scope-matrix,
+  form-probe 8-rounds, file-reading, long-doc-retrieval, universal-websites, web-search-10k).
+  Then: old-vs-new comparison, research/platform coverage checks, CLAUDE.md §4 completion report
+  (start SHA 5fb34ff → final SHA), handover update, flip P6/P7 + handoff checkboxes, commit+push.
+  Config facts re-verified: playwright.config.ts workers=1, test timeout 60 s/spec, browsers path
+  auto-set (.data/ms-playwright). LEAVE MACHINE RUNNING at cycle end (amendment) — user may
+  power-cycle on their own initiative; that is their call, not an auto-shutdown.
