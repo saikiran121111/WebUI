@@ -71,9 +71,10 @@ use crate::pw::{
     Seg, DEFAULT_TIMEOUT_MS,
 };
 use crate::schemas::{
-    CuaClickPayload, CuaDragPayload, CuaMovePayload, CuaScrollPayload, LocatorCheckedPayload,
-    LocatorClickPayload, LocatorKeyPayload, LocatorSelectPayload, LocatorTextPayload,
-    LocatorValuePayload, MouseButton, SelectOptionInput, SelectOptionOne, SelectOptionSingle,
+    CuaClickPayload, CuaDragPayload, CuaMovePayload, CuaScrollPayload, FillFormPayload,
+    FormFieldType, FormFormField, LocatorCheckedPayload, LocatorClickPayload, LocatorKeyPayload,
+    LocatorSelectPayload, LocatorTextPayload, LocatorValuePayload, MouseButton, SelectOptionInput,
+    SelectOptionOne, SelectOptionSingle,
 };
 use crate::session::{TabRecord, TurnKey};
 
@@ -160,6 +161,219 @@ fn main_css_target(selector: &str) -> Option<String> {
     match &segs[0] {
         Seg::Css(c) if looks_plain_css(c) => Some(c.trim().to_string()),
         _ => None,
+    }
+}
+
+// ── Batch form fields (Phase 3) ────────────────────────────────────────
+
+/// Hard bound on one `playwright_fill_form` batch: enough to fill any
+/// form the model has actually read, small enough that pre-validation
+/// and read-back each stay a single round-trip.
+pub(crate) const MAX_FORM_FIELDS: usize = 16;
+
+/// Typed payload → the pinned driver's `fields` array. Everything the
+/// driver would reject at actuation time is rejected HERE instead, with
+/// a message that names the field — a bad batch then costs zero
+/// side-effects (plan Phase 3: preconditions checked before applying).
+fn validate_fill_form(fields: &[FormFormField]) -> Result<Vec<Value>, BrowserError> {
+    if fields.is_empty() {
+        return Err(payload_invalid(
+            "playwright_fill_form",
+            "needs at least one field",
+        ));
+    }
+    if fields.len() > MAX_FORM_FIELDS {
+        return Err(payload_invalid(
+            "playwright_fill_form",
+            format!(
+                "takes at most {MAX_FORM_FIELDS} fields per batch (got {}); fill a smaller \
+                 batch, re-observe, then continue",
+                fields.len()
+            ),
+        ));
+    }
+    let mut out = Vec::with_capacity(fields.len());
+    for (i, f) in fields.iter().enumerate() {
+        if f.name.trim().is_empty() {
+            return Err(payload_invalid(
+                "playwright_fill_form",
+                format!("field {i} needs a non-empty name"),
+            ));
+        }
+        if f.target.trim().is_empty() {
+            return Err(payload_invalid(
+                "playwright_fill_form",
+                format!("field {:?} needs a non-empty target selector", f.name),
+            ));
+        }
+        if matches!(f.field_type, FormFieldType::Checkbox | FormFieldType::Radio)
+            && !matches!(f.value.as_str(), "true" | "false")
+        {
+            return Err(payload_invalid(
+                "playwright_fill_form",
+                format!(
+                    "field {:?}: checkbox/radio value must be \"true\" or \"false\" (got {:?})",
+                    f.name, f.value
+                ),
+            ));
+        }
+        out.push(json!({
+            "target": f.target,
+            "name": f.name,
+            "type": f.field_type,
+            "value": f.value,
+        }));
+    }
+    Ok(out)
+}
+
+/// Does the live field currently hold the intended value? Comboboxes
+/// get a second chance through `alt` (the selected option's VALUE
+/// attribute) because the driver addresses options by visible TEXT —
+/// an intent written as a value must not be called a failure when the
+/// right option is in fact selected.
+fn field_holds(f: &FormFormField, actual: &str, alt: Option<&str>) -> bool {
+    actual == f.value || (f.field_type == FormFieldType::Combobox && alt == Some(f.value.as_str()))
+}
+
+/// One live-read row (see `FORM_READ_JS`). `found: false` means the
+/// read could not say anything (target vanished or JS failed) — the
+/// honest third state between applied and not-applied.
+#[derive(Debug)]
+struct FormFieldState {
+    found: bool,
+    actual: String,
+    alt: Option<String>,
+}
+
+/// Pre-apply probe (single round-trip law): validate each target as
+/// unique, visible, enabled, and type-correct BEFORE the driver touches
+/// the page. Pushes the failure reason (a string) or null when the
+/// field is good — the Rust side keys on `is_string()`.
+const FORM_PROBE_JS: &str = r#"(specs)=>{
+    const out=[];
+    for (const s of specs){
+        let els;
+        try { els=document.querySelectorAll(s.target); }
+        catch(e){ out.push("target is not a valid CSS selector"); continue; }
+        if (els.length===0){ out.push("no element matches the target"); continue; }
+        if (els.length>1){ out.push("target is not unique ("+els.length+" elements match)"); continue; }
+        const el=els[0];
+        if (el.getClientRects().length===0){ out.push("element is not visible"); continue; }
+        if (el.disabled===true){ out.push("element is disabled"); continue; }
+        const tag=el.tagName;
+        const ty=(el.getAttribute("type")||"").toLowerCase();
+        const role=(el.getAttribute("role")||"").toLowerCase();
+        let bad=null;
+        if (s.type==="textbox"){
+            if (tag==="TEXTAREA" || (tag==="INPUT" && !["checkbox","radio","file","range","submit","button","image","hidden","color"].includes(ty))){
+                if (el.readOnly===true) bad="element is read-only";
+            } else bad="element is not a textbox";
+        } else if (s.type==="checkbox"){
+            if (!(tag==="INPUT" && ty==="checkbox")) bad="element is not a checkbox";
+        } else if (s.type==="radio"){
+            if (!(tag==="INPUT" && ty==="radio")) bad="element is not a radio button";
+        } else if (s.type==="combobox"){
+            if (!(tag==="SELECT" || role==="combobox")) bad="element is not a combobox (<select> or [role=combobox])";
+        } else if (s.type==="slider"){
+            if (!((tag==="INPUT" && ty==="range") || role==="slider")) bad="element is not a slider";
+        } else bad="unknown field type";
+        out.push(bad);
+    }
+    return out;
+}"#;
+
+/// Post-apply live read-back. Never raises: an unreadable target reads
+/// as `found:false` so partial progress is still reportable. For
+/// `<select>` the visible option text is `actual` and the option's
+/// value attribute is `alt`; checkboxes/radios read back as
+/// "true"/"false" so they are comparable to the payload's intent.
+const FORM_READ_JS: &str = r#"(specs)=>{
+    const out=[];
+    for (const s of specs){
+        let el=null;
+        try { const els=document.querySelectorAll(s.target); if (els.length===1) el=els[0]; } catch(e){}
+        if (el===null){ out.push({found:false, actual:""}); continue; }
+        const tag=el.tagName;
+        const role=(el.getAttribute("role")||"").toLowerCase();
+        if (s.type==="checkbox" || s.type==="radio"){ out.push({found:true, actual:String(el.checked===true)}); continue; }
+        if (tag==="SELECT"){
+            const o=(el.selectedOptions&&el.selectedOptions.length>0)?el.selectedOptions[0]:null;
+            out.push({found:true, actual:o?String(o.textContent||"").trim():"", alt:o?String(o.value):null});
+            continue;
+        }
+        if (role==="combobox"){
+            const v=(el.value!=null)?String(el.value):(el.getAttribute("aria-valuetext")||"");
+            out.push({found:true, actual:v, alt:el.getAttribute("aria-valuetext")});
+            continue;
+        }
+        out.push({found:true, actual:(el.value!=null)?String(el.value):""});
+    }
+    return out;
+}"#;
+
+/// The per-target spec both probe and read-back key on.
+fn form_spec(fields: &[FormFormField]) -> Value {
+    let spec: Vec<Value> = fields
+        .iter()
+        .map(|f| json!({ "target": f.target, "type": f.field_type }))
+        .collect();
+    Value::Array(spec)
+}
+
+fn parse_form_states(fields: &[FormFormField], out: &Value) -> Vec<FormFieldState> {
+    let arr = out.as_array();
+    (0..fields.len())
+        .map(
+            |i| match arr.and_then(|a| a.get(i)).filter(|r| r.is_object()) {
+                Some(r) => FormFieldState {
+                    found: r.get("found").and_then(|v| v.as_bool()).unwrap_or(false),
+                    actual: r
+                        .get("actual")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    alt: r.get("alt").and_then(|v| v.as_str()).map(str::to_string),
+                },
+                None => FormFieldState {
+                    found: false,
+                    actual: String::new(),
+                    alt: None,
+                },
+            },
+        )
+        .collect()
+}
+
+/// Human/model-readable progress line for the partial-failure path:
+/// exactly which names the live page confirms, denies, or cannot tell.
+fn describe_form_state(fields: &[FormFormField], states: &[FormFieldState]) -> String {
+    let mut ok: Vec<&str> = Vec::new();
+    let mut no: Vec<&str> = Vec::new();
+    let mut unk: Vec<&str> = Vec::new();
+    for (f, st) in fields.iter().zip(states) {
+        if !st.found {
+            unk.push(f.name.as_str());
+        } else if field_holds(f, &st.actual, st.alt.as_deref()) {
+            ok.push(f.name.as_str());
+        } else {
+            no.push(f.name.as_str());
+        }
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if !ok.is_empty() {
+        parts.push(format!("applied: {}", ok.join(", ")));
+    }
+    if !no.is_empty() {
+        parts.push(format!("not applied: {}", no.join(", ")));
+    }
+    if !unk.is_empty() {
+        parts.push(format!("unverifiable: {}", unk.join(", ")));
+    }
+    if parts.is_empty() {
+        "no fields".to_string()
+    } else {
+        parts.join("; ")
     }
 }
 
@@ -986,6 +1200,131 @@ impl BrowserRuntime {
         Ok(json!({}))
     }
 
+    /// Phase 3 (plan): drive an already-observed form in ONE batch over
+    /// the same pinned MCP `browser_fill_form` driver. Three honesty
+    /// laws: pre-validate every target BEFORE anything is applied (a
+    /// bad batch stops with zero side-effects), read the LIVE field
+    /// values back after the call — a successful call is not the
+    /// outcome — and report partial progress truthfully so a
+    /// half-applied batch is never blindly re-applied whole.
+    pub(crate) async fn bridge_fill_form(
+        &self,
+        key: &TurnKey,
+        conn: &CdpConn,
+        rec: &TabRecord,
+        p: &FillFormPayload,
+    ) -> Result<Value, BrowserError> {
+        let batch = validate_fill_form(&p.fields)?;
+        let _guard = self.mcp_call.lock().await;
+        let probe = pw_eval_fn(
+            conn,
+            &rec.cdp_session_id,
+            FORM_PROBE_JS,
+            &[form_spec(&p.fields)],
+        )
+        .await?;
+        if let Some(idx) = probe
+            .as_array()
+            .and_then(|a| a.iter().position(|r| r.is_string()))
+        {
+            let f = &p.fields[idx];
+            let why = probe[idx].as_str().unwrap_or("precondition failed");
+            return Err(BrowserError::LocatorFailed {
+                selector: f.target.clone(),
+                reason: format!(
+                    "playwright_fill_form stopped before applying ANY field: field {:?} ({}) \
+                     — {why}. Fix the batch (single-field commands still work) or re-observe \
+                     the page",
+                    f.name, f.target
+                ),
+            });
+        }
+        let sess = self.mcp_ready(conn, rec).await?;
+        if let Err(e) = self
+            .mcp_call1(
+                &sess,
+                key,
+                tool::FILL_FORM,
+                json!({ "fields": batch }),
+                None,
+            )
+            .await
+        {
+            let states = self.form_field_state(conn, rec, &p.fields).await;
+            return Err(BrowserError::LocatorFailed {
+                selector: String::new(),
+                reason: format!(
+                    "playwright_fill_form halted mid-batch: {e}. Live read-back: {}. Do NOT \
+                     blindly re-apply the whole batch: re-observe and fill only what is \
+                     missing",
+                    describe_form_state(&p.fields, &states)
+                ),
+            });
+        }
+        let states = self.form_field_state(conn, rec, &p.fields).await;
+        let mut verified = 0usize;
+        let read: Vec<Value> = p
+            .fields
+            .iter()
+            .zip(&states)
+            .map(|(f, st)| {
+                let holds = field_holds(f, &st.actual, st.alt.as_deref());
+                if holds {
+                    verified += 1;
+                }
+                json!({
+                    "name": f.name,
+                    "target": f.target,
+                    "intended": f.value,
+                    "actual": st.actual,
+                    "verified": holds,
+                })
+            })
+            .collect();
+        let all_verified = verified == p.fields.len();
+        Ok(json!({
+            "applied": verified,
+            "total": p.fields.len(),
+            "all_verified": all_verified,
+            "fields": read,
+            "note": if all_verified {
+                "read-back confirms every field holds its intended value"
+            } else {
+                "READ-BACK DISAGREES: some fields do not hold their intended values; \
+                 re-observe before continuing"
+            },
+        }))
+    }
+
+    /// Read-back that can never fail the command: a broken probe just
+    /// makes every field unverifiable (found:false), which the
+    /// caller's honest wording covers.
+    async fn form_field_state(
+        &self,
+        conn: &CdpConn,
+        rec: &TabRecord,
+        fields: &[FormFormField],
+    ) -> Vec<FormFieldState> {
+        match pw_eval_fn(
+            conn,
+            &rec.cdp_session_id,
+            FORM_READ_JS,
+            &[form_spec(fields)],
+        )
+        .await
+        {
+            Ok(v) => parse_form_states(fields, &v),
+            Err(_) => fields
+                .iter()
+                .map(|_| FormFieldState {
+                    found: false,
+                    actual: String::new(),
+                    alt: None,
+                })
+                .collect(),
+        }
+    }
+
     pub(crate) async fn bridge_select_option(
         &self,
         key: &TurnKey,
@@ -1525,6 +1864,115 @@ impl BrowserRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ff(name: &str, ty: FormFieldType, target: &str, value: &str) -> FormFormField {
+        FormFormField {
+            name: name.to_string(),
+            field_type: ty,
+            target: target.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    fn payload_reason(e: &BrowserError) -> String {
+        match e {
+            BrowserError::PayloadInvalid { reason, .. } => reason.clone(),
+            other => other.to_string(),
+        }
+    }
+
+    #[test]
+    fn empty_form_batch_is_a_payload_error() {
+        let e = validate_fill_form(&[]).unwrap_err();
+        assert!(matches!(e, BrowserError::PayloadInvalid { .. }));
+        assert!(payload_reason(&e).contains("at least one field"));
+    }
+
+    #[test]
+    fn oversized_form_batch_names_the_cap() {
+        let big = vec![ff("f", FormFieldType::Textbox, "#i", "v"); MAX_FORM_FIELDS + 1];
+        let e = validate_fill_form(&big).unwrap_err();
+        assert!(payload_reason(&e).contains(&MAX_FORM_FIELDS.to_string()));
+    }
+
+    #[test]
+    fn blank_names_and_targets_are_rejected_by_name() {
+        let e = validate_fill_form(&[ff("  ", FormFieldType::Textbox, "#a", "v")]).unwrap_err();
+        assert!(payload_reason(&e).contains("non-empty name"));
+        let e = validate_fill_form(&[ff("a", FormFieldType::Textbox, " ", "v")]).unwrap_err();
+        assert!(payload_reason(&e).contains("non-empty target"));
+    }
+
+    #[test]
+    fn checkbox_values_must_be_literal_boolean_strings() {
+        let e = validate_fill_form(&[ff("c", FormFieldType::Checkbox, "#c", "True")]).unwrap_err();
+        let r = payload_reason(&e);
+        assert!(
+            r.contains("must be \"true\" or \"false\""),
+            "unhelpful: {r}"
+        );
+    }
+
+    #[test]
+    fn form_batch_wire_shape_matches_the_pinned_driver() {
+        let v = validate_fill_form(&[ff(
+            "plan",
+            FormFieldType::Radio,
+            "input[name=\"plan\"][value=\"annual\"]",
+            "true",
+        )])
+        .unwrap();
+        assert_eq!(
+            v[0],
+            json!({
+                "target": "input[name=\"plan\"][value=\"annual\"]",
+                "name": "plan",
+                "type": "radio",
+                "value": "true",
+            })
+        );
+    }
+
+    #[test]
+    fn combobox_holds_on_option_text_or_value_attr() {
+        let f = ff("plan", FormFieldType::Combobox, "#plan", "business");
+        assert!(field_holds(&f, "business", None));
+        assert!(field_holds(&f, "Business Plan", Some("business")));
+        assert!(!field_holds(&f, "personal", Some("personal")));
+        let c = ff("agree", FormFieldType::Checkbox, "#agree", "true");
+        assert!(field_holds(&c, "true", None));
+        assert!(!field_holds(&c, "false", Some("business")));
+    }
+
+    #[test]
+    fn form_state_description_splits_applied_missing_unverifiable() {
+        let fields = vec![
+            ff("a", FormFieldType::Textbox, "#a", "x"),
+            ff("b", FormFieldType::Checkbox, "#b", "true"),
+            ff("c", FormFieldType::Textbox, "#c", "y"),
+        ];
+        let states = vec![
+            FormFieldState {
+                found: true,
+                actual: "x".into(),
+                alt: None,
+            },
+            FormFieldState {
+                found: true,
+                actual: "false".into(),
+                alt: None,
+            },
+            FormFieldState {
+                found: false,
+                actual: String::new(),
+                alt: None,
+            },
+        ];
+        let d = describe_form_state(&fields, &states);
+        assert!(d.contains("applied: a"), "{d}");
+        assert!(d.contains("not applied: b"), "{d}");
+        assert!(d.contains("unverifiable: c"), "{d}");
+    }
 
     #[test]
     fn plain_css_routes_direct_multi_segment_and_engines_do_not() {

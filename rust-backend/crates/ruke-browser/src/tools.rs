@@ -460,6 +460,28 @@ pub fn model_tools() -> Value {
         &["tab_id", "selector", "checked"],
     );
     t(
+        "playwright_fill_form",
+        "Set 2-16 fields of ONE already-observed form in a single batch (the one-call way to \
+         drive a form you have read). Every target must be a plain main-frame CSS selector. \
+         Each field: name (any label), type (textbox/checkbox/radio/combobox/slider), target, \
+         value (text for textbox/slider; \"true\"/\"false\" for checkbox/radio; the option's \
+         visible text for combobox). Pre-validated: a bad target stops the batch BEFORE \
+         anything is applied. The result carries a per-field VERIFIED read-back of the live \
+         values — trust it over the call's success. Only batch values you already have; never \
+         guess fields for a page you have not read.",
+        json!({"tab_id": tab(), "fields": {"type": "array", "minItems": 1, "maxItems": 16, "items": json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "type": {"enum": ["textbox", "checkbox", "radio", "combobox", "slider"]},
+                "target": sel(),
+                "value": {"type": "string", "description": "text for textbox/slider; \"true\" or \"false\" for checkbox/radio; the option's visible text for combobox"},
+            },
+            "required": ["name", "type", "target", "value"],
+        })}}),
+        &["tab_id", "fields"],
+    );
+    t(
         "playwright_locator_wait_for",
         "Wait for a locator's state.",
         json!({"tab_id": tab(), "selector": sel(), "state": {"enum": ["attached", "detached", "visible", "hidden"]}, "timeout_ms": timeout()}),
@@ -772,7 +794,7 @@ mod tests {
 
     /// Phase 15 law: `execute()`'s match is EXHAUSTIVE — rustc
     /// enforces an arm for every registry kind, and this ledger
-    /// double-checks the same fact from the test side (83 rows).
+    /// double-checks the same fact from the test side (`ALL.len()` rows).
     #[test]
     fn every_registry_kind_has_a_real_executor_arm() {
         let src = include_str!("../src/executor.rs");
@@ -792,7 +814,7 @@ mod tests {
 
     /// The registry is exactly partitioned: every kind is either
     /// model-exposed or in `NOT_MODEL_EXPOSED` — never both, never
-    /// neither (83 = 79 exposed + 4 hidden).
+    /// neither (each side sized by the registry itself).
     #[test]
     fn registry_is_fully_partitioned_between_exposed_and_hidden() {
         let exposed = exposed_names();

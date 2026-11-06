@@ -142,10 +142,11 @@ test.describe("browser real-model acceptance (leg 2, one journey per locked invo
     await runTurn(
       page,
       `Use the browser tools on the already-open tab at ${FIXTURE_BASE}/medium (do not open new tabs): ` +
-        `type RUKE-MEDIUM-42X into the input with CSS selector "#note-input"; select the option value "business" ` +
-        `in the select "#tier-select"; tick the checkbox "#subscribe-box"; check the radio button with CSS selector ` +
-        `input[name="plan"][value="annual"]; then click the button "#submit-btn". Finally read the page and list ` +
-        `the echoed lines you see.`,
+        `type RUKE-MEDIUM-42X into the input with CSS selector "#note-input"; select the option whose value ` +
+        `is "business" (its visible text is "Business") in the select "#tier-select"; tick the checkbox ` +
+        `"#subscribe-box"; check the radio button with CSS selector input[name="plan"][value="annual"]. ` +
+        `If one tool can set several of these fields in a single call, prefer that. Then click the button ` +
+        `"#submit-btn". Finally read the page and list the echoed lines you see.`,
     );
 
     await until(async () => (await tabUrl(e2e, tab)).includes("/medium/echo"), 30_000, "form submission to /medium/echo");

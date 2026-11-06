@@ -778,6 +778,42 @@ pub struct LocatorCheckedPayload {
     pub checked: bool,
 }
 
+// ── Batch form actuation (Phase 3) ─────────────────────────────────────
+
+/// Control kinds accepted by `playwright_fill_form` — mirroring the
+/// pinned driver's `browser_fill_form` field vocabulary (0.0.84 live
+/// tools/list dump).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormFieldType {
+    Textbox,
+    Checkbox,
+    Radio,
+    Combobox,
+    Slider,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct FormFormField {
+    pub name: String,
+    /// Driver wire name is `type`.
+    #[serde(rename = "type")]
+    pub field_type: FormFieldType,
+    pub target: String,
+    pub value: String,
+}
+
+/// One bounded batch of known form fields (Phase 3): the model sends
+/// only fields it has observed and decided on; `bridge_fill_form`
+/// validates every target BEFORE applying any, then reads the live
+/// values back.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct FillFormPayload {
+    pub browser_id: String,
+    pub tab_id: String,
+    pub fields: Vec<FormFormField>,
+}
+
 /// Locator.waitFor({state, timeoutMs?}).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum WaitForState {

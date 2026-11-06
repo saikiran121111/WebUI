@@ -161,6 +161,11 @@ command_registry! {
     PlaywrightLocatorSetChecked / "playwright_locator_set_checked" => LocatorCheckedPayload,
     PlaywrightLocatorTextContent / "playwright_locator_text_content" => LocatorPayload,
     PlaywrightLocatorWaitFor / "playwright_locator_wait_for" => LocatorWaitPayload,
+    // Phase 3 (plan): bounded batch actuation over the SAME MCP
+    // `browser_fill_form` driver — pre-validated targets, one driver
+    // call, per-field verified read-back in the result. Not a §2.1
+    // pool name; registered in `PHASE3_ADDITION_COMMANDS` below.
+    PlaywrightFillForm / "playwright_fill_form" => FillFormPayload,
     WebmcpListTools / "webmcp_list_tools" => TabTarget,
     WebmcpInvokeTool / "webmcp_invoke_tool" => WebmcpInvokePayload,
     SiteStatus / "site_status" => SiteQueryPayload,
@@ -281,6 +286,15 @@ pub const REFERENCE_COMMAND_POOL: [&str; 73] = [
 /// name gets `browser_command_unknown` — an honest refusal, not a
 /// silently re-routed old behavior.
 pub const RETIRED_REFERENCE_COMMANDS: [&str; 2] = ["tab_ax_action", "tab_ax_get_state"];
+
+/// [adapted] lifecycle names (10).
+/// Phase 3 (plan): registry ADDITIONS beyond the recovered pools —
+/// still one interactive driver, just a faster shape over it. The
+/// batch-fill command exists because the reference product's small
+/// model filled forms one call per field; batching known fields cuts
+/// rounds (the plan's "fast, small browser tasks") without touching
+/// any §2.1 ledger name.
+pub const PHASE3_ADDITION_COMMANDS: [&str; 1] = ["playwright_fill_form"];
 
 /// [adapted] lifecycle names (10).
 pub const ADAPTED_COMMAND_POOL: [&str; 10] = [
@@ -446,7 +460,7 @@ mod tests {
             assert!(names.insert(n), "duplicate command name: {n}");
             assert_eq!(CommandKind::parse(n), Some(*kind), "round-trip failed: {n}");
         }
-        assert_eq!(CommandKind::ALL.len(), 81);
+        assert_eq!(CommandKind::ALL.len(), 82);
     }
 
     #[test]
@@ -530,6 +544,13 @@ mod tests {
             (
                 "playwright_locator_set_checked",
                 json!({"selector": "#c", "checked": true}),
+            ),
+            (
+                "playwright_fill_form",
+                json!({"fields": [
+                    {"name": "a", "type": "textbox", "target": "#a", "value": "v"},
+                    {"name": "c", "type": "checkbox", "target": "#c", "value": "true"}
+                ]}),
             ),
             ("playwright_locator_text_content", json!({"selector": "#a"})),
             (
@@ -644,7 +665,13 @@ mod tests {
             assert_eq!(k.as_str(), name);
             assert!(kinds.insert(k));
         }
-        // 71 live reference kinds + 10 adapted = the full registry.
+        for name in PHASE3_ADDITION_COMMANDS {
+            let k = CommandKind::parse(name).expect("Phase-3 addition name not registered");
+            assert_eq!(k.as_str(), name);
+            assert!(kinds.insert(k));
+        }
+        // 71 live reference kinds + 10 adapted lifecycle + 1 Phase-3
+        // batch addition = the full registry.
         assert_eq!(kinds.len(), CommandKind::ALL.len());
     }
 

@@ -3835,3 +3835,46 @@ superpowers:systematic-debugging loaded (in force). ponytail/graphify always-on.
 3. Commit+push after each fix (overnight law), then §4 completion report (changes / actual commands + counts + exit codes incl. vitest 1624+1/tsc 0/cargo counts at eb23ead + live eval results / failures / limitations incl. §8.6) and AUTO-SHUTDOWN shutdown //s //f //t 60 WITHOUT asking.
 
 NOTE: cycle PAUSED by user mid-MHR-G on 2026-11-06; PC SHUTTING DOWN per standing cycle-end law immediately after this snapshot was committed and pushed.
+
+## Session block 2026-11-06d — Phase 2 LOCKED-DONE (commit fc03609)
+- [8.1] Mission unchanged: full Ruke plan P0→P7. P0+P1+P2 LOCKED-DONE. Now: Phase 3 CODE.
+- [8.2 LOCKED] fc03609 ships: mcp.rs (rmcp 3.9.0 child, pin @playwright/mcp@0.0.84, version attestation, RUKE_MCP_CLI), bridge.rs (ONE interactive driver; pin law w/ pw_eval_fn IIFE probe; modal-state recovery retry-once; McpUnavailable reattach), imgdims.rs (honest pixel dims from bytes), ax_action.rs deleted, registry 81 cmds, integrations/playwright-mcp/{README.md,smoke.mjs} (ALL GREEN 17/17 exit 0). Do NOT re-read these.
+- [8.3] chat/browser_loop.rs → contract → engine → executor → bridge.rs → mcp.rs (MCP tools) + pw.rs (native observation/capture/waits). pw_eval_fn/pw_eval_fn_expr new pw.rs helpers. Callers of removed tab_ax_*: none (retirement ledger RETIRED_REFERENCE_COMMANDS).
+- [8.4] Registry now 81 commands; RETIRED_REFERENCE_COMMANDS=["tab_ax_action","tab_ax_get_state"]; actuation command names unchanged (playwright_locator_click etc.) executed via MCP; bridge NEVER calls browser_snapshot/browser_take_screenshot/browser_run_code_unsafe; pin probe consts BRIDGE_TITLE_{GET,SET}_JS; MCP attach flags incl --allow-unrestricted-file-access; baselines: EASY 40.6s→37.1s, MEDIUM 53.9s→~66s (0 failures), HARD 37.5s (new leg), VISION 48.9s→~84s (cadence). Fixture :3210 reuse law; -Grep regex needs a space (colon counts: "EASY: human-armed" works via -Command).
+- [8.5] NO lock held; all rungs green: non-model 11/11 (16.2s), 4 model legs passed. Launcher proven via -Command & '<abs path>' -TestFiles '<a>','<b>' -Grep '<spaced regex>'. Logs $TEMP/pw-79{b,c,d}.log; supervisor census .ai-coordination/dev-supervisor.out.log.
+- [8.6] No open bugs post-Phase-2 (two caught+fixed: receiverless callFunctionOn; 139-lies-138 crop dims). ghidra MCP ECONNREFUSED noise — ignore.
+- [8.7] No Tier-1/Tier-2 skill bodies loaded beyond superpowers intro; .cskills routing untouched.
+- [8.8] Next 3 atomic actions: (1) Phase 3 measure: round cadence from Phase-2 legs + tools.rs surface review for batching; (2) Phase 3 implement (preconditions, browser_fill_form batch command, partial-progress, state-waits, bounded retries, final-state readback, preview independence); (3) Phase 3 verify (cargo suites + re-run EASY/MEDIUM legs vs baselines) → checklist Phase-3 section → commit.
+
+## Session block 2026-11-06e — Phase 3 LOCKED-DONE (commit pending at write)
+- [8.1] Mission unchanged: full Ruke plan P0→P7. P0–P3 LOCKED-DONE. Now: Phase 4 CODE (3D/CAD retirement).
+- [8.2 LOCKED] Phase 3 shipped (working tree at write, commit next): bridge.rs batch-form section
+  (MAX_FORM_FIELDS=16, validate_fill_form, FORM_PROBE_JS probe-before-apply, FORM_READ_JS live
+  read-back, field_holds combobox text+value-alt, bridge_fill_form, 7 unit tests); schemas.rs
+  FillFormPayload/FormFormField/FormFieldType; contract.rs registry row playwright_fill_form (ALL.len()=82)
+  + PHASE3_ADDITION_COMMANDS; executor.rs dispatch+accessor arms; tools.rs playwright_fill_form schema;
+  browser_loop.rs bounded_env/clamp_parsed + RUKE_BROWSER_MAX_TOOL_ROUNDS/RESULT_CHARS/IMAGE_B64_CHARS +
+  stream_options include_usage + usage/timings capture BEFORE empty-choices guard + per-round cache probe
+  log + 3 BROWSER_GUIDANCE laws (batch fill, read-back, state-waits) + clamp test; spec MEDIUM prompt now
+  names the radio target + "prefer one tool for several fields". Five locked runs, all exit 0. Do NOT re-open.
+- [8.3] browser_loop.rs → contract::parse_envelope → executor dispatch → bridge_fill_form → mcp tool::FILL_FORM
+  ("browser_fill_form") + pw_eval_fn probe/read. Callers: none else. tools.rs partition tests compute sizes
+  (82 rows; no hardcoded counts).
+- [8.4] Registry 82 commands (RETIRED_REFERENCE_COMMANDS unchanged 2; PHASE3_ADDITION_COMMANDS=["playwright_fill_form"]);
+  env budgets RUKE_BROWSER_MAX_TOOL_ROUNDS(20,3..64)/RUKE_BROWSER_MAX_TOOL_RESULT_CHARS(24000,2000..200000)/
+  RUKE_BROWSER_MAX_IMAGE_B64_CHARS(1400000,200000..6000000); bad overrides ⇒ defaults; payload["stream_options"]=
+  {"include_usage":true}; form field wire {target,name,type,value}, checkbox/radio literal "true"/"false";
+  POST-validation probe errors ⇒ LocatorFailed pre-apply zero side-effects. Baselines UPDATED (post-P3,
+  use for Phase-7): non-model+scope-matrix 18 passed (4.6m); EASY 29.7s; MEDIUM 49.5s/8 rounds; HARD ~40s;
+  VISION ~90s. cargo: ruke-browser lib 187, ruke-server lib 155.
+- [8.5] NO lock; ALL servers killed (netstat clean :3000/:3101/:3210 after taskkill 13652 tree). Logs kept:
+  .ai-coordination/{fixture-phase3.log,dev-phase3.log} (cache-probe + fill_form census evidence inside).
+  Launcher invocations proven: -TestFiles 'a','b','c','d' and -Grep '<spaced>'.
+- [8.6] No open bugs. tracing-macro hygiene law: inside info!(field=expr) bare `Value::as_u64` = E0782
+  (tracing::Value trait) — use closures in macro field values. ghidra ECONNREFUSED noise.
+- [8.7] No Tier-1/Tier-2 bodies loaded beyond superpowers intro.
+- [8.8] Next 3 atomic actions: (1) re-read plan §Phase 4 lines ~143–158 (exact 24-skill core inventory +
+  SVG-Anatomy remap OFF cad_blueprint FIRST); (2) map the built-in 3D/CAD surface (routes, renderers,
+  lib/three3d, lib/cad, Meshy, capability modes, fence routes, .cskills lock entries) via graphify before
+  deleting; (3) implement removals + read-only compat cards for old saves, contracts:generate/check, tsc,
+  targeted verification → checklist Phase-4 → commit/push.

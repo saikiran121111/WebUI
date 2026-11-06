@@ -206,6 +206,67 @@ server, kill the stale instance first (it carries old routes).**
 two-session proof green; upstream pin + smoke durable in `integrations/playwright-mcp/`; no regressions
 on the preserved-feature battery or the four real-model legs.**
 
+## Phase 3 — Fast small browser tasks on the surviving MCP driver — [LOCKED-DONE]
+
+### Implementation
+
+- **Batch actuation (`playwright_fill_form`, registry 81 → 82):** one command over MCP
+  `browser_fill_form` (`mcp::tool::FILL_FORM`); 1–16 fields per batch (`MAX_FORM_FIELDS`),
+  field kinds textbox/checkbox/radio/combobox/slider. Schemas: `FillFormPayload`/
+  `FormFormField`/`FormFieldType`; registry row + `PHASE3_ADDITION_COMMANDS` ledger (additions,
+  not adapted-pool); tool schema `minItems`/`maxItems` bounds.
+- **Preconditions before acting (plan law):** three-stage contract in `bridge_fill_form` —
+  (1) payload validation: empty batch, >16 cap names the count, blank name/target rejected BY NAME,
+  checkbox/radio value must be literal `"true"/"false"` (the baseline's `"True"` failure class is
+  now impossible); (2) **probe-before-apply** (`FORM_PROBE_JS` via raw CDP): per target — valid
+  selector / exists / unique (`target is not a unique` counts matches) / visible / enabled / kind
+  match / read-only refusal — first bad field aborts with **ZERO side-effects** and an actionable
+  message ("Fix the batch (single-field commands still work) or re-observe the page");
+  (3) ONE driver call, then **live read-back** (`FORM_READ_JS`): per field `{name,target,intended,
+  actual,verified}`; combobox verifies on option TEXT with selected-option `value` attr fallback;
+  mid-batch halt ⇒ `applied/total` counts + read-back + "Do NOT blindly re-apply" honesty.
+- **State-based waits + read-back laws (BROWSER_GUIDANCE, 9 → 12 bullets):** one-batch fill law
+  (≤16 observed fields, pre-validated, trust the read-back); read-back-of-outcome law (verify the
+  final page state, never trust a tool echo alone); state-wait law (prefer `playwright_wait_for_url
+  /wait_for_load_state/locator_wait_for` over fixed `wait_for_timeout`).
+- **Bounded retries / configurable budgets (browser_loop):** `max_tool_rounds()`
+  `RUKE_BROWSER_MAX_TOOL_ROUNDS` (default 20, clamp 3..64), `max_tool_result_chars()`
+  `RUKE_BROWSER_MAX_TOOL_RESULT_CHARS` (24 000, 2 000..200 000), split-tool images
+  `RUKE_BROWSER_MAX_IMAGE_B64_CHARS` (1.4 M, 200 000..6 000 000) — `bounded_env`+`clamp_parsed`:
+  any bad/negative/oversized override falls back to the safe default, never crashes.
+- **Stable prompt/tool prefixes + cache measurement (new probe):** `stream_options
+  {"include_usage":true}` now rides every loop request (endpoint honors it); relay captures
+  `usage`/`timings` on metrics frames BEFORE the empty-choices guard; per-round probe log pairs
+  llama.cpp `prompt_n` (tokens actually re-evaluated) with OpenAI `usage.cached_tokens`.
+  **Measured live (MEDIUM run):** prompt_n per round **349 / 231 / 98 / 325 / 68 / 218** against
+  prompt_tokens 12 550–13 465 with cached_tokens **12 201–13 247 ⇒ ~97 % KV reuse** — the
+  byte-stable prefix (fixed-order tools + append-only messages) is proven, not assumed.
+- **Warm sessions:** persistent Chromium + MCP child already survive turns; the launcher reuses a
+  live :3000/:3101/:3210 stack (this phase used a warm manually-started stack; operator killed the
+  servers afterward — recorded law).
+
+### Verification actually run (2026-11-06, all exit codes real)
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p ruke-browser --lib` | **187 passed** (+7 fill_form unit tests: payload errors name-by-name, cap, wire shape pinned, combobox dual-hold, state description) |
+| `cargo test -p ruke-server --lib` | **155 passed** (+1 `clamp_parsed_falls_back_and_clamps_every_override`) |
+| `cargo test --workspace --no-fail-fast` | **all ok** |
+| E2E run 1 (locked): `-TestFiles easy,medium,hard,scope-matrix` | **18 passed (4.6 m)**, exit 0 — 11 non-model + 7 scope-matrix legs (6 model-driven scope journeys + omnibox) all green through the normal entry point |
+| Real-model MEDIUM (`-Grep "MEDIUM: model fills"`) | **PASSED 49.5 s (8 rounds)** vs baseline 53.9 s / 12 rounds / 42.7 s loop — model **spontaneously chose `playwright_fill_form`** (census: batch at rounds 3/5, `ok=true`, all four fields) after ONE claim-law refusal it self-recovered in a single round |
+| Real-model EASY | **PASSED 29.7 s** vs 40.6 s → 37.1 s (new best; guidance laws caused no regression) |
+| Real-model HARD | **PASSED 39.9 s** vs 37.5 s — within noise; popup-adopt + deliverable intact |
+| Real-model VISION | **PASSED ~90 s** — inside the known post-P2 cadence band (~84 s); verdict assertion unchanged |
+
+**New comparison baselines (post-P3):** non-model+scope-matrix **18/18 (4.6 m)**; EASY **29.7 s**;
+MEDIUM **49.5 s / 8 rounds**; HARD **~40 s**; VISION **~90 s**. These supersede the Phase-2 numbers
+for the Phase-7 final-loop comparison.
+
+**Phase 3 status: [LOCKED-DONE] — batch form actuation with probe-before-apply and live read-back;
+preconditions before acting; state-wait + read-back guidance laws; bounded configurable budgets with
+safe fallbacks; warm-stack reuse; cache-prefix reuse MEASURED (~97 %). Five locked launcher
+invocations, all exit 0, no app defects.**
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
@@ -218,9 +279,12 @@ on the preserved-feature battery or the four real-model legs.**
       ruke-browser; SAME authorized Chromium (loopback CDP attach); lifecycle/preview/permissions/downloads/login
       preserved; session isolation; timeouts/cancellation/cleanup; superseded custom code removed per-regression;
       ONE interactive action driver at the end
-- [ ] **P3** fast small browser tasks: warm sessions, `browser_fill_form`, bounded batches, preconditions,
-      partial-progress + fresh observation, state-based waits, stable prompt/tool prefixes, final-state readback,
-      preview frames independent of model requests
+- [x] **P3** fast small browser tasks: warm sessions (launcher-reused stack; persistent Chromium+MCP child),
+      `browser_fill_form` batch (1–16 fields, one driver call), bounded batches (cap names the count),
+      preconditions probed BEFORE acting (zero side-effects on bad batches), partial-progress honesty +
+      live per-field read-back, state-based waits (guidance law), stable prompt/tool prefixes (~97 % cached
+      tokens MEASURED via stream_options + prompt_n probe), final-state readback law, preview frames
+      untouched by model requests (scope-matrix WORKING TAB green)
 - [ ] **P4** 3D/CAD retirement: routes, renderers, lib/three3d, lib/cad, Meshy, capability modes, fence routes,
       24-skill core inventory removal (exact list in plan §Phase 4), lock entries, SVG-Anatomy remap OFF `cad_blueprint` FIRST,
       read-only compat for old saves, `contracts:generate` + `contracts:check` green
@@ -251,12 +315,10 @@ on the preserved-feature battery or the four real-model legs.**
 
 ## Next action (updated as the run proceeds)
 
-1. **Phase 3 (CODE):** fast small browser tasks on the surviving MCP driver — batch actuation via
-   `browser_fill_form` behind one command; preconditions checked before acting (not after failure);
-   partial-progress reporting + fresh observation after partial batches; state-based waits (no fixed
-   sleeps); warm session reuse across turns; cache-friendly stable prompt/tool prefixes; bounded retries
-   on transient failures; read-back-of-outcome law per action (verify final state, never trust the
-   tool echo alone); preview frames independent of model requests. Measure first (baseline round
-   counts from Phase-2 legs), implement, then re-run EASY/MEDIUM legs vs baselines.
-2. Commits so far: `66b76b9` (P1), `074d6b0` (P1 docs), `fc03609` (P2 code). develop push: try at each
-   phase boundary (network permitting).
+1. **Phase 4 (CODE):** retire built-in 3D/CAD per plan §Phase 4 (lines 143–158): re-read the exact
+   24-skill core inventory FIRST; SVG-Anatomy remap OFF `cad_blueprint` before any removal; then
+   routes/renderers/`lib/three3d`/`lib/cad`/Meshy/capability modes/fence routes/lock entries;
+   read-only compat cards for old saves; `npm run contracts:generate` + `contracts:check` green;
+   do NOT install FreeCAD/JSCAD/Maker.js/LibreCAD/model-viewer/glTF/Blender; preserve saved
+   conversations, 2D art, Mermaid, SVG.
+2. Commits so far: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2, pushed), P3 commit follows.

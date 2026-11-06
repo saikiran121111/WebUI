@@ -600,6 +600,14 @@ impl BrowserRuntime {
                 let conn = self.client().await?;
                 self.bridge_set_checked(key, &conn, &rec, p).await
             }
+            // Phase 3 (plan): bounded batch fill — same MCP driver,
+            // pre-validated targets, verified per-field read-back.
+            Command::PlaywrightFillForm(p) => {
+                check_browser(&p.browser_id)?;
+                let rec = self.actable_tab(&p.tab_id, key)?;
+                let conn = self.client().await?;
+                self.bridge_fill_form(key, &conn, &rec, p).await
+            }
             // ── Phase 8: dialogs, screenshots, downloads,
             //    file choosers, DOM-CUA keys/media ────────────────────
             Command::TabScreenshot(p) => {
@@ -1901,6 +1909,7 @@ fn guarded_tab_id(cmd: &Command) -> Option<String> {
         Command::PlaywrightLocatorPressSequentially(p) => Some(p.tab_id.clone()),
         Command::PlaywrightLocatorSelectOption(p) => Some(p.tab_id.clone()),
         Command::PlaywrightLocatorSetChecked(p) => Some(p.tab_id.clone()),
+        Command::PlaywrightFillForm(p) => Some(p.tab_id.clone()),
         Command::PlaywrightLocatorDownloadMedia(p) => Some(p.tab_id.clone()),
         // Phase 15: CUA input drives the page directly — it queues
         // behind a parked dialog like every other page mutation.
