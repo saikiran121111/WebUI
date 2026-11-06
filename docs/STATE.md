@@ -4159,3 +4159,64 @@ edited (approved installers only).
    P5B → P6 → provider READMEs → P7 battery + the FINAL locked serial model-driven Playwright fix-rerun loop, then the
    CLAUDE.md §4 report. LEAVE THE MACHINE RUNNING — the handover file's shutdown instruction is historical, per the
    user's amendment.
+
+## Session block 2026-11-06h — findings 5 + 6 CLOSED (browser-verified under the lock)
+- [8.1] Mission unchanged: entire Ruke plan P0→P7 unattended on `develop`; P0–P4 + P5A LOCKED-DONE. Still in the
+  governing "STOP → resolve the 8 findings" phase. Amendment in force: finish with the report and LEAVE THE MACHINE
+  RUNNING. Findings now closed: 1, 2, 4, 5, 6, 8 (+3 repaired, one model gate left). Open: finding 7 only.
+- [8.2 LOCKED — do not re-read/re-do]
+  * **Finding 6 shipped (uncommitted→committed this block).** `lib/render/htmlSrcDoc.ts` (NEW):
+    `HTML_ARTIFACT_SANDBOX = "allow-scripts"` (NEVER re-add `allow-same-origin` — a srcdoc frame INHERITS the parent
+    origin, so the old pair gave model HTML `parent.document`, app cookies/storage, authenticated `/api/*` reads);
+    `buildSrcDoc()`; `HtmlViewerResizeMessage {type,width,height,luma}`; `INVERT_LUMA_THRESHOLD=0.5`+`shouldInvert()`;
+    `STORAGE_SHIM_SCRIPT` (in-memory localStorage/sessionStorage, installed only when the native accessor is absent or
+    throws); `RESIZE_SCRIPT` carries `luma` (Rec.709 .2126/.7152/.0722 over 255 from
+    `getComputedStyle(body||html).backgroundColor`) because the parent can no longer read `frame.contentDocument`.
+    `injectIntoHead` inserts at the START of `<head>` (a `</head>`-keyed inject landed the shim BEHIND a model doc's own
+    head scripts — caught by the new unit test), synthesizes `<head>` after `<html>`, else prepends; function replacers
+    keep `$&`/`$'`/`` $` ``/`$1` literal. No CSP injected on purpose (`contracts.ts` tells artifacts to use a Framer
+    Motion ESM CDN); top-navigation/popups/forms/pointer-lock stay off.
+  * `hooks/useElementFullscreen.ts` (NEW) = one fullscreen contract: `fullscreen` tracks the NATIVE grant AND the CSS
+    fallback; handles rejected grant / absent API (no more `undefined.then` TypeError) / another element owning FS /
+    `fullscreenchange` cleanup / Esc for CSS mode. Consumers `components/render/HtmlArtifactBlock.tsx`
+    (`sandbox={HTML_ARTIFACT_SANDBOX}`, no `onLoad={probeLuma}`) and `components/render/DocumentCard.tsx`
+    (`doc-card--fullscreen` finally applies). Anatomy/Mermaid/Pptx blocks deliberately untouched (no `--fullscreen` CSS).
+  * Tests: `__tests__/render/html-srcdoc.test.ts` 12/12; `tests/html-isolation.spec.ts` 5/5;
+    `tests/decision-routing.spec.ts` 2/2. Battery: `npx vitest run` **120 files/1 skipped · 1590 passed/9 skipped
+    exit 0**; `npx tsc --noEmit` exit 0. Locked launcher runs: html-isolation+regression_modalities →
+    **11 passed / 0 failed / 3 pre-existing skips, exit 0 (40.8 s)**; decision-routing 2/2 inside the earlier
+    invocation (that run's exit 1 was the fixture row below).
+  * Fixture laws learned (test-side, NOT app changes): `isBrokenHtmlFence` (lib/documents/schemas.ts:582) treats an html
+    fence with no root from `div|html|body|svg|h1|section|main|p|canvas|table|button|input` as still-streaming →
+    `FenceBroken`; a `<pre>`-only probe trips it, so probe roots use `<div>`. Sandboxed opaque-origin frames:
+    `document.cookie` getter THROWS (report BLOCKED, stricter than empty), `document.fullscreenEnabled === false`
+    (the pre-fix frame had no `allowFullScreen` either → unchanged; the viewer's parent-document button is the only FS
+    path). Playwright: `contentFrame()` is a FrameLocator (no `.evaluate`) — use `elementHandle()`+`contentFrame()`.
+  * **Finding 5's last gate closed** — `tests/decision-routing.spec.ts`: `POST /api/decision` (proxied to the live Rust
+    engine when :3101 answers) → 6 NEGATIVES incl. both brief prompts = `standard_chat` + `skill_to_load:null`; 7
+    POSITIVES keep their renderer (anatomy/excel/pdf/chart); real aborted chat turns read `x-decision-mode` committed
+    at EARLY-OPEN → `standard_chat` (briefs) / `anatomy` (deliverable). Cheap trick: abort after headers kills the
+    research gate AND upstream generation.
+- [8.3 GRAPHIFY] ```html fence → `FenceRouter.tsx` → (lazy) `HtmlArtifactBlock.tsx` → `lib/render/htmlSrcDoc.ts` +
+  `hooks/useElementFullscreen.ts`; `DocumentCard.tsx` is the shared shell of Pptx/Resume/Docx/Xlsx/Anatomy/retired-fence
+  cards ⇒ the hook swap touches all of them (hence regression_modalities was run in the same locked invocation;
+  pptx/docx/xlsx/html rows green). Chat routing chain unchanged (`client.ts ↔ engine.rs ↔ contracts_generated.rs`).
+- [8.5 E2E STATE] NO lock active (launcher released it every time; `finally` also stopped the supervisor). Fixture
+  :3210 stays up; :3000/:3101 down after the run (supervisor stops next dev when ruke-server exits — dev-supervisor
+  .mjs:282). `ruke-server` rebuilt with `cargo build --manifest-path rust-backend/Cargo.toml -p ruke-server`
+  (cargo is NOT at repo root) after proving the running exe was STALE (live `/api/decision` still said `anatomy`).
+  Launcher multi-file law: `powershell -NoProfile -Command "& 'scripts\run-browser-e2e-exclusive.ps1' -TestFiles
+  'tests\a.spec.ts','tests\b.spec.ts' -AppWaitSeconds 300"` — with `-File` a comma string is ONE arg ("No tests
+  found"), and space-separated files bind into `-Grep`. Now documented in the script header.
+- [8.6] No open bugs in this block. Three consecutive RED runs were all honest signals: (1) my fixture tripped
+  `isBrokenHtmlFence`, (2) `cookie=BLOCKED` (stricter than asserted), (3) `fs=false` (frame never had a grant). App
+  behavior was correct in all three; only the test expectations moved.
+- [8.8] Next 3 atomic actions: (1) **finding 7** — `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts`:
+  disable JS + networking for the Chromium render of model HTML + canary test proving in-document script/fetch cannot
+  exfiltrate (keep real-model artifact fidelity: no `--disable-js` if it breaks print CSS/layout parity — measure).
+  (2) ONE locked deterministic run for the finding-7 canary + the finding-3 capped-round model journey
+  (`RUKE_BROWSER_MAX_TOOL_ROUNDS=3` → chip "Stopped early" + `agentActive:false`), then commit. (3) Then P5B
+  (LibreOffice/ECharts/Docling real fixtures + fflate consolidation w/ limits + 7-Zip fallback + Power BI output
+  verification), `integrations/{libreoffice,echarts,docling}/README.md`, P6 sweep, push `develop` (ahead 2), and the
+  P7 battery + FINAL locked serial model-driven fix-rerun loop incl. the vision-gap (49→90 s) investigation, then the
+  CLAUDE.md §4 report. LEAVE THE MACHINE RUNNING.

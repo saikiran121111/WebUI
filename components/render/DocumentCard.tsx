@@ -7,7 +7,8 @@
  * real file. The preview body renders client-side from the fence JSON, so
  * regeneration re-renders the preview in place with zero round-trips.
  */
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useRef, useState } from "react";
+import { useElementFullscreen } from "../../hooks/useElementFullscreen";
 
 export async function downloadDocument(endpoint: string, spec: unknown, fallbackName: string): Promise<void> {
   const res = await fetch(endpoint, {
@@ -61,47 +62,10 @@ interface DocumentCardProps {
 }
 
 export default function DocumentCard({ badge, filename, endpoint, spec, testId, actions, hideFullscreen, children }: DocumentCardProps) {
-  const [fullscreen, setFullscreen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  // True once the native Fullscreen API actually owns the element — then the
-  // browser (not our Esc handler) handles exit, and fullscreenchange syncs us.
-  const nativeFsRef = useRef(false);
-
-  const toggleFullscreen = useCallback(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    if (document.fullscreenElement === el) { void document.exitFullscreen(); return; }
-    if (document.fullscreenElement) return; // another element owns fullscreen
-    // The CSS class below is the fallback; requestFullscreen additionally
-    // hides the browser chrome (URL bar / tabs) when the grant succeeds.
-    el.requestFullscreen?.()
-      .then(() => { nativeFsRef.current = true; })
-      .catch(() => { nativeFsRef.current = false; });
-  }, []);
-
-  useEffect(() => {
-    const onFsChange = () => {
-      if (!document.fullscreenElement && nativeFsRef.current) {
-        nativeFsRef.current = false;
-        setFullscreen(false);
-      }
-    };
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, []);
-
-  useEffect(() => {
-    if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => {
-      // Native fullscreen consumes Esc (browser exits FS → fullscreenchange
-      // syncs state); this handler only covers the CSS-fallback mode.
-      if (e.key === "Escape" && !nativeFsRef.current) setFullscreen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [fullscreen]);
+  const { fullscreen, toggleFullscreen } = useElementFullscreen(cardRef);
 
   const onDownload = useCallback(async () => {
     setBusy(true);

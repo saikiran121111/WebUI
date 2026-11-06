@@ -450,10 +450,10 @@ Repair, three layers:
 **3** (browser-loop false completion + raw tool args) is REPAIRED and unit-verified (ledger above). Its last gate is
 model-driven: a `RUKE_BROWSER_MAX_TOOL_ROUNDS`-capped journey that must show the chip reading "Stopped early" with the
 panel back to `agentActive:false` — that spec runs inside the final locked Playwright loop, after `ruke-server` is
-rebuilt. **5** (anatomy over-trigger) is REPAIRED and verified in both production engines (ledger below); its remaining
-gate is HTTP-level (`/api/decision` + a real chat turn), which rides the same locked browser run as finding 6.
-Findings **6** (HTML preview origin isolation + fullscreen fallback) and **7** (PDF export trust boundary) are
-reproduced-but-not-yet-repaired; **8** closed in 5A.
+rebuilt. **5** (anatomy over-trigger) is REPAIRED and verified in both production engines AND at the HTTP level (`/api/decision`
++ real chat turns) — ledger below — so finding 5 is **CLOSED, every gate shut**.
+**6** (HTML preview origin isolation + fullscreen fallback) is REPAIRED and browser-verified (ledger below).
+**7** (PDF export trust boundary) is reproduced-but-not-yet-repaired; **8** closed in 5A.
 
 ### Finding 5 — anatomy route over-triggers on a bare keyword
 
@@ -505,6 +505,110 @@ Graphify note on reachability: both production routing paths are fixed, not just
 (`tests/anatomy*.spec.ts` all drive `?demo=anatomy` fixtures), so this repair could not regress those gates — and no
 existing test asserted the buggy behavior, so nothing had to be renegotiated.
 
+### Finding 5 — final gate: HTTP-level proof through the routes a browser actually hits (CLOSED 2026-11-06)
+
+`tests/decision-routing.spec.ts` (new, deterministic — the routing decision is made in-engine, never by the big model)
+was run under the lock; **both tests passed** (1.3 s and 1.9 s):
+
+* `POST /api/decision` — the 6 NEGATIVES including both brief prompts verbatim return `active_mode:"standard_chat"`
+  with `skill_to_load:null` (no core-skill block injected), and the 7 POSITIVES still route to their renderer
+  (`anatomy of a jet turbine` / `exploded diagram in html` / `cutaway of the marine engine` /
+  `isometric illustration of the server rack` → `anatomy`; spreadsheet → `excel`; `print this pdf` → `pdf`;
+  `chart of this building's architecture` → `chart`). This exercises the LIVE engine — with the Rust backend up,
+  `app/api/decision/route.ts` proxies to `ruke-server`, so the response is the Rust `match_intent`, not the TS shim.
+* A **real production chat turn**: read the `x-decision-mode` header the chat route commits at EARLY-OPEN, then abort
+  (the route wires the same signal into upstream generation and the research gate, so the model gets a fraction of a
+  second and the gate costs nothing). Result: `standard_chat` for both brief prompts, `anatomy` for
+  `anatomy of a jet turbine` — i.e. the CHAT path's routing is corrected, not just the inspection route.
+
+Stale-binary trap caught first, and it is worth recording because it would have produced a false failure: live
+`/api/decision` (through :3000 and direct :3101) still returned `active_mode:"anatomy"` for both brief prompts, which
+proved the running `ruke-server.exe` predated `e34c591`. It was killed — which also stopped Next :3000, because
+`scripts/dev-supervisor.mjs:282` stops `next dev` when ruke-server exits — and rebuilt with
+`cargo build --manifest-path rust-backend/Cargo.toml -p ruke-server` (exit 0, 9.7 s) so the HTTP proof measures the
+committed engine.
+
+### Finding 6 — the HTML artifact preview handed model HTML the app's own origin (CLOSED 2026-11-06)
+
+Reproduced by reading the committed file before touching it: `HtmlArtifactBlock.tsx:142` at `HEAD` was
+`sandbox="allow-scripts allow-same-origin"` on a **`srcDoc`** frame. A srcdoc document inherits its parent's origin,
+so that pair is not "sandboxed but readable" — it IS the app's own origin: `parent.document`, the app's cookies and
+`localStorage`, and authenticated reads of every `/api/*` route as the signed-in user. The probe artifact in
+`tests/html-isolation.spec.ts` reports, from inside the frame, exactly which of those it can reach.
+
+The finding's second half was also dead code in BOTH card viewers: `fullscreen` was set only after a **resolved**
+`requestFullscreen()` promise, so a denied grant left it `false` and `doc-card--fullscreen` /
+`html-artifact--fullscreen` never applied — and where the API is absent, `el.requestFullscreen?.()` returned
+`undefined` and the chained `.then(...)` threw an uncaught TypeError on every click. Consequence even when the native
+request *succeeded*: that class is what applies `flex:1; height:auto !important`, so the resize-observer pixel height
+stayed and the viewer never filled the screen.
+
+Repair:
+
+* **`lib/render/htmlSrcDoc.ts`** (new) owns the contract: `HTML_ARTIFACT_SANDBOX = "allow-scripts"` (its doc comment
+  states `allow-same-origin` must NEVER come back), `buildSrcDoc()`, the resize message, the luma threshold, the
+  storage shim. Without `allow-same-origin` the frame gets an **opaque origin**: scripts still run (interactivity is
+  the whole point of the viewer) but the parent DOM, the app's storage and same-origin API reads are unreachable, and
+  the frame's own requests are cross-site so SameSite cookies are not attached.
+  `allow-top-navigation` / `allow-popups` / `allow-forms` stay off — the artifact cannot move the chat page, open
+  windows or submit forms as the user.
+* **Deliberate boundary — no CSP is injected.** `lib/decision/contracts.ts` instructs HTML artifacts to use a Framer
+  Motion ESM CDN, so blocking external scripts would regress real model output. The isolation is origin-level, which
+  is where the actual privilege was.
+* The two features that leaned on the grant moved **inside** the frame instead of being dropped: the light-background
+  probe now rides the resize message as `luma` (Rec.709 `0.2126/0.7152/0.0722` over 255, from
+  `getComputedStyle(body||html).backgroundColor`; the parent used to read `frame.contentDocument`, which now throws),
+  and artifacts using `localStorage`/`sessionStorage` get a per-viewer **in-memory shim** installed only when the
+  native accessor is absent or throws.
+* A real bug the new unit test caught: `injectIntoHead` keyed off `</head>`, so the shim landed **behind** a model
+  document's own `<head>` scripts (which would still have thrown SecurityError). Injection now happens at the START of
+  `<head>` (synthesizing one after `<html>`, else prepending), with function replacers so `$&`/`$'`/`` $` ``/`$1` in
+  model markup stay literal.
+* **`hooks/useElementFullscreen.ts`** (new) is the single fullscreen contract for both consumers: `fullscreen` tracks
+  the native grant **and** the CSS fallback; it handles a rejected grant, an absent API (no TypeError), another element
+  already owning fullscreen, `fullscreenchange` cleanup, and Esc exit for the CSS mode. `HtmlArtifactBlock.tsx` and
+  `DocumentCard.tsx` both dropped their duplicated state/effects for it, so `doc-card--fullscreen` finally applies.
+* Scope boundary kept: `AnatomyBlock`, `MermaidBlock`, `PptxBlock` were inspected and left alone — they carry no
+  `--fullscreen` CSS contract (Pptx's `.pptx-show` overlay is driven by its own `show` state), so adding CSS there
+  would be unrelated scope creep.
+
+### Verification actually run for findings 5 and 6 (real exit codes, 2026-11-06)
+
+| Check | Result |
+| --- | --- |
+| `npx vitest run __tests__/render/html-srcdoc.test.ts` | **12 passed / 0 failed**, exit 0 — new file: sandbox contract (and the absence of `allow-same-origin`/`allow-top-navigation`/`allow-popups`/`allow-forms`/`allow-pointer-lock`), luma-carried-by-resize, injection ordering/idempotence/metacharacter safety, `shouldInvert` boundaries + non-numbers, and the shim executed against stub windows (accessor throws / absent / native-left-alone) with get/set/remove/clear/key/length and string coercion |
+| `npx vitest run` (full suite) | **120 files passed / 1 skipped; 1590 passed / 9 skipped**, exit 0 (+1 file / +12 tests over the finding-5 baseline of 119 / 1578, zero regressions) |
+| `npx tsc --noEmit` | **exit 0** (`tests/*.spec.ts` are inside tsconfig `include`, so both new specs are typechecked) |
+| locked launcher invocation 1 — `-TestFiles tests/html-isolation.spec.ts,tests/decision-routing.spec.ts` | **6 passed / 1 failed**, exit 1. The failure was *my fixture*, not the app: `isBrokenHtmlFence` (`lib/documents/schemas.ts:582`) treats an html fence with no recognizable root element (`div\|html\|body\|svg\|h1\|section\|main\|p\|canvas\|table\|button\|input`) as still streaming, and the probe's only element was `<pre>` — so the viewer correctly showed "The html spec is incomplete" instead of mounting the iframe. The probe root became `<div id="r">`; the app heuristic was left untouched (pre-existing, not part of the finding). Both decision-routing tests passed in this run. |
+| locked invocation 2 — html-isolation + regression_modalities | **10 passed / 1 failed / 3 skipped**, exit 1: the frame reported `cookie=BLOCKED` where I had asserted `NO_COOKIES`. Reality is stricter than my assertion — with no `allow-same-origin`, the `document.cookie` **getter throws** SecurityError, so the artifact cannot even enumerate the jar. Assertion corrected to the stricter outcome. |
+| locked invocation 3 — same two files | **11 passed / 0 failed / 3 skipped, exit 0** (40.8 s). The 3 skips are pre-existing in-file: `test.skip` for the resume fence (line 252) and Power BI (line 476), plus the conditional skip at line 83 when `scripts/e2e-llm-proxy.mjs` is not running. |
+
+What the green run actually proves, per journey:
+
+1. **Opaque origin:** `sandbox` is exactly `allow-scripts`; `window.origin` read from inside the frame is `"null"`;
+   `parent.document`, `parent.location.href` and `parent.localStorage` all BLOCKED; the app's own `app_canary` reads
+   back `null` inside the frame (the shim answers, it does not throw and does not leak); `document.cookie` access is
+   denied; `fetch('/api/conversations')` is unreadable as the user; the app's own `app_canary` value is untouched; zero
+   `SecurityError` page errors.
+2. **Interactivity preserved:** an artifact that persists its own state goes `saved:v1:s1` → `saved:v2:s2` across
+   clicks, while neither key ever appears in the app origin.
+3. **Fullscreen, three paths:** the native path fills the frame (`document.fullscreenElement` set, or ≥90 % of the
+   viewport) and the second click clears the class; when `requestFullscreen()` **rejects**, `html-artifact--fullscreen`
+   applies with "Exit Fullscreen" + "Press Esc to exit" and both exits work, zero page errors; when the API is **absent**
+   (`delete Element.prototype.requestFullscreen`) the fallback applies with zero page errors — the old code threw a
+   TypeError per click. The frame itself reports `fullscreenEnabled === false`, and that is unchanged behavior: the
+   pre-fix markup had no `allowFullScreen`/`allow` grant either, so model HTML cannot seize the user's screen; the
+   viewer's button (parent document) is the only path.
+4. **No collateral damage:** `regression_modalities` html rows (auto-fit + live input through `contentFrame()`, real
+   multi-page A4 PDF export, light-report invert + over-tall scroll) all pass on the opaque origin — invert now derives
+   from in-frame luma — as do the docx / xlsx / pptx rows.
+
+Graphify reachability note: `DocumentCard` is the shared shell for every document modality, so the fullscreen-hook swap
+touches `PptxBlock`, `ResumeBlock`, `DocxBlock`, `XlsxBlock`, `AnatomyBlock` and the retired-fence card; that is exactly
+why the pptx carousel/slideshow row and the docx/xlsx rows were pulled into the same locked invocation instead of
+trusting the html spec alone. `HtmlArtifactBlock` is lazy-mounted by `components/render/FenceRouter.tsx`, so no
+initial-bundle contract changed.
+
 ## Phase gates (check only when verified through the feature's normal entry point)
 
 - [x] **P0** baseline recorded (this doc + locked non-model suite + two real-model journeys)
@@ -553,7 +657,8 @@ existing test asserted the buggy behavior, so nothing had to be renegotiated.
       zipWriter/extract paths preserving decompression limits + 7-Zip fallback; verify actual Power BI exports before claims
 - [ ] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
-      invisibility; HtmlArtifactBlock sandbox fix
+      invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
+      5/5 under the lock, exit 0: opaque origin, storage shim, three fullscreen paths)
 - [ ] **P7** full verification: tsc, vitest, cargo, contracts:check, build; old-vs-new browser path comparison on the same
       tasks; final model-driven Playwright loop (locked, fix-rerun until green); completion report §4
 - [ ] **Handoff artifacts:** this checklist completed, commit IDs, exact commands + results, sample artifact paths,
@@ -580,14 +685,23 @@ existing test asserted the buggy behavior, so nothing had to be renegotiated.
    over-trigger ("What is the anatomy of the knee?" / "What is an isometric exercise?" must stay
    conversational), HTML preview origin isolation + fullscreen fallback, PDF export trust boundary.
    Finding 8 (PPTX bypassed the normalizer) is closed in 5A.
-   **Progress: findings 4, 1, 2, 3 and 5 are REPAIRED and verified (see the "Audit repair phase" ledger; finding 3's
-   remaining gate is the capped-round model journey in the final locked loop, finding 5's remaining gate is HTTP-level
-   proof through `/api/decision` + a real chat turn, which rides the same locked browser run as finding 6). Remaining:
-   finding 6 — `HtmlArtifactBlock.tsx` renders
-   model HTML in a srcDoc iframe with `allow-scripts allow-same-origin` (same-origin escape); finding 7 —
-   `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts` hand raw HTML to Chromium with JS and networking
-   enabled. Each gets deterministic tests at the source; the model-driven browser journeys re-run afterwards under
-   the lock, and the rebuilt `ruke-server` must pick up the ruke-browser changes before those journeys are trusted.**
+   **Progress: findings 4, 1, 2, 3, 5 and 6 are REPAIRED and verified (see the "Audit repair phase" ledger; findings 1,
+   2, 4, 5, 8 have NO open gate left, and finding 3's ONLY remaining gate is the round-capped model journey
+   (`RUKE_BROWSER_MAX_TOOL_ROUNDS=3` → chip "Stopped early" + `agentActive:false`) that rides the final locked loop.**
+   **Finding 6 closed 2026-11-06:** the srcDoc frame no longer carries `allow-same-origin` (opaque origin), the luma
+   probe and artifact storage moved inside the frame behind a shim, and `hooks/useElementFullscreen.ts` finally makes
+   the documented CSS fullscreen fallback real in both card viewers. Locked evidence: `tests/html-isolation.spec.ts`
+   + `tests/regression_modalities.spec.ts` → 11 passed / 3 pre-existing skips, **exit 0**.
+   Finding 6 also closed finding 5's last gate in the same loop (`tests/decision-routing.spec.ts` 2/2: `/api/decision`
+   negatives → `standard_chat` with `skill_to_load:null`, positives keep their renderer, and real aborted chat turns
+   carry the corrected `x-decision-mode`).
+   Remaining in this phase: **finding 7** — `app/api/documents/pdf/route.ts` + `lib/documents/pdfEngine.ts` hand raw
+   model HTML to Chromium with JS and networking enabled (needs JS/networking disabled for the render plus a canary
+   proving in-document script/fetch cannot exfiltrate). Launcher law learned the hard way: pass multiple specs as
+   `powershell -Command "& scripts\run-browser-e2e-exclusive.ps1 -TestFiles 'a.spec.ts','b.spec.ts'"` — with `-File` a
+   comma-joined string is ONE argument ("No tests found"), and bare space-separated files bind positionally into
+   `-Grep`. Also re-check for a STALE `ruke-server.exe` before trusting any routing journey (kill + rebuild, and
+   remember the supervisor takes Next :3000 down with it).**
 2. Then P5B (LibreOffice/ECharts/Docling real-fixture evaluations + fflate consolidation), P6
    (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright fix-rerun
    loop green vs baselines + CLAUDE.md §4 completion report).

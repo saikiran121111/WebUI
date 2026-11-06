@@ -17,6 +17,13 @@
 #   powershell -NoProfile -File scripts\run-browser-e2e-exclusive.ps1
 #   powershell -NoProfile -File scripts\run-browser-e2e-exclusive.ps1 `
 #       -TestFiles tests\browser-easy.spec.ts
+#   MULTIPLE files need PowerShell's array syntax, which -File does NOT parse:
+#   a comma-joined string arrives as ONE argument ("No tests found"), and bare
+#   space-separated files bind POSITIONALLY (the second one lands in -Grep and
+#   the run silently selects nothing). Use -Command with a real array instead:
+#     powershell -NoProfile -Command "& 'scripts\run-browser-e2e-exclusive.ps1' -TestFiles 'tests\a.spec.ts','tests\b.spec.ts' -AppWaitSeconds 300"
+#   From an interactive PowerShell prompt, the array binds directly:
+#     & scripts\run-browser-e2e-exclusive.ps1 -TestFiles 'tests\a.spec.ts','tests\b.spec.ts'
 param(
     [string[]]$TestFiles = @(
         "tests/browser-easy.spec.ts",
