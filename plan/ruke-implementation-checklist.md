@@ -714,6 +714,18 @@ vitest), and the end-to-end round-capped model journey (this run).
 - [ ] **P5B** evaluate LibreOffice (recalc/convert), ECharts (vs Ruke chart schema), Docling (scanned PDF/tables) on real
       fixtures; adopt only where comparison wins; record decisions; keep ExcelJS/docx/Chromium-PDF; fflate consolidation of
       zipWriter/extract paths preserving decompression limits + 7-Zip fallback; verify actual Power BI exports before claims
+  - [ ] **P5B-LibreOffice — DEFERRED per user instruction (2026-11-06); zero system changes made.** The
+        run is scoped to the WebUI repository; anything system-wide requires asking the user first. The
+        proposed `winget install TheDocumentFoundation.LibreOffice` (Phase 5B OPTIONAL evaluation) was
+        cancelled BEFORE it executed — verified after the fact: `winget list` shows no package, no
+        `C:\Program Files\LibreOffice`, no soffice process. Nothing is installed and nothing needs
+        removal; disposition is the user's call if it is ever revisited. Consequence: the headless recalc
+        oracle (`soffice --headless --convert-to csv` all sheets), conversion timing and visual checks
+        are NOT measured on this machine, so no adoption claim is made either way. Existing paths stay
+        exactly as they are — ExcelJS + xlsxEngine formula engine, docx, Chromium PDF printing — and
+        HyperFormula remains rejected (proprietary license). No `integrations/libreoffice/` deliverable
+        for a deferred provider. All remaining P5B work proceeds with repo-managed (npm/gitignored)
+        dependencies only.
   - [x] **P5B-fflate ZIP consolidation — COMPLETE 2026-11-06 (measured, not assumed).** All ZIP reads (Office/ODF/EPUB
         containers, `.zip` archives, nested zips) now go through fflate 0.8.3 `unzipSync` in
         `lib/server/extract/zip.ts`; the hand-rolled EOCD/central-directory parser is gone. Verified through the
@@ -736,6 +748,49 @@ vitest), and the end-to-end round-capped model journey (this run).
         even `forceZip64:true` writes no EOCD64 — measured), acceptable because Ruke only writes small packages
         (Power BI/Office-kit); 7za writes CD method 0 (STORE) for incompressible members, so an LZMA-fallback probe
         needs compressible content (measured with a 25-byte member).
+  - [x] **P5B spreadsheet honest visual labeling — COMPLETE 2026-11-06.** `officeText` (the xlsx/xlsm branch of
+        the real extraction entry point) never mentioned a sheet's charts or images, so a text-extracting model
+        could invent values for visuals it could not see. It now appends an inventory after the cell text:
+        `xl/charts/chartN.xml` parts are labelled `Chart "title" (path): native chart; the file caches its series
+        values` when a `numCache`/`strCache` exists, else `chart with NO cached data — … do not infer values
+        from it`; `xl/media/*` counts as `image-only visuals (photos OR pictures of charts — not distinguishable
+        from metadata); there is NO readable data behind them`. This also honestly describes how `xlsxEngine`
+        embeds its Chromium-rendered chart PNGs (media images, not native charts). Evidence:
+        `__tests__/server/extract-zip.test.ts` → new 5-test block (cached / no-cache / media-only / neither →
+        byte-exact passthrough / fixture-sheet regression) → subset 5/5 exit 0; targeted suite 17/17 exit 0;
+        `npx tsc --noEmit` exit 0; full `npx vitest run` (before this edit) → **122 files / 1611 tests passed /
+        9 skipped, exit 0** (baseline 1606 + 5).
+  - [x] **P5B-ECharts decision — NOT ADOPTED (evaluated 2026-11-06, comparison-based).** Official npm
+        metadata: `echarts` latest 6.1.0, Apache-2.0. Existing stack: `components/render/ChartBlock.tsx`
+        (561 lines) implements Ruke's own chart schema — custom themes, range sliders, follow-up affordances —
+        and `lib/documents/chartHtml.ts` renders the SAME schema to HTML/PNG for document export (Chromium →
+        `wb.addImage` in xlsxEngine). ECharts is a rendering library only: it cannot produce native editable
+        xlsx/pptx charts (P5A Office Kit/ExcelJS already do that better), and adopting it would add ~300 KB to
+        the client bundle while forcing adapters on BOTH ends (Ruke schema → ECharts options for preview,
+        schema → ECharts SVG → PNG for export) with no capability ECharts wins on. The comparison does not
+        favor adoption, so per "adopt only where comparison wins" the existing pipeline stays; no
+        `integrations/echarts/` deliverable for a non-adopted provider.
+  - [ ] **P5B-Docling — evaluation DEFERRED; facts recorded from OFFICIAL METADATA (2026-11-06).** PyPI:
+        `docling` 2.148.0, license expression MIT, `requires_python "<4.0,>=3.10"` — classifiers list
+        3.10/3.11/3.12/3.13/3.14, so this machine's Python 3.14.7 IS inside the declared window (the earlier
+        3.10–3.13 assumption was wrong). Adoption is NOT done and NOT claimed: a real install means a Python
+        venv plus model caches (torch-scale dependencies, model downloads land in the user profile), i.e. a
+        system-wide change → per the 2026-11-06 user law it requires explicit approval first. Existing
+        lightweight extraction (pdf parsing in `lib/documents`, no external model) stays; no
+        `integrations/docling/` deliverable while deferred.
+  - [ ] **P5B-xlcalc — ACTIVE (user brief 2026-11-06, added at the fflate/chart checkpoint).** Pin
+        **`xlcalc@0.84.0`** as a project-local npm dependency (package, lockfile and install cache scoped to
+        the repo) and replace Ruke's custom formula evaluator with it; keep ExcelJS for writing `.xlsx`.
+        One shared calculation path for preview AND export, starting at `lib/documents/recalc.ts`,
+        `components/render/XlsxBlock.tsx`, `lib/documents/xlsxEngine.ts`. Preserve live formulas, cached
+        results, formatting and dropdowns. Check xlcalc diagnostics before trusting a value — a circular
+        reference can return `0` alongside a `CYCLE` diagnostic, so flag such cells by sheet+address instead
+        of caching the value as verified; report unsupported formulas clearly. Focused regression tests:
+        whole-column `SUMIFS`, `XLOOKUP`, `LET`, `FILTER`, `MAP`+`LAMBDA` (user-verified working in 0.84.0),
+        cross-sheet refs, invalid formulas, circular refs. Reopen a generated `.xlsx` to verify formulas +
+        cached values; verify dynamic-array spill behavior SEPARATELY before claiming it works in the export.
+        Ledger + test results land here at completion; full regression suite runs at the existing P7
+        checkpoint.
 - [ ] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
       invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
@@ -784,16 +839,18 @@ vitest), and the end-to-end round-capped model journey (this run).
    comma-joined string is ONE argument ("No tests found"), and bare space-separated files bind positionally into
    `-Grep`. Also re-check for a STALE `ruke-server.exe` before trusting any routing journey (kill + rebuild, and
    remember the supervisor takes Next :3000 down with it).**
-2. **NOW ACTIVE — P5B.** The fflate consolidation sub-item is DONE (ledger above, commit in `git log
-   --oneline` 2026-11-06 HEAD entries). Remaining P5B in order: LibreOffice on-demand worker evaluation
-   (recalc oracle + doc conversion + visual checks; record startup/memory on the 16 GB laptop; adopt only
-   if it wins; HyperFormula stays rejected for its proprietary license), image-only spreadsheet-chart
-   labeling, ECharts vs Ruke's chart schema/theme/sliders on real fixtures, Docling support-window check
-   against the Python-3.14.7-only machine (`py -0p`; adoption needs a 3.10–3.13 venv + prefetched model
-   assets; remote processing stays disabled), Power BI export validity (structural PBIP validation;
-   Power BI Desktop is not installed — attempt install, else report the gate honestly). Then P6
-   (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright fix-rerun
-   loop green vs baselines + CLAUDE.md §4 completion report).
+2. **NOW ACTIVE — P5B-xlcalc (user brief 2026-11-06; full spec in the P5B-xlcalc sub-item above).**
+   Everything stays scoped to the repository (user law 2026-11-06: ask before ANY system-wide change;
+   repo-managed deps only — npm installs inside the repo are in-scope per the user's own xlcalc brief).
+   DONE so far in P5B: fflate ZIP consolidation (`1a56858`), spreadsheet honest visual labeling (this
+   commit), ECharts decision recorded (NOT adopted), Docling facts recorded (install deferred pending
+   approval), LibreOffice DEFERRED (nothing installed), HyperFormula stays rejected (proprietary license).
+   AFTER xlcalc: Power BI export validity = structural PBIP validation inside the repo (Power BI Desktop is
+   NOT to be installed without asking; report the app-level gate honestly) + re-review the two skipped
+   Playwright spots in `tests/regression_modalities.spec.ts` (resume ~line 252, Power BI ~line 476).
+   Then P6 (chat-UI preservation audit), P7 (full battery + FINAL locked model-driven Playwright
+   fix-rerun loop green vs baselines + CLAUDE.md §4 completion report; full vitest battery re-run belongs
+   at the P7 checkpoint per the xlcalc brief).
 3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3), P4
    `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff`, P5A `f1092c1`, audit repair `4abeaca`, finding 3 `b4f9db0`,
    finding 5 `e34c591`, findings 5+6 `eb2a43a`, finding 7 + finding 3's last gate `72cabab` — all

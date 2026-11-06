@@ -4330,3 +4330,28 @@ edited (approved installers only).
   support window vs Python 3.14.7-only (`py -0p` = only 3.14 → honest finding), image-only chart labeling,
   Power BI export validity (no Power BI Desktop → structural PBIP validation + install attempt, else report
   gate not locally satisfiable). HyperFormula stays rejected (proprietary license).
+
+## P5B (2026-11-06, post-ZIP) — chart labeling + decision ledgers + xlcalc brief
+
+- `office.ts` xlsx/xlsm branch of `officeText` now appends an honest visual inventory
+  (native chart w/ `numCache`/`strCache` → "caches its series values"; no-cache chart →
+  "do not infer values"; `xl/media/*` → image-only, NO readable data behind them). 5 new
+  tests in `__tests__/server/extract-zip.test.ts` (suite now 17). Evidence: subset 5/5,
+  suite 17/17, `npx tsc --noEmit` exit 0, full `npx vitest run` 122 files / 1611 tests /
+  9 skipped exit 0. Fixture-sheet.xlsx is chart/media-free → Playwright file-reading
+  expectations unaffected (regression test locks that).
+- Decisions recorded in checklist: ECharts NOT adopted (metadata 6.1.0 Apache-2.0; existing
+  ChartBlock 561-line schema/themes/sliders + chartHtml PNG-for-export wins both ends; no
+  native-chart capability gained). Docling deferred (PyPI 2.148.0, MIT, requires_python
+  "<4.0,>=3.10", classifiers incl. 3.14 → 3.14.7 IS in window; install = system-wide venv+
+  model caches → needs explicit user approval). LibreOffice DEFERRED (nothing installed).
+- NEW USER BRIEF — xlcalc@0.84.0 adoption ACTIVE: pin exact, repo-scoped (package+lockfile+
+  cache), replace custom evaluator in `lib/documents/recalc.ts` (+ callers
+  `components/render/XlsxBlock.tsx`, `lib/documents/xlsxEngine.ts`), ONE shared calc path for
+  preview+export, keep ExcelJS writer. Diagnostics discipline: CYCLE can coexist with value 0
+  → flag cell by sheet+address, never cache as verified; unsupported formulas surfaced.
+  Focused tests: whole-column SUMIFS/XLOOKUP/LET/FILTER/MAP+LAMBDA, cross-sheet, invalid,
+  circular; reopen generated xlsx to verify formulas+cached values; dynamic-array spill probed
+  SEPARATELY before any export claim. Full regression suite at the P7 checkpoint (not after
+  every step). Then Power BI structural validation (no Desktop install without asking),
+  P6 sweep, P7 final loop.

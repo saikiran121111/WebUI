@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { strToU8, zipSync } from "fflate";
 import { extractFileFromPath } from "../../lib/server/extract";
 import { archiveText } from "../../lib/server/extract/archives";
+import { officeText } from "../../lib/server/extract/office";
 import { MAX_MEMBER_INFLATED_BYTES, readZip } from "../../lib/server/extract/zip";
 
 const execFileP = promisify(execFile);
@@ -193,6 +194,60 @@ describe("Zip64 and the 7za fallback", () => {
     const buf = fs.readFileSync(path.join(dir, "enc.zip"));
     await expect(archiveText(buf, "zip")).rejects.toThrow(/password/i);
   }, 120_000);
+});
+
+describe("spreadsheet chart/media honest labeling (P5B)", () => {
+  const SHEET = "xl/worksheets/sheet1.xml";
+  const SS = "xl/sharedStrings.xml";
+  const base = () => ({
+    "[Content_Types].xml": strToU8("<?xml version=\"1.0\"?><Types/>"),
+    [SS]: strToU8("<sst><t>HEALTH-CHECK-CELL</t></sst>"),
+    [SHEET]: strToU8("<worksheet/>"),
+  });
+  const xlsx = (parts: Record<string, Uint8Array>) => Buffer.from(zipSync(parts));
+
+  it("labels a native chart part WITH cached series values", () => {
+    const text = officeText(xlsx({
+      ...base(),
+      "xl/charts/chart1.xml": strToU8(
+        '<c:chart><c:title><a:t>Revenue</a:t></c:title><c:ser><c:val><c:numCache><c:pt v="3"/></c:numCache></c:val></c:ser></c:chart>',
+      ),
+    }), "xlsx");
+    expect(text).toContain("HEALTH-CHECK-CELL");
+    expect(text).toContain('Chart "Revenue" (xl/charts/chart1.xml): native chart; the file caches its series values');
+    expect(text).not.toContain("image(s)");
+  });
+
+  it("warns for a chart part WITHOUT cached data — values must not be invented", () => {
+    const text = officeText(xlsx({
+      ...base(),
+      "xl/charts/chart1.xml": strToU8("<c:chart><c:ser><c:tx><c:strRef/></c:tx></c:ser></c:chart>"),
+    }), "xlsx");
+    expect(text).toContain("xl/charts/chart1.xml): chart with NO cached data");
+    expect(text).toContain("do not infer values from it");
+  });
+
+  it("labels media-only visuals as image-only — no readable data behind them", () => {
+    const text = officeText(xlsx({
+      ...base(),
+      "xl/media/image1.png": strToU8("PNG-BYTES-NOT-REAL"),
+    }), "xlsx");
+    expect(text).toContain("1 embedded image(s) in xl/media: image-only visuals");
+    expect(text).toContain("NO readable data behind them");
+    expect(text).not.toMatch(/Chart /); // must not claim a chart it cannot see
+  });
+
+  it("says nothing about charts/media when a sheet has neither", () => {
+    const text = officeText(xlsx(base()), "xlsx");
+    expect(text).toBe("HEALTH-CHECK-CELL");
+  });
+
+  it("regression: fixture sheets without chart parts keep plain extraction", () => {
+    if (!fs.existsSync(path.join(FIXTURES, "fixture-sheet.xlsx"))) return;
+    const text = officeText(fs.readFileSync(path.join(FIXTURES, "fixture-sheet.xlsx")), "xlsx");
+    expect(text).toContain(`Marker: ${marker("XLSX")}`);
+    expect(text).not.toMatch(/xl\/media|chart1\.xml/);
+  });
 });
 
 const haveFixtures = fs.existsSync(path.join(FIXTURES, "fixture-archive.zip"));

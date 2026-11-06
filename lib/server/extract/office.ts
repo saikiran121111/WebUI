@@ -46,6 +46,32 @@ export function officeText(buf: Buffer, ext: string): string {
       for (const e of find(/^xl\/worksheets\/sheet\d+\.xml$/)) {
         out.push(textsFromTags(str(e), /<is><t[^>]*>([^<]*)<\/t><\/is>/g));
       }
+      // P5B honest chart labeling: a spreadsheet can carry visuals that text
+      // extraction cannot read — native chart parts (sometimes WITH cached
+      // series values), or plain media images that are just pictures of
+      // charts (how xlsxEngine embeds its Chromium-rendered PNGs, and how
+      // many third-party tools save them). Without an explicit inventory the
+      // model knows nothing is there and invents values; with it, each visual
+      // is labelled exactly as far as its readability goes.
+      const labels: string[] = [];
+      for (const e of find(/^xl\/charts\/chart\d+\.xml$/).sort((a, b) => a.name.localeCompare(b.name))) {
+        const xml = str(e);
+        const title = /<c:title>[\s\S]*?<a:t>([^<]*)<\/a:t>/.exec(xml)?.[1]?.trim();
+        const cached = /<c:(?:num|string)Cache/.test(xml);
+        labels.push(
+          `Chart${title ? ` "${title}"` : ""} (${e.name}): ` +
+            (cached
+              ? "native chart; the file caches its series values (not expanded here)"
+              : "chart with NO cached data — only its picture exists for a text reader; do not infer values from it"),
+        );
+      }
+      const media = find(/^xl\/media\/[^/]+$/);
+      if (media.length) {
+        labels.push(
+          `${media.length} embedded image(s) in xl/media: image-only visuals (photos OR pictures of charts — not distinguishable from metadata); there is NO readable data behind them`,
+        );
+      }
+      if (labels.length) out.push(labels.join("\n"));
       return out.filter(Boolean).join("\n");
     }
     case "pptx": {
