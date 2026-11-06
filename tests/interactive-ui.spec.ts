@@ -2,8 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 
 // The ?demo=ui showcase is fully client-side (no model server needed):
 // interactive chart + mermaid step playback + SVG anatomy figure + KPI
-// widget + table. (The scene3d leg retired with the 3D viewers on
-// 2026-11-06 — Ruke plan Phase 4.)
+// widget + table + a retired scene3d fence proving the read-only
+// compatibility card (3D/CAD viewers retired 2026-11-06 — Phase 4).
 const DEMO_URL = "http://localhost:3000/?demo=ui";
 
 // Network-level logs from the intentional "Ask AI" send (the llama.cpp
@@ -22,7 +22,7 @@ function watchConsole(page: Page, errors: string[]) {
   page.on("pageerror", err => errors.push(err.message));
 }
 
-test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table", async ({ page }) => {
+test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table, retired 3D card", async ({ page }) => {
   const consoleErrors: string[] = [];
   watchConsole(page, consoleErrors);
 
@@ -128,6 +128,21 @@ test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table
   const tableWrap = page.locator('[data-testid="md-table-wrap"]').first();
   await expect(tableWrap.locator("tbody tr")).toHaveCount(4);
   await expect(page.locator('[data-testid="row-ask-bar"]')).toHaveCount(0);
+
+  // --- Retired scene3d fence: read-only compatibility card, never run ----
+  const retired = page.locator('[data-testid="retired-fence"]');
+  await expect(retired).toBeVisible();
+  await expect(retired).toContainText("3D scene viewer retired");
+  await expect(retired).toContainText("never executed");
+  await expect(retired.locator('[data-testid="retired-fence-copy"]')).toBeVisible();
+  await expect(retired.locator('[data-testid="retired-fence-download"]')).toBeVisible();
+  await retired.locator("summary").click();
+  await expect(retired.locator(".retired-fence-source")).toContainText("THREE.Mesh");
+  // Proof it never executes: no viewer canvas anywhere, THREE never on page.
+  await expect(page.locator("canvas")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => typeof (window as unknown as { THREE?: unknown }).THREE),
+  ).toBe("undefined");
 
   // --- Zero NaN in any SVG attribute (charts + mermaid) ---
   const nanAttrs = await page.$$eval("svg, svg *", els =>

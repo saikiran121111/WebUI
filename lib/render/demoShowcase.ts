@@ -128,6 +128,14 @@ const SHOWCASE_MARKDOWN = [
   "| South | 28 | 39 | +39% |",
   "| East | 31 | 52 | +68% |",
   "| West | 24 | 27 | +13% |",
+  "",
+  "### Legacy 3D content — compatibility card, never executed",
+  "",
+  "```scene3d",
+  "// A pre-Phase-4 saved scene. The built-in viewer retired 2026-11-06;\n" +
+  "// this source is preserved verbatim for copy/download and never runs.\n" +
+  "new THREE.Mesh(sphereGeo, steelMat);",
+  "```",
 ].join("\n");
 
 export const DEMO_SHOWCASE_MARKDOWN = SHOWCASE_MARKDOWN;
