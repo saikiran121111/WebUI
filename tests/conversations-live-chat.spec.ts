@@ -29,7 +29,7 @@ async function openMenuForId(page: Page, id: string) {
 
 /** Wait until the composer is enabled again (stream finished). */
 async function waitForStreamDone(page: Page) {
-  await expect(page.getByLabel("Stop generating")).toHaveCount(0, { timeout: 60000 });
+  await expect(page.getByLabel("Stop generating")).toHaveCount(0, { timeout: 180000 });
 }
 
 test.describe("live chat lifecycle", () => {
@@ -37,7 +37,7 @@ test.describe("live chat lifecycle", () => {
   // LFM2.5 router) plus the local model's reasoning. The assertions here are
   // about CRUD correctness, not speed — grant the same patience the
   // file-reading journey gives its model turns.
-  test.setTimeout(180_000);
+  test.setTimeout(600_000);
 
   test("send → delete → reload leaves nothing behind", async ({ page }) => {
     const marker = "E2EMarker" + Date.now();

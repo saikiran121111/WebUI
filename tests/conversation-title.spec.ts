@@ -175,7 +175,10 @@ test.describe("conversation titles", () => {
   });
 
   test("live chat: the sidebar title stops being the first-message copy", async ({ page, request }) => {
-    test.setTimeout(300_000); // model warm-up + real-model turn + router + title call
+    // Measured on the 16 GB CPU laptop: ~30 tk/s decode with ~11.4k-token
+    // context, and this prompt draws a long technical answer — the stream
+    // alone can exceed 120 s. Budget generously; assertions stay exact.
+    test.setTimeout(600_000); // model warm-up + real-model turn + router + title call
     await warmModel(request);
 
     const prompt =
@@ -190,7 +193,7 @@ test.describe("conversation titles", () => {
     await box.press("Enter");
 
     // Stream settles → one save lands → the legacy placeholder title shows.
-    await expect(page.getByLabel("Stop generating")).toHaveCount(0, { timeout: 120000 });
+    await expect(page.getByLabel("Stop generating")).toHaveCount(0, { timeout: 240000 });
     const item = page.locator('[data-testid="conversation-item"]').first();
     await expect(item).toContainText(placeholder, { timeout: 30000 });
     const convId = await item.getAttribute("data-conversation-id");
@@ -198,7 +201,7 @@ test.describe("conversation titles", () => {
     // The background title job (full-history, main model) replaces it without
     // a page reload.
     await expect
-      .poll(async () => (await item.innerText()).includes(placeholder), { timeout: 120000 })
+      .poll(async () => (await item.innerText()).includes(placeholder), { timeout: 180000 })
       .toBe(false);
 
     const title = (await item.innerText()).trim();
