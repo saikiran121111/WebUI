@@ -83,19 +83,101 @@ export function isEnforceableScope(scope: TaskScope): boolean {
 }
 
 /**
- * Browser-activation law (brief #2/#3): a chat turn runs the BROWSER tool
- * loop only for an operational scope (the intent ladder makes "operate"
- * structurally imply ≥1 target). Research/site-info/compare turns route
- * through the scope-enforced research path instead. Panel visibility NEVER
- * decides activation — the client's `browser_session` marker is conversation
- * identity only, and the SERVER decides routing from this contract. The TS
- * side carries no browser engine (route.ts strips the marker); this mirror
- * exists so the contract stays one law in two languages, pinned by the
- * shared vitest/Rust matrix tests. ⇔ `routes_to_browser_turn` in
- * `ruke-server/src/task_scope.rs`.
+ * Browser routing law — the SCOPE half (brief #2/#3): an OPERATE scope is
+ * the only intent that CAN run the browser tool loop (the intent ladder
+ * makes "operate" structurally imply ≥1 target). Research/site-info/
+ * compare turns route through the scope-enforced research path instead.
+ * This half ALONE no longer activates the engine — the user rescope
+ * (2026-11-07) gates it with the human's request; the FULL law is
+ * [`browserActivates`] below. The TS side carries no browser engine
+ * (route.ts strips the markers); this mirror exists so the contract stays
+ * one law in two languages, pinned by the shared vitest/Rust matrix
+ * tests. ⇔ `routes_to_browser_turn` in `ruke-server/src/task_scope.rs`.
  */
 export function routesToBrowserTurn(scope: TaskScope): boolean {
   return scope.intent === "operate";
+}
+
+/**
+ * Instrument words: the harness browser's own capability name — never a
+ * site/company/city vocabulary patch. ⇔ BROWSER_INSTRUMENTS in
+ * `ruke-server/src/task_scope.rs`.
+ */
+const BROWSER_INSTRUMENTS = new Set(["browser", "browsers"]);
+/** Words that AIM an instrument token at the harness. ⇔ BROWSER_TRIGGERS. */
+const BROWSER_TRIGGERS = new Set([
+  "use", "uses", "using", "used",
+  "open", "opens", "opening",
+  "launch", "launches", "launching",
+  "start", "starts", "starting",
+  "try", "trying", "tried",
+  "run", "runs", "running",
+  "drive", "drives", "driving",
+  "navigate", "navigates", "navigating",
+  "browse", "browsing",
+]);
+/** Negation ANYWHERE before the instrument token vetoes the request.
+ *  ⇔ BROWSER_NEG. */
+const BROWSER_NEG = new Set([
+  "not", "no", "never",
+  "don't", "dont", "doesn't", "doesnt", "won't", "wont",
+  "cannot", "can't", "cant",
+  "without", "avoid", "stop", "stopped", "shouldn't", "shouldnt",
+]);
+/** Harmless connectives the walk-back skips over — articles/possessives
+ *  plus plain prepositions bridging a verb to the instrument ("open it IN
+ *  the browser", "navigate WITH the browser"). Prepositions never mention
+ *  the instrument themselves, and the negation-first veto keeps the
+ *  conservative direction. ⇔ BROWSER_FILLERS. */
+const BROWSER_FILLERS = new Set([
+  "the", "a", "an", "your", "my", "this", "that", "web",
+  "to", "up", "and", "or", "please", "just", "now",
+  "with", "in", "on", "at", "via", "through", "inside",
+]);
+
+/**
+ * Explicit-browser-request law (user rescope 2026-11-07): the turn's OWN
+ * words ask for the harness browser — an instrument token preceded within
+ * ≤6 tokens (skipping fillers) by a trigger word, vetoed by any negation
+ * token ANYWHERE earlier in the sentence. Conservative: "navigate with
+ * the browser" counts; "close the browser", "don't use the browser" and
+ * "my browser crashed" do not. ⇔ `explicit_browser_request` in
+ * `ruke-server/src/task_scope.rs`.
+ */
+export function explicitBrowserRequest(text: string): boolean {
+  const toks = tokenize(text);
+  for (let i = 0; i < toks.length; i++) {
+    if (!BROWSER_INSTRUMENTS.has(toks[i].clean)) continue;
+    if (toks.slice(0, i).some((t) => BROWSER_NEG.has(t.clean))) continue;
+    // ⇔ rust: floor = i.saturating_sub(6); walk while j > floor, i.e.
+    // the window is the ≤6 tokens immediately before the instrument.
+    for (let j = i - 1; j >= 0 && j >= i - 6; j--) {
+      const w = toks[j].clean;
+      if (BROWSER_FILLERS.has(w)) continue;
+      if (BROWSER_TRIGGERS.has(w)) return true;
+      break;
+    }
+  }
+  return false;
+}
+
+/**
+ * FULL browser-activation law (user rescope 2026-11-07): the browser tool
+ * loop runs ONLY for an OPERATE scope AND the human's browser request —
+ * the Browser Panel OPEN at send time (`browserArmed`: opening the panel
+ * through the TopBar toggle IS the explicit "open browser" action) or the
+ * turn's own words naming the harness browser. Every other turn —
+ * including an instrument-free OPERATE sentence with the panel closed
+ * (the "Find apartments to rent in Tallinn" family) — stays on the
+ * web-search path; the interactive browser NEVER rides web search.
+ * ⇔ `browser_activates` in `ruke-server/src/task_scope.rs`.
+ */
+export function browserActivates(
+  scope: TaskScope,
+  question: string,
+  browserArmed: boolean,
+): boolean {
+  return routesToBrowserTurn(scope) && (browserArmed || explicitBrowserRequest(question));
 }
 
 /** Distinct resolved hosts in scope order (for gate/planner/browser enforcement). */

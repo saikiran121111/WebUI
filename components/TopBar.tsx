@@ -37,11 +37,12 @@ const ghost =
 export default function TopBar({
   sidebarOpen, onToggleSidebar, settings, progress, browserConversation,
 }: TopBarProps) {
-  // Browser Use: the human-facing entry to the Browser Panel. Without this
-  // affordance the panel could only auto-open on `browser:*` agent frames,
-  // which requires `browser_session` on the send, which requires the panel
-  // already open — a catch-22 that made browser turns impossible to start.
-  // Opening the panel is what arms `browser_session` for the next send.
+  // Browser Use: the human-facing entry to the Browser Panel. Opening the
+  // panel ARMS the next send (`browser_armed`) — per the user rescope
+  // (2026-11-07) this toggle IS the human's explicit "open browser"
+  // action; the server combines it with the task-scope fold and the
+  // turn's own words (task_scope::browser_activates) to decide whether
+  // the engine runs. Plain web search never opens the panel by itself.
   const { open: browserOpen } = useBrowserState();
   return (
     <header

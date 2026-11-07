@@ -20,6 +20,8 @@ import {
   isFollowUp,
   isEnforceableScope,
   routesToBrowserTurn,
+  browserActivates,
+  explicitBrowserRequest,
   scopeHosts,
   registrableHost,
   type SiteTarget,
@@ -258,6 +260,70 @@ describe("task-scope laws (TS side)", () => {
       expect(s.targets.length, `acceptance prompt lost its site target: ${p.slice(0, 40)}`).toBeGreaterThan(0);
       expect(s.intent, `acceptance prompt not operational: ${p.slice(0, 40)}`).toBe("operate");
       expect(routesToBrowserTurn(s)).toBe(true);
+    }
+  });
+
+  it("browser activation gate (⇔ rust browser_activates_gate)", () => {
+    // User rescope (2026-11-07): an OPERATE fold alone NEVER activates the
+    // interactive browser — the human armed it (panel open at send) or the
+    // turn's own words name the harness browser.
+    const op = deriveTaskScope("order milk on Zepto");
+    expect(routesToBrowserTurn(op)).toBe(true);
+    expect(
+      browserActivates(op, "order milk on Zepto", false),
+      "an instrument-free OPERATE sentence activated the engine",
+    ).toBe(false);
+    expect(
+      browserActivates(
+        deriveTaskScope("Find apartments to rent in Tallinn"),
+        "Find apartments to rent in Tallinn",
+        false,
+      ),
+      "the MHR-2 sentence activated the interactive browser",
+    ).toBe(false);
+    // Panel OPEN at send = the human's explicit "open browser" channel.
+    expect(browserActivates(op, "order milk on Zepto", true)).toBe(true);
+    // Or the words name the instrument (panel then auto-opens honestly).
+    expect(browserActivates(op, "order milk on Zepto — use the browser tools", false)).toBe(true);
+    expect(browserActivates(op, "order milk on Zepto, but don't use the browser", false)).toBe(false);
+    // The scope half still gates: non-OPERATE never activates, even armed
+    // AND naming the instrument. Sentence is the one the pre-existing
+    // operate-implies-target pin already holds non-OPERATE in BOTH
+    // languages; the job-hunt example was NOT usable here — "apply" ∈
+    // OP_VERBS and it genuinely folds OPERATE, which the rescope law only
+    // stops via the two activation halves.
+    const rs = deriveTaskScope("please do it now");
+    expect(routesToBrowserTurn(rs)).toBe(false);
+    expect(
+      browserActivates(rs, "please do it now — use the browser tools", true),
+    ).toBe(false);
+  });
+
+  it("explicit browser-request words (⇔ rust explicit_browser_request_table)", () => {
+    // The instrument words name the HARNESS capability — not a site-
+    // vocabulary patch. Same table as the Rust test.
+    for (const p of [
+      "Use the browser tools. Open a NEW tab at http://127.0.0.1:3210/scope/quipqort",
+      "open the browser and check my cart on example.com",
+      "can you use a browser to verify the listing",
+      "please use browsers to open example.com",
+      "navigate with the browser to example.com",
+      "launch that browser and sign in to example.com",
+    ]) {
+      expect(explicitBrowserRequest(p), `browser request missed: ${p}`).toBe(true);
+    }
+    for (const p of [
+      "Find apartments to rent in Tallinn",
+      "Buy me the cheapest 65 inch TV under 40000 rupees",
+      "Find jobs in Hyderabad",
+      "don't use the browser, just search the web",
+      "no browser please, research this",
+      "my browser crashed again",
+      "what even is a headless browser",
+      "close the browser tab later",
+      "browser games are fun",
+    ]) {
+      expect(explicitBrowserRequest(p), `false browser request: ${p}`).toBe(false);
     }
   });
 

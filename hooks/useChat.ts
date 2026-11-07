@@ -39,12 +39,18 @@ export interface UseChatOptions {
   apiUrl?: string;
   apiKey?: string;
   /**
-   * Browser Use (Phase 10): returns the conversation id whose Browser
-   * Panel is currently open (undefined = no browser for this send).
-   * Consulted at SEND time through a ref — the caller wires it
+   * Browser Use (brief #2 + user rescope 2026-11-07):
+   * `getBrowserSession` returns the ACTIVE conversation id — it rides
+   * EVERY chat send as research-journal/panel identity, never as a
+   * routing switch. `getBrowserArmed` returns true ONLY while the
+   * Browser Panel is OPEN at send time — the human's explicit "open
+   * browser" action; the SERVER combines it with the task-scope fold and
+   * the turn's words (task_scope::browser_activates) before the engine
+   * may run. Consulted at SEND time through refs — the caller wires them
    * non-reactively (page.tsx) so panel state never re-renders the chat.
    */
   getBrowserSession?: () => string | undefined;
+  getBrowserArmed?: () => boolean;
 }
 
 export interface UseChatReturn {
@@ -89,6 +95,7 @@ export function useChat({
   apiUrl,
   apiKey,
   getBrowserSession,
+  getBrowserArmed,
 }: UseChatOptions = {}): UseChatReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus]   = useState<SendStatus>("complete");
@@ -108,9 +115,11 @@ export function useChat({
   //     [system?, compacted-context message, ...recent tail, ...new turns].
   const compactThresholdsRef = useRef<CompactThresholds | null>(null);
   const compactingRef = useRef(false);
-  // Latest getter without re-render coupling (Phase 10 browser marker).
+  // Latest getters without re-render coupling (Phase 10 browser markers).
   const getBrowserSessionRef = useRef(getBrowserSession);
   getBrowserSessionRef.current = getBrowserSession;
+  const getBrowserArmedRef = useRef(getBrowserArmed);
+  getBrowserArmedRef.current = getBrowserArmed;
 
   // Post-turn rebuild of the model-facing history, applied LAZILY. When a
   // turn ends we remember the LLM array as it stood BEFORE the turn (the
@@ -674,12 +683,16 @@ export function useChat({
           stream: true,
           reasoning_effort: curEffort === "off" ? undefined : curEffort,
           tools,
-          // Browser routing law (task-scope audit, brief #2): the marker
-          // rides on EVERY chat send as conversation identity — panel
-          // open/closed never decides activation, and the SERVER decides
-          // the browser loop from the task-scope contract. Still never
-          // set on compaction/fence-repair calls (their own paths).
+          // Browser routing law (brief #2 + user rescope 2026-11-07):
+          // `browser_session` rides on EVERY chat send as conversation
+          // identity ONLY; `browser_armed` rides as true solely while the
+          // Browser Panel is open (the human's explicit "open browser"
+          // action). The SERVER arms the engine via
+          // task_scope::browser_activates (Operate fold ∧ armed-or-words)
+          // — plain web search never opens the panel. Still never set on
+          // compaction/fence-repair calls (their own paths).
           browser_session: getBrowserSessionRef.current?.(),
+          browser_armed: getBrowserArmedRef.current?.() ? true : undefined,
           // P1 clock grounding: the zone the user experiences "now" in.
           // The route answers time/date questions from the server clock
           // converted to this zone (never its own machine zone).

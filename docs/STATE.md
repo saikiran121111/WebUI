@@ -2706,10 +2706,17 @@ registrableHost ← lib/decision/task-scope.ts (tldts).
   (task scope: …)" (reverse-walk order, take 3 + "(N more…)"), "read blocked: X is outside the
   task scope (…)" pre-fetch, unbilled.
 - SearchGateContext.scope Option<TaskScope> serde default/skip; PipelineStage::Scope ("scope").
-- Routing law (Phase 3, BOTH languages): routes_to_browser_turn/routesToBrowserTurn ⇔
-  intent==operate; browser tool loop ⇔ browser_session marker ∧ that predicate; panel
-  visibility NEVER an input. Marker present on every chat send (identity only); compaction/
-  fence-repair never carry it; legacy (stream:false) path always passes marker=false.
+- Browser routing law (Phase 3 + USER RESCOPE 2026-11-07, BOTH languages):
+  routes_to_browser_turn/routesToBrowserTurn ⇔ intent==operate — the SCOPE half ONLY;
+  browser tool loop ⇔ browser_activates/browserActivates ⇔ marker ∧ scope-half ∧
+  (browser_armed ∨ explicit_browser_request). explicit_browser_request: instrument token
+  {browser,browsers} whose ≤6-token walk-back (skipping filler/preposition set) first
+  hits a trigger verb, ANY negation token earlier vetoes. browser_armed ⇔ Browser Panel
+  OPEN at send (TopBar toggle IS the explicit "open browser" action); an instrument-free
+  OPERATE sentence ("Find apartments to rent in Tallinn") is WEB SEARCH — the panel never
+  opens on a search. browser_session rides every chat send (identity only: journal+panel);
+  BOTH keys stripped by handler.rs + route.ts before upstream; compaction/fence-repair
+  never carry them; legacy (stream:false) path always passes None.
 - run_tool_loop(…, session_id, turn_id, scope: Option<TaskScope>) — scope travels to the loop;
   discovery narrows only. Env: unchanged. No new deps (url-detector/psl already present).
 - Phase-4 engine law (c59d742, in force): BrowserRuntime.turn_affinity: Mutex<HashMap<TurnKey,

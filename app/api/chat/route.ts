@@ -609,9 +609,11 @@ export async function POST(req: NextRequest) {
   // prompt. The compaction system prompt IS the whole contract; the history
   // must reach the model untouched. (No progress frames either: the
   // compaction client parses content deltas only.)
-  // Browser Use (Phase 10): `browser_session` selects the browser tool loop
-  // in the RUST route (rustProxy above leaves it in the body). The TS path
-  // has no browser engine, but the key must still never reach upstream.
+  // Browser Use (Phase 10 + user rescope 2026-11-07): the RUST route runs
+  // the browser tool loop ONLY when task_scope::browser_activates agrees —
+  // an Operate scope AND (`browser_armed` at send time ∨ the turn's own
+  // words naming the harness browser). The TS path has no browser engine,
+  // but BOTH keys must still never reach upstream (stripped below).
   // WS05 (audit item 5): the id is captured HERE (before the delete, same
   // law as `timezone` below) and handed to the turn pipeline as the
   // SERVER research-journal key — identity only, never routing.
@@ -620,6 +622,7 @@ export async function POST(req: NextRequest) {
       ? payload.browser_session.slice(0, 200)
       : undefined;
   if (payload) delete payload.browser_session;
+  if (payload) delete payload.browser_armed;
   // P1: the client's IANA timezone feeds the <runtime_clock> block and, like
   // browser_session, is consumed here — it must never reach the upstream.
   if (typeof payload?.timezone === "string") turnTimezone = payload.timezone;

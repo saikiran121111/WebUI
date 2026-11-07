@@ -220,8 +220,10 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
   });
 
   test("ROUTING: panel CLOSED — operate intent + session marker still route to the browser turn", async ({ page, request }) => {
-    // The panel-open-vs-closed law (Phase 3): panel visibility is NEVER an
-    // input. With the panel closed the model must still reach the engine.
+    // The EXPLICIT-REQUEST channel (user rescope 2026-11-07): with the
+    // panel closed the send is UNARMED, but the prompt itself names the
+    // harness browser ("Use the browser tools") — browser_activates still
+    // agrees, and the model must reach the engine.
     const e2e = await arm(page, request, false);
     await expect(page.getByRole("complementary", { name: "Browser panel" })).toHaveCount(0);
 
@@ -235,6 +237,28 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     const landed = await tabBySuffix(e2e, "/scope/quipqort");
     expect(await e2e.innerText(landed!.tab_id as string, "#scope-marker")).toBe(SCOPE_QUIPQORT);
     void tab;
+  });
+
+  test("RESCOPE: panel CLOSED — an instrument-free operate sentence keeps the engine untouched", async ({ page, request }) => {
+    // User rescope law (2026-11-07): web search NEVER drives the
+    // interactive browser. The SAME fixture page and an Operate fold, but
+    // the prompt never names the harness browser and the panel is closed
+    // ⇒ the engine must stay completely untouched: no panel, no engine
+    // tab — regardless of how operational the sentence reads.
+    const e2e = await arm(page, request, false);
+    await expect(page.getByRole("complementary", { name: "Browser panel" })).toHaveCount(0);
+
+    await runTurn(
+      page,
+      `Open ${FIXTURE_BASE}/scope/quipqort and tell me the exact text inside the element with CSS selector "#scope-marker".`,
+    );
+
+    await expect(
+      page.getByRole("complementary", { name: "Browser panel" }),
+      "a web-search-only turn opened the interactive browser panel (user rescope law 2026-11-07)",
+    ).toHaveCount(0);
+    const landed = await tabBySuffix(e2e, "/scope/quipqort");
+    expect(landed, "the browser engine drove a fixture page on a web-search-only turn").toBeNull();
   });
 
   // pw-52 lesson (scope-folding semantics): foldTaskScope folds EVERY URL

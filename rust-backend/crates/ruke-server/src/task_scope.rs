@@ -108,16 +108,105 @@ pub fn is_enforceable_scope(scope: &TaskScope) -> bool {
     )
 }
 
-/// Browser-activation law (brief #2/#3): a chat turn runs the BROWSER tool
-/// loop only for an operational scope. The intent ladder makes `Operate`
-/// structurally imply at least one target, so a browser turn always has a
-/// site-bound destination to resolve before touching the engine. Research,
+/// Browser routing law — the SCOPE half (brief #2/#3): only an
+/// operational scope may run the BROWSER tool loop at all. The intent
+/// ladder makes `Operate` structurally imply at least one target, so a
+/// browser-eligible turn always has a site-bound destination. Research,
 /// site-info and compare turns route through the scope-enforced research
-/// path instead. Panel visibility NEVER decides this — the client's
-/// `browser_session` marker is conversation identity only.
+/// path instead. This predicate alone NEVER activates the engine: the
+/// user rescope (2026-11-07) gates it with the human's request — the
+/// full law is [`browser_activates`] below.
 /// ⇔ `routesToBrowserTurn` in `lib/decision/task-scope.ts`.
 pub fn routes_to_browser_turn(scope: &TaskScope) -> bool {
     scope.intent == TaskIntent::Operate
+}
+
+// ── Browser-request words (user rescope 2026-11-07) ──────────────────────
+// The instrument tokens name the HARNESS's own capability — the
+// interactive browser the human is asking the harness to use — so this
+// closed set is not site vocabulary and adds no semantic exception to
+// the intent ladder. Every word below is plain English or the
+// capability's name; no brand, host or task phrase appears.
+const BROWSER_INSTRUMENTS: &[&str] = &["browser", "browsers"];
+
+/// Verbs that, governing an instrument token, make the turn's own words
+/// an explicit browser request. ⇔ TS `BROWSER_TRIGGERS`.
+const BROWSER_TRIGGERS: &[&str] = &[
+    "use", "uses", "using", "used", "open", "opens", "opening", "launch", "launches",
+    "launching", "start", "starts", "starting", "try", "trying", "tried", "run", "runs",
+    "running", "drive", "drives", "driving", "navigate", "navigates", "navigating",
+    "browse", "browsing",
+];
+
+/// A negation anywhere before the instrument token vetoes the request
+/// ("don't use the browser" stays on web search — the conservative
+/// direction; the panel toggle remains the human's explicit channel).
+/// ⇔ TS `BROWSER_NEG`.
+const BROWSER_NEG: &[&str] = &[
+    "not", "no", "never", "don't", "dont", "doesn't", "doesnt", "won't", "wont", "cannot",
+    "can't", "cant", "without", "avoid", "stop", "stopped", "shouldn't", "shouldnt",
+];
+
+/// Words skipped while walking back from an instrument token to the verb
+/// governing it: articles/possessives plus plain prepositions bridging a
+/// verb to the instrument ("open it IN the browser", "navigate WITH the
+/// browser"). Prepositions never mention the instrument themselves, and
+/// the negation-first veto keeps the conservative direction.
+/// ⇔ TS `BROWSER_FILLERS`.
+const BROWSER_FILLERS: &[&str] = &[
+    "the", "a", "an", "your", "my", "this", "that", "web", "to", "up", "and", "or", "please",
+    "just", "now", "with", "in", "on", "at", "via", "through", "inside",
+];
+
+/// The REQUEST half of the browser law (user rescope 2026-11-07): do
+/// this turn's own words ask for the harness's interactive browser?
+/// Pure tokenizer check — the same tokenizer as the intent ladder, no
+/// model call, no retrieval. An instrument token counts only when the
+/// first non-filler word walking back from it (bounded window) is a
+/// request verb AND no negation cue appears earlier in the turn.
+/// ⇔ `explicitBrowserRequest` in `lib/decision/task-scope.ts`.
+pub fn explicit_browser_request(text: &str) -> bool {
+    let toks = tokenize(text);
+    for i in 0..toks.len() {
+        if !BROWSER_INSTRUMENTS.contains(&toks[i].clean.as_str()) {
+            continue;
+        }
+        if toks[..i]
+            .iter()
+            .any(|t| BROWSER_NEG.contains(&t.clean.as_str()))
+        {
+            continue;
+        }
+        let floor = i.saturating_sub(6);
+        let mut j = i;
+        while j > floor {
+            j -= 1;
+            let w = toks[j].clean.as_str();
+            if BROWSER_FILLERS.contains(&w) {
+                continue;
+            }
+            if BROWSER_TRIGGERS.contains(&w) {
+                return true;
+            }
+            break;
+        }
+    }
+    false
+}
+
+/// THE browser-activation law (user rescope 2026-11-07): the interactive
+/// browser runs only when the scope half agrees AND the human asked for
+/// it — either the Browser Panel was OPEN at send time (`browser_armed`:
+/// opening the panel IS the "open browser" action) or the turn's own
+/// words explicitly request the harness browser. An OPERATE sentence
+/// with no browser request ("Find apartments to rent in Tallinn") is a
+/// WEB SEARCH, never an engine drive. The model's tool freedom lives
+/// inside an already-activated turn — a web turn never becomes an
+/// engine drive on the model's own say-so (documented limitation; the
+/// human arms or words it in instead).
+/// ⇔ `browserActivates` in `lib/decision/task-scope.ts`.
+pub fn browser_activates(scope: &TaskScope, question: &str, browser_armed: bool) -> bool {
+    routes_to_browser_turn(scope) && (browser_armed || explicit_browser_request(question))
 }
 
 /// Distinct resolved hosts in scope order (for gate/planner/browser enforcement).
@@ -1999,6 +2088,80 @@ mod tests {
                 "acceptance prompt must route to the browser loop: {p}"
             );
         }
+    }
+
+    #[test]
+    fn explicit_browser_request_table() {
+        // ⇔ vitest "explicit browser-request words". The instrument words
+        // name the HARNESS capability — not a site-vocabulary patch.
+        for p in [
+            "Use the browser tools. Open a NEW tab at http://127.0.0.1:3210/scope/quipqort",
+            "open the browser and check my cart on example.com",
+            "can you use a browser to verify the listing",
+            "please use browsers to open example.com",
+            "navigate with the browser to example.com",
+            "launch that browser and sign in to example.com",
+        ] {
+            assert!(explicit_browser_request(p), "browser request missed: {p}");
+        }
+        for p in [
+            "Find apartments to rent in Tallinn",
+            "Buy me the cheapest 65 inch TV under 40000 rupees",
+            "Find jobs in Hyderabad",
+            "don't use the browser, just search the web",
+            "no browser please, research this",
+            "my browser crashed again",
+            "what even is a headless browser",
+            "close the browser tab later",
+            "browser games are fun",
+        ] {
+            assert!(!explicit_browser_request(p), "false browser request: {p}");
+        }
+    }
+
+    #[test]
+    fn browser_activates_gate() {
+        // User rescope (2026-11-07): current scope is web SEARCH — an
+        // OPERATE fold alone never touches the interactive browser.
+        let op = derive_task_scope("order milk on Zepto");
+        assert!(routes_to_browser_turn(&op));
+        assert!(
+            !browser_activates(&op, "order milk on Zepto", false),
+            "an instrument-free OPERATE sentence activated the engine"
+        );
+        // The MHR-2 acceptance sentence itself, verbatim.
+        let tallinn = derive_task_scope("Find apartments to rent in Tallinn");
+        assert!(
+            !browser_activates(&tallinn, "Find apartments to rent in Tallinn", false),
+            "the MHR-2 sentence activated the interactive browser"
+        );
+        // Arming (Browser Panel open at send) is the human's explicit channel.
+        assert!(browser_activates(&op, "order milk on Zepto", true));
+        // Or the turn's own words name the harness browser (even unarmed —
+        // the panel then auto-opens honestly on the engine's first frame).
+        assert!(browser_activates(
+            &op,
+            "order milk on Zepto — use the browser tools",
+            false
+        ));
+        assert!(!browser_activates(
+            &op,
+            "order milk on Zepto, but don't use the browser",
+            false
+        ));
+        // The scope half still gates: non-OPERATE never activates,
+        // even armed AND naming the instrument. Sentence is the one the
+        // pre-existing operate-implies-target pin already holds non-OPERATE
+        // in BOTH languages; the job-hunt example was NOT usable here —
+        // "apply" ∈ OP_VERBS and it genuinely folds OPERATE, which the
+        // rescope law only stops via the two activation halves.
+        let rs = derive_task_scope("please do it now");
+        assert!(!routes_to_browser_turn(&rs));
+        assert!(!browser_activates(
+            &rs,
+            "please do it now — use the browser tools",
+            true
+        ));
     }
 
     #[test]

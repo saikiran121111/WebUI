@@ -21,15 +21,22 @@ export interface ChatRequest {
    */
   purpose?: "compact";
   /**
-   * Browser Use transport marker (task-scope audit, brief #2): the
-   * conversation id for EVERY chat send — presence alone does NOT route
-   * the turn. The Rust chat route combines it with the server-owned
-   * task-scope contract (Operate intent ⇒ browser tool loop; anything
-   * else ⇒ the scope-enforced research path or plain forwarding), and
-   * strips it before forwarding — it never reaches upstream. Browser
-   * turns are streaming-path only; compaction/fence-repair never set it.
+   * Browser Use transport markers (task-scope audit brief #2 + user
+   * rescope 2026-11-07): `browser_session` = the conversation id for
+   * EVERY chat send — presence alone does NOT route the turn; it is
+   * research-journal/panel IDENTITY only. `browser_armed` = true ONLY
+   * while the Browser Panel is OPEN at send time (the TopBar toggle IS
+   * the human's explicit "open browser" action). The Rust chat route
+   * combines both with the server-owned task-scope contract via
+   * task_scope::browser_activates (Operate intent ∧ (armed ∨ the turn's
+   * words naming the harness browser) ⇒ browser tool loop; everything
+   * else ⇒ the scope-enforced research path or plain forwarding) and
+   * strips BOTH before forwarding — they never reach upstream. Browser
+   * turns are streaming-path only; compaction/fence-repair never set
+   * them.
    */
   browser_session?: string;
+  browser_armed?: boolean;
   /**
    * P1 clock grounding: the browser's IANA zone —
    * `Intl.DateTimeFormat().resolvedOptions().timeZone`. The chat route uses

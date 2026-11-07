@@ -84,25 +84,34 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
         .ok()
         .filter(|v| !v.is_null());
 
-    // (2b) Browser Use transport marker (task-scope audit, brief #2):
-    // the client sets `browser_session` to the conversation id on EVERY
-    // chat send — presence alone NEVER routes anything (it is identity,
-    // not a switch; panel open/closed plays no part). On the progress
-    // path the browser tool loop runs only when this marker combines
-    // with an OPERATE task-scope fold (`task_scope::routes_to_browser_
-    // turn` — decided in pipeline::pump_progress against the same single
-    // fold the gate ctx uses). Stripped from the payload before anything
-    // leaves (compaction included). Compaction never carries it (the TS
-    // client only sets it on chat sends, and the strip below runs before
-    // the passthrough either way).
+    // (2b) Browser Use transport markers (task-scope audit brief #2 +
+    // user rescope 2026-11-07): the client sets `browser_session` to the
+    // conversation id on EVERY chat send — presence alone NEVER routes
+    // anything (it is identity, not a switch). `browser_armed` is the
+    // Browser-Panel-open signal — true ONLY while the panel is open, and
+    // opening it through the TopBar toggle IS the human's explicit
+    // "open browser" action. On the progress path the browser tool loop
+    // runs only when `task_scope::browser_activates` agrees (OPERATE
+    // fold ∧ (armed ∨ the turn's words naming the harness browser) —
+    // decided in pipeline::pump_progress against the same single fold
+    // the gate ctx uses). BOTH keys are stripped from the payload before
+    // anything leaves (compaction included). Compaction never carries
+    // either (the TS client only sets them on chat sends, and the strip
+    // below runs before the passthrough either way).
     let browser_session = payload
         .as_ref()
         .and_then(|p| p.get("browser_session"))
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let browser_armed = payload
+        .as_ref()
+        .and_then(|p| p.get("browser_armed"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if let Some(p) = payload.as_mut() {
         attach::remove_key(p, "browser_session");
+        attach::remove_key(p, "browser_armed");
     }
 
     // (2c) P1 clock grounding ⇔ route.ts POST `turnTimezone`: the client's
@@ -256,9 +265,11 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                         span.clone(),
                         token.clone(),
                         // Browser tool loop key: (conversation, this
-                        // turn) — the same identity the panel RPC's
-                        // turn bookkeeping uses.
-                        browser_session.map(|s| (s, turn.turn_id.to_string())),
+                        // turn, armed) — the identity the panel RPC's
+                        // turn bookkeeping uses plus the human's
+                        // Browser-Panel-open arming signal (rescope
+                        // 2026-11-07).
+                        browser_session.map(|s| (s, turn.turn_id.to_string(), browser_armed)),
                         turn_timezone.clone(),
                         ProgressChannel::new(tx),
                     ));
@@ -296,12 +307,11 @@ async fn chat_inner(state: AppState, turn: &TurnContext, req: Request) -> Respon
                     &model,
                     turn_timezone.as_deref(),
                     // The legacy path has no progress channel and never
-                    // runs the browser tool loop, so it must never skip
-                    // the research gate on a marker — the browser-marker
-                    // arg is only ever true on the progress path where
-                    // the routing law can actually run the loop (brief
-                    // #2/#3).
-                    false,
+                    // runs the browser tool loop, so it carries NO
+                    // browser marker at all — it must never skip the
+                    // research gate (the routing law can only run the
+                    // loop on the progress path; brief #2/#3 + rescope).
+                    None,
                     &span,
                 )
                 .await;

@@ -1,13 +1,15 @@
 //! browser_loop.rs — the browser tool loop over the shared engine
-//! (Browser Use). `pump_progress` routes a turn here only when BOTH the
-//! client's `browser_session` marker (conversation identity, sent on
-//! every chat send — panel visibility NEVER decides activation, task-
-//! scope audit brief #2) is present AND the server-owned task-scope fold
-//! derives an OPERATE intent (`crate::task_scope::
-//! routes_to_browser_turn`). Marker turns with any other intent —
-//! research, site-info, compare — go through the scope-enforced research
-//! path like any other turn instead of being swallowed by a browser
-//! (brief #3). An operational turn also runs NO general research fan-out
+//! (Browser Use). `pump_progress` routes a turn here only when
+//! `crate::task_scope::browser_activates` agrees (user rescope
+//! 2026-11-07): the server-owned task-scope fold derives an OPERATE
+//! intent (`routes_to_browser_turn`) AND the human asked for the
+//! browser — the `browser_armed` signal (Browser Panel OPEN at send
+//! time; the TopBar toggle IS the explicit "open browser" action) or
+//! the turn's own words naming the harness browser. Every other turn —
+//! any other intent (brief #3) or an OPERATE fold the user never aimed
+//! at the engine — goes through the scope-enforced research path
+//! instead of being swallowed by a browser. An activated operational
+//! turn also runs NO general research fan-out
 //! beforehand: the destination is resolved HERE via bounded discovery
 //! over the user's own unresolved target phrases before the first model
 //! round, and the same scope is stated to the model as law
@@ -645,8 +647,9 @@ pub async fn run_tool_loop(
     session_id: String,
     turn_id: String,
     // Task-scope audit (brief #2/#3): the ONE per-turn fold hoisted at
-    // `pipeline::pump_progress` (the arms already proved it derives
-    // Operate — routing ran `routes_to_browser_turn` on this same fold).
+    // `pipeline::pump_progress` (the arms already ran `browser_activates`
+    // on this same fold — OPERATE scope AND the human asked for the
+    // browser, user rescope 2026-11-07).
     // Bounded discovery below may only NARROW it (resolve phrases
     // against real evidence); the Phase-4 engine gates enforce it at the
     // command boundary.

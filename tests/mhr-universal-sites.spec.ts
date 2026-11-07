@@ -57,6 +57,13 @@ async function sendPrompt(
     await page.getByTestId("sidebar-new-chat").click();
     await expect(page.locator('[data-testid="assistant-message"]')).toHaveCount(0);
   }
+  // Panel hygiene (user rescope 2026-11-07): every MHR journey is a
+  // WEB-SEARCH journey — the interactive browser must never be armed.
+  const panel = page.getByRole("complementary", { name: "Browser panel" });
+  if (await panel.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "Close browser panel" }).click();
+    await expect(panel).toHaveCount(0);
+  }
   const priorAssistant = await page.locator('[data-testid="assistant-message"]').count();
 
   const input = page.locator(INPUT);
@@ -72,10 +79,22 @@ async function sendPrompt(
   }
   await expect(send).toBeEnabled({ timeout: 15000 });
   await send.click();
-  await page
-    .getByText(text.slice(0, 40), { exact: false })
-    .first()
-    .waitFor({ state: "visible", timeout: 15000 });
+  try {
+    await page
+      .getByText(text.slice(0, 40), { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
+  } catch {
+    // Dead-click race: the click landed pre-hydration while React state
+    // was still empty, so nothing was sent. Refill and click once more.
+    await input.fill(text);
+    await expect(send).toBeEnabled({ timeout: 15000 });
+    await send.click();
+    await page
+      .getByText(text.slice(0, 40), { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
+  }
   return priorAssistant;
 }
 
@@ -133,6 +152,13 @@ async function expectGroundedOrHonestTurn(
   expect(pageText, "harness feedback text leaked to the human DOM").not.toContain(
     FEEDBACK_SIGNATURE,
   );
+
+  // Web-search-only law (user rescope 2026-11-07): the interactive browser
+  // must NEVER ride an MHR web-search journey — the panel never opened.
+  await expect(
+    page.getByRole("complementary", { name: "Browser panel" }),
+    "a web-search journey has the interactive browser panel open (user rescope law 2026-11-07)",
+  ).toHaveCount(0);
   return realHrefs;
 }
 

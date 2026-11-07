@@ -4,10 +4,14 @@
 // (one journey per invocation via -Grep, full idle between — CLAUDE.md §1).
 //
 // Each journey: the human arms the browser turn through the REAL UI (TopBar
-// "Open browser panel" toggle arms `browser_session`; the composer sends the
-// prompt; the Rust tool loop drives the model's tool calls against the
-// engine). Assertions read REAL engine/page state over the human-turn RPC —
-// never command echoes, never model prose.
+// "Open browser panel" toggle ⇒ the send carries `browser_armed` — the
+// explicit "open browser" action, user rescope 2026-11-07; the server
+// combines it with the Operate scope and the prompt's own instrument words
+// via task_scope::browser_activates; `browser_session` rides every send as
+// identity only; the composer sends the prompt; the Rust tool loop drives
+// the model's tool calls against the engine). Assertions read REAL
+// engine/page state over the human-turn RPC — never command echoes, never
+// model prose.
 //
 // Policy is pre-armed to "always allow" for the fixture host (access +
 // uploads) — equivalent to the human clicking "Always allow" once — so

@@ -104,13 +104,18 @@ pub async fn run_turn_pipeline(
     // P1 clock grounding: the client's IANA zone captured (and stripped
     // from the payload) by the handler — ⇔ TS `opts.turnTimezone`.
     turn_timezone: Option<&str>,
-    // Task-scope audit (brief #2/#3): true when the request carried the
+    // Task-scope audit (brief #2/#3) + user rescope (2026-11-07):
+    // Some((conversation, turn, armed)) whenever the request carried the
     // `browser_session` marker (conversation identity — sent on EVERY
-    // chat send, panel visibility irrelevant). Marker + an OPERATE fold
-    // makes this a browser turn, and the general research gate is then
-    // SKIPPED: the browser turn resolves its destination itself
-    // (browser_loop bounded discovery), never behind a blind fan-out.
-    browser_marker: bool,
+    // chat send). `armed` is the Browser-Panel-open signal (the human's
+    // TopBar toggle = the explicit "open browser" action). Marker +
+    // armed-or-explicit-words + an OPERATE fold makes this a browser
+    // turn (`task_scope::browser_activates`), and the general research
+    // gate is then SKIPPED: the browser turn resolves its destination
+    // itself (browser_loop bounded discovery), never behind a blind
+    // fan-out. An OPERATE sentence with no browser request keeps the
+    // research path — the interactive browser never rides web search.
+    browser: Option<(String, String, bool)>,
     span: &Span,
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
@@ -256,16 +261,22 @@ pub async fn run_turn_pipeline(
     let turn_scope = crate::task_scope::fold_task_scope(&scope_prompts);
     outcome.turn_scope = Some(turn_scope.clone());
 
-    // Task-scope audit (brief #2/#3) ordering law: the browser marker
-    // (conversation identity) COMBINED with an OPERATE fold makes this a
-    // browser turn — and for a browser turn the general research fan-out
-    // is SKIPPED entirely. An operational turn must resolve its
-    // destination through bounded discovery inside the browser loop,
-    // never by paying for a blind web-research pass against an unknown
-    // site first. Marker turns with any other intent keep the research
-    // path (with the scope enforced through the gate ctx); panel
-    // visibility plays no part anywhere in this law.
-    let browser_turn = browser_marker && crate::task_scope::routes_to_browser_turn(&turn_scope);
+    // Task-scope audit (brief #2/#3) ordering law + user rescope
+    // (2026-11-07): the browser marker COMBINED with an OPERATE fold AND
+    // the human's request — the panel OPEN at send time (`armed`, the
+    // TopBar toggle IS the "open browser" action) or the turn's own
+    // words naming the harness browser — makes this a browser turn
+    // (`task_scope::browser_activates`), and for a browser turn the
+    // general research fan-out is SKIPPED entirely: an activated
+    // operational turn resolves its destination through bounded
+    // discovery inside the browser loop, never by paying for a blind
+    // web-research pass against an unknown site first. Any OTHER turn —
+    // including an OPERATE fold with the panel closed and no instrument
+    // words (the "Find apartments to rent in Tallinn" family) — keeps
+    // the research path (with the scope enforced through the gate ctx).
+    let browser_armed = browser.as_ref().is_some_and(|b| b.2);
+    let browser_turn =
+        browser.is_some() && crate::task_scope::browser_activates(&turn_scope, question, browser_armed);
 
     // ---- 6) research availability (repair 2026-11-05, brief §2/§4) ----
     // THE MODEL DECIDES: no gate, no prefetched bundle, and no auxiliary
@@ -347,13 +358,16 @@ pub async fn pump_progress(
     history: Vec<Value>,
     span: Span,
     token: CancellationToken,
-    // Some((conversation, turn)) whenever the client sent the
+    // Some((conversation, turn, armed)) whenever the client sent the
     // `browser_session` marker (conversation identity — presence alone
-    // does NOT route; task-scope audit brief #2). The browser tool loop
-    // runs only when the folded turn scope ALSO derives an OPERATE
-    // intent; every other marker turn takes the research/plain path.
-    // (handler computes this before stripping the marker).
-    browser: Option<(String, String)>,
+    // does NOT route; task-scope audit brief #2). `armed` is the
+    // Browser-Panel-open signal from the client (user rescope
+    // 2026-11-07). The browser tool loop runs only when
+    // `task_scope::browser_activates` agrees — OPERATE fold AND
+    // (panel-armed OR the words naming the harness browser); every
+    // other turn takes the research/plain path. (handler computes this
+    // before stripping the markers).
+    browser: Option<(String, String, bool)>,
     // P1 clock grounding: handler-captured IANA zone (already stripped
     // from the payload there) — threaded to the pipeline like `browser`.
     turn_timezone: Option<String>,
@@ -382,11 +396,11 @@ pub async fn pump_progress(
         Some(&mut ch),
         &model,
         turn_timezone.as_deref(),
-        // Brief #2: the marker's mere PRESENCE feeds the ordering law
-        // (identity halves of the routing conjunction; the routing
-        // conjunction itself is re-checked at the arms below against the
-        // fold — one fold, one truth).
-        browser.is_some(),
+        // Brief #2 + user rescope: the marker identity + the arming
+        // signal feed the ordering law (the routing conjunction is
+        // re-checked at the arms below against the fold — one fold, one
+        // truth).
+        browser.clone(),
         &span,
     )
     .await;
@@ -411,8 +425,9 @@ pub async fn pump_progress(
     // catch arms do), and `forward_into` performs its own `ch.fail` for
     // every upstream failure — so no synthetic frame is needed here.
     //
-    // Browser-ROUTED turns (marker ∧ Operate scope) take the browser
-    // tool-loop path with the SAME stripped payload.
+    // Browser-ROUTED turns (the full `browser_activates` conjunction —
+    // see below) take the browser tool-loop path with the SAME stripped
+    // payload.
     // Repair (brief §2/§4): the model-facing web tool loop (web_loop.rs ⇔
     // TS web-tool-loop.ts) arms on every OTHER turn that carries no
     // client-supplied `tools` — `web_depth` is the pipeline's FIXED
@@ -421,22 +436,24 @@ pub async fn pump_progress(
     // overwritten (client-provided schemas alone never authorize
     // execution — they only keep the Browser Panel passthrough intact).
     //
-    // Brief #2: the routing conjunction completes HERE against the ONE
-    // fold the pipeline already made — no second derivation anywhere.
-    // The browser loop runs only when marker presence AND an Operate
-    // scope agree; a marker turn with any other intent falls through to
-    // the web tool loop like any other turn (the browser loop no longer
-    // swallows research turns — brief #3), and panel visibility enters
-    // nowhere in this law. `turn_scope` moves into whichever tool loop
-    // runs.
+    // Brief #2 + user rescope (2026-11-07): the routing conjunction
+    // completes HERE against the ONE fold the pipeline already made — no
+    // second derivation anywhere. The browser loop runs only when marker
+    // presence, an Operate fold, AND the human's request agree (panel
+    // armed at send, or the turn's words naming the harness browser).
+    // An OPERATE marker turn WITHOUT the request — the plain
+    // "rent apartments in Tallinn" family — falls through to the web
+    // tool loop: the interactive browser NEVER rides a web search.
+    // `turn_scope` moves into whichever tool loop runs.
     let turn_scope = outcome.turn_scope.take();
+    let browser_armed = browser.as_ref().is_some_and(|b| b.2);
     let browser_take = browser.is_some()
         && turn_scope
             .as_ref()
-            .is_some_and(crate::task_scope::routes_to_browser_turn);
+            .is_some_and(|s| crate::task_scope::browser_activates(s, &question, browser_armed));
     let web_tools = !browser_take && outcome.web_depth.is_some() && payload.get("tools").is_none();
     match browser {
-        Some((session_id, turn_id)) if browser_take => {
+        Some((session_id, turn_id, _armed)) if browser_take => {
             crate::chat::browser_loop::run_tool_loop(
                 &state,
                 payload,

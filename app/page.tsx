@@ -24,6 +24,7 @@ import { useChat } from "../hooks/useChat";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
+import { getBrowserState } from "../lib/browser-client/browserStore";
 
 function uid(prefix = ""): string {
   return prefix + Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
@@ -50,14 +51,17 @@ export default function HomePage() {
     compact, compactState, activeTokenCount,
   } = useChat({
     model: process.env.NEXT_PUBLIC_MODEL_ID ?? "",
-    // Browser Use routing law (task-scope audit, brief #2): the marker
-    // tags EVERY chat send with the conversation identity — panel
-    // open/closed NEVER decides browser activation. The server's
-    // task-scope contract (task_scope::routes_to_browser_turn) decides
-    // whether the turn is operational; when it is, the panel AUTO-OPENS
-    // on the first `browser:preparing` frame (browserStore law). Read
-    // non-reactively (activeIdRef) — panel state must never re-render the
-    // chat tree.
+    // Browser Use routing law (brief #2 + user rescope 2026-11-07):
+    // `browser_session` tags EVERY chat send with the conversation
+    // identity; `browser_armed` is true ONLY while the Browser Panel is
+    // OPEN at send time — opening it through the TopBar toggle IS the
+    // human's explicit "open browser" action. The server combines both
+    // with the turn's own words via task_scope::browser_activates
+    // (OPERATE fold ∧ (armed ∨ the words naming the harness browser));
+    // when the engine runs, the panel AUTO-OPENS on the first
+    // `browser:preparing` frame (browserStore law). Plain web search
+    // NEVER opens it. Read non-reactively (activeIdRef) — panel state
+    // must never re-render the chat tree.
     // Research-journal + browser-session identity: a fresh conversation
     // MUST own a real id BEFORE its first POST. The old `?? "default"`
     // fallback keyed the first turn of every chat ever to one shared
@@ -76,6 +80,11 @@ export default function HomePage() {
       }
       return activeIdRef.current;
     },
+    // Armed = the Browser Panel is OPEN at send time (user rescope
+    // 2026-11-07). The in-memory store is the source of truth; reading it
+    // here (not a hook value) keeps the chat tree non-reactive to panel
+    // state.
+    getBrowserArmed: () => getBrowserState().open,
   });
 
   // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.
