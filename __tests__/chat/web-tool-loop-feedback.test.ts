@@ -46,6 +46,7 @@ vi.mock("@/lib/server/logger", () => ({
 }));
 
 import { runWebToolLoop, type WebProgressChannel } from "@/lib/chat/web-tool-loop";
+import { webToolBudgetFor } from "@/lib/web-search/tools";
 
 const dec = new TextDecoder();
 
@@ -220,7 +221,7 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     // Exactly one tool round → one census frame (done=1 of maxRounds=4 for standard).
     const censuses = h.stages.filter((s) => s.stage === "web:tools");
     expect(censuses).toHaveLength(1);
-    expect(censuses[0]).toMatchObject({ detail: "web_search", done: 1, total: 4 });
+    expect(censuses[0]).toMatchObject({ detail: "web_search", done: 1, total: 8 }); // standard budget (2026-11-07)
     // Ledger snapshot counts TOOL rounds only (exec is mocked here, so the
     // ledger itself stays empty — the snapshot rides the round frame whose
     // gate was satisfied by the minted S2 citation).
@@ -253,17 +254,26 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     expect(countStop(h.rawText)).toBe(1);
   });
 
-  it("no rounds to spare (quick, budget=2): NO feedback is faked — the answer releases through the WS06 audit", async () => {
-    const narrate = sseResponse(
-      contentDelta("Looking it up. ") +
-        toolCallDelta(0, { id: "c1", function: { name: "web_search" } }) +
-        toolCallDelta(0, { function: { arguments: '{"query":"boreal pricing","missing_claims":"price"}' } }) +
-        finishFrame("tool_calls") +
-        DONE,
+  it("no rounds to spare (quick, whole round budget spent): NO feedback is faked — the answer releases through the WS06 audit", async () => {
+    const narrate = () =>
+      sseResponse(
+        contentDelta("Looking it up. ") +
+          toolCallDelta(0, { id: "c1", function: { name: "web_search" } }) +
+          toolCallDelta(0, { function: { arguments: '{"query":"boreal pricing","missing_claims":"price"}' } }) +
+          finishFrame("tool_calls") +
+          DONE,
+      );
+    // EVERY quick round goes to tools (budget DERIVED, 2026-11-07 re-tune) —
+    // the loop then forces its final answer round, and there is nothing left
+    // to spend a feedback iteration on.
+    const cap = webToolBudgetFor("quick").maxToolRounds;
+    const h = await drive(
+      [...Array.from({ length: cap }, () => narrate()), answerRound("Boreal costs $99 [S9] per seat.")],
+      S1,
+      "quick",
     );
-    const h = await drive([narrate, answerRound("Boreal costs $99 [S9] per seat.")], S1, "quick");
-    expect(h.calls).toBe(2);
-    expect(h.fetchBodies).toHaveLength(2);
+    expect(h.calls).toBe(cap + 1);
+    expect(h.fetchBodies).toHaveLength(cap + 1);
     for (const b of h.fetchBodies) expect(feedbackMessages(b)).toHaveLength(0);
     // MHR-F: integrity audit only — marker stripped, words untouched.
     expect(h.rawText).toContain("Boreal costs $99 per seat.");

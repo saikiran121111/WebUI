@@ -66,7 +66,7 @@ vi.mock("@/lib/web-search/extractor", () => ({
   },
 }));
 
-import { execReadPageTool, makeWebToolSession } from "@/lib/web-search/tools";
+import { execReadPageTool, makeWebToolSession, MAX_PASSAGE_CHARS } from "@/lib/web-search/tools";
 import { evidenceBlock } from "@/lib/web-search/pipeline";
 
 async function read(url: string, focus: string, queryContext: string) {
@@ -97,23 +97,22 @@ const DOC_Distant =
   "\n\nArborWorks platform update note. ".repeat(92) +
   "Offline mode ships for existing customers in August 2026.";
 
-// 3. Five focus-matched whole sections (~635 chars each, 3183-byte doc)
-//    against the 2000-char passage budget: the section packing returns the
-//    first three whole and must disclose the two it dropped and offer
-//    continuation. (3×635 fit the budget; the 4th cannot with <300 chars
-//    remaining, so exactly three sections are returned.)
-const mkSection = (token: string, marker: string) =>
+// 3. Five focus-matched whole sections sized FROM THE LIVE WINDOW CAP
+//    (2026-11-07 re-tune): reps is grown to the largest count where the
+//    first FOUR whole sections still fit MAX_PASSAGE_CHARS, leaving <300
+//    chars — dead partial-window branch — so exactly the fifth section is
+//    dropped and MUST be disclosed with a continuation handle.
+const TOKS = ["alpha", "beta", "gamma", "delta", "epsilon"];
+const mkSection = (token: string, marker: string, reps: number) =>
   `${token} deployment notes (${token} channel, ${token} rollout, ${token} status, ` +
   `${token} queue, ${token} batch, ${token} wave, ${token} sweep, ${token} pass): ` +
   `${marker}-FACT recorded for tracking. ` +
-  `More ${token} notes: ${token} capacity, ${token} quota, ${token} window, ${token} backlog. `.repeat(6);
-const DOC_SECTIONS = [
-  mkSection("alpha", "ALPHA"),
-  mkSection("beta", "BETA"),
-  mkSection("gamma", "GAMMA"),
-  mkSection("delta", "DELTA"),
-  mkSection("epsilon", "EPSILON"),
-].join("\n\n");
+  `More ${token} notes: ${token} capacity, ${token} quota, ${token} window, ${token} backlog. `.repeat(reps);
+const secLen4 = (r: number) =>
+  TOKS.slice(0, 4).reduce((sum, t) => sum + mkSection(t, t.toUpperCase(), r).length, 0);
+let reps = 1;
+while (secLen4(reps + 1) <= MAX_PASSAGE_CHARS) reps += 1;
+const DOC_SECTIONS = TOKS.map((t) => mkSection(t, t.toUpperCase(), reps)).join("\n\n");
 
 // 4. Long catalog: 100 generic "region" rows then the required late row
 //    carrying the RARE focus token "enterprise".
@@ -167,7 +166,13 @@ it("two distant requested facts both survive the window budget", async () => {
 it("read_page exposes dropped focus-matched sections and a continuation handle", async () => {
   const url = "https://docs.arborworks.example.com/rollout";
   state.docs.set(url, DOC_SECTIONS);
-  expect(DOC_SECTIONS.length).toBeGreaterThan(2500);
+  // Fixture law (derived from the live cap): the first four whole sections
+  // fit with <300 chars of window budget left over, so the fifth cannot
+  // ride even the centered-partial branch — it is genuinely dropped.
+  const leftAfter4 = MAX_PASSAGE_CHARS - secLen4(reps);
+  expect(leftAfter4).toBeGreaterThanOrEqual(0);
+  expect(leftAfter4).toBeLessThan(300);
+  expect(mkSection("epsilon", "EPSILON", reps).length).toBeGreaterThan(leftAfter4);
 
   const { entry, text } = await read(
     url,
@@ -188,16 +193,23 @@ it("read_page exposes dropped focus-matched sections and a continuation handle",
 
 it("control: a focus match only inside the plain prefix keeps the byte-identical prefix cut", async () => {
   const url = "https://docs.arborworks.example.com/log";
-  const doc =
-    "Boreal-X17 rollout summary for the arborworks platform. " +
-    Array.from({ length: 60 }, (_, i) => `Log line ${i}: routine maintenance completed on host ${i}.`).join("\n\n");
+  // Built to at least 2x the live window cap (2026-11-07 re-tune), so the
+  // prefix CUT — never a whole-block serve — is what this control observes.
+  const head = "Boreal-X17 rollout summary for the arborworks platform. ";
+  let body = "";
+  let n = 0;
+  while (head.length + body.length < MAX_PASSAGE_CHARS * 2) {
+    body += (n > 0 ? "\n\n" : "") + `Log line ${n}: routine maintenance completed on host ${n}.`;
+    n += 1;
+  }
+  const doc = head + body;
   state.docs.set(url, doc);
   expect(doc.length).toBeGreaterThan(2500);
 
   const { text } = await read(url, "boreal rollout", "boreal rollout summary");
-  // No focus match past the cap → the plain 2000-char prefix cut, byte for
-  // byte (the pinned windowing law must not churn non-matching pages).
-  expect(text).toBe(doc.slice(0, 2000) + "…");
+  // No focus match past the cap → the plain window-cap-char prefix cut,
+  // byte for byte (the pinned windowing law must not churn non-matching pages).
+  expect(text).toBe(doc.slice(0, MAX_PASSAGE_CHARS) + "…");
 });
 
 /* ── evidence-block catalog selection (pipeline) ────────────────────────── */

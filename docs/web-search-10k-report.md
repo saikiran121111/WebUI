@@ -453,3 +453,4 @@ Corpus: .data/web-search-10k-urls.json (500 verified URLs)
 | 17 | https://zepto.in/ | 200 | FAIL | 496 | The page is a Sedo brokerage landing page indicating that the domain zepto.in is already taken and offering services to hire a broker to acquire it. | 30s |
 | 18 | https://bookmyshow.com/ | 200 | UNKNOWN | 481 |  | 31s |
 | 19 | https://zomato.com/ | 200 | UNKNOWN | 2027 |  | 31s |
+| 20 | https://swiggy.com/ | 202 | FAIL | 0 |  | 18908s |

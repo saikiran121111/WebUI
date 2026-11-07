@@ -55,6 +55,10 @@ import {
   WEB_SEARCH_TOOL_DESCRIPTION,
   READ_PAGE_TOOL_DESCRIPTION,
   WEB_TOOL_MAX_ROUNDS_CAP,
+  MAX_PASSAGES_PER_PAGE,
+  MAX_PASSAGE_CHARS,
+  READ_PAGE_TEXT_BUDGET,
+  READ_PAGE_MAX_URLS,
   type WebToolSession,
   type CitationSeed,
 } from "@/lib/web-search/tools";
@@ -134,18 +138,20 @@ describe("classifyRetrievalFailure shared vectors (⇔ rust tools.rs)", () => {
 
 describe("depth budget table (⇔ rust budget_for_depth)", () => {
   it("pins every depth row exactly", () => {
-    expect(webToolBudgetFor("quick")).toEqual({ maxSearchCalls: 1, maxReadUrls: 6, maxToolRounds: 2 });
-    expect(webToolBudgetFor("standard")).toEqual({ maxSearchCalls: 2, maxReadUrls: 12, maxToolRounds: 4 });
-    expect(webToolBudgetFor("deep")).toEqual({ maxSearchCalls: 4, maxReadUrls: 20, maxToolRounds: 6 });
+    // Retuned 2026-11-07 (lineup-page report): rounds are the only path to
+    // continuation coverage; budgets bound latency/context, never truth.
+    expect(webToolBudgetFor("quick")).toEqual({ maxSearchCalls: 1, maxReadUrls: 8, maxToolRounds: 4 });
+    expect(webToolBudgetFor("standard")).toEqual({ maxSearchCalls: 3, maxReadUrls: 16, maxToolRounds: 8 });
+    expect(webToolBudgetFor("deep")).toEqual({ maxSearchCalls: 6, maxReadUrls: 32, maxToolRounds: 14 });
     expect(WEB_TOOL_MAX_ROUNDS_CAP).toBe(20);
   });
 
   it("remainingBudget counts down and clamps at zero", () => {
     const s = makeWebToolSession("standard", 1, "q");
-    expect(remainingBudget(s)).toEqual({ searches: 2, readUrls: 12, rounds: 4 });
+    expect(remainingBudget(s)).toEqual({ searches: 3, readUrls: 16, rounds: 8 });
     s.searchesUsed = 5; // overspend must not go negative
-    s.roundsUsed = 4;
-    expect(remainingBudget(s)).toEqual({ searches: 0, readUrls: 12, rounds: 0 });
+    s.roundsUsed = 9;
+    expect(remainingBudget(s)).toEqual({ searches: 0, readUrls: 16, rounds: 0 });
   });
 
   it("session seeds [S#] continuation and clips the focus context", () => {
@@ -253,7 +259,7 @@ describe("execWebSearchTool envelope (⇔ rust exec_web_search)", () => {
     expect(out.ok).toBe(false);
     expect(out.error).toBe("invalid_arguments");
     expect(out.detail).toBe("queries[] (1-4) and missing_claims[] (1+) are both required");
-    expect(out.remainingBudget).toEqual({ searches: 2, readUrls: 12, rounds: 4 });
+    expect(out.remainingBudget).toEqual({ searches: 3, readUrls: 16, rounds: 8 });
     expect(mocks.metasearch).not.toHaveBeenCalled();
     const out2 = await execWebSearchTool(s, { queries: ["a b"], missing_claims: [] }, []);
     expect(out2.error).toBe("invalid_arguments");
@@ -287,7 +293,7 @@ describe("execWebSearchTool envelope (⇔ rust exec_web_search)", () => {
     expect(out.queryResults).toEqual([{ query: "spice market prices", intent: "news", resultCount: 2 }]);
     expect(out.resultsReturned).toBe(2);
     expect((out as any).results[0]).toMatchObject({ url: "https://a.com/1", engine: "brave", origin: "search" });
-    expect(out.remainingBudget).toEqual({ searches: 1, readUrls: 12, rounds: 4 });
+    expect(out.remainingBudget).toEqual({ searches: 2, readUrls: 16, rounds: 8 });
   });
 
   it("intent mapping: 'general' does NOT short-circuit; unknown families fall through", async () => {
@@ -425,39 +431,56 @@ describe("execReadPageTool envelope (⇔ rust exec_read_page)", () => {
   });
 
   it("read budget drops whole URLs with an honest notice (N pages per round)", async () => {
-    const s = session("quick"); // maxReadUrls 6
-    const urls = Array.from({ length: 8 }, (_, i) => `https://example.com/p${i + 1}`);
-    const out = await execReadPageTool(s, { urls }, []);
-    expect(mocks.extractUrl).toHaveBeenCalledTimes(6);
-    expect(out.notices).toContain("read budget exhausted: 2 URL(s) dropped (remaining 6)");
-    expect(s.readUrlsUsed).toBe(6);
+    // Every count DERIVED from the session budget. standard, not quick: a
+    // single call carries at most READ_PAGE_MAX_URLS urls, so the budget
+    // overshoot is built the way reality builds it — over several calls.
+    const s = session("standard");
+    const cap = s.budget.maxReadUrls;
+    const per = READ_PAGE_MAX_URLS;
+    const mk = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => `https://example.com/u${from + i}`);
+    // Pre-charge the read budget down to exactly 4 URL(s) of headroom:
+    const remaining = 4;
+    for (let off = 0; cap - remaining - off > 0; ) {
+      const n = Math.min(per, cap - remaining - off);
+      await execReadPageTool(s, { urls: mk(off + 1, n) }, []);
+      off += n;
+    }
+    // A full-shape call now overshoots what the budget still allows:
+    const out = await execReadPageTool(s, { urls: mk(cap - remaining + 1, per) }, []);
+    expect(mocks.extractUrl).toHaveBeenCalledTimes(cap);
+    expect(out.notices).toContain(`read budget exhausted: ${per - remaining} URL(s) dropped (remaining ${remaining})`);
+    expect(s.readUrlsUsed).toBe(cap);
     expect((out as any).remainingBudget.readUrls).toBe(0);
     // a fully-spent read budget returns the exhausted envelope, never a guess
     const again = await execReadPageTool(s, { urls: ["https://example.com/late"] }, []);
     expect(again.error).toBe("budget_exhausted");
-    expect(again.detail).toContain("read_page budget spent (6 URL read(s))");
+    expect(again.detail).toContain(`read_page budget spent (${cap} URL read(s))`);
   });
 
-  it("the 20k batch char budget omits whole pages honestly, never halves one", async () => {
-    // 6 blocks × 2001 chars per page (each passage clipped at 2000+…):
-    // page1 keeps 6 (12006), page2 keeps 3 of 6, page3 cannot fit one → omitted.
+  it("the batch char budget omits whole pages honestly, never halves one", async () => {
+    // ALL arithmetic derives from the exported caps (2026-11-07 lineup law):
+    // blocks sized MAX_PASSAGE_CHARS+1 (each windowed to cap+…), so whole
+    // blocks ride or fall against READ_PAGE_TEXT_BUDGET.
+    const block = "x".repeat(MAX_PASSAGE_CHARS + 1);
+    const keep = Math.floor(READ_PAGE_TEXT_BUDGET / block.length);
+    const leftover = READ_PAGE_TEXT_BUDGET - keep * block.length;
+    expect(keep).toBeGreaterThanOrEqual(1);
+    expect(MAX_PASSAGES_PER_PAGE).toBeGreaterThan(keep); // per-PAGE count never the limiter here
+    expect(leftover).toBeLessThan(block.length); // next page cannot fit one whole block
     mocks.extractUrl.mockImplementation(async (r: any) =>
-      packet({ url: r.url, passages: Array.from({ length: 6 }, () => ({ passageText: "x".repeat(2001) })) }),
+      packet({ url: r.url, passages: Array.from({ length: keep + 1 }, () => ({ passageText: block })) }),
     );
     const cites: CitationSeed[] = [];
-    const out = await execReadPageTool(session(), { urls: ["https://a.example", "https://b.example", "https://c.example"] }, cites);
-    const [p1, p2, p3] = (out as any).pages;
-    expect(p1.passages).toHaveLength(6);
-    // truncated now also reports clipped passages (focus-window law, 2026-11-05):
-    // every block here is windowed to 2000+…, so the honest flag is true even
-    // though no whole block was dropped. The pinned page-omission law is unchanged.
-    expect(p1.truncated).toBe(true);
-    expect(p2.passages).toHaveLength(3);
-    expect(p2.truncated).toBe(true);
-    expect(p3.omitted).toBe("char_budget");
-    expect(p3.fetched).toBe(true);
+    const out = await execReadPageTool(session(), { urls: ["https://a.example", "https://b.example"] }, cites);
+    const [p1, p2] = (out as any).pages;
+    // Page 1 serves exactly what fits — whole blocks only, never half a one:
+    expect(p1.passages).toHaveLength(keep);
+    expect(p1.truncated).toBe(true); // one whole block left behind on page 1
+    expect(p2.omitted).toBe("char_budget"); // cannot fit a block ⇒ the page drops, honestly
+    expect(p2.fetched).toBe(true);
     expect(out.notices).toContain("1 page(s) omitted: read_page char budget spent");
-    expect(cites).toHaveLength(2); // the omitted page mints no dangling citation
+    expect(cites).toHaveLength(1); // the omitted page mints no dangling citation
   });
 
   it("timeoutMs clamps into [1000, 60000] and the deadline rides into extractUrl", async () => {

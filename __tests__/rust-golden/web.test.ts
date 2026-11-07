@@ -414,7 +414,7 @@ describe("golden: model-directed web tool loop", () => {
     expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
     const census = stageFrames(logical.frames).filter((o) => o.stage === "web:tools");
     expect(census.map((f) => f.detail)).toEqual(["web_search", "read_page"]);
-    expect(census.map((f) => [f.done, f.total])).toEqual([[1, 4], [2, 4]]); // standard budget: maxToolRounds 4
+    expect(census.map((f) => [f.done, f.total])).toEqual([[1, 8], [2, 8]]); // standard budget: maxToolRounds 8 (2026-11-07 re-tune)
     expect(run.headers["x-web-citations"]).toBeUndefined();
     expect(run.headers["x-search-gate"]).toBeUndefined();
 
@@ -574,61 +574,66 @@ describe("golden: model-directed web tool loop", () => {
     const R1_ARGS = { queries: ["project nimbus roadmap"], missing_claims: ["roadmap dates"] };
     const R2_ARGS = { queries: ["project nimbus sync engine"], missing_claims: ["sync engine status"] };
     const R3_ARGS = { queries: ["project nimbus offline mode"], missing_claims: ["offline mode timeline"] };
+    const R4_ARGS = { queries: ["project nimbus data export"], missing_claims: ["data export timeline"] };
     const { run, logical, upstreamCalls } = await runAndRecord({
       rel: "web-search/04-search-budget-exhausted-progress.json",
-      scenario: "the model spends the per-turn search budget (standard: 2 calls) — the third web_search is refused with a named target",
+      scenario: "the model spends the per-turn search budget (standard: 3 calls, 2026-11-07 re-tune) — the fourth web_search is refused with a named target",
       semantics:
         "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the injected-throw scenario): budgets are harness resources, not " +
-        "model judgment. Standard depth gives TWO search calls; the model spends them, and the third is refused with the exact " +
+        "model judgment. Standard depth gives THREE search calls (2026-11-07 re-tune); the model spends them, and the fourth is refused with the exact " +
         "budget_exhausted envelope: ok:false, error:'budget_exhausted', a detail naming what was spent and instructing the model " +
         "to answer from the evidence it HAS and say what is still missing, plus remainingBudget. The refusal is RECORDED in the " +
         "action ledger (ok:false, error:'budget_exhausted', queries:[the refused query]) — the third web_meta frame re-emits the " +
-        "full record, and the completion snapshot carries all three actions. Only 4 rounds exist (maxToolRounds): three tool " +
-        "rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered within the cap).",
+        "full record, and the completion snapshot carries all four actions. Only 8 rounds exist (maxToolRounds, 2026-11-07 " +
+        "re-tune): four tool rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered within the cap).",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       upstream: [
         toolCallScript("call-a1", "web_search", R1_ARGS),
         toolCallScript("call-a2", "web_search", R2_ARGS),
         toolCallScript("call-a3", "web_search", R3_ARGS),
+        toolCallScript("call-a4", "web_search", R4_ARGS),
         CHAT_UPSTREAM,
       ],
     });
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
+    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(logical.done).toBe(true);
 
     const metas = webMeta(logical.frames);
-    expect(metas.length).toBe(4); // three tool rounds (WS18 ledger-gated) + completion
+    expect(metas.length).toBe(5); // four tool rounds (WS18 ledger-gated) + completion
     const led = (i: number) => metas[i]!.researchLedger as { toolRounds: number; actions: Record<string, unknown>[] };
     expect(led(0).toolRounds).toBe(1);
     expect(led(1).toolRounds).toBe(2);
     expect(led(2).toolRounds).toBe(3);
     expect(led(2).actions.length).toBe(3);
-    expect(led(2).actions[2]).toMatchObject({
-      tool: "web_search", ok: false, error: "budget_exhausted", id: "ws-<sid>-a3", queries: ["project nimbus offline mode"],
+    expect(led(3).toolRounds).toBe(4);
+    expect(led(3).actions.length).toBe(4);
+    expect(led(3).actions[3]).toMatchObject({
+      tool: "web_search", ok: false, error: "budget_exhausted", id: "ws-<sid>-a4", queries: ["project nimbus data export"],
     });
     // The refusal NAMED its target; the completed rounds recorded their spend:
-    expect(led(2).actions.map((a) => a.ok)).toEqual([true, true, false]);
-    expect(led(3).toolRounds).toBe(3);
-    expect(led(3).actions.length).toBe(3);
+    expect(led(3).actions.map((a) => a.ok)).toEqual([true, true, true, false]);
+    expect(led(4).toolRounds).toBe(4);
+    expect(led(4).actions.length).toBe(4);
 
-    expect(upstreamCalls.length).toBe(4);
-    const p3 = upstreamCalls[3]!.bodyJson as { messages: Record<string, unknown>[] };
-    const envs = toolEnvelopes(p3);
-    const refused = envs[2];
+    expect(upstreamCalls.length).toBe(5);
+    const p4 = upstreamCalls[4]!.bodyJson as { messages: Record<string, unknown>[] };
+    const envs = toolEnvelopes(p4);
+    const refused = envs[3];
     expect(refused).toMatchObject({ ok: false, tool: "web_search", searchSessionId: "ws-<sid>", error: "budget_exhausted" });
-    expect(String(refused!.detail)).toContain("budget spent (2 search call(s))");
+    expect(String(refused!.detail)).toContain("budget spent (3 search call(s))");
     expect(refused!.remainingBudget).toBeTruthy();
     // Envelope discipline: an error envelope NEVER echoes the model's args
     // back (the refused target is named where it belongs — the ledger pin
     // above); the model already holds its own tool-call arguments.
     expect((refused as Record<string, unknown>).queries).toBeUndefined();
     expect((refused as Record<string, unknown>).urls).toBeUndefined();
-    // Rounds 1-2 spent the budget (REAL budget gate, standard depth = 2):
+    // Rounds 1-3 spent the budget (REAL budget gate, standard depth = 3):
     expect(envs[0]!.remainingBudget).toBeTruthy();
     expect(envs[1]!.ok).toBe(true);
+    expect(envs[2]!.ok).toBe(true);
   });
 
   // browser tier scripted (P7) — headroom budget, see note on test 01

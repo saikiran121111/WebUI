@@ -57,8 +57,8 @@ describe("web-tools RPC (Rust chat-loop bridge)", () => {
     expect(typeof j.guidance).toBe("string");
     expect(j.guidance.length).toBeGreaterThan(0);
     expect(j.maxRoundsCap).toBe(20);
-    expect(j.budget).toEqual({ maxSearchCalls: 2, maxReadUrls: 12, maxToolRounds: 4 }); // ⇔ locked budget table
-    expect(j.remainingBudget).toEqual({ searches: 2, readUrls: 12, rounds: 4 });
+    expect(j.budget).toEqual({ maxSearchCalls: 3, maxReadUrls: 16, maxToolRounds: 8 }); // ⇔ locked budget table (2026-11-07 re-tune)
+    expect(j.remainingBudget).toEqual({ searches: 3, readUrls: 16, rounds: 8 });
   });
 
   it("create rejects an unknown depth", async () => {

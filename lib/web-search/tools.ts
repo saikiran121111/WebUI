@@ -158,12 +158,19 @@ export interface WebToolBudget {
 }
 
 export function webToolBudgetFor(depth: WebToolDepth): WebToolBudget {
+  // Retuned 2026-11-07 after the lineup-page report: a price-sorted listing
+  // spans ~50 sections; the first read_page serves some and EVERY remaining
+  // cluster must ride a continuation ROUND, so rounds — not vocabulary, sites,
+  // or confidence — decide what a model can uncover. Rounds bound LATENCY,
+  // never truth; the char budgets below bound CONTEXT (n_ctx 131072). A deep
+  // turn must be able to walk a whole ranking; a standard turn must be able
+  // to walk a whole page's worth of continuations.
   const raw: WebToolBudget =
     depth === "quick"
-      ? { maxSearchCalls: 1, maxReadUrls: 6, maxToolRounds: 2 }
+      ? { maxSearchCalls: 1, maxReadUrls: 8, maxToolRounds: 4 }
       : depth === "deep"
-        ? { maxSearchCalls: 4, maxReadUrls: 20, maxToolRounds: 6 }
-        : { maxSearchCalls: 2, maxReadUrls: 12, maxToolRounds: 4 };
+        ? { maxSearchCalls: 6, maxReadUrls: 32, maxToolRounds: 14 }
+        : { maxSearchCalls: 3, maxReadUrls: 16, maxToolRounds: 8 };
   return { ...raw, maxToolRounds: Math.min(raw.maxToolRounds, WEB_TOOL_MAX_ROUNDS_CAP) };
 }
 
@@ -612,9 +619,16 @@ export function webToolDefinitions(): WebToolDefinition[] {
 const TOOL_SEARCH_CAP = 10; // results fetched per query
 const MAX_RESULTS = 10; // fused results shown per web_search envelope
 const MAX_SNIPPET_CHARS = 300;
-const MAX_PASSAGES_PER_PAGE = 6;
-const MAX_PASSAGE_CHARS = 2000;
-const READ_PAGE_TEXT_BUDGET = 20000; // shared across every page of a batch
+// EXPORTED so tests derive fixtures from these caps — the window arithmetic
+// must never be re-typed as literals. Raised 2026-11-07 for the universal
+// research-depth law: 6 blocks × 2000 chars per pass over 4 rounds could not
+// uncover a ~50-section price-sorted listing (45–47 sections dropped). These
+// are harness resource bounds (context/latency), not site policy: a batch is
+// ≤ READ_PAGE_TEXT_BUDGET chars ≈ 12k tokens against a 131k context.
+export const MAX_PASSAGES_PER_PAGE = 24; // whole blocks served per page per read/continuation
+export const MAX_PASSAGE_CHARS = 8000; // window ceiling for one oversized block
+export const READ_PAGE_TEXT_BUDGET = 48000; // shared across every page of a batch
+export const READ_PAGE_MAX_URLS = 8; // read_page urls per CALL (shape cap; maxReadUrls bounds the turn)
 const URL_SHAPE = /^https?:\/\//i;
 
 // Boilerplate-token frequency saturation: past this many matches a focus
@@ -623,7 +637,7 @@ const FOCUS_FREQ_CAP = 60;
 
 /**
  * Focus-window selection (universal research-depth law, refined by audit
- * 2026-11-05 item 11 / WS11): a blind 2000-char prefix cannot reach a
+ * 2026-11-05 item 11 / WS11): a blind fixed-width prefix cannot reach a
  * requested fact past a long intro — but a SINGLE window centered on the
  * LAST occurrence of ANY focus term lets a generic boilerplate footer
  * (repeating tokens already present near the answer) displace the earlier
@@ -1505,7 +1519,7 @@ export async function execReadPageTool(
   const urls = (Array.isArray(args.urls) ? args.urls : [])
     .filter((u): u is string => typeof u === "string" && URL_SHAPE.test(u.trim()))
     .map((u) => u.trim())
-    .slice(0, 8);
+    .slice(0, READ_PAGE_MAX_URLS);
   if (urls.length === 0) {
     return invalidArgsEnvelope(session, "read_page", "urls[] must hold 1-8 absolute http(s) URLs", { urls });
   }

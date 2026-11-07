@@ -96,21 +96,34 @@ const mkBlock = (token: string, marker: string) =>
   `${marker}-FACT recorded for tracking. ` +
   `More ${token} notes: ${token} capacity, ${token} quota, ${token} window, ${token} backlog. `.repeat(6);
 
-// Seven whole blocks: past MAX_PASSAGES_PER_PAGE=6 the seventh is dropped —
-// MHR-E must disclose the drop and make it retrievable without a re-fetch.
-const BLOCKS7 = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "seven"].map((t) =>
-  mkBlock(t, t.toUpperCase()),
-);
+// One more whole block than MAX_PASSAGES_PER_PAGE: past the per-read cap the
+// LAST block is dropped — MHR-E must disclose the drop and make it retrievable
+// without a re-fetch. The count is DERIVED from the shipped constant so the
+// fixture tracks the harness resource, never literals (2026-11-07).
+const buildBlocks = (n: number) =>
+  Array.from({ length: n }, (_, i) => mkBlock(`drop${i + 1}`, `DROP${i + 1}`));
 
-// One oversized block of five sections, FOUR focus-matched: 6-char tokens
-// put the fourth matched section's start at 1992 (> MAX_PASSAGE_CHARS 2000,
-// so WS11's section-aware path fires instead of the byte-locked plain cut)
-// and its whole span at 2654 — the first pass takes the three whole
-// sections (1990 of the 2000 budget) and MUST leave the fourth focus-matched
-// section out (remaining 10 < 300). Continuation owes it back.
-const DOC_WINDOW = ["walnut", "pepper", "poplar", "willow", "cedars"]
-  .map((t) => mkBlock(t, t.toUpperCase()))
-  .join("\n\n");
+// One oversized block of five sections, FOUR focus-matched. Section size is
+// DERIVED from MAX_PASSAGE_CHARS so the window arithmetic holds at any cap:
+// 6-char tokens keep every section the same length; reps pick the largest
+// multiple with THREE whole sections inside the budget (3L ≤ cap) and a
+// leftover under selectFocusWindows' 300-char partial-window floor
+// (cap − 3L < 300 ⇒ the fourth section cannot be windowed in), so the first
+// pass serves exactly walnut+pepper+poplar whole and MUST leave the fourth
+// focus-matched section (WILLOW) out — continuation owes it back. The three
+// asserts inside are the fixture contract: if a shipped constant changes
+// shape, this test fails LOUD before any journey silently degrades.
+const docWindow = (cap: number) => {
+  const unit = mkBlock("walnut", "WALNUT").length;
+  const reps = Math.max(1, Math.floor(cap / 3 / unit));
+  const L = unit * reps;
+  expect(3 * L).toBeLessThanOrEqual(cap);
+  expect(cap - 3 * L).toBeLessThan(300);
+  expect(4 * L).toBeGreaterThan(cap); // focus facts live past the plain prefix ⇒ section-aware path, not the byte-locked cut
+  return ["walnut", "pepper", "poplar", "willow", "cedars"]
+    .map((t) => mkBlock(t, t.toUpperCase()).repeat(reps))
+    .join("\n\n");
+};
 const DOC_FOCUS1 = "walnut pepper poplar willow";
 const DOC_FOCUS2 = "willow cedars";
 
@@ -179,7 +192,7 @@ describe("MHR-E passage refs", () => {
   });
 
   it("a windowed oversized block is still addressed by its block ref", async () => {
-    state.docs.set(FERN, [DOC_WINDOW]);
+    state.docs.set(FERN, [docWindow(mod.MAX_PASSAGE_CHARS)]);
     const r = await mod.execReadPageTool(
       freshSession(),
       { urls: [FERN], focus: DOC_FOCUS1 },
@@ -194,12 +207,12 @@ describe("MHR-E passage refs", () => {
 /* ── continuation: retrieve what the first pass left behind ─────────────── */
 
 describe("MHR-E read_page continuation", () => {
-  it("the dropped seventh block comes back with continuation:true — zero re-fetch, same [S#], no budget charge", async () => {
-    state.docs.set(FERN, BLOCKS7);
+  it("the dropped last block comes back with continuation:true — zero re-fetch, same [S#], no budget charge", async () => {
+    state.docs.set(FERN, buildBlocks(mod.MAX_PASSAGES_PER_PAGE + 1));
     const s = freshSession();
     const r1 = await mod.execReadPageTool(s, { urls: [FERN] }, []);
     const e1 = (r1.pages as any[])[0];
-    expect(e1.passages).toHaveLength(6);
+    expect(e1.passages).toHaveLength(mod.MAX_PASSAGES_PER_PAGE);
     // THE DEFECT: a whole dropped block was invisible — truncated only saw
     // the window-cut flag and the entry carried no block-drop disclosure.
     expect(e1.truncated, "a dropped whole block must disclose truncation").toBe(true);
@@ -210,8 +223,11 @@ describe("MHR-E read_page continuation", () => {
     const c2: any[] = [];
     const r2 = await mod.execReadPageTool(s, { urls: [FERN], continuation: true }, c2);
     const e2 = (r2.pages as any[])[0];
-    expect(e2.passages.join("\n"), "the dropped block must be retrievable").toContain("SEVEN-FACT");
-    expect(e2.passageRefs).toEqual(["§7"]);
+    const lastRef = `§${mod.MAX_PASSAGES_PER_PAGE + 1}`;
+    expect(e2.passages.join("\n"), "the dropped block must be retrievable").toContain(
+      `DROP${mod.MAX_PASSAGES_PER_PAGE + 1}-FACT`,
+    );
+    expect(e2.passageRefs).toEqual([lastRef]);
     expect(e2.sourceId, "continuation re-serves the SAME document alias").toBe("S1");
     expect(state.extractCalls, "continuation is served from the session's retained copy — no network").toHaveLength(1);
     expect(c2, "no new citation is minted for a retained document").toHaveLength(0);
@@ -222,7 +238,7 @@ describe("MHR-E read_page continuation", () => {
   });
 
   it("continuation with a different focus returns the REMAINDER of a windowed block (still no re-fetch)", async () => {
-    state.docs.set(FERN, [DOC_WINDOW]);
+    state.docs.set(FERN, [docWindow(mod.MAX_PASSAGE_CHARS)]);
     const s = freshSession();
     const r1 = await mod.execReadPageTool(s, { urls: [FERN], focus: DOC_FOCUS1 }, []);
     const e1 = (r1.pages as any[])[0];
@@ -253,18 +269,20 @@ describe("MHR-E read_page continuation", () => {
   });
 
   it("continuation is NOT blocked by a spent read budget — budgets bound resources, they never define truth", async () => {
-    state.docs.set(FERN, BLOCKS7);
+    state.docs.set(FERN, buildBlocks(mod.MAX_PASSAGES_PER_PAGE + 1));
     const s = freshSession();
     await mod.execReadPageTool(s, { urls: [FERN] }, []);
     s.readUrlsUsed = s.budget.maxReadUrls; // read budget fully spent
     const r = await mod.execReadPageTool(s, { urls: [FERN], continuation: true }, []);
     expect(r.ok).toBe(true);
     expect(JSON.stringify(r), "no budget_exhausted on a zero-network continuation").not.toContain("budget_exhausted");
-    expect(((r.pages as any[])[0].passages as string[]).join("\n")).toContain("SEVEN-FACT");
+    expect(((r.pages as any[])[0].passages as string[]).join("\n")).toContain(
+      `DROP${mod.MAX_PASSAGES_PER_PAGE + 1}-FACT`,
+    );
   });
 
   it("when nothing is left, continuation says so plainly instead of repeating served text", async () => {
-    state.docs.set(FERN, BLOCKS7);
+    state.docs.set(FERN, buildBlocks(mod.MAX_PASSAGES_PER_PAGE + 1));
     const s = freshSession();
     await mod.execReadPageTool(s, { urls: [FERN] }, []);
     await mod.execReadPageTool(s, { urls: [FERN], continuation: true }, []);

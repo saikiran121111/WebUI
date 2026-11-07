@@ -28,7 +28,14 @@ vi.mock("@/lib/web-search/extractor", () => ({
         domain: "docs.example.com",
         title: "Model guide",
         passageText:
-          (state.long ? "Foundation models support overview. ".repeat(120) : "") +
+          // Fill sized from the LIVE window cap (2026-11-07 re-tune): the
+          // "long" fixture must always be >2 window-widths so the tail is
+          // genuinely beyond the prefix, whatever the cap is set to.
+          (state.long
+            ? "Foundation models support overview. ".repeat(
+                Math.ceil((MAX_PASSAGE_CHARS * 2) / "Foundation models support overview. ".length),
+              )
+            : "") +
           "The supported model is Boreal-X17. Detailed catalog: [Full catalog](https://docs.example.com/reference/model-catalog).",
         bm25Score: 0,
       },
@@ -42,7 +49,7 @@ vi.mock("@/lib/web-search/extractor", () => ({
   },
 }));
 
-import { execReadPageTool, makeWebToolSession } from "@/lib/web-search/tools";
+import { execReadPageTool, makeWebToolSession, MAX_PASSAGE_CHARS } from "@/lib/web-search/tools";
 
 async function read(long: boolean) {
   state.long = long;

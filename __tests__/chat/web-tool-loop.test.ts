@@ -55,7 +55,7 @@ import {
 } from "@/lib/chat/web-tool-loop";
 // REAL recordAction: the tools mock only overrides the executors, so a
 // WS18 exec mock can record into the loop's own session like production.
-import { recordAction } from "@/lib/web-search/tools";
+import { recordAction, webToolBudgetFor } from "@/lib/web-search/tools";
 import type { StageEvent } from "@/lib/types";
 
 /* ── SSE plumbing ──────────────────────────────────────────────────────── */
@@ -294,7 +294,7 @@ describe("tool round → merged conversation → final answer", () => {
 
     // stage contract: web:tools census + progress
     const toolsStage = h.stages.find((s) => s.stage === "web:tools");
-    expect(toolsStage).toMatchObject({ detail: "web_search", done: 1, total: 4 });
+    expect(toolsStage).toMatchObject({ detail: "web_search", done: 1, total: 8 }); // standard budget (2026-11-07)
 
     // OVERWRITE law: new citations ride a MERGED web_meta map (pipeline S1 + fresh S9)
     const metaStage = h.stages.find((s) => s.stage === "web_meta");
@@ -363,43 +363,48 @@ describe("tool round → merged conversation → final answer", () => {
 describe("round-cap behaviour (documented deviation: forced final round)", () => {
   it("cap hit → tools removed + final directive + one more request; final [DONE] survives", async () => {
     const h = makeHarness();
-    const rounds = [
-      toolRound("web_search", "c1", ['{"queries":["q1"],"missing_claims":["m"]}']),
-      toolRound("read_page", "c2", ['{"urls":["https://x.example"]}']),
-      answerRound("forced final answer"),
-    ];
-    await drive(h, rounds, { depth: "quick" }); // budget rounds = 2
+    // Tool rounds DERIVED from the live quick budget (2026-11-07 re-tune);
+    // the last tool round is always a read_page so its envelope is the
+    // freshest tool message in the forced-final body.
+    const cap = webToolBudgetFor("quick").maxToolRounds;
+    const rounds = Array.from({ length: cap }, (_, i) =>
+      (cap - 1 - i) % 2 === 0
+        ? toolRound("read_page", `c${i + 1}`, ['{"urls":["https://x.example"]}'])
+        : toolRound("web_search", `c${i + 1}`, ['{"queries":["q1"],"missing_claims":["m"]}']),
+    );
+    rounds.push(answerRound("forced final answer"));
+    await drive(h, rounds, { depth: "quick" });
 
-    expect(h.fetchBodies).toHaveLength(3);
-    const finalBody = h.fetchBodies[2];
+    expect(h.fetchBodies).toHaveLength(cap + 1);
+    const finalBody = h.fetchBodies[cap];
     expect(finalBody.tools).toBeUndefined();
     const lastMsg = finalBody.messages[finalBody.messages.length - 1];
     expect(lastMsg).toEqual({ role: "system", content: WEB_TOOL_FINAL_DIRECTIVE });
     expect(h.rawText).toContain("forced final answer");
     expect(countDone(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
-    // the read_page envelope rode the conversation too
-    const toolMsgs = h.fetchBodies[2].messages.filter((m: any) => m.role === "tool");
-    expect(JSON.parse(toolMsgs[1].content).marker).toBe("read-envelope");
-    expect(mocks.execReadPage).toHaveBeenCalledTimes(1);
+    // every tool round's envelope rode the conversation too:
+    const toolMsgs = finalBody.messages.filter((m: any) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(cap);
+    expect(JSON.parse(toolMsgs[cap - 1].content).marker).toBe("read-envelope");
+    expect(mocks.execReadPage).toHaveBeenCalledTimes(Math.ceil(cap / 2));
     expect(mocks.end).toHaveBeenCalledTimes(1);
   });
 
   it("model misbehaves on the final round → synthetic [DONE] restores the grammar (still ONE)", async () => {
     const h = makeHarness();
-    const rounds = [
-      toolRound("web_search", "c1", ['{"queries":["q1"],"missing_claims":["m"]}']),
-      toolRound("web_search", "c2", ['{"queries":["q2"],"missing_claims":["m"]}']),
-      toolRound("web_search", "c3", ['{"queries":["q3"],"missing_claims":["m"]}']), // final round: tools again
-    ];
+    const cap = webToolBudgetFor("quick").maxToolRounds;
+    const search = (n: number): unknown =>
+      toolRound("web_search", `c${n}`, [`{"queries":["q${n}"],"missing_claims":["m"]}`]);
+    const rounds = Array.from({ length: cap + 1 }, (_, i) => search(i + 1)); // final round: tools again
     await drive(h, rounds, { depth: "quick" });
-    // round 1 tool_calls → conversation; round 2 = loop's cap round (roundsUsed 2)
-    // round 3 is the forced final round: tools already removed from payload
-    expect(h.fetchBodies[2].tools).toBeUndefined();
+    // rounds 1..cap burn the round budget; the request AFTER the cap is the
+    // forced final round: tools already removed from payload
+    expect(h.fetchBodies[cap].tools).toBeUndefined();
     expect(countDone(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
     expect(h.failed).toEqual([]);
-    expect(mocks.execWebSearch).toHaveBeenCalledTimes(2); // forced-round calls are never executed
+    expect(mocks.execWebSearch).toHaveBeenCalledTimes(cap); // forced-round calls are never executed
   });
 });
 
