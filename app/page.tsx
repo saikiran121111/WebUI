@@ -58,7 +58,24 @@ export default function HomePage() {
     // on the first `browser:preparing` frame (browserStore law). Read
     // non-reactively (activeIdRef) — panel state must never re-render the
     // chat tree.
-    getBrowserSession: () => activeIdRef.current ?? "default",
+    // Research-journal + browser-session identity: a fresh conversation
+    // MUST own a real id BEFORE its first POST. The old `?? "default"`
+    // fallback keyed the first turn of every chat ever to one shared
+    // journal (default.research.json), so the WS05 journal rehydration
+    // injected OTHER chats' research into unrelated first turns and the
+    // model replayed their queries (P7 search-gate contamination,
+    // 2026-11-07). Claim a real uid on first send; the render-time sync
+    // at `activeIdRef.current = activeId` and the persist effect (which
+    // sees this state by the time the stream settles) then keep the
+    // conversation document, journal, and panel under the same id.
+    getBrowserSession: () => {
+      if (!activeIdRef.current) {
+        const id = uid("c_");
+        activeIdRef.current = id;
+        setActiveId(id);
+      }
+      return activeIdRef.current;
+    },
   });
 
   // Live "Speed: … tk/s · Context: …/…" meter for the composer footer.

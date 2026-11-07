@@ -289,9 +289,19 @@ export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessag
         <span className="inline-block w-[2px] h-4 ml-0.5 bg-white/80 animate-pulse" />
       )}
 
-      {/* Live processing line while waiting for the first token — names the
-          real phase (search / tool call / reasoning elapsed), no fake verbs. */}
-      {state === "streaming" && !content && !reasoning && (
+      {/* Live processing line while waiting for the first answer token — names
+          the real phase (search / tool call / reasoning elapsed), no fake verbs.
+          MHR law (2026-11-07): on a model-directed turn the web rounds run
+          AFTER CoT reasoning streams AND after narration content releases
+          before `web:tools` (web_loop.rs WS06 relay), so neither "no content"
+          nor "no reasoning" can ever coincide with late citations — the trail
+          popup was unreachable on fresh chats. While the turn streams, the
+          line mounts when sources exist (clickable trail alongside streamed
+          text) or during the classic nothing-displayed-yet wait; pills carry
+          on once the turn settles. */}
+      {state === "streaming" &&
+        (Object.keys(message.webCitations ?? {}).length > 0 ||
+          (!content && !reasoning)) && (
         <ProcessingStatus message={message} />
       )}
 

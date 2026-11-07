@@ -4,7 +4,8 @@ import type { Message } from "../lib/types";
 
 /**
  * RUKE-branded processing line shown in place of the old loading dots while
- * a reply is still finding its first token. Every phase it names is derived
+ * a reply streams (first-token wait, and while web sources exist on an
+ * MHR model-directed turn — see ChatMessage's mount condition). Every phase it names is derived
  * from a real signal on the message — never a fake "thinking harder" verb:
  *
  *   - webCitations / searchGate headers → the gated search already ran and

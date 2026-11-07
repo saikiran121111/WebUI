@@ -20,6 +20,25 @@ import { test, expect } from "@playwright/test";
  *    can never be vetoed by the router again, and the sources popup badge
  *    names the authority that actually decided ("Model-gated").
  *
+ * MHR UPDATE (2026-11-05, 6321251 — supersedes the gate mechanics above
+ * for CHAT turns; the gate still serves the app/api/search surfaces and
+ * stays unit-covered there): every chat turn arms the model's web-tool
+ * loop and the MODEL decides whether to search. The pre-model gate, its
+ * prefetched evidence, and the authority badge + query lines are GONE
+ * from the chat path — searchGateMeta is pinned null in
+ * app/api/chat/route.ts, so a fresh chat turn renders NO badge; the
+ * badge/Q-line UI persists only for turns saved by gate-era sessions.
+ * The live-fact test therefore pins: the model searches (toggle appears),
+ * the trail records sources, no badge appears on this turn, and no source
+ * carries the documented off-topic/journal-contamination signatures (host
+ * relevance itself is structurally floored in metasearch, unit-covered).
+ * The model loop also receives
+ * the app-restored conversation as context, so this suite starts a
+ * FRESH chat — otherwise the restored chat's research replays into this
+ * turn (2026-11-07 run: a restored browser-journey chat's GSRTC /
+ * MakeMyTrip travel source set surfaced as "18 sources" for the
+ * GPU-price query, zero NVIDIA hits).
+ *
  * UI contract (2026-10-22f): the cyan gradient ResearchTrailCard bar was
  * removed. During the pre-first-token search phase the RUKE processing
  * line becomes clickable (`web-search-toggle`) and opens a popup
@@ -40,9 +59,19 @@ const INPUT = "textarea[placeholder^='How can I help']";
  * THIS turn's bubble (index = prior count), never the whole page — same
  * race family as the universal-websites helper fix. Returns the prior count.
  */
-async function sendPrompt(page: import("@playwright/test").Page, text: string): Promise<number> {
+async function sendPrompt(
+  page: import("@playwright/test").Page,
+  text: string,
+  opts: { freshChat?: boolean } = {},
+): Promise<number> {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  if (opts.freshChat) {
+    // Drop the restored conversation (if any) so the model's tool loop
+    // and the no-search assertions see ONLY this turn's prompt.
+    await page.getByTestId("sidebar-new-chat").click();
+    await expect(page.locator('[data-testid="assistant-message"]')).toHaveCount(0);
+  }
   const priorAssistant = await page
     .locator('[data-testid="assistant-message"]')
     .count();
@@ -85,7 +114,7 @@ test("pure LeetCode algorithm prompt triggers NO web search", async ({ page }) =
   const unhandledErrors: string[] = [];
   page.on("pageerror", (err) => unhandledErrors.push(err.message));
 
-  const priorAssistant = await sendPrompt(page, PALINDROME_PROMPT);
+  const priorAssistant = await sendPrompt(page, PALINDROME_PROMPT, { freshChat: true });
 
   // The gate answers in a few seconds; give the whole turn time to settle.
   await page.waitForTimeout(60000);
@@ -114,7 +143,7 @@ test("pure LeetCode algorithm prompt triggers NO web search", async ({ page }) =
 test("named LeetCode problem the model knows needs no search", async ({ page }) => {
   test.setTimeout(150000);
 
-  const priorAssistant = await sendPrompt(page, "Can you give me rust code for leetcode problem 23. Merge k sorted lists");
+  const priorAssistant = await sendPrompt(page, "Can you give me rust code for leetcode problem 23. Merge k sorted lists", { freshChat: true });
   await page.waitForTimeout(60000);
 
   // A search is only acceptable if the cited sources are on-topic; the
@@ -131,13 +160,15 @@ test("named LeetCode problem the model knows needs no search", async ({ page }) 
   }
 });
 
-test("live-fact question searches and is labelled Auto-gated with on-topic sources", async ({ page }) => {
+test("live-fact question triggers model-directed search with on-topic sources", async ({ page }) => {
   test.setTimeout(200000);
 
-  await sendPrompt(page, "What is the NVIDIA RTX 5090 graphics card price in India right now?");
+  await sendPrompt(page, "What is the NVIDIA RTX 5090 graphics card price in India right now?", {
+    freshChat: true,
+  });
 
-  // While the gated search is running (before the first answer token) the
-  // RUKE processing line becomes clickable; open the sources popup.
+  // While the model's web tool loop is running (before the first answer
+  // token) the RUKE processing line becomes clickable; open the sources popup.
   const toggle = page.getByTestId("web-search-toggle").first();
   await expect(toggle).toBeVisible({ timeout: 170000 });
   await toggle.click();
@@ -145,27 +176,37 @@ test("live-fact question searches and is labelled Auto-gated with on-topic sourc
   const popup = page.getByTestId("research-trail-card").first();
   await expect(popup).toBeVisible();
 
-  // The badge names the AUTHORITY. Since the approved universal pre-gate
-  // deviation (MIGRATION-MAP §11.1), the live-intent word "price" in this
-  // prompt is force-YESed by the deterministic Stage-0 web-intent rule
-  // BEFORE the model is ever consulted — the authority for THIS prompt is
-  // now the pre-gate, so the badge must read "Auto-gated". The assertion
-  // still names the authority that actually decided (never weakened); the
-  // model-gated path itself is exercised by the gray-middle unit matrix in
-  // __tests__/web-search/search-gate-universal.test.ts.
-  const badge = page.getByTestId("research-trail-gate-badge").first();
-  await expect(badge).toBeVisible();
-  await expect(badge).toHaveText("Auto-gated");
+  // MHR pin: a chat turn never emits gate meta (app/api/chat/route.ts pins
+  // searchGateMeta null), so NO authority badge may appear on a fresh turn.
+  // The badge component remains only for turns persisted by gate-era
+  // sessions; gate decision semantics stay unit-covered on the
+  // app/api/search surfaces (__tests__/web-search/**).
+  await expect(page.getByTestId("research-trail-gate-badge")).toHaveCount(0);
 
-  // Every cited source in the popup must be plausibly on-topic.
+  // Every source in the popup must be plausibly on-topic. Under MHR the
+  // popup renders ONLY hostnames (gate queries/badge are gate-era only), so
+  // a positive subject match ("nvidia|rtx" in a host) is impossible even for
+  // a perfect run (sclgaming.in, serverbasket.com, techspot.com...). The
+  // subject anchor is enforced STRUCTURALLY by the metasearch per-result
+  // relevance floor (unit-covered, __tests__/web-search/**); this pin guards
+  // the two documented failure signatures instead:
+  //   • the original garbage pool (WhatsApp / Waze / Output.com), and
+  //   • the 2026-11-07 journal-contamination replay — travel sources from a
+  //     stale conversation surfacing for a GPU query (GSRTC / MakeMyTrip).
   const hrefs = await popup
     .locator("a[href]")
     .evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
   expect(hrefs.length).toBeGreaterThan(0);
-  const junk = hrefs.filter((h) => /whatsapp|waze\.com|output\.com/i.test(h));
+  const junk = hrefs.filter((h) =>
+    /whatsapp|waze\.com|output\.com|gsrtc|makemytrip|redbus|cleartrip|yatra|irctc|abhibus/i.test(h),
+  );
   expect(junk, `off-topic sources cited for a GPU-price query: ${junk.join(", ")}`).toEqual([]);
 
-  // The queries shown in the popup must be keyword-form, not the raw prompt.
+  // Same negative guard on the rendered popup text (hosts): no travel
+  // contamination signature may appear.
   const popupText = await popup.innerText();
-  expect(popupText.toLowerCase()).toContain("nvidia");
+  expect(
+    popupText.toLowerCase(),
+    "journal-contamination signature (travel sources) in the trail popup",
+  ).not.toMatch(/gsrtc|makemytrip|redbus|udaipur|modasa|irctc/);
 });

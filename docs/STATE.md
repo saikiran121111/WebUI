@@ -4512,3 +4512,11 @@ edited (approved installers only).
   :3000 + fresh ruke-server :3101), then the never-run batches (heavies solo); then old-vs-new comparison,
   checklist P6/P7/handoff boxes, CLAUDE.md §4 completion report, final commit+push.
   **LEAVE MACHINE RUNNING at cycle end (amendment 2026-11-06).**
+
+## P7 loop resumption (post-anatomy-removal) — batches 1-2 + search-gate fix set [2026-11-07]
+- Full per-batch scoreboard in `docs/e2e-test-state.md` §"2026-11-07 — P7 post-removal loop". B1 (decision-routing/render/interactive-ui) **24p/1skip PW_EXIT=0**; B2 (settings-stats/skills/search-gate/form-probe/abort-family) initially 15p/1f — sole failure search-gate test 3 — now **fully green (3/3, PW_EXIT=0)** after this fix set:
+  1. `app/page.tsx` — REAL BUG: shared `"default"` research-journal key leaked turn 1 of every new chat into one journal (`getBrowserSession` fallback), cross-chat rehydration contaminated fresh first turns (24 polluted turns found; poisoned `default.research.json` deleted). Fix: lazily mint the real `c_` id on first send.
+  2. `components/ChatMessage.tsx` — REAL DEFECT: ProcessingStatus mount gate `!content && !reasoning` can never coincide with MHR citations (reasoning streams first; WS06 narration releases before `web:tools`) → research trail unreachable on every fresh model-directed chat. Fix: mount while streaming when webCitations exist (or classic first-token wait). Memoization law intact.
+  3. `tests/search-gate.spec.ts` — MHR contract pins: fresh-chat law, badge-ABSENCE pin, hostname-only popup guards (positive host-subject match is a gate-era artifact; structural anchor = metasearch relevance floor).
+- Batch scoreboard so far: decision-routing, render, interactive-ui, settings-stats, skills, form-probe, abort-family, search-gate all GREEN.
+- Resumption point: continue the never-run batches — `web-search-10k`,`file-reading`,`long-doc-retrieval` (heavies solo if flaky), `pptx-5a`,`youtube-captions`,`universal-websites`,`tier3b-live`, browser trio `browser-easy/medium/hard`, `browser-model-acceptance` (legs via -Grep; regex MUST contain a space), `browser-scope-matrix`, + re-run `greeting` (toggle-contract guard, mount change adds mounts only with citations). Then old-vs-new comparison, checklist flips, §4 report, final commit+push. **LEAVE MACHINE RUNNING.**
