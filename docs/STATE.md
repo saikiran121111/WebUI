@@ -4538,3 +4538,58 @@ edited (approved installers only).
 - Ops law banked: 3-case universal legs cap ~7.1 m wall — stays under the 600 s foreground ceiling with margin; model-half file-reading turns run ~7-12 s each with the reasoning-effort-Off toggle.
 - P7 CLOSURE CORRECTION (same day): a HEAD-vs-ledger audit found 14 specs whose greens predated the cfea00e product fix (conversation-UI surface) + `conversations-live-chat` never run in-loop; re-ran them locked vs final HEAD — F1 39p (2.8 m) / F2 7p (39.3 s, live-chat specs green IN LOOP for the first time) / F3 4p (31.4 s), ALL PW_EXIT=0, zero regressions. Full 38-spec inventory now HEAD-verified green. Ledger: docs/e2e-test-state.md §"P7 loop closure correction".
 - PLAN COMPLETE: checklist P6/P7/Handoff boxes flipped (evidence-annotated); old-vs-new browser-path comparison + CLAUDE.md §4 completion report delivered in `handover/2026-11-07-p7-closure-handover.md`. Final docs commit+push follows this cycle. **MACHINE LEFT RUNNING per the 2026-11-06 amendment — NEVER run shutdown; the old handover's shutdown instruction is historical context only.**
+
+---
+
+## 2026-11-07/08 — BUDGET UNBLOCK (MHR-H follow-up) + MPR regression law — NEW CONTRACTS IN FORCE
+
+User complaint (verbatim): "The full price-sorted list. 45–47 result sections were dropped from the
+page extract before I ran out of tool budget, so I never saw the complete ranked lineup… what's the
+tool budget and why its ran out of it… we need to unblock as much as possible." Fix = UNIVERSAL
+harness resources only (no vocabulary/phrase/brand rules): bigger tool budget + bigger extract caps.
+
+### §8.4 CONTRACT — `lib/web-search/tools.ts` (committed 219be44, live in HEAD)
+- `webToolBudgetFor`: quick `{maxSearchCalls:1, maxReadUrls:8, maxToolRounds:4}`,
+  standard `{3, 16, 8}`, deep `{6, 32, 14}`; `WEB_TOOL_MAX_ROUNDS_CAP = 20` clamps raw depth rounds.
+  Law: "rounds bound LATENCY, never truth; char budgets bound CONTEXT (n_ctx 131072)."
+- Extract caps (exported): `MAX_PASSAGES_PER_PAGE = 24` (whole blocks per page per read/continuation),
+  `MAX_PASSAGE_CHARS = 8000` (window ceiling per oversized block),
+  `READ_PAGE_TEXT_BUDGET = 48000` (shared across a batch),
+  `READ_PAGE_MAX_URLS = 8` (per-CALL urls shape cap; `maxReadUrls` bounds the turn).
+  `execReadPageTool` slices `.slice(0, READ_PAGE_MAX_URLS)`.
+- Accepted risk: deep 14 rounds × 48k worst-case can exceed n_ctx; failure surfaces honestly.
+
+### §8.4 CONTRACT — timeout sizing follows the re-tune (commit 4f489c0; NOT test-gaming — infra
+follows the code contract; measured L2 turns: pune 358s, walmart 406s, aml 588s, manikonda >780s,
+tallinn 19.4 min)
+- `__tests__/manual/mhr-g-model-eval.test.ts`: `CASE_TIMEOUT = 1_200_000` (20 min).
+- Browser specs (`mhr-five-sentences`, `mhr-universal-sites`, `browser-model-acceptance`,
+  `browser-scope-matrix`): turn waits `deadlineMs/timeout = 900_000`; `test.setTimeout` 950_000
+  single-turn, 1_900_000 two-turn chains, 2_850_000 three-turn chains (MPR-1/2/3).
+
+### NEW SPEC — `tests/mhr-multi-prompt-regression.spec.ts` (MPR, user law 2026-11-07)
+Rotating 12-prompt bank, cursor persisted in git-ignored `.data/mhr-multi-prompt-cursor.json`
+(advances on take; never repeats until bank cycles); generic LINEUP_PRESS + DIG_DEEPER_PRESS
+follow-ups in the SAME chat; response-content checks: answer >40 chars, BUDGET_CONFESS regex must
+NOT match (never confess tool starvation to the human), base turns pill-XOR-HONEST_WALL, press
+turns pills-OR-digits-OR-wall; feedback-leak + browser-panel-closed laws every turn.
+Run one journey per exclusive launcher invocation (`-Grep "MPR-1"` etc.).
+
+### Ops laws banked this cycle
+- NEVER 2 L2 cases per foreground Bash call (600s wall → SIGTERM/143); for >10 min runs use
+  `MHR_G_MODEL_EVAL=1 nohup npx vitest run __tests__/manual/mhr-g-model-eval.test.ts -t "<regex>" > .data/<log> 2>&1 &`
+  + foreground poll `sleep 480…570; sed 's/\x1b\[[0-9;]*[A-Za-z]//g' <log> | grep -E "Test Files|Tests |Failed Tests|AssertionError"`.
+- Non-TTY vitest hides per-test ✓/× until the summary; track via `[mhr-g] rounds=` + `stdout | …` headers.
+- `A && B && C > log &` backgrounds the WHOLE chain (git output lost) — verify via `git log`/`git status -sb` after.
+- sed-inserting `// comment` before `);` swallows the paren; put `);` before the comment.
+
+### L2 scoreboard (pass-1 + singles, real evidence in .data/l2*.log)
+- PASS: mhr-g-jobs-hyderabad, mhr-g-apply-nairobi, mhr-g-amul-zepto, mhr-g-jobs-paraphrase-pune-qa,
+  mhr-g-unknown-entity-gap, mhr-g-purchase-t1, mhr-g-purchase-t2, mhr-u-amazon-phones-20k,
+  mhr-u-flipkart-fridge, mhr-u-bestbuy-laptop, mhr-u-walmart-tv, mhr-u-qvc-deals, mhr-u-aml-job-roles.
+- pass-1 fails (pass-2 rerunning via .data/l2-pass2.log): tallinn (fabricated merged table row —
+  model variance; pass-2 answer explicitly dropped the mixed table), dublin (old 420s CASE_TIMEOUT),
+  manikonda (>780s CASE_TIMEOUT). If tallinn fabrication REPEATS: candidate universal lever = second
+  feedback when rounds spare (would re-pin the ONE-feedback law in web-tool-loop-feedback.test.ts) —
+  decide on evidence, never rewrite semantics.
+- L1 after the unblock: FULL `npx vitest run` 1564 green; `npx tsc --noEmit` 0; cargo 166 (web-search filters).
