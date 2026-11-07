@@ -319,21 +319,24 @@ describe.skipIf(!GATED)("MHR-G level 2 — configured-model semantic evals", () 
       purchaseConv = st.conv;
       purchaseT1 = { ...st, released: st.released, minted: st.minted };
     }
+    // (cross-closure assignment doesn't narrow for TS; the guard above
+    // guarantees non-null either in-process or via the handoff file)
+    const t1 = purchaseT1!;
     const t2Text = "What refresh rate does the best pick you found have?";
     // Corpus law: t1's retrieved evidence is legitimate known material for
     // a follow-up (the real UI carries the conversation, not one payload).
     const t2 = await driveTurn(
       [
         { role: "user", content: PURCHASE_T1 },
-        { role: "assistant", content: purchaseT1.released },
+        { role: "assistant", content: t1.released },
         { role: "user", content: t2Text },
       ],
       t2Text,
-      purchaseT1.minted,
+      t1.minted,
       purchaseConv,
     );
     // Both human turns are legitimate number sources for a follow-up answer.
-    t2.evidence = [String((purchaseT1 as any).evidence ?? ""), t2.evidence].filter(Boolean).join("\n");
+    t2.evidence = [String((t1 as any).evidence ?? ""), t2.evidence].filter(Boolean).join("\n");
     expectTurn(t2, PURCHASE_T1 + " " + t2Text);
     expect(Object.keys(t2.minted).length, "follow-up turn lost every prior [S#] alias").toBeGreaterThan(0);
   }, CASE_TIMEOUT);
