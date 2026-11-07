@@ -860,7 +860,7 @@ vitest), and the end-to-end round-capped model journey (this run).
         HONEST LIMIT (do NOT overclaim): "opens correctly in Power BI Desktop" is NOT assertable on this
         machine — Desktop is not installed and installing it needs explicit user approval. The gate is the
         enforced structural approximation; no Desktop round-trip is claimed anywhere.
-- [ ] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
+- [x] **P6** chat-UI preservation: streaming, stop/retry, attachments, citations, reasoning prefs, history/titles/recents,
       browser status, artifact edit/export; keyboard/focus/scroll/responsive/a11y; lazy loading + dispose; core-skill
       invisibility; HtmlArtifactBlock sandbox fix — SUB-ITEM ALREADY PROVEN by finding 6 (`tests/html-isolation.spec.ts`
       5/5 under the lock, exit 0: opaque origin, storage shim, three fullscreen paths)
@@ -900,7 +900,20 @@ vitest), and the end-to-end round-capped model journey (this run).
       (route.ts:25); no component reads `./.cskills*` (grep clean); core skills load ONLY via
       `MODE_SKILL`→`skill-loader.ts`. Proven by `skills.spec` (P7) + `__tests__/skills/*`.
     • greetings: `greeting.spec`.
-- [ ] **P7** full verification: tsc, vitest, cargo, contracts:check, build; old-vs-new browser path comparison on the same
+  - **P6 CLOSED 2026-11-07 — the P7 locked loop + its closure-correction battery re-ran EVERY mapped suite
+    green against final HEAD `3296724`, each with a real PW_EXIT=0** (full per-leg ledger + the correction
+    audit in `docs/e2e-test-state.md`): streaming `chat-stream`+`token-meter`+`progress-panel`+`auto-compact`
+    (F1/F3 39p+4p); stop/regenerate `abort-family` (B2-post green) + `edit-stop-collapse` (F1); attachments
+    `file-reading` **215/215**; citations+reasoning prefs `reasoning-test` (F3) + `search-gate` **3/3** after
+    the mount-gate fix (the trail is now reachable on fresh model-directed chats — the P6 citations item was
+    a REAL DEFECT found and fixed this loop, `cfea00e`); history/titles/recents `conversations-crud`+
+    `multi-select-delete` (F1), `conversation-title` (F2 7p), `recents-controls`/`recents-modal` (F1);
+    browser status L2 **20/20** + acceptance **5/5**; artifact edit/export `interactive-ui` (B1-post 24p/
+    1skip) + `pptx-5a` **4/4**; a11y — every green leg drove getByRole contracts; lazy load + dispose
+    `interactive-ui` retired-card proof + `retired-fences` (F1); core-skill invisibility `skills` (B2-post);
+    greetings `greeting` (L2). No mapped suite's evidence older than the last product change that could
+    affect it.
+- [x] **P7** full verification: tsc, vitest, cargo, contracts:check, build; old-vs-new browser path comparison on the same
       tasks; final model-driven Playwright loop (locked, fix-rerun until green); completion report §4
     - **P7 DETERMINISTIC GATES — ALL GREEN 2026-11-07 (exact commands + real exit codes; the interactive
       Playwright loop + old-vs-new comparison are the only P7 items still open):**
@@ -929,8 +942,36 @@ vitest), and the end-to-end round-capped model journey (this run).
       9 skipped (1,568); exit 0** in 227.55 s (1,634 → 1,559 = exactly the deleted anatomy suites; the 1 skipped
       file + 9 skipped tests match the pre-existing baseline); `npm run build` **exit 0** with **0 anatomy
       chunks** in `.next/static/chunks`.
-- [ ] **Handoff artifacts:** this checklist completed, commit IDs, exact commands + results, sample artifact paths,
+    - **P7 CLOSED 2026-11-07 — final model-driven Playwright loop completed, fix-rerun-until-green honored;
+      every leg launcher-locked (`scripts/run-browser-e2e-exclusive.ps1` acquires+releases
+      `.ai-coordination/playwright.lock`), foreground, real PW_EXIT=0.** Ledger (docs/e2e-test-state.md):
+      pre-removal batches B1 14p / B2 26p / B3 7p (after the `a3b4a78`+`92f32bc` timeout + CoT-runaway
+      fixes) / B4 35p / B5 2p — superseded where product code changed after them (see correction below);
+      post-removal loop: B1 decision-routing+render+interactive-ui **24p/1skip** · B2 settings-stats+skills+
+      search-gate+form-probe+abort-family green (search-gate **3/3** after the three-layer fix `cfea00e`) ·
+      long-doc-retrieval **3/3** · L2 greeting+browsers **20/20** · pptx-5a **4/4** (duplicate-shape-id root
+      cause + fix `82f7c20`, regression `__tests__/documents/pptxIds.test.ts`) · web-search-10k **4 range
+      legs** (0-24/25-49/50-74/75-99) · youtube-captions 1/1 · tier3b-live **1/1** after two recorded honest
+      fails → spec redesign (`3296724`) · browser-model-acceptance **5/5** (EASY/MEDIUM/HARD/VISION/CAPPED) ·
+      universal-websites **15/15** (5×3-case legs) · file-reading **215/215** (13 manifest-verified legs).
+      **Closure correction (same day): 14 specs whose greens predated the `cfea00e` product fix — plus
+      `conversations-live-chat`, never run in-loop — re-run vs final HEAD: F1 39p (2.8 m) / F2 7p (39.3 s) /
+      F3 4p (31.4 s), ALL PW_EXIT=0, zero regressions → all 38 specs HEAD-verified green.** Honestly
+      unclaimed interruptions: one B3-era leg SIGTERM-killed at the 600 s shell ceiling (PW_EXIT=143,
+      orphan lock removed per protocol); the accidentally-launched full 10k auditor killed at 2 min (report
+      pollution verified clean by header forensics — never run `scripts/playwright-10k-audit.ts` bare).
+      Old-vs-new browser-path comparison + §4 completion report: `handover/2026-11-07-p7-closure-handover.md`.
+- [x] **Handoff artifacts:** this checklist completed, commit IDs, exact commands + results, sample artifact paths,
       comparison results, playback evidence, platform coverage, open gates
+  - **DELIVERED 2026-11-07:** `handover/2026-11-07-p7-closure-handover.md` — commit ledger (audit baseline
+    `5fb34ffadaa0f9169990f2783aafd0d7ebbb3934` → final `3296724`), exact commands + real exit codes per loop
+    leg, artifact paths (PPTX byte counts + tier/motion parity, `docs/web-search-10k-report.md` run blocks,
+    fixture codeword proofs "Zephyr"/"Verdanthill-42"/LATE_MARKER), old-vs-new browser-path comparison,
+    platform coverage (honest scope: verified on this Windows host; macOS/Linux = code-level support,
+    not run on hardware), and the open-gates/deferrals list (LibreOffice+Docling provider dirs intentionally
+    empty per the 2026-11-06 scope amendment; Power BI Desktop round-trip not claimable here; .rar/.heic/
+    .heif documented-skip tests). The prior `handover/2026-11-06-ruke-plan-handover.md` stands as historical
+    context (its machine-shutdown instruction was superseded — the machine is LEFT RUNNING by amendment).
 
 ## Provider integration status
 
