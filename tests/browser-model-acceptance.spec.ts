@@ -101,7 +101,7 @@ async function runTurn(page: Page, text: string): Promise<void> {
     page.getByText(text.slice(0, 20)).first(),
     "composer send never reached the transcript",
   ).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByLabel("Stop generating"), "model stream never finished").toHaveCount(0, { timeout: 420_000 });
+  await expect(page.getByLabel("Stop generating"), "model stream never finished").toHaveCount(0, { timeout: 900_000 }); // sized to the 2026-11-07 budget re-tune
   // The SSE closes when the loop emits its final answer; the engine-side
   // turn end (cleanup) lands within a moment of it.
   await sleep(1500);
@@ -111,7 +111,7 @@ test.describe("browser real-model acceptance (leg 2, one journey per locked invo
   test.describe.configure({ mode: "serial", retries: 0 });
   // Single attempt sized for the PATIENCE RULE while staying clear of the
   // outer launcher window.
-  test.setTimeout(480_000);
+  test.setTimeout(950_000);
   test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 
   test.afterEach(async ({ request }) => {

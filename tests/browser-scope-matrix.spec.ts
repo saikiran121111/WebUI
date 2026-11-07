@@ -172,7 +172,7 @@ async function sendPrompt(page: Page, text: string): Promise<void> {
  *  settle before post-turn state assertions. */
 async function waitTurnEnd(page: Page): Promise<void> {
   await expect(page.getByLabel("Stop generating"), "model stream never finished")
-    .toHaveCount(0, { timeout: 420_000 });
+    .toHaveCount(0, { timeout: 900_000 }); // sized to the 2026-11-07 budget re-tune
   await sleep(1500);
 }
 
@@ -210,7 +210,7 @@ async function answerScopeCard(page: Page, button: "Accept" | "Decline"): Promis
 
 test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked invocation)", () => {
   test.describe.configure({ mode: "serial", retries: 0 });
-  test.setTimeout(480_000);
+  test.setTimeout(950_000);
   test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 
   test.afterEach(async ({ request }) => {

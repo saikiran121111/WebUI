@@ -101,7 +101,7 @@ async function sendPrompt(
 async function waitForAnswer(
   page: import("@playwright/test").Page,
   priorAssistant: number,
-  deadlineMs = 400_000,
+  deadlineMs = 900_000, // sized to the 2026-11-07 budget re-tune (8-round standard)
 ) {
   const t0 = Date.now();
   while (Date.now() - t0 < deadlineMs) {
@@ -156,21 +156,21 @@ async function expectGroundedTurn(
 }
 
 test("MHR-1 Find jobs in Hyderabad reaches a grounded outcome", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(page, "Find jobs in Hyderabad", { freshChat: true });
   await waitForAnswer(page, prior);
   await expectGroundedTurn(page, prior);
 });
 
 test("MHR-2 Find apartments to rent in Tallinn reaches a grounded outcome", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(page, "Find apartments to rent in Tallinn", { freshChat: true });
   await waitForAnswer(page, prior);
   await expectGroundedTurn(page, prior);
 });
 
 test("MHR-3 Research how to apply for jobs in Nairobi reaches a grounded outcome", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(page, "Research how to apply for jobs in Nairobi", {
     freshChat: true,
   });
@@ -179,14 +179,14 @@ test("MHR-3 Research how to apply for jobs in Nairobi reaches a grounded outcome
 });
 
 test("MHR-4 Find Amul Gold milk in Zepto reaches a grounded outcome", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(page, "Find Amul Gold milk in Zepto", { freshChat: true });
   await waitForAnswer(page, prior);
   await expectGroundedTurn(page, prior);
 });
 
 test("MHR-5 purchase request then informational follow-up keeps journal aliases", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   // Turn 1: the purchase request (user example 5's first turn).
   const t1Text = "Buy me the cheapest 65 inch TV under 40000 rupees with delivery in Hyderabad";
   const t1Prior = await sendPrompt(page, t1Text, { freshChat: true });

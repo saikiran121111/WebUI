@@ -102,7 +102,7 @@ async function sendPrompt(
 async function waitForAnswer(
   page: import("@playwright/test").Page,
   priorAssistant: number,
-  deadlineMs = 400_000,
+  deadlineMs = 900_000, // sized to the 2026-11-07 budget re-tune (8-round standard)
 ) {
   const t0 = Date.now();
   while (Date.now() - t0 < deadlineMs) {
@@ -163,14 +163,14 @@ async function expectGroundedOrHonestTurn(
 }
 
 test("MUNU-1 Amazon phones query grounds or honestly names the wall", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(page, "best phones under 20k in amazon", { freshChat: true });
   await waitForAnswer(page, prior);
   await expectGroundedOrHonestTurn(page, prior);
 });
 
 test("MUNU-2 Best Buy cheapest-laptop query grounds or honestly names the wall", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(page, "what is the cheapest laptop I can buy in bestbuy", {
     freshChat: true,
   });
@@ -179,7 +179,7 @@ test("MUNU-2 Best Buy cheapest-laptop query grounds or honestly names the wall",
 });
 
 test("MUNU-3 local-area restaurant query reaches a grounded local outcome", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(
     page,
     "find best restaurant near manikonda area in hyderabad",
@@ -190,7 +190,7 @@ test("MUNU-3 local-area restaurant query reaches a grounded local outcome", asyn
 });
 
 test("MUNU-4 AI/ML job-roles query spans multiple portals", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prior = await sendPrompt(
     page,
     "find the job roles for AI ML engineer and where I can apply them",

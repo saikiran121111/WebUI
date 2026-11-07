@@ -61,7 +61,7 @@ const GATED = process.env.MHR_G_MODEL_EVAL === "1";
 // 13 min per turn ceiling (raised 2026-11-07 WITH the budget re-tune: the
 // standard depth now allows 8 tool rounds instead of 4, so the honest wall
 // clock per model-driven turn roughly doubles; dublin proved 420s undersized).
-const CASE_TIMEOUT = 780_000;
+const CASE_TIMEOUT = 1_200_000; // 20 min ceiling (manikonda WAF turn proved 13 min tight)
 
 type RunLoop = (opts: any) => Promise<void>;
 

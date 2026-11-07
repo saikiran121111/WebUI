@@ -142,7 +142,7 @@ async function sendPrompt(
 async function waitForAnswer(
   page: import("@playwright/test").Page,
   priorAssistant: number,
-  deadlineMs = 400_000,
+  deadlineMs = 900_000, // sized to the 2026-11-07 budget re-tune (8-round standard)
 ) {
   const t0 = Date.now();
   while (Date.now() - t0 < deadlineMs) {
@@ -213,7 +213,7 @@ async function expectRealContentTurn(
 test("MPR-1 rotated prompt: single research turn grounds or honestly names the wall", async ({
   page,
 }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(950_000);
   const prompt = takePrompt("MPR-1");
   const prior = await sendPrompt(page, prompt, { freshChat: true });
   await waitForAnswer(page, prior);
@@ -223,7 +223,7 @@ test("MPR-1 rotated prompt: single research turn grounds or honestly names the w
 test("MPR-2 rotated prompt: lineup press deepens the search and the response", async ({
   page,
 }) => {
-  test.setTimeout(420_000 * 2);
+  test.setTimeout(1_900_000);
   const prompt = takePrompt("MPR-2a");
   const prior1 = await sendPrompt(page, prompt, { freshChat: true });
   await waitForAnswer(page, prior1);
@@ -237,7 +237,7 @@ test("MPR-2 rotated prompt: lineup press deepens the search and the response", a
 test("MPR-3 rotated prompt: two-stage deep press reaches concrete retrieved facts", async ({
   page,
 }) => {
-  test.setTimeout(420_000 * 3);
+  test.setTimeout(2_850_000);
   const prompt = takePrompt("MPR-3a");
   const prior1 = await sendPrompt(page, prompt, { freshChat: true });
   await waitForAnswer(page, prior1);
