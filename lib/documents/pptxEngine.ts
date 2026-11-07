@@ -24,6 +24,7 @@ import {
   type CustomGeometryInput,
 } from "@office-kit/pptx";
 import { normalizePptx, pptxSpecIssues, type PptxSpec, type PptxSlide } from "./schemas";
+import { ensureUniqueShapeIds } from "./pptxIds";
 import { renderChartPng, safeName } from "./pdfEngine";
 import { buildMotionPlan, OBJ, TRANSITION_MS, type MotionPlan } from "./pptxMotion";
 
@@ -240,7 +241,11 @@ export async function buildPptx(rawSpec: unknown): Promise<PptxBuildResult> {
   }
 
   // ---- write content, then the native motion pass ----
-  const raw = (await pptx.write({ outputType: "nodebuffer" })) as unknown as Buffer;
+  // PptxGenJS numbers table/chart graphic frames from a per-type counter, so
+  // e.g. a table slide carries duplicate cNvPr ids that its own validator
+  // gate (and PowerPoint's repair) rejects — normalize before anything reads
+  // the package (see lib/documents/pptxIds.ts).
+  const raw = ensureUniqueShapeIds((await pptx.write({ outputType: "nodebuffer" })) as unknown as Buffer);
   const needsMotion = animated && (plan.some((m) => m.transition !== "none" || m.steps.length > 0) || spotlightWins.size > 0);
   let buffer = raw;
   if (needsMotion) {
@@ -293,7 +298,9 @@ export async function buildPptx(rawSpec: unknown): Promise<PptxBuildResult> {
 
   return {
     buffer,
-    filename: safeName(spec.filename) + ".pptx",
+    // Models habitually write "deck.pptx" as the filename; the extension is
+    // ours to add, so strip a trailing one instead of doubling it.
+    filename: safeName(spec.filename).replace(/\.pptx$/i, "") + ".pptx",
     contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     tier: spec.tier,
   };
