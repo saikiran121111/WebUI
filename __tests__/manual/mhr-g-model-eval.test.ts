@@ -45,7 +45,8 @@
  * ── RUN POLICY (protects the hermetic battery + single-owner inference) ──
  * Skipped unless MHR_G_MODEL_EVAL=1. NEVER part of a normal battery run.
  * Hits the live model + live web: run ONE case per foreground invocation
- * (each ≤ ~7 min) so nothing competes for inference mid-turn:
+ * (each ≤ ~13 min since the 2026-11-07 budget re-tune) so nothing competes
+ * for inference mid-turn:
  *   MHR_G_MODEL_EVAL=1 node node_modules/vitest/vitest.mjs run \
  *     __tests__/manual/mhr-g-model-eval.test.ts -t "<case name>"
  */
@@ -57,7 +58,10 @@ import path from "node:path";
 import { diagnoseResearchAnswer } from "@/lib/chat/answer-release";
 
 const GATED = process.env.MHR_G_MODEL_EVAL === "1";
-const CASE_TIMEOUT = 420_000; // 7 min per turn: standard budget × local latency + retrieval
+// 13 min per turn ceiling (raised 2026-11-07 WITH the budget re-tune: the
+// standard depth now allows 8 tool rounds instead of 4, so the honest wall
+// clock per model-driven turn roughly doubles; dublin proved 420s undersized).
+const CASE_TIMEOUT = 780_000;
 
 type RunLoop = (opts: any) => Promise<void>;
 
