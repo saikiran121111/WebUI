@@ -305,3 +305,151 @@ Corpus: .data/web-search-10k-urls.json (500 verified URLs)
 | https://reddit.com/r/blinkit/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual subreddit content. |
 | https://reddit.com/r/bangalore/comments/1hmine6/fraud_by_blinkit_in_bangalore/ | 200 | 364 | NO |  |
 | https://reddit.com/r/FuckZepto/comments/1q723pg/is_zepto_showing_fake_delivery_times_in_bangalore/ | 200 | 364 | NO |  |
+
+## Run 2026-11-07T08:36:41.442Z
+
+- Sampled: 25
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 24/25
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 21, NO 4, UNKNOWN 0
+
+| https://news.ycombinator.com/ | 200 | 3834 | YES | The page is the Hacker News front page, displaying a list of top stories including topics like Libghostty 1.0, ancient D |
+| https://stackoverflow.com/ | 403 | 31361 | YES | The page is the 'Newest Questions' section of Stack Overflow, displaying a list of recent questions with filters for sta |
+| https://en.wikipedia.org/wiki/Web | 200 | 4153 | YES | The webpage is a Wikipedia disambiguation page for 'Web'. It lists various meanings including spider webs, the World Wid |
+| https://github.com/ | 200 | 5738 | YES | GitHub homepage featuring marketing content about its AI-powered developer platform, including sections on Copilot, Acti |
+| https://bing.com/ | 200 | 787 | YES | The page is the Microsoft Bing homepage, featuring search functionality, image creation tools, and a daily wallpaper tit |
+| https://duckduckgo.com/ | 200 | 13033 | YES | The webpage is the homepage for DuckDuckGo, a privacy-focused search engine and browser. It highlights features such as  |
+| https://mozilla.org/ | 200 | 10549 | YES | The webpage is the homepage for Mozilla (US), featuring their mission 'Internet for people, not profit'. It highlights k |
+| https://apple.com/ | 200 | 7692 | YES | The webpage is the official Apple homepage featuring promotions for MacBook Pro (M6), iPhone Duo, iMac, iPhone 18 Pro, i |
+| https://google.com/ | 200 | 658 | YES | The page is the Google homepage, featuring search input options (text, voice, image), AI mode links, and standard footer |
+| https://india.gov.in/ | 200 | 10735 | YES | The National Portal of India (india.gov.in) provides single-window access to government information and services, includ |
+| https://sebi.gov.in/ | 200 | 25264 | YES | The webpage is the official site of SEBI (Securities and Exchange Board of India). It features a language selection prom |
+| https://rbi.org.in/ | 200 | 25150 | YES | The webpage is the official homepage of the Reserve Bank of India (RBI). It displays the bank's preamble regarding monet |
+| https://linkedin.com/ | 200 | 23663 | YES | The page is the LinkedIn login/signup landing page featuring options to sign in via Google or email, join now, and explo |
+| https://reddit.com/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen with links to User Agreement, Privacy Policy, and Help. |
+| https://youtube.com/ | 200 | 3330 | YES | The page is the YouTube homepage, displaying navigation links (Home, Shorts, Subscriptions), a sign-in prompt, and foote |
+| https://blinkit.com/ | 200 | 314 | YES | Blinkit is an online grocery delivery service offering over 30,000 products delivered to customers' doorsteps. The site  |
+| https://myntra.com/ | 200 | 33 | YES | Myntra is an online shopping platform for fashion and lifestyle products in India, offering clothing, footwear, accessor |
+| https://zepto.in/ | 200 | 496 | NO | The page is a Sedo brokerage landing page indicating that the domain zepto.in is already taken and offering services to  |
+| https://bookmyshow.com/ | 200 | 481 | YES | The webpage is the homepage of BookMyShow India (in.bookmyshow.com), an online ticketing platform for movies, plays, spo |
+| https://zomato.com/ | 200 | 2027 | YES | Zomato is India's #1 food delivery app, offering online ordering from over 300,000 restaurants across 800+ cities. Key f |
+| https://swiggy.com/ | 202 | 0 | NO |  |
+| https://flipkart.com/ | 200 | 20816 | YES | The webpage is the homepage of Flipkart, an Indian e-commerce platform. It features navigation for various categories li |
+| https://nykaa.com/ | 200 | 391 | YES | Nykaa Hot Pink Sale 2026 - Shop India's Biggest Beauty Sale! |
+| https://ajio.com/ | 200 | 194 | NO | Access Denied error page from Akamai edge server. |
+| https://amazon.in/ | 202 | 2630 | YES | The page is the homepage of Amazon.in, an online shopping site in India. It features promotional deals (e.g., skincare u |
+
+## Run 2026-11-07T08:40:41.375Z
+
+- Sampled: 25
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 25/25
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 25, NO 0, UNKNOWN 0
+
+| https://netflix.com/ | 200 | 2660 | YES | The page is the Netflix India landing page (redirected from netflix.com to www.netflix.com/in/). It features a hero sect |
+| https://dev.to/ | 200 | 31072 | YES | The page is the homepage of the DEV Community, featuring a challenge announcement for the Presage SmartSpectra SDK ($3,0 |
+| https://medium.com/ | 200 | 237 | YES | Medium is a platform for reading and writing stories, offering membership plans (monthly/annual) with unlimited access t |
+| https://vitejs.dev/ | 200 | 3160 | YES | Vite is a fast frontend build tool for modern web applications, featuring instant server start, lightning-fast HMR, and  |
+| https://react.dev/ | 200 | 7503 | YES | The page is the official homepage for React, described as 'the library for web and native user interfaces'. It explains  |
+| https://blinkit.com/prn/amul-salted-butter/prid/159 | 200 | 2450 | YES | Amul Salted Butter, priced at ₹66 for 100g (500g out of stock), available on Blinkit with delivery from dark stores. |
+| https://blinkit.com/prn/amul-butter/prid/160 | 200 | 2431 | YES | The page displays the product 'Amul Salted Butter' on Blinkit. It lists two unit options: 100g for ₹66 and 500g which is |
+| https://flipkart.com/amul-pasteurised-salted-butter/p/itmd8456fd5e5276 | 200 | 2182 | YES | Amul Pasteurised Salted Butter (500g) priced at ₹50 on Flipkart, sold by seller MYTHANGLORY. Product details include bra |
+| https://flipkart.com/food-products/butter/pr?sid=eat%2Cvyv | 200 | 3499 | YES | The page lists 28 butter products from brands like Amul, Mother Dairy, and President with prices ranging from ₹10 to ₹29 |
+| https://zepto.com/ | 200 | 2552 | YES | Zepto is an online quick commerce app in India delivering groceries, fruits, vegetables, personal care, electronics, and |
+| https://en.wikipedia.org/wiki/Blinkit | 200 | 13243 | YES | Blinkit is an Indian quick-commerce company, formerly known as Grofers, founded in December 2013 by Albinder Dhindsa and |
+| https://blink-it-frontend.vercel.app/ | 200 | 9488 | YES | The webpage is a grocery delivery service named BlinkIt, displaying product listings for categories like 'Dairy, Bread & |
+| https://blinkit.com/pages/mobile | 200 | 90 | YES | The page is a landing page for the Blinkit mobile app, encouraging users to download it from the App Store or Google Pla |
+| https://seller.blinkit.com/ | 200 | 5596 | YES | The webpage is the seller landing page for Blinkit, India's leading quick-commerce platform. It highlights key metrics ( |
+| https://partners.blinkit.com/ | 200 | 7282 | YES | The webpage is the official 'Partners' portal for Blinkit, detailing their franchise/partner program for operating dark  |
+| https://play.google.com/store/apps/details?id=com.grofers.customerapp&amp;hl=en-US | 200 | 8112 | YES | The webpage is the Google Play Store listing for 'Blinkit: Groceries & more' (formerly Grofers). It describes an app for |
+| https://eternal.com/our-businesses/blinkit/ | 200 | 2079 | YES | Blinkit is a quick commerce platform under Eternal that delivers groceries, essentials, electronics, beauty products, an |
+| https://brands.blinkit.com/ | 200 | 4505 | YES | The webpage is the landing page for 'Blinkit Ads' (Brand Central), Blinkit's self-serve advertising platform. It highlig |
+| https://bistro.blinkit.com/ | 200 | 563 | YES | Bistro by Blinkit offers food delivery with a focus on health, hygiene, sustainability, and speed. |
+| https://blinkit.com/pages/delivery | 200 | 3838 | YES | The page is a recruitment landing page for Blinkit delivery partners. It highlights earnings up to ₹50,000, a joining bo |
+| https://jobhai.com/blinkit-delivery-jobs-in-bangalore-ccgcmp | 200 | 19249 | YES | The page lists 86 Blinkit delivery job vacancies in Bangalore, including roles like Grocery Delivery Boy and Delivery Bo |
+| https://jobhai.com/blinkit-jobs-in-bangalore-ccmp | 200 | 20781 | YES | The page lists 123 Blinkit job openings in Bangalore, including roles like Telecaller (₹20k-35k) and Grocery/Delivery Bo |
+| https://reddit.com/r/blinkit/ | 200 | 7948 | YES | The page is the Reddit subreddit r/blinkit. It displays a post titled 'Blinkit deserves credit for this' by user u/Icy-D |
+| https://reddit.com/r/bangalore/comments/1hmine6/fraud_by_blinkit_in_bangalore/ | 200 | 47485 | YES | A user on r/bangalore reports a fraud incident involving Blinkit. They ordered 5L + 1L of oil for Rs. 1072, but only rec |
+| https://reddit.com/r/FuckZepto/comments/1q723pg/is_zepto_showing_fake_delivery_times_in_bangalore/ | 200 | 44173 | YES | The webpage contains a Reddit post from r/FuckZepto titled 'Is Zepto showing fake delivery times in Bangalore?'. The use |
+
+## Run 2026-11-07T08:45:24.148Z
+
+- Sampled: 25
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 25/25
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 8, NO 17, UNKNOWN 0
+
+| https://reddit.com/r/protein_deals/comments/1vyn4uv/not_a_protein_deal_but_cashews_on_discount/ | 200 | 364 | NO |  |
+| https://reddit.com/r/Coconaad/comments/1llx3ak/a_small_blinkit_delivery_made_me_reflect_a_bit/ | 200 | 364 | NO |  |
+| https://reddit.com/r/PS5restock/comments/1wgntyd/ps5_digital_and_disc_restock_blinkit_bangalore/ | 200 | 364 | NO |  |
+| https://reddit.com/r/Indian_flex/comments/1mtxxu1/reached_1_crore_net_worth_at_25_all_self_made_as/ | 200 | 364 | NO |  |
+| https://reddit.com/r/Indiajobs/comments/1vf51dd/food_delivery_vs_driving_in_bangalore_with_rented/ | 200 | 364 | NO |  |
+| https://reddit.com/r/IndianWorkers/comments/1vf52m4/food_delivery_vs_driving_in_bangalore_with_rented/ | 200 | 364 | NO |  |
+| https://reddit.com/r/blinkit/comments/1u9rdlj/bangalore_noticed_weight_discrepancies_on/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual Reddit post content. |
+| https://reddit.com/r/ps5india/comments/1tqe7sa/ps5_stock_availability_blinkit_bangalore/ | 200 | 364 | NO |  |
+| https://reddit.com/r/bangalore/comments/13wf7q8/whats_your_preferred_grocery_delivery_app_in/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual Reddit thread content. |
+| https://reddit.com/r/IndianPets/comments/1p3t7ga/hi_so_i_have_been_looking_for_instant_delivery_of/ | 200 | 364 | NO |  |
+| https://reddit.com/r/Flipkart/comments/1ol0j48/they_asked_me_to_pick_up_a_55inch_tv_from_their/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual Reddit post content. |
+| https://reddit.com/r/Bangalorestartups/comments/1ow5xpv/i_cant_sleep_anymore_i_just_need_one_chance_not/ | 200 | 364 | NO | The page displays a 'Prove your humanity' challenge screen instead of the actual Reddit post content. |
+| https://reddit.com/r/StartUpIndia/comments/1q4rekd/everyone_is_fighting_a_bloodbath_over_10minute/ | 200 | 364 | NO |  |
+| https://reddit.com/r/Frugal_Ind/comments/1ilae3e/quick_commerce_is_cheap_compared_to_offline/ | 200 | 364 | NO |  |
+| https://reddit.com/r/blinkit/comments/1wwpa5t/surge_fee_of_30_for_what/ | 200 | 364 | NO |  |
+| https://52pojie.cn/thread-690403-1-1.html | 200 | 7114 | YES | The webpage is a forum post from 52pojie.cn titled 'Screen Recording Software ZD Soft Screen Recorder v11.1.8 Chinese Ve |
+| https://52pojie.cn/thread-1176113-1-1.html | 200 | 2934 | YES | The webpage is a forum thread from 52pojie.cn titled 'ZD Screen Recorder v11.3.0.0 Special Edition'. It features a post  |
+| https://zhihu.com/question/24167285 | 200 | 140 | NO |  |
+| https://zhihu.com/question/63761526/answers/updated | 200 | 140 | NO |  |
+| https://52pojie.cn/thread-1555451-1-1.html | 200 | 4322 | YES | The webpage is a forum post from 52pojie.cn (吾爱破解) titled 'iTop Screen Recorder出色的屏幕录制体验1.0'. It features a user named g |
+| https://52pojie.cn/thread-1662200-1-1.html | 200 | 6762 | YES | The webpage is a forum post from 52pojie.cn (Wu Ai Po Jie) titled 'Movavi Screen Recorder 22.5'. It provides a free scre |
+| https://52pojie.cn/thread-1545944-1-1.html | 200 | 4395 | YES | The webpage is a forum post from 52pojie.cn (吾爱破解) titled 'Aiseesoft Screen Recorder v2.2.66中文绿色版(屏幕录像机)'. It provides a |
+| https://52pojie.cn/thread-2025893-1-1.html | 200 | 9214 | YES | The webpage is a forum post from 52pojie.cn introducing 'Leawo Free Screen Recorder v1.0.0.1', a portable, free screen r |
+| https://52pojie.cn/thread-1098884-1-1.html | 200 | 5299 | YES | The webpage is a forum thread from 52pojie.cn (a Chinese reverse engineering and software cracking community) titled 'Ap |
+| https://52pojie.cn/thread-1398115-1-1.html | 200 | 4155 | YES | The webpage is a forum thread from 52pojie.cn (a Chinese reverse engineering/software cracking community) titled 'Screen |
+
+## Run 2026-11-07T08:49:10.542Z
+
+- Sampled: 25
+- Acquired (deterministic: body ≥50 chars or HTTP 200): 25/25
+- AI verdict (ADVISORY — a model vote is not ground truth): YES 23, NO 2, UNKNOWN 0
+
+| https://forum.lowyat.net/topic/5556445 | 200 | 16011 | YES | A forum thread titled '[found sos] cant login whatsapp browser' where user SUSLada Putih reports being unable to log in  |
+| https://forum.lowyat.net/topic/5565190 | 200 | 21782 | YES | The webpage is a Lowyat.NET forum thread titled 'Whatsapp Desktop dah jadi fb app' (WhatsApp Desktop has become FB app). |
+| https://answers.microsoft.com/en-us/windows/forum/all/windows-7-update-problems/b3d0a226-f3ec-4e14-8394-0771ae9f50e8 | 200 | 6718 | YES | The webpage is a Microsoft Q&A forum thread titled 'WINDOWS 7 update problems'. An anonymous user posted on Feb 24, 2019 |
+| https://answers.microsoft.com/en-us/windows/forum/all/backup-and-restore-using-file-history-in-windows/c37e571f-9ef9-42a7-bb0a-9dc66d1b1cf0 | 200 | 9950 | YES | The webpage contains a Microsoft Q&A thread titled 'Backup and Restore Using File History in Windows 8.1'. The user asks |
+| https://forum.lowyat.net/topic/5519898 | 200 | 31959 | YES | A user on Lowyat.NET reports their WhatsApp account was hacked and used to send malicious links to contacts. The thread  |
+| https://forum.lowyat.net/topic/5556449 | 200 | 10580 | YES | A forum thread on Lowyat.NET titled 'those use ipon watsapp web browser' discussing WhatsApp server issues. Users report |
+| https://forum.lowyat.net/topic/5538738 | 200 | 17809 | YES | The webpage is a forum thread on Lowyat.NET titled 'Is Whatsapp web down?'. The original poster (pureawesomeness) report |
+| https://forum.lowyat.net/topic/5543382 | 200 | 25524 | YES | The webpage is a forum thread from Lowyat.NET titled 'Back up all whatsapp chat history with media to PC'. The original  |
+| https://forum.lowyat.net/topic/5543187 | 200 | 24449 | YES | A forum thread on Lowyat.NET titled 'Change WhatsApp number without notifying' where user TSGalaxyV asks how to change t |
+| https://forum.lowyat.net/topic/5566080 | 200 | 22875 | YES | Meta announced global subscription plans for Facebook Plus ($3.99/mo), Instagram Plus ($3.99/mo), and WhatsApp Plus ($2. |
+| https://unifiedportal-mem.epfindia.gov.in/memberinterface/ | 200 | 11526 | YES | The page is the EPFO Member Home login interface. It displays notices about UAN activation via UMANG app, e-SHRAM benefi |
+| https://epfo.gov.in/ | 200 | 24429 | YES | The webpage is the official homepage of the Employees' Provident Fund Organisation (EPFO) of India. It features a multil |
+| https://epfo.gov.in/unified-portal/ | 200 | 8081 | YES | The page is titled 'Employees' Provident Fund Organisation' and displays a section for 'Reference Documents'. It lists d |
+| https://passbook.epfindia.gov.in/MemberPassBook/login | 200 | 4814 | YES | The page is the login portal for the EPFO Member Passbook. It displays contact information (missed call number, SMS inst |
+| https://unifiedportal-emp.epfindia.gov.in/epfo/ | 200 | 7194 | YES | The page is the EPFO (Employees' Provident Fund Organisation) employer portal home page. It displays a welcome message f |
+| https://epfo.app/ | 200 | 22094 | YES | The webpage is an informational portal for the Employees' Provident Fund Organisation (EPFO) in India. It provides acces |
+| https://zepto.com/s | 200 | 1187 | YES | Zepto is an Indian quick-commerce platform offering 10-minute delivery of groceries and daily essentials in major cities |
+| https://en.wikipedia.org/wiki/Zepto_(company) | 200 | 13184 | YES | Zepto is an Indian quick-commerce company founded in July 2021 by Aadit Palicha and Kaivalya Vohra. Headquartered in Ben |
+| https://auth.zepto.co.in/ | 200 | 67 | NO |  |
+| https://brands.zepto.co.in/login | 200 | 101 | YES | The page is a login portal for Zepto's vendor/partner platform, featuring fields for email and password, a 'Forgot Passw |
+| https://play.google.com/store/apps/details?id=com.zeptoconsumerapp&amp;hl=en | 200 | 7804 | YES | Zepto is a quick commerce app delivering groceries, electronics, fashion, and other essentials in minutes. It offers ove |
+| https://auth.zepto.co.in/login?parentApplicationId=d4bef4cb-2df7-4506-8d39-bdb5490fc2e7&amp;applicationId=db8c6ca8-6ea9-4a4b-a3b2-c6e3d6c9c51c | 200 | 61 | YES | The page is a login interface for Zepto, featuring options to sign in with email and password, register, or recover a fo |
+| https://quickcommercemap.com/platforms/zepto/lucknow | 200 | 16356 | YES | The page lists 36 Zepto dark stores in Lucknow, providing specific names (e.g., Celebrations Rooms And Banquets, K Malik |
+| https://people.zepto.co.in/ | 200 | 61 | NO |  |
+| https://brands-onboarding.zepto.co.in/signup | 200 | 504 | YES | The page is a signup form for Zepto's vendor portal, featuring fields for phone number, OTP, and email, along with marke |
+| 0 | https://news.ycombinator.com/ | 200 | PASS | 3761 | The extraction successfully captured the Hacker News front page, including the title 'Hacker News' and a list of top stories with their titles, source domains, point counts, submitter usernames, time elapsed, and comment counts. Examples include articles on Libghostty 1.0, Tesla Cybertruck productio | 7s |
+| 1 | https://stackoverflow.com/ | 403 | PASS | 31933 | The extraction captured the 'Newest Questions' page of Stack Overflow, including navigation elements (Ask Question, filters like Newest/Active/Bountied), a question count (24,134,915), and structured JSON-LD metadata defining the site as a WebSite and Organization with social links. | 19s |
+| 2 | https://en.wikipedia.org/wiki/Web | 200 | PASS | 4153 | The extraction successfully retrieved the content of the Wikipedia disambiguation page for 'Web'. It lists various meanings including spider webs, the World Wide Web, computing terms (like GNOME Web), engineering definitions, films, literature, mathematics, music, people, radio stations, and televis | 6s |
+| 3 | https://github.com/ | 200 | PASS | 5803 | The extraction successfully captured the GitHub homepage content, including the title 'GitHub · Change is constant...', navigation elements, promotional banners (GitHub Universe ‘26), activity feeds (pull requests, forks, stars), product descriptions (Copilot, Actions, Codespaces), and customer test | 15s |
+| 4 | https://bing.com/ | 200 | PASS | 794 | The extraction successfully captured the homepage of Microsoft Bing, including the title 'Search - Microsoft Bing', visual search interface elements, and metadata describing the daily wallpaper image ('Roaming the grasslands' featuring a bison). The HTTP status was 200, indicating a successful load. | 14s |
+| 5 | https://duckduckgo.com/ | 200 | PASS | 215 | The page is the DuckDuckGo homepage, featuring a title 'DuckDuckGo - Protection. Privacy. Peace of mind.' and body text promoting setting DuckDuckGo as the default search engine and downloading their browser for privacy. It includes OpenGraph metadata describing it as an internet privacy company. | 4s |
+| 6 | https://mozilla.org/ | 200 | PASS | 10549 | The extraction successfully captured the Mozilla homepage content, including the title 'Mozilla - Internet for people, not profit (US)', a welcome message, descriptions of products like Firefox, Thunderbird, and Mozilla VPN, donation information, and detailed OpenGraph/Twitter metadata. | 6s |
+| 7 | https://apple.com/ | 200 | PASS | 7542 | The extraction successfully captured the Apple homepage content, including product headlines for MacBook Pro (M6), iPhone Duo, iMac, iPhone 18 Pro, iPad mini, and Apple Watch Series 12, along with promotional text for engraving, Apple Upgrade, and Apple Card. It also includes valid JSON-LD structure | 15s |
+| 8 | https://google.com/ | 200 | PASS | 1147 | The extraction successfully captured the main content of Google's homepage, including the title 'Google', navigation links (About, Store), search interface elements (voice search prompts, AI mode options), and footer information (language options, privacy/terms links). The HTTP status was 200 and th | 5s |
+| 9 | https://india.gov.in/ | 200 | PASS | 10320 | The extraction successfully captured the homepage of the National Portal of India (india.gov.in). It includes the page title, HTTP status 200, and substantial body content describing government services, statistics (e.g., 13,571 Online Services), and information categories like Agriculture and Citiz | 5s |
+| 10 | https://sebi.gov.in/ | 200 | PASS | 14812 | The extraction successfully captured the homepage of the Securities and Exchange Board of India (SEBI). It includes the site title, language selection options (Hindi/English), payment links, announcements for upcoming events like the SEBI-NISM Research Conference 2027 and Cyber Suraksha Portal launc | 8s |
+| 11 | https://rbi.org.in/ | 200 | PASS | 25163 | The extraction successfully captured the homepage of the Reserve Bank of India (RBI). It includes the official preamble regarding monetary stability, current policy rates (Repo Rate 5.50%, SDF 5.25%, MSF 5.75%), reserve ratios (CRR 3.00%, SLR 18.00%), and exchange rates against major currencies like | 6s |
+| 12 | https://linkedin.com/ | 200 | PASS | 2100 | The extraction successfully captured the LinkedIn homepage content, including the login/signup prompt, navigation links for jobs, learning, and games, as well as footer information and OpenGraph metadata. | 6s |
+| 13 | https://reddit.com/ | 200 | FAIL | 364 | The extraction returned a CAPTCHA/challenge page titled 'Reddit - Prove your humanity' with text asking the user to complete a challenge to prove they are not a bot, along with footer links. | 6s |
+| 14 | https://youtube.com/ | 200 | UNKNOWN | 3089 |  | 32s |
+| 15 | https://blinkit.com/ | 200 | UNKNOWN | 314 |  | 30s |
+| 16 | https://myntra.com/ | 200 | UNKNOWN | 20 |  | 31s |
+| 17 | https://zepto.in/ | 200 | FAIL | 496 | The page is a Sedo brokerage landing page indicating that the domain zepto.in is already taken and offering services to hire a broker to acquire it. | 30s |
+| 18 | https://bookmyshow.com/ | 200 | UNKNOWN | 481 |  | 31s |
+| 19 | https://zomato.com/ | 200 | UNKNOWN | 2027 |  | 31s |
