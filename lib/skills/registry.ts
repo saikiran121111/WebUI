@@ -267,7 +267,7 @@ export interface ParsedInstall {
 /**
  * Accepts the three input forms from the spec:
  *   "blader/humanizer"
- *   "wheresryan22/anatomy --skill anatomy"
+ *   "vercel-labs/agent-skills --skill deploy"
  *   "npx skills add https://github.com/blader/humanizer --skill humanizer"
  * Rejects anything that is not a github slug/URL or contains unsafe tokens.
  */

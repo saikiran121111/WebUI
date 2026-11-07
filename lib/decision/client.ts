@@ -12,7 +12,7 @@
  * user's message:
  *
  *   1. A lightweight keyword match picks the deliverable intent
- *      (excel / docs / pdf / ppt / anatomy / chart / html).
+ *      (excel / docs / pdf / ppt / chart / html).
  *   2. The matched .cskills skill bundle + the mode's output contract are
  *      injected as ONE system block — the main model (:8080) sees the
  *      available studio fences and writes the right fenced block itself.
@@ -46,78 +46,25 @@ const INTENT_MATCHERS: Record<Exclude<RendererMode, "standard_chat">, RegExp> = 
   docs: /\b(?:word ?document|\.docx|docx|resume|résumé|cv)\b/i,
   pdf: /\bpdf\b/i,
   ppt: /\b(?:power ?point|presentation|\.pptx|pptx|deck)\b/i,
-  anatomy: /\b(?:anatomy|cutaway|cross-section|isometric|exploded)\b/i,
   chart: /\bchart\b/i,
   html_render: /\b(?:web ?page|landing ?page|html|interactive (?:ui|page|demo|prototype))\b/i,
 };
 
 /*
- * Anatomy over-trigger (2026-11-06 audit, finding 5).
- *
- * One bare keyword used to be enough: "What is the anatomy of the knee?" and
- * "What is an isometric exercise?" both matched `anatomy` and got the anatomy
- * renderer plus its skill block, even though they are a definition question
- * and a fitness question. Anatomy is the ONLY intent whose words name a
- * subject rather than a deliverable — "spreadsheet" is always a spreadsheet,
- * but "anatomy" is usually just what the user wants to talk about.
- *
- * So the anatomy rule is now vocabulary MINUS conversational frames: the
- * vocabulary must not sit inside an ask/definition/explanation frame, and the
- * two domain senses ("isometric exercise", "anatomy exam") are their own
- * frames. The frames are tight word sequences — no unbounded gaps, no
- * lookaheads — so the Rust port (`crates/ruke-decision/src/engine.rs`,
- * `anatomy_intent`) mirrors them pattern-for-pattern with the same bridge
- * classes the other matchers use (JS `\b` is ASCII-only, and the Rust `regex`
- * crate has no lookahead: hence match-then-reject, never a lookahead).
- *
- * Deliberately NOT excluded: an unframed noun phrase ("anatomy of a jet
- * turbine" — a golden-fixture illustration request). The rule keys off the
- * conversational frame, not off a missing ask verb; a false negative is cheap
- * because the UI never hard-gates fences (`kindAllowed` is always true), so
- * the model can still emit an ```anatomy block in a standard_chat turn.
+ * The anatomy intent (and its audit-finding-5 frame guard, 2026-11-06) was
+ * removed on 2026-11-07 by user directive: the anatomy renderer was a
+ * spin-off of the retired architecture/3D-design feature and is no longer
+ * part of the product. ```anatomy fences now fall through to the
+ * retired-fence compat card in the UI.
  */
-const ANATOMY_VOCAB = "anatomy|cutaway|cross-section|isometric|exploded";
-/** Bridge class shared with the Rust port: a non-word char (JS ASCII `\b`). */
-const SEP = "[^A-Za-z0-9_]";
-/** Articles are optional inside a frame; longest alternative first. */
-const ART = "(?:the|this|that|these|those|an|a)";
-const VOCAB = `(?:${ANATOMY_VOCAB})(?:${SEP}|$)`;
-const ART_GAP = `(?:${ART}${SEP}+)?`;
-
-/** Frames that turn anatomy vocabulary into a topic mention, not a request. */
-const ANATOMY_FRAMES: RegExp[] = [
-  // "what/how/why is | are | does ... (the) <vocab>"
-  new RegExp(`(?:^|${SEP})(?:what|how|why)${SEP}+(?:'s|is|are|was|were|does|do|did)${SEP}+${ART_GAP}${VOCAB}`, "i"),
-  // contraction: "what's anatomy", "how's a cutaway different..."
-  new RegExp(`(?:^|${SEP})(?:what's|whats|how's|hows)${SEP}+${ART_GAP}${VOCAB}`, "i"),
-  // "define <vocab>", "meaning of (the) <vocab>", "definition of <vocab>"
-  new RegExp(`(?:^|${SEP})(?:define|definition|meaning)${SEP}+(?:of${SEP}+)?${ART_GAP}${VOCAB}`, "i"),
-  // "tell me about (the) <vocab>"
-  new RegExp(`(?:^|${SEP})tell${SEP}+me${SEP}+(?:about|of)${SEP}+${ART_GAP}${VOCAB}`, "i"),
-  // "explain / describe / discuss (the) <vocab>"
-  new RegExp(`(?:^|${SEP})(?:explain|describe|discuss)${SEP}+${ART_GAP}${VOCAB}`, "i"),
-  // the other senses of these words: fitness ("isometric exercise") and
-  // school subject ("anatomy exam / quiz / class")
-  new RegExp(`(?:^|${SEP})isometric${SEP}+(?:exercis|workout|muscle|train|plank|yoga|physio|rehab)[A-Za-z]*`, "i"),
-  new RegExp(`(?:^|${SEP})anatomy${SEP}+(?:exam|quiz|test|class|course|chapter|student|study|revision|flashcard|lecture|homework|syllabus|worksheet)[A-Za-z]*`, "i"),
-];
 
 /** First matching intent wins; order follows expected user intent frequency. */
 const INTENT_ORDER: Exclude<RendererMode, "standard_chat">[] = [
-  "excel", "docs", "pdf", "ppt", "chart", "anatomy", "html_render",
+  "excel", "docs", "pdf", "ppt", "chart", "html_render",
 ];
-
-function anatomyIntent(message: string): boolean {
-  if (!INTENT_MATCHERS.anatomy.test(message)) return false;
-  return !ANATOMY_FRAMES.some((frame) => frame.test(message));
-}
 
 function detectDeliverableIntent(message: string): Exclude<RendererMode, "standard_chat"> | null {
   for (const mode of INTENT_ORDER) {
-    if (mode === "anatomy") {
-      if (anatomyIntent(message)) return mode;
-      continue; // rejected frames never fall through to the other matchers
-    }
     if (INTENT_MATCHERS[mode].test(message)) return mode;
   }
   return null;

@@ -304,6 +304,13 @@ Launcher invocation law (learned the hard way): `-TestFiles` is a PowerShell ARR
 "Audit repair phase" below (stale suite removed, `tests/retired-fences.spec.ts` seeds old saves through
 `POST /api/conversations` and proves card + reload + real Download + zero execution, label now "Download source").
 
+**2026-11-07 anatomy amendment (user directive, mid-P7-loop):** anatomy — the only illustration route kept above — was
+removed ENTIRELY ("anatomy is based on architecture design aswell so its useless to keep it in my codebase"): feature
+deleted, `RendererMode` parity 8 → 7 with regenerated contracts, saved ```anatomy fences render the same read-only
+compat card as scene3d. The anatomy 21/21 browser baseline above is superseded by the post-removal `interactive-ui`
+two-retired-cards contract + the `retired-fences` rerun inside the P7 loop. Full record: CHANGELOG 2026-11-07 +
+STATE.md session snapshot; post-removal gate numbers in the P7 item below.
+
 ## Phase 5A — Native PowerPoint motion (PptxGenJS + @office-kit/pptx) — [LOCKED-DONE]
 
 ### Implementation
@@ -877,14 +884,17 @@ vitest), and the end-to-end round-capped model journey (this run).
     • browser status: TopBar panel arm/`browserStore` connection state (`browser-store.test`,
       `browser-client.test`) — journeys `browser-easy/medium/hard`, `browser-model-acceptance`,
       `search-gate.spec` (all P7).
-    • artifact edit/export: interactive-ui download proven byte-exact (P5 ledger), `anatomy-export.spec`,
+    • artifact edit/export: interactive-ui download proven byte-exact (P5 ledger), `anatomy-export.spec`
+      (RETIRED 2026-11-07 with the anatomy feature — export proof now interactive-ui + `pptx-5a.spec`),
       `pptx-5a.spec`.
     • keyboard/focus/a11y: `panelShortcuts.test`, `role="dialog"` on SkillsModal/ConfirmDialog/ProgressChip
       etc.; Stop/Send carry aria labels (`ChatInput.tsx:404-462`) — getByRole locators depend on this.
     • lazy load + dispose: VERIFIED — `FenceRouter` every studio viewer `dynamic(..., {ssr:false})`;
-      3D/CAD viewers + `cad-studio.css` were RETIRED in P4 (documented in `app/globals.css:10`), so the
-      §5.3 dispose law now applies to anatomy: `IntersectionObserver` + dispose inside
-      `lib/anatomy/kit/react/live.tsx`/`liveEngine.mjs` + `AnatomyBlock.tsx`.
+      3D/CAD viewers + `cad-studio.css` were RETIRED in P4 (documented in `app/globals.css:10`), and the
+      anatomy viewer + `lib/anatomy/**` + `AnatomyBlock.tsx` were RETIRED 2026-11-07 (user amendment above) —
+      the §5.3 dispose law now applies only to the surviving lazy viewers (chart/mermaid/document viewers),
+      and `tests/interactive-ui.spec.ts` adds the zero-canvas + THREE-undefined proof over BOTH retired
+      compat fences (scene3d + anatomy cards).
     • core-skill invisibility: structurally enforced — `GET /api/skills` lists ONLY `./skills/` +
       `skill-scenarios/` (`listInstalledSkillNames`); `POST /api/skills/install` refuses `.cskills`
       (route.ts:25); no component reads `./.cskills*` (grep clean); core skills load ONLY via
@@ -907,6 +917,18 @@ vitest), and the end-to-end round-capped model journey (this run).
         xlcalc@0.84.0 engine lands ONLY in on-demand chunk `1981.*.js` (728 KB raw) — grep proves 0
         xlcalc references in the two shared initial chunks, so the §5.1 lazy-load law holds: nothing
         spreadsheet-related ships in the initial page-load bundle.
+    - **P7 GATES RE-RUN POST-ANATOMY-REMOVAL — ALL GREEN 2026-11-07 (the anatomy removal is a user amendment
+      to the plan; numbers above stay valid history for the pre-removal tree):** `npx tsc --noEmit` **exit 0**;
+      targeted vitest (`__tests__/rust-golden` `__tests__/decision` `__tests__/render`
+      `__tests__/documents/lazyLoad.test.ts` `__tests__/turn-progress.test.ts`) **23 files / 386 tests exit 0**;
+      `cargo build -p ruke-server` **exit 0** (ruke-server.exe FRESH — the stale-exe precondition for the P7
+      loop is CLOSED); `cargo test --workspace` **exit 0, every suite `test result: ok`, 0 failed** (the anatomy
+      suites are gone: server lib 164, skills 52, decision 12, contracts 9, …); `npm run contracts:check`
+      **exit 0 — generated contracts + manifest now 7 MODES** (excel/docs/pdf/ppt/chart/html_render +
+      standard_chat=null); full `npx vitest run` → **116 files passed / 1 skipped (117); 1,559 tests passed /
+      9 skipped (1,568); exit 0** in 227.55 s (1,634 → 1,559 = exactly the deleted anatomy suites; the 1 skipped
+      file + 9 skipped tests match the pre-existing baseline); `npm run build` **exit 0** with **0 anatomy
+      chunks** in `.next/static/chunks`.
 - [ ] **Handoff artifacts:** this checklist completed, commit IDs, exact commands + results, sample artifact paths,
       comparison results, playback evidence, platform coverage, open gates
 
@@ -970,8 +992,12 @@ vitest), and the end-to-end round-capped model journey (this run).
    P6 static audit DONE (ledger under the P6 item; parent stays [ ] until the loop green). P7
    DETERMINISTIC GATES DONE (tsc 0 / full vitest 1,634 passed 0 / contracts:check 0 / cargo 542 passed
    0 / build 0 + xlcalc chunk isolation — full record under the P7 item).
-   NOW ACTIVE: P7 final locked model-driven Playwright fix-rerun loop (rebuild ruke-server first —
-   stale-exe law), then old-vs-new comparison, CLAUDE.md §4 completion report, final commit+push.
+   NOW ACTIVE: P7 final locked model-driven Playwright fix-rerun loop. The ruke-server rebuild is DONE
+   (post-removal `cargo build -p ruke-server` exit 0 2026-11-07 — stale-exe precondition CLOSED). Loop
+   amendment: anatomy removed entirely by user directive (see the P4 addendum + the post-removal P7 gates
+   record); Playwright inventory now **38 specs**, verified pre-removal batch ledger in
+   `docs/e2e-test-state.md` (2026-11-07 section). Batch 1 queued: `decision-routing`,`render`,`interactive-ui`.
+   After loop green: old-vs-new comparison, CLAUDE.md §4 completion report, final commit+push.
    LEAVE MACHINE RUNNING at cycle end (amendment 2026-11-06; handover shutdown line is historical).
 3. Commits: `66b76b9`+`074d6b0` (P1), `fc03609`+`44d9b2c` (P2), `a3206c9` (P3), P4
    `a02c3bf`+`499a52a`+`94f740b`+`5fb34ff`, P5A `f1092c1`, audit repair `4abeaca`, finding 3 `b4f9db0`,

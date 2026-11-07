@@ -5,7 +5,7 @@ import { BLOCKED_REASON } from "./types";
  * service (DALL-E, Midjourney, Stable Diffusion, ComfyUI, Sora, Runway, Flux
  * text-to-image/video, ...) can never run against a local text-only model, so
  * it gets blocked at index time. Skills that draw with CODE (Three.js, WebGL,
- * Canvas, SVG — e.g. the isometric anatomy illustration pipeline) are allowed.
+ * Canvas, SVG) are allowed.
  */
 
 /** Unambiguous external-generation signals: block regardless of anything else. */

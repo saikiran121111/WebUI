@@ -37,13 +37,6 @@
       "utf16Length": 2419
     },
     {
-      "mode": "anatomy",
-      "present": true,
-      "sha256": "954b7100f104a00c8a78fcc3062365e5223ac43ae8ea7c592bad51192afe659b",
-      "bytes": 4147,
-      "utf16Length": 4116
-    },
-    {
       "mode": "chart",
       "present": true,
       "sha256": "34756d1cc2739854a677585fa5a803eff8bf14204ac8d1ccef4789d1aad4b606",

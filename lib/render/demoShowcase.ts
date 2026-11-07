@@ -4,9 +4,9 @@ import type { Conversation, Message } from "../types";
  * Deterministic interactive-UI showcase used by the `/demo-ui` command and
  * the `?demo=ui` query trigger. It renders the full interactive surface —
  * chart with What-If sliders + type switcher, mermaid with step playback,
- * an SVG anatomy cutaway with a piston slider + explode control, KPI cards
- * calculators, and a markdown table — entirely client-side, with no model
- * server involved.
+ * KPI cards calculators, a markdown table and the retired-fence
+ * compatibility cards (3D scene + anatomy) — entirely client-side, with
+ * no model server involved.
  */
 
 export const DEMO_CONVERSATION_ID = "demo_ui_showcase";
@@ -16,7 +16,7 @@ const SHOWCASE_MARKDOWN = [
   "",
   "Everything below is generated from fenced blocks and fully interactive:",
   "click marks, toggle the legend, drag the sliders, play the steps,",
-  "explode the anatomy figure, recompute the KPI cards.",
+  "drag the sliders, recompute the KPI cards, open the retired cards.",
   "",
   "### Chart — click a bar, toggle a series, drag the What-If slider",
   "",
@@ -56,28 +56,6 @@ const SHOWCASE_MARKDOWN = [
     "  intake --> plan --> render --> review",
     "  review -->|tune| render",
   ].join("\n"),
-  "```",
-  "",
-  "### Anatomy figure — drag the piston slider, press Explode",
-  "",
-  "```anatomy",
-  JSON.stringify({
-    title: "Single-cylinder head — cutaway",
-    fig: "FIG 2",
-    label: "Cutaway single-cylinder head with a sliding piston and an explode control",
-    width: 560,
-    height: 420,
-    parts: [
-      { id: "deck", tone: "base", kind: "slab", plan: { x: -40, y: -30, w: 80, d: 60, r: 6 }, z: 0, height: 14, label: "Deck" },
-      { id: "barrel", tone: "structure", kind: "cylinder", center: [0, 0], r: 22, z: 14, height: 46, label: "Barrel", on: "deck" },
-      { id: "piston", tone: "subject", kind: "cylinder", center: [0, 0], r: 20, z: 18, height: 16, label: "Piston", on: "deck", slide: { axis: "z", from: 2, to: 26, state: "stroke" } },
-      { id: "plug", tone: "accent", kind: "cylinder", center: [0, 0], r: 3, z: 60, height: 8, label: "Plug", on: "deck" },
-    ],
-    controls: [{ id: "stroke", kind: "slider", label: "Piston position", min: 0, max: 1, step: 0.01, value: 0.5 }],
-    readouts: [{ id: "pos", label: "Piston height", unit: "mm", decimals: 1, formula: "18 + 24 * stroke" }],
-    explode: { label: "Explode" },
-    export: { filename: "showcase-head" },
-  }, null, 2),
   "```",
   "",
   "### KPI — drag the sliders, click a card for its formula",
@@ -129,12 +107,19 @@ const SHOWCASE_MARKDOWN = [
   "| East | 31 | 52 | +68% |",
   "| West | 24 | 27 | +13% |",
   "",
-  "### Legacy 3D content — compatibility card, never executed",
+  "### Legacy 3D + anatomy content — compatibility cards, never executed",
   "",
   "```scene3d",
   "// A pre-Phase-4 saved scene. The built-in viewer retired 2026-11-06;\n" +
   "// this source is preserved verbatim for copy/download and never runs.\n" +
   "new THREE.Mesh(sphereGeo, steelMat);",
+  "```",
+  "",
+  "```anatomy",
+  "// A saved anatomy figure from an older conversation. Its renderer\n" +
+  "// retired 2026-11-07 (user directive); this source is preserved\n" +
+  "// verbatim for copy/download and never runs.\n" +
+  '{"title":"Single-cylinder head — cutaway","parts":[{"id":"deck","tone":"base","kind":"slab","plan":{"x":-40,"y":-30,"w":80,"d":60,"r":6},"z":0,"height":14,"label":"Deck"}]}',
   "```",
 ].join("\n");
 

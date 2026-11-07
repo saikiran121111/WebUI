@@ -1,21 +1,27 @@
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * AUDIT FINDING 5 (2026-11-06) — HTTP-level routing proof.
+ * ANATOMY RETIREMENT (2026-11-07) — HTTP-level routing proof.
  *
- * The unit layer (__tests__/decision/anatomy-intent.test.ts, 15 tests) pins the
- * matcher; the golden fixtures pin Rust parity. What was still unproven is the
- * route a browser actually hits: POST /api/decision (proxied to ruke-server when
- * the Rust backend is live, so this exercises whichever engine is in charge) and
- * the x-decision-mode header the chat route commits BEFORE the model's first
- * byte. Both layers here are deterministic — the routing decision is made
- * in-process/in-engine, never by the big model — so the only model cost in this
- * file is the aborted chat turn below, and the outcome is reproducible.
+ * What this file proves at the HTTP level: the retired anatomy vocabulary
+ * never routes to a renderer anymore, and the remaining deliverable modes
+ * still do. The unit layer (lib/decision/client.ts + the Rust engine tests)
+ * pins the same corpus one level down, and the golden fixtures bind it to
+ * Rust parity. The routes here are what a browser actually hits: POST
+ * /api/decision (proxied to ruke-server when the Rust backend is live, so
+ * this exercises whichever engine is in charge) and the x-decision-mode
+ * header the chat route commits BEFORE the model's first byte. Routing is
+ * decided in-process/in-engine, never by the big model — the only model cost
+ * in this file is the aborted chat turn below, and the outcome is
+ * reproducible.
  *
- * The bug: anatomy was the only intent naming a SUBJECT rather than a
- * DELIVERABLE, so a turn that merely named the vocabulary as its topic got the
- * anatomy renderer plus its core-skill block ("What is the anatomy of the
- * knee?", "What is an isometric exercise?").
+ * History: audit finding 5 (2026-11-06) first narrowed anatomy — it was the
+ * only intent naming a SUBJECT rather than a DELIVERABLE, so topic mentions
+ * ("What is the anatomy of the knee?") got the renderer plus its core-skill
+ * block. The mode was then removed entirely on 2026-11-07 (user directive —
+ * it grew out of the retired architecture-design feature), so EVERY former
+ * anatomy vector now falls to standard_chat or to the deliverable word the
+ * turn carries ("exploded diagram in html" -> html_render).
  */
 
 interface DecisionEnvelopeLike {
@@ -58,12 +64,13 @@ async function chatTurnMode(page: Page, message: string): Promise<string | null>
   }, message);
 }
 
-test("finding 5: /api/decision stops routing topic mentions to the anatomy renderer", async ({ page }) => {
+test("anatomy retirement: /api/decision routes no anatomy vocabulary to a renderer", async ({ page }) => {
   await page.goto("/");
 
-  // The two prompts from the audit brief, verbatim.
-  // Every vector here is one the unit layer already pins, so this is the same
-  // corpus proven one level up (and the golden fixtures bind it to Rust).
+  // The former frame-guard corpus (kept verbatim from the audit brief) PLUS
+  // the old deliverable-style asks: post-retirement ALL of them fall to
+  // standard_chat with no core-skill injection. Every vector here is one the
+  // unit layer already pins (and the golden fixtures bind it to Rust).
   const NEGATIVES: [string, string][] = [
     ["What is the anatomy of the knee?", "standard_chat"],
     ["What is an isometric exercise?", "standard_chat"],
@@ -71,6 +78,10 @@ test("finding 5: /api/decision stops routing topic mentions to the anatomy rende
     ["isometric exercises for beginners", "standard_chat"],
     ["what does anatomy mean?", "standard_chat"],
     ["I have an anatomy exam tomorrow, any tips?", "standard_chat"],
+    ["a building cutaway diagram", "standard_chat"],
+    ["anatomy of a jet turbine", "standard_chat"],
+    ["cutaway of the marine engine", "standard_chat"],
+    ["isometric illustration of the server rack", "standard_chat"],
   ];
   for (const [prompt, expected] of NEGATIVES) {
     const env = await postDecision(page, prompt);
@@ -78,16 +89,16 @@ test("finding 5: /api/decision stops routing topic mentions to the anatomy rende
     expect(env.skill_to_load ?? null, prompt + " (no core-skill injection)").toBe(null);
   }
 
-  // Deliverable asks still get the renderer: the repair must not have hollowed
-  // out the intent it was tightening.
+  // The remaining deliverable modes still route: the retirement must not
+  // have hollowed out the intents the old vocabulary used to compete with.
+  // The last two rows are former anatomy vectors now carried instead by
+  // another deliverable word.
   const POSITIVES: [string, string][] = [
-    ["anatomy of a jet turbine", "anatomy"],
-    ["exploded diagram in html", "anatomy"],
-    ["cutaway of the marine engine", "anatomy"],
-    ["isometric illustration of the server rack", "anatomy"],
     ["make me a spreadsheet of the results", "excel"],
     ["print this pdf", "pdf"],
     ["chart of this building's architecture", "chart"],
+    ["exploded diagram in html", "html_render"],
+    ["exploded isometric chart", "chart"],
   ];
   for (const [prompt, expected] of POSITIVES) {
     const env = await postDecision(page, prompt);
@@ -95,7 +106,7 @@ test("finding 5: /api/decision stops routing topic mentions to the anatomy rende
   }
 });
 
-test("finding 5: a real chat turn carries the corrected mode in x-decision-mode", async ({ page }) => {
+test("anatomy retirement: a real chat turn carries the post-retirement mode", async ({ page }) => {
   await page.goto("/");
   for (const prompt of ["What is the anatomy of the knee?", "What is an isometric exercise?"]) {
     const mode = await chatTurnMode(page, prompt);
@@ -103,6 +114,9 @@ test("finding 5: a real chat turn carries the corrected mode in x-decision-mode"
     expect(mode, prompt).not.toBe("anatomy");
     expect(mode, prompt).toBe("standard_chat");
   }
-  // The deliverable half of the same real path.
-  expect(await chatTurnMode(page, "anatomy of a jet turbine")).toBe("anatomy");
+  // The old deliverable-style ask on the same real chat path: standard_chat
+  // now, never the retired renderer.
+  expect(await chatTurnMode(page, "anatomy of a jet turbine")).toBe("standard_chat");
+  // A surviving deliverable on the same path still routes to its mode.
+  expect(await chatTurnMode(page, "print this pdf")).toBe("pdf");
 });

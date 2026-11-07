@@ -513,15 +513,13 @@ export function useChat({
         return;
       }
 
-      const lang = broken[0].lang ?? "anatomy";
-      if (lang !== "anatomy") {
-        setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing the output…" } : m)));
-        // Real round count into the progress panel (auto-repair turns only).
-        const t = progressRef.current;
-        if (t && t.snapshot(Date.now()).state === "running") {
-          t.setRepair(attempt + 1, MAX_FENCE_REPAIRS);
-          setTurnProgress(t.snapshot(Date.now()));
-        }
+      const lang = broken[0].lang;
+      setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, fenceRepair: "🔄 Auto-repairing the output…" } : m)));
+      // Real round count into the progress panel (auto-repair turns only).
+      const t = progressRef.current;
+      if (t && t.snapshot(Date.now()).state === "running") {
+        t.setRepair(attempt + 1, MAX_FENCE_REPAIRS);
+        setTurnProgress(t.snapshot(Date.now()));
       }
 
       let reply = "";
@@ -558,8 +556,9 @@ export function useChat({
 
   // The 3D/CAD runtime-error repair path (requestFenceRepair) was removed
   // 2026-11-06 when the Three.js/CAD viewers retired (Ruke plan Phase 4);
-  // streaming-completion auto-repair (runRepairRounds) stays for anatomy
-  // and document fences.
+  // anatomy auto-repair fell with the anatomy mode on 2026-11-07 (user
+  // directive). Streaming-completion auto-repair (runRepairRounds) stays
+  // for document fences.
 
   const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
     if (!text.trim() || sendBusyRef.current) return;

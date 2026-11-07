@@ -24,7 +24,6 @@ import { useChat } from "../hooks/useChat";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
-import { buildAnatomyDemoConversation } from "../lib/render/anatomyDemoShowcase";
 
 function uid(prefix = ""): string {
   return prefix + Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
@@ -75,25 +74,20 @@ export default function HomePage() {
 
   // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
   // deterministic interactive sample via load() — no model server needed.
-  // `?demo=anatomy` / `/demo-anatomy` does the same for the Anatomy figures.
+  // (A `?demo=anatomy` / `/demo-anatomy` trigger existed until the anatomy
+  // mode retired on 2026-11-07 by user directive.)
   const loadDemo = useCallback(() => {
     load(buildDemoConversation());
-    setHasScrolledUp(false);
-  }, [load]);
-  const loadAnatomyDemo = useCallback(() => {
-    load(buildAnatomyDemoConversation());
     setHasScrolledUp(false);
   }, [load]);
   useEffect(() => {
     const demo = new URLSearchParams(window.location.search).get("demo");
     if (demo === "ui") loadDemo();
-    if (demo === "anatomy") loadAnatomyDemo();
-  }, [loadDemo, loadAnatomyDemo]);
+  }, [loadDemo]);
   const runSend = useCallback((text: string, attachments: Attachment[] = []) => {
     if (text.trim() === "/demo-ui") { loadDemo(); return; }
-    if (text.trim() === "/demo-anatomy") { loadAnatomyDemo(); return; }
     send(text, { attachments });
-  }, [send, loadDemo, loadAnatomyDemo]);
+  }, [send, loadDemo]);
 
 
   // Ids deleted this session — a stale in-flight list refresh must never

@@ -26,15 +26,13 @@
 //!   It is redundant in the oracle itself; the uniform group classes stay
 //!   correct without a special branch.
 //!
-//! First-match precedence follows `INTENT_ORDER` (chart BEFORE anatomy;
-//! pdf BEFORE ppt; anatomy BEFORE html_render). `3d_asset`/`cad_blueprint`
-//! were retired 2026-11-06 (Ruke plan Phase 4): their matchers no longer
-//! exist, so old prompts ("render a 3d scene", "floor plan") now fall to
-//! `standard_chat` or, for the shared anatomy vocabulary, `anatomy` — but
-//! only outside a conversational frame: the anatomy branch rejects
-//! ask/definition/explanation frames and the fitness / school-subject senses
-//! of its words, because one bare keyword is not an illustration request
-//! (audit finding 5, 2026-11-06; see `anatomy_intent`).
+//! First-match precedence follows `INTENT_ORDER` (pdf BEFORE ppt; chart
+//! BEFORE html_render). `3d_asset`/`cad_blueprint` were retired 2026-11-06
+//! (Ruke plan Phase 4) and `anatomy` on 2026-11-07 (user directive — the
+//! route grew out of the same architecture-design feature): their matchers
+//! no longer exist, so old prompts ("render a 3d scene", "floor plan",
+//! "cutaway of the marine engine") now fall to `standard_chat` or, if other
+//! deliverable words are present, to the remaining modes.
 
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -69,95 +67,10 @@ static CHART_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])chart(?:[^A-Za-z0-9_]|$)").unwrap());
 // ASSET3D_RE / CAD_RE removed 2026-11-06 (Ruke plan Phase 4): the
 // 3d_asset / cad_blueprint modes and their intent rules are retired.
-/// `cross-section`'s interior `-` is a plain literal; JS `\b` only anchors
-/// before "cross" and after "section", exactly as the bridge classes do.
-static ANATOMY_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:anatomy|cutaway|cross-section|isometric|exploded)(?:[^A-Za-z0-9_]|$)").unwrap()
-});
-
-// ── Anatomy over-trigger guard (2026-11-06 audit, finding 5) ──────────────
-// Mirrors `ANATOMY_FRAMES` in `lib/decision/client.ts` pattern-for-pattern.
-// Anatomy is the only intent whose words name a SUBJECT instead of a
-// deliverable, so a bare keyword hit is not evidence of an illustration
-// request: "What is the anatomy of the knee?" is a definition question and
-// "What is an isometric exercise?" is a fitness question — both used to be
-// routed into the anatomy renderer. The rule is therefore vocabulary MINUS
-// conversational frames, built as plain regexes and applied by
-// match-then-reject in `anatomy_intent`: the `regex` crate has no lookahead,
-// which is exactly why no pattern here uses one. Every frame is a tight word
-// sequence (bridge class + optional article), never an unbounded gap, so the
-// two engines cannot drift on `.`-vs-newline semantics either.
-const ANATOMY_VOCAB_SRC: &str = "anatomy|cutaway|cross-section|isometric|exploded";
-/// The bridge class standing in for JS's ASCII-only `\b` (see module docs).
-const BRIDGE: &str = r"[^A-Za-z0-9_]";
-/// Articles are optional inside a frame; longest alternative first.
-const ARTICLE: &str = r"(?:the|this|that|these|those|an|a)";
-
-/// `(?:vocab)(?:bridge|$)` — the matcher's own trailing boundary.
-fn vocab_tail() -> String {
-    format!("(?:{v})(?:{b}|$)", v = ANATOMY_VOCAB_SRC, b = BRIDGE)
-}
-
-/// Frames that demote anatomy vocabulary to a topic mention.
-static ANATOMY_FRAMES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    let art = format!("(?:{a}{b}+)?", a = ARTICLE, b = BRIDGE);
-    let v = vocab_tail();
-    let patterns = [
-        // "what/how/why is | are | does ... (the) <vocab>"
-        format!(
-            r"(?i)(?:^|{b})(?:what|how|why){b}+(?:'s|is|are|was|were|does|do|did){b}+{a}{v}",
-            b = BRIDGE,
-            a = art,
-            v = v
-        ),
-        // contraction: "what's anatomy"
-        format!(
-            r"(?i)(?:^|{b})(?:what's|whats|how's|hows){b}+{a}{v}",
-            b = BRIDGE,
-            a = art,
-            v = v
-        ),
-        // "define <vocab>", "meaning of (the) <vocab>", "definition of <vocab>"
-        format!(
-            r"(?i)(?:^|{b})(?:define|definition|meaning){b}+(?:of{b}+)?{a}{v}",
-            b = BRIDGE,
-            a = art,
-            v = v
-        ),
-        // "tell me about (the) <vocab>"
-        format!(
-            r"(?i)(?:^|{b})tell{b}+me{b}+(?:about|of){b}+{a}{v}",
-            b = BRIDGE,
-            a = art,
-            v = v
-        ),
-        // "explain / describe / discuss (the) <vocab>"
-        format!(
-            r"(?i)(?:^|{b})(?:explain|describe|discuss){b}+{a}{v}",
-            b = BRIDGE,
-            a = art,
-            v = v
-        ),
-        // the other senses of these words: fitness ("isometric exercise") and
-        // school subject ("anatomy exam / quiz / class")
-        format!(
-            r"(?i)(?:^|{b})isometric{b}+(?:exercis|workout|muscle|train|plank|yoga|physio|rehab)[A-Za-z]*",
-            b = BRIDGE
-        ),
-        format!(
-            r"(?i)(?:^|{b})anatomy{b}+(?:exam|quiz|test|class|course|chapter|student|study|revision|flashcard|lecture|homework|syllabus|worksheet)[A-Za-z]*",
-            b = BRIDGE
-        ),
-    ];
-    patterns.iter().map(|p| Regex::new(p).unwrap()).collect()
-});
-
-/// The anatomy branch: vocabulary present AND no conversational frame.
-/// Unframed noun phrases ("anatomy of a jet turbine") stay anatomy — the
-/// golden fixture pins them as illustration requests.
-fn anatomy_intent(trimmed: &str) -> bool {
-    ANATOMY_RE.is_match(trimmed) && !ANATOMY_FRAMES.iter().any(|re| re.is_match(trimmed))
-}
+// ANATOMY_RE + the finding-5 frame guard (ANATOMY_FRAMES, audit 2026-11-06)
+// removed 2026-11-07 by user directive: the anatomy mode is retired, so
+// "anatomy"/"cutaway"/"cross-section"/"isometric"/"exploded" no longer
+// route anywhere by themselves.
 static HTML_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|[^A-Za-z0-9_])(?:web ?page|landing ?page|html|interactive (?:ui|page|demo|prototype))(?:[^A-Za-z0-9_]|$)").unwrap()
 });
@@ -165,7 +78,7 @@ static HTML_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `INTENT_ORDER` iteration with the compiled matchers — first match wins,
 /// exactly like the TS `for (const intent of INTENT_ORDER)` loop.
 fn match_intent(trimmed: &str) -> Option<RendererMode> {
-    // The five plain matchers first, in `INTENT_ORDER` — chart before anatomy.
+    // The five plain matchers, in `INTENT_ORDER`.
     let plain = [
         (RendererMode::Excel, &*EXCEL_RE),
         (RendererMode::Docs, &*DOCS_RE),
@@ -176,12 +89,7 @@ fn match_intent(trimmed: &str) -> Option<RendererMode> {
     if let Some((mode, _)) = plain.into_iter().find(|(_, re)| re.is_match(trimmed)) {
         return Some(mode);
     }
-    // anatomy (5): its own branch, because it is the one intent that has to
-    // reject conversational frames before it wins (finding 5).
-    if anatomy_intent(trimmed) {
-        return Some(RendererMode::Anatomy);
-    }
-    // html_render (6) last, exactly as in INTENT_ORDER.
+    // html_render (5) last, exactly as in INTENT_ORDER.
     HTML_RE
         .is_match(trimmed)
         .then_some(RendererMode::HtmlRender)
@@ -337,19 +245,20 @@ mod tests {
         );
         // excel (0) beats chart (4)
         assert_eq!(mode_for("spreadsheet and a chart"), RendererMode::Excel);
-        // cad (6) retired 2026-11-06: building+cutaway falls to anatomy (5)
+        // anatomy retired 2026-11-07: the shared illustration vocabulary no
+        // longer routes anywhere by itself...
         assert_eq!(
             mode_for("a building cutaway diagram"),
-            RendererMode::Anatomy
+            RendererMode::StandardChat
         );
-        // chart (4) before anatomy (5)
+        // ...unless another deliverable word carries the turn: chart (4)
+        // still wins over the retired vocabulary
         assert_eq!(mode_for("exploded isometric chart"), RendererMode::Chart);
-        // anatomy (5) before html_render (6)
-        assert_eq!(mode_for("exploded diagram in html"), RendererMode::Anatomy);
-        // anatomy positive
+        // and html_render (5) now wins where anatomy used to
+        assert_eq!(mode_for("exploded diagram in html"), RendererMode::HtmlRender);
         assert_eq!(
             mode_for("cutaway of the marine engine"),
-            RendererMode::Anatomy
+            RendererMode::StandardChat
         );
         // no match at all
         assert_eq!(mode_for("tell me a joke"), RendererMode::StandardChat);
@@ -367,55 +276,35 @@ mod tests {
         assert_eq!(mode_for("3d chart"), RendererMode::Chart);
     }
 
-    /// Audit finding 5 (2026-11-06): anatomy vocabulary inside a
-    /// conversational frame is a TOPIC mention, not an illustration request.
-    /// Mirrors `__tests__/decision/anatomy-intent.test.ts` on the TS side and
-    /// the same prompts inside `fixtures/decision/06-intent-matcher-vectors`.
+    /// Anatomy retired (2026-11-07, user directive — the route grew out of
+    /// the retired architecture-design feature). The whole vocabulary from
+    /// the old matcher + the finding-5 frame-guard corpus now falls to
+    /// `standard_chat` unless another deliverable word carries the turn.
+    /// Mirrors the TS vectors fixture `fixtures/decision/06-intent-matcher-vectors`.
     #[test]
-    fn anatomy_requires_a_request_not_a_topic_mention() {
-        // The two prompts named in the audit brief.
+    fn retired_anatomy_vocabulary_no_longer_routes() {
         for prompt in [
-            "What is the anatomy of the knee?",
-            "What is an isometric exercise?",
-        ] {
-            assert_eq!(mode_for(prompt), RendererMode::StandardChat, "{prompt}");
-            assert_eq!(intent_for(prompt), None, "{prompt}");
-        }
-        // Definition / explanation frames around the vocabulary.
-        for prompt in [
-            "what is the anatomy of the knee",
-            "what's anatomy?",
-            "what does anatomy mean?",
-            "what is the meaning of cutaway?",
-            "define isometric",
-            "definition of a cross-section",
-            "how does an exploded view work?",
-            "tell me about the anatomy of the knee",
-            "explain the anatomy of a knee",
-            "isometric exercises for beginners",
-            "anatomy quiz questions",
-            "I have an anatomy exam tomorrow, any tips?",
-        ] {
-            assert_eq!(mode_for(prompt), RendererMode::StandardChat, "{prompt}");
-        }
-        // Illustration requests keep the route: the first five are the golden
-        // fixture's requests, the rest are the imperative / polite-question
-        // forms users actually type.
-        for prompt in [
+            // The old positives (frame-guard "requests") — now unrouted.
             "an exploded view of the reactor core",
             "cutaway of the marine engine",
             "anatomy of a jet turbine",
             "isometric illustration of the server rack",
             "cross-section of the pump housing",
             "a building cutaway diagram",
-            "exploded diagram in html",
-            "draw me a cutaway of a jet engine",
-            "can you draw an exploded view of a car engine?",
-            "how do I get an isometric diagram of the rack?",
-            "show the anatomy of a jet turbine as a diagram",
+            // The old frame-guard "topic mentions" (audit finding 5 corpus).
+            "What is the anatomy of the knee?",
+            "What is an isometric exercise?",
+            "what's anatomy?",
+            "define isometric",
+            "isometric exercises for beginners",
+            "anatomy quiz questions",
         ] {
-            assert_eq!(mode_for(prompt), RendererMode::Anatomy, "{prompt}");
+            assert_eq!(mode_for(prompt), RendererMode::StandardChat, "{prompt}");
+            assert_eq!(intent_for(prompt), None, "{prompt}");
         }
+        // Other deliverable words still carry the turn past the retired vocab.
+        assert_eq!(mode_for("exploded diagram in html"), RendererMode::HtmlRender);
+        assert_eq!(mode_for("exploded isometric chart"), RendererMode::Chart);
     }
 
     #[test]
@@ -436,7 +325,7 @@ mod tests {
         assert_eq!(env.skill_to_load, Some("xlsx"));
         assert_eq!(env.allowed_code_fence, None);
         assert_eq!(env.enable_validator, RendererMode::Excel);
-        assert_eq!(env.disable_validators.len(), 7);
+        assert_eq!(env.disable_validators.len(), 6);
         assert!(!env.disable_validators.contains(&RendererMode::Excel));
         assert_eq!(env.confidence, 1.0);
         assert_eq!(env.lfm_latency_ms, 0);

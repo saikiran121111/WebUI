@@ -120,7 +120,7 @@ export default memo(function MarkdownRenderer({
  * at module scope: an inline object in the JSX would recreate every function
  * identity on each render, and React treats a changed element TYPE as a full
  * unmount+remount of the subtree.  That silently wiped the internal state of
- * every interactive fence (chart selection, mermaid playback, anatomy/KPI
+ * every interactive fence (chart selection, mermaid playback, KPI
  * sliders) on any unrelated page re-render — violating the "message tree is
  * stable between commits" contract (project standards §5.3).  None of these
  * renderers capture component-scope state; `table` reads context as a

@@ -29,7 +29,6 @@ const CONST_NAMES = {
   docs: "CONTRACT_DOCS",
   pdf: "CONTRACT_PDF",
   ppt: "CONTRACT_PPT",
-  anatomy: "CONTRACT_ANATOMY",
   chart: "CONTRACT_CHART",
   html_render: "CONTRACT_HTML_RENDER",
   standard_chat: "CONTRACT_STANDARD_CHAT",

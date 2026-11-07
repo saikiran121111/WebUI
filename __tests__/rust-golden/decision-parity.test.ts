@@ -42,8 +42,9 @@ const VECTORS: string[] = [
   "chart the revenue",
   "an exploded view of the reactor core", "cutaway of the marine engine", "anatomy of a jet turbine", "isometric illustration of the server rack", "cross-section of the pump housing",
   "draw me a cutaway of a jet engine", "can you draw an exploded view of a car engine?", "how do I get an isometric diagram of the rack?", "show the anatomy of a jet turbine as a diagram",
-  // — anatomy frame guard (audit finding 5, 2026-11-06): the vocabulary is a
-  //   topic mention inside a conversational frame, not an illustration ask —
+  // — retired anatomy vocabulary: formerly the anatomy frame guard (audit
+  //   finding 5, 2026-11-06). The mode retired 2026-11-07 (user directive),
+  //   so all of these now fall through to standard_chat or the next matcher —
   "What is the anatomy of the knee?", "What is an isometric exercise?", "what's anatomy?",
   "what does anatomy mean?", "what is the meaning of cutaway?", "define isometric",
   "definition of a cross-section", "how does an exploded view work?", "how does a cutaway engine work?",
@@ -89,13 +90,16 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
     expect(at("file.docx").active_mode).toBe("docs");
     expect(at("caféexcel").active_mode).toBe("excel");
     expect(at("render\nscene").active_mode).toBe("standard_chat"); // '.' no longer bridges \n; no 3D matcher exists post-Phase-4
-    expect(at("anatomy of a jet turbine").active_mode).toBe("anatomy");
-    expect(at("a building cutaway diagram").active_mode).toBe("anatomy"); // cad_blueprint retired 2026-11-06: cutaway falls to anatomy
-    expect(at("exploded diagram in html").active_mode).toBe("anatomy");
-    // Anatomy frame guard (audit finding 5). The brief's two examples.
+    // Anatomy retired 2026-11-07 (user directive): the old vocabulary no
+    // longer routes anywhere by itself...
+    expect(at("anatomy of a jet turbine").active_mode).toBe("standard_chat");
+    expect(at("a building cutaway diagram").active_mode).toBe("standard_chat");
+    // ...unless another deliverable word carries the turn.
+    expect(at("exploded diagram in html").active_mode).toBe("html_render");
+    // Former frame-guard corpus (audit finding 5) — still standard_chat.
     expect(at("What is the anatomy of the knee?").active_mode).toBe("standard_chat");
     expect(at("What is an isometric exercise?").active_mode).toBe("standard_chat");
-    expect(at("isometric illustration of the server rack").active_mode).toBe("anatomy");
+    expect(at("isometric illustration of the server rack").active_mode).toBe("standard_chat");
     expect(at("   make a deck \t").stripped_prompt).toBe("make a deck");
     expect(at("tell me a joke").decided_by).toBe("in-process-deliverable-match");
 
@@ -118,10 +122,10 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
         "Pure in-process regex router: ASCII \\b semantics (café boundaries, é-ending résumé demands a " +
         "word char next, dotted \\.docx dominated by bare docx), JS '.' never crosses \\n (render\\nscene " +
         "misses), INTENT_ORDER first-match precedence, JS trim() for stripped_prompt, internal-only " +
-        "fallbackEnvelope for blank input. Anatomy frame guard (audit finding 5): the vocabulary wins " +
-        "only outside an ask/definition/explanation frame and outside its fitness / school-subject " +
-        "senses; frames are tight bridge-class word sequences (no lookahead, no unbounded gap) so the " +
-        "Rust port can mirror them exactly.",
+        "fallbackEnvelope for blank input. Anatomy retired 2026-11-07 (user directive; the route grew " +
+        "out of the retired architecture-design feature): the old anatomy vocabulary and the " +
+        "audit-finding-5 frame-guard corpus now fall to standard_chat unless another deliverable word " +
+        "carries the turn ('exploded diagram in html' -> html_render).",
       comparison: "semantic",
       notes:
         "Field-for-field (mode/skill/decided_by/trim) — regex existence only, no span capture.",
@@ -146,7 +150,7 @@ describe("golden: Part 3 mode-contract byte hashes (skills/06)", () => {
         utf16Length: c.length,
       };
     });
-    expect(entries).toHaveLength(8); // 7 artifact modes + standard_chat(null) — 3d_asset/cad_blueprint retired 2026-11-06
+    expect(entries).toHaveLength(7); // 6 artifact modes + standard_chat(null) — 3d_asset/cad_blueprint retired 2026-11-06, anatomy 2026-11-07
     writeJsonFixture("skills/06-mode-contracts-hashes.json", { entries }, {
       scenario: "MODE_CONTRACTS content hashes — binds the generated Rust contract constants",
       semantics:

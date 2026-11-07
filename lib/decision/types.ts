@@ -8,8 +8,11 @@
 // 3d_asset / cad_blueprint were retired 2026-11-06 (Ruke plan Phase 4):
 // saved conversations with ```scene3d/```asset3d/```threejs/```cad fences
 // render a read-only compatibility card, never live 3D/CAD viewers.
+// anatomy was retired 2026-11-07 by user directive (it grew out of the same
+// architecture-design feature); saved conversations with ```anatomy fences
+// now render the same compatibility card.
 export const RENDERER_MODES = [
-  "excel", "docs", "pdf", "ppt", "anatomy",
+  "excel", "docs", "pdf", "ppt",
   "chart", "html_render", "standard_chat",
 ] as const;
 
@@ -25,7 +28,6 @@ export const MODE_SKILL: Record<RendererMode, string | null> = {
   docs: "docx",
   pdf: "pdf",
   ppt: "pptx",
-  anatomy: "anatomy",
   chart: null,
   html_render: "html-viewer",
   standard_chat: null,
@@ -37,7 +39,6 @@ export const MODE_FENCE: Record<RendererMode, string | null> = {
   docs: "docx",
   pdf: "html",
   ppt: "pptx",
-  anatomy: "anatomy",
   chart: "chart",
   html_render: "html",
   standard_chat: null,

@@ -3,11 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 // The ?demo=ui showcase is fully client-side (no model server needed):
-// interactive chart + mermaid step playback + SVG anatomy figure + KPI
-// widget + table + a retired scene3d fence proving the read-only
-// compatibility card (3D/CAD viewers retired 2026-11-06 — Phase 4).
+// interactive chart + mermaid step playback + KPI widget + table + the
+// retired scene3d AND anatomy fences proving the read-only compatibility
+// cards (3D/CAD viewers retired 2026-11-06 — Phase 4; anatomy retired
+// 2026-11-07 by user directive).
 const DEMO_URL = "http://localhost:3000/?demo=ui";
-// Downloaded artifacts land here (same convention as anatomy-export.spec.ts).
+// Downloaded artifacts land here (the project's export directory convention).
 const EXPORT_DIR = path.join(process.cwd(), ".data", "exports");
 
 // Network-level logs from the intentional "Ask AI" send (the llama.cpp
@@ -28,7 +29,7 @@ function watchConsole(page: Page, errors: string[]) {
   page.on("pageerror", err => errors.push(err.message));
 }
 
-test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table, retired 3D card", async ({ page }) => {
+test("interactive UI showcase: chart, mermaid, kpi widget, table, retired 3D + anatomy cards", async ({ page }) => {
   const consoleErrors: string[] = [];
   watchConsole(page, consoleErrors);
 
@@ -86,22 +87,9 @@ test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table
   await page.getByRole("button", { name: "Reset playback" }).click();
   await expect(stepCount).toHaveText("Step 0/4");
 
-  // --- Anatomy: lazy SVG figure, engine readout, explode toggle ----------
-  const anatomy = page.locator('[data-testid="anatomy-block"]');
-  await expect(anatomy).toBeVisible({ timeout: 15000 });
-  await anatomy.scrollIntoViewIfNeeded();
-  await expect(anatomy.locator("svg.anatomy-svg").first()).toBeVisible({ timeout: 15000 });
-  await expect(anatomy.locator('[data-testid="anatomy-badge"]'))
-    .toContainText("SVG vector illustration — not a 3D mesh");
-  // The engine parks its animation loop off-screen (IntersectionObserver),
-  // so the readout only animates once the figure is in the viewport — same
-  // readiness pattern tests/anatomy.spec.ts pins.
-  const readout = anatomy.locator('[data-anatomy-readout="pos"]');
-  await expect(readout).toHaveText("30.0", { timeout: 10000 });
-  const explode = anatomy.locator('[data-testid="anatomy-explode"]');
-  await expect(explode).toHaveAttribute("aria-pressed", "false");
-  await explode.click();
-  await expect(explode).toHaveAttribute("aria-pressed", "true");
+  // The interactive anatomy figure section was removed with the anatomy
+  // viewer on 2026-11-07 (user directive); its saved fence now renders as a
+  // compatibility card in the retired-fence section below.
 
   // --- KPI widget: sliders recompute bound cards live, card click opens callout ---
   const kpi = page.locator('[data-testid="kpi-block"]');
@@ -135,19 +123,28 @@ test("interactive UI showcase: chart, mermaid, anatomy figure, kpi widget, table
   await expect(tableWrap.locator("tbody tr")).toHaveCount(4);
   await expect(page.locator('[data-testid="row-ask-bar"]')).toHaveCount(0);
 
-  // --- Retired scene3d fence: read-only compatibility card, never run ----
+  // --- Retired fences: read-only compatibility cards, never run -----------
+  // demoShowcase seeds BOTH retired fence kinds: scene3d (retired with the
+  // 3D/CAD viewers, 2026-11-06) and anatomy (retired 2026-11-07).
   const retired = page.locator('[data-testid="retired-fence"]');
-  await expect(retired).toBeVisible();
-  await expect(retired).toContainText("3D scene viewer retired");
-  await expect(retired).toContainText("never executed");
-  await expect(retired.getByRole("button", { name: "Copy source" })).toBeVisible();
-  await retired.locator("summary").click();
-  await expect(retired.locator(".retired-fence-source")).toContainText("THREE.Mesh");
+  await expect(retired).toHaveCount(2);
+  const scene3dCard = retired.filter({ hasText: "3D scene viewer retired" });
+  const anatomyCard = retired.filter({ hasText: "Anatomy illustration viewer retired" });
+  await expect(scene3dCard).toBeVisible();
+  await expect(anatomyCard).toBeVisible();
+  await expect(scene3dCard).toContainText("never executed");
+  await expect(anatomyCard).toContainText("never executed");
+  await expect(scene3dCard.getByRole("button", { name: "Copy source" })).toBeVisible();
+  await scene3dCard.locator("summary").click();
+  await expect(scene3dCard.locator(".retired-fence-source")).toContainText("THREE.Mesh");
+  // The saved anatomy figure survives verbatim as plain source.
+  await anatomyCard.locator("summary").click();
+  await expect(anatomyCard.locator(".retired-fence-source")).toContainText("Single-cylinder head");
 
   // The download is REAL, not merely present (audit finding 4): clicking it must
   // produce a file whose contents are the saved fence source verbatim. The name
   // says "Download source" because the artifact is text, never a runnable scene.
-  const downloadBtn = retired.getByRole("button", { name: "Download source" });
+  const downloadBtn = scene3dCard.getByRole("button", { name: "Download source" });
   await expect(downloadBtn).toBeVisible();
   const [download] = await Promise.all([page.waitForEvent("download"), downloadBtn.click()]);
   expect(download.suggestedFilename()).toBe("retired-scene3d.json");

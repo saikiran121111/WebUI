@@ -4,7 +4,7 @@
  * - base.css      → Tailwind directives + fonts
  * - tokens.css    → CSS custom properties, scrollbars, reduced-motion
  * - code.css      → Shiki, code blocks, block-header controls
- * - markdown.css  → tables, prose, diagrams, charts, widgets, anatomy
+ * - markdown.css  → tables, prose, diagrams, charts, widgets
  * - document-viewers.css → XLSX/DOCX/PPTX/PDF/Resume/HTML/PowerBI viewers
  *
  * (cad-studio.css was removed 2026-11-06 when the built-in 3D/CAD viewers

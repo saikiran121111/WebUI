@@ -1,13 +1,15 @@
 /**
  * Fence auto-repair helpers (pure, client-safe).
  *
- * A broken ```anatomy / document fence is the model's mistake,
+ * A broken document fence is the model's mistake,
  * and only the model can fix it. These helpers locate the broken fence
  * inside an assistant message, phrase its exact error as a repair request,
  * and splice the corrected fence back into the same bubble — so the user
  * sees the finished visual instead of a validation error they cannot act on.
+ *
+ * The anatomy scanner retired with the anatomy mode on 2026-11-07 (user
+ * directive); old ```anatomy fences render the retired-fence card instead.
  */
-import { anatomySpecSchema } from "../anatomy/anatomySchema";
 import { parseJsonFence, chartSpecSchema } from "./schemas";
 import {
   isBrokenHtmlFence,
@@ -31,8 +33,8 @@ export interface BrokenFence {
   bodyEnd: number;
   /** False when the fence was cut off mid-stream (no closing ```). */
   closed: boolean;
-  /** Fence language tag; absent on anatomy fences (legacy contract). */
-  lang?: string;
+  /** Fence language tag. */
+  lang: string;
 }
 
 /**
@@ -44,7 +46,6 @@ function scanBrokenFences(
   content: string,
   lang: string,
   check: (body: string) => string | null,
-  tagLang: boolean,
 ): BrokenFence[] {
   // Fence opener: ```lang (plus any attrs) up to its newline — or end of
   // content, covering a stream truncated right after the language tag.
@@ -57,19 +58,11 @@ function scanBrokenFences(
     const closed = close >= 0;
     const bodyEnd = closed ? close : content.length;
     const error = check(content.slice(bodyStart, bodyEnd).trim());
-    if (error) broken.push(tagLang ? { error, bodyStart, bodyEnd, closed, lang } : { error, bodyStart, bodyEnd, closed });
+    if (error) broken.push({ error, bodyStart, bodyEnd, closed, lang });
     if (!closed) break;
     open.lastIndex = close + 3;
   }
   return broken;
-}
-
-/** Every ```anatomy fence in `content` that the renderer would reject. */
-export function findBrokenAnatomyFences(content: string): BrokenFence[] {
-  return scanBrokenFences(content, "anatomy", body => {
-    const parsed = parseJsonFence(body, anatomySpecSchema);
-    return parsed.ok ? null : parsed.error;
-  }, false);
 }
 
 /**
@@ -82,7 +75,6 @@ const MODE_SCAN_LANGS: Record<RendererMode, string[]> = {
   docs: ["docx", "resume"],
   pdf: ["html", "resume"],
   ppt: ["pptx"],
-  anatomy: ["anatomy"],
   chart: ["chart", "powerbi", "mermaid"],
   html_render: ["html"],
   // standard_chat stays []: heavy validators/auto-repair are strictly disabled
@@ -103,23 +95,22 @@ export function findBrokenRenderFences(
   if (!activeMode) return [];
   const langs = new Set(MODE_SCAN_LANGS[activeMode] ?? []);
   const broken: BrokenFence[] = [];
-  if (langs.has("anatomy")) broken.push(...findBrokenAnatomyFences(content));
   if (langs.has("chart")) {
     broken.push(...scanBrokenFences(content, "chart", body => {
       const parsed = parseJsonFence(body, chartSpecSchema);
       return parsed.ok ? null : parsed.error;
-    }, true));
+    }));
   }
   if (langs.has("mermaid")) {
     // Mermaid grammar is validated asynchronously by the renderer; the sync
     // scan only catches structurally-dead fences (empty bodies).
     broken.push(...scanBrokenFences(content, "mermaid", body =>
-      body.length > 0 ? null : "the mermaid fence is empty", true));
+      body.length > 0 ? null : "the mermaid fence is empty"));
   }
   // Document modality fences: broken when the JSON won't parse or the SAME
   // lenient normalizer the preview block uses refuses the spec.
   if (langs.has("html")) {
-    broken.push(...scanBrokenFences(content, "html", body => (isBrokenHtmlFence(body) ? "the fence contains no HTML markup" : null), true));
+    broken.push(...scanBrokenFences(content, "html", body => (isBrokenHtmlFence(body) ? "the fence contains no HTML markup" : null)));
   }
   if (langs.has("resume")) broken.push(...docFenceScans(content, "resume", normalizeResume));
   if (langs.has("docx")) broken.push(...docFenceScans(content, "docx", normalizeDocx));
@@ -138,7 +129,7 @@ function docFenceScans(content: string, lang: string, normalize: (raw: unknown) 
       return "invalid JSON: " + (e as Error).message;
     }
     return normalize(parsed) ? null : "the spec did not validate against the " + lang + " contract";
-  }, true);
+  });
 }
 
 /**
@@ -147,15 +138,7 @@ function docFenceScans(content: string, lang: string, normalize: (raw: unknown) 
  * repair turn.
  */
 export function fenceRepairRequest(broken: BrokenFence): string {
-  const lang = broken.lang ?? "anatomy";
-  if (lang === "anatomy") {
-    return (
-      "Your previous anatomy illustration fence failed validation: " + broken.error +
-      " — fix that exact problem and re-emit the COMPLETE corrected fence now. " +
-      "Output ONLY the corrected fence in one ```anatomy block: no prose, no explanation, no other changes."
-    );
-  }
-  return fenceFixRequest(lang, broken.error);
+  return fenceFixRequest(broken.lang, broken.error);
 }
 
 /** Generic repair prompt for any fence language (```xlsx / ```docx / ```pptx …). */
@@ -187,10 +170,6 @@ export function extractFenceBody(reply: string, lang: string): string | null {
   if (!match) return null;
   const body = match[1].trim();
   return body.length > 0 ? body : null;
-}
-
-export function extractAnatomyFenceBody(reply: string): string | null {
-  return extractFenceBody(reply, "anatomy");
 }
 
 /** Replace the broken fence's body in `content` with the corrected one. */

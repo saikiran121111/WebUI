@@ -10,12 +10,14 @@ use serde::{Deserialize, Serialize};
 /// the spellings no longer parse, so saved conversations holding their fences
 /// (`scene3d`/`asset3d`/`threejs`/`cad`) fall through to the read-only
 /// compatibility card in the WebUI instead of a 3D/CAD viewer.
-pub const RENDERER_MODE_STRS: [&str; 8] = [
+/// `anatomy` was retired 2026-11-07 by user directive (the route grew out of
+/// that same architecture-design feature); ```anatomy fences now render the
+/// same compatibility card.
+pub const RENDERER_MODE_STRS: [&str; 7] = [
     "excel",
     "docs",
     "pdf",
     "ppt",
-    "anatomy",
     "chart",
     "html_render",
     "standard_chat",
@@ -31,8 +33,6 @@ pub enum RendererMode {
     Pdf,
     #[serde(rename = "ppt")]
     Ppt,
-    #[serde(rename = "anatomy")]
-    Anatomy,
     #[serde(rename = "chart")]
     Chart,
     #[serde(rename = "html_render")]
@@ -48,7 +48,6 @@ impl RendererMode {
             Self::Docs => "docs",
             Self::Pdf => "pdf",
             Self::Ppt => "ppt",
-            Self::Anatomy => "anatomy",
             Self::Chart => "chart",
             Self::HtmlRender => "html_render",
             Self::StandardChat => "standard_chat",
@@ -65,9 +64,8 @@ impl RendererMode {
                 1 => Self::Docs,
                 2 => Self::Pdf,
                 3 => Self::Ppt,
-                4 => Self::Anatomy,
-                5 => Self::Chart,
-                6 => Self::HtmlRender,
+                4 => Self::Chart,
+                5 => Self::HtmlRender,
                 _ => Self::StandardChat,
             })
     }
@@ -90,7 +88,6 @@ pub fn mode_skill(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Docs => Some("docx"),
         RendererMode::Pdf => Some("pdf"),
         RendererMode::Ppt => Some("pptx"),
-        RendererMode::Anatomy => Some("anatomy"),
         RendererMode::Chart => None,
         RendererMode::HtmlRender => Some("html-viewer"),
         RendererMode::StandardChat => None,
@@ -104,7 +101,6 @@ pub fn mode_fence(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Docs => Some("docx"),
         RendererMode::Pdf => Some("html"),
         RendererMode::Ppt => Some("pptx"),
-        RendererMode::Anatomy => Some("anatomy"),
         RendererMode::Chart => Some("chart"),
         RendererMode::HtmlRender => Some("html"),
         RendererMode::StandardChat => None,
@@ -207,8 +203,9 @@ mod tests {
             assert_eq!(json, format!("\"{s}\""));
             assert_eq!(serde_json::from_str::<RendererMode>(&json).unwrap(), m);
         }
-        // "3d_asset"/"cad_blueprint" retired 2026-11-06 (Ruke plan Phase 4):
-        // the old spellings must no longer parse to any mode.
+        // "3d_asset"/"cad_blueprint" retired 2026-11-06 (Ruke plan Phase 4)
+        // and "anatomy" retired 2026-11-07 (user directive): the old
+        // spellings must no longer parse to any mode.
         for bad in [
             "Internal",
             "standard-chat",
@@ -217,6 +214,7 @@ mod tests {
             "excel2",
             "3d_asset",
             "cad_blueprint",
+            "anatomy",
         ] {
             assert_eq!(
                 RendererMode::parse(bad),
@@ -229,22 +227,20 @@ mod tests {
     #[test]
     fn mode_tables_match_typescript_baseline() {
         // Frozen snapshot of MODE_SKILL / MODE_FENCE in lib/decision/types.ts.
-        let skill: [(&str, Option<&str>); 8] = [
+        let skill: [(&str, Option<&str>); 7] = [
             ("excel", Some("xlsx")),
             ("docs", Some("docx")),
             ("pdf", Some("pdf")),
             ("ppt", Some("pptx")),
-            ("anatomy", Some("anatomy")),
             ("chart", None),
             ("html_render", Some("html-viewer")),
             ("standard_chat", None),
         ];
-        let fence: [(&str, Option<&str>); 8] = [
+        let fence: [(&str, Option<&str>); 7] = [
             ("excel", Some("xlsx")),
             ("docs", Some("docx")),
             ("pdf", Some("html")),
             ("ppt", Some("pptx")),
-            ("anatomy", Some("anatomy")),
             ("chart", Some("chart")),
             ("html_render", Some("html")),
             ("standard_chat", None),
@@ -265,7 +261,6 @@ mod tests {
                 "docs",
                 "pdf",
                 "ppt",
-                "anatomy",
                 "chart",
                 "html_render",
                 "standard_chat"
@@ -279,7 +274,7 @@ mod tests {
         let json = serde_json::to_string(&env).unwrap();
         assert_eq!(
             json,
-            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","anatomy","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
+            r#"{"active_mode":"excel","confidence":1,"decided_by":"repair-passthrough","stripped_prompt":"make a spreadsheet","skill_to_load":"xlsx","allowed_code_fence":"xlsx","disable_validators":["docs","pdf","ppt","chart","html_render","standard_chat"],"enable_validator":"excel","task_constraints":[],"extracted_entities":[],"lfm_latency_ms":0}"#
         );
 
         // Optional diagnostics: ABSENT (not null) when never set; explicit

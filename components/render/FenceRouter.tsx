@@ -2,11 +2,11 @@
 /**
  * Fence routing — extracted from MarkdownRenderer.tsx so that file stays
  * under 300 lines.  Every heavy studio viewer is lazy-loaded with
- * `next/dynamic` (ssr: false) so Mermaid, D3, the anatomy engine, and
- * their sibling libraries are NEVER included in the initial page-load
- * bundle.  Retired 3D/CAD fences (Ruke plan Phase 4, 2026-11-06) route to
- * a static read-only compatibility card — the preserved source is shown,
- * never executed.
+ * `next/dynamic` (ssr: false) so Mermaid, D3, Three.js and their sibling
+ * libraries are NEVER included in the initial page-load bundle.  Retired
+ * fences — 3D/CAD (Ruke plan Phase 4, 2026-11-06) and anatomy
+ * (2026-11-07, user directive) — route to a static read-only
+ * compatibility card; the preserved source is shown, never executed.
  */
 import { isValidElement, useContext, type ReactNode } from "react";
 import dynamic from "next/dynamic";
@@ -22,13 +22,7 @@ import WidgetBlock from "./WidgetBlock";
 import TreeBlock from "./TreeBlock";
 import RetiredFenceBlock from "./RetiredFenceBlock";
 
-/* ── Heavy studio viewers — lazy-loaded on first fence mount ─────────── */
-const AnatomyBlock = dynamic(
-  () => import("./AnatomyBlock"),
-  { ssr: false, loading: () => <BlockSkeleton label="Anatomy" /> },
-);
-
-/* ── Document modality viewers — lazy-loaded ─────────────────────────── */
+/* ── Document modality viewers — lazy-loaded on first fence mount ────── */
 const XlsxBlock = dynamic(
   () => import("./XlsxBlock"),
   { ssr: false, loading: () => <BlockSkeleton label="Spreadsheet" /> },
@@ -98,12 +92,14 @@ export default function FenceRouter({ children }: { children?: ReactNode }) {
 
   const treeOk = allowInteractive;
 
-  // --- Retired 3D/CAD fences (Ruke plan Phase 4, 2026-11-06) -----------
+  // --- Retired fences ----------------------------------------------------
   // Older conversations keep their ```scene3d / ```asset3d / ```threejs /
-  // ```cad fences, but the viewers are gone: render an honest read-only
-  // compatibility card over the preserved source.  The fence code is
-  // NEVER executed, in any mode.
-  if (kind === "scene3d" || kind === "asset3d" || kind === "threejs" || kind === "cad") {
+  // ```cad / ```anatomy fences, but the viewers are gone: render an honest
+  // read-only compatibility card over the preserved source.  The fence
+  // code is NEVER executed, in any mode.  3D/CAD retired 2026-11-06
+  // (Ruke plan Phase 4); anatomy retired 2026-11-07 (user directive —
+  // the route grew out of the same architecture-design feature).
+  if (kind === "scene3d" || kind === "asset3d" || kind === "threejs" || kind === "cad" || kind === "anatomy") {
     return <RetiredFenceBlock kind={kind} source={source} />;
   }
 
@@ -119,9 +115,6 @@ export default function FenceRouter({ children }: { children?: ReactNode }) {
   if (kind === "xlsx" && interactive)    return <XlsxBlock source={source} streaming={streaming} />;
   if (kind === "pptx" && interactive)    return <PptxBlock source={source} streaming={streaming} />;
   if (kind === "powerbi" && interactive) return <PowerBiBlock source={source} streaming={streaming} />;
-
-  // --- Anatomy: independent 2D vector illustration ----------------------
-  if (kind === "anatomy" && interactive) return <AnatomyBlock source={source} streaming={streaming} onSend={onSend} />;
 
   // --- Box-drawing trees -------------------------------------------------
   const treeSource = streaming

@@ -1,8 +1,9 @@
 "use client";
 /**
- * Read-only compatibility card for fences whose viewers were retired
- * (Ruke plan Phase 4, 2026-11-06): ```scene3d, ```asset3d, ```threejs and
- * ```cad blocks saved in older conversations.  The fence source is
+ * Read-only compatibility card for fences whose viewers were retired:
+ * ```scene3d, ```asset3d, ```threejs and ```cad blocks (Ruke plan
+ * Phase 4, 2026-11-06) and ```anatomy blocks (2026-11-07, user
+ * directive) saved in older conversations.  The fence source is
  * preserved verbatim — viewable, copyable, downloadable — but NEVER
  * executed: no Three.js runtime, no CAD engine, no network.  An honest
  * message instead of a silently-broken viewer.
@@ -14,6 +15,7 @@ const RETIRED: Record<string, { title: string; subject: string }> = {
   asset3d: { title: "3D asset viewer retired", subject: "3D asset specification" },
   threejs: { title: "Three.js live viewer retired", subject: "Three.js scene code" },
   cad: { title: "CAD blueprint viewer retired", subject: "CAD blueprint specification" },
+  anatomy: { title: "Anatomy illustration viewer retired", subject: "anatomy illustration specification" },
 };
 
 export default function RetiredFenceBlock({ kind, source }: { kind: string; source: string }) {
@@ -53,10 +55,12 @@ export default function RetiredFenceBlock({ kind, source }: { kind: string; sour
         <div className="retired-fence-copy">
           <strong>{meta.title}</strong>
           <p>
-            The built-in 3D and CAD viewers were retired on 2026-11-06. Your saved{" "}
-            {meta.subject} is preserved below as plain source and is never executed.
-            New visuals use SVG anatomy figures, charts and Mermaid diagrams; 3D/CAD
-            tooling would arrive later through a dedicated integration request.
+            The built-in 3D, CAD and anatomy viewers were retired on
+            2026-11-06 and 2026-11-07. Your saved {meta.subject} is
+            preserved below as plain source and is never executed. New
+            visuals use charts, Mermaid diagrams and HTML artifacts;
+            3D/CAD tooling would arrive later through a dedicated
+            integration request.
           </p>
         </div>
       </div>

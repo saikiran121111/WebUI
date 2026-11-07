@@ -7,7 +7,6 @@
       "docs",
       "pdf",
       "ppt",
-      "anatomy",
       "chart",
       "html_render",
       "standard_chat"
@@ -17,7 +16,6 @@
       "docs": "docx",
       "pdf": "pdf",
       "ppt": "pptx",
-      "anatomy": "anatomy",
       "chart": null,
       "html_render": "html-viewer",
       "standard_chat": null
@@ -27,7 +25,6 @@
       "docs": "docx",
       "pdf": "html",
       "ppt": "pptx",
-      "anatomy": "anatomy",
       "chart": "chart",
       "html_render": "html",
       "standard_chat": null

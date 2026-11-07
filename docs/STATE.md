@@ -4466,3 +4466,49 @@ edited (approved installers only).
 - Law: launcher (`scripts/run-browser-e2e-exclusive.ps1` ~line 108) pre-validates this path —
   if a future batch dies in ~2 s with "fixture server missing", that is the cause; the recovery
   method above is repeatable from transcripts.
+
+---
+
+## SESSION SNAPSHOT 2026-11-07 — anatomy feature REMOVED entirely (user directive) + P7 gates re-greened
+
+- Directive: "by the way we have removed architecture and 3d designs from our code right and I still see
+  anatomy it should be removed aswell" → clarified choice: **Remove anatomy entirely** — "anatomy is based on
+  architecture design aswell so its useless to keep it in my codebase". Mirrors the 2026-11-06 P4 precedent
+  (retired built-in 3D/CAD through the same read-only compat-card shape).
+- Removal (`git rm`): `components/render/AnatomyBlock.tsx`, `lib/anatomy/**`, `app/api/anatomy/export/route.ts`,
+  `lib/render/anatomyDemoShowcase.ts`, `__tests__/anatomy/**` (5 suites), `__tests__/decision/anatomy-intent.test.ts`,
+  `.cskills/anatomy/**` + `.cskills-scenarios/anatomy.json` + `skills-lock.json` entry,
+  `tests/anatomy.spec.ts` + `tests/anatomy-export.spec.ts` + `tests/anatomy-repair.spec.ts`.
+- Compat: `RendererMode` 8→7 (anatomy gone from `RENDERER_MODE_STRS` ⇔ `RENDERER_MODES`; `contracts_generated.rs` +
+  `fixtures/contracts/manifest.json` regenerated; retirement semantics pinned in the Rust engine test
+  `retired_anatomy_vocabulary_no_longer_routes`, decision-parity spot-checks, fixture `decision/06`, and
+  `tests/decision-routing.spec.ts`). Bare anatomy vocabulary → `standard_chat`; "exploded diagram in html" →
+  `html_render`; "exploded isometric chart" → `chart`. Old ```anatomy fences → `RetiredFenceBlock` card
+  ("Anatomy illustration viewer retired", never executed, source downloadable); `FenceKind` keeps "anatomy" as a
+  compat key; `demoShowcase` seeds scene3d + anatomy fences; `MODE_SKILL`/`MODE_SCAN_LANGS` now 7 entries;
+  turnProgress/useChat/MarkdownRenderer/FenceRouter/globals.css/styles/markdown.css (.anatomy-* deleted)/
+  modality.ts/skills registry cleaned. Historical docs untouched (P4/P6 ledgers annotated, not rewritten).
+- Post-removal OFFLINE GATES (real exit codes): `npx tsc --noEmit` 0; targeted vitest (rust-golden/decision/
+  render/documents+lazyLoad/turn-progress) 23 files / 386 tests exit 0; `cd rust-backend && cargo build -p
+  ruke-server` BUILD_EXIT=0 — **ruke-server.exe NOW FRESH: the stale-exe precondition for the P7 loop is CLOSED**
+  (exe was not running, build not locked); `cargo test --workspace` TEST_EXIT=0 every suite `test result: ok`
+  0 failed; `npm run contracts:check` CC_EXIT=0 (**7 modes**: excel/docs/pdf/ppt/chart/html_render +
+  standard_chat=null); full `npx vitest run` → **116 files passed | 1 skipped (117); 1,559 tests passed |
+  9 skipped (1,568); exit 0** in 227.55 s (1,634→1,559 = the deleted anatomy suites; 1 skipped file + 9 skipped
+  tests match the pre-existing baseline); `npm run build` BUILD_EXIT=0 with **0 anatomy chunks** in
+  `.next/static/chunks`.
+- Golden-fixture law (learned this cycle): hand-edits to `rust-backend/fixtures/**` must byte-match generator
+  output — `writeJsonFixture` throws "Fixture drift detected" otherwise; the semantics string in
+  `decision-parity.test.ts` IS the fixture bytes, and `__meta` keys the generator doesn't emit must NOT be added.
+- P7 PLAYWRIGHT LOOP STATE: inventory 41 → **38 specs**. Verified pre-removal batch ledger (recovered verbatim
+  from this session's transcript — per-launch specs/counts/exit codes) now recorded in
+  `docs/e2e-test-state.md` §"2026-11-07"; 23/41 specs were green at the pause. Post-removal MUST re-run:
+  `decision-routing`, `render` (routing/fence surfaces changed after they passed) + `interactive-ui` (rewritten
+  to the two-retired-cards contract, first-ever run pending). CoT-runaway mitigation live: bounded
+  "reply with exactly: <token>" prompts (`92f32bc`) + patience raised to measured CPU latency (`a3b4a78`) —
+  both now pushed with this commit.
+- Resumption point: locked P7 loop, batch 1 = `tests/decision-routing.spec.ts`,`tests/render.spec.ts`,
+  `tests/interactive-ui.spec.ts` via `scripts/run-browser-e2e-exclusive.ps1` (fixture :3210 + dev supervisor
+  :3000 + fresh ruke-server :3101), then the never-run batches (heavies solo); then old-vs-new comparison,
+  checklist P6/P7/handoff boxes, CLAUDE.md §4 completion report, final commit+push.
+  **LEAVE MACHINE RUNNING at cycle end (amendment 2026-11-06).**

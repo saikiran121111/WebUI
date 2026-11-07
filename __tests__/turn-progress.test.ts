@@ -234,7 +234,8 @@ describe("TurnProgressTracker — repair, finish, overall", () => {
     t.setRepair(2, 3);
     const r = t.snapshot(Date.now()).steps.find(s => s.id === "repair")!;
     // Generic wording since 2026-11-06 (Ruke plan Phase 4): repair covers
-    // anatomy + document fences only — the 3D/CAD model route retired.
+    // document fences only — the 3D/CAD model route retired then, and
+    // anatomy auto-repair fell with the anatomy mode on 2026-11-07.
     expect(r.label).toBe("Auto-repairing the output (round 2 of 3)");
     expect(r.status).toBe("active");
   });
