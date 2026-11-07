@@ -4440,3 +4440,29 @@ edited (approved installers only).
   Config facts re-verified: playwright.config.ts workers=1, test timeout 60 s/spec, browsers path
   auto-set (.data/ms-playwright). LEAVE MACHINE RUNNING at cycle end (amendment) — user may
   power-cycle on their own initiative; that is their call, not an auto-shutdown.
+
+---
+
+## 2026-11-07 — FIXTURE SERVER DELETION + TRANSCRIPT RECOVERY (integrity-relevant)
+
+- Batch-1 launch died instantly: launcher pre-validation threw "fixture server missing:
+  tests\fixtures\browser\server.mjs". The gitignored fixture site server (41 routes, 16 pinned
+  markers) had been permanently deleted — not in Recycle Bin, never in git, cause unknown
+  (possibly a ZIP-test-era cleanup). Lock behaved correctly (acquired → released on throw).
+- Recovered from Claude Code transcripts (`C:\Users\Ruku\.claude\projects\D--Projects-WebUI-WebUI\*.jsonl`):
+  latest FULL Read snapshot (session 14ceb48d, 638 lines) + 5 post-snapshot unique Edits
+  (dedup by tool_use.id — the harness writes duplicate tool_use events; other sessions edited the
+  file via Bash heredocs, which are invisible to file_path matching). Result 23,248 chars; an
+  independent full-Write/Edit replay converged on the identical byte length. `node --check` OK.
+  Script kept at `.data/tmp/recover-server-mjs.py`.
+- LIVE-VERIFIED standalone (no model traffic): FIXTURE-SERVER-READY 3210; all 15 greppable marker
+  constants present (UPLOAD-MARKER-3C8E is test-side only by design — the uploaded file carries it
+  and /hard/upload-echo echoes name=/marker= lines matching browser-hard.spec.ts exactly);
+  /easy/arrived, /hard/shadow, /hard/webmcp, /hard/dialog, /hard/devlogs, /hard/form OK;
+  /scope/{loqal,quipqort,zeeta,zeeta/checkout} OK; /scope/redirect → 302 → /scope/zeeta;
+  /vision?want=1 → swatch #b8352e + vision-btn-N links, /vision/echo → VISION-PIXEL-9K31 +
+  pick=/want=/match= verdict line, want=13 → 400; /egress/canary+ledger + POST /egress/reset 200.
+- File stays gitignored (`.gitignore` line 12) — NEVER commit, NEVER force-add.
+- Law: launcher (`scripts/run-browser-e2e-exclusive.ps1` ~line 108) pre-validates this path —
+  if a future batch dies in ~2 s with "fixture server missing", that is the cause; the recovery
+  method above is repeatable from transcripts.
