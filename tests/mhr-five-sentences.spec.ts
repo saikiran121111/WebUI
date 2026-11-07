@@ -38,10 +38,16 @@ const FEEDBACK_SIGNATURE = "held back and NOT released";
 async function sendPrompt(
   page: import("@playwright/test").Page,
   text: string,
-  opts: { freshChat?: boolean } = {},
+  opts: { freshChat?: boolean; stay?: boolean } = {},
 ): Promise<number> {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  // `stay`: continue inside the CURRENT conversation. Home "/" ALWAYS
+  // spawns a fresh chat — the trap that once sent MHR-5's follow-up into
+  // its own conversation where the model honestly (and correctly) found
+  // no prior research. Same-chat continuity is the journal-law premise.
+  if (!opts.stay) {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+  }
   if (opts.freshChat) {
     await page.getByTestId("sidebar-new-chat").click();
     await expect(page.locator('[data-testid="assistant-message"]')).toHaveCount(0);
@@ -55,7 +61,11 @@ async function sendPrompt(
   }
   const priorAssistant = await page.locator('[data-testid="assistant-message"]').count();
 
-  const input = page.locator(INPUT);
+  // Conversation-view composer: placeholder differs ("Reply") but the
+  // accessible name is identical in both variants (ChatInput.tsx:390).
+  const input = opts.stay
+    ? page.getByLabel("Message Ruke")
+    : page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill(text);
   const send = page.getByTestId("send-button");
@@ -186,7 +196,7 @@ test("MHR-5 purchase request then informational follow-up keeps journal aliases"
   // Turn 2: the informational follow-up in the SAME chat — the journal law
   // (cfea00e) must carry the prior turn's minted [S#] aliases into it.
   const t2Text = "What refresh rate does the best pick you found have?";
-  const t2Prior = await sendPrompt(page, t2Text);
+  const t2Prior = await sendPrompt(page, t2Text, { stay: true });
   await waitForAnswer(page, t2Prior);
   await expectGroundedTurn(page, t2Prior);
 });
