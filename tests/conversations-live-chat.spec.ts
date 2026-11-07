@@ -46,7 +46,9 @@ test.describe("live chat lifecycle", () => {
 
     const box = page.locator("textarea").first();
     await box.click();
-    await box.fill(marker);
+    // Bounded-turn prompt (reasoning-test pattern): prevents the IQ3_S model's
+    // multi-minute open-ended CoT runaways; CRUD lifecycle is what's under test.
+    await box.fill(`${marker}. Automated test: reply with exactly: ok`);
     await box.press("Enter");
 
     await waitForStreamDone(page);
@@ -74,7 +76,7 @@ test.describe("live chat lifecycle", () => {
     await page.goto(BASE + "/");
     let box = page.locator("textarea").first();
     await box.click();
-    await box.fill(a);
+    await box.fill(`${a}. Automated test: reply with exactly: ok`);
     await box.press("Enter");
     await waitForStreamDone(page);
     const idA = await newestConversationId(page);
@@ -83,7 +85,7 @@ test.describe("live chat lifecycle", () => {
     await page.locator("aside").getByRole("button", { name: "New conversation" }).click();
     box = page.locator("textarea").first();
     await box.click();
-    await box.fill(b);
+    await box.fill(`${b}. Automated test: reply with exactly: ok`);
     await box.press("Enter");
     await waitForStreamDone(page);
     const idB = await newestConversationId(page);

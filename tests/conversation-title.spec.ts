@@ -181,9 +181,14 @@ test.describe("conversation titles", () => {
     test.setTimeout(600_000); // model warm-up + real-model turn + router + title call
     await warmModel(request);
 
+    // The IQ3_S model sometimes enters multi-minute open-ended CoT on free
+    // tech-support prompts (observed: 240 s still "Reasoning…", context
+    // 11.4k→20.3k). This test is about the title mechanics, not the prose.
+    // "Reply with exactly:" is the suite's proven bounded-turn prompt
+    // (reasoning-test.spec.ts) — the reasoning trace still lands.
     const prompt =
-      "Can you help me debug why my GPU stopped being detected after I replaced the thermal interface on my PC? " +
-      "lspci lists the card but nvidia-smi cannot initialize the driver.";
+      "Automated conversation-title test: reply with exactly: TITLEJOB-OK " +
+      "(GPU thermal-paste follow-up; do nothing else).";
     const placeholder = prompt.slice(0, 40);
 
     await page.goto(BASE + "/");
