@@ -20,6 +20,7 @@
  */
 import { acquirePoolContext, browserPoolDisabled, releasePoolContext } from "./agentBrowser";
 import { isSafeUrl } from "./ssrf";
+import { adBlockMatch } from "./adblock";
 import { type CaptionParseMeta, type CaptionSegment, formatCaptionSegments } from "./captionFormats";
 import { attachCaptionListener, probeCaptionSegments, type CaptionCaptureStore } from "./captionProbe";
 
@@ -56,11 +57,24 @@ export async function getCaptionSegmentsViaBrowser(
   let page: Awaited<ReturnType<typeof ctx.newPage>> | null = null;
   try {
     page = await ctx.newPage();
-    // Strip ads/analytics only — media must load for the player to run.
+    const routePage = page; // narrowed non-null for the route closure
+    /* (2026-11-08, ad-caption-bleed root cause) This used to be a 5-domain
+       regex stub — YouTube's ad manifests sailed through, an ad played in
+       the page, and the ad player's OWN caption track was harvested below
+       as "the video's transcript". Now: §12 SSRF gate first, then the real
+       filter-list engine (lib/web-search/adblock), with the legacy regex
+       family OR'd in as the engine-offline fallback. MAIN media and the
+       caption endpoint stay allowed on purpose — the player must run to
+       fetch its own tokened caption XHRs (Proof-of-Origin tier). */
     await page
-      .route("**/*", (route) => {
-        const r = route.request().url();
-        if (/doubleclick|google-analytics|googletagmanager|adsystem|facebook\.com\/tr\//i.test(r)) {
+      .route("**/*", async (route) => {
+        const req = route.request();
+        const r = req.url();
+        if (!isSafeUrl(r)) return route.abort("blockedbyclient").catch(() => {});
+        if (
+          /doubleclick|google-analytics|googletagmanager|adsystem|facebook\.com\/tr\//i.test(r) ||
+          (await adBlockMatch(r, routePage.url(), req.resourceType()))
+        ) {
           return route.abort().catch(() => {});
         }
         return route.continue();

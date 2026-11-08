@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@crawlee/playwright": "^3.18.2",
+    "@ghostery/adblocker": "^2.20.3",
+    "@ghostery/adblocker-playwright": "^2.20.3",
     "@huggingface/transformers": "^4.3.1",
     "@mozilla/readability": "^0.6.0",
     "@office-kit/pptx": "0.28.0",

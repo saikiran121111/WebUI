@@ -28,6 +28,7 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { isSafeUrl } from "@/lib/web-search/ssrf";
+import { adBlockMatch } from "@/lib/web-search/adblock";
 import {
   attachCaptionListener,
   probeCaptionSegments,
@@ -660,6 +661,23 @@ export async function readGoogleSerp(
     freeContext(ctx);
     return [];
   }
+  /* Ad/SSRF law on the SERP page itself (2026-11-08): this page used to run
+     unfiltered — Google's own ad slots (pagead/doubleclick) polluted the
+     extraction and §12 only ran on the redirect tabs. Same priority as
+     everywhere: SSRF first, then the filter-list engine. The fast-load law
+     is deliberately NOT applied here — SERP never needed it and fonts/media
+     keep loading exactly as before. */
+  try {
+    await page.route("**/*", async (r) => {
+      const u = r.request().url();
+      if (!isSafeUrl(u)) return r.abort("blockedbyclient").catch(() => {});
+      if (await adBlockMatch(u, page.url(), r.request().resourceType()))
+        return r.abort().catch(() => {});
+      return r.continue().catch(() => {});
+    });
+  } catch {
+    /* Route attach failed — SERP still readable, just unfiltered. */
+  }
   try {
     const res = await page
       .goto(
@@ -753,12 +771,17 @@ export async function readGoogleSerp(
              the href is a google.com/goto token, but the chain it
              follows is page-controlled data — refuse any hop to a
              private address; the per-row catch below skips the row
-             honestly, exactly like a refused/timed-out chain already did. */
-          await rp.route("**/*", (r) =>
-            isSafeUrl(r.request().url())
-              ? r.continue().catch(() => {})
-              : r.abort("blockedbyclient").catch(() => {}),
-          );
+             honestly, exactly like a refused/timed-out chain already did.
+             (2026-11-08) The filter-list law applies on these tabs too —
+             an off-SERP landing chain must not fetch its ad estate. */
+          const rpPage = rp;
+          await rp.route("**/*", async (r) => {
+            const u = r.request().url();
+            if (!isSafeUrl(u)) return r.abort("blockedbyclient").catch(() => {});
+            if (await adBlockMatch(u, rpPage.url(), r.request().resourceType()))
+              return r.abort().catch(() => {});
+            return r.continue().catch(() => {});
+          });
           for (;;) {
             if (Date.now() - tR > 12_000) return; // one wall for all workers
             const r = queue.shift();
@@ -871,14 +894,24 @@ const AD_BLOCK_RE =
  * shortcut: literal host/IP law only (same law as the got hop chain in
  * net.ts); the DNS-aware upgrade belongs to the caller's pre-navigation
  * gate (isSafeUrlWithDns in tools.ts), never relaxed here.
+ *
+ * (2026-11-08, ad-caption-bleed fix) The optional fourth argument carries
+ * the real FILTER-LIST verdict — EasyList/EasyPrivacy + supplemental rules
+ * loaded by lib/web-search/adblock.ts (Ghostery engine). The verdict is
+ * computed async at the route call-sites and kept OUT of this function so
+ * the law stays pure/synchronous and the §12 vectors keep running as
+ * written. A filter-list match is an ad-abort, checked at exactly the same
+ * position as the legacy regex family: after the SSRF line, BEFORE the
+ * WAF-challenge allowance (a challenge is never a license to load ads).
  */
 export function routeDecision(
   url: string,
   resourceType: string,
   wafChallengeActive: boolean,
+  filterListMatch = false,
 ): "ssrf-abort" | "ad-abort" | "fastload-abort" | "continue" {
   if (!isSafeUrl(url)) return "ssrf-abort";
-  if (AD_BLOCK_RE.test(url)) return "ad-abort";
+  if (filterListMatch || AD_BLOCK_RE.test(url)) return "ad-abort";
   if (wafChallengeActive) {
     /* WAF challenge: every other resource (images, fonts, media) must
        load so the challenge JS can complete and issue its session
@@ -958,12 +991,14 @@ export async function extractUrlBrowser(
     // The handler reads `wafChallengeActive` at request time, so a
     // post-goto flag flip changes behaviour for subsequent requests.
     let wafChallengeActive = false;
-    await page.route("**/*", (route) => {
-      const d = routeDecision(
-        route.request().url(),
-        route.request().resourceType(),
-        wafChallengeActive,
-      );
+    await page.route("**/*", async (route) => {
+      const req = route.request();
+      /* Filter-list verdict (lib/web-search/adblock): async because the
+         engine boots lazily on the first request; it never rejects — a
+         false verdict just means "no opinion", and the legacy AD family
+         inside routeDecision still runs. */
+      const filterListMatch = await adBlockMatch(req.url(), page.url(), req.resourceType());
+      const d = routeDecision(req.url(), req.resourceType(), wafChallengeActive, filterListMatch);
       if (d === "continue") return route.continue();
       return route
         .abort(d === "ssrf-abort" ? "blockedbyclient" : undefined)

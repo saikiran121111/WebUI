@@ -285,6 +285,33 @@ export function parseStartOffset(url: string): number | null {
  * both call this for the same video inside one turn — the InnerTube
  * getInfo/transcript round-trips run once.
  */
+/**
+ * (2026-11-08 ad-caption-bleed gate, defense-in-depth) A caption track's
+ * cues can never run past the video's own runtime — the user spotted the
+ * tell by eye ("the track runs to [00:44] but the video is 00:30 long"):
+ * that overshoot was the AD player's caption track inside the watch page.
+ * Pool-wide ad blocking (lib/web-search/adblock) stops the ad loading;
+ * this gate makes a future bleed impossible INSIDE the YouTube vertical:
+ * a browser-tier track that overshoots its video's runtime is dropped, and
+ * the honest "no caption track" branch runs instead.
+ * Bounded tolerance absorbs cue rounding; unknown length or no clocked
+ * cues never gate (nothing proves an ad). Pure + network-free.
+ */
+export const LENGTH_GATE_MARGIN_SEC = 5;
+export function transcriptExceedsVideoLength(transcript: string, lengthSeconds: number): boolean {
+  if (!transcript || !Number.isFinite(lengthSeconds) || lengthSeconds <= 0) return false;
+  const cueRe = /^\[(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\]/;
+  let maxCue = 0;
+  for (const line of transcript.split("\n")) {
+    const m = cueRe.exec(line);
+    if (!m) continue; // prose, "[Music]", the coverage-honesty note — not a clocked cue
+    const sec =
+      (m[1] ? Number(m[1]) * 3600 : 0) + Number(m[2]) * 60 + Number(m[3]);
+    if (sec > maxCue) maxCue = sec;
+  }
+  return maxCue > lengthSeconds + LENGTH_GATE_MARGIN_SEC;
+}
+
 const EVIDENCE_TTL_MS = 10 * 60_000;
 const evidenceCache = new Map<string, { at: number; value: YouTubeEvidence | null }>();
 
@@ -348,10 +375,19 @@ async function collectYouTubeEvidence(
   // .catch keeps a throwing caption probe from taking the already-
   // assembled metadata down with it.
   const transcriptInnerTube = info ? await transcriptFromInfo(info) : "";
-  const transcript =
-    transcriptInnerTube ||
-    (await
-      getBrowserTranscript(`https://www.youtube.com/watch?v=${videoId}`).catch(() => ""));
+  const transcriptBrowserFetched = await getBrowserTranscript(
+    `https://www.youtube.com/watch?v=${videoId}`,
+  ).catch(() => "");
+  /* (2026-11-08 length gate) If an ad's caption track ever still rides into
+     the browser tier, its cues overshoot THIS video's runtime — dropping it
+     here routes the evidence into the honest no-caption branch instead of
+     serving an ad read as video content. */
+  const transcriptBrowser =
+    transcriptBrowserFetched &&
+    transcriptExceedsVideoLength(transcriptBrowserFetched, lengthSeconds)
+      ? ""
+      : transcriptBrowserFetched;
+  const transcript = transcriptInnerTube || transcriptBrowser;
   const comments = info ? await topComments(info) : [];
 
   const chapters = chaptersFromDescription(description);
