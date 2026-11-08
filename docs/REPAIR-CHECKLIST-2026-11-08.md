@@ -108,4 +108,14 @@ Status legend: `TODO` not started · `REPRO` failing test in place · `FIXED` fi
 - Full vitest + tsc + contracts:check + cargo test (touched crates only, never `cargo fmt --all`).
 - ONE final locked Playwright fix-rerun loop (per memory policy); respect prior command rejection.
 - Required completion report (changes / actual Playwright command + exit / failures / remaining work).
-- Status: TODO
+- Status: vitest **145 files / 1719 passed | 19 skipped, exit 0** + tsc exit 0 + contracts:check OK (both --check) — DONE 2026-11-08 adblock cycle; cargo N/A (no Rust crate touched by the adblock batch); Playwright final loop PENDING (Phase 9 legs below).
+
+## Phase 9 — AD-CAPTION BLEED (user report 2026-11-08)
+
+| ID | Source / function | Root cause | Fix | Status |
+|---|---|---|---|---|
+| E0 | `agentBrowser.ts` / `media-captions.ts` route law | Pool route ad-blocking was a 5-domain regex stub; YouTube's ad manifests (`get_midroll_info`, `/api/stats/ads`, pagead) sailed through ⇒ an ad played INSIDE the watch page | Real filter-list engine on every pool route: `@ghostery/adblocker` + `@ghostery/adblocker-playwright` (their production engine, prebuilt EasyList+EasyPrivacy packs + 5 supplemental ABP rules fed INTO their parser — per user law: existing engine, never hand-rolled). Wired: `extractUrlBrowser` main route, `readGoogleSerp` main page (had NO route at all — SSRF gap closed too), SERP redirect-tab worker, `media-captions` caption tier. Decision-only (never install the engine's own routes — LIFO would outrank §12 SSRF). Kill switch `WEB_SEARCH_ADBLOCK_DISABLED=1`; legacy regex family stays as engine-offline fallback | DONE (unit + live-probe green) |
+| E1 | `captionProbe` longest-body selection | The AD player's OWN `timedtext` track was harvested as "the video's transcript" (user tell: track ran past the video's runtime — [00:44] vs 00:30 singing video) | Defense-in-depth at the consumer: `youtube.ts` `transcriptExceedsVideoLength` rejects a browser-tier track whose max cue exceeds runtime + `LENGTH_GATE_MARGIN_SEC = 5` | DONE (vitest + live-probe green) |
+
+Phase 9 gates (real): new pins `route-adblock-law` 5/5, `youtube-transcript-length-gate` 5/5, `adblock-engine-vectors` (offline `parse()` vectors incl. player-media/caption NON-regression) green inside the full-suite run above; `ADBLOCK_LIVE=1 __tests__/web-search/adblock-live-probe.test.ts` — real prebuilt pack aborts get_midroll_info / api/stats/ads / doubleclick / sq=2 media, SPARES `api/timedtext` + main videoplayback + watch doc; real browser-tier transcript chars=68, cue-bearing, fits runtime; both tests exit 0. Engine disk cache `.data/adblock/engine.bin` (6,865,109 B, ENGINE_VERSION 899, 3-day TTL) warm.
+Phase 9 Playwright legs (locked, launcher): L1 browser-easy+medium+hard (pool routes under engine), L2 youtube-captions (caption tier + length gate, model-backed), L3 search-gate (real-model search turns post-SERP-route), L4 browser-scope-matrix (redirect-tab worker), L5 mhr-universal-sites `-Grep 'MUNU-4'` (all-site SERP+extraction under engine).
