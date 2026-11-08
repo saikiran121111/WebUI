@@ -311,7 +311,9 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     `Use the browser tools. Open a NEW tab at ${FIXTURE_BASE}/scope/zeeta and read it. ` +
     `The page has a link with CSS selector "#partner-site" pointing to a partner site; make the browser visit ` +
     `the exact address written in that link's href attribute — use the browser navigation/address tool with that ` +
-    `address (do NOT click the link). Then read the "#scope-marker" element on the partner page. ` +
+    `address (do NOT click the link). Open that partner address in a SEPARATE NEW tab — never navigate away from ` +
+    `the zeeta tab, because its "#scope-marker" must still be readable at the end of the turn. ` +
+    `Then read the "#scope-marker" element on the partner page. ` +
     `Finally, protect your tabs from turn cleanup with the two-slot law: "tab_mark_deliverable" on exactly one tab ` +
     `you opened this turn and, if you opened a second tab this turn, "tab_mark_handoff" on it (call each at most once). ` +
     `If a tool call is refused, stop that step and say so — do NOT retry it or use another address.`;
@@ -345,7 +347,12 @@ test.describe("task-scope browser E2E matrix (Phase 6, one journey per locked in
     const loqal = (await e2e.listTabs()).find((t) => (t.url ?? "").startsWith(`${OTHER_ORIGIN}/scope/loqal`));
     expect(loqal?.tab_id, "authorized hop never landed on the second origin").toBeTruthy();
     expect(await e2e.innerText(loqal!.tab_id as string, "#scope-marker")).toBe(SCOPE_LOQAL);
-    expect(await e2e.innerText((await tabBySuffix(e2e, "/scope/zeeta"))!.tab_id as string, "#scope-marker")).toBe(SCOPE_ZEETA);
+    // HOP keeps TWO tabs (deliverable + handoff slots): the prompt law (2026-11-08)
+    // makes the model hop in a separate new tab, so a missing zeeta tab is a real
+    // finding — assert it explicitly with the live tab list, never a bare `!`.
+    const zeetaHop = await tabBySuffix(e2e, "/scope/zeeta");
+    expect(zeetaHop?.tab_id, `zeeta tab did not survive the authorized hop: ${JSON.stringify(await e2e.listTabs())}`).toBeTruthy();
+    expect(await e2e.innerText(zeetaHop!.tab_id as string, "#scope-marker")).toBe(SCOPE_ZEETA);
   });
 
   test("WORKING TAB: panel selection follows the engine's working tab; unrelated background tab untouched", async ({ page, request }) => {
