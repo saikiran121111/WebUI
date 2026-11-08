@@ -111,7 +111,14 @@ async function sendPrompt(
   }
   const priorAssistant = await page.locator('[data-testid="assistant-message"]').count();
 
-  const input = page.locator(INPUT);
+  // Two-variant composer law (mirrors mhr-five-sentences.spec.ts): the
+  // hero placeholder ("How can I help…") only exists on the fresh-chat
+  // hero screen; inside a running conversation the composer's placeholder
+  // is "Reply" (ChatInput.tsx:409) while its accessible name "Message
+  // Ruke" is identical in both variants. stay-legs must use the label.
+  const input = opts.stay
+    ? page.getByLabel("Message Ruke")
+    : page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: 15000 });
   await input.fill(text);
   const send = page.getByTestId("send-button");
