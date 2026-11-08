@@ -40,11 +40,22 @@ function atomicWrite(file: string, data: string): void {
 export function writeIndex(attId: string, meta: IndexMeta, chunks: IndexChunk[], fullText: string): void {
   const dir = indexDir(attId);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "full.txt"), fullText, "utf8");
+  // I26: full.txt goes through atomicWrite too. A build interrupted mid-write
+  // (full disk, crash) then leaves the PREVIOUS consistent files in place —
+  // never a half-written full.txt sitting next to fresh chunks. meta.json is
+  // still written LAST, so the "does an index exist" marker never points at
+  // torn state.
+  atomicWrite(path.join(dir, "full.txt"), fullText);
   atomicWrite(
     path.join(dir, "chunks.jsonl"),
     chunks.map(c => JSON.stringify(c)).join("\n") + (chunks.length ? "\n" : ""),
   );
+  // Stale keyframes from a previous build are cleared unless THIS build lists
+  // frames (I26): meta.json would no longer reference them, and orphan JPEGs
+  // of an old version of the file just eat disk.
+  if (!meta.frames?.length) {
+    try { fs.rmSync(path.join(dir, "frames"), { recursive: true, force: true }); } catch { /* ignore */ }
+  }
   atomicWrite(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2));
   cacheDelete(attId);
 }
@@ -87,11 +98,84 @@ export function readIndex(attId: string): LoadedIndex | null {
 
 export function removeIndex(attId: string): void {
   cacheDelete(attId);
+  removeUpload(attId);
   try {
     fs.rmSync(indexDir(attId), { recursive: true, force: true });
   } catch {
     // GC paths must never throw — a bad id just means nothing to clean.
   }
+}
+
+/* --------------------------------------------------------------------- ──
+ * Durable originals (I26)
+ *
+ *   .data/uploads/<attId>.<ext>   the ORIGINAL upload bytes, moved (not
+ *                                 copied) out of the scratch dir after a
+ *                                 successful extraction.
+ *
+ * The scratch file used to be deleted unconditionally, so any follow-up
+ * question that needed the file again ("sample different frames", "another
+ * audio window") had no original to read — the user had to re-upload. The
+ * durable copy lives next to the index it belongs to and dies with it
+ * (removeIndex) or with the orphan sweep below.
+ * ---------------------------------------------------------------------- */
+const UPLOAD_ROOT = path.join(process.cwd(), ".data", "uploads");
+
+/** Move an upload's scratch file to its durable attId-keyed home. */
+export function storeUpload(srcTmp: string, attId: string, ext: string): string {
+  if (!ATT_RE.test(attId)) throw new Error(`invalid attachment id: ${attId}`);
+  fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+  const safeExt = (ext ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const dest = path.join(UPLOAD_ROOT, attId + (safeExt ? "." + safeExt : ""));
+  try {
+    fs.renameSync(srcTmp, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "EXDEV") throw err;
+    fs.copyFileSync(srcTmp, dest); // different volume: copy + delete
+    fs.rmSync(srcTmp, { force: true });
+  }
+  return dest;
+}
+
+/** Durable path for an attachment's original bytes, if one exists. */
+export function uploadPath(attId: string): string | null {
+  if (!ATT_RE.test(attId)) return null;
+  try {
+    for (const f of fs.readdirSync(UPLOAD_ROOT)) {
+      if (f === attId || f.startsWith(attId + ".")) return path.join(UPLOAD_ROOT, f);
+    }
+  } catch { /* nothing stored yet */ }
+  return null;
+}
+
+export function removeUpload(attId: string): void {
+  const p = uploadPath(attId);
+  if (p) {
+    try { fs.rmSync(p, { force: true }); } catch { /* GC never throws */ }
+  }
+}
+
+/**
+ * Remove durable uploads whose index no longer exists (chat deleted, index
+ * evicted, or an extraction that never indexed). Fresh files are spared so a
+ * just-stored upload is never raced by a concurrent request's sweep. Returns
+ * the number removed — the extract route runs this once per server process.
+ */
+export function sweepOrphanUploads(maxAgeMs = 15 * 60 * 1000): number {
+  let files: string[];
+  try { files = fs.readdirSync(UPLOAD_ROOT); } catch { return 0; }
+  let removed = 0;
+  const now = Date.now();
+  for (const f of files) {
+    const attId = f.split(".")[0];
+    if (!ATT_RE.test(attId) || hasIndex(attId)) continue;
+    const p = path.join(UPLOAD_ROOT, f);
+    let age = 0;
+    try { age = now - fs.statSync(p).mtimeMs; } catch { continue; }
+    if (age < maxAgeMs) continue;
+    try { fs.rmSync(p, { force: true }); removed++; } catch { /* ignore */ }
+  }
+  return removed;
 }
 
 export function readNotes(attId: string): string | null {

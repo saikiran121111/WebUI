@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractFileFromPath } from "../../../../lib/server/extract";
-import { removeIndex } from "../../../../lib/server/attachindex/store";
+import { storeUpload, sweepOrphanUploads } from "../../../../lib/server/attachindex/store";
 import { fileExtension } from "../../../../lib/files/extensions";
 import { childLogger } from "../../../../lib/server/logger";
 import fs from "node:fs";
@@ -17,6 +17,9 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const TMP_DIR = path.join(process.cwd(), ".data", "tmp");
+
+/** Durable-upload sweep runs once per server process, lazily, cheaply. */
+let uploadsSwept = false;
 
 /** Keep only a safe base name — the client sends the picked file's name. */
 function safeName(raw: string | null): string {
@@ -71,12 +74,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File is empty" }, { status: 400 });
     }
 
-    const result = await extractFileFromPath(name, tmp, att);
+    if (!uploadsSwept) {
+      uploadsSwept = true;
+      try { sweepOrphanUploads(); } catch { /* best effort */ }
+    }
+
+    // I09: the browser-reported MIME is a fallback for meaningless extensions;
+    // the extractor ALSO magic-sniffs the bytes, so a renamed file still gets
+    // the reader its actual format needs.
+    const mime = req.headers.get("content-type") ?? undefined;
+    const result = await extractFileFromPath(name, tmp, att, mime);
+
+    // I26: keep the original bytes durable, keyed by the attachment id, so a
+    // follow-up question ("more frames from section 3", "another audio window")
+    // can re-extract from disk instead of demanding a re-upload. The scratch
+    // file is MOVED (same-volume rename), never copied.
+    if (att) {
+      try {
+        storeUpload(tmp, att, fileExtension(name));
+        tmp = null; // ownership moved — the finally block must not delete it
+      } catch { /* best effort: the extraction result is already produced */ }
+    }
     return NextResponse.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Extraction failed";
     log.error({ file: name }, `extraction failed: ${msg}`);
-    if (att) removeIndex(att); // cancellation/crash: never leave a partial index
+    // I26: a failed re-extraction must NOT wipe the PREVIOUS working index or
+    // durable upload — partial-build cleanup is indexContent's job (it only
+    // cleans an index that did not exist before the failed run). The scratch
+    // file itself is removed in the finally block below.
     return NextResponse.json({ error: msg }, { status: 422 });
   } finally {
     if (tmp) {

@@ -4,8 +4,14 @@ import zlib from "node:zlib";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
-import { readZip } from "./zip";
+import { readZip, readZipDetailed } from "./zip";
 import { classifyFile, fileExtension } from "../../files/extensions";
+import { decodeText } from "../../files/encoding";
+import { rtfToText } from "./rtf";
+import { notebookText } from "./notebook";
+import { pdfText } from "./pdf";
+import { officeText } from "./office";
+import { extractStrings } from "./strings";
 
 const execFileP = promisify(execFile);
 
@@ -42,56 +48,165 @@ function looksLikeTar(buf: Buffer): boolean {
   return buf.length >= 512 && buf.subarray(257, 262).toString("utf8") === "ustar";
 }
 
-type Member = { name: string; data: Buffer };
+type Member = { name: string; data: Buffer; corrupt?: string };
 
 /**
  * Archives nest: a .7z holding a .tar, a .zip holding a .gz. Those wrappers
  * have to be expanded, or a member named inner.tar is classified as an archive
- * and skipped for carrying no text of its own.
+ * and skipped for carrying no text of its own. Depth-capped; members that
+ * could NOT be expanded (nesting deeper than the cap, or 7z/rar nested inside)
+ * are REPORTED, not silently dropped (I11).
  */
-function flattenMembers(members: Member[], depth = 0): Member[] {
-  if (depth > 2) return members;
+function flattenMembers(
+  members: Member[],
+  depth = 0,
+  notExpanded: string[] = [],
+): Member[] {
   const out: Member[] = [];
   for (const m of members) {
+    // Checksum-failed members are KEPT flagged (never parsed further); the
+    // coverage ledger reports them under CORRUPT, which is what actually
+    // happened — they WERE expanded, their bytes just failed the check.
+    if (m.corrupt) { out.push(m); continue; }
     const ext = fileExtension(m.name);
-    try {
-      if (ext === "tar") {
-        out.push(...flattenMembers(tarMembers(m.data), depth + 1));
+    const nested = ext === "tar" || ext === "gz" || ext === "tgz" || ext === "zip";
+    if (nested) {
+      if (depth > 2) { notExpanded.push(`${m.name} (nesting limit)`); continue; }
+      try {
+        if (ext === "tar") {
+          out.push(...flattenMembers(tarMembers(m.data), depth + 1, notExpanded));
+          continue;
+        }
+        if (ext === "gz" || ext === "tgz") {
+          const raw = zlib.gunzipSync(m.data);
+          const inner = looksLikeTar(raw)
+            ? tarMembers(raw)
+            : [{ name: m.name.replace(/\.(gz|tgz)$/i, ""), data: raw }];
+          out.push(...flattenMembers(inner, depth + 1, notExpanded));
+          continue;
+        }
+        // zip: checksum-corrupt members are reported, the rest re-flattened.
+        const zip = readZipDetailed(m.data);
+        const inner: Member[] = [];
+        for (const e of zip.entries) {
+          inner.push({ name: e.name, data: e.data, ...(e.corrupt ? { corrupt: e.corrupt } : {}) });
+        }
+        out.push(...flattenMembers(inner, depth + 1, notExpanded));
         continue;
-      }
-      if (ext === "gz" || ext === "tgz") {
-        const raw = zlib.gunzipSync(m.data);
-        const inner = looksLikeTar(raw)
-          ? tarMembers(raw)
-          : [{ name: m.name.replace(/\.(gz|tgz)$/i, ""), data: raw }];
-        out.push(...flattenMembers(inner, depth + 1));
-        continue;
-      }
-      if (ext === "zip") {
-        out.push(...flattenMembers(readZip(m.data), depth + 1));
-        continue;
-      }
-    } catch { /* not really a nested archive — keep the bytes as they are */ }
+      } catch { /* not really a nested archive — keep the bytes, but SAY so */ }
+      notExpanded.push(`${m.name} (nested ${ext} could not be opened)`);
+      out.push(m);
+      continue;
+    }
+    if (ext === "7z" || ext === "rar") notExpanded.push(`${m.name} (nested ${ext} not expanded here)`);
     out.push(m);
   }
   return out;
 }
 
-/** Join the text-like members of an archive into one readable string. */
-function membersToText(members: Member[], cap = 60000): string {
-  const parts: string[] = [];
-  let total = 0;
-  for (const m of flattenMembers(members)) {
-    const cat = classifyFile(m.name);
-    if (cat !== "text" && cat !== "notebook" && cat !== "rtf") continue;
-    if (m.data.length > 1024 * 1024) continue;
-    const body = m.data.toString("utf8");
-    const block = `--- member: ${m.name} ---\n${body}\n`;
-    parts.push(block.slice(0, Math.max(0, cap - total)));
-    total += block.length;
-    if (total >= cap) break;
+/** Budget for the JOINED archive text. The old 60k silent cap ran out long
+ *  before the index pipeline could see the real size; extraction must hand the
+ *  index path a complete-enough picture, so the budget is generous while still
+ *  bounded, and hitting it is announced in the coverage footer. */
+const ARCHIVE_TEXT_BUDGET = 8_000_000; // characters
+/** Decode window per text-ish member; larger members are head-truncated with a note. */
+const MEMBER_TEXT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * I11: members are PARSED BY TYPE, not just raw text: PDF and Office parts
+ * inside an archive used to be invisible. Per-member outcomes (parsed /
+ * binary-skipped / truncated / corrupt) are aggregated into a coverage footer
+ * so "the archive was read" never overstates what actually was.
+ */
+async function memberBody(m: Member): Promise<{ body: string; note?: string }> {
+  const ext = fileExtension(m.name);
+  const cat = classifyFile(m.name);
+  if (cat === "text") {
+    const slice = m.data.length > MEMBER_TEXT_BYTES ? m.data.subarray(0, MEMBER_TEXT_BYTES) : m.data;
+    const dec = decodeText(slice);
+    const note =
+      (m.data.length > MEMBER_TEXT_BYTES
+        ? `${m.data.length} bytes — first ${MEMBER_TEXT_BYTES} decoded`
+        : "") +
+      (dec.lossy ? `${dec.encoding === "windows-1252 (best guess)" ? "decoded as windows-1252 (not valid UTF-8) — characters may be off" : ""}` : "");
+    return { body: dec.text, note: note || undefined };
   }
-  return parts.join("\n").trim();
+  if (cat === "rtf") return { body: rtfToText(decodeText(m.data).text) };
+  if (cat === "notebook") return { body: notebookText(decodeText(m.data).text) };
+  if (cat === "pdf") {
+    const r = await pdfText(m.data);
+    const cov = r.pages > r.pagesWithoutText.length && r.pagesWithoutText.length
+      ? ` [${r.pages - r.pagesWithoutText.length} of ${r.pages} pages have a text layer]`
+      : "";
+    return { body: r.text, note: cov.trim() || undefined };
+  }
+  if (cat === "office") {
+    if (ext === "epub" || ["docx", "xlsx", "xlsm", "pptx", "odt", "ods", "odp"].includes(ext)) {
+      return { body: officeText(m.data, ext) };
+    }
+    return { body: "", note: "office part with unhandled subtype" };
+  }
+  if (cat === "legacy") {
+    return {
+      body: extractStrings(m.data),
+      note: "legacy binary format — strings recovered by byte scan (lossy)",
+    };
+  }
+  if (cat === "image" || cat === "audio" || cat === "video") {
+    return { body: "", note: `${cat} content (binary — not text-extracted)` };
+  }
+  return { body: "", note: "unrecognised content type" };
+}
+
+/** Join the parsed members of an archive into one readable string + coverage footer. */
+async function membersToText(members: Member[]): Promise<string> {
+  const notExpanded: string[] = [];
+  const flat = flattenMembers(members, 0, notExpanded);
+  const parts: string[] = [];
+  const parsed: string[] = [];
+  const skipped: string[] = [];
+  const truncated: string[] = [];
+  const corrupt: string[] = [];
+  let total = 0;
+  let budgetHit = false;
+  for (const m of flat) {
+    if (m.corrupt) { corrupt.push(m.name); continue; }
+    if (total >= ARCHIVE_TEXT_BUDGET) { budgetHit = true; skipped.push(`${m.name} (joined-text budget reached)`); continue; }
+    let r: { body: string; note?: string };
+    try {
+      r = await memberBody(m);
+    } catch (err) {
+      skipped.push(`${m.name} (parse failed: ${(err as Error)?.message || "error"})`);
+      continue;
+    }
+    if (!r.body.trim()) {
+      skipped.push(`${m.name}${r.note ? ` — ${r.note}` : " (no readable text)"}`);
+      continue;
+    }
+    const suffix = r.note ? ` [${r.note}]` : "";
+    if (r.note && /bytes — first/.test(r.note)) truncated.push(`${m.name} (${r.note})`);
+    const block = `--- member: ${m.name}${suffix} ---\n${r.body}\n`;
+    const room = ARCHIVE_TEXT_BUDGET - total;
+    if (block.length > room) {
+      parts.push(block.slice(0, room) + `\n[…truncated at ${ARCHIVE_TEXT_BUDGET} chars…]`);
+      total = ARCHIVE_TEXT_BUDGET;
+      budgetHit = true;
+    } else {
+      parts.push(block);
+      total += block.length;
+    }
+    parsed.push(m.name + suffix);
+  }
+
+  const footer: string[] = [];
+  footer.push(`--- archive coverage --- ${flat.length} member(s) flattened, ${parsed.length} parsed for text`);
+  if (corrupt.length) footer.push(`CORRUPT (checksum failed, skipped): ${corrupt.join(", ")}`);
+  if (notExpanded.length) footer.push(`NOT EXPANDED: ${notExpanded.join("; ")}`);
+  if (truncated.length) footer.push(`TRUNCATED: ${truncated.join("; ")}`);
+  if (budgetHit) footer.push(`joined text hit the ${ARCHIVE_TEXT_BUDGET} character budget — later members are listed but their content is not included`);
+  if (skipped.length) footer.push(`no text content: ${skipped.slice(0, 200).join("; ")}${skipped.length > 200 ? ` (+${skipped.length - 200} more)` : ""}`);
+
+  return [...parts, footer.join("\n")].join("\n").trim();
 }
 
 /** Extract a 7z/bz2/xz archive with the bundled 7za binary. */
@@ -156,12 +271,13 @@ function nameBareStream(members: Member[], originalName: string, ext: string): M
 }
 
 /**
- * ZIP member reader: native fflate (fflate readZip) first; only containers it
- * refuses — password-protected, or methods like LZMA that fflate does not
- * implement — fall back to the bundled 7za. Genuine Zip64 archives do NOT
- * need the fallback: fflate reads them in full (verified on 0.8.3 against a
- * 66,001-member 7za-built archive). Nested zips inside another archive stay
- * on the sync native path — readZip is sync by contract.
+ * ZIP member reader: native fflate (readZip) first — corrupted parts stay in
+ * the set FLAGGED so coverage reports them — and only containers fflate
+ * refuses outright (password-protected, LZMA) fall back to the bundled 7za.
+ * Genuine Zip64 archives do NOT need the fallback: fflate reads them in full
+ * (verified on 0.8.3 against a 66,001-member 7za-built archive). Nested zips
+ * inside another archive stay on the sync native path — readZip is sync by
+ * contract.
  */
 async function zipMembers(buf: Buffer): Promise<Member[]> {
   try {
@@ -191,14 +307,17 @@ export async function archiveText(buf: Buffer, ext: string, originalName = ""): 
     case "gz": {
       const raw = zlib.gunzipSync(buf);
       if (looksLikeTar(raw)) return membersToText(tarMembers(raw));
-      return raw.toString("utf8").slice(0, 60000);
+      const dec = decodeText(raw.subarray(0, ARCHIVE_TEXT_BUDGET));
+      const label = dec.lossy ? `[decoded as ${dec.encoding} — not valid UTF-8] ` : "";
+      const trunc = raw.length > ARCHIVE_TEXT_BUDGET ? `\n[…single-stream gzip: ${raw.length} bytes decoded to ${ARCHIVE_TEXT_BUDGET} chars…]` : "";
+      return label + dec.text + trunc;
     }
     case "tgz":
       return membersToText(tarMembers(zlib.gunzipSync(buf)));
     case "bz2":
     case "xz": {
       // Whatever 7za hands back — a lone file, a tar, a directory tree — gets a
-      // sensible name, is flattened, and then its text members are joined.
+      // sensible name, is flattened, and then its members are parsed by type.
       const members = await extractWith7za(buf, "." + ext);
       return membersToText(nameBareStream(members, originalName, ext));
     }

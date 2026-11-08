@@ -80,30 +80,77 @@ async function runFFmpeg(args: string[], opts: { maxBuffer?: number } = {}): Pro
 
 // The comma inside min() belongs to the expression, not to the filter chain, so
 // it has to be escaped for ffmpeg's filtergraph parser.
-const SCALE_FILTER = `scale=min(${MAX_IMAGE_SIDE}\\,iw):-2,format=rgb24`;
+// I07: BOTH sides get capped. The old `min(1280,iw):-2` capped only the width,
+// so a tall phone screenshot (or a full-frame lecture still) came through at its
+// original enormous height — decode, memory, and base64 were all paid in full
+// before the model downscaled it anyway. `force_original_aspect_ratio=decrease`
+// shrinks only (never upscales small images). NO `force_divisible_by=2`: it
+// rounds a 1px (or otherwise odd-and-tiny) image DOWN to 0, and ffmpeg fails
+// the whole decode with "Picture size 0x0 is invalid"; PNG output has no
+// even-dimension requirement.
+const SCALE_FILTER =
+  `scale=w=min(iw\\,${MAX_IMAGE_SIDE}):h=min(ih\\,${MAX_IMAGE_SIDE}):force_original_aspect_ratio=decrease,format=rgb24`;
 
 function toDataUrl(png: Buffer): string {
   return "data:image/png;base64," + png.toString("base64");
 }
 
+export interface ImageDecode {
+  dataUrl: string;
+  /**
+   * Extra pages/frames beyond the first. For images the `at` value is the
+   * 1-based PAGE NUMBER, NOT seconds — do not read it as a timestamp.
+   */
+  frames?: { dataUrl: string; at: number }[];
+  pages: number;
+}
+
+/** Multi-page/animated decode cap — a 500-frame GIF is not worth 500 images. */
+const MAX_IMAGE_PAGES = 8;
+
 /**
  * Decode an image the browser could not (tif/heic/avif/ico/…) to a PNG data
  * URL. ffmpeg reads whatever the container actually holds and rescales it.
  * Reads from a path on disk — the upload never round-trips through memory.
+ *
+ * I07: the old `-frames:v 1` threw away EVERY page after the first —
+ * multi-page TIFFs (scanned documents!) and animated GIF/APNG reached the
+ * model as a single frame with no announcement. Every page now comes back as
+ * extra frames (bounded by MAX_IMAGE_PAGES; `pages` reports how many decoded,
+ * so hitting the cap is visible rather than silent).
  */
-export async function imageToDataUrlFromPath(src: string): Promise<string> {
-  const out = tmpName(".png");
+export async function imageToDataUrlFromPath(src: string): Promise<ImageDecode> {
+  const base = tmpName("");
+  const pattern = base + "_%03d.png";
+  const written: string[] = [];
   try {
     await runFFmpeg(["-hide_banner", "-loglevel", "error", "-y", "-i", src,
-      "-frames:v", "1", "-vf", SCALE_FILTER, out]);
-    return toDataUrl(fs.readFileSync(out));
+      "-frames:v", String(MAX_IMAGE_PAGES), "-vf", SCALE_FILTER, "-vsync", "vfr", pattern]);
+    for (let i = 1; i <= MAX_IMAGE_PAGES; i++) {
+      const p = `${base}_${String(i).padStart(3, "0")}.png`;
+      if (fs.existsSync(p) && fs.statSync(p).size > 0) written.push(p);
+      else break;
+    }
+    if (!written.length) throw new Error("Could not decode this image");
+    const dataUrl = toDataUrl(fs.readFileSync(written[0]));
+    const frames = written.slice(1).map((p, i) => ({
+      dataUrl: toDataUrl(fs.readFileSync(p)),
+      at: i + 2, // page number of this frame (page 1 is `dataUrl`)
+    }));
+    return { dataUrl, ...(frames.length ? { frames } : {}), pages: written.length };
   } finally {
-    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
+    try {
+      const dir = path.dirname(base);
+      const stem = path.basename(base);
+      for (const f of fs.readdirSync(dir)) {
+        if (f.startsWith(stem)) fs.rmSync(path.join(dir, f), { force: true });
+      }
+    } catch { /* ignore */ }
   }
 }
 
 /** Buffer convenience wrapper (tests, small callers). */
-export async function imageToDataUrl(buf: Buffer, ext: string): Promise<string> {
+export async function imageToDataUrl(buf: Buffer, ext: string): Promise<ImageDecode> {
   return withTemp("." + ext, async src => {
     fs.writeFileSync(src, buf);
     return imageToDataUrlFromPath(src);

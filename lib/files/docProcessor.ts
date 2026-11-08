@@ -4,6 +4,7 @@ import {
   TEXT_CHAR_LIMIT,
   type FileCategory,
 } from "./extensions";
+import { decodeText } from "./encoding";
 
 /**
  * Client half of the attachment pipeline.
@@ -74,17 +75,35 @@ export async function processAttachment(file: File, base: Attachment): Promise<A
 
   try {
     switch (att.category) {
-      case "text":
+      case "text": {
         // Bytes ≥ characters, so anything at or under the budget is safe to
         // read in the browser. Bigger files go to the server, where oversized
         // content is indexed instead of truncated (the browser path can't).
         if (file.size > TEXT_CHAR_LIMIT) return await extractOnServer(file, att);
-        return { ...att, ...cap(await file.text()), status: "ready" };
+        // I10: file.text() always decodes UTF-8 — a UTF-16 or cp1252 file
+        // turned into NUL garbage / mojibake with no warning. Decode by
+        // content (BOM / heuristics / best-guess fallback) and label guesses.
+        const dec = decodeText(new Uint8Array(await file.arrayBuffer()));
+        const capped = cap(dec.text);
+        const note = dec.lossy
+          ? `[encoding: this file is not valid UTF-8 — decoded as ${dec.encoding}, so some characters may be wrong]\n\n`
+          : "";
+        return {
+          ...att,
+          text: capped.text ? note + capped.text : capped.text,
+          truncated: capped.truncated,
+          status: "ready",
+        };
+      }
 
       case "image":
         try {
-          const { dataUrl, width, height } = await encodeImage(file);
-          return { ...att, dataUrl, width, height, status: "ready" };
+          const { dataUrl, width, height, frames } = await encodeImage(file);
+          return {
+            ...att, dataUrl, width, height,
+            ...(frames?.length ? { frames } : {}),
+            status: "ready",
+          };
         } catch {
           // Browser can't decode it (tif/heic/ico/…) — let ffmpeg try instead.
           return await extractOnServer(file, att);
@@ -117,9 +136,15 @@ async function extractOnServer(file: File, att: Attachment): Promise<Attachment>
     throw new Error(data?.error ?? `Extraction failed (${res.status})`);
   }
 
+  // I09: the extractor magic-sniffs the bytes, so the category it returns can
+  // DIFFER from the one the extension claimed (a PNG renamed .pdf becomes
+  // "image"). `kind` was computed from the old category — recompute it from
+  // the corrected one or the attachment renders with the wrong UI treatment.
+  const category = data.category ?? att.category;
   return {
     ...att,
-    category: data.category ?? att.category,
+    category,
+    kind: kindFor(category),
     text: data.text,
     truncated: data.truncated,
     pages: data.pages,
@@ -137,12 +162,15 @@ async function extractOnServer(file: File, att: Attachment): Promise<Attachment>
   };
 }
 
-/** Re-encode an image in-canvas: alpha flattened, long side capped, JPEG. */
-async function encodeImage(file: File): Promise<{ dataUrl: string; width: number; height: number }> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+/** Encode one region of the bitmap: alpha flattened, long side capped, JPEG. */
+function encodeRegion(
+  bitmap: ImageBitmap,
+  y: number,
+  h: number,
+): { dataUrl: string; width: number; height: number } {
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, h));
   const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const height = Math.max(1, Math.round(h * scale));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -152,10 +180,49 @@ async function encodeImage(file: File): Promise<{ dataUrl: string; width: number
 
   ctx.fillStyle = "#ffffff"; // JPEG carries no alpha — composite onto white
   ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close?.();
+  ctx.drawImage(bitmap, 0, y, bitmap.width, h, 0, 0, width, height);
 
   const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
   if (dataUrl.length < 200) throw new Error("Image could not be encoded");
   return { dataUrl, width, height };
+}
+
+/**
+ * Re-encode an image in-canvas: alpha flattened, long side capped, JPEG.
+ *
+ * I07: capping a 1080x19000 chat-log screenshot to one 72x1280 JPEG made its
+ * text literally unreadable — the pixels survived, the legibility died. For
+ * extreme portrait images the single image is kept as an OVERVIEW and full
+ * detail rides along as overlapping strips (`frames`, `at` = 1-based strip
+ * number — page semantics, matching multi-page server decodes, not seconds).
+ * Strips overlap 10% so text split at a boundary still appears whole.
+ */
+const MAX_STRIP_FRAMES = 8; // matches the server-side multi-page decode cap
+
+async function encodeImage(
+  file: File,
+): Promise<{ dataUrl: string; width: number; height: number; frames?: { dataUrl: string; at: number }[] }> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const overview = encodeRegion(bitmap, 0, bitmap.height);
+
+    let frames: { dataUrl: string; at: number }[] | undefined;
+    if (bitmap.height > bitmap.width * 2.5 && bitmap.height > MAX_IMAGE_SIDE) {
+      // Strips sized so their WIDTH stays the long side — each keeps close to
+      // native horizontal resolution, which is what text legibility needs.
+      const stripH = Math.max(1, Math.min(bitmap.height, Math.round(bitmap.width * 1.5)));
+      const step = Math.max(1, Math.round(stripH * 0.9)); // 10% overlap
+      frames = [];
+      for (let y = 0; y < bitmap.height && frames.length < MAX_STRIP_FRAMES; y += step) {
+        const h = Math.min(stripH, bitmap.height - y);
+        if (h < 64 && frames.length > 1) break; // sliver remainder
+        frames.push({ dataUrl: encodeRegion(bitmap, y, h).dataUrl, at: frames.length + 1 });
+        if (y + h >= bitmap.height) break;
+      }
+      if (!frames.length) frames = undefined;
+    }
+    return { ...overview, ...(frames ? { frames } : {}) };
+  } finally {
+    bitmap.close?.();
+  }
 }

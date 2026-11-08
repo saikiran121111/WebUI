@@ -1,0 +1,111 @@
+# REPAIR CHECKLIST — 2026-11-08 overnight run
+
+Master checklist for the two 2026-11-07 audits (document-regression-audit + uploads-media-core-regression-audit).
+One row per issue: ID · source/function · failing reproduction · root cause · fix · validation · status.
+Status legend: `TODO` not started · `REPRO` failing test in place · `FIXED` fix applied, targeted suite green · `GREEN` full-suite verified · `BLOCKED` acceptance needs unavailable prereq (reported honestly).
+
+## Phase 0 — baseline (recorded 2026-11-08)
+
+- HEAD at start: `b9c0cb7` (develop). Audit baseline in prompts: `d604009…` (older; started from actual latest develop per instructions).
+- Pre-existing dirty files preserved untouched: `test-results/.last-run.json`, `tests/browser-scope-matrix.spec.ts`, `tsconfig.tsbuildinfo`, untracked `mcp-out/`, `test-results/browser-scope-matrix-task--3cf60--…/`.
+- Full `npm test` (vitest) BEFORE any edit: **117 files passed, 1 skipped; 1564 tests passed, 17 skipped** (226 s). Repo suite green → every defect fix gets a repro-first test.
+- Ownership boundary: production chat + attachment retrieval = Rust backend (`rustProxy` → `/api/ruke/*`, `crates/ruke-attach`); Node owns ingestion/model runtimes; `lib/server/attachindex/` is the oracle mirror. I20/I21/I25 fixes land in TS + Rust mirror. Rust contracts regenerate only via `npm run contracts:generate` (D01).
+- Toolchain recorded: node/npm/cargo versions captured this session (see session log); `@huggingface/transformers` installed = 4.3.1 (audit audio findings validated against it).
+- Playwright law (memory): ONE final locked fix-rerun loop at the end; the previously auto-approval-rejected combined native-renderer test-and-lock command must NOT be re-attempted via another route.
+
+## Phase 1 — transport, saving, edit re-send, compaction ownership
+
+| ID | Source / function | Failing repro | Root cause | Fix | Validation | Status |
+|---|---|---|---|---|---|---|
+| I01 | `lib/stream/parser.ts:67-83` + `lib/stream/sse.ts` | 1-byte HTTP chunks (or any mid-frame cut) → deltas lost/duplicated; JSON silently dropped | parser keeps `buf=tail` AND sse parser buffers internally → tail re-prepended on next push; EOF re-feeds tail | Single ownership: caller feeds only new decoded bytes; sse parser gains `flush()` for EOF; parser feeds `decoder.decode(value,{stream:true})`, EOF = `decoder.decode()` + `sse.flush()`. Honest truncation: EOF with no `[DONE]`/finish_reason → exactly one `finishReason:"error"` (never fabricated for clean closes) | `__tests__/stream-byte-partition.test.ts` (8 tests): every 2-way byte cut of main fixture (split think tags, emoji/CJK, stage, tool args, usage, finish, [DONE]) + 1-byte chunks + CRLF matrix + truncated-stream matrices — every delta exactly once at every cut; hard-EOF mid-frame → honest error finish. Full suite green | GREEN |
+| I02 | `lib/stream/thinkTags.ts` `createThinkSplitter` | `<thi`+`nk>x` → `nk>x` leaks into content; reopen-in-one-delta misstates state | no partial-delimiter holdback; `isOpenAfterProcessing` includes()-heuristic | state machine w/ `held` tail that could begin OPEN/CLOSE; `flush()` releases held as text | `__tests__/think-splitter.test.ts` (9 tests): `<thi`/`nk>SEC`/`</th`/`ink>FINAL` zero leakage; holdback of partial open/close; reopen-in-one-delta; flush releases held as literal; every-cut mini-matrix equals whole-stream result | GREEN |
+| I03 | `lib/persistence/index.ts` `saveConversation` | POST 500 → save treated as success; UI shows saved | `res.ok` never checked | `SaveError` (status) thrown on !res.ok; page.tsx bounded recovery (one delayed retry, then visible unsaved banner + manual "Retry save"; guard reset so next settle re-persists from live state — never a stale payload) | `__tests__/persistence-save.test.ts` (4 tests): 500 → rejects SaveError w/ status; 200 resolves; transport throw propagates; `updateConversationMeta` meta-write 403 rejects (pin/archive/rename not silently "successful"). UI banner not unit-tested (no React harness) — final Playwright loop covers it | GREEN (unit) |
+| I27 | `hooks/useChat.ts` `edit()` 849-866 | edit a message that had attachments → re-send drops them + mode | `lastInputRef` set `{attachments:[]}`, `send(newContent)` bare | preserve `orig.attachments`/`orig.mode` in `resend` + `lastInputRef` | No React hook-test harness in repo (no @testing-library/react); verified by inspection + typecheck + full suite; UI behavior covered by the final locked Playwright loop | FIXED (no unit test — deferred to Playwright) |
+| I28 | `hooks/useChat.ts` `compact()` 173-250 vs load/clear/edit/retry | in-flight compact resolves after chat switch → overwrites new chat's llmHistory | no ownership generation/abort | `historyGenRef` bumped + `compactCtrlRef.abort()` first in load/clear/edit/retry; stale results ignored (`gen !== historyGenRef.current`); compact passes `signal`; **plus latent bug:** partial `<compacted_context>` could be promoted after abort (ChatClient resolves, doesn't throw) → compact.ts ABORT GUARD returns "Compaction cancelled" and keeps the original history | Pipeline-level proof without React: `__tests__/compact-abort-refs.test.ts` (9 tests) — mid-stream abort never promotes PARTIAL text; pre-aborted signal short-circuits; truncated compaction stream (EOF) → failure not partial promotion; hook-level switch test deferred (no React harness) → final Playwright loop | GREEN (pipeline) / FIXED (hook) |
+
+## Phase 2 — documents, images, notebooks, archives, encodings, durable originals
+
+| ID | Source / function | Root cause (confirmed in audit) | Fix target | Status |
+|---|---|---|---|---|
+| I06 | `lib/server/extract/pdf.ts` (audit cites `lib/documents/pdf.ts` — moved) | page-aware text missing; scanned PDFs = "read" with zero OCR | page loop, visual/OCR/region path, empty-scan ≠ full read | **GREEN** — `__tests__/server/extract-pdf-coverage.test.ts` + `make-pdf.ts` fixture (byte-built PDFs with computed xrefs; scanned page = page with no /Contents): `[PDF coverage: n of N page(s) carry a text layer…]` line, all-empty+pages>0 → explicit "no text layer — scanned images, no OCR engine" error (never "empty document"), zero pages → "No readable text found" |
+| I07 | `encodeImage` in docProcessor.ts (max-side 1280 keeps only downscaled JPEG); `ffmpeg.ts` SCALE_FILTER caps width only (100×2000 stays 2000 tall); `-frames:v 1` drops multi-page TIFF/animation | originals lost; tall images unreadable; page coverage lost | keep original + region reads; cap both sides; honest coverage report | **GREEN (server)** — `__tests__/server/extract-image-ffmpeg.test.ts`: 1080×4000 lavfi source → h capped at 1280 with aspect kept, pages=1; animated gif → pages=8, frames=7, `at` = page numbers. (Fixed a real ffmpeg bug found en route: `force_divisible_by=2` rounded 1-px images to 0×0 → fatal "Picture size 0x0".) **Client canvas path** (`encodeRegion` tall-image strip splitting in docProcessor.ts, DOM canvas) — unit-untestable, browser-verified in the final locked Playwright loop |
+| I08 | `lib/server/extract/notebook.ts` (audit cites `lib/documents/`) | v4 MIME bundles unparsed (execute_result.data), silent 2000-char slice, null-cell crash, v3 silent | v4 data/JSON/HTML/PNG/SVG/error traceback parse; no silent truncation; v3 diagnostic; never execute code | **GREEN** — `__tests__/server/extract-notebook.test.ts`: every v4 MIME rendered or LABELED (JSON objects via JSON.stringify — `[object Object]` fixed, base64 blobs labelled not dumped, SVG/plotly honest), truncation announcement survives at 20 000 chars (payload-level cap, not block-level), v3 prefix, non-JSON/non-object/malformed-cell diagnostics, code never executed |
+| I09 | `app/api/files/extract/route.ts` + client `classifyFile` | route drops Content-Type; filename-only reclassification disagrees with client | one identity contract: name + MIME + magic sniff; deliberate disagreement handling | **GREEN** — `__tests__/server/extract-identity.test.ts`: MIME reaches the parser; magic sniff (`sniff.ts`) strong overrides (PDF renamed .docx parsed as PDF), weak archive/ftyp/Ogg signals only lift `unknown`/`text`, office extensions never weak-overridden by their own ZIP header, PNG IHDR dims honored |
+| I10 | text encodings (`lib/files/encoding.ts` new — client `decodeText` and server share one home; `rtfToText` `\uN` → space + escaped braces; `extractStrings` ASCII-only UTF-16) | no encoding detection; lossy paths unlabeled | BOM/detection, RTF fix, label lossy extraction | **GREEN** — `__tests__/server/extract-encoding.test.ts` (BOM order incl. UTF-32-before-UTF-16, Node has no TextDecoder utf-32 → hand decoder; BOM-less UTF-16 alternating-NUL heuristic both parities — one parity bug found+fixed this session; cp1252 fallback labeled "best guess" lossy) + `__tests__/server/extract-rtf-strings.test.ts` (negative two's-complement `\uN`, `\'hh`, protected `\{ \} \\`, non-ASCII UTF-16 runs, surrogates split never emitted) |
+| I11 | `archives.ts` `membersToText` + `zip.ts` | 60k combined cap before indexing; 1 MiB/member silent skip; embedded PDF/Office ignored; fflate never verifies CRCs (measured) and zip.ts read the central-directory name/extra/comment lengths at wrong offsets (46/48/50 — inside the name itself) | per-member manifest, recursive parsing, CRC validation, bounded decompression | **GREEN** — `__tests__/server/extract-archive-coverage.test.ts` (CORRUPT/NOT EXPANDED (nesting limit, nested 7z)/TRUNCATED/no-text-content ledger lines; members parsed by OWN type: PDF-inside-zip gets the PDF parser + per-PDF text-layer note, xlsx-inside-zip gets the cell parser; 8 MiB/member decode window declared) + `__tests__/server/extract-zip.test.ts` contract suite (names/bytes exact, declared-size lies tolerated, 256 MiB/member inflated cap drops with name recorded, nested-zip flattening, Zip64 read fully, encrypted/LZMA honest 7za-fallback errors). CRC-32 implemented locally in zip.ts (fflate 0.8.3 exports no crc32 — verified) |
+| I26 | extraction route finally-block deletes raw upload; pending-chip removal doesn't cancel; indexes keep partial text only | no generation/coverage contract; GC vs references unsafe | durable originals, atomic index replacement, GC only unreferenced, cancellation wired | **FIXED (server) / browser-pending** — route now keeps the raw upload durable and calls `storeUpload` on successful extraction only (no index entry for failed extractions); coverage/kind metadata travels with the extraction result (`category`+`kindFor`). Client pending-chip cancellation + GC-vs-referenced safety are DOM/pipeline-level → final locked Playwright loop |
+| D25 | `office.ts` `officeText` | shared-string dictionary instead of workbook cells | parse cells w/ shared+inline strings, formulas text/cached, coordinates | **GREEN** — `__tests__/server/extract-office-cells.test.ts`: `REF=value` coordinates, rows tab-joined, rich-text `<si>` runs stitched, `(shared string #N missing)` reported not invented, `inlineStr`, `t="b"`→TRUE/FALSE, `<f>` without `<v>` → `=formula`, named sheets in WORKBOOK doc order via rels (rels-target base fixed: real writers emit `../worksheets/…` relative to the .rels dir — both bases tried, spec path announced for genuinely missing parts) |
+| D26 | presentation slide order lexical (1,10,11,2) | ignores presentation.xml sldIdLst | resolve sldIdLst via rels; ≥12-slide test | **GREEN** — same spec: 12-slide matrix, declared order 1→10→11→2 wins, orphan slides appended NUMERICALLY, numeric fallback when the presentation part is absent |
+| D27 | `zip.ts` readZip inflates whole ZIP after filtering | unbounded memory + tampered parts silently trusted | bounded streaming + output accounting + CRC integrity (injectable limits in tests) | **GREEN** — `readZipDetailed` include-filter runs pre-inflation (xlsx media/unused parts never inflate), per-member inflated ceiling drops oversize with name recorded, stored-CRC from central directory verifies every inflated member: tampered member skipped AND announced (`[integrity: N package part(s) failed their stored CRC checksum…]`), intact siblings keep reading (fixture needed STORED members — deflate hides payload bytes from a byte-flip; `{level:0}`) |
+
+## Phase 3 — audio, video, YouTube ingestion
+
+| ID | Source / function | Root cause | Fix target | Status |
+|---|---|---|---|---|
+| I12 | `audio.ts` loadAsR passes chunk_length_s to pipeline() (transformers 4.3.1 destructuring ignores) | 61 s audio became 30 s (feature_extraction slices to n_samples) | pass chunking at invocation; bounded windows + timestamp offsets + overlap dedup | TODO |
+| I13 | `transcribePcmSegments` probe→unload→probe outside try/finally | second probe throw → reload count 0 | try/finally | TODO |
+| I14 | default whisper-base.en English-only | capability hidden | expose capabilities; multilingual selection when required | TODO |
+| I15 | `audioPcmFromPath` whole float32 in RAM (3 h ≈ 659 MiB); ChatInput.addFiles unbounded concurrency; no AbortSignal; child procs without timeout | OOM + runaway | p-limit (installed), signals, bounded windows, proc timeouts | TODO |
+| I16 | `extractFileFromPath` deletes frames dir when transcript missing/short; ASR failure caught like no-audio | silent coverage loss | keep frames, index/coverage flags | TODO |
+| I17 | `videoKeyframesFromPath` 150-frame scene cap; top-up only when < target | early-cut videos covered 0–149 s only | distribute coverage across timeline | TODO |
+| I18 | `attachmentParts` drops frame `at` + duration; `nearestFrames` no distance threshold; notes claim "every part read" | timestamps lost; far frames served | carry `at`/duration; threshold; coverage-honest notes | TODO |
+| I19 | `youtube.ts` 12k char transcript cap, 800-segment/16k/12k caption caps; `?t=` canonicalized away; no-caption → no ASR | tail loss, no coverage field | caps with coverage flags, timestamp param kept, honest no-caption report | TODO |
+
+## Phase 4 — attachment evidence, indexing, notes (TS + Rust mirror)
+
+| ID | Source / function | Root cause | Fix target | Status |
+|---|---|---|---|---|
+| I04 | compact tail flattened (`toWireMessage`), hook maps replacement to `attachments: []` | structured refs/images die at compaction | structured tail pass-through (strip previewUrl only) + slim indexed stubs carrying `attachment_ref` through next send (TS + Rust) | TODO |
+| I05 | `tokens.ts` excludes image cost; `buildAttachmentTurn` per-attachment budgets, no aggregate | 1 M data URL counts as filename | image cost + aggregate budget + output reserve | TODO |
+| I20 | turn.ts/retrieveEvidence slices both rankings to 20 BEFORE exhaustive (truncated:false lie); Rust mirrors | coverage lost | full coverage + dedup + continuation state | TODO |
+| I21 | embed failure → zero-vector top-20 still fused | invalid channel contaminates fusion | omit invalid channels; validate dims/model identity/version | TODO |
+| I22 | routeQuery sends "List all mentions"/"last 20 minutes" to point_qa; anchorQuery prepends previous question | constraints lost/hijacked | keep explicit constraints; TS/Rust aligned | TODO |
+| I23 | chunk.ts splitOversized punctuation-only → zero chunks | silent loss | lossless fallback + exact offsets | TODO |
+| I24 | notes.ts caches `opening ... closing` failed blocks + length-truncated; model:"default" hardcoded (TS+Rust); turn slices 24k claiming "every part read" | poisoned cache + false coverage | source-versioned coverage-aware notes, retryable failed blocks, real model id | TODO |
+| I25 | ruke-attach embedder.rs embed_one spawns thread + joins sync, no timeout/turn token; Node /api/internal/embed no cancellation | stall hangs turn | cancellable async + deadlines; stalled-fake test (no model) | TODO |
+
+## Phase 5 — spreadsheets & documents engines
+
+| ID | Source / function | Root cause | Fix target | Status |
+|---|---|---|---|---|
+| D01 | contracts.ts:44 rowGenerator keyed-object vs schemas array-of-descriptors | shape mismatch → 0 rows silently | accept both / 422; regenerate Rust contracts; executable-data test | TODO |
+| D02 | schemas.ts:243 expandRowGenerator rows land at row 2 when startRow=10 | off-by-one geometry | one geometry | TODO |
+| D03 | xlsxEngine sanitizeValue:26 strips "%"; fmtCell ≤1.5 heuristic | 25% → 2500% | shared typed cell model (percent fractions, dates, currency, diagnostics) | TODO |
+| D04 | xlsxEngine:135 writes "Total" over numeric first col | overwrite | label col separated | TODO |
+| D05 | recalc.ts:65 global string replace of _xlfn./_xlws. | corrupts literals | token-wise replace only | TODO |
+| D06 | recalc.ts:98 seeds 1 → RAND identical forever | volatile hidden | volatile runtime; pinned only on request; one snapshot preview=export | TODO |
+| D07 | spill cells lost (XlsxBlock:181 anchors only; xlsxEngine:199 anchor caches) | footprint lost | spill footprint, conflicts, native serialization or report before success | TODO |
+| D08 | sheet-name truncate-31 no formula rewrite; `/`+dups → ExcelJS 500 | late crash | early 422 or token-aware mapping | TODO |
+| D09 | xlsxEngine:182 chart render error → success w/o charts | silent partial | typed failure/partial state | TODO |
+| D10 | xlsxEngine:123 validation list joined into one quoted string; cfRuleToExcel escaping | broken lists | range-backed lists, proper escaping | TODO |
+| D11 | docxEngine:89 trusts truthy sections; {type:"p",content:"SENTINEL"} loses content; missing table headers crash | no boundary validation | validate at engine boundary | TODO |
+| D12 | docxEngine:63 table width from first row truncates longer rows | tail loss | rectangular normalization + repeated headers | TODO |
+| D24 | resumeHtml.ts dateLocation only when heading truthy | field coupling | preserve independently | TODO |
+
+## Phase 6 — PPTX & Power BI
+
+| ID | Source / function | Root cause | Fix target | Status |
+|---|---|---|---|---|
+| D13 | pptxEngine title/hero omit bullets; split case:163 omits chart | content dropped | emit all content (package had 0 chart parts) | TODO |
+| D14 | table rowH 0.42 no pagination; overflow | 100-row table = 42 in on 7.5 in slide | paginate w/ repeated headers; slide order/shape IDs/motion plan | TODO |
+| D15 | schemas.ts:430 allows #RGB; pptxEngine.hex() 3-digit → black | invalid color | canonicalize 6-digit; readable foregrounds | TODO |
+| D16 | PptxSlideBody.tsx stat mangling ($120K→$120); withPrevious serialized; schedule duplicated; stepSchedule not native | preview/export drift | one schedule governs both; reduced motion honored | TODO |
+| D17 | powerbiEngine/powerbiValidate invented PBIP/PBIR/TMDL structure | invalid files | one real version per Microsoft schemas; genuine capability unavailable → report honestly | TODO |
+| D18 | PowerBiBlock evalDax:59 wrong DAX semantics (SUM-CALCULATE-[Measure]) | wrong math | correct supported semantics or reject | TODO |
+| D19 | powerbiValidate CRLF+quotes CSV bug; identifier regex rejects `Sales Region`; PowerBiBlock.tsx:149 hook after early return | parse + hooks violation | fix CSV/regex; unconditional hooks | TODO |
+
+## Phase 7 — HTTP, fences, browser lifecycle
+
+| ID | Source / function | Root cause | Fix target | Status |
+|---|---|---|---|---|
+| D20 | http.ts:33 raw-Unicode Content-Disposition | ByteString crash | RFC 5987 filename* + ASCII fallback + DocumentCard.download parsing + ext policy | TODO |
+| D21 | fenceRepair.ts:123 catches JSON not normalizer throws; normalizeChartLite zeros invalid/null crash; useChat:507 repairs shallow; contracts.ts:17 false "validated" | repair blind to real errors | typed validation → bounded repair w/ real diagnostics; truthful status | TODO |
+| D22 | schemas.ts:582 isBrokenHtmlFence rejects `<p>Hello</p>` | false positive | real fragment validation; opaque sandbox kept | TODO |
+| D23 | browser.ts:12 singleton reset only on launch failure; pdfEngine.ts:49/93 guards before try/finally leak pages | closed browser forever; page leaks | race-safe recovery; finally-block page close; unpdf proxy destroy | TODO |
+
+## Phase 8 — final gates
+
+- Full vitest + tsc + contracts:check + cargo test (touched crates only, never `cargo fmt --all`).
+- ONE final locked Playwright fix-rerun loop (per memory policy); respect prior command rejection.
+- Required completion report (changes / actual Playwright command + exit / failures / remaining work).
+- Status: TODO

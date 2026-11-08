@@ -199,10 +199,16 @@ describe("Zip64 and the 7za fallback", () => {
 describe("spreadsheet chart/media honest labeling (P5B)", () => {
   const SHEET = "xl/worksheets/sheet1.xml";
   const SS = "xl/sharedStrings.xml";
+  // D25 contract refresh: the xlsx reader no longer dumps the shared-string
+  // DICTIONARY — it reads CELLS. base() is now a minimal real OOXML workbook:
+  // the string lives in an <si> table entry, the sheet references it from a
+  // coordinate, and workbook.xml + rels give the sheet its name and order.
   const base = () => ({
     "[Content_Types].xml": strToU8("<?xml version=\"1.0\"?><Types/>"),
-    [SS]: strToU8("<sst><t>HEALTH-CHECK-CELL</t></sst>"),
-    [SHEET]: strToU8("<worksheet/>"),
+    "xl/workbook.xml": strToU8('<workbook><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    "xl/_rels/workbook.xml.rels": strToU8('<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'),
+    [SS]: strToU8("<sst><si><t>HEALTH-CHECK-CELL</t></si></sst>"),
+    [SHEET]: strToU8('<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>'),
   });
   const xlsx = (parts: Record<string, Uint8Array>) => Buffer.from(zipSync(parts));
 
@@ -239,7 +245,8 @@ describe("spreadsheet chart/media honest labeling (P5B)", () => {
 
   it("says nothing about charts/media when a sheet has neither", () => {
     const text = officeText(xlsx(base()), "xlsx");
-    expect(text).toBe("HEALTH-CHECK-CELL");
+    // D25 exact shape: named worksheet header + the cell with its coordinate.
+    expect(text).toBe("### worksheet: Sheet1\nA1=HEALTH-CHECK-CELL");
   });
 
   it("regression: fixture sheets without chart parts keep plain extraction", () => {

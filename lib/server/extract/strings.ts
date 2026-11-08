@@ -1,27 +1,51 @@
 /**
  * Recover printable text from binary files (legacy .doc/.xls/.ppt, .mat).
- * Scans both single-byte ASCII runs and UTF-16LE runs (OLE documents store
- * most of their text as UTF-16).
+ * Scans single-byte runs and UTF-16 runs.
+ *
+ * I10: the UTF-16 pass used to require a zero HIGH byte, so only ASCII
+ * survived — a legacy Word file written in Telugu/Chinese/Hindi came back
+ * looking empty. Real BMP characters are accepted now; surrogates and C1
+ * controls still break a run (they signal binary noise).
+ *
+ * Every recovered run is a *guess* from a byte scan — callers should label
+ * results from this module as lossy recovery.
  */
-export function extractStrings(buf: Buffer, minLen = 5): string {
+const MIN_RUN = 5;
+
+function isPrintableUnit(cp: number): boolean {
+  if (cp === 9 || cp === 10 || (cp >= 32 && cp < 127)) return true;
+  if (cp >= 0xa0 && cp <= 0xd7ff) return true; // Latin-1 supplement → CJK → private-use-adjacent; BMP scripts
+  if (cp >= 0xe000 && cp <= 0xfffd) return true; // includes private use; tolerate (legacy docs love ligature glyphs)
+  return false; // C1 controls, surrogates, noncharacters break the run
+}
+
+export function extractStrings(buf: Buffer, minLen = MIN_RUN): string {
   const runs: string[] = [];
+  const seen = new Set<string>();
+  const push = (s: string) => {
+    const t = s.trim();
+    if (t.length >= minLen && !seen.has(t)) { seen.add(t); runs.push(t); }
+  };
 
   // Single-byte runs.
   let cur = "";
   for (const b of buf) {
     if ((b >= 32 && b < 127) || b === 9) cur += String.fromCharCode(b);
-    else { if (cur.length >= minLen) runs.push(cur.trim()); cur = ""; }
+    else { push(cur); cur = ""; }
   }
-  if (cur.length >= minLen) runs.push(cur.trim());
+  push(cur);
 
-  // UTF-16LE runs (printable low byte, zero high byte).
-  let u = "";
-  for (let i = 0; i + 1 < buf.length; i += 2) {
-    const lo = buf[i], hi = buf[i + 1];
-    if (hi === 0 && ((lo >= 32 && lo < 127) || lo === 9)) u += String.fromCharCode(lo);
-    else { if (u.length >= minLen) runs.push(u.trim()); u = ""; }
+  // UTF-16 runs at either byte parity (OLE streams are aligned but text blocks
+  // are not guaranteed to be). High-byte==0 is no longer required.
+  for (const parity of [0, 1]) {
+    let u = "";
+    for (let i = parity; i + 1 < buf.length; i += 2) {
+      const cp = buf.readUInt16LE(i);
+      if (isPrintableUnit(cp)) u += String.fromCharCode(cp);
+      else { push(u); u = ""; }
+    }
+    push(u);
   }
-  if (u.length >= minLen) runs.push(u.trim());
 
   return runs.join("\n");
 }
