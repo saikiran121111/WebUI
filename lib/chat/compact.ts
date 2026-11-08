@@ -100,8 +100,17 @@ export interface CompactResult {
    * The replacement LLM message array, in wire shape:
    * [system?, user(compacted context), ...recent_tail]
    * — the standing system prompt (if any) is preserved at the front.
+   *
+   * Attachment evidence survives the swap (I04): tail messages carry their
+   * structured attachment stubs (client re-emits `attachment_ref` parts on
+   * the next send), and the compacted-context message carries the slim
+   * indexed stubs collected from the folded messages.
    */
-  replacementLlmMessages: Array<{ role: string; content: string }>;
+  replacementLlmMessages: Array<{
+    role: string;
+    content: string;
+    attachments?: Array<Record<string, unknown>>;
+  }>;
   /** Token cost of what was compacted (real usage when available). */
   beforeTokens: number;
   /** Token cost of the replacement history (estimate). */
@@ -201,9 +210,44 @@ export interface CompactMessage {
   role: string;
   content: string;
   reasoning?: string;
-  attachments?: Array<{ name?: string; text?: string; transcript?: string; spine?: string }>;
+  attachments?: Array<Record<string, any>>;
   usage?: { promptTokens?: number };
 }
+
+/**
+ * Slim structured stub for a replacement message (I04). Indexed attachments
+ * keep only the reference surface (id/indexId/spine/blobKey/metadata) — the
+ * next send emits an `attachment_ref` part and the server re-retrieves the
+ * real evidence, so the heavy text/transcript never has to ride in the
+ * history. Non-indexed ones keep their textual evidence but drop
+ * client-only previews and huge inlined binaries (region reads on originals
+ * return with the durable-originals work, I26 — honest limitation).
+ */
+export function compactAttachmentStub(a: Record<string, any>): Record<string, unknown> | null {
+  if (!a || (!a.indexed && !a.id && !a.name)) return null;
+  if (a.indexed) {
+    const stub: Record<string, unknown> = {
+      id: a.id,
+      indexId: a.indexId ?? a.id,
+      name: a.name,
+      kind: a.kind,
+      mime: a.mime,
+      size: a.size,
+      status: a.status ?? "complete",
+      indexed: true,
+    };
+    if (a.category) stub.category = a.category;
+    if (a.blobKey) stub.blobKey = a.blobKey;
+    if (a.spine) stub.spine = a.spine;
+    return stub;
+  }
+  const { previewUrl, frames, dataUrl, ...rest } = a;
+  return rest;
+}
+
+/** Cap on reference stubs re-attached to the compacted-context message:
+ *  each one re-emits an intro + spine into the prompt budget. */
+const MAX_COMPACT_REF_STUBS = 12;
 
 export async function compactConversation(
   messages: CompactMessage[],
@@ -217,6 +261,8 @@ export async function compactConversation(
     maxTokens?: number;
     /** Override the tail size for a forced manual compact of a tiny chat. */
     mode?: CompactMode;
+    /** Caller-owned cancellation (I28): aborts the in-flight compaction call. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<CompactResult> {
   const tailSize = opts.tailSize ?? RECENT_TAIL;
@@ -263,6 +309,10 @@ export async function compactConversation(
   // 2 min cap all by itself. The purpose marker strips the decision/gate
   // pipeline from this call, so the wait is prefill + summary generation only.
   const timer = setTimeout(() => controller.abort(), 300_000); // 5 min hard cap
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
   try {
     await client.chat(
       {
@@ -306,6 +356,25 @@ export async function compactConversation(
     clearTimeout(timer);
   }
 
+  // ABORT GUARD (latent compaction bug): ChatClient resolves normally when
+  // the stream is cancelled (the parser maps an abort to a finishReason
+  // event, not a throw), so `reply` can be a PARTIAL summary at this point.
+  // A partial <compacted_context> must never be promoted to the canonical
+  // history — the fold would silently lose everything after the cut.
+  if (controller.signal.aborted) {
+    return {
+      ok: false,
+      compacted: false,
+      context: "",
+      compactedMessages: 0,
+      replacementLlmMessages: messages.map(toWireMessage),
+      beforeTokens: before,
+      afterTokens: before,
+      label: "Compaction cancelled",
+      error: opts.signal?.aborted ? "compaction cancelled by caller" : "compaction timed out (5 min hard cap)",
+    };
+  }
+
   const context = extractCompactedContext(reply);
   if (!context) {
     return {
@@ -324,9 +393,44 @@ export async function compactConversation(
   // The replacement LLM history: the ONE compacted user message + the raw
   // tail. The app's standing system prompt (if any) is prepended by the
   // caller — the pipeline stays transport-agnostic.
-  const replacementLlmMessages: Array<{ role: string; content: string }> = [
-    { role: "user", content: "<compacted_context>\n" + context + "\n</compacted_context>" },
-    ...tail.map(toWireMessage),
+  //
+  // Structured evidence survives (I04): the compacted-context message carries
+  // slim indexed stubs collected from the folded messages (deduped by
+  // indexId/id, newest kept), and every tail message keeps its own structured
+  // stubs with RAW content — the client re-flattens attachment text into the
+  // prompt at send time, so baking the inline text into `content` as well
+  // would double-send it.
+  const seenRefs = new Set<string>();
+  const foldedRefs: Array<Record<string, unknown>> = [];
+  for (const m of toCompact) {
+    for (const a of m.attachments ?? []) {
+      // Indexed only: the server can re-retrieve its evidence from the index
+      // on the next send. A folded NON-indexed attachment's text was already
+      // inlined into the compaction payload (toWireMessage) and belongs in
+      // the summary — re-attaching its raw text stub would double-send it.
+      if (!a.indexed) continue;
+      const key = String(a.indexId ?? a.id ?? a.name ?? "");
+      if (!key || seenRefs.has(key)) continue;
+      seenRefs.add(key);
+      const stub = compactAttachmentStub(a);
+      if (stub) foldedRefs.push(stub);
+    }
+  }
+  const keptRefs = foldedRefs.slice(-MAX_COMPACT_REF_STUBS);
+
+  const replacementLlmMessages: Array<{ role: string; content: string; attachments?: Array<Record<string, unknown>> }> = [
+    {
+      role: "user",
+      content: "<compacted_context>\n" + context + "\n</compacted_context>",
+      ...(keptRefs.length ? { attachments: keptRefs } : {}),
+    },
+    ...tail.map((m) => {
+      const structured = (m.attachments ?? [])
+        .map(compactAttachmentStub)
+        .filter((s): s is Record<string, unknown> => !!s);
+      if (!structured.length) return toWireMessage(m);
+      return { role: m.role, content: m.content ?? "", attachments: structured };
+    }),
   ];
 
   // Preserve any standing system prompt (role "system") the caller had at the

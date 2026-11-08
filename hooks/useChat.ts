@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
+import type { Attachment, ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
 import { handleBrowserStage } from "../lib/browser-client/browserStore";
 import {
@@ -115,6 +115,22 @@ export function useChat({
   //     [system?, compacted-context message, ...recent tail, ...new turns].
   const compactThresholdsRef = useRef<CompactThresholds | null>(null);
   const compactingRef = useRef(false);
+  // ── Compaction ownership (I28) ───────────────────────────────────────
+  // `llmHistoryRef` belongs to ONE conversation at a time. Every history
+  // transition (load/clear/edit/retry) bumps `historyGenRef` and aborts any
+  // in-flight compaction; when a compaction resolves it must check that its
+  // captured generation is still current — otherwise a slow summary from the
+  // PREVIOUS chat would overwrite the NEW chat's model-facing history.
+  const historyGenRef = useRef(0);
+  const compactCtrlRef = useRef<AbortController | null>(null);
+  const releaseCompactOwnership = useCallback(() => {
+    historyGenRef.current++;
+    if (compactCtrlRef.current) {
+      compactCtrlRef.current.abort();
+      compactCtrlRef.current = null;
+    }
+    compactingRef.current = false;
+  }, []);
   // Latest getters without re-render coupling (Phase 10 browser markers).
   const getBrowserSessionRef = useRef(getBrowserSession);
   getBrowserSessionRef.current = getBrowserSession;
@@ -176,6 +192,10 @@ export function useChat({
   ): Promise<CompactResult | null> => {
     if (compactingRef.current) return null;
     compactingRef.current = true;
+    // I28: bind this run to the history generation it was started against.
+    const gen = historyGenRef.current;
+    const ctrl = new AbortController();
+    compactCtrlRef.current = ctrl;
 
     // Fold the finished previous turn into the active LLM array first, so
     // compaction always runs against the real model-facing history.
@@ -201,8 +221,13 @@ export function useChat({
     try {
       const result = await compactConversation(
         llmHistoryRef.current.map(wireMessage),
-        { model, apiUrl, apiKey, mode },
+        { model, apiUrl, apiKey, mode, signal: ctrl.signal },
       );
+
+      // I28: the conversation was swapped mid-flight (load/clear/edit/retry
+      // bumped the generation) — this result belongs to a dead history.
+      // Discard it and publish NOTHING against the new chat.
+      if (gen !== historyGenRef.current) return null;
 
       if (result.compacted) {
         // The LLM array becomes: [system?, compacted context, ...recent tail].
@@ -214,7 +239,10 @@ export function useChat({
           role: lm.role as Message["role"],
           content: lm.content,
           reasoning: "",
-          attachments: [],
+          // I04: the pipeline hands back structured attachment stubs (slim
+          // indexed refs on the compacted message, full-text stubs on the
+          // tail) so evidence re-enters the prompt on the next send.
+          attachments: (lm.attachments as Attachment[] | undefined) ?? [],
           toolCalls: [],
           citations: [],
           createdAt: Date.now(),
@@ -230,6 +258,7 @@ export function useChat({
       }
       return result;
     } catch (e) {
+      if (gen !== historyGenRef.current) return null;
       const failed: CompactResult = {
         ok: false,
         compacted: false,
@@ -244,8 +273,13 @@ export function useChat({
       setCompactState((s) => ({ ...s, lastRun: failed, badgeAt }));
       return failed;
     } finally {
-      compactingRef.current = false;
-      setCompactState((s) => ({ ...s, isCompacting: false }));
+      // Only the CURRENT run may clear the flag: a superseded one already
+      // had its ownership released by the transition that bumped the gen.
+      if (compactCtrlRef.current === ctrl) {
+        compactingRef.current = false;
+        compactCtrlRef.current = null;
+        setCompactState((s) => ({ ...s, isCompacting: false }));
+      }
     }
   }, [model, apiUrl, apiKey, wireMessage, materializeLlmHistory]);
 
@@ -360,6 +394,7 @@ export function useChat({
   }, []);
 
   const load = useCallback((conversation: Conversation) => {
+    releaseCompactOwnership(); // I28: an in-flight compact must not survive the swap
     setMessages(conversation.messages ?? []);
     messagesRef.current = conversation.messages ?? [];
     // A new conversation always starts with a fresh LLM history that
@@ -381,9 +416,10 @@ export function useChat({
     progressRef.current = null;
     fenceOpenedRef.current = false;
     setTurnProgress(null);
-  }, [stopProgressTick]);
+  }, [stopProgressTick, releaseCompactOwnership]);
 
   const clear = useCallback(() => {
+    releaseCompactOwnership(); // I28
     abortRef.current?.abort();
     abortRef.current = null;
     setMessages([]);
@@ -407,7 +443,7 @@ export function useChat({
     progressRef.current = null;
     fenceOpenedRef.current = false;
     setTurnProgress(null);
-  }, [stopProgressTick]);
+  }, [stopProgressTick, releaseCompactOwnership]);
 
   const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
     if (abort?.signal.aborted) return;
@@ -813,6 +849,7 @@ export function useChat({
 
   const retry = useCallback(() => {
     if (lastInputRef.current) {
+      releaseCompactOwnership(); // I28: the rewind invalidates any in-flight fold
       const { text, mode, attachments } = lastInputRef.current;
       // Compute the filtered history synchronously from messagesRef (kept
       // current by the render-time sync) — the rewind below must see it
@@ -844,26 +881,32 @@ export function useChat({
       setError(null);
       send(text, { mode, attachments });
     }
-  }, [send]);
+  }, [send, releaseCompactOwnership]);
 
   const edit = useCallback((id: string, newContent: string) => {
+    releaseCompactOwnership(); // I28: rewinding invalidates an in-flight fold
     abortRef.current?.abort();
     abortRef.current = null;
 
     const prev = messagesRef.current;
     const idx = prev.findIndex(m => m.id === id);
     if (idx < 0) return;
+    const orig = prev[idx];
     const filtered = prev.slice(0, idx);
     messagesRef.current = filtered;
     llmHistoryRef.current = filtered; // an edit rewinds both histories
     // Discard any pending rebuild — its base/uiLen predate the edit and its
     // re-slice would re-append the truncated messages at the next send.
     llmPendingRef.current = null;
-    lastInputRef.current = { text: newContent, mode: "chat", attachments: [] };
+    // I27: re-sending an edited message must keep its evidence — the
+    // original attachments and mode ride along (previously they were
+    // dropped: an edited "summarize this PDF" went out bare).
+    const resend = { mode: orig.mode ?? "chat", attachments: orig.attachments ?? [] };
+    lastInputRef.current = { text: newContent, mode: resend.mode, attachments: resend.attachments };
     setMessages(filtered);
     setStatus("complete");
-    setTimeout(() => send(newContent), 0);
-  }, [send]);
+    setTimeout(() => send(newContent, resend), 0);
+  }, [send, releaseCompactOwnership]);
 
   return {
     messages, status, error, isThinking, reasoningContent,

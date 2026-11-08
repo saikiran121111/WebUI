@@ -41,6 +41,9 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
   let resolve: ((v: IteratorResult<StreamEvent, void>) => void) | null = null;
   let done = false;
   let error: unknown = null;
+  // Stream-completion flags (shared between pump() and deliver()).
+  let sawDone = false;    // [DONE] sentinel seen
+  let sawFinish = false;  // a finish_reason (incl. ruke_error) was delivered
 
   const pump = async () => {
     try {
@@ -64,23 +67,38 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
       if (!res.body) throw new Error("No response body from upstream");
 
       reader = res.body.getReader();
-      let buf = "";
 
+      // I01: the SSE parser owns the incomplete-frame buffer. Feed ONLY the
+      // newly decoded bytes each read — never a returned tail.
       while (true) {
         const { value, done: eof } = await reader.read();
         if (eof) break;
-        buf += decoder.decode(value, { stream: true });
-        const { events, done: sseDone, tail } = sse(buf);
-        buf = tail;                       // keep only the incomplete trailing frame
+        const { events, done: sseDone } = sse(decoder.decode(value, { stream: true }));
         for (const e of events) deliver(e.data);
-        if (sseDone) break;
+        if (sseDone) { sawDone = true; break; }
       }
 
-      // Flush anything still buffered as the last incomplete frame.
-      if (buf) {
-        const { events } = sse(buf);
-        for (const e of events) deliver(e.data);
+      if (!sawDone) {
+        // EOF without [DONE]: flush the decoder (incomplete multibyte tail),
+        // then let the SSE parser parse its remaining buffer once as the
+        // final unterminated record.
+        const mid = sse(decoder.decode());
+        for (const e of mid.events) deliver(e.data);
+        if (mid.done) sawDone = true;
+        const rest = sse.flush();
+        for (const e of rest.events) deliver(e.data);
+        if (rest.done) sawDone = true;
       }
+
+      // Release any text the think-splitter was holding back (partial tag at
+      // end of stream is literal text, not a delimiter).
+      const sf = splitter.flush();
+      if (sf.reasoning) push({ reasoning: sf.reasoning });
+      if (sf.content) push({ content: sf.content });
+
+      // The upstream closed without ever ending the turn — the stream was
+      // truncated. Say so instead of pretending the answer completed.
+      if (!sawDone && !sawFinish) push({ finishReason: "error" });
 
       // Finalise any tool calls still mid-stream.
       const flushed = acc.flush();
@@ -119,6 +137,7 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
     if (json?.ruke_stage) { push({ stage: json.ruke_stage }); return; }
     if (json?.ruke_error) {
       // Same surface as today's non-200 upstream: finishReason "error".
+      sawFinish = true;
       push({ finishReason: "error" });
       return;
     }
@@ -146,6 +165,7 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
       }
     }
     if (finish) {
+      sawFinish = true;
       // Flush all tool calls at finish.
       const flushed = acc.flush();
       for (const t of flushed) {

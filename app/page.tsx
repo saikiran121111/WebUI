@@ -19,7 +19,7 @@ import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 // so the page mount is unconditional and cheap. Never in the initial
 // bundle (CLAUDE.md §5.1).
 const BrowserPanel = dynamic(() => import("../components/browser/BrowserPanel"), { ssr: false });
-import type { Attachment, ConversationMeta, EffortLevel } from "../lib/types";
+import type { Attachment, Conversation, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
@@ -138,6 +138,37 @@ export default function HomePage() {
   // bumping updatedAt and yanking the row to the top of the sidebar.
   const syncedMessagesRef = useRef<string>("");
 
+  // I03: a failed save is VISIBLE state, never a swallowed rejection. Bounded
+  // recovery: exactly one automatic retry per failure, then an honest banner
+  // with a manual retry. Nothing is ever lost in the meantime — the in-memory
+  // `messages` still hold everything; only the disk copy is missing.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveTick, setSaveTick] = useState(0);
+  const saveAttemptsRef = useRef(0);
+  const saveRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retrySaveNow = useCallback(() => {
+    setSaveError(null);
+    saveAttemptsRef.current = 0;
+    setSaveTick(t => t + 1);
+  }, []);
+
+  // Meta-only saves (pin/archive/rename/unread) go through here: a failed
+  // write must not leave the UI presenting the change as persisted (I03).
+  // Resetting the sync guard lets the next settle re-persist the meta from
+  // `conversationsRef` alongside the messages. `silent: true` covers purely
+  // cosmetic writes (the unread dot) where a banner would be noise — the
+  // guard reset still self-heals on the next save.
+  const persistMetaSave = useCallback(async (conv: Conversation, opts?: { silent?: boolean }) => {
+    try {
+      await saveConversation(conv);
+    } catch {
+      syncedMessagesRef.current = "";
+      if (!opts?.silent) {
+        setSaveError(`Failed to save "${conv.meta.title || "conversation"}" — the change is not persisted. Use "Retry save" when the backend is available.`);
+      }
+    }
+  }, []);
+
   // Persist messages when they settle — NOT on every streamed token.
   // While a reply is streaming, `messages` changes on every SSE chunk; saving
   // there fired a POST /api/conversations + GET refresh per token (log flood +
@@ -191,6 +222,8 @@ export default function HomePage() {
     // never affect the conversation itself.
     saveConversation({ id: convId, meta, messages })
       .then(() => {
+        saveAttemptsRef.current = 0;
+        setSaveError(null);
         refreshList();
         return requestTitleGeneration(convId, process.env.NEXT_PUBLIC_MODEL_ID ?? "");
       })
@@ -200,8 +233,31 @@ export default function HomePage() {
             c.id === convId ? { ...c, title: t.title!, titleSource: "auto" } : c));
         }
       })
-      .catch(() => {});
-  }, [messages, activeId, status, refreshList]);
+      .catch(() => {
+        // Bounded recovery (I03): ONE automatic retry coalesced through the
+        // effect (never a stale payload), then the visible banner. The guard
+        // reset is what re-arms the save — the unsaved snapshot differs.
+        syncedMessagesRef.current = "";
+        const attempts = ++saveAttemptsRef.current;
+        if (attempts === 1) {
+          if (saveRetryTimerRef.current) clearTimeout(saveRetryTimerRef.current);
+          saveRetryTimerRef.current = setTimeout(() => {
+            saveRetryTimerRef.current = null;
+            setSaveTick(t => t + 1);
+          }, 1500);
+        } else {
+          setSaveError("Failed to save this conversation — your messages are safe in memory but NOT on disk. Use \"Retry save\" when the backend is available.");
+        }
+      });
+    return () => {
+      // A newer settle supersedes a pending auto-retry (this effect re-runs
+      // and saves the latest snapshot itself).
+      if (saveRetryTimerRef.current) {
+        clearTimeout(saveRetryTimerRef.current);
+        saveRetryTimerRef.current = null;
+      }
+    };
+  }, [messages, activeId, status, refreshList, saveTick]);
 
   // Follow the stream by pinning the container to the bottom. A smooth
   // scrollIntoView per chunk cancels the previous in-flight animation and
@@ -295,7 +351,9 @@ export default function HomePage() {
       // user-set marker, so persist it; no updatedAt bump → no reorder).
       if (conv.meta.unread) {
         conv.meta.unread = false;
-        saveConversation(conv).catch(() => {});
+        // Cosmetic badge write: failure self-heals via the guard reset, no
+        // banner noise (persistMetaSave never rejects).
+        persistMetaSave(conv, { silent: true });
         setConversations(prev => prev.map(c =>
           c.id === id ? { ...c, unread: false } : c));
       }
@@ -350,7 +408,7 @@ export default function HomePage() {
     if (!conv) return;
     conv.meta.pinned = !conv.meta.pinned;
     conv.meta.updatedAt = Date.now();
-    await saveConversation(conv);
+    await persistMetaSave(conv);
     refreshList();
   }, [refreshList]);
 
@@ -359,7 +417,7 @@ export default function HomePage() {
     if (!conv) return;
     conv.meta.archived = !conv.meta.archived;
     conv.meta.updatedAt = Date.now();
-    await saveConversation(conv);
+    await persistMetaSave(conv);
     listConversations().then(setConversations);
   }, []);
 
@@ -372,7 +430,7 @@ export default function HomePage() {
       // Manual ownership: the server's title job and merge rule both refuse
       // to overwrite a title the user renamed.
       conv.meta.titleSource = "manual";
-      await saveConversation(conv);
+      await persistMetaSave(conv);
       listConversations().then(setConversations);
     }
   }, []);
@@ -388,7 +446,7 @@ export default function HomePage() {
       if (!conv) continue;
       mutate(conv.meta);
       if (bumpUpdatedAt) conv.meta.updatedAt = Date.now();
-      await saveConversation(conv);
+      await persistMetaSave(conv);
     }
     refreshList();
   }, [refreshList]);
@@ -488,6 +546,22 @@ export default function HomePage() {
                     text-white/80 hover:bg-white/[0.07]
                     border border-[rgba(255,255,255,0.12)] transition-colors duration-[120ms] flex items-center gap-1">
                   <RefreshCw className="w-3 h-3" /> Retry
+                </button>
+              </motion.div>
+            )}
+
+            {saveError && (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                className="mt-3 flex items-start gap-2.5 px-4 py-3 rounded-xl bg-white/[0.03] border border-[rgba(255,255,255,0.12)]">
+                <AlertCircle className="w-4 h-4 text-white/60 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-[13px] text-white/70">{saveError}</p>
+                </div>
+                <button onClick={retrySaveNow}
+                  className="px-2.5 py-1 text-[11px] font-medium rounded-md
+                    text-white/80 hover:bg-white/[0.07]
+                    border border-[rgba(255,255,255,0.12)] transition-colors duration-[120ms] flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3" /> Retry save
                 </button>
               </motion.div>
             )}

@@ -16,12 +16,26 @@ export async function getConversation(id: string): Promise<Conversation | null> 
   try { return (await res.json()) as Conversation; } catch { return null; }
 }
 
+/**
+ * A failed conversation save (I03). Carries the HTTP status so callers can
+ * tell a transport failure from a rejected write; a thrown error — not a
+ * silent resolve — is the contract: the UI must never present an unsaved
+ * conversation as saved.
+ */
+export class SaveError extends Error {
+  constructor(public status: number, message?: string) {
+    super(message ?? `Save failed: HTTP ${status}`);
+    this.name = "SaveError";
+  }
+}
+
 export async function saveConversation(conv: Conversation): Promise<void> {
-  await fetch("/api/conversations", {
+  const res = await fetch("/api/conversations", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ id: conv.id, json: JSON.stringify(conv) }),
   });
+  if (!res.ok) throw new SaveError(res.status);
 }
 
 export async function deleteConversation(id: string): Promise<boolean> {
