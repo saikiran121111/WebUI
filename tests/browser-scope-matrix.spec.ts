@@ -79,7 +79,13 @@ async function tabUrl(e2e: BrowserE2E, tabId: string): Promise<string> {
 }
 
 async function tabBySuffix(e2e: BrowserE2E, suffix: string) {
-  return (await e2e.listTabs()).find((t) => (t.url ?? "").endsWith(suffix));
+  // Normalize "not found" to null (Array.find answers undefined): the
+  // RESCOPE negative guard asserts .toBeNull() — an undefined miss made
+  // that guard FAIL on a provably CLEAN engine (run 2, 2026-11-07:
+  // "Received: undefined" — the closeTab sweep had already removed the
+  // ROUTING debris; only the miss-shape lied). Positive call sites are
+  // unaffected: ?., !, and Boolean() treat null exactly like undefined.
+  return (await e2e.listTabs()).find((t) => (t.url ?? "").endsWith(suffix)) ?? null;
 }
 
 /** Sweep ALL journey debris before a journey starts and after it ends.
@@ -94,6 +100,28 @@ async function tabBySuffix(e2e: BrowserE2E, suffix: string) {
  *  prior failures). One spare blank tab is left alive when it's the last
  *  tab standing — closing Chromium's final tab can kill the window the
  *  CDP connection rides on. */
+/** Close one junk tab from the sweep. The sweep runs under the HUMAN turn
+ *  key ("default","ui"), but a deliverable-marked MODEL tab carries the
+ *  model's turn key in `created_by_turn` — the executor's ownership floor
+ *  (session.rs can_act_on: only tabs created-by-this-key or CLAIMED-by-
+ *  this-key are mutable) refuses the raw `tab_close` with CapabilityBlocked.
+ *  A blind close therefore silently no-ops on exactly the debris that
+ *  survives turn cleanup by design (the ROUTING→RESCOPE failure, 2026-11-07:
+ *  the quipqort deliverable tab outlived its turn and the swallowed close
+ *  error hid it). The claim is the human's own prerogative — the same
+ *  `browser_user_claim_tab` the panel rides ("return to agent", proven under
+ *  the "ui" identity in fixture_journeys.rs) — and claims[tab]="ui" makes
+ *  can_act_on pass for the retry. Claim failures (tab already gone under a
+ *  sibling sweep) fall through to the close's final catch. */
+async function closeTab(e2e: BrowserE2E, tabId: string): Promise<void> {
+  try {
+    await e2e.command("tab_close", { tab_id: tabId });
+  } catch {
+    await e2e.command("browser_user_claim_tab", { tab_id: tabId }).catch(() => {});
+    await e2e.command("tab_close", { tab_id: tabId }).catch(() => {});
+  }
+}
+
 async function sweepTabs(e2e: BrowserE2E): Promise<void> {
   const tabs = await e2e.listTabs().catch(() => []);
   const junk = tabs.filter((t) => {
@@ -109,18 +137,24 @@ async function sweepTabs(e2e: BrowserE2E): Promise<void> {
     );
   });
   if (junk.length === tabs.length && tabs.length > 0) {
-    // Keep one tab alive (prefer a blank one) so the browser never dies
-    // mid-suite; it is re-swept next round once other tabs exist.
-    const spare = junk.find((t) => !(t.url ?? "").startsWith("http"));
-    if (spare) {
-      await Promise.all(
-        junk.filter((t) => t.tab_id !== spare.tab_id).map((t) => e2e.command("tab_close", { tab_id: t.tab_id }).catch(() => {})),
-      );
-      return;
+    // Keep one tab alive so the browser never dies mid-suite. Claim-then-
+    // close (closeTab) makes agent-created deliverable tabs genuinely
+    // closable, so a set of all-http junk must not be closed to zero —
+    // seed a fresh blank tab (about:blank, "ui"-owned so later sweeps can
+    // close it) whenever no blank spare exists, then sweep the original
+    // junk. The blank is re-swept next round once other tabs exist.
+    let spare = junk.find((t) => !(t.url ?? "").startsWith("http"));
+    if (!spare) {
+      const r = await e2e.command("tab_new").catch(() => null);
+      spare = { tab_id: (r?.tab_id as string | undefined) ?? "" };
     }
+    for (const t of junk) {
+      if (t.tab_id !== spare.tab_id) await closeTab(e2e, t.tab_id!);
+    }
+    return;
   }
   for (const t of junk) {
-    await e2e.command("tab_close", { tab_id: t.tab_id }).catch(() => {});
+    await closeTab(e2e, t.tab_id!);
   }
 }
 
