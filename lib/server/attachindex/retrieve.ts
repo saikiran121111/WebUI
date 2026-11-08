@@ -14,6 +14,12 @@ export interface Evidence {
   /** Timestamps of winning chunks — the chat route picks nearest keyframes. */
   frameAts: number[];
   truncated: boolean;
+  /**
+   * I20: how many ranked candidates this turn's budget (or the demote list)
+   * left unserved. The turn layer turns that number into an honest marker
+   * instead of letting "more exists, count unknown" stand.
+   */
+  dropped: number;
 }
 
 function dot(a: number[], b: number[]): number {
@@ -42,27 +48,48 @@ function rrfFuse(lists: number[][]): Map<number, number> {
 /**
  * Pack chunk ids by descending priority within the char budget, then emit
  * them chronologically so the model reads the course in order.
+ *
+ * I20: ids in `demote` (passages an earlier turn already served for this
+ * attachment) are held back so a follow-up turn sees FRESH passages instead
+ * of the same top hits. They are only used when nothing else was picked at
+ * all — an honest repeat beats an empty answer. Every unserved candidate is
+ * counted in `dropped` for the turn's honest marker.
  */
-function pack(index: LoadedIndex, priority: Map<number, number>, budget: number): Evidence {
+function pack(
+  index: LoadedIndex,
+  priority: Map<number, number>,
+  budget: number,
+  demote?: number[],
+): Evidence {
   const chunks = index.chunks;
   const ordered = [...priority.entries()]
     .filter(([i]) => i >= 0 && i < chunks.length)
     .sort((a, b) => b[1] - a[1]);
 
+  const demoteSet = demote?.length ? new Set(demote) : null;
+  const fresh = demoteSet ? ordered.filter(([i]) => !demoteSet.has(i)) : ordered;
+  const held = demoteSet ? ordered.filter(([i]) => demoteSet.has(i)) : [];
+
   const picked: number[] = [];
   let used = 0;
   let truncated = false;
-  for (const [i] of ordered) {
-    const c = chunks[i];
-    const h = header(c);
-    const cost = c.text.length + (h ? h.length + 1 : 0) + (picked.length ? 2 : 0);
-    if (used + cost > budget) {
-      truncated = true;
-      continue; // keep scanning — a smaller chunk may still fit
+  const fill = (list: Array<[number, number]>) => {
+    for (const [i] of list) {
+      const c = chunks[i];
+      const h = header(c);
+      const cost = c.text.length + (h ? h.length + 1 : 0) + (picked.length ? 2 : 0);
+      if (used + cost > budget) {
+        truncated = true;
+        continue; // keep scanning — a smaller chunk may still fit
+      }
+      picked.push(i);
+      used += cost;
     }
-    picked.push(i);
-    used += cost;
-  }
+  };
+  fill(fresh);
+  if (!picked.length) fill(held);
+
+  const dropped = ordered.length - picked.length;
   picked.sort((a, b) => a - b);
 
   const text = picked
@@ -75,12 +102,16 @@ function pack(index: LoadedIndex, priority: Map<number, number>, budget: number)
   const frameAts = picked
     .map(i => chunks[i].startSec)
     .filter((n): n is number => n != null);
-  return { text, chunkIdxs: picked, frameAts, truncated };
+  return { text, chunkIdxs: picked, frameAts, truncated, dropped };
 }
 
 export interface RetrieveOpts extends RoutedQuery {
   /** Inclusive chunk range override (sequential mode via a spine block). */
   range?: { from: number; to: number };
+  /** Chunk ids already shown to this conversation this turn (I20 demote). */
+  demote?: number[];
+  /** Char budget override; defaults to ATTACH_RETRIEVE_CHARS (I05 turn budget). */
+  budget?: number;
 }
 
 /**
@@ -98,14 +129,14 @@ export function retrieveEvidence(
   opts: RetrieveOpts,
 ): Evidence {
   const chunks = index.chunks;
-  const budget = BUDGET;
+  const budget = opts.budget ?? BUDGET;
 
   if (opts.mode === "sequential" && opts.range) {
     const priority = new Map<number, number>();
     for (let i = opts.range.from; i <= opts.range.to && i < chunks.length; i++) {
       if (i >= 0) priority.set(i, 1);
     }
-    return pack(index, priority, budget);
+    return pack(index, priority, budget, opts.demote);
   }
 
   if (opts.mode === "time_range" && opts.fromSec != null) {
@@ -115,17 +146,27 @@ export function retrieveEvidence(
       if (c.startSec == null) continue;
       if ((c.endSec ?? c.startSec) >= opts.fromSec && c.startSec <= to) priority.set(c.i, 1);
     }
-    return pack(index, priority, budget);
+    return pack(index, priority, budget, opts.demote);
   }
 
   // Hybrid: vector + BM25 fused with RRF.
   const cos = chunks.map(c => dot(queryVec, c.vec));
   const bm = bm25Scores(query, chunks.map(c => tokenize(c.text)));
   const ids = chunks.map(c => c.i);
-  const byCos = [...ids].sort((a, b) => cos[b] - cos[a]).slice(0, 20);
-  const byBm = [...ids].sort((a, b) => bm[b] - bm[a]).filter(i => bm[i] > 0).slice(0, 20);
+  // I20: an exhaustive sweep considers EVERY chunk, not the head of each
+  // channel — the budget (not a 20-candidate lens) is what caps the output.
+  const cap = opts.mode === "exhaustive" ? ids.length : 20;
+  // I21: an unavailable embedder leaves queryVec empty, and an all-zero
+  // cosine channel would vote arbitrary chunk order into the fusion. With
+  // no vector there is no cosine channel: BM25 ranks on its own.
+  const hasVec = queryVec.length > 0;
+  const byCos = hasVec ? [...ids].sort((a, b) => cos[b] - cos[a]).slice(0, cap) : [];
+  const byBm = [...ids]
+    .sort((a, b) => bm[b] - bm[a])
+    .filter(i => bm[i] > 0)
+    .slice(0, cap);
 
-  const fused = rrfFuse([byCos, byBm]);
+  const fused = rrfFuse(hasVec ? [byCos, byBm] : [byBm]);
   let seeds = [...fused.entries()].sort((a, b) => b[1] - a[1]);
   if (opts.mode !== "exhaustive") seeds = seeds.slice(0, TOP_K);
 
@@ -140,5 +181,5 @@ export function retrieveEvidence(
       }
     }
   }
-  return pack(index, priority, budget);
+  return pack(index, priority, budget, opts.demote);
 }

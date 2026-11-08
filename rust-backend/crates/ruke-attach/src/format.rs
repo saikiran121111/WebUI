@@ -5,7 +5,9 @@
 //! non-overlapping) — identical semantics to the regex without pulling a
 //! compile for it.
 
-use ruke_skills::jsstr::{js_len, js_slice_head, js_slice_tail, js_trim, js_trim_end, js_trim_start};
+use ruke_skills::jsstr::{
+    js_len, js_slice_head, js_slice_tail, js_trim, js_trim_end, js_trim_start,
+};
 
 /// `fmtStamp`: `[HH:MM:SS]` with `Math.max(0, Math.round(sec))` first.
 /// JS `Math.round` rounds half toward +∞ where Rust rounds half away from
@@ -136,28 +138,43 @@ mod tests {
 
     #[test]
     fn first_sentence_table() {
-        assert_eq!(first_sentence("Stomata regulate gas exchange. More text.", 90), "Stomata regulate gas exchange.");
+        assert_eq!(
+            first_sentence("Stomata regulate gas exchange. More text.", 90),
+            "Stomata regulate gas exchange."
+        );
         // No sentence terminator in the leading run ⇒ whole trimmed text.
-        assert_eq!(first_sentence("  no terminator here ", 90), "no terminator here");
+        assert_eq!(
+            first_sentence("  no terminator here ", 90),
+            "no terminator here"
+        );
         // Leading punctuation: regex can't match ⇒ fallback to whole trimmed text.
         assert_eq!(first_sentence("!. odd start.", 90), "!. odd start.");
         // Clip: slice(0,12) = "aaaaaaaaaa b" (10 a's + space + "b"), no
         // trailing WS to trim ⇒ +"...".
-        assert_eq!(first_sentence("aaaaaaaaaa bbbbbbbbbb c", 12), "aaaaaaaaaa b...");
+        assert_eq!(
+            first_sentence("aaaaaaaaaa bbbbbbbbbb c", 12),
+            "aaaaaaaaaa b..."
+        );
         // UTF-16 length counts (astral = 2 units).
         assert_eq!(first_sentence("a\u{1D54F}bcd", 2), "a...");
     }
 
     #[test]
     fn last_sentence_table() {
-        assert_eq!(last_sentence("One. Two sentence here!", 90), "Two sentence here!");
+        assert_eq!(
+            last_sentence("One. Two sentence here!", 90),
+            "Two sentence here!"
+        );
         // Multiple punctuation in a row: each punct advances separately.
         assert_eq!(last_sentence("a!!b", 90), "b");
         assert_eq!(last_sentence("no terminator ", 90), "no terminator");
         // Tail clip: slice(-12) of "aaaaaaaaaa bbbbbbbbbb" (21 units) is
         // "a bbbbbbbbbb" — the 10th "a" and the space ride along; the
         // slice does not start with WS ⇒ trimStart is a no-op.
-        assert_eq!(last_sentence("aaaaaaaaaa bbbbbbbbbb", 12), "...a bbbbbbbbbb");
+        assert_eq!(
+            last_sentence("aaaaaaaaaa bbbbbbbbbb", 12),
+            "...a bbbbbbbbbb"
+        );
         // Astral: JS keeps the lone low surrogate on slice(-2); Rust snaps
         // up past the pair (documented jsstr deviation) ⇒ "y".
         assert_eq!(last_sentence("x\u{1D54F}y", 2), "...y");

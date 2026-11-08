@@ -6,6 +6,13 @@ export interface RoutedQuery {
   toSec?: number;
   /** 0-based spine block for `sequential` ("module 2" → 1). */
   blockIndex?: number;
+  /**
+   * "last N minutes" (I22): a window anchored at the END of the content.
+   * The router has no index access, so the turn resolves this against
+   * `meta.durationSec` (time_range [dur − lastSec, dur]) and downgrades to
+   * `point_qa` best-effort when the duration is unknown.
+   */
+  lastSec?: number;
 }
 
 const HMS = /\b(\d{1,2}):([0-5]\d):([0-5]\d)\b/g;
@@ -47,11 +54,16 @@ export function routeQuery(q: string): RoutedQuery {
     return { mode: "time_range", fromSec: Math.max(0, c - 180), toSec: c + 180 };
   }
 
+  // I22: "show me the last 10 minutes" — no absolute anchor exists until
+  // the turn consults meta.durationSec.
+  const lastMin = /\blast\s+(\d{1,3})\s*(?:minutes?|mins?|m)\b/.exec(text);
+  if (lastMin) return { mode: "time_range", lastSec: +lastMin[1] * 60 };
+
   const block = /\b(?:module|section|chapter|part|lesson|unit)\s+(\d{1,2})\b/.exec(text);
   if (block) return { mode: "sequential", blockIndex: +block[1] - 1 };
 
   if (
-    /\b(every time|all (?:the )?times|how many times|list every|every mention|each mention|wherever|any time|mentioned how often)\b/.test(
+    /\b(every time|all (?:the )?times|how many times|list every|every mention|each mention|wherever|any time|mentioned how often|all (?:the )?mentions?|list all)\b/.test(
       text,
     )
   ) {

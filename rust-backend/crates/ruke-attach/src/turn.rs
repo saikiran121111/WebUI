@@ -23,14 +23,15 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use ruke_skills::jsstr::{js_len, js_slice_head, js_trim, js_truthy};
 use ruke_skills::lazy::inject_system_before;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::notes::{generate_notes, Cancelled, NotesLlm};
-use crate::retrieve::{notes_budget, retrieve_evidence, RetrieveOpts};
+use crate::notes::{generate_notes, notes_version, Cancelled, NotesLlm};
+use crate::retrieve::{env_number, notes_budget, per_ref_budget, retrieve_evidence, RetrieveOpts};
 use crate::router::{count_bounded, pronoun_re, route_query, QueryMode};
 use crate::store;
 use crate::types::LoadedIndex;
@@ -38,6 +39,27 @@ use crate::QueryEmbedder;
 
 const MAX_FRAMES: usize = 4;
 const FOLLOWUP_MAX: usize = 60;
+
+/// `TURN_BUDGET` (I05): the ceiling SHARED by every attachment in one turn
+/// — notes and retrieved passages alike count against it. `ATTACH_TURN_
+/// BUDGET_CHARS` ?? 48000, JS `Number()` semantics via `env_number`. Never
+/// unit-tested through env manipulation (process env is global state; the
+/// default is asserted through the multi-attachment math instead).
+fn turn_budget() -> f64 {
+    static T: OnceLock<f64> = OnceLock::new();
+    *T.get_or_init(|| env_number("ATTACH_TURN_BUDGET_CHARS", 48000.0))
+}
+
+/// JS `Math.min`: NaN-propagating, unlike Rust's `f64::min` (which returns
+/// the NON-NaN operand). A NaN cap never truncates — the `> cap` compare
+/// is false and the slice branch never evaluates `cap as usize`.
+fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else {
+        a.min(b)
+    }
+}
 
 /// `AttachmentRef` — first occurrence of an att id wins (Map semantics).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +100,11 @@ pub fn collect_attachment_refs(messages: &[Value]) -> Vec<AttachmentRef> {
                 Some(Value::String(s)) => s.clone(),
                 _ => "text".to_string(),
             };
-            out.push(AttachmentRef { att_id: att.to_string(), name, category });
+            out.push(AttachmentRef {
+                att_id: att.to_string(),
+                name,
+                category,
+            });
         }
     }
     out
@@ -96,8 +122,16 @@ fn b64_std(data: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(T[((n >> 18) & 63) as usize] as char);
         out.push(T[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { T[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -150,7 +184,10 @@ fn nearest_frames(root: &Path, index: &LoadedIndex, frame_ats: &[f64]) -> Vec<(S
             // the dir in BOTH engines (documented, frozen format never emits it).
             let path = dir.join(&frames[best].file);
             if let Ok(buf) = std::fs::read(&path) {
-                out.push((format!("data:image/jpeg;base64,{}", b64_std(&buf)), frames[best].at));
+                out.push((
+                    format!("data:image/jpeg;base64,{}", b64_std(&buf)),
+                    frames[best].at,
+                ));
             }
         }
         if out.len() >= MAX_FRAMES {
@@ -285,7 +322,19 @@ pub async fn build_attachment_turn(
 
     let mut blocks: Vec<String> = Vec::new();
     let mut images: Vec<(String, f64)> = Vec::new();
-    let rq = anchor_query(question, messages, user_idx);
+    let mut turn_used: f64 = 0.0;
+
+    // I22 direct-route guard (turn.ts:197-200): when the RAW question by
+    // itself carries a routing phrase, it IS the retrieval query —
+    // "all mentions of X in the last 5 minutes" must not be glued onto an
+    // antecedent, which would blur the phrase past the anchor text.
+    let trimmed_q = js_trim(question);
+    let direct = route_query(trimmed_q);
+    let rq = if !trimmed_q.is_empty() && direct.mode != QueryMode::PointQa {
+        trimmed_q.to_string()
+    } else {
+        anchor_query(question, messages, user_idx)
+    };
 
     for r in &refs {
         let index = match store::read_index(root, &r.att_id) {
@@ -299,24 +348,57 @@ pub async fn build_attachment_turn(
             }
         };
 
-        let routed = route_query(&rq);
+        let mut routed = route_query(&rq);
+
+        // I22: "the last N minutes" carries NO window of its own — the
+        // index's own duration resolves it. Without a usable duration the
+        // mode falls back to point_qa (TS sets `mode` only; from/to were
+        // never set on this branch).
+        if let Some(last_sec) = routed.last_sec {
+            match index.meta.duration_sec {
+                Some(d) if d > 0.0 => {
+                    routed.from_sec = Some((d - last_sec).max(0.0));
+                    routed.to_sec = Some(d);
+                }
+                _ => routed.mode = QueryMode::PointQa,
+            }
+        }
 
         if routed.mode == QueryMode::WholeVideo {
+            // I05: the turn's shared budget is checked BEFORE notes are
+            // fetched — an already-full turn says so honestly instead of
+            // silently dropping the attachment.
+            let remaining = turn_budget() - turn_used;
+            if remaining <= 0.0 {
+                blocks.push(format!(
+                    "<knowledge_index name=\"{name}\">\nThis turn's evidence budget is already full, so no content from this attachment was retrieved for it. Ask the question again in a new turn.\n</knowledge_index>",
+                    name = r.name,
+                ));
+                continue;
+            }
+
+            // I24: the cache read is keyed by the notes FINGERPRINT —
+            // notes distilled by another model, or for a different
+            // chunking/spine, are never served (no unversioned fallback).
             // `!notes` is FALSY (`""` triggers regeneration), while the
             // store returns `Some("")` — the nullish-vs-falsy split lives
             // here, not in `read_notes`.
-            let mut notes = store::read_notes(root, &r.att_id);
+            let version = notes_version(&index, &llm.model);
+            let mut notes = store::read_notes_with_version(root, &r.att_id, &version);
             if !matches!(&notes, Some(s) if !s.is_empty()) {
                 let gen = generate_notes(root, &r.att_id, &index, http, llm, token).await?;
                 notes = if gen.is_empty() { None } else { Some(gen) }; // `|| null`
             }
             if let Some(notes) = notes {
-                let nb = notes_budget();
-                let notes = if nb >= 0.0 && (js_len(&notes) as f64) > nb {
-                    format!("{}\n[...]", js_slice_head(&notes, nb as usize))
+                let cap = js_min(notes_budget(), remaining);
+                let notes = if cap >= 0.0 && (js_len(&notes) as f64) > cap {
+                    format!("{}\n[...]", js_slice_head(&notes, cap as usize))
                 } else {
                     notes
                 };
+                // Count against the turn AFTER the slice — the "\n[...]"
+                // marker costs too (TS `turnUsed += notes.length`).
+                turn_used += js_len(&notes) as f64;
                 blocks.push(format!(
                     "<course_notes name=\"{name}\">\nCourse notes distilled from the extracted content of \"{name}\":\n{notes}\n{rules} Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>",
                     name = r.name,
@@ -329,9 +411,28 @@ pub async fn build_attachment_turn(
             continue;
         }
 
-        // `try { queryVec = await embedOne(rq) } catch {}` — the seam's
-        // Err keeps the vec empty (BM25 alone still ranks).
-        let query_vec = embedder.embed_one(&rq).unwrap_or_default();
+        // `try { queryVec = await embedOne(rq, signal) } catch {}` — the
+        // seam's Err keeps the vec empty (BM25 alone still ranks). I25:
+        // the token lets a cancelled turn abandon the RPC in flight
+        // instead of waiting a large ONNX embedding out.
+        let query_vec = embedder.embed_one(&rq, token).unwrap_or_default();
+
+        // I20 shown ledger: passages this attachment already served in
+        // EARLIER turns sink below fresh candidates, so a repeat ask
+        // rotates instead of re-serving the same top set.
+        let shown = store::read_shown(root, &r.att_id);
+
+        // I05: the shared turn budget first (honest block when spent),
+        // then the per-reference ceiling on top of what's left.
+        let remaining = turn_budget() - turn_used;
+        if remaining <= 0.0 {
+            blocks.push(format!(
+                "<knowledge_index name=\"{name}\">\nThis turn's evidence budget is already full, so no passages from this attachment were retrieved for it. Ask the question again in a new turn.\n</knowledge_index>",
+                name = r.name,
+            ));
+            continue;
+        }
+        let budget = js_min(per_ref_budget(), remaining);
 
         let opts = if routed.mode == QueryMode::Sequential {
             // `spineBlocks?.[blockIndex ?? -1]` — a negative/absent index
@@ -344,12 +445,26 @@ pub async fn build_attachment_turn(
                 Some(b) => RetrieveOpts {
                     mode: QueryMode::Sequential,
                     range: Some((b.chunk_from, b.chunk_to)),
+                    demote: shown.clone(),
+                    budget: Some(budget),
                     ..Default::default()
                 },
-                None => RetrieveOpts { mode: QueryMode::PointQa, ..Default::default() },
+                None => RetrieveOpts {
+                    mode: QueryMode::PointQa,
+                    demote: shown.clone(),
+                    budget: Some(budget),
+                    ..Default::default()
+                },
             }
         } else {
-            RetrieveOpts { mode: routed.mode, from_sec: routed.from_sec, to_sec: routed.to_sec, range: None }
+            RetrieveOpts {
+                mode: routed.mode,
+                from_sec: routed.from_sec,
+                to_sec: routed.to_sec,
+                range: None,
+                demote: shown.clone(),
+                budget: Some(budget),
+            }
         };
 
         let ev = retrieve_evidence(&index, &rq, &query_vec, &opts);
@@ -362,12 +477,35 @@ pub async fn build_attachment_turn(
             name = r.name,
             text = ev.text,
         );
-        if ev.truncated {
-            block.push_str("\n[more relevant passages exist; this turn's budget showed the best ones]");
+        if ev.dropped > 0 {
+            // I20: the exact count of candidates the budget refused — and
+            // the promise of a DIFFERENT set on the follow-up is real
+            // because the shown ledger below demotes what ran this time.
+            block.push_str(&format!(
+                "\n[{} more relevant passages exist in this document that this turn's budget did not show — ask to continue and a different set is served]",
+                ev.dropped
+            ));
+        } else if ev.truncated {
+            block.push_str(
+                "\n[more relevant passages exist; this turn's budget showed the best ones]",
+            );
         }
         block.push('\n');
         block.push_str(&rules(r));
         block.push_str("\n</knowledge_index>");
+
+        turn_used += js_len(&ev.text) as f64;
+        if !ev.chunk_idxs.is_empty() {
+            // `[...new Set([...shown, ...ev.chunkIdxs])]` — shown first,
+            // the Set keeps insertion order.
+            let mut seen: HashSet<i64> = HashSet::new();
+            let merged: Vec<i64> = shown
+                .into_iter()
+                .chain(ev.chunk_idxs.iter().copied())
+                .filter(|id| seen.insert(*id))
+                .collect();
+            store::write_shown(root, &r.att_id, &merged);
+        }
         blocks.push(block);
         images.extend(nearest_frames(root, &index, &ev.frame_ats));
     }
@@ -408,7 +546,11 @@ mod tests {
     use crate::{FixedEmbedder, UnavailableEmbedder};
 
     fn ref_of(att: &str, name: &str, category: &str) -> AttachmentRef {
-        AttachmentRef { att_id: att.into(), name: name.into(), category: category.into() }
+        AttachmentRef {
+            att_id: att.into(),
+            name: name.into(),
+            category: category.into(),
+        }
     }
 
     #[test]
@@ -459,7 +601,9 @@ mod tests {
         let a = rules(&ref_of("att_x1", "A", "audio"));
         assert!(a.ends_with("You are given this recording's complete saved record: speak of what the recording says; never claim to have heard it yourself, and never mention transcription, retrieval or indexing."));
         let d = rules(&ref_of("att_x1", "D", "document"));
-        assert!(d.ends_with("You have read this document directly; never mention retrieval or indexing."));
+        assert!(d.ends_with(
+            "You have read this document directly; never mention retrieval or indexing."
+        ));
     }
 
     #[test]
@@ -472,7 +616,10 @@ mod tests {
             json!({ "role": "assistant", "content": "Sure." }),
         ];
         // Short follow-up anchors onto the previous user turn's text part.
-        assert_eq!(anchor_query("why does that happen", &msgs, 2), "Explain osmosis in cells why does that happen");
+        assert_eq!(
+            anchor_query("why does that happen", &msgs, 2),
+            "Explain osmosis in cells why does that happen"
+        );
         // Empty question returns trimmed-empty.
         assert_eq!(anchor_query("   ", &msgs, 2), "");
         // Long question with few pronouns stays verbatim.
@@ -485,12 +632,18 @@ mod tests {
             json!({ "role": "user", "content": "Earlier topic here" }),
             json!({ "role": "user", "content": [] }),
         ];
-        assert_eq!(anchor_query("but why", &msgs2, 2), "Earlier topic here but why");
+        assert_eq!(
+            anchor_query("but why", &msgs2, 2),
+            "Earlier topic here but why"
+        );
     }
 
     #[test]
     fn anchor_pronoun_heavy_long_query() {
-        let msgs = vec![json!({ "role": "user", "content": "Mitosis phases" }), json!(null)];
+        let msgs = vec![
+            json!({ "role": "user", "content": "Mitosis phases" }),
+            json!(null),
+        ];
         // 75 chars, pronouns: "why" "it" "that" ⇒ >= 2 ⇒ anchored despite length.
         let q = "why does it do that there during this phase, explain it again please now";
         assert!(js_len(q) >= FOLLOWUP_MAX && js_len(q) < 140);
@@ -508,14 +661,23 @@ mod tests {
         let mut index = LoadedIndex::default();
         index.meta.att_id = "att_frame1".into();
         index.meta.frames = vec![
-            crate::types::FrameEntry { at: 100.0, file: "frames/f1.jpg".into() },
-            crate::types::FrameEntry { at: 200.0, file: "frames/missing.jpg".into() },
+            crate::types::FrameEntry {
+                at: 100.0,
+                file: "frames/f1.jpg".into(),
+            },
+            crate::types::FrameEntry {
+                at: 200.0,
+                file: "frames/missing.jpg".into(),
+            },
         ];
 
         // Nearest pick is used BEFORE the read: the second lookup of the
         // same timestamp must try frame 2 (missing) and get nothing.
         let out = nearest_frames(root, &index, &[105.0, 105.0]);
-        assert_eq!(out, vec![("data:image/jpeg;base64,QUJD".to_string(), 100.0)]);
+        assert_eq!(
+            out,
+            vec![("data:image/jpeg;base64,QUJD".to_string(), 100.0)]
+        );
 
         // All-used ⇒ break out of the timestamp loop.
         let out = nearest_frames(root, &index, &[105.0, 105.0, 105.0]);
@@ -536,7 +698,10 @@ mod tests {
         index.meta.att_id = "att_frame2".into();
         for k in 0..6 {
             std::fs::write(dir.join("frames").join(format!("f{k}.jpg")), b"x").unwrap();
-            index.meta.frames.push(crate::types::FrameEntry { at: k as f64 * 10.0, file: format!("frames/f{k}.jpg") });
+            index.meta.frames.push(crate::types::FrameEntry {
+                at: k as f64 * 10.0,
+                file: format!("frames/f{k}.jpg"),
+            });
         }
         let ats: Vec<f64> = (0..6).map(|k| k as f64 * 10.0).collect();
         assert_eq!(nearest_frames(root, &index, &ats).len(), MAX_FRAMES);
@@ -545,7 +710,11 @@ mod tests {
     // ---- async build_attachment_turn tests -----------------------------
 
     fn dummy_llm() -> NotesLlm {
-        NotesLlm { url: "http://127.0.0.1:1/x".into(), key: "k".into() }
+        NotesLlm {
+            url: "http://127.0.0.1:1/x".into(),
+            key: "k".into(),
+            model: "default".into(),
+        }
     }
 
     fn user_with_ref(att: &str, name: &str, category: &str) -> Vec<Value> {
@@ -563,7 +732,17 @@ mod tests {
         token: &CancellationToken,
     ) -> Result<usize, Cancelled> {
         let http = reqwest::Client::new();
-        build_attachment_turn(msgs, user_idx, q, root, embedder, &http, &dummy_llm(), token).await
+        build_attachment_turn(
+            msgs,
+            user_idx,
+            q,
+            root,
+            embedder,
+            &http,
+            &dummy_llm(),
+            token,
+        )
+        .await
     }
 
     #[tokio::test]
@@ -571,7 +750,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let token = CancellationToken::new();
         let mut msgs = user_with_ref("att_gone01", "Bio I", "document");
-        let n = build(&mut msgs, 0, "", tmp.path(), &FixedEmbedder(vec![]), &token).await.unwrap();
+        let n = build(&mut msgs, 0, "", tmp.path(), &FixedEmbedder(vec![]), &token)
+            .await
+            .unwrap();
         assert_eq!(n, 1);
         assert_eq!(msgs.len(), 2); // system injected BEFORE the user turn
         assert_eq!(msgs[0]["role"], "system");
@@ -580,10 +761,22 @@ mod tests {
             "<knowledge_index name=\"Bio I\">\nThe local knowledge index for this attachment is no longer available on disk. Say so honestly if the question needs it.\n</knowledge_index>",
         );
         // The user turn is untouched (no frames without an index).
-        assert!(msgs[1]["content"].as_array().unwrap()[0]["type"].as_str().unwrap() == "attachment_ref");
+        assert!(
+            msgs[1]["content"].as_array().unwrap()[0]["type"]
+                .as_str()
+                .unwrap()
+                == "attachment_ref"
+        );
     }
 
-    fn seed_index(root: &Path, att: &str, category: &str, meta_extra: &str, chunks_jsonl: &str, frames: &[(&str, &[u8])]) {
+    fn seed_index(
+        root: &Path,
+        att: &str,
+        category: &str,
+        meta_extra: &str,
+        chunks_jsonl: &str,
+        frames: &[(&str, &[u8])],
+    ) {
         let dir = store::index_dir(root, att).unwrap();
         std::fs::create_dir_all(&dir).unwrap();
         // `meta_extra` is a JSON tail beginning with `,` (or empty) — a
@@ -616,7 +809,16 @@ mod tests {
         );
         let token = CancellationToken::new();
         let mut msgs = user_with_ref("att_doc99", "Doc", "document");
-        let n = build(&mut msgs, 0, "mitosis", root, &FixedEmbedder(vec![1.0, 0.0, 0.05]), &token).await.unwrap();
+        let n = build(
+            &mut msgs,
+            0,
+            "mitosis",
+            root,
+            &FixedEmbedder(vec![1.0, 0.0, 0.05]),
+            &token,
+        )
+        .await
+        .unwrap();
         assert_eq!(n, 1);
         assert_eq!(msgs.len(), 2);
         let sys = msgs[0]["content"].as_str().unwrap();
@@ -627,17 +829,29 @@ mod tests {
         assert_eq!(parts[0]["type"], "attachment_ref"); // strip runs LATER (shared impl)
         assert_eq!(parts[1]["text"].as_str().unwrap(), FRAME_LEAD_IN);
         assert_eq!(parts[1]["type"], "text");
-        assert_eq!(parts[2]["image_url"]["url"].as_str().unwrap(), "data:image/jpeg;base64,aGVsbG8=");
+        assert_eq!(
+            parts[2]["image_url"]["url"].as_str().unwrap(),
+            "data:image/jpeg;base64,aGVsbG8="
+        );
     }
 
     #[tokio::test]
     async fn unavailable_embedder_degrades_to_bm25_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        seed_index(root, "att_doc98", "document", "", "{ \"i\": 0, \"text\": \"mitosis cells divide\", \"vec\": [] }", &[]);
+        seed_index(
+            root,
+            "att_doc98",
+            "document",
+            "",
+            "{ \"i\": 0, \"text\": \"mitosis cells divide\", \"vec\": [] }",
+            &[],
+        );
         let token = CancellationToken::new();
         let mut msgs = user_with_ref("att_doc98", "Doc", "document");
-        let n = build(&mut msgs, 0, "mitosis", root, &UnavailableEmbedder, &token).await.unwrap();
+        let n = build(&mut msgs, 0, "mitosis", root, &UnavailableEmbedder, &token)
+            .await
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -645,13 +859,32 @@ mod tests {
     async fn whole_video_uses_cached_notes_and_never_falls_through() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        seed_index(root, "att_wv99", "video", "", "{ \"i\": 0, \"text\": \"topic passage\", \"vec\": [] }", &[]);
+        seed_index(
+            root,
+            "att_wv99",
+            "video",
+            "",
+            "{ \"i\": 0, \"text\": \"topic passage\", \"vec\": [] }",
+            &[],
+        );
         // Cached notes via the store's own writer (unit test — fixture
-        // restrictions apply only to the golden store fixture).
-        store::write_notes(root, "att_wv99", "Cell cycle notes here.").unwrap();
+        // restrictions apply only to the golden store fixture). I24: the
+        // cache only reads back under the fingerprint it was written at.
+        let seeded = store::read_index(root, "att_wv99").unwrap();
+        let ver = notes_version(&seeded, "default"); // matches dummy_llm
+        store::write_notes(root, "att_wv99", "Cell cycle notes here.", Some(&ver)).unwrap();
         let token = CancellationToken::new();
         let mut msgs = user_with_ref("att_wv99", "Vid", "video");
-        let n = build(&mut msgs, 0, "give me a summary", root, &UnavailableEmbedder, &token).await.unwrap();
+        let n = build(
+            &mut msgs,
+            0,
+            "give me a summary",
+            root,
+            &UnavailableEmbedder,
+            &token,
+        )
+        .await
+        .unwrap();
         assert_eq!(n, 1);
         let sys = msgs[0]["content"].as_str().unwrap();
         assert!(sys.starts_with("<course_notes name=\"Vid\">\nCourse notes distilled from the extracted content of \"Vid\":\nCell cycle notes here.\n"));
@@ -667,12 +900,137 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         // No spine blocks ⇒ generate_notes returns Ok("") (no network).
-        seed_index(root, "att_wv98", "video", "", "{ \"i\": 0, \"text\": \"topic\", \"vec\": [] }", &[]);
+        seed_index(
+            root,
+            "att_wv98",
+            "video",
+            "",
+            "{ \"i\": 0, \"text\": \"topic\", \"vec\": [] }",
+            &[],
+        );
         let token = CancellationToken::new();
         let mut msgs = user_with_ref("att_wv98", "Vid", "video");
-        let n = build(&mut msgs, 0, "give me a summary", root, &UnavailableEmbedder, &token).await.unwrap();
+        let n = build(
+            &mut msgs,
+            0,
+            "give me a summary",
+            root,
+            &UnavailableEmbedder,
+            &token,
+        )
+        .await
+        .unwrap();
         assert_eq!(n, 0);
         assert_eq!(msgs.len(), 1); // nothing injected
+    }
+
+    // ---- I20: dropped marker + shown-ledger rotation -------------------
+    #[tokio::test]
+    async fn dropped_marker_shown_ledger_and_demote_rotation_i20() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // 30 chunks of EXACTLY 1200 chars, untimed (no headers) and vec
+        // -less; pack costs: 1200 for the first, 1202 for each follow-on.
+        let mut lines = String::new();
+        for i in 0..30 {
+            let head = format!("widget {i} ");
+            let text = format!("{}{}", head, "x".repeat(1200 - head.len()));
+            lines.push_str(&format!(
+                "{{ \"i\": {i}, \"text\": \"{text}\", \"vec\": [] }}\n"
+            ));
+        }
+        seed_index(root, "att_ledg01", "document", "", lines.trim_end(), &[]);
+        let token = CancellationToken::new();
+
+        // Run 1: per-ref budget 24000 (default): 1200 + 18×1202 = 22836
+        // fits, the 19th passage costs 22836+1202 = 24038 > 24000 ⇒ 19.
+        let mut msgs = user_with_ref("att_ledg01", "Led", "document");
+        let n = build(
+            &mut msgs,
+            0,
+            "list every mention of widget",
+            root,
+            &UnavailableEmbedder,
+            &token,
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let sys = msgs[0]["content"].as_str().unwrap();
+        assert!(sys.contains("widget 0 "), "{sys}");
+        assert!(!sys.contains("widget 19 "), "{sys}");
+        assert!(sys.contains("[11 more relevant passages exist in this document that this turn's budget did not show — ask to continue and a different set is served]"), "{sys}");
+        assert_eq!(store::read_shown(root, "att_ledg01").len(), 19);
+
+        // Run 2: the 19 shown passages demote; the 11 fresh fit
+        // (1200 + 10×1202 = 13220) ⇒ a DIFFERENT set, exactly as the
+        // marker promised. The held set stays unserved (budget fits).
+        let mut msgs2 = user_with_ref("att_ledg01", "Led", "document");
+        let n = build(
+            &mut msgs2,
+            0,
+            "list every mention of widget",
+            root,
+            &UnavailableEmbedder,
+            &token,
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let sys2 = msgs2[0]["content"].as_str().unwrap();
+        assert!(sys2.contains("widget 19 "), "{sys2}");
+        assert!(!sys2.contains("widget 0 "), "{sys2}");
+        assert!(sys2.contains("[19 more relevant passages exist in this document that this turn's budget did not show — ask to continue and a different set is served]"), "{sys2}");
+        assert_eq!(store::read_shown(root, "att_ledg01").len(), 30);
+    }
+
+    // ---- I05: the turn-wide budget, honestly reported ------------------
+    #[tokio::test]
+    async fn exhausted_turn_budget_serves_the_honest_block_i05() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Three whole_video attachments with oversized cached notes: the
+        // default turn budget (48000, env untouched) fits TWO sliced
+        // notes — 24005 after the first (slice + "\n[...]"), 48005 after
+        // the second (cap 23995) — so the third MUST get the honest
+        // exhausted block instead of a silently-thinned notes block.
+        // ATT_RE needs a 4–32 char tail — `att_x1` would fail valid_att_id
+        // and seed_index would seed nothing (the index_dir None throw).
+        for att in ["att_budg01", "att_budg02", "att_budg03"] {
+            seed_index(
+                root,
+                att,
+                "video",
+                "",
+                "{ \"i\": 0, \"text\": \"topic\", \"vec\": [] }",
+                &[],
+            );
+            let idx = store::read_index(root, att).unwrap();
+            let ver = notes_version(&idx, "default");
+            store::write_notes(root, att, &"n".repeat(26000), Some(&ver)).unwrap();
+        }
+        let token = CancellationToken::new();
+        let mut msgs = vec![json!({ "role": "user", "content": [
+            { "type": "attachment_ref", "att_id": "att_budg01", "name": "X1", "category": "video" },
+            { "type": "attachment_ref", "att_id": "att_budg02", "name": "X2", "category": "video" },
+            { "type": "attachment_ref", "att_id": "att_budg03", "name": "X3", "category": "video" },
+        ] })];
+        let n = build(
+            &mut msgs,
+            0,
+            "give me a summary",
+            root,
+            &UnavailableEmbedder,
+            &token,
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 3);
+        let sys = msgs[0]["content"].as_str().unwrap();
+        assert!(sys.contains("<course_notes name=\"X1\">"));
+        assert!(sys.contains("<course_notes name=\"X2\">"));
+        assert!(sys.contains("This turn's evidence budget is already full, so no content from this attachment was retrieved for it. Ask the question again in a new turn."), "{sys}");
+        assert!(!sys.contains("<course_notes name=\"X3\">"));
     }
 
     #[tokio::test]
@@ -690,7 +1048,15 @@ mod tests {
         let token = CancellationToken::new();
         token.cancel();
         let mut msgs = user_with_ref("att_wv97", "Vid", "video");
-        let r = build(&mut msgs, 0, "give me a summary", root, &UnavailableEmbedder, &token).await;
+        let r = build(
+            &mut msgs,
+            0,
+            "give me a summary",
+            root,
+            &UnavailableEmbedder,
+            &token,
+        )
+        .await;
         assert_eq!(r, Err(Cancelled));
         assert_eq!(msgs.len(), 1); // no partial injection
     }

@@ -132,10 +132,33 @@ const BROWSER_INSTRUMENTS: &[&str] = &["browser", "browsers"];
 /// Verbs that, governing an instrument token, make the turn's own words
 /// an explicit browser request. ⇔ TS `BROWSER_TRIGGERS`.
 const BROWSER_TRIGGERS: &[&str] = &[
-    "use", "uses", "using", "used", "open", "opens", "opening", "launch", "launches",
-    "launching", "start", "starts", "starting", "try", "trying", "tried", "run", "runs",
-    "running", "drive", "drives", "driving", "navigate", "navigates", "navigating",
-    "browse", "browsing",
+    "use",
+    "uses",
+    "using",
+    "used",
+    "open",
+    "opens",
+    "opening",
+    "launch",
+    "launches",
+    "launching",
+    "start",
+    "starts",
+    "starting",
+    "try",
+    "trying",
+    "tried",
+    "run",
+    "runs",
+    "running",
+    "drive",
+    "drives",
+    "driving",
+    "navigate",
+    "navigates",
+    "navigating",
+    "browse",
+    "browsing",
 ];
 
 /// A negation anywhere before the instrument token vetoes the request
@@ -143,8 +166,24 @@ const BROWSER_TRIGGERS: &[&str] = &[
 /// direction; the panel toggle remains the human's explicit channel).
 /// ⇔ TS `BROWSER_NEG`.
 const BROWSER_NEG: &[&str] = &[
-    "not", "no", "never", "don't", "dont", "doesn't", "doesnt", "won't", "wont", "cannot",
-    "can't", "cant", "without", "avoid", "stop", "stopped", "shouldn't", "shouldnt",
+    "not",
+    "no",
+    "never",
+    "don't",
+    "dont",
+    "doesn't",
+    "doesnt",
+    "won't",
+    "wont",
+    "cannot",
+    "can't",
+    "cant",
+    "without",
+    "avoid",
+    "stop",
+    "stopped",
+    "shouldn't",
+    "shouldnt",
 ];
 
 /// Words skipped while walking back from an instrument token to the verb

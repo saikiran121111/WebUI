@@ -512,7 +512,7 @@ async function runTurnPipeline(
   // lastUserIdx + 1 (the skill block above shifted it).
   try {
     if (hasAttachmentRefs) stage({ stage: "retrieval" });
-    const injected = await buildAttachmentTurn(payload.messages, lastUserIdx + 1, fullText, signal);
+    const injected = await buildAttachmentTurn(payload.messages, lastUserIdx + 1, fullText, signal, opts.model);
     if (injected) log.info({ blocks: injected }, "attachment evidence injected (this turn only)");
     if (hasAttachmentRefs) {
       stage({ stage: "retrieval_done", done: injected ?? 0, total: injected ?? 0 });

@@ -29,22 +29,38 @@ function segmentUnits(segments: TranscriptSegment[]): Unit[] {
     .filter(u => u.text);
 }
 
-/** A unit bigger than the whole chunk: split by sentence, then raw slice. */
+/**
+ * A unit bigger than the whole chunk: split by sentence, then raw slice.
+ *
+ * I23: the piece pattern partitions u.text EXACTLY — sentence-ish runs,
+ * punctuation-only runs, and whitespace runs. The old pattern required each
+ * match to start with a non-punctuation char, so a unit made only of "..."
+ * (or one swallowed whole by trimming) produced ZERO matches and its text
+ * vanished from the index. Pieces are raw, untrimmed slices, so their join
+ * is byte-for-byte the original; a defensive partition check falls back to
+ * exact raw slices if that ever breaks.
+ */
 function splitOversized(u: Unit, size: number): Unit[] {
   if (u.text.length <= size) return [u];
   const pieces: string[] = [];
   let cur = "";
-  for (const s of u.text.match(/[^.!?]+[.!?]*\s*|\s+/g) ?? []) {
-    if (cur && (cur + s).trimEnd().length > size) {
-      pieces.push(cur.trim());
+  for (const s of u.text.match(/[^.!?]+[.!?]*|[.!?]+|\s+/g) ?? []) {
+    if (cur && (cur + s).length > size) {
+      pieces.push(cur);
       cur = s;
     } else cur += s;
     while (cur.length > size) {
-      pieces.push(cur.slice(0, size).trim());
+      pieces.push(cur.slice(0, size));
       cur = cur.slice(size);
     }
   }
-  if (cur.trim()) pieces.push(cur.trim());
+  if (cur) pieces.push(cur);
+  if (pieces.join("") !== u.text) {
+    // Unreachable for the partition pattern above — but silent content loss
+    // is the exact defect this guards, so degrade to exact raw slices.
+    pieces.length = 0;
+    for (let i = 0; i < u.text.length; i += size) pieces.push(u.text.slice(i, i + size));
+  }
   // Timestamps cannot be split precisely — every piece keeps the unit's span.
   return pieces.map(t => ({ text: t, startSec: u.startSec, endSec: u.endSec }));
 }

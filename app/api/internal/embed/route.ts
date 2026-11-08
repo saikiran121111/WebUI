@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
   }
 
-  const vector = await embedOne(text);
+  // I25: the Rust caller aborts this RPC when its own turn is cancelled —
+  // req.signal stops the embed BEFORE the model load and BETWEEN batches
+  // instead of finishing a vector nobody waits for any more.
+  const vector = await embedOne(text, req.signal);
   return NextResponse.json({ ok: true, vector });
 }

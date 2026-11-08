@@ -20,23 +20,56 @@ import type { Message } from "../types";
 /** Average characters per token for mixed prose + code. */
 export const CHARS_PER_TOKEN = 4;
 
+/**
+ * I05: an image costs real vision tokens that the ~4-chars heuristic cannot
+ * see — an attached screenshot previously counted as ZERO tokens no matter
+ * how many went into context. Local vision models (llama.cpp multimodal
+ * projectors) bill a fixed patch grid per image, not per character, so the
+ * honest local proxy is a FIXED cost per image rather than a char estimate.
+ * 768 is the documented lower-bound proxy for one served image (a common
+ * projector is 576 patches for a resized tile; round up to cover framing) —
+ * it is an ESTIMATE like every other number here, never a measurement.
+ */
+export const IMAGE_TOKEN_COST = 768;
+
+/**
+ * How many images one message actually carries into context: each served
+ * keyframe (video/audio attachments keep a `frames` list) and an image-kind
+ * attachment's inline data URL.
+ */
+function countImages(att: { frames?: unknown[]; dataUrl?: string; kind?: string }): number {
+  let n = att.frames?.length ?? 0;
+  if (att.kind === "image" && att.dataUrl) n += 1;
+  return n;
+}
+
 /** Estimate the token cost of one message's text. */
 export function estimateMessageTokens(message: {
   role: string;
   content: string;
   reasoning?: string;
-  attachments?: Array<{ text?: string; transcript?: string; spine?: string; name?: string }>;
+  attachments?: Array<{
+    text?: string;
+    transcript?: string;
+    spine?: string;
+    name?: string;
+    frames?: unknown[];
+    dataUrl?: string;
+    kind?: string;
+  }>;
 }): number {
   let chars = message.content?.length ?? 0;
   chars += message.reasoning?.length ?? 0;
+  let images = 0;
   for (const att of message.attachments ?? []) {
     chars += att.text?.length ?? 0;
     chars += att.transcript?.length ?? 0;
     chars += att.spine?.length ?? 0;
     chars += att.name?.length ?? 0;
+    images += countImages(att);
   }
   // Every message carries role + framing overhead on the wire.
-  return Math.ceil(chars / CHARS_PER_TOKEN) + 4;
+  return Math.ceil(chars / CHARS_PER_TOKEN) + 4 + images * IMAGE_TOKEN_COST;
 }
 
 /**

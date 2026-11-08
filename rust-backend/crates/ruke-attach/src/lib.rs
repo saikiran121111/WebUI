@@ -38,6 +38,8 @@
 //!   BM25-alone ranking.
 //! - Frame base64 is hand-rolled standard-alphabet (no base64 crate).
 
+use tokio_util::sync::CancellationToken;
+
 pub mod bm25;
 pub mod embedder;
 pub mod format;
@@ -56,7 +58,15 @@ pub mod types;
 /// `try { queryVec = await embedOne(rq) } catch {}` path: the vector
 /// stays empty and BM25 alone ranks (cosine dots become 0.0).
 pub trait QueryEmbedder: Send + Sync {
-    fn embed_one(&self, text: &str) -> Result<Vec<f64>, EmbedUnavailable>;
+    /// I25: the turn's cancellation token rides the call ⇔ the TS
+    /// `embedOne(text, signal)` — an aborted turn abandons the in-flight
+    /// RPC (yielding [`EmbedUnavailable`] into the same degrade path as
+    /// any other failure) instead of waiting a large ONNX embedding out.
+    fn embed_one(
+        &self,
+        text: &str,
+        token: &CancellationToken,
+    ) -> Result<Vec<f64>, EmbedUnavailable>;
 }
 
 /// Signal that this embedder cannot produce a vector right now.
@@ -69,7 +79,11 @@ pub struct EmbedUnavailable;
 pub struct UnavailableEmbedder;
 
 impl QueryEmbedder for UnavailableEmbedder {
-    fn embed_one(&self, _text: &str) -> Result<Vec<f64>, EmbedUnavailable> {
+    fn embed_one(
+        &self,
+        _text: &str,
+        _token: &CancellationToken,
+    ) -> Result<Vec<f64>, EmbedUnavailable> {
         Err(EmbedUnavailable)
     }
 }
@@ -80,17 +94,24 @@ impl QueryEmbedder for UnavailableEmbedder {
 pub struct FixedEmbedder(pub Vec<f64>);
 
 impl QueryEmbedder for FixedEmbedder {
-    fn embed_one(&self, _text: &str) -> Result<Vec<f64>, EmbedUnavailable> {
+    fn embed_one(
+        &self,
+        _text: &str,
+        _token: &CancellationToken,
+    ) -> Result<Vec<f64>, EmbedUnavailable> {
         Ok(self.0.clone())
     }
 }
 
 // Convenience surface used by the ruke-server pipeline seam.
 pub use crate::embedder::HttpQueryEmbedder;
-pub use crate::notes::{generate_notes, Cancelled, NotesLlm};
+pub use crate::notes::{generate_notes, notes_version, Cancelled, NotesLlm};
 pub use crate::retrieve::{retrieve_evidence, Evidence, RetrieveOpts};
 pub use crate::router::{route_query, QueryMode, RoutedQuery};
 pub use crate::store::{
-    has_index, index_dir, read_index, read_notes, remove_index, valid_att_id, write_notes,
+    has_index, index_dir, read_index, read_notes, read_notes_with_version, read_shown,
+    remove_index, valid_att_id, write_notes, write_shown,
 };
-pub use crate::turn::{anchor_query, build_attachment_turn, collect_attachment_refs, AttachmentRef};
+pub use crate::turn::{
+    anchor_query, build_attachment_turn, collect_attachment_refs, AttachmentRef,
+};

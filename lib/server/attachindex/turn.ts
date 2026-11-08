@@ -2,10 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { injectSystemBefore } from "../../skills/lazy";
 import { embedOne } from "./embed";
-import { generateNotes } from "./notes";
+import { generateNotes, notesVersion } from "./notes";
 import { routeQuery, type RoutedQuery } from "./router";
 import { retrieveEvidence, type RetrieveOpts } from "./retrieve";
-import { indexDir, readIndex, readNotes } from "./store";
+import { indexDir, readIndex, readNotes, readShown, writeShown } from "./store";
 import type { LoadedIndex } from "./types";
 
 /**
@@ -21,6 +21,14 @@ import type { LoadedIndex } from "./types";
 const ATT_RE = /^att_[a-z0-9]{4,32}$/;
 const MAX_FRAMES = 4;
 const NOTES_BUDGET = Number(process.env.ATTACH_RETRIEVE_CHARS ?? 24000);
+// I05: one attachment's retrieve pass had a budget; the TURN did not. With
+// several attachments in one chat, every one of them could pour its full
+// 24k of passages into the same prompt. The turn budget caps the combined
+// evidence; the model's own context window must still fit the history, the
+// blocks below, and room for the reply — retrieval never reserves output
+// tokens, so keep this well under the window the user's model carries.
+const PER_REF_BUDGET = Number(process.env.ATTACH_RETRIEVE_CHARS ?? 24000);
+const TURN_BUDGET = Number(process.env.ATTACH_TURN_BUDGET_CHARS ?? 48000);
 
 export interface AttachmentRef {
   attId: string;
@@ -169,6 +177,8 @@ export async function buildAttachmentTurn(
   userIdx: number,
   question: string,
   signal?: AbortSignal,
+  /** I24: the model this turn answers with — notes are distilled by it and cached under it. */
+  model?: string,
 ): Promise<number> {
   const refs = collectAttachmentRefs(messages);
   if (!refs.length) return 0;
@@ -178,7 +188,19 @@ export async function buildAttachmentTurn(
   // Retrieval runs on the anchored query (short follow-ups inherit the
   // previous question's topic); the injected blocks still answer the user's
   // actual wording.
-  const rq = anchorQuery(question, messages, userIdx);
+  //
+  // I22: anchoring is for questions that carry NO retrieval intent of their
+  // own. If the raw question already routes somewhere specific — timestamps,
+  // "last 10 minutes", "module 3", "every mention", "summarize" — prepending
+  // the previous question dilutes the exact tokens that decide the route and
+  // the time window. Those questions are used verbatim.
+  const trimmedQ = (question ?? "").trim();
+  const direct = routeQuery(trimmedQ);
+  const rq =
+    trimmedQ && direct.mode !== "point_qa" ? trimmedQ : anchorQuery(question, messages, userIdx);
+
+  // I05: the whole turn shares ONE evidence budget across attachments.
+  let turnUsed = 0;
 
   for (const ref of refs) {
     const index = readIndex(ref.attId);
@@ -193,11 +215,39 @@ export async function buildAttachmentTurn(
 
     const routed: RoutedQuery = routeQuery(rq);
 
+    // I22: "the last N minutes" has no absolute anchor until the index's own
+    // duration is known. Unknown duration → honest best-effort hybrid rather
+    // than a fabricated window.
+    if (routed.lastSec != null) {
+      const dur = index.meta.durationSec;
+      if (dur && dur > 0) {
+        routed.fromSec = Math.max(0, dur - routed.lastSec);
+        routed.toSec = dur;
+      } else {
+        routed.mode = "point_qa";
+      }
+    }
+
     if (routed.mode === "whole_video") {
-      let notes = readNotes(ref.attId);
-      if (!notes) notes = (await generateNotes(ref.attId, index, signal)) || null;
+      // I05: notes compete for the same turn budget as evidence blocks.
+      const remaining = TURN_BUDGET - turnUsed;
+      if (remaining <= 0) {
+        blocks.push(
+          `<knowledge_index name="${ref.name}">\n` +
+            `This turn's evidence budget is already full, so no content from this ` +
+            `attachment was retrieved for it. Ask the question again in a new turn.\n</knowledge_index>`,
+        );
+        continue;
+      }
+      // I24: the cache is only trusted when it was distilled from THIS index
+      // by THIS model; a model switch or re-index invalidates it.
+      const version = notesVersion(index, model ?? "default");
+      let notes = readNotes(ref.attId, version);
+      if (!notes) notes = (await generateNotes(ref.attId, index, signal, model)) || null;
       if (notes) {
-        if (notes.length > NOTES_BUDGET) notes = notes.slice(0, NOTES_BUDGET) + "\n[...]";
+        const cap = Math.min(NOTES_BUDGET, remaining);
+        if (notes.length > cap) notes = notes.slice(0, cap) + "\n[...]";
+        turnUsed += notes.length;
         blocks.push(
           `<course_notes name="${ref.name}">\n` +
             `Course notes distilled from the extracted content of "${ref.name}":\n` +
@@ -209,17 +259,35 @@ export async function buildAttachmentTurn(
 
     let queryVec: number[] = [];
     try {
-      queryVec = await embedOne(rq);
+      // I25: the browser walking away must release the shared model slot —
+      // the signal gates the wait before load and between batches.
+      queryVec = await embedOne(rq, signal);
     } catch {
       // Embed model unavailable: BM25 alone still ranks the passages.
     }
 
-    let opts: RetrieveOpts = routed;
+    // I20: passages an earlier turn already served for this attachment are
+    // demoted, so "keep going" surfaces NEW content instead of the same hits.
+    const shown = readShown(ref.attId);
+
+    // I05: the attachment competes for the turn's REMAINING budget.
+    const remaining = TURN_BUDGET - turnUsed;
+    if (remaining <= 0) {
+      blocks.push(
+        `<knowledge_index name="${ref.name}">\n` +
+          `This turn's evidence budget is already full, so no passages from this ` +
+          `attachment were retrieved for it. Ask the question again in a new turn.\n</knowledge_index>`,
+      );
+      continue;
+    }
+    const budget = Math.min(PER_REF_BUDGET, remaining);
+
+    let opts: RetrieveOpts = { ...routed, demote: shown, budget };
     if (routed.mode === "sequential") {
       const blk = index.meta.spineBlocks?.[routed.blockIndex ?? -1];
       opts = blk
-        ? { mode: "sequential", range: { from: blk.chunkFrom, to: blk.chunkTo } }
-        : { mode: "point_qa" }; // "module 9" in a 3-block spine → best-effort hybrid
+        ? { mode: "sequential", range: { from: blk.chunkFrom, to: blk.chunkTo }, demote: shown, budget }
+        : { mode: "point_qa", demote: shown, budget }; // "module 9" in a 3-block spine → best-effort hybrid
     }
 
     const ev = retrieveEvidence(index, rq, queryVec, opts);
@@ -229,9 +297,17 @@ export async function buildAttachmentTurn(
       `<knowledge_index name="${ref.name}">\n` +
         `Passages retrieved from the complete content of "${ref.name}" ` +
         `(the full text is preserved locally — nothing was truncated):\n${ev.text}` +
-        (ev.truncated ? "\n[more relevant passages exist; this turn's budget showed the best ones]" : "") +
+        // I20: an honest COUNT of what the budget left out, not a vague
+        // "more exist". Ask-to-continue works because of the shown ledger.
+        (ev.dropped > 0
+          ? `\n[${ev.dropped} more relevant passages exist in this document that this turn's budget did not show — ask to continue and a different set is served]`
+          : ev.truncated
+            ? "\n[more relevant passages exist; this turn's budget showed the best ones]"
+            : "") +
         `\n${rules(ref)}\n</knowledge_index>`,
     );
+    turnUsed += ev.text.length;
+    if (ev.chunkIdxs.length) writeShown(ref.attId, [...new Set([...shown, ...ev.chunkIdxs])]);
     images.push(...nearestFrames(index, ev.frameAts));
   }
 

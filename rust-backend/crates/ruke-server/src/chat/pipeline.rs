@@ -180,9 +180,13 @@ pub async fn run_turn_pipeline(
     let retrieval: Result<usize, Cancelled> =
         match payload.get_mut("messages").and_then(Value::as_array_mut) {
             Some(messages) => {
+                // I24: the request's chat model rides the notes request
+                // AND its cache fingerprint — notes distilled by one
+                // model are never served for another.
                 let llm = NotesLlm {
                     url: state.settings.llm_api_url(),
                     key: state.settings.llm_api_key(),
+                    model: model.to_string(),
                 };
                 build_attachment_turn(
                     messages,
@@ -275,8 +279,8 @@ pub async fn run_turn_pipeline(
     // words (the "Find apartments to rent in Tallinn" family) — keeps
     // the research path (with the scope enforced through the gate ctx).
     let browser_armed = browser.as_ref().is_some_and(|b| b.2);
-    let browser_turn =
-        browser.is_some() && crate::task_scope::browser_activates(&turn_scope, question, browser_armed);
+    let browser_turn = browser.is_some()
+        && crate::task_scope::browser_activates(&turn_scope, question, browser_armed);
 
     // ---- 6) research availability (repair 2026-11-05, brief §2/§4) ----
     // THE MODEL DECIDES: no gate, no prefetched bundle, and no auxiliary

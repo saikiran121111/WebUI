@@ -98,9 +98,14 @@ fn question_of(fx: &Value) -> String {
 async fn rust_turn(fx: &Value, user_idx: usize, root: &std::path::Path) -> (Vec<Value>, usize) {
     let mut messages = rust_messages(fx);
     let http = reqwest::Client::new();
+    // Golden parity: the TS golden calls `buildAttachmentTurn` with no
+    // model, so the TS `model ?? "default"` fingerprint base is
+    // "default" — the Rust NotesLlm must carry the same (the golden
+    // corpus writes no notes.json, so this is never contacted anyway).
     let llm = NotesLlm {
         url: PORT9_URL.to_string(),
         key: "golden-key".into(),
+        model: "default".into(),
     };
     let embedder = FixedEmbedder(QUERY_VEC.to_vec());
     let n = build_attachment_turn(

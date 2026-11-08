@@ -36,12 +36,16 @@ pub enum QueryMode {
 }
 
 /// `RoutedQuery` — `blockIndex` is 0-based ("module 2" → 1).
+/// `last_sec` (I22): "the last N minutes" carries NO window of its own —
+/// the turn layer resolves it against the index's own duration (TS
+/// `lastSec`, resolved in `build_attachment_turn`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RoutedQuery {
     pub mode: QueryMode,
     pub from_sec: Option<f64>,
     pub to_sec: Option<f64>,
     pub block_index: Option<i64>,
+    pub last_sec: Option<f64>,
 }
 
 fn re(pattern: &str) -> Regex {
@@ -68,6 +72,10 @@ fn at_min() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| re(r"(?:at|around)\s+(?:minute|min)\s*([0-9]{1,3})"))
 }
+fn last_min() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| re(r"last\s+([0-9]{1,3})\s*(?:minutes?|mins?|m)"))
+}
 fn block_kw() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| re(r"(?:module|section|chapter|part|lesson|unit)\s+([0-9]{1,2})"))
@@ -75,7 +83,7 @@ fn block_kw() -> &'static Regex {
 fn exhaustive_kw() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
-        re(r"every time|all (?:the )?times|how many times|list every|every mention|each mention|wherever|any time|mentioned how often")
+        re(r"every time|all (?:the )?times|how many times|list every|every mention|each mention|wherever|any time|mentioned how often|all (?:the )?mentions?|list all")
     })
 }
 fn whole_kw() -> &'static Regex {
@@ -130,15 +138,19 @@ pub(crate) fn count_bounded(re: &Regex, hay: &str) -> usize {
 /// `+group` — the groups are digit-only by construction; a parse failure
 /// is impossible and reads 0 rather than panicking (never observed).
 fn group_f64(caps: &regex::Captures<'_>, n: usize) -> f64 {
-    caps.get(n).map(|m| m.as_str().parse::<f64>().unwrap_or(0.0)).unwrap_or(0.0)
+    caps.get(n)
+        .map(|m| m.as_str().parse::<f64>().unwrap_or(0.0))
+        .unwrap_or(0.0)
 }
 
 /// JS `Math.min(...times)` / `Math.max(...times)` over a NON-EMPTY vec.
 fn fold_min(xs: &[f64]) -> f64 {
-    xs.iter().fold(f64::INFINITY, |a, &b| if b < a { b } else { a })
+    xs.iter()
+        .fold(f64::INFINITY, |a, &b| if b < a { b } else { a })
 }
 fn fold_max(xs: &[f64]) -> f64 {
-    xs.iter().fold(f64::NEG_INFINITY, |a, &b| if b > a { b } else { a })
+    xs.iter()
+        .fold(f64::NEG_INFINITY, |a, &b| if b > a { b } else { a })
 }
 
 pub fn route_query(q: &str) -> RoutedQuery {
@@ -156,7 +168,9 @@ pub fn route_query(q: &str) -> RoutedQuery {
             let m = caps.get(0).expect("whole match");
             stripped.push_str(&q[pos..m.start()]);
             stripped.push(' ');
-            times.push(group_f64(&caps, 1) * 3600.0 + group_f64(&caps, 2) * 60.0 + group_f64(&caps, 3));
+            times.push(
+                group_f64(&caps, 1) * 3600.0 + group_f64(&caps, 2) * 60.0 + group_f64(&caps, 3),
+            );
             pos = m.end();
         }
         stripped.push_str(&q[pos..]);
@@ -175,30 +189,80 @@ pub fn route_query(q: &str) -> RoutedQuery {
     }
 
     if times.len() >= 2 {
-        return RoutedQuery { mode: QueryMode::TimeRange, from_sec: Some(fold_min(&times)), to_sec: Some(fold_max(&times)), block_index: None };
+        return RoutedQuery {
+            mode: QueryMode::TimeRange,
+            from_sec: Some(fold_min(&times)),
+            to_sec: Some(fold_max(&times)),
+            block_index: None,
+            last_sec: None,
+        };
     }
     if times.len() == 1 {
         let c = times[0];
-        return RoutedQuery { mode: QueryMode::TimeRange, from_sec: Some((c - 180.0).max(0.0)), to_sec: Some(c + 180.0), block_index: None };
+        return RoutedQuery {
+            mode: QueryMode::TimeRange,
+            from_sec: Some((c - 180.0).max(0.0)),
+            to_sec: Some(c + 180.0),
+            block_index: None,
+            last_sec: None,
+        };
     }
 
     if let Some(caps) = next_caps(first_min(), &text, 0) {
-        return RoutedQuery { mode: QueryMode::TimeRange, from_sec: Some(0.0), to_sec: Some(group_f64(&caps, 1) * 60.0), block_index: None };
+        return RoutedQuery {
+            mode: QueryMode::TimeRange,
+            from_sec: Some(0.0),
+            to_sec: Some(group_f64(&caps, 1) * 60.0),
+            block_index: None,
+            last_sec: None,
+        };
     }
     if let Some(caps) = next_caps(at_min(), &text, 0) {
         let c = group_f64(&caps, 1) * 60.0;
-        return RoutedQuery { mode: QueryMode::TimeRange, from_sec: Some((c - 180.0).max(0.0)), to_sec: Some(c + 180.0), block_index: None };
+        return RoutedQuery {
+            mode: QueryMode::TimeRange,
+            from_sec: Some((c - 180.0).max(0.0)),
+            to_sec: Some(c + 180.0),
+            block_index: None,
+            last_sec: None,
+        };
+    }
+    if let Some(caps) = next_caps(last_min(), &text, 0) {
+        // No from/to here on purpose (I22): only the index's own duration
+        // knows where "the end" is — the turn layer resolves it.
+        return RoutedQuery {
+            mode: QueryMode::TimeRange,
+            from_sec: None,
+            to_sec: None,
+            block_index: None,
+            last_sec: Some(group_f64(&caps, 1) * 60.0),
+        };
     }
     if let Some(caps) = next_caps(block_kw(), &text, 0) {
-        return RoutedQuery { mode: QueryMode::Sequential, from_sec: None, to_sec: None, block_index: Some(group_f64(&caps, 1) as i64 - 1) };
+        return RoutedQuery {
+            mode: QueryMode::Sequential,
+            from_sec: None,
+            to_sec: None,
+            block_index: Some(group_f64(&caps, 1) as i64 - 1),
+            last_sec: None,
+        };
     }
     if next_caps(exhaustive_kw(), &text, 0).is_some() {
-        return RoutedQuery { mode: QueryMode::Exhaustive, ..Default::default() };
+        return RoutedQuery {
+            mode: QueryMode::Exhaustive,
+            ..Default::default()
+        };
     }
     if next_caps(whole_kw(), &text, 0).is_some() {
-        return RoutedQuery { mode: QueryMode::WholeVideo, ..Default::default() };
+        return RoutedQuery {
+            mode: QueryMode::WholeVideo,
+            ..Default::default()
+        };
     }
-    RoutedQuery { mode: QueryMode::PointQa, ..Default::default() }
+    RoutedQuery {
+        mode: QueryMode::PointQa,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
@@ -213,7 +277,10 @@ mod tests {
 
     #[test]
     fn hms_pairs_and_windows() {
-        assert_eq!(tr("walk me from 1:00:00 to 1:30:00"), (Some(3600.0), Some(5400.0)));
+        assert_eq!(
+            tr("walk me from 1:00:00 to 1:30:00"),
+            (Some(3600.0), Some(5400.0))
+        );
         // "around 1:45:00" — the fixture-05 anchor: 6300 ± 180.
         assert_eq!(tr("around 1:45:00"), (Some(6120.0), Some(6480.0)));
         // min/max fold is order-independent.
@@ -237,7 +304,10 @@ mod tests {
         assert_eq!(route_query("first 5 minutesx").mode, QueryMode::PointQa);
         // "summarizes": "summarize" body matches but the "s" glue kills \b;
         // no other alternative matches ⇒ point_qa (JS backtracks identically).
-        assert_eq!(route_query("can you summarizes it").mode, QueryMode::PointQa);
+        assert_eq!(
+            route_query("can you summarizes it").mode,
+            QueryMode::PointQa
+        );
         // "everytime" has no space inside "every time".
         assert_eq!(route_query("everytime we meet").mode, QueryMode::PointQa);
     }
@@ -255,22 +325,105 @@ mod tests {
     }
 
     #[test]
+    fn last_n_minutes_i22() {
+        // last_sec ONLY — no window until the turn layer knows the duration.
+        let r = route_query("what happened in the last 10 minutes");
+        assert_eq!(r.mode, QueryMode::TimeRange);
+        assert_eq!(r.last_sec, Some(600.0));
+        assert_eq!(r.from_sec, None);
+        assert_eq!(r.to_sec, None);
+        assert_eq!(
+            route_query("what did he say in the last 5 mins").last_sec,
+            Some(300.0)
+        );
+        assert_eq!(
+            route_query("cover the last 2m of the lecture").last_sec,
+            Some(120.0)
+        );
+        // Boundary parity with the JS \b family (word-glued rejections).
+        assert_eq!(
+            route_query("lastx 10 minutes into it").mode,
+            QueryMode::PointQa
+        );
+        // Trailing glue: every `minutes?|mins?|m` alternative word-glues on
+        // 'x' ⇒ no lastSec. With the candidate dead, the rest of the query
+        // routes on its own (TS pins both sides in attach-router-phrase).
+        assert_eq!(
+            route_query("last 10 minutesx into it").mode,
+            QueryMode::PointQa
+        );
+        assert_eq!(
+            route_query("last 10 minutesx summary").mode,
+            QueryMode::WholeVideo
+        );
+        // é is not an ASCII word byte on either side ⇒ boundary survives.
+        assert_eq!(
+            route_query("cafélast 10 minutes summary").last_sec,
+            Some(600.0)
+        );
+        // Absolute timestamps still win (this rule runs after them).
+        assert_eq!(
+            route_query("summarize the last 10 minutes of 1:00:00 to 1:30:00").last_sec,
+            None
+        );
+    }
+
+    #[test]
+    fn exhaustive_phrase_growth_i22() {
+        for q in [
+            "list all the mentions of entropy",
+            "give me all mentions of the word basically",
+            "any time he says remember this",
+        ] {
+            assert_eq!(route_query(q).mode, QueryMode::Exhaustive, "{q}");
+        }
+        assert_eq!(
+            route_query("what is the average of all the quiz scores").mode,
+            QueryMode::PointQa
+        );
+    }
+
+    #[test]
     fn exhaustive_and_whole_video_phrases() {
-        assert_eq!(route_query("how many times does he say ubiquitin").mode, QueryMode::Exhaustive);
-        assert_eq!(route_query("all the times mitosis appears").mode, QueryMode::Exhaustive);
-        assert_eq!(route_query("wherever the kernel is mentioned").mode, QueryMode::Exhaustive);
+        assert_eq!(
+            route_query("how many times does he say ubiquitin").mode,
+            QueryMode::Exhaustive
+        );
+        assert_eq!(
+            route_query("all the times mitosis appears").mode,
+            QueryMode::Exhaustive
+        );
+        assert_eq!(
+            route_query("wherever the kernel is mentioned").mode,
+            QueryMode::Exhaustive
+        );
         assert_eq!(route_query("give me a summary").mode, QueryMode::WholeVideo);
-        assert_eq!(route_query("course notes for this").mode, QueryMode::WholeVideo);
-        assert_eq!(route_query("from the beginning to the end").mode, QueryMode::WholeVideo);
+        assert_eq!(
+            route_query("course notes for this").mode,
+            QueryMode::WholeVideo
+        );
+        assert_eq!(
+            route_query("from the beginning to the end").mode,
+            QueryMode::WholeVideo
+        );
         // Time windows beat keyword modes (order matters, TS lines 33-51).
-        assert_eq!(route_query("summarize from 1:00:00 to 1:30:00").mode, QueryMode::TimeRange);
-        assert_eq!(route_query("what is photosynthesis").mode, QueryMode::PointQa);
+        assert_eq!(
+            route_query("summarize from 1:00:00 to 1:30:00").mode,
+            QueryMode::TimeRange
+        );
+        assert_eq!(
+            route_query("what is photosynthesis").mode,
+            QueryMode::PointQa
+        );
     }
 
     #[test]
     fn pronoun_count_matches_js_match_length() {
         // "why … that … it" = 3; word-glued pronouns don't count.
-        assert_eq!(count_bounded(pronoun_re(), "why does that happen when it rains"), 3);
+        assert_eq!(
+            count_bounded(pronoun_re(), "why does that happen when it rains"),
+            3
+        );
         // Both candidates are word-glued ("why"+"d", "that"+"1") ⇒ null ⇒ 0.
         assert_eq!(count_bounded(pronoun_re(), "whydoes that1 happen"), 0);
         assert_eq!(count_bounded(pronoun_re(), "How come they left there"), 3); // (?i)

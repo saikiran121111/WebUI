@@ -38,6 +38,8 @@
 //! thread-per-call cost is noise; this keeps the multi-threaded tokio
 //! worker that serves the turn from ever blocking on the RPC.
 
+use tokio_util::sync::CancellationToken;
+
 use crate::{EmbedUnavailable, QueryEmbedder};
 use serde_json::Value;
 
@@ -89,13 +91,19 @@ impl HttpQueryEmbedder {
         if body.get("ok").and_then(Value::as_bool) != Some(true) {
             return Err(EmbedUnavailable);
         }
-        let rows = body.get("vector").and_then(Value::as_array).ok_or(EmbedUnavailable)?;
+        let rows = body
+            .get("vector")
+            .and_then(Value::as_array)
+            .ok_or(EmbedUnavailable)?;
         if rows.is_empty() {
             return Err(EmbedUnavailable);
         }
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
-            let v = r.as_f64().filter(|f| f.is_finite()).ok_or(EmbedUnavailable)?;
+            let v = r
+                .as_f64()
+                .filter(|f| f.is_finite())
+                .ok_or(EmbedUnavailable)?;
             out.push(v);
         }
         Ok(out)
@@ -103,43 +111,56 @@ impl HttpQueryEmbedder {
 }
 
 impl QueryEmbedder for HttpQueryEmbedder {
-    fn embed_one(&self, text: &str) -> Result<Vec<f64>, EmbedUnavailable> {
+    fn embed_one(
+        &self,
+        text: &str,
+        token: &CancellationToken,
+    ) -> Result<Vec<f64>, EmbedUnavailable> {
+        // I25 ⇔ TS `embedOne(text, signal)`: an aborted turn rejects the
+        // in-flight RPC (AbortError → the caller's catch). The token is
+        // cloned into the worker so the select can see it there.
+        if token.is_cancelled() {
+            return Err(EmbedUnavailable);
+        }
         let client = self.client.clone();
         let url = format!("{}{}", self.base_url, EMBED_PATH);
         let secret = self.secret.clone();
         let payload = serde_json::json!({ "text": text });
+        let token = token.clone();
         let worker = std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .ok()?;
             rt.block_on(async move {
-                let resp = client
-                    .post(&url)
-                    .header(SECRET_HEADER, secret.as_str())
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-                    .body(payload.to_string())
-                    .send()
-                    .await
-                    .ok()?;
-                if !resp.status().is_success() {
-                    return None;
+                tokio::select! {
+                    biased;
+                    _ = token.cancelled() => return None,
+                    got = async {
+                        let resp = client
+                            .post(&url)
+                            .header(SECRET_HEADER, secret.as_str())
+                            .header(reqwest::header::CONTENT_TYPE, "application/json")
+                            .body(payload.to_string())
+                            .send()
+                            .await
+                            .ok()?;
+                        if !resp.status().is_success() {
+                            return None;
+                        }
+                        // The workspace reqwest carries no `json` feature
+                        // (SSE bytes must travel verbatim); decode here.
+                        let text = resp.text().await.ok()?;
+                        let body: Value = serde_json::from_str(&text).ok()?;
+                        Self::parse_vector(&body).ok()
+                    } => got,
                 }
-                // The workspace reqwest carries no `json` feature (SSE
-                // bytes must travel verbatim); decode text ourselves.
-                let text = resp.text().await.ok()?;
-                let body: Value = serde_json::from_str(&text).ok()?;
-                Self::parse_vector(&body).ok()
             })
         });
         // A panicked worker thread is just another failed vector: join
         // yields Result<Option<..>>, and either layer failing is
         // EmbedUnavailable.
-        worker
-            .join()
-            .ok()
-            .flatten()
-            .ok_or(EmbedUnavailable)
+        worker.join().ok().flatten().ok_or(EmbedUnavailable)
     }
 }
 

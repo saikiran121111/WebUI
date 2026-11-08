@@ -85,7 +85,10 @@ mod tests {
 
     #[test]
     fn tokenize_word_table() {
-        assert_eq!(tokenize("Photosynthesis converts light."), ["photosynthesis", "converts", "light"]);
+        assert_eq!(
+            tokenize("Photosynthesis converts light."),
+            ["photosynthesis", "converts", "light"]
+        );
         // Apostrophe suffixes ATTACH (the `(?:'[a-z]+)*` group is part of
         // the same match): "don't" is ONE token, not "don" + "t".
         assert_eq!(tokenize("don't O'Brien"), ["don't", "o'brien"]);
@@ -112,7 +115,10 @@ mod tests {
         // docs ["a b","b c"], query "a": N=2 avgdl=2; doc0 f=1 n=1:
         // idf = ln(1+(2-1+0.5)/(1+0.5)) = ln 2; denom = 1+1.5*(0.25+0.75) = 2.5;
         // score = ln2 * 1 * 2.5 / 2.5 = ln 2. doc1 has no "a" ⇒ 0.
-        let s = bm25_scores("a", &[vec!["a".into(), "b".into()], vec!["b".into(), "c".into()]]);
+        let s = bm25_scores(
+            "a",
+            &[vec!["a".into(), "b".into()], vec!["b".into(), "c".into()]],
+        );
         assert_eq!(s.len(), 2);
         assert!((s[0] - std::f64::consts::LN_2).abs() < 1e-12, "{:?}", s);
         assert_eq!(s[1], 0.0);

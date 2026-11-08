@@ -89,9 +89,13 @@ async fn notes_post_inner(
     // Same settings resolution as the chat forwarder (override > file >
     // env > fallback), read PER REQUEST — never captured, never logged
     // (Rule 17: only the att id travels to the log).
+    // I24: the TS route calls `generateNotes(attId, index, req.signal)`
+    // with no model argument — the `model = "default"` default parameter
+    // is what lands in the request AND the cache fingerprint.
     let llm = NotesLlm {
         url: state.settings.llm_api_url(),
         key: state.settings.llm_api_key(),
+        model: "default".into(),
     };
     match generate_notes(&state.root, att_id, &index, &state.http, &llm, token).await {
         Err(Cancelled) => {
@@ -199,7 +203,7 @@ mod tests {
                 &META1.replace("att_notes1", "att_notes3"),
                 "",
             );
-            write_notes(root, "att_notes3", "").unwrap();
+            write_notes(root, "att_notes3", "", None).unwrap();
             // att_notes4: a real cached note.
             seed_store(
                 root,
@@ -207,7 +211,7 @@ mod tests {
                 &META1.replace("att_notes1", "att_notes4"),
                 "",
             );
-            write_notes(root, "att_notes4", "cached body").unwrap();
+            write_notes(root, "att_notes4", "cached body", None).unwrap();
         };
         let (state, _tmp) = seeded_state(root_seed);
 
@@ -268,14 +272,14 @@ mod tests {
     async fn post_cached_truthy_and_force_regenerate_empty() {
         let (state, _tmp) = seeded_state(|root| {
             seed_store(root, "att_notes1", META1, "");
-            write_notes(root, "att_notes1", "keep me").unwrap();
+            write_notes(root, "att_notes1", "keep me", None).unwrap();
             seed_store(
                 root,
                 "att_notes3",
                 &META1.replace("att_notes1", "att_notes3"),
                 "",
             );
-            write_notes(root, "att_notes3", "").unwrap();
+            write_notes(root, "att_notes3", "", None).unwrap();
         });
         // Pin the LLM target OFF the live server (golden seam): the
         // spineless index generates Ok("") WITHOUT ever fetching.

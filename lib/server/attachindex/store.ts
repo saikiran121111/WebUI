@@ -58,6 +58,8 @@ export function writeIndex(attId: string, meta: IndexMeta, chunks: IndexChunk[],
   }
   atomicWrite(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2));
   cacheDelete(attId);
+  // I20: a rebuilt index has new chunk ids — the old shown ledger is moot.
+  shownDelete(attId);
 }
 
 // Small LRU so per-turn retrieval doesn't re-read ~1 MB of vectors on every
@@ -99,6 +101,7 @@ export function readIndex(attId: string): LoadedIndex | null {
 export function removeIndex(attId: string): void {
   cacheDelete(attId);
   removeUpload(attId);
+  shownDelete(attId); // I20
   try {
     fs.rmSync(indexDir(attId), { recursive: true, force: true });
   } catch {
@@ -178,16 +181,90 @@ export function sweepOrphanUploads(maxAgeMs = 15 * 60 * 1000): number {
   return removed;
 }
 
-export function readNotes(attId: string): string | null {
+/**
+ * I24: notes.json gains a `version` stamp (written AFTER createdAt so the
+ * existing `{"notes":…,"createdAt":…}` prefix bytes stay). The version is a
+ * content+model fingerprint of the index the notes were distilled from; a
+ * turn that asks for notes computed against a DIFFERENT index or model must
+ * regenerate, not serve a stale cache. `expectedVersion === undefined`
+ * accepts any stamp — the notes routes (GET/POST /api/attachments/notes)
+ * read and write the body verbatim, version-agnostic, exactly as before.
+ */
+export function readNotes(attId: string, expectedVersion?: string): string | null {
   try {
     const f = path.join(indexDir(attId), "notes.json");
     if (!fs.existsSync(f)) return null;
-    return (JSON.parse(fs.readFileSync(f, "utf8")) as { notes: string }).notes ?? null;
+    const env = JSON.parse(fs.readFileSync(f, "utf8")) as { notes?: unknown; version?: unknown };
+    if (expectedVersion != null && env?.version !== expectedVersion) return null;
+    return typeof env?.notes === "string" ? env.notes : null;
   } catch {
     return null;
   }
 }
 
-export function writeNotes(attId: string, notes: string): void {
-  atomicWrite(path.join(indexDir(attId), "notes.json"), JSON.stringify({ notes, createdAt: Date.now() }));
+export function writeNotes(attId: string, notes: string, version?: string): void {
+  const env: Record<string, unknown> = { notes, createdAt: Date.now() };
+  if (version !== undefined) env.version = version;
+  atomicWrite(path.join(indexDir(attId), "notes.json"), JSON.stringify(env));
+}
+
+/* --------------------------------------------------------------------- ──
+ * I20: per-attachment "already shown" ledger
+ *
+ *   .data/attach-index/.shown.json   { attId: chunkId[] } — ONE aggregate
+ *                                    file at the index ROOT.
+ *
+ * A follow-up question ("keep going") re-runs retrieval; without this ledger
+ * the same top-ranked passages win again every turn. The ledger feeds the
+ * retrieve demote list so continuation turns surface FRESH passages.
+ *
+ * The state is deliberately NOT a per-attachment file: the golden store
+ * fixture test asserts the EXACT file set inside each attachment directory
+ * (chunks.jsonl/full.txt/meta.json/frames), and vitest runs the attachment
+ * turn tests concurrently with that guard — a per-att file written mid-turn
+ * would poison it. One root file keyed by attId keeps the per-att dirs to
+ * their pinned shape; removeIndex/writeIndex just drop/clear the key.
+ * ---------------------------------------------------------------------- */
+const SHOWN_FILE = path.join(ROOT, ".shown.json");
+
+function readShownMap(): Record<string, number[]> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(SHOWN_FILE, "utf8"));
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, number[]>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function readShown(attId: string): number[] {
+  try {
+    if (!ATT_RE.test(attId)) return [];
+    const v = readShownMap()[attId];
+    return Array.isArray(v) ? v.filter(n => Number.isInteger(n)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Read-modify-write: one attachment's turn never clobbers another's. */
+export function writeShown(attId: string, ids: number[]): void {
+  try {
+    if (!ATT_RE.test(attId)) return;
+    const map = readShownMap();
+    map[attId] = ids.filter(n => Number.isInteger(n));
+    atomicWrite(SHOWN_FILE, JSON.stringify(map));
+  } catch {
+    // Ledger is an optimization — losing it must never break a turn.
+  }
+}
+
+function shownDelete(attId: string): void {
+  try {
+    const map = readShownMap();
+    if (!(attId in map)) return;
+    delete map[attId];
+    atomicWrite(SHOWN_FILE, JSON.stringify(map));
+  } catch {
+    // GC path never throws.
+  }
 }

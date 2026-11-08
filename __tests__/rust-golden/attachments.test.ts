@@ -19,7 +19,7 @@
  *  - stage frames only on the progress path; legacy path runs the SAME
  *    pipeline with metadata in headers only (fixtures 01 vs 05 prove parity).
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import {
   MOCK_LLM_KEY,
@@ -73,7 +73,20 @@ const SSE_STD: UpstreamScript = {
 // Seeds live in ./support/attach-seeds (shared with store-fixture.test.ts —
 // the replay fixtures and the committed Rust-side store bytes MUST seed the
 // same way).
+// I20 (2026-11-08): the store gained a per-attachment "already shown" ledger
+// so follow-up turns surface FRESH passages instead of the same top hits.
+// That makes retrieval stateful across turns — and scenarios 01/06 share
+// att_golden1a while 04/05 share att_golden1d. Every fixture was generated
+// from ONE turn against a pristine seed, so every scenario must start from
+// that pristine seed again: the seed is re-applied before each test, and
+// removeIndex drops the ledger key along with the index. The committed
+// fixture bytes are unchanged by this — each recorded turn stays the first
+// turn over a fresh seed.
 beforeAll(() => {
+  for (const id of ATT_IDS) removeIndex(id);
+});
+
+beforeEach(() => {
   for (const id of ATT_IDS) removeIndex(id);
   seedAttachmentStore();
 });

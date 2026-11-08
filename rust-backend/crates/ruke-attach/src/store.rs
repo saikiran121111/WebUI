@@ -17,7 +17,15 @@
 //! - `readNotes` returns the stored `notes` string; a missing file or bad
 //!   JSON is `None`. An empty-string note value stays `Some("")` so the
 //!   call sites can reproduce TS's `?? ` (nullish, NOT falsy) fallback vs.
-//!   `if (notes)` (falsy) decision separately.
+//!   `if (notes)` (falsy) decision separately. The I24 versioned form
+//!   (`readNotes(attId, expectedVersion)` ⇔ `read_notes_with_version`)
+//!   additionally demands an exact `version` key: a pre-versioning file
+//!   reads stale (`env?.version !== expected` ⇒ null in TS).
+//! - Shown-ledger reads/writes (`readShown`/`writeShown`/`shownDelete`,
+//!   I20) are try-wrapped on both sides in TS — every failure (bad id,
+//!   corrupt aggregate, failed rename) collapses to empty/silent. Rust
+//!   models that with NO error variant: `read_shown` returns an empty
+//!   Vec and `write_shown` swallows every IO error.
 //! - Atomic writes: `writeFileSync(f+".tmp") + renameSync` preserved —
 //!   `std::fs::rename` replaces an existing target on Windows the same way
 //!   Node's does. No locking is added (it would change Node-visible
@@ -46,7 +54,10 @@ pub fn valid_att_id(s: &str) -> bool {
     let Some(tail) = s.strip_prefix("att_") else {
         return false;
     };
-    (4..=32).contains(&tail.len()) && tail.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    (4..=32).contains(&tail.len())
+        && tail
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
 fn index_dir_checked(root: &Path, att_id: &str) -> Result<PathBuf, String> {
@@ -82,6 +93,7 @@ pub fn remove_index(root: &Path, att_id: &str) {
         return;
     };
     cache().lock().retain(|(d, _)| *d != dir); // cacheDelete (attId ⇔ dir key)
+    shown_delete(root, att_id); // I20: a dropped index drops its ledger key too
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -170,12 +182,39 @@ pub fn read_notes(root: &Path, att_id: &str) -> Option<String> {
     }
 }
 
-/// `writeNotes`: NOT try-wrapped in TS — a bad id is an `Err` here and the
-/// caller (`notes.ts::generateNotes`) swallows it, exactly as the TS
-/// `try { writeNotes } catch {}` does. File shape `{notes, createdAt}` is
-/// written COMPACT (no indent) like `JSON.stringify(obj)`, with the key
-/// order preserved.
-pub fn write_notes(root: &Path, att_id: &str, notes: &str) -> Result<(), String> {
+/// `readNotes(attId, expectedVersion)` (I24): a versioned read. The file
+/// must carry a `version` string EXACTLY equal to `expected` — a file
+/// written before versioning reads stale, ⇔ TS `env?.version !==
+/// expectedVersion ⇒ null` (a missing key is `undefined`, never equal).
+/// Same never-throws boundary as `read_notes`.
+pub fn read_notes_with_version(root: &Path, att_id: &str, expected: &str) -> Option<String> {
+    let dir = index_dir_checked(root, att_id).ok()?;
+    let f = dir.join("notes.json");
+    if !f.exists() {
+        return None;
+    }
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()?;
+    if v.get("version").and_then(Value::as_str) != Some(expected) {
+        return None;
+    }
+    match v.get("notes") {
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// `writeNotes(attId, notes, version?)`: NOT try-wrapped in TS — a bad id
+/// is an `Err` here and the caller (`notes.ts::generateNotes`) swallows
+/// it, exactly as the TS `try { writeNotes } catch {}` does. File shape
+/// `{notes, createdAt}` — plus `version` LAST and ONLY when provided
+/// (I24) — is written COMPACT (no indent) like `JSON.stringify(obj)`,
+/// with the key order preserved.
+pub fn write_notes(
+    root: &Path,
+    att_id: &str,
+    notes: &str,
+    version: Option<&str>,
+) -> Result<(), String> {
     let dir = index_dir_checked(root, att_id)?;
     // `Date.now()` — integer epoch millis.
     let created_at = SystemTime::now()
@@ -185,8 +224,81 @@ pub fn write_notes(root: &Path, att_id: &str, notes: &str) -> Result<(), String>
     let mut map = serde_json::Map::new();
     map.insert("notes".to_string(), json!(notes));
     map.insert("createdAt".to_string(), json!(created_at));
+    if let Some(v) = version {
+        map.insert("version".to_string(), json!(v));
+    }
     let body = serde_json::to_string(&Value::Object(map)).map_err(|e| e.to_string())?;
     atomic_write(&dir.join("notes.json"), &body).map_err(|e| e.to_string())
+}
+
+// ─── I20: the shown ledger ───────────────────────────────────────────────
+// Deliberately ONE aggregate file per root (`<root>/.data/attach-index/
+// .shown.json`, a map attId → number[]) instead of a per-attachment file
+// inside the index dir: (a) the golden store fixture pins the EXACT
+// per-attachment file set (`chunks.jsonl`/`full.txt`/`meta.json` only), so
+// a new per-dir file would drift it, and (b) the TS side runs parallel
+// vitest workers sharing one root where per-dir rewrites would race.
+// Mirror of the I20 comment in `store.ts`.
+
+fn shown_file(root: &Path) -> PathBuf {
+    root.join(".data").join("attach-index").join(".shown.json")
+}
+
+/// `readShownMap`: missing/corrupt/non-object (an array counts as
+/// non-object here) ⇒ empty map, ⇔ TS `try { JSON.parse } catch {}` plus
+/// `raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}`.
+fn read_shown_map(root: &Path) -> serde_json::Map<String, Value> {
+    let parsed = std::fs::read_to_string(shown_file(root))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    match parsed {
+        Some(Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// `readShown`: bad id ⇒ `[]`; missing/corrupt ⇒ `[]`; entries filtered to
+/// integers (`Number.isInteger` ⇔ serde `as_i64`, which accepts integral
+/// floats and rejects fractions/strings, exactly like JS).
+pub fn read_shown(root: &Path, att_id: &str) -> Vec<i64> {
+    if !valid_att_id(att_id) {
+        return Vec::new();
+    }
+    match read_shown_map(root).get(att_id).and_then(Value::as_array) {
+        Some(arr) => arr.iter().filter_map(Value::as_i64).collect(),
+        None => Vec::new(),
+    }
+}
+
+/// `writeShown`: bad id is a silent no-op (TS `ATT_RE` guard), then a
+/// read-modify-write of the aggregate map, atomic-rename. The ledger is an
+/// OPTIMIZATION — losing it must never break a turn, so every IO error is
+/// swallowed (TS whole-body `try/catch {}`).
+pub fn write_shown(root: &Path, att_id: &str, ids: &[i64]) {
+    if !valid_att_id(att_id) {
+        return;
+    }
+    let mut map = read_shown_map(root);
+    map.insert(
+        att_id.to_string(),
+        Value::Array(ids.iter().map(|n| json!(*n)).collect()),
+    );
+    if let Ok(body) = serde_json::to_string(&Value::Object(map)) {
+        let _ = atomic_write(&shown_file(root), &body);
+    }
+}
+
+/// `shownDelete` (private in TS): early-exit when the key is absent so a
+/// GC path never rewrites a clean file; never throws.
+fn shown_delete(root: &Path, att_id: &str) {
+    let mut map = read_shown_map(root);
+    if !map.contains_key(att_id) {
+        return;
+    }
+    map.remove(att_id);
+    if let Ok(body) = serde_json::to_string(&Value::Object(map)) {
+        let _ = atomic_write(&shown_file(root), &body);
+    }
 }
 
 /// Monotonic-ish source for tests needing a fake clock without touching
@@ -242,7 +354,7 @@ mod tests {
         assert!(read_index(&root, "bad").is_none());
         assert!(read_notes(&root, "bad").is_none());
         // TS writeNotes is not try-wrapped: the throw surfaces.
-        assert!(write_notes(&root, "bad", "x").is_err());
+        assert!(write_notes(&root, "bad", "x", None).is_err());
     }
 
     #[test]
@@ -267,7 +379,10 @@ mod tests {
             meta2,
             "{\"i\":0,\"text\":\"a\"}\ngarbage line\n",
         );
-        assert!(read_index(&root, "att_bad01").is_none(), "one bad JSONL line ⇒ whole read null");
+        assert!(
+            read_index(&root, "att_bad01").is_none(),
+            "one bad JSONL line ⇒ whole read null"
+        );
     }
 
     #[test]
@@ -287,19 +402,116 @@ mod tests {
         let root = uniq_root("notes");
         assert!(read_notes(&root, "att_note1").is_none());
         std::fs::create_dir_all(root.join(".data").join("attach-index").join("att_note1")).unwrap();
-        write_notes(&root, "att_note1", "hello").unwrap();
+        write_notes(&root, "att_note1", "hello", None).unwrap();
         assert_eq!(read_notes(&root, "att_note1").as_deref(), Some("hello"));
-        write_notes(&root, "att_note1", "").unwrap();
+        write_notes(&root, "att_note1", "", None).unwrap();
         // Empty string survives as Some("") — the ?? vs falsy split lives
         // at the call sites, not here.
         assert_eq!(read_notes(&root, "att_note1").as_deref(), Some(""));
         // Compact shape, notes first, integer createdAt (⇔ JSON.stringify).
         let raw = std::fs::read_to_string(
-            root.join(".data").join("attach-index").join("att_note1").join("notes.json"),
+            root.join(".data")
+                .join("attach-index")
+                .join("att_note1")
+                .join("notes.json"),
         )
         .unwrap();
         assert!(raw.starts_with("{\"notes\":\"\",\"createdAt\":"), "{raw}");
         assert!(raw.ends_with('}') && !raw.contains('\n'));
+    }
+
+    #[test]
+    fn notes_version_envelope_and_versioned_reads_i24() {
+        let root = uniq_root("nver");
+        let att = "att_nver01";
+        let dir = root.join(".data").join("attach-index").join(att);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ver = "v1|default|2|24|1:0-1";
+
+        write_notes(&root, att, "body", Some(ver)).unwrap();
+        let raw = std::fs::read_to_string(dir.join("notes.json")).unwrap();
+        // Key order ⇔ `JSON.stringify({notes, createdAt, version})`:
+        // version LAST and ONLY when provided; compact; no trailing newline.
+        assert!(
+            raw.starts_with("{\"notes\":\"body\",\"createdAt\":"),
+            "{raw}"
+        );
+        assert!(raw.ends_with(&format!(",\"version\":\"{ver}\"}}")), "{raw}");
+        assert!(!raw.contains('\n'));
+
+        assert_eq!(
+            read_notes_with_version(&root, att, ver).as_deref(),
+            Some("body")
+        );
+        assert_eq!(
+            read_notes_with_version(&root, att, "v1|other|2|24|1:0-1"),
+            None
+        );
+        assert_eq!(read_notes(&root, att).as_deref(), Some("body")); // version-agnostic
+
+        // A pre-versioning file (no key) reads STALE under a versioned
+        // read (TS `undefined !== expected`) but plain-reads fine.
+        let att2 = "att_nver02";
+        std::fs::create_dir_all(root.join(".data").join("attach-index").join(att2)).unwrap();
+        write_notes(&root, att2, "old", None).unwrap();
+        let raw2 = std::fs::read_to_string(
+            root.join(".data")
+                .join("attach-index")
+                .join(att2)
+                .join("notes.json"),
+        )
+        .unwrap();
+        assert!(!raw2.contains("version"), "{raw2}");
+        assert_eq!(read_notes_with_version(&root, att2, ver), None);
+        assert_eq!(read_notes(&root, att2).as_deref(), Some("old"));
+    }
+
+    #[test]
+    fn shown_ledger_roundtrip_filters_and_remove_index_i20() {
+        let root = uniq_root("shown");
+        // TS realistically writes the ledger only while an index dir
+        // exists; mirror that precondition here.
+        let idx_root = root.join(".data").join("attach-index");
+        std::fs::create_dir_all(&idx_root).unwrap();
+        assert_eq!(read_shown(&root, "att_shw01"), Vec::<i64>::new()); // no file yet
+
+        write_shown(&root, "att_shw01", &[0, 1]);
+        write_shown(&root, "att_shw02", &[5]);
+        assert_eq!(read_shown(&root, "att_shw01"), vec![0, 1]); // RMW keeps the sibling key
+        assert_eq!(read_shown(&root, "att_shw02"), vec![5]);
+
+        // Bad id: write no-ops, read is empty (⇔ ATT_RE guard both sides).
+        write_shown(&root, "bad", &[1]);
+        assert_eq!(read_shown(&root, "bad"), Vec::<i64>::new());
+        let shown = idx_root.join(".shown.json");
+        assert!(!std::fs::read_to_string(&shown).unwrap().contains("bad"));
+
+        // Corrupt aggregate ⇒ every read falls back to empty (⇔ parse
+        // catch ⇒ `{}`); the NEXT good write restarts from `{}` — entries
+        // that could not be read are discarded, exactly like TS.
+        std::fs::write(&shown, "not json").unwrap();
+        assert_eq!(read_shown(&root, "att_shw01"), Vec::<i64>::new());
+        write_shown(&root, "att_shw03", &[7]);
+        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
+        assert_eq!(read_shown(&root, "att_shw02"), Vec::<i64>::new());
+
+        // Non-integer entries are filtered (JS Number.isInteger ⇔ as_i64).
+        std::fs::write(&shown, "{\"att_shw01\":[1,2.5,\"x\",3],\"att_shw03\":[7]}").unwrap();
+        assert_eq!(read_shown(&root, "att_shw01"), vec![1, 3]);
+        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
+
+        // remove_index drops the index's ledger key (I20: a rebuilt index
+        // has NEW chunk ids — a stale ledger would demote wrong chunks
+        // forever) and leaves siblings alone; an absent key is an
+        // early-exit that never rewrites the file (TS `in` guard).
+        let meta = "{\"attId\":\"att_shw01\",\"name\":\"n\",\"category\":\"text\",\"createdAt\":0,\"chunkCount\":0,\"spine\":\"\",\"spineBlocks\":[],\"frames\":[]}";
+        seed_store(&root, "att_shw01", meta, "");
+        remove_index(&root, "att_shw01");
+        assert!(!idx_root.join("att_shw01").exists());
+        assert_eq!(read_shown(&root, "att_shw01"), Vec::<i64>::new());
+        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
+        remove_index(&root, "att_gone99"); // absent key AND no dir: silent
+        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
     }
 
     #[test]
@@ -322,8 +534,14 @@ mod tests {
         assert_eq!(cache().lock().len(), 3);
         assert!(read_index(&root, "att_lrudd").is_some()); // evicts b
         let held: Vec<PathBuf> = cache().lock().iter().map(|(d, _)| d.clone()).collect();
-        assert!(!held.iter().any(|d| d.ends_with("att_lrubb")), "oldest (b) must be evicted");
-        assert!(held.iter().any(|d| d.ends_with("att_lruaa")), "hit-refresh must keep a");
+        assert!(
+            !held.iter().any(|d| d.ends_with("att_lrubb")),
+            "oldest (b) must be evicted"
+        );
+        assert!(
+            held.iter().any(|d| d.ends_with("att_lruaa")),
+            "hit-refresh must keep a"
+        );
         // Eviction is invisible to callers: reads re-load from disk.
         assert!(read_index(&root, "att_lrubb").is_some());
     }
@@ -337,7 +555,11 @@ mod tests {
         assert!(read_index(&root, "att_rm001").is_some()); // warm the global LRU
 
         remove_index(&root, "att_rm001");
-        assert!(!root.join(".data").join("attach-index").join("att_rm001").exists());
+        assert!(!root
+            .join(".data")
+            .join("attach-index")
+            .join("att_rm001")
+            .exists());
         assert!(!has_index(&root, "att_rm001"));
         // The cache entry must have been evicted, not served after delete
         // (a stale hit would return Some here).
@@ -347,6 +569,10 @@ mod tests {
         // (TS whole-body try/catch parity).
         remove_index(&root, "bad");
         remove_index(&root, "att_none1");
-        assert!(!root.join(".data").join("attach-index").join("att_none1").exists());
+        assert!(!root
+            .join(".data")
+            .join("attach-index")
+            .join("att_none1")
+            .exists());
     }
 }
