@@ -58,6 +58,14 @@ export function stripAttachmentRefs(messages: any[]): void {
   }
 }
 
+/**
+ * I18b: a keyframe farther than this from the asked-about moment is NOT
+ * served — showing what is on screen 20 minutes away as if it belonged to
+ * the discussed time would mislead the model (and the user). Serving nothing
+ * beats serving a wrong anchor. ⇔ FRAME_WINDOW in ruke-attach turn.rs.
+ */
+const FRAME_WINDOW_SEC = 180;
+
 function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; at: number }[] {
   const frames = index.meta.frames ?? [];
   if (!frames.length || !frameAts.length) return [];
@@ -75,6 +83,10 @@ function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; a
       }
     });
     if (best === -1) break;
+    // I18b: the closest surviving keyframe is still outside the honesty
+    // window — skip this request entirely (the frame stays available for a
+    // closer one instead of being burned on a far-off moment).
+    if (bestD > FRAME_WINDOW_SEC) continue;
     used.add(best);
     try {
       const buf = fs.readFileSync(path.join(indexDir(index.meta.attId), frames[best].file));
@@ -188,7 +200,7 @@ export async function buildAttachmentTurn(
         if (notes.length > NOTES_BUDGET) notes = notes.slice(0, NOTES_BUDGET) + "\n[...]";
         blocks.push(
           `<course_notes name="${ref.name}">\n` +
-            `Course notes distilled from the COMPLETE content of "${ref.name}" (every part was read):\n` +
+            `Course notes distilled from the extracted content of "${ref.name}":\n` +
             `${notes}\n${rules(ref)} Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>`,
         );
       }

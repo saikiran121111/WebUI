@@ -29,6 +29,8 @@ interface ExtractResponse {
   chunkCount?: number;
   spine?: string;
   error?: string;
+  /** I16: honest statement of what could NOT be read (its text also rides in `text`). */
+  coverageNote?: string;
 }
 
 /** Images are downscaled to this before being handed to the model. */
@@ -69,8 +71,16 @@ export function validateAttachment(file: File): Attachment {
 /**
  * Turn a picked file into a ready attachment: text body, image data URL,
  * transcript, or sampled frames — whatever the model can be shown.
+ *
+ * I15c: `signal` lets the caller cancel the read when its chip is removed —
+ * the server-side extraction (ffmpeg/whisper) aborts WITH the request,
+ * instead of grinding to completion for a file the user already dropped.
  */
-export async function processAttachment(file: File, base: Attachment): Promise<Attachment> {
+export async function processAttachment(
+  file: File,
+  base: Attachment,
+  signal?: AbortSignal,
+): Promise<Attachment> {
   const att: Attachment = { ...base, status: "processing" };
 
   try {
@@ -79,7 +89,7 @@ export async function processAttachment(file: File, base: Attachment): Promise<A
         // Bytes ≥ characters, so anything at or under the budget is safe to
         // read in the browser. Bigger files go to the server, where oversized
         // content is indexed instead of truncated (the browser path can't).
-        if (file.size > TEXT_CHAR_LIMIT) return await extractOnServer(file, att);
+        if (file.size > TEXT_CHAR_LIMIT) return await extractOnServer(file, att, signal);
         // I10: file.text() always decodes UTF-8 — a UTF-16 or cp1252 file
         // turned into NUL garbage / mojibake with no warning. Decode by
         // content (BOM / heuristics / best-guess fallback) and label guesses.
@@ -106,11 +116,11 @@ export async function processAttachment(file: File, base: Attachment): Promise<A
           };
         } catch {
           // Browser can't decode it (tif/heic/ico/…) — let ffmpeg try instead.
-          return await extractOnServer(file, att);
+          return await extractOnServer(file, att, signal);
         }
 
       default:
-        return await extractOnServer(file, att);
+        return await extractOnServer(file, att, signal);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Could not read this file";
@@ -119,7 +129,11 @@ export async function processAttachment(file: File, base: Attachment): Promise<A
   }
 }
 
-async function extractOnServer(file: File, att: Attachment): Promise<Attachment> {
+async function extractOnServer(
+  file: File,
+  att: Attachment,
+  signal?: AbortSignal,
+): Promise<Attachment> {
   // Raw bytes, not multipart: the browser streams the File straight off disk
   // and the server streams it straight to its scratch file — multi-GB media
   // never sit whole in memory on either side.
@@ -129,6 +143,7 @@ async function extractOnServer(file: File, att: Attachment): Promise<Attachment>
       method: "POST",
       body: file,
       headers: { "content-type": file.type || "application/octet-stream" },
+      ...(signal ? { signal } : {}),
     },
   );
   const data = (await res.json().catch(() => null)) as ExtractResponse | null;

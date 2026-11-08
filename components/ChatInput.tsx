@@ -11,6 +11,14 @@ import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib
 import SkillsModal from "./SkillsModal";
 import { cn } from "../lib/utils";
 import { RUKE_OPEN_ANNOTATION_EVENT } from "../lib/browser-client/browserClient";
+import pLimit from "p-limit";
+
+/**
+ * I15c: file reads run at most THREE at a time. N pasted files used to fire
+ * N simultaneous server extractions, each spinning up its own ffmpeg/whisper
+ * on the same laptop — the upload queue starved the model and the machine.
+ */
+const readLimit = pLimit(3);
 
 const EFFORT_LEVELS: EffortLevel[] = ["off", "low", "medium", "high", "max"];
 const EFFORT_LABEL: Record<EffortLevel, string> = {
@@ -65,6 +73,9 @@ export default function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const plusRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
+  // I15c: in-flight read per attachment id (queued or running) so removing
+  // the chip aborts the work instead of letting it finish for nothing.
+  const attachAborts = useRef<Map<string, AbortController>>(new Map());
 
   // Shared cross-component cache with in-flight dedup: the hero + bar
   // instances (and their remounts on view swaps) used to fire 2–4 identical
@@ -188,8 +199,14 @@ export default function ChatInput({
 
     // Read each file into something the model can be shown — text, an image,
     // a transcript, sampled frames — and move its chip along as that lands.
+    // The read is bound to an AbortController: removing the chip (or a
+    // future cancel affordance) stops the server-side extraction mid-grind.
     for (const { att, file } of accepted) {
-      void processAttachment(file, att).then(next => updateAttachment(att.id, next));
+      const ctrl = new AbortController();
+      attachAborts.current.set(att.id, ctrl);
+      void readLimit(() => processAttachment(file, att, ctrl.signal))
+        .then(next => updateAttachment(att.id, next))
+        .finally(() => attachAborts.current.delete(att.id));
     }
   }, [onAttachmentsChange, updateAttachment]);
 
@@ -249,6 +266,10 @@ export default function ChatInput({
   }, [handleSend, slashCandidates, slashDismissed, slashIndex, pickSlashSkill]);
 
   const removeAttachment = useCallback((id: string) => {
+    // I15c: a chip removed mid-read aborts its queued/running extraction —
+    // ffmpeg/whisper stop for a file nobody asked for anymore.
+    attachAborts.current.get(id)?.abort();
+    attachAborts.current.delete(id);
     setAttachments(prev => { const u = prev.filter(a => a.id !== id); onAttachmentsChange(u); return u; });
   }, [onAttachmentsChange]);
 

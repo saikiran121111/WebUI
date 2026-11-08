@@ -17,12 +17,19 @@ import { pdfText } from "./pdf";
 import { sniffMagic } from "./sniff";
 import { decodeText, type DecodedText } from "../../files/encoding";
 import {
-  audioPcmFromPath,
+  decodeAudioPcmFile,
   imageToDataUrlFromPath,
+  probeInfo,
+  readPcmRange,
   videoFramesFromPath,
   videoKeyframesFromPath,
 } from "./ffmpeg";
-import { transcribePcmSegments, type AsrSegment } from "./audio";
+import {
+  asrCapabilityNote,
+  transcribePcmFile,
+  transcribePcmSegments,
+  type AsrSegment,
+} from "./audio";
 import { buildAttachmentIndex } from "../attachindex/build";
 import { framesDir, hasIndex, removeIndex } from "../attachindex/store";
 import type { FrameEntry, TranscriptSegment } from "../attachindex/types";
@@ -47,6 +54,13 @@ export interface ExtractResult {
   frames?: { dataUrl: string; at: number }[];
   durationSec?: number;
   error?: string;
+  /**
+   * I16: an honest statement of what could NOT be read — e.g. a silent or
+   * un-decodable video whose keyframes still produced a frames-only index.
+   * Present whenever the delivered content is partial by nature, never when
+   * extraction fully succeeded.
+   */
+  coverageNote?: string;
 
   /**
    * Set when the content exceeded the prompt budget and was indexed instead
@@ -199,12 +213,17 @@ function textLikeResult(
  * This is the path-based core: the upload has already been streamed to a
  * scratch file, and ffmpeg/whisper read the media straight from that path —
  * a multi-GB video is seeked inside the file, never buffered whole in RAM.
+ *
+ * I15: `signal` (the upload request's own abort signal) cancels the heavy
+ * ffmpeg/whisper work mid-extraction when the client goes away, instead of
+ * letting it run to completion for an upload nobody is waiting for anymore.
  */
 export async function extractFileFromPath(
   name: string,
   srcPath: string,
   attId?: string,
   mime?: string,
+  signal?: AbortSignal,
 ): Promise<ExtractResult> {
   let category = classifyFile(name, mime);
   const ext = fileExtension(name).toLowerCase();
@@ -331,7 +350,7 @@ export async function extractFileFromPath(
     case "image": {
       // I07: extra pages (multi-page TIFF / animated GIF) ride along as
       // `frames` with `at` = page number — not seconds.
-      const img = await imageToDataUrlFromPath(srcPath);
+      const img = await imageToDataUrlFromPath(srcPath, { signal });
       return {
         name, category, dataUrl: img.dataUrl,
         pages: img.pages,
@@ -340,26 +359,46 @@ export async function extractFileFromPath(
     }
 
     case "audio": {
-      const pcm = await audioPcmFromPath(srcPath);
-      const { text: transcript, segments } = await transcribePcmSegments(pcm);
-      if (!transcript) throw new Error("No speech detected in this audio file");
-      if (att && transcript.length > TEXT_CHAR_LIMIT) {
-        const indexed = await indexContent(name, category, att, transcript, {
-          segments: asSegments(segments),
-          durationSec: pcm.length / 16000,
-        });
-        return {
-          name, category, ...indexed,
-          transcript: transcript.slice(0, PREVIEW_CHARS),
-          truncated: true,
-          durationSec: pcm.length / 16000,
-        };
+      // I15: the decode lands in a scratch FILE and whisper reads 30 s
+      // windows from it — a 3 h recording used to be buffered whole in RAM
+      // (~1.15 GB of float PCM), and neither the decode nor the grind could
+      // be cancelled when the user removed the upload mid-way.
+      const dec = await decodeAudioPcmFile(srcPath, { signal });
+      try {
+        const durationSec = dec.samples / 16000;
+        // Short clips still go through in one call; only long recordings
+        // pay the windowed file-based path.
+        const { text, segments } = durationSec <= 90
+          ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
+          : await transcribePcmFile(dec.file, dec.samples, { signal });
+        // I14: the default whisper checkpoint is English-only — a Hindi
+        // recording used to read as "no speech" with no hint why. The note
+        // rides on the transcript AND on the no-speech error.
+        const note = asrCapabilityNote();
+        if (!text) {
+          throw new Error("No speech detected in this audio file" + (note ? ` ${note}` : ""));
+        }
+        const transcript = note ? `${note}\n${text}` : text;
+        if (att && transcript.length > TEXT_CHAR_LIMIT) {
+          const indexed = await indexContent(name, category, att, transcript, {
+            segments: asSegments(segments),
+            durationSec,
+          });
+          return {
+            name, category, ...indexed,
+            transcript: transcript.slice(0, PREVIEW_CHARS),
+            truncated: true,
+            durationSec,
+          };
+        }
+        return { name, category, transcript, ...cap(transcript), durationSec };
+      } finally {
+        try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
       }
-      return { name, category, transcript, ...cap(transcript) };
     }
 
     case "video": {
-      const { frames, durationSec } = await videoFramesFromPath(srcPath);
+      const { frames, durationSec } = await videoFramesFromPath(srcPath, { signal });
       // The audio track carries narration — transcribe it when the clip has
       // one so the model hears the video, not just its sampled frames.
       // Keyframes run CONCURRENTLY with audio decode + transcription: on a
@@ -368,17 +407,64 @@ export async function extractFileFromPath(
       // index could actually use the frames (att present), and it is cleaned
       // up below whenever the transcript turns out not to need an index.
       const kfPromise: Promise<{ at: number; name: string }[] | null> = att
-        ? videoKeyframesFromPath(srcPath, framesDir(att)).catch(() => null)
+        ? videoKeyframesFromPath(srcPath, framesDir(att), { signal }).catch(() => null)
         : Promise.resolve(null);
       let transcript: string | undefined;
       let segments: AsrSegment[] = [];
+      // I16: the old bare catch labelled EVERY audio failure "no decodable
+      // audio track" and then deleted the keyframes the video branch had
+      // already paid ffmpeg for. The failure reason is kept so the honest
+      // outcome states exactly what could and could not be read.
+      let speechIssue: string | null = null;
       try {
-        const r = await transcribePcmSegments(await audioPcmFromPath(srcPath));
-        transcript = r.text || undefined;
-        segments = r.segments;
-      } catch { /* no (decodable) audio track — frames only */ }
+        const dec = await decodeAudioPcmFile(srcPath, { signal });
+        try {
+          const spokenDur = dec.samples / 16000;
+          const r = spokenDur <= 90
+            ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
+            : await transcribePcmFile(dec.file, dec.samples, { signal });
+          transcript = r.text || undefined;
+          segments = r.segments;
+          if (!transcript) speechIssue = "no speech was detected in its audio track";
+        } finally {
+          try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
+        }
+      } catch (err: unknown) {
+        if (signal?.aborted) throw err as Error; // cancellation is not an audio defect
+        // A failed probe answers in milliseconds, so classifying the
+        // failure here can never hang the request.
+        const info = await probeInfo(srcPath, { signal });
+        speechIssue = /^\s*Stream\s+#\d+:\d+[^\r\n]*Audio/m.test(info)
+          ? `its audio track could not be read (${(err as Error)?.message ?? "decode failed"})`
+          : "it has no audio track";
+      }
       const key = await kfPromise;
+      const note = asrCapabilityNote();
+      if (transcript && note) transcript = `${note}\n${transcript}`;
+
       if (!transcript) {
+        // I16: speech could not be read but the keyframes survived AND an
+        // index can carry them → KEEP the frames and build a frames-only
+        // knowledge index with an honest coverage note. A silent video is
+        // still not an "error"; without an att (no index possible) or
+        // without keyframes, the old frames-inline path stands unchanged.
+        if (att && key && key.length > 0) {
+          const keyframes: FrameEntry[] = key.map(f => ({ at: f.at, file: "frames/" + f.name }));
+          const coverageNote =
+            `Video "${name}"${durationSec > 0 ? ` (${Math.round(durationSec)}s)` : ""}: ${speechIssue ?? "its spoken content could not be read"}. ` +
+            `Its visual content WAS read: keyframes were sampled at ${keyframes.length} moment(s) across its timeline, each carrying its video timestamp, ` +
+            `so questions about what is ON SCREEN at a given time can be answered from them; questions about what is SPOKEN cannot.`;
+          const indexed = await indexContent(name, category, att, coverageNote, {
+            durationSec,
+            frames: keyframes,
+          });
+          return {
+            name, category, ...indexed,
+            frames, durationSec,
+            text: coverageNote, truncated: false,
+            coverageNote,
+          };
+        }
         if (att) try { fs.rmSync(framesDir(att), { recursive: true, force: true }); } catch { /* ignore */ }
         return { name, category, frames, durationSec };
       }

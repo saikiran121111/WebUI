@@ -22,6 +22,7 @@
  */
 import type { Page } from "playwright";
 import {
+  type CaptionParseMeta,
   type CaptionSegment,
   formatCaptionSegments,
   isCaptionCandidateUrl,
@@ -187,6 +188,7 @@ export async function probeCaptionSegments(
   page: Page,
   store: CaptionCaptureStore,
   budgetMs: number,
+  meta?: CaptionParseMeta,
 ): Promise<CaptionSegment[] | null> {
   const hasVideo = await page.evaluate(() => !!document.querySelector("video")).catch(() => false);
   if (!hasVideo) return null;
@@ -224,7 +226,7 @@ export async function probeCaptionSegments(
     if (sawAt && Date.now() - sawAt > 2_500) break;
   }
   const best = store.bodies.reduce((a, b) => (b.length > a.length ? b : a), "");
-  const parsed = sniffCaptures(best);
+  const parsed = sniffCaptures(best, meta);
   if (parsed.length >= dom.length && parsed.length > 0) return parsed;
   return dom.length > 0 ? dom : null;
 }

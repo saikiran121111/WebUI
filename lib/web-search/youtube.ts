@@ -15,6 +15,7 @@
  *      the pipeline runs `youTubeCompanionQuery` (title + channel) through
  *      metasearch to identify the video's topic from the open web.
  */
+import { captionCoverageNote } from "./captionFormats";
 import { fetchUrl } from "./net";
 import { getBrowserTranscript } from "./media-captions";
 
@@ -136,14 +137,25 @@ async function oEmbed(videoId: string): Promise<{ title: string; channel: string
   }
 }
 
-/** info.getTranscript() → "[mm:ss] line" timestamped transcript. */
-async function transcriptFromInfo(info: any): Promise<string> {
+/** info.getTranscript() → "[mm:ss] line" timestamped transcript.
+ *  I19: the 12k render cap used to truncate SILENTLY — a 3 h lecture's
+ *  transcript looked complete and the model confidently answered about
+ *  the ending. When the loop breaks early, the shared coverage honesty
+ *  line closes the transcript INSIDE the same 12k budget (never past
+ *  it). Exported so the coverage contract is unit-testable without the
+ *  network. */
+export async function transcriptFromInfo(info: any): Promise<string> {
   try {
     const tr = await info.getTranscript();
     const rawSegs: any[] =
       tr?.segments ?? tr?.transcript?.body?.initial_segments ?? [];
     const lines: string[] = [];
-    for (const s of rawSegs) {
+    let servedMs = 0;
+    let served = 0;
+    let capped = false;
+    let k = 0;
+    for (; k < rawSegs.length; k++) {
+      const s = rawSegs[k];
       const seg = s?.segment?.transcript_segment ?? s;
       const text = String(seg?.text?.content ?? seg?.text ?? "")
         .replace(/[\r\n\f\u2028]+/g, " ")
@@ -152,9 +164,21 @@ async function transcriptFromInfo(info: any): Promise<string> {
       if (!text) continue;
       const ms = Number(s?.start_ms ?? seg?.start_ms ?? s?.start ?? seg?.start ?? 0);
       lines.push(`[${fmtClock(Math.round(ms / 1000))}] ${text}`);
-      if (lines.join("\n").length >= 12_000) break;
+      servedMs = ms;
+      served++;
+      if (lines.join("\n").length >= 12_000) {
+        capped = true;
+        break;
+      }
     }
-    return lines.join("\n").slice(0, 12_000);
+    let out = lines.join("\n").slice(0, 12_000);
+    if (capped) {
+      const note = captionCoverageNote(fmtClock(Math.round(servedMs / 1000)), served);
+      const budget = Math.max(0, 12_000 - note.length - 1);
+      if (out.length > budget) out = out.slice(0, budget);
+      out += "\n" + note;
+    }
+    return out;
   } catch {
     return "";
   }
@@ -204,6 +228,49 @@ function chaptersFromDescription(desc: string): string[] {
     .slice(0, 20);
 }
 
+/* ── user-pasted start offset ─────────────────────────────────────────── */
+
+/**
+ * I19: links like `watch?v=X&t=90`, `youtu.be/X?t=1m30s`, or
+ * `watch?v=X#t=00:01:30` carry a FACT about where the human was looking —
+ * the old code canonicalized the offset away and the model never learned
+ * the question pointed at 1:30. parseYouTubeVideoId stays untouched (its
+ * canonical output is pinned elsewhere); this is a separate read of the
+ * RAW url. Returns whole seconds or null. Exported for unit coverage.
+ */
+export function parseStartOffset(url: string): number | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const frag = /[#&]t=([^&]+)/.exec(u.hash ?? "")?.[1];
+  const raw = u.searchParams.get("t") ?? u.searchParams.get("start") ?? (frag ? decodeURIComponent(frag) : "");
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  // "h:mm:ss" | "mm:ss"
+  const colon = /^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/.exec(s);
+  if (colon) {
+    const a = Number(colon[1]);
+    const b = Number(colon[2]);
+    const c = colon[3] != null ? Number(colon[3]) : 0;
+    const secs = colon[3] != null ? a * 3600 + b * 60 + c : a * 60 + b;
+    return Number.isFinite(secs) && secs >= 0 ? Math.floor(secs) : null;
+  }
+  // "90" | "90.5" | "90s"
+  if (/^\d+(?:\.\d+)?s?$/i.test(s)) {
+    const n = Number(s.replace(/s$/i, ""));
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+  }
+  // "1h2m3s" | "2m" | "45s" (units optional, at least one required)
+  const units = /^(?:(\d+)\s*h\s*)?(?:(\d+)\s*m(?:in)?\s*)?(?:(\d+)\s*s?\s*)?$/i.exec(s);
+  if (units && (units[1] || units[2] || units[3])) {
+    return (Number(units[1] ?? 0) || 0) * 3600 + (Number(units[2] ?? 0) || 0) * 60 + (Number(units[3] ?? 0) || 0);
+  }
+  return null;
+}
+
 /* ── top level ────────────────────────────────────────────────────────── */
 
 /**
@@ -211,9 +278,12 @@ function chaptersFromDescription(desc: string): string[] {
  * Returns null only when the video id cannot be parsed OR no title can be
  * resolved from ANY source (dead/private video).
  *
- * Memoized per video id: the pipeline's companion-query hop and the
- * extractor's platform adapter both call this for the same video inside
- * one turn — the InnerTube getInfo/transcript round-trips run once.
+ * Memoized per video id + start offset (I19: the offset is now a FACT in
+ * the evidence block, so two links pointing at different moments must not
+ * share one cache entry — different offsets simply re-run the hop): the
+ * pipeline's companion-query hop and the extractor's platform adapter
+ * both call this for the same video inside one turn — the InnerTube
+ * getInfo/transcript round-trips run once.
  */
 const EVIDENCE_TTL_MS = 10 * 60_000;
 const evidenceCache = new Map<string, { at: number; value: YouTubeEvidence | null }>();
@@ -221,11 +291,12 @@ const evidenceCache = new Map<string, { at: number; value: YouTubeEvidence | nul
 export async function getYouTubeEvidence(url: string): Promise<YouTubeEvidence | null> {
   const parsed = parseYouTubeVideoId(url);
   if (!parsed) return null;
-  const hit = evidenceCache.get(parsed.videoId);
+  const cacheKey = `${parsed.videoId}|${parseStartOffset(url) ?? ""}`;
+  const hit = evidenceCache.get(cacheKey);
   if (hit && Date.now() - hit.at < EVIDENCE_TTL_MS) return hit.value;
   const value = await collectYouTubeEvidence(url, parsed);
   if (evidenceCache.size >= 64) evidenceCache.clear();
-  evidenceCache.set(parsed.videoId, { at: Date.now(), value });
+  evidenceCache.set(cacheKey, { at: Date.now(), value });
   return value;
 }
 
@@ -296,6 +367,15 @@ async function collectYouTubeEvidence(
   facts.push(`Video ID: ${videoId}`);
   facts.push(`Watch URL: ${canonicalUrl}`);
   if (url !== canonicalUrl) facts.push(`Original link: ${url}`);
+  // I19: the human's pasted link pointed at a specific moment — say so,
+  // so a question asked with a `?t=` link is answered about that moment
+  // instead of the whole video.
+  const startSec = parseStartOffset(url);
+  if (startSec != null && startSec > 0) {
+    facts.push(
+      `Requested start: ~${fmtClock(startSec)} (the link pointed at this moment — treat it as the subject of the question unless told otherwise)`,
+    );
+  }
   parts.push(facts.join(" | "));
   if (tags.length > 0) parts.push(`Tags: ${tags.join(", ")}`);
 

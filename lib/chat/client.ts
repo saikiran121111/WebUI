@@ -102,6 +102,16 @@ function messageContent(text: string | null, atts?: Attachment[]): unknown {
   return parts;
 }
 
+/** Clock label for video timestamps: H:MM:SS (hours omitted under 1 h) or M:SS. */
+function fmtClock(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  return `${h > 0 ? h + ":" : ""}${mm}:${String(r).padStart(2, "0")}`;
+}
+
 /** One attachment rendered into whatever the model can actually perceive. */
 export function attachmentParts(att: Attachment): any[] {
   const label = `Attached file: ${att.name}`;
@@ -130,8 +140,24 @@ export function attachmentParts(att: Attachment): any[] {
       },
     ];
     if (isVideo) {
+      // I18a: the images used to be anonymous — nothing told the model WHEN
+      // in the video each moment sits, so time-scoped answers had no anchor.
+      // Every frame now rides behind its video timestamp, phrased as the
+      // video's own timeline (never "a frame at …"), keeping the record
+      // honesty law intact.
+      if (att.durationSec && att.durationSec > 0) {
+        parts.push({ type: "text", text: `Video length: ${fmtClock(att.durationSec)}.` });
+      }
       parts.push({ type: "text", text: "Moments from the video:" });
-      for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+      for (const f of att.frames ?? []) {
+        parts.push({
+          type: "text",
+          text:
+            `At ${fmtClock(f.at)} in the video this is what is happening on screen — ` +
+            `speak of it as the video at that time, never as an image or a still:`,
+        });
+        parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+      }
     }
     if (att.spine) parts.push({ type: "text", text: `Structural map of ${label}:\n${att.spine}` });
     if (preview) {
@@ -170,7 +196,19 @@ export function attachmentParts(att: Attachment): any[] {
             `only when the user asks for them or when a time reference genuinely helps the answer.`,
         },
       ];
-      for (const f of att.frames ?? []) parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+      // I18a: each moment is anchored to its video timestamp (see above).
+      if (att.durationSec && att.durationSec > 0) {
+        parts.push({ type: "text", text: `Video length: ${fmtClock(att.durationSec)}.` });
+      }
+      for (const f of att.frames ?? []) {
+        parts.push({
+          type: "text",
+          text:
+            `At ${fmtClock(f.at)} in the video this is what is happening on screen — ` +
+            `speak of it as the video at that time, never as an image or a still:`,
+        });
+        parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+      }
       if (!att.frames?.length) parts.push({ type: "text", text: "No visuals could be read from this video." });
       if (att.transcript)
         parts.push({

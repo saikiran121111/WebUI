@@ -20,7 +20,7 @@
  */
 import { acquirePoolContext, browserPoolDisabled, releasePoolContext } from "./agentBrowser";
 import { isSafeUrl } from "./ssrf";
-import { type CaptionSegment, formatCaptionSegments } from "./captionFormats";
+import { type CaptionParseMeta, type CaptionSegment, formatCaptionSegments } from "./captionFormats";
 import { attachCaptionListener, probeCaptionSegments, type CaptionCaptureStore } from "./captionProbe";
 
 const GOTO_BUDGET_MS = 30_000;
@@ -35,6 +35,7 @@ const MAX_NAV_ATTEMPTS = 3;
 
 export async function getCaptionSegmentsViaBrowser(
   pageUrl: string,
+  meta?: CaptionParseMeta,
 ): Promise<CaptionSegment[] | null> {
   if (browserPoolDisabled()) return null;
   let u: URL;
@@ -77,7 +78,7 @@ export async function getCaptionSegmentsViaBrowser(
       if (hasVideo || attempt >= MAX_NAV_ATTEMPTS) break;
     }
 
-    const segs = await probeCaptionSegments(page, store, PROBE_BUDGET_MS);
+    const segs = await probeCaptionSegments(page, store, PROBE_BUDGET_MS, meta);
     return segs && segs.length > 0 ? segs : null;
   } catch {
     return null;
@@ -91,8 +92,13 @@ export async function getCaptionSegmentsViaBrowser(
   }
 }
 
-/** Segments fetched + formatted to the shared "[mm:ss] line" transcript. */
+/** Segments fetched + formatted to the shared "[mm:ss] line" transcript.
+ *  I19: the parse meta rides through to the formatter so a wire-capped
+ *  track closes with the coverage honesty line INSIDE the transcript —
+ *  downstream tiers cannot tell a partial transcript from a complete one
+ *  otherwise, and the model happily invents endings. */
 export async function getBrowserTranscript(pageUrl: string): Promise<string> {
-  const segs = await getCaptionSegmentsViaBrowser(pageUrl);
-  return segs ? formatCaptionSegments(segs) : "";
+  const meta: CaptionParseMeta = {};
+  const segs = await getCaptionSegmentsViaBrowser(pageUrl, meta);
+  return segs ? formatCaptionSegments(segs, meta) : "";
 }

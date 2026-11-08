@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { childLogger } from "../logger";
 import { llmApiUrl } from "../settings";
+import { readPcmRange } from "./ffmpeg";
 
 const execFileP = promisify(execFile);
 const log = childLogger("extract/audio");
@@ -48,11 +49,12 @@ async function loadAsr(device?: "cuda" | "cpu", dtype?: "fp16" | "q8"): Promise<
   env.allowLocalModels = false;
   env.useBrowserCache = false;
   env.cacheDir = cacheDir;
-  // Chunking options live on the ASR task, which the generic pipeline
-  // signature does not model.
+  // I12: chunk_length_s/stride_length_s must NEVER be passed here.
+  // transformers 4.3.1 destructures them off the pipeline options without
+  // wiring them into the ASR task, so a long recording silently came back as
+  // its first 30 s only (a 61 s clip yielded ~30 s of text). Chunking belongs
+  // on the per-CALL options, where the task honors them — see ASR_CHUNK_OPTS.
   return pipeline("automatic-speech-recognition", MODEL_ID, {
-    chunk_length_s: 30,
-    stride_length_s: 5,
     ...(device ? { device } : {}),
     ...(dtype ? { dtype } : {}),
   } as any);
@@ -122,6 +124,8 @@ export interface AsrStageOpts {
   unload?: () => Promise<boolean>;
   /** LLM-reload hook seam — always invoked when unload was attempted. */
   reload?: () => Promise<void>;
+  /** I15: cancelling an upload must not leave whisper grinding through it. */
+  signal?: AbortSignal;
 }
 
 export interface AsrSegment {
@@ -195,6 +199,27 @@ export function normalizeSegmentTimeline(segs: AsrSegment[]): AsrSegment[] {
   return out;
 }
 
+/**
+ * Whisper's 5 s stride makes chunked decodes say the overlap TWICE, and
+ * window-per-window decoding repeats it at every seam. Drop a segment when it
+ * (near-)exactly repeats the previous one INSIDE the previous one's time
+ * range, keeping the longer text when one contains the other. Genuine repeats
+ * (a chorus, a slide title read minutes apart) never overlap the previous
+ * segment's range, so real content is never dropped.
+ */
+export function dedupeSeamSegments(segs: AsrSegment[]): AsrSegment[] {
+  const out: AsrSegment[] = [];
+  for (const s of segs) {
+    const p = out[out.length - 1];
+    if (p && p.text && s.text && s.start < (p.end ?? p.start) - 2) {
+      if (s.text === p.text || p.text.includes(s.text)) continue;
+      if (s.text.includes(p.text)) { out[out.length - 1] = { ...s }; continue; }
+    }
+    out.push(s);
+  }
+  return out;
+}
+
 function toSegments(out: any): AsrSegment[] {
   return Array.isArray(out?.chunks)
     ? out.chunks
@@ -207,15 +232,22 @@ function toSegments(out: any): AsrSegment[] {
     : [];
 }
 
+/**
+ * I12: the REAL chunking knobs for transformers 4.3.1 — they must ride on
+ * every pipeline CALL, where the ASR task actually honors them (the pipeline
+ * LOAD silently drops them). Harmless for inputs under one 30 s window.
+ */
+const ASR_CHUNK_OPTS = { chunk_length_s: 30, stride_length_s: 5 } as const;
+
 async function asrOnce(
   asr: any,
   pcm: Float32Array,
   extra: Record<string, unknown>,
 ): Promise<{ text: string; segments: AsrSegment[] }> {
-  const out = await asr(pcm, { return_timestamps: true, ...extra });
+  const out = await asr(pcm, { return_timestamps: true, ...extra, ...ASR_CHUNK_OPTS });
   return {
     text: String(typeof out === "string" ? out : out?.text ?? "").trim(),
-    segments: normalizeSegmentTimeline(toSegments(out)),
+    segments: dedupeSeamSegments(normalizeSegmentTimeline(toSegments(out))),
   };
 }
 
@@ -230,6 +262,7 @@ async function transcribeWith(
   asr: any,
   pcm: Float32Array,
   extra: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<{ text: string; segments: AsrSegment[] }> {
   if (pcm.length <= 30 * SR) return asrOnce(asr, pcm, extra);
   const plan = planWindows(pcm);
@@ -239,12 +272,76 @@ async function transcribeWith(
   const texts: string[] = [];
   const segments: AsrSegment[] = [];
   for (const w of plan) {
+    if (signal?.aborted) throw new Error("Transcription cancelled");
     if (w.silent) continue;
     const r = await asrOnce(asr, pcm.subarray(w.from, w.to), extra);
     if (r.text) texts.push(r.text);
     segments.push(...offsetSegments(r.segments, w.from / SR));
   }
   return { text: texts.join(" ").replace(/\s+/g, " ").trim(), segments };
+}
+
+/**
+ * I13: the three-stage VRAM lifecycle (see the header comment) wrapped around
+ * one decode task. EVERY probe/unload/reload is guarded: the stage decision
+ * used to sit OUTSIDE the try block, so a throwing nvidia-smi probe or a hung
+ * LLM-unload hook crashed the whole upload with no CPU fallback — and left the
+ * LLM unloaded. Now any stage-machinery failure still answers from the CPU
+ * pipeline, and the LLM always comes back when we asked it to step aside.
+ */
+async function withAsrStage<R>(
+  opts: AsrStageOpts,
+  task: (asr: any, extra: Record<string, unknown>) => Promise<R>,
+): Promise<R> {
+  const probe = opts.probe ?? getFreeVramMb;
+  const unload = opts.unload ?? tryLlmUnload;
+  const reload = opts.reload ?? tryLlmReload;
+
+  let useCuda = false;
+  let unloaded = false;
+  let gpuAsr: any = null;
+  try {
+    if (!cudaBroken) {
+      let free: number | null;
+      try { free = await probe(); } catch { free = null; }
+      if (free !== null) {
+        if (free >= VRAM_FLOOR_MB) {
+          useCuda = true; // stage 1
+        } else {
+          // stage 2: make room, then re-probe
+          try { unloaded = await unload(); } catch { unloaded = true; }
+          const re = unloaded ? await probe().catch(() => null) : null;
+          if ((re ?? free) >= VRAM_FLOOR_MB) useCuda = true;
+        }
+      }
+    }
+
+    if (useCuda) {
+      try {
+        gpuAsr = await loadAsr("cuda", "fp16");
+        return await task(gpuAsr, { batch_size: 8 });
+      } catch (err: unknown) {
+        cudaBroken = true;
+        log.warn({ err: (err as Error)?.message }, "GPU whisper unavailable — falling back to CPU");
+      }
+    }
+    // Stage 3: CPU — works on every machine, transcription never crashes.
+    const asr = await getAsrCpu();
+    return await task(asr, {});
+  } finally {
+    // Whisper must never hold VRAM once the job is done, and the LLM always
+    // comes back if we asked it to step aside — even on a failed attempt.
+    if (gpuAsr) {
+      try { await gpuAsr.dispose?.(); } catch { /* already gone */ }
+    }
+    if (unloaded) {
+      try {
+        await reload();
+      } catch (err: unknown) {
+        log.warn({ err: (err as Error)?.message }, "LLM reload hook failed — chat may need to warm the model back up");
+      }
+    }
+  }
 }
 
 /**
@@ -256,53 +353,64 @@ export async function transcribePcmSegments(
   pcm: Float32Array,
   opts: AsrStageOpts = {},
 ): Promise<{ text: string; segments: AsrSegment[] }> {
-  const probe = opts.probe ?? getFreeVramMb;
-  const unload = opts.unload ?? tryLlmUnload;
-  const reload = opts.reload ?? tryLlmReload;
+  return withAsrStage(opts, (asr, extra) => transcribeWith(asr, pcm, extra, opts.signal));
+}
 
-  let useCuda = false;
-  let unloaded = false;
-  if (!cudaBroken) {
-    const free = await probe();
-    if (free !== null) {
-      if (free >= VRAM_FLOOR_MB) {
-        useCuda = true; // stage 1
-      } else {
-        unloaded = await unload(); // stage 2: make room, then re-probe
-        const re = unloaded ? await probe() : null;
-        if ((re ?? free) >= VRAM_FLOOR_MB) useCuda = true;
-      }
+/**
+ * I15: file-based decode for long media. Reads one 30 s window at a time from
+ * the decoded PCM file instead of holding the whole recording in RAM (3 h of
+ * 16 kHz float PCM ≈ 1.15 GB). The CALLER owns pcmFile and must delete it.
+ * RMS-silent windows are skipped without padding (starving whisper's habit of
+ * inventing text over silence); window-local segments ride onto the master
+ * timeline, and seam duplicates are collapsed by dedupeSeamSegments.
+ */
+export async function transcribePcmFile(
+  pcmFile: string,
+  samples: number,
+  opts: AsrStageOpts = {},
+): Promise<{ text: string; segments: AsrSegment[] }> {
+  return withAsrStage(opts, async (asr, extra) => {
+    const win = 30 * SR;
+    const segments: AsrSegment[] = [];
+    for (let from = 0; from < samples; from += win) {
+      if (opts.signal?.aborted) throw new Error("Transcription cancelled");
+      const to = Math.min(samples, from + win);
+      const core = readPcmRange(pcmFile, from, to);
+      if (rmsOf(core, 0, core.length) < SILENCE_RMS) continue;
+      const r = await asrOnce(asr, core, extra);
+      segments.push(...offsetSegments(r.segments, from / SR));
     }
-  }
+    const merged = dedupeSeamSegments(normalizeSegmentTimeline(segments));
+    return {
+      text: merged.map(s => s.text).join(" ").replace(/\s+/g, " ").trim(),
+      segments: merged,
+    };
+  });
+}
 
-  let gpuAsr: any = null;
-  try {
-    if (useCuda) {
-      try {
-        gpuAsr = await loadAsr("cuda", "fp16");
-        return await transcribeWith(gpuAsr, pcm, { batch_size: 8 });
-      } catch (err: unknown) {
-        cudaBroken = true;
-        log.warn({ err: (err as Error)?.message }, "GPU whisper unavailable — falling back to CPU");
-      }
-    }
-    // Stage 3: CPU — works on every machine, transcription never crashes.
-    const asr = await getAsrCpu();
-    return await transcribeWith(asr, pcm, {});
-  } finally {
-    // Whisper must never hold VRAM once the job is done, and the LLM always
-    // comes back if we asked it to step aside — even on a failed attempt.
-    if (gpuAsr) {
-      try { await gpuAsr.dispose?.(); } catch { /* already gone */ }
-    }
-    if (unloaded) await reload();
-  }
+/** The checkpoint actually in use (visible to users, not guessed). */
+export function asrModelLabel(): string {
+  return MODEL_ID;
+}
+
+/**
+ * I14: the default whisper checkpoint is English-only (".en"). Speech in other
+ * languages comes back missing or wrong, and a Hindi recording used to look
+ * like "no speech" with no hint why. This note rides on transcripts (and on
+ * the no-speech error) so the limitation is honest instead of silent. Empty
+ * string for multilingual checkpoints, where the caveat doesn't apply.
+ */
+export function asrCapabilityNote(): string {
+  if (!/\.en\b/.test(MODEL_ID)) return "";
+  return `[transcribed with the English-only speech model "${MODEL_ID}" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. "Xenova/whisper-base") to change this]`;
 }
 
 /** Transcribe 16 kHz mono float PCM to text. */
 export async function transcribePcm(pcm: Float32Array): Promise<string> {
   const asr = await getAsrCpu();
-  const out = await asr(pcm);
+  // I12: the chunk knobs ride on the CALL (the pipeline load silently drops
+  // them) — a bare call returned only the first 30 s of a long recording.
+  const out = await asr(pcm, { ...ASR_CHUNK_OPTS });
   const text = typeof out === "string" ? out : out?.text ?? "";
   return String(text).trim();
 }

@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
     // the extractor ALSO magic-sniffs the bytes, so a renamed file still gets
     // the reader its actual format needs.
     const mime = req.headers.get("content-type") ?? undefined;
-    const result = await extractFileFromPath(name, tmp, att, mime);
+    // I15: the request's own abort signal rides down into ffmpeg/whisper —
+    // a client that goes away mid-upload cancels the heavy work instead of
+    // leaving it grinding on for an attachment that no longer exists.
+    const result = await extractFileFromPath(name, tmp, att, mime, req.signal);
 
     // I26: keep the original bytes durable, keyed by the attachment id, so a
     // follow-up question ("more frames from section 3", "another audio window")

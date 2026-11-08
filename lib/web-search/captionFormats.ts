@@ -35,6 +35,31 @@ const MAX_TOTAL_CHARS = 16_000;
 const RENDER_CAP = 12_000;
 
 /**
+ * I19: the wire caps above stop parsing SILENTLY — a 3 h lecture's caption
+ * track looked identical to a complete one, so the model happily "knew" the
+ * ending. Parsers report hitting a cap here, and formatCaptionSegments then
+ * says exactly where coverage stops instead of pretending nothing is missing.
+ */
+export interface CaptionParseMeta {
+  /** True when a wire cap (800 cues / 16k chars) cut parsing short. */
+  parseCapped?: boolean;
+}
+
+/**
+ * The ONE honesty line every caption tier appends when its transcript is
+ * partial — InnerTube (youtube.ts), the browser player probe (here), and
+ * the page-read probe (agentBrowser) all say it in the same words, so the
+ * model learns a single phrase meaning "coverage stops here".
+ */
+export function captionCoverageNote(servedClock: string, served: number): string {
+  return (
+    `[caption coverage: this transcript stops at ${servedClock} (${served} cue(s) retrieved) — ` +
+    `the remainder of the caption track was NOT retrieved, so nothing after that point is known; ` +
+    `never assume you know how the video ends]`
+  );
+}
+
+/**
  * Universal caption-endpoint URL filter: standard track-format names and
  * extensions across providers (timedtext/srv3/json3 = YouTube, .vtt/
  * webvtt = Twitch + HTML5, texttracks = Vimeo, captions/subtitles =
@@ -102,7 +127,7 @@ function pushSeg(
 /* ── format parsers (shape-detected, domain-free) ─────────────────────── */
 
 /** json3: `{events:[{tStartMs,segs:[{utf8}]}]}`. */
-export function parseJson3Captures(body: string): CaptionSegment[] {
+export function parseJson3Captures(body: string, meta?: CaptionParseMeta): CaptionSegment[] {
   let j: any;
   try {
     j = JSON.parse(body);
@@ -115,16 +140,19 @@ export function parseJson3Captures(body: string): CaptionSegment[] {
   for (const e of events) {
     const parts: any[] = Array.isArray(e?.segs) ? e.segs : [];
     const text = parts.map((s) => String(s?.utf8 ?? "")).join("");
-    if (pushSeg(segs, state, text, Number(e?.tStartMs ?? e?.tMs ?? 0) || 0)) break;
+    if (pushSeg(segs, state, text, Number(e?.tStartMs ?? e?.tMs ?? 0) || 0)) {
+      if (meta) meta.parseCapped = true;
+      break;
+    }
   }
   return segs;
 }
 
 /** WebVTT: `WEBVTT` header; cue = `start --> end` line + text lines. */
-export function parseVttCaptures(body: string): CaptionSegment[] {
+export function parseVttCaptures(body: string, meta?: CaptionParseMeta): CaptionSegment[] {
   const t = (body ?? "").replace(/\r\n?/g, "\n");
   if (!/^(﻿)?WEBVTT/i.test(t)) return [];
-  return cueTextCaptures(t);
+  return cueTextCaptures(t, meta);
 }
 
 /**
@@ -133,8 +161,8 @@ export function parseVttCaptures(body: string): CaptionSegment[] {
  * Dailymotion, and most download/embed tooling ship, so the universal
  * engine must not require a WEBVTT header.
  */
-export function parseSrtCaptures(body: string): CaptionSegment[] {
-  return cueTextCaptures((body ?? "").replace(/\r\n?/g, "\n"));
+export function parseSrtCaptures(body: string, meta?: CaptionParseMeta): CaptionSegment[] {
+  return cueTextCaptures((body ?? "").replace(/\r\n?/g, "\n"), meta);
 }
 
 /** SRT shape: an integer index line directly above a `start --> end`
@@ -145,7 +173,7 @@ export const SRT_SHAPE_RE =
   /(?:^|\r?\n)[ \t]*\d+[ \t]*\r?\n[ \t]*[0-9:.,]+[ \t]*-->[ \t]*[0-9:.,]+/;
 
 /** The shared `start --> end` + text-lines state machine. */
-function cueTextCaptures(t: string): CaptionSegment[] {
+function cueTextCaptures(t: string, meta?: CaptionParseMeta): CaptionSegment[] {
   const segs: CaptionSegment[] = [];
   const state = { total: 0 };
   const lines = t.split("\n");
@@ -163,31 +191,40 @@ function cueTextCaptures(t: string): CaptionSegment[] {
       textLines.push(lines[i]);
       i++;
     }
-    if (pushSeg(segs, state, textLines.join(" "), startMs)) break;
+    if (pushSeg(segs, state, textLines.join(" "), startMs)) {
+      if (meta) meta.parseCapped = true;
+      break;
+    }
   }
   return segs;
 }
 
 /** srv3: `<text start="123.45" dur="…">line</text>`. */
-export function parseSrv3Captures(body: string): CaptionSegment[] {
+export function parseSrv3Captures(body: string, meta?: CaptionParseMeta): CaptionSegment[] {
   const re = /<text[^>]*\bstart="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
   const segs: CaptionSegment[] = [];
   const state = { total: 0 };
   let m: RegExpExecArray | null;
   while ((m = re.exec(body))) {
-    if (pushSeg(segs, state, m[2], parseCaptionTimeToMs(m[1]))) break;
+    if (pushSeg(segs, state, m[2], parseCaptionTimeToMs(m[1]))) {
+      if (meta) meta.parseCapped = true;
+      break;
+    }
   }
   return segs;
 }
 
 /** TTML/DFXP: `<p begin="00:01:30.000" …>line</p>`. */
-export function parseTtmlCaptures(body: string): CaptionSegment[] {
+export function parseTtmlCaptures(body: string, meta?: CaptionParseMeta): CaptionSegment[] {
   const re = /<p\b[^>]*\bbegin="([^"]+)"[^>]*>([\s\S]*?)<\/p>/g;
   const segs: CaptionSegment[] = [];
   const state = { total: 0 };
   let m: RegExpExecArray | null;
   while ((m = re.exec(body))) {
-    if (pushSeg(segs, state, m[2], parseCaptionTimeToMs(m[1]))) break;
+    if (pushSeg(segs, state, m[2], parseCaptionTimeToMs(m[1]))) {
+      if (meta) meta.parseCapped = true;
+      break;
+    }
   }
   return segs;
 }
@@ -207,31 +244,60 @@ function decodeEntities(s: string): string {
  * (the anti-abuse token gate's favorite answer: 200 + 0 bytes) simply
  * yields no segments.
  */
-export function sniffCaptures(body: string): CaptionSegment[] {
+export function sniffCaptures(body: string, meta?: CaptionParseMeta): CaptionSegment[] {
   const t = (body ?? "").trim();
   if (!t) return [];
-  if (t.startsWith("{")) return parseJson3Captures(t);
-  if (/^(﻿)?WEBVTT/i.test(t)) return parseVttCaptures(t);
-  if (SRT_SHAPE_RE.test(t)) return parseSrtCaptures(t);
+  if (t.startsWith("{")) return parseJson3Captures(t, meta);
+  if (/^(﻿)?WEBVTT/i.test(t)) return parseVttCaptures(t, meta);
+  if (SRT_SHAPE_RE.test(t)) return parseSrtCaptures(t, meta);
   if (/<text\b/.test(t)) {
-    const srv3 = parseSrv3Captures(t);
+    const srv3 = parseSrv3Captures(t, meta);
     if (srv3.length) return srv3;
   }
-  if (/<p\b[^>]*\bbegin=/.test(t)) return parseTtmlCaptures(t);
+  if (/<p\b[^>]*\bbegin=/.test(t)) return parseTtmlCaptures(t, meta);
   return [];
 }
 
 /**
  * Segments → the exact "[mm:ss] line" shape the InnerTube transcript
  * path produces (same 12k cap).
+ *
+ * I19: whenever the rendered transcript does NOT cover the whole track
+ * (the render cap cut it, or `meta.parseCapped` says a wire cap cut the
+ * parse), an honesty line closes the output stating where coverage ends —
+ * inside the same 12k budget, never after it. A complete transcript is
+ * returned byte-unchanged.
  */
-export function formatCaptionSegments(segs: CaptionSegment[]): string {
+export function formatCaptionSegments(segs: CaptionSegment[], meta?: CaptionParseMeta): string {
   const lines: string[] = [];
-  for (const s of segs) {
-    const text = (s.text ?? "").replace(/\s+/g, " ").trim();
+  let servedMs = 0;
+  let served = 0;
+  let renderCapped = false;
+  let k = 0;
+  for (; k < segs.length; k++) {
+    const text = (segs[k].text ?? "").replace(/\s+/g, " ").trim();
     if (!text) continue;
-    lines.push(`[${fmtClock(Math.round((s.startMs || 0) / 1000))}] ${text}`);
-    if (lines.join("\n").length >= RENDER_CAP) break;
+    lines.push(`[${fmtClock(Math.round((segs[k].startMs || 0) / 1000))}] ${text}`);
+    servedMs = segs[k].startMs || 0;
+    served++;
+    if (lines.join("\n").length >= RENDER_CAP) {
+      renderCapped = true;
+      break;
+    }
   }
-  return lines.join("\n").slice(0, RENDER_CAP);
+  // Cues the loop never reached (after the break) mean unretrieved content;
+  // a parse cap means cues BEYOND the parse also existed.
+  let more = renderCapped;
+  if (!more && meta?.parseCapped) {
+    more = true;
+    servedMs = segs[segs.length - 1]?.startMs || servedMs;
+  }
+  let out = lines.join("\n").slice(0, RENDER_CAP);
+  if (more) {
+    const note = captionCoverageNote(fmtClock(Math.round(servedMs / 1000)), served);
+    const budget = Math.max(0, RENDER_CAP - note.length - 1);
+    if (out.length > budget) out = out.slice(0, budget);
+    out += "\n" + note;
+  }
+  return out;
 }

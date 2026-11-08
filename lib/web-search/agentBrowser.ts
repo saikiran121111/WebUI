@@ -33,7 +33,7 @@ import {
   probeCaptionSegments,
   type CaptionCaptureStore,
 } from "@/lib/web-search/captionProbe";
-import { formatCaptionSegments } from "@/lib/web-search/captionFormats";
+import { type CaptionParseMeta, formatCaptionSegments } from "@/lib/web-search/captionFormats";
 import { childLogger } from "@/lib/server/logger";
 
 /* fingerprint-suite: each pooled context gets a fresh, consistent
@@ -1246,8 +1246,9 @@ export async function extractUrlBrowser(
        break the page read. */
     if (out.ok && !wafChallengeActive) {
       try {
-        const capSegs = await probeCaptionSegments(page, capStore, 9_000);
-        const capText = capSegs ? formatCaptionSegments(capSegs) : "";
+        const capMeta: CaptionParseMeta = {};
+        const capSegs = await probeCaptionSegments(page, capStore, 9_000, capMeta);
+        const capText = capSegs ? formatCaptionSegments(capSegs, capMeta) : "";
         if (capText) {
           out.bodyText = `${out.bodyText}\n\n## Captions (player caption track)\n${capText}`;
         }

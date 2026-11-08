@@ -102,9 +102,16 @@ fn b64_std(data: &[u8]) -> String {
     out
 }
 
+/// ⇔ `FRAME_WINDOW_SEC` (I18b): a keyframe farther than this from the
+/// asked-about moment is NOT served — showing what is on screen minutes
+/// away as if it belonged to the discussed time would mislead.
+const FRAME_WINDOW: f64 = 180.0;
+
 /// `nearestFrames` — per timestamp, the nearest UNUSED frame (strict `<`
 /// keeps the first minimum in frame order); a used slot stays consumed
 /// even when its file read fails (TS `used.add` runs before the `try`).
+/// The I18b window check runs BEFORE `used.insert` — a skipped far frame
+/// stays available for a closer request (TS `continue` precedes `used.add`).
 /// Returns `(data_url, at)` pairs; the caller appends them to images.
 fn nearest_frames(root: &Path, index: &LoadedIndex, frame_ats: &[f64]) -> Vec<(String, f64)> {
     let frames = &index.meta.frames;
@@ -134,6 +141,9 @@ fn nearest_frames(root: &Path, index: &LoadedIndex, frame_ats: &[f64]) -> Vec<(S
             Some(k) => k,
             None => break, // all frames used
         };
+        if best_d > FRAME_WINDOW {
+            continue; // I18b: no anchor in window — serve nothing, burn nothing
+        }
         used.insert(best);
         if let Some(dir) = &dir {
             // `join(indexDir, file)` — a `file` that is absolute replaces
@@ -308,7 +318,7 @@ pub async fn build_attachment_turn(
                     notes
                 };
                 blocks.push(format!(
-                    "<course_notes name=\"{name}\">\nCourse notes distilled from the COMPLETE content of \"{name}\" (every part was read):\n{notes}\n{rules} Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>",
+                    "<course_notes name=\"{name}\">\nCourse notes distilled from the extracted content of \"{name}\":\n{notes}\n{rules} Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>",
                     name = r.name,
                     notes = notes,
                     rules = rules(r),
@@ -644,7 +654,7 @@ mod tests {
         let n = build(&mut msgs, 0, "give me a summary", root, &UnavailableEmbedder, &token).await.unwrap();
         assert_eq!(n, 1);
         let sys = msgs[0]["content"].as_str().unwrap();
-        assert!(sys.starts_with("<course_notes name=\"Vid\">\nCourse notes distilled from the COMPLETE content of \"Vid\" (every part was read):\nCell cycle notes here.\n"));
+        assert!(sys.starts_with("<course_notes name=\"Vid\">\nCourse notes distilled from the extracted content of \"Vid\":\nCell cycle notes here.\n"));
         assert!(sys.contains("Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>"));
         assert!(sys.contains("You are given this video's complete saved record"));
         // No hybrid knowledge_index block (turn.ts:188 unconditional continue).
