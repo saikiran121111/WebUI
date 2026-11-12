@@ -4624,3 +4624,9 @@ Run one journey per exclusive launcher invocation (`-Grep "MPR-1"` etc.).
   - mhr-five-sentences MHR-1 (solo -Grep): 1 passed (5.0m) EXIT=0 — live answer text streamed with re-verify/revise narration visible in bubble
 - NOT RUN (user time-cap 2026-11-13 00:20ish): MHR-2..5 (MHR-2 attempt exited 4 with no captured Playwright output; app logs healthy during it — unclassified launcher/infra anomaly, lock+processes cleaned), reasoning-test, token-meter. Heavy model suites (browser-easy/medium/hard, universal, 10k, captions) intentionally skipped as in prior cycles.
 - Ops notes: solo-leg law — a real MHR journey costs ~5 min, so multi-test legs blow the 10-min foreground ceiling (two 143 kills, stale locks cleaned after verifying owner PID dead each time; detached supervisor pre-warm worked as planned, supervisor later found down on its own before the MHR-2 exit-4).
+
+### Loop COMPLETED 2026-11-13 ~01:20 — ALL LEGS GREEN (supersedes partial snapshot above)
+- Solo-leg rerun after cleanup: MHR-2 1 passed (5.6m EXIT=0 — the earlier exit-4 was transient infra: stale pre-warm supervisor; no app defect), MHR-3 (6.2m), MHR-4 (2.6m), MHR-5 (8.4m) all EXIT=0.
+- Final pair leg: reasoning-test + token-meter 2 passed (17.6s EXIT=0).
+- TOTAL this cycle: 23 Playwright tests passed (greeting 2, search-gate 3, chat-stream 3+progress-panel 6 — one chat-stream journey is the API-call check, abort-family 3, mhr-five-sentences 5, reasoning 1, token-meter 1), every launcher exit 0, lock always released by launcher finally; no application failures observed.
+- Cycle close-out: stack stopped, lock clear, heavy model suites (browser-easy/medium/hard, universal/10k/captions) remain skipped by design (untouched surfaces; green at pre-change HEAD).
