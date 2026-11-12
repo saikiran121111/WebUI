@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "the model spends the per-turn search budget (standard: 3 calls, 2026-11-07 re-tune) — the fourth web_search is refused with a named target",
-    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the injected-throw scenario): budgets are harness resources, not model judgment. Standard depth gives THREE search calls (2026-11-07 re-tune); the model spends them, and the fourth is refused with the exact budget_exhausted envelope: ok:false, error:'budget_exhausted', a detail naming what was spent and instructing the model to answer from the evidence it HAS and say what is still missing, plus remainingBudget. The refusal is RECORDED in the action ledger (ok:false, error:'budget_exhausted', queries:[the refused query]) — the third web_meta frame re-emits the full record, and the completion snapshot carries all four actions. Only 8 rounds exist (maxToolRounds, 2026-11-07 re-tune): four tool rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered within the cap).",
+    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the injected-throw scenario): budgets are harness resources, not model judgment. Standard depth gives THREE search calls (2026-11-07 re-tune); the model spends them, and the fourth is refused with the exact budget_exhausted envelope: ok:false, error:'budget_exhausted', a detail naming what was spent and instructing the model to answer from the evidence it HAS and say what is still missing, plus remainingBudget. The refusal is RECORDED in the action ledger (ok:false, error:'budget_exhausted', queries:[the refused query]) — the third web_meta frame re-emits the full record, and the completion snapshot carries all four actions. Only 8 rounds exist (maxToolRounds, 2026-11-07 re-tune): four tool rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered within the cap). Each tool round's web:activity pair reports honestly: rounds 1-3 close 'completed' with REAL counts; the refused round 4 closes 'failed' with done:0 total:0 — the harness refused BEFORE execution, so nothing ran.",
     "comparison": "structural",
     "harness": "__tests__/rust-golden/web.test.ts",
     "env": {
@@ -892,7 +892,7 @@
       "x-decision-mode": "standard_chat"
     },
     "body": {
-      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a1\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus roadmap\\\"],\\\"missing_claims\\\":[\\\"roadmap dates\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":1,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a2\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus sync engine\\\"],\\\"missing_claims\\\":[\\\"sync engine status\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":2,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":2,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a3\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus offline mode\\\"],\\\"missing_claims\\\":[\\\"offline mode timeline\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":3,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":3,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus offline mode\"],\"round\":3,\"id\":\"ws-<sid>-a3\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a4\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus data export\\\"],\\\"missing_claims\\\":[\\\"data export timeline\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":4,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":4,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus offline mode\"],\"round\":3,\"id\":\"ws-<sid>-a3\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":false,\"error\":\"budget_exhausted\",\"requested\":0,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus data export\"],\"round\":4,\"id\":\"ws-<sid>-a4\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":4,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus offline mode\"],\"round\":3,\"id\":\"ws-<sid>-a3\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":false,\"error\":\"budget_exhausted\",\"requested\":0,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus data export\"],\"round\":4,\"id\":\"ws-<sid>-a4\",\"at\":\"<volatile-at>\"}]}}}\n\n",
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a1\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus roadmap\\\"],\\\"missing_claims\\\":[\\\"roadmap dates\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":1,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"started\",\"round\":1,\"detail\":\"project nimbus roadmap\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"completed\",\"round\":1,\"detail\":\"project nimbus roadmap\",\"done\":5,\"total\":1}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a2\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus sync engine\\\"],\\\"missing_claims\\\":[\\\"sync engine status\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":2,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"started\",\"round\":2,\"detail\":\"project nimbus sync engine\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"completed\",\"round\":2,\"detail\":\"project nimbus sync engine\",\"done\":5,\"total\":1}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":2,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a3\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus offline mode\\\"],\\\"missing_claims\\\":[\\\"offline mode timeline\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":3,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"started\",\"round\":3,\"detail\":\"project nimbus offline mode\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"completed\",\"round\":3,\"detail\":\"project nimbus offline mode\",\"done\":5,\"total\":1}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":3,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus offline mode\"],\"round\":3,\"id\":\"ws-<sid>-a3\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a4\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus data export\\\"],\\\"missing_claims\\\":[\\\"data export timeline\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":4,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"started\",\"round\":4,\"detail\":\"project nimbus data export\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"failed\",\"round\":4,\"detail\":\"project nimbus data export\",\"done\":0,\"total\":0}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":4,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus offline mode\"],\"round\":3,\"id\":\"ws-<sid>-a3\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":false,\"error\":\"budget_exhausted\",\"requested\":0,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus data export\"],\"round\":4,\"id\":\"ws-<sid>-a4\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":4,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus sync engine\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus offline mode\"],\"round\":3,\"id\":\"ws-<sid>-a3\",\"at\":\"<volatile-at>\"},{\"tool\":\"web_search\",\"ok\":false,\"error\":\"budget_exhausted\",\"requested\":0,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus data export\"],\"round\":4,\"id\":\"ws-<sid>-a4\",\"at\":\"<volatile-at>\"}]}}}\n\n",
       "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
     }
   },
@@ -965,6 +965,28 @@
         "detail": "web_search",
         "done": 1,
         "total": 8
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "started",
+        "round": 1,
+        "detail": "project nimbus roadmap"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "completed",
+        "round": 1,
+        "detail": "project nimbus roadmap",
+        "done": 5,
+        "total": 1
       }
     },
     {
@@ -1052,6 +1074,28 @@
         "detail": "web_search",
         "done": 2,
         "total": 8
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "started",
+        "round": 2,
+        "detail": "project nimbus sync engine"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "completed",
+        "round": 2,
+        "detail": "project nimbus sync engine",
+        "done": 5,
+        "total": 1
       }
     },
     {
@@ -1152,6 +1196,28 @@
         "detail": "web_search",
         "done": 3,
         "total": 8
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "started",
+        "round": 3,
+        "detail": "project nimbus offline mode"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "completed",
+        "round": 3,
+        "detail": "project nimbus offline mode",
+        "done": 5,
+        "total": 1
       }
     },
     {
@@ -1270,6 +1336,28 @@
     {
       "kind": "stage",
       "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "started",
+        "round": 4,
+        "detail": "project nimbus data export"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "failed",
+        "round": 4,
+        "detail": "project nimbus data export",
+        "done": 0,
+        "total": 0
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
         "stage": "web_meta",
         "webCitations": {},
         "researchLedger": {
@@ -1339,26 +1427,13 @@
         "choices": [
           {
             "index": 0,
-            "delta": {}
-          }
-        ]
-      },
-      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}"
-    },
-    {
-      "kind": "data",
-      "obj": {
-        "choices": [
-          {
-            "index": 0,
             "delta": {
               "content": "search answer"
-            },
-            "finish_reason": null
+            }
           }
         ]
       },
-      "raw": "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}"
+      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}"
     },
     {
       "kind": "done"

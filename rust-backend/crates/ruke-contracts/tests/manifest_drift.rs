@@ -304,6 +304,13 @@ fn stage_event_citation_gate_field_ledgers() {
     // fields must be populated to join the key-ORDER comparison.
     ev.turn = Some("turn-1".into());
     ev.tab_id = Some("tab-9".into());
+    // Streaming reliability law (2026-11-12): `web:activity` /
+    // `web:content_revise` carriers. Flat primitives — no nested ledger.
+    ev.activity = Some("search".into());
+    ev.activity_status = Some("completed".into());
+    ev.round = Some(1);
+    ev.content_cut_to = Some(7);
+    ev.content_text = Some("revised text".into());
     let keys = top_level_keys(&serde_json::to_string(&ev).unwrap());
     assert_eq!(
         keys, rust_expected,

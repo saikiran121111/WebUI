@@ -1,23 +1,29 @@
 /**
- * MHR-D (brief 2026-11-05): evidence-driven next action. When an answer round
- * diagnoses problems (fabricated [S#], unsupported sentences, research
- * wording on a zero-retrieval turn), the harness HOLDS that text back, feeds
- * ONE diagnosis message into the EXISTING tool loop, and lets the MODEL
- * decide what to do next (retrieve / re-attach citations / state the gap).
- * No second research engine; the harness never rewrites the model's words to
- * "fix" semantics.
+ * MHR-D (brief 2026-11-05; streaming-reliability amendment 2026-11-12):
+ * evidence-driven next action. When an answer round diagnoses problems
+ * (fabricated [S#], unsupported sentences, research wording on a
+ * zero-retrieval turn), the answer had ALREADY streamed LIVE (streaming
+ * reliability law — no hidden whole-turn buffer) — the harness RETRACTS it
+ * in place with a `web:content_revise` frame (empty contentText from the
+ * round's offset), feeds ONE diagnosis message into the EXISTING tool loop,
+ * and lets the MODEL decide what to do next (retrieve / re-attach citations
+ * / state the gap). No second research engine; the harness never rewrites
+ * the model's words to "fix" semantics.
  *
- * Wire laws pinned here:
- *  - the held answer's terminal frames never reach the client (its content
- *    was already stripped from live frames by the relay);
+ * Wire laws pinned here (the fold in ./revise-fold is the client reducer's
+ * law: live deltas + revise frames applied in wire order):
+ *  - the retracted round's PARKED terminal frames never reach the client
+ *    (its content did stream live, and the revise frame took it back);
  *  - the feedback message is byte-locked (matrix mhrD semantics) and rides
- *    as user-turn + assistant-turn pair in the NEXT upstream body;
+ *    as user-turn + assistant-turn pair in the NEXT upstream body — the
+ *    model history keeps the bad text even though the display lost it;
  *  - at most ONE feedback per turn;
  *  - feedback consumes a loop iteration, NOT the tool budget
  *    (roundsUsed / web:tools census only count tool rounds);
  *  - the single-[DONE] grammar survives the extra round;
  *  - when the round budget can't spare an iteration, no feedback is faked —
- *    the answer releases through the WS06 audit (MHR-F: integrity only).
+ *    the answer ships through the release audit (MHR-F: integrity only,
+ *    delivered as a revise frame).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -47,6 +53,7 @@ vi.mock("@/lib/server/logger", () => ({
 
 import { runWebToolLoop, type WebProgressChannel } from "@/lib/chat/web-tool-loop";
 import { webToolBudgetFor } from "@/lib/web-search/tools";
+import { foldDisplay, type LoopEvent } from "./revise-fold";
 
 const dec = new TextDecoder();
 
@@ -90,6 +97,7 @@ const answerRound = (text: string): unknown => sseResponse(contentDelta(text) + 
 
 interface Harness {
   stages: any[];
+  log: LoopEvent[];
   rawText: string;
   closed: number;
   failed: string[];
@@ -102,11 +110,11 @@ async function drive(
   citationMap: Record<string, any> | null,
   depth: "quick" | "standard" | "deep" = "standard",
 ): Promise<Harness> {
-  const h: Harness = { stages: [], rawText: "", closed: 0, failed: [], fetchBodies: [], calls: 0 };
+  const h: Harness = { stages: [], log: [], rawText: "", closed: 0, failed: [], fetchBodies: [], calls: 0 };
   const ch: WebProgressChannel = {
-    stage: (e) => h.stages.push(e),
+    stage: (e) => { h.stages.push(e); h.log.push({ t: "stage", e }); },
     fail: (m) => h.failed.push(m),
-    raw: (b) => { h.rawText += dec.decode(b); },
+    raw: (b) => { const s = dec.decode(b); h.rawText += s; h.log.push({ t: "raw", s }); },
     close: () => { h.closed += 1; },
   };
   const fetchMock = vi.fn(async (_url: string, init: any) => {
@@ -130,6 +138,7 @@ async function drive(
 
 const countDone = (raw: string): number => raw.split("data: [DONE]").length - 1;
 const countStop = (raw: string): number => raw.split('"finish_reason":"stop"').length - 1;
+const fold = (h: Harness): string => foldDisplay(h.log);
 const feedbackMessages = (body: any): any[] =>
   (body.messages ?? []).filter(
     (m: any) => m.role === "user" && typeof m.content === "string" && m.content.startsWith("[Harness feedback]"),
@@ -149,13 +158,14 @@ beforeEach(() => {
 });
 
 describe("MHR-D harness feedback in the web tool loop", () => {
-  it("a diagnosed-bad answer is HELD BACK; the byte-locked diagnosis reaches the model; the model's corrected answer releases", async () => {
+  it("a diagnosed-bad answer streams LIVE then is RETRACTED in place; the byte-locked diagnosis reaches the model; the corrected answer streams live", async () => {
     const h = await drive(
       [answerRound("Boreal costs $99 [S9] per seat."), answerRound("Boreal costs $99 [S1] per seat.")],
       S1,
     );
     expect(h.calls).toBe(2);
-    // First upstream body: no feedback yet. Second: held assistant text + diagnosis.
+    // First upstream body: no feedback yet. Second: the bad assistant text
+    // (the MODEL HISTORY keeps it even though the display lost it) + diagnosis.
     expect(feedbackMessages(h.fetchBodies[0])).toHaveLength(0);
     const fb = feedbackMessages(h.fetchBodies[1]);
     expect(fb).toHaveLength(1);
@@ -169,36 +179,50 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     expect(msgs[msgs.length - 2].role).toBe("assistant");
     expect(msgs[msgs.length - 2].content).toBe("Boreal costs $99 [S9] per seat.");
     expect(msgs[msgs.length - 1].role).toBe("user");
-    // The held answer NEVER reached the client — not even repaired (its
-    // content was stripped from live frames and its terminal frames dropped).
-    expect(h.rawText).not.toContain("[S9]");
-    expect(h.rawText).not.toContain("(unverified)");
-    // The corrected answer releases byte-clean.
-    expect(h.rawText).toContain("Boreal costs $99 [S1] per seat.");
+    // The bad text reached the wire LIVE (streaming reliability law — no
+    // hidden buffer), then ONE revise frame retracted it in place (cut at
+    // the round's offset, empty replacement). The fold — the client
+    // reducer's law — shows it gone; an exact fold doubles as the
+    // live-before-retract ORDERING pin.
+    expect(h.rawText).toContain("[S9]");
+    const revs = h.stages.filter((s) => s.stage === "web:content_revise");
+    expect(revs).toHaveLength(1); // the corrected answer releases clean: no second revise
+    expect(revs[0]).toMatchObject({ stage: "web:content_revise", contentCutTo: 0, contentText: "" });
+    expect(fold(h)).toBe("Boreal costs $99 [S1] per seat.");
+    expect(fold(h)).not.toContain("(unverified)");
+    // The retracted round's PARKED terminal frames never emitted — only the
+    // corrected round's stop rides the wire.
+    expect(countStop(h.rawText)).toBe(1);
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
     expect(h.failed).toHaveLength(0);
   });
 
-  it("control: a clean answer releases with ZERO feedback rounds (single upstream call)", async () => {
+  it("control: a clean answer streams live with ZERO feedback rounds (single upstream call)", async () => {
     const h = await drive([answerRound("Boreal costs $99 [S1] per seat.")], S1);
     expect(h.calls).toBe(1);
     expect(h.fetchBodies).toHaveLength(1);
     expect(h.rawText).toContain("Boreal costs $99 [S1] per seat.");
+    expect(h.stages.some((s) => s.stage === "web:content_revise")).toBe(false);
+    expect(fold(h)).toBe("Boreal costs $99 [S1] per seat.");
     expect(countDone(h.rawText)).toBe(1);
   });
 
-  it("at most ONE feedback per turn — a second diagnosed-bad answer releases through the WS06 audit instead", async () => {
+  it("at most ONE feedback per turn — a second diagnosed-bad answer releases through the integrity audit instead", async () => {
     const bad = "Boreal costs $99 [S9] per seat.";
     const h = await drive([answerRound(bad), answerRound(bad)], S1);
     expect(h.calls).toBe(2);
     const inSecond = feedbackMessages(h.fetchBodies[1]);
     expect(inSecond).toHaveLength(1); // the one and only feedback
-    // The repeated bad answer now goes out through the integrity audit —
-    // MHR-F: the [S9] bytes are stripped, the words are never qualified…
-    expect(h.rawText).toContain("Boreal costs $99 per seat.");
-    expect(h.rawText).not.toContain("[S9]");
+    // The repeated bad answer streamed live AGAIN, then went out through
+    // the integrity audit — MHR-F: the [S9] bytes are stripped by a REVISE
+    // frame (cut at the round's live offset — retraction reset the offset
+    // accounting to the round start), the words are never qualified.
+    const revs = h.stages.filter((s) => s.stage === "web:content_revise");
+    expect(revs).toHaveLength(2); // retraction, then the repair
+    expect(revs[1].contentCutTo).toBe(0);
+    expect(fold(h)).toBe("Boreal costs $99 per seat.");
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);
@@ -233,13 +257,23 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     // Feedback fired between the tool round and the answer release.
     expect(feedbackMessages(h.fetchBodies[1])).toHaveLength(0); // narrate round
     expect(feedbackMessages(h.fetchBodies[2])).toHaveLength(1); // feedback round
-    expect(h.rawText).toContain("Boreal costs $99 [S1] per seat.");
-    expect(h.rawText).not.toContain("[S9]");
+    // §D law: REAL per-action activity frames INSIDE execution — started +
+    // completed pair for the one web_search (mocked exec mints no ledger
+    // record, so counts ride the real-executor path; lifecycle pinned here).
+    const acts = h.stages.filter((s) => s.stage === "web:activity");
+    expect(acts).toHaveLength(2);
+    expect(acts[0]).toMatchObject({ activity: "search", activityStatus: "started", round: 1 });
+    expect(acts[1]).toMatchObject({ activity: "search", activityStatus: "completed", round: 1 });
+    // Live law: the narration streamed and STAYED; the bad answer streamed
+    // live then was retracted in place (fold cut back to the narration's
+    // end); the corrected answer continues from there.
+    expect(fold(h)).toBe("Looking it up. Boreal costs $99 [S1] per seat.");
+    expect(fold(h)).not.toContain("[S9]");
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
   });
 
-  it("reasoning streams live during the feedback round; the held terminal frames never emit", async () => {
+  it("reasoning streams live during the feedback round; the parked terminal frames never emit", async () => {
     const h = await drive(
       [
         sseResponse(reasoningDelta("weighing sources") + contentDelta("Boreal costs $99 [S9] per seat.") + finishFrame("stop") + DONE),
@@ -248,13 +282,16 @@ describe("MHR-D harness feedback in the web tool loop", () => {
       S1,
     );
     expect(h.rawText).toContain("weighing sources"); // thinking never gated
-    expect(h.rawText).not.toContain("[S9]");
-    expect(h.rawText).toContain("Boreal costs $99 [S1] per seat.");
+    // The bad content rode the live wire, then the retraction took it back;
+    // the corrected answer replaces it in the displayed fold.
+    expect(h.rawText).toContain("[S9]");
+    expect(fold(h)).toBe("Boreal costs $99 [S1] per seat.");
+    expect(fold(h)).not.toContain("[S9]");
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
   });
 
-  it("no rounds to spare (quick, whole round budget spent): NO feedback is faked — the answer releases through the WS06 audit", async () => {
+  it("no rounds to spare (quick, whole round budget spent): NO feedback is faked — the answer ships through the release audit", async () => {
     const narrate = () =>
       sseResponse(
         contentDelta("Looking it up. ") +
@@ -275,8 +312,15 @@ describe("MHR-D harness feedback in the web tool loop", () => {
     expect(h.calls).toBe(cap + 1);
     expect(h.fetchBodies).toHaveLength(cap + 1);
     for (const b of h.fetchBodies) expect(feedbackMessages(b)).toHaveLength(0);
-    // MHR-F: integrity audit only — marker stripped, words untouched.
-    expect(h.rawText).toContain("Boreal costs $99 per seat.");
+    // Every narration round streamed LIVE and was retained (each round
+    // narrated for real — offsets accumulate across releases). The forced
+    // final answer streamed live too, then MHR-F integrity stripped the
+    // dangling marker via a REVISE frame — words untouched.
+    const revs = h.stages.filter((s) => s.stage === "web:content_revise");
+    expect(revs).toHaveLength(1);
+    expect(revs[0].contentCutTo).toBe(15 * cap); // offset law: every live narration byte counted
+    expect(fold(h)).toBe("Looking it up. ".repeat(cap) + "Boreal costs $99 per seat.");
+    expect(fold(h)).not.toContain("[S9]");
     expect(countDone(h.rawText)).toBe(1);
     expect(countStop(h.rawText)).toBe(1);
     expect(h.closed).toBe(1);

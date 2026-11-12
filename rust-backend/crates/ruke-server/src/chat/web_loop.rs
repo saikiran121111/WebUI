@@ -54,25 +54,31 @@
 //!   failure gets an explicit `tool_service_unavailable` envelope — the
 //!   model is told the research service is down rather than left guessing
 //!   (Rust-inline transport envelope; there is no Rust-side search retry);
-//! - WS06 (audit 2026-11-05 item 6) answer release gating: a round's
-//!   `delta.content` is buffered (its frames are content-stripped live;
-//!   reasoning frames stream through untouched — gating them would delay
-//!   thinking for zero verification value) and its terminal frames
-//!   (`finish_reason`/`[DONE]`) are HELD until [`answer_release`] has
-//!   audited the text against the SERVER citation map + action ledger.
-//!   The repaired answer then releases as one synthetic delta followed by
-//!   the held frames, preserving the single-`[DONE]` grammar. ⇔ TS
-//!   `holdRoundFrame`/`releaseRound` in lib/chat/web-tool-loop.ts.
+//! - Streaming reliability law (2026-11-12 — replaces the WS06 hold-back
+//!   buffering of audit 2026-11-05 item 6): a round's `delta.content`
+//!   streams LIVE, byte-identical, while it generates — no hidden
+//!   whole-round answer buffer. Only the round's terminal frames
+//!   (`finish_reason`/`[DONE]`) park in `held` until [`answer_release`]
+//!   has audited the streamed text against the SERVER citation map +
+//!   action ledger; when the audit changes it, ONE `web:content_revise`
+//!   stage frame (UTF-16 cut offset + replacement text) corrects the
+//!   already-visible answer IN PLACE before the parked frames go out —
+//!   never a synthetic delta replay. The single-`[DONE]` grammar is
+//!   unchanged. ⇔ TS `holdRoundFrame`/`releaseRound` in
+//!   lib/chat/web-tool-loop.ts.
 //! - MHR-D (brief 2026-11-05) evidence-driven next action: before the
 //!   release, the completion round is DIAGNOSED (report-only, same
-//!   detectors). A diagnosed-bad answer is HELD BACK entirely and ONE
-//!   byte-locked feedback message (model's held text + the actual server
-//!   state) enters the EXISTING loop — the MODEL decides what to do next
-//!   (retrieve / re-attach citations / state the gap). At most one
-//!   feedback per turn; it costs a loop ITERATION, never the tool budget;
-//!   no feedback is faked when no iteration is spare. ⇔ TS web-tool-loop.ts
-//!   `feedbackUsed` wiring. The destructive WS06 repair still runs on every
-//!   release until MHR-F evolves it (deliberate half-state).
+//!   detectors). A diagnosed-bad answer is RETRACTED IN PLACE (a
+//!   `web:content_revise` frame with empty `contentText` erases the
+//!   round's live text) and ONE byte-locked feedback message (the model's
+//!   retracted text + the actual server state) enters the EXISTING loop —
+//!   the MODEL decides what to do next (retrieve / re-attach citations /
+//!   state the gap). At most one feedback per turn; it costs a loop
+//!   ITERATION, never the tool budget; no feedback is faked when no
+//!   iteration is spare. ⇔ TS web-tool-loop.ts `feedbackUsed` wiring. The
+//!   destructive WS06 repair still runs on every release (its result
+//!   ships as a revise frame) until MHR-F evolves it (deliberate
+//!   half-state).
 
 use std::collections::HashSet;
 use std::time::Instant;
@@ -124,81 +130,155 @@ enum Outcome {
 }
 
 /// Result of one upstream round: either an assembled relay to inspect plus
-/// the WS06 `held` frames (this round's terminal frames, parked until the
-/// answer text passes [`audit_research_answer`]), or an outcome that ends
+/// the `held` terminal frames (this round's `finish_reason`/`[DONE]`
+/// frames, parked until the answer text passes [`audit_research_answer`]
+/// so a revise frame can precede them), or an outcome that ends
 /// the loop (the channel was already failed/closed by `stream_round`).
 enum Round {
     Relay(ToolStreamRelay, Vec<Vec<u8>>),
     Done(Outcome),
 }
 
-/// WS06 buffering transform for one outbound SSE frame (⇔ TS
-/// `holdRoundFrame`): strip `delta.content`, pass reasoning/other frames
-/// through live, and HOLD the round's terminal frames for the post-audit
-/// release. Frames needing no rewrite are forwarded byte-identical.
+/// Streaming-reliability transform for one outbound SSE frame (⇔ TS
+/// `holdRoundFrame`): `delta.content` frames stream through LIVE byte-
+/// identical while the round generates; only the round's terminal frames
+/// (`finish_reason`/`[DONE]`) park in `held` for the post-audit release.
+/// A frame carrying BOTH live content and a finish_reason SPLITS: the
+/// finish-nulled half goes out now, the content-stripped half parks, so
+/// the turn can never finish before the audit has seen the whole round.
 /// Conservative rule (shared with TS): a `data:` line that is neither
 /// [DONE] nor parseable JSON is swallowed on this path — the relay records
-/// nothing from it either, so forwarding it would smuggle unaudited text.
+/// nothing from it either, so the audit never saw it.
 fn hold_round_frame(frame: &[u8], held: &mut Vec<Vec<u8>>) -> Option<Vec<u8>> {
     let text = String::from_utf8_lossy(frame).to_string(); // ⇔ TS TextDecoder (lossy)
     let mut terminal = false;
     let mut done = false;
-    let mut mutated = false;
-    let mut out: Vec<String> = Vec::new();
+    let mut split = false;
+    let mut swallowed = false;
+    let mut live: Vec<String> = Vec::new();
+    let mut park: Vec<String> = Vec::new();
+    fn first_choice(v: &Value) -> Option<&Value> {
+        v.get("choices").and_then(Value::as_array).and_then(|a| a.first())
+    }
     for line in text.split('\n') {
         let Some(rest) = line.strip_prefix("data:") else {
-            out.push(line.to_string());
+            live.push(line.to_string());
+            park.push(line.to_string());
             continue;
         };
         let data = rest.trim();
         if data == "[DONE]" {
             done = true;
+            park.push(line.to_string());
             continue;
         }
         if data.is_empty() {
-            out.push(line.to_string());
+            live.push(line.to_string());
+            park.push(line.to_string());
             continue;
         }
         let Ok(mut v) = serde_json::from_str::<Value>(data) else {
+            swallowed = true;
             continue;
         };
-        let mut terminal_here = false;
-        if let Some(choice) = v
-            .get_mut("choices")
-            .and_then(Value::as_array_mut)
-            .and_then(|a| a.first_mut())
+        if first_choice(&v)
+            .and_then(|c| c.get("finish_reason"))
+            .and_then(Value::as_str)
+            .is_none()
         {
-            if choice
-                .get("finish_reason")
-                .and_then(Value::as_str)
-                .is_some()
-            {
-                terminal_here = true;
-            }
-            if choice
-                .get("delta")
-                .and_then(|d| d.get("content"))
-                .and_then(Value::as_str)
-                .is_some()
-            {
-                if let Some(delta) = choice.get_mut("delta").and_then(Value::as_object_mut) {
-                    delta.remove("content");
-                    mutated = true;
-                }
-            }
+            live.push(line.to_string()); // content rides live, byte-identical
+            continue;
         }
-        terminal |= terminal_here;
-        out.push(format!("data: {}", v));
+        terminal = true;
+        let has_content = first_choice(&v)
+            .and_then(|c| c.get("delta"))
+            .and_then(|d| d.get("content"))
+            .and_then(Value::as_str)
+            .is_some();
+        if has_content {
+            split = true;
+            // finish_reason is a string here and the choice exists (checked above).
+            let fin = v["choices"][0]["finish_reason"].clone();
+            v["choices"][0]["finish_reason"] = Value::Null;
+            live.push(format!("data: {}", v));
+            v["choices"][0]["finish_reason"] = fin;
+            if let Some(delta) = v
+                .get_mut("choices")
+                .and_then(Value::as_array_mut)
+                .and_then(|a| a.first_mut())
+                .and_then(|c| c.get_mut("delta"))
+                .and_then(Value::as_object_mut)
+            {
+                delta.remove("content");
+            }
+            park.push(format!("data: {}", v));
+        } else {
+            park.push(line.to_string());
+        }
     }
-    if !terminal && !done && !mutated {
-        return Some(frame.to_vec());
+    if !terminal && !done {
+        if !swallowed {
+            return Some(frame.to_vec());
+        }
+        return Some(live.join("\n").into_bytes());
     }
-    let stripped = out.join("\n").into_bytes();
-    if terminal || done {
-        held.push(if mutated { stripped } else { frame.to_vec() });
-        return None;
+    held.push(if split || swallowed {
+        park.join("\n").into_bytes()
+    } else {
+        frame.to_vec()
+    });
+    if split {
+        Some(live.join("\n").into_bytes())
+    } else {
+        None
     }
-    Some(stripped)
+}
+
+/// UTF-16 code-unit length ⇔ JS `String.length` — the unit
+/// `contentCutTo` rides the wire in, so both engines cut at the same
+/// place through emoji surrogate pairs and Telugu alike.
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// Safe, user-visible detail for an activity frame, read from the
+/// server-issued ledger record's provenance (WS18): the queries a search
+/// ran, else the hosts a read fetched. The Rust side never parses raw
+/// tool args (TS-ownership rollback law), so this only ever reads what
+/// the TS executor already recorded. ⇔ TS `activityDetail`/`hostOf`.
+fn ledger_activity_detail(rec: &Value) -> Option<String> {
+    let queries = rec
+        .get("queries")
+        .and_then(Value::as_array)
+        .map(|q| {
+            q.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    if !queries.is_empty() {
+        return Some(queries.chars().take(300).collect());
+    }
+    let hosts = rec
+        .get("urls")
+        .and_then(Value::as_array)
+        .map(|u| {
+            u.iter()
+                .filter_map(Value::as_str)
+                .filter_map(host_of)
+                .collect::<Vec<String>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    (!hosts.is_empty()).then(|| hosts.chars().take(300).collect())
+}
+
+/// Host of a URL; empty → None. ⇔ TS `hostOf`.
+fn host_of(u: &str) -> Option<String> {
+    let rest = u.split_once("://").map(|(_, r)| r).unwrap_or(u);
+    let host = rest.split(['/', '?', '#', ' ']).next().unwrap_or("");
+    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// Did the turn actually obtain anything? Computed ONLY from server state:
@@ -216,34 +296,40 @@ fn turn_retrieved(merged: &CitationMap, last_ledger: &Option<Value>) -> bool {
             .unwrap_or(false)
 }
 
-/// WS06 release point: no round's answer text reaches the client before
-/// the server check has run on it. Content releases as one synthetic delta
-/// (repaired where needed), then the round's held terminal frames follow —
-/// the single-[DONE] grammar and the live reasoning stream stay intact.
-/// ⇔ TS `releaseRound` in lib/chat/web-tool-loop.ts.
+/// Release point of the streaming reliability law (⇔ TS `releaseRound`):
+/// the round's text already streamed LIVE, so the server check CORRECTS
+/// it instead of gating it — audit against the server citation map +
+/// action ledger, and when the audit changes the text ONE
+/// `web:content_revise` frame — `content_cut_to` (UTF-16 code units into
+/// the turn's displayed content) + `content_text` (empty = full
+/// retraction) — replaces everything from the cut on, then the round's
+/// held terminal frames go out. The turn keeps exactly one finish and one
+/// `[DONE]`, and the live reasoning stream never waited. Returns the
+/// displayed content length (UTF-16 units) after the release — the next
+/// round's cut offset.
 async fn release_round(
     ch: &mut ProgressChannel,
     relay: &ToolStreamRelay,
     merged: &CitationMap,
     retrieved: bool,
     held: &mut Vec<Vec<u8>>,
-) {
-    if !relay.content.is_empty() {
+    round_start_len: usize,
+) -> usize {
+    let mut audited = relay.content.clone();
+    if !audited.is_empty() {
         let ids: HashSet<String> = merged.keys().cloned().collect();
-        let repaired = audit_research_answer(&relay.content, &ids, retrieved);
-        if !repaired.is_empty() {
-            let frame = json!({
-                "choices": [{ "index": 0, "delta": { "content": repaired }, "finish_reason": null }]
-            });
-            let mut bytes = b"data: ".to_vec();
-            bytes.extend_from_slice(serde_json::to_string(&frame).unwrap_or_default().as_bytes());
-            bytes.extend_from_slice(b"\n\n");
-            ch.raw(bytes).await;
+        audited = audit_research_answer(&audited, &ids, retrieved);
+        if audited != relay.content {
+            let mut ev = StageEvent::new("web:content_revise");
+            ev.content_cut_to = Some(round_start_len as u64);
+            ev.content_text = Some(audited.clone());
+            ch.stage(&ev).await;
         }
     }
     for f in held.drain(..) {
         ch.raw(f).await;
     }
+    round_start_len + utf16_len(&audited)
 }
 
 /// One upstream request/response round: serialize `payload`, stream the
@@ -302,10 +388,10 @@ async fn stream_round(
     }
 
     // Stream the round: scrubbed bytes pass through the relay so tool
-    // calls are assembled out-of-band while non-content frames stream
-    // live. WS06: content is stripped from the live path and terminal
-    // frames park in `held` until the answer text passes the release
-    // audit (see [`release_round`]).
+    // calls are assembled out-of-band. Content streams LIVE byte-identical
+    // (streaming reliability law); only terminal frames park in `held`
+    // until the answer text passes the release audit (see
+    // [`release_round`]).
     let mut scrubber = ThinkScrubber::default();
     let mut relay = ToolStreamRelay::new();
     let mut held: Vec<Vec<u8>> = Vec::new();
@@ -584,11 +670,18 @@ pub async fn run_web_tool_loop(
     // exec RPC returns — it never reconstructs the record itself.
     let mut last_ledger: Option<Value> = None;
     let mut last_summary = String::new();
+    // Streaming offset law (⇔ TS `streamedTotal`): UTF-16 code units of
+    // answer content the client has legitimately seen across ALL rounds —
+    // the unit `contentCutTo` rides the wire in. Each round starts at
+    // this offset; a released round advances it, a retracted round resets
+    // it. ⇔ JS `String.length`/`slice` semantics (utf16_len).
+    let mut streamed_total = 0usize;
     let outcome = 'outer: {
         for round in 0..max_rounds {
             if token.is_cancelled() {
                 break 'outer Outcome::Aborted;
             }
+            let round_start_len = streamed_total;
             let (relay, mut held) = match stream_round(state, &payload, &url, span, token, ch).await
             {
                 Round::Done(o) => break 'outer o,
@@ -598,13 +691,16 @@ pub async fn run_web_tool_loop(
             if relay.finish.as_deref() != Some("tool_calls") || relay.calls.is_empty() {
                 // MHR-D evidence-driven next action: diagnose the answer
                 // against SERVER state (citation map + ledger snapshot —
-                // never prose). If anything is wrong, the held answer never
-                // reaches the client; ONE byte-locked feedback rides into
-                // the EXISTING loop and the MODEL decides. The feedback
-                // costs a loop iteration, NOT the tool budget (rounds_used
-                // and the census only count tool rounds), and needs a
-                // spare iteration — never faked at the round cap. ⇔ TS
-                // web-tool-loop.ts completion branch.
+                // never prose). If anything is wrong the round's text —
+                // already streamed LIVE — is RETRACTED IN PLACE (a revise
+                // frame with empty `contentText` erases this round's
+                // content) and its held terminal frames never reach the
+                // client (the NEXT round owns `[DONE]`); ONE byte-locked
+                // feedback rides into the EXISTING loop and the MODEL
+                // decides. The feedback costs a loop iteration, NOT the
+                // tool budget (rounds_used and the census only count tool
+                // rounds), and needs a spare iteration — never faked at
+                // the round cap. ⇔ TS web-tool-loop.ts completion branch.
                 let ids: HashSet<String> = merged.keys().cloned().collect();
                 let diag = diagnose_research_answer(
                     &relay.content,
@@ -613,6 +709,13 @@ pub async fn run_web_tool_loop(
                 );
                 if answer_issues(&diag) && !feedback_used && round + 1 < max_rounds {
                     feedback_used = true;
+                    if !relay.content.is_empty() {
+                        let mut ev = StageEvent::new("web:content_revise");
+                        ev.content_cut_to = Some(round_start_len as u64);
+                        ev.content_text = Some(String::new());
+                        ch.stage(&ev).await;
+                    }
+                    streamed_total = round_start_len;
                     held.clear(); // never emitted: the NEXT round owns [DONE]
                     tracing::info!(
                         parent: span,
@@ -620,7 +723,7 @@ pub async fn run_web_tool_loop(
                         unresolved = diag.unresolved.len(),
                         unsupported = diag.unsupported.len(),
                         claims_research = diag.claims_research,
-                        "web answer held; harness feedback issued"
+                        "web answer retracted; harness feedback issued"
                     );
                     let messages = payload
                         .get_mut("messages")
@@ -634,10 +737,12 @@ pub async fn run_web_tool_loop(
                     continue;
                 }
 
-                // WS06 release point: this round's answer text passes the
-                // server check (citation map + ledger snapshot — SERVER
-                // state, never prose) before the client may see it; held
-                // terminal frames follow the (possibly repaired) release.
+                // Release point: this round's LIVE-streamed answer text is
+                // checked against server state (citation map + ledger
+                // snapshot — never prose); if the audit changed it, ONE
+                // `web:content_revise` frame corrects it in place before
+                // the held terminal frames go out. The turn ENDS here, so
+                // the offset never advances again (no dead store).
                 // ⇔ TS `releaseRound`.
                 release_round(
                     ch,
@@ -645,6 +750,7 @@ pub async fn run_web_tool_loop(
                     &merged,
                     turn_retrieved(&merged, &last_ledger),
                     &mut held,
+                    round_start_len,
                 )
                 .await;
 
@@ -682,16 +788,18 @@ pub async fn run_web_tool_loop(
                 break 'outer Outcome::Finished;
             }
 
-            // WS06 release point (tool-narration path): narration content
-            // audited + released before the census — release POSITION is
-            // preserved from WS06 (content before `web:tools`). ⇔ TS
+            // Release point (tool-narration path): narration streamed
+            // live; the audit may revise it before the census — release
+            // POSITION preserved (content before `web:tools`). The next
+            // round's cut starts at the REVISED offset. ⇔ TS
             // `releaseRound` on the tool path.
-            release_round(
+            streamed_total = release_round(
                 ch,
                 &relay,
                 &merged,
                 turn_retrieved(&merged, &last_ledger),
                 &mut held,
+                round_start_len,
             )
             .await;
 
@@ -748,6 +856,28 @@ pub async fn run_web_tool_loop(
                 if token.is_cancelled() {
                     break 'outer Outcome::Aborted;
                 }
+                // Streaming reliability law §D: REAL per-action activity,
+                // emitted INSIDE execution — never a generic timer label.
+                // The Rust side never parses the model's raw args (TS-
+                // ownership law), so the started frame carries kind +
+                // round only; detail/counts ride the completed frame from
+                // the server-issued ledger record.
+                let act_kind: Option<&'static str> = match name.as_str() {
+                    "web_search" => Some("search"),
+                    "read_page" => Some("read_page"),
+                    _ => None,
+                };
+                if let Some(kind) = act_kind {
+                    let mut ev = StageEvent::new("web:activity");
+                    ev.activity = Some(kind.to_string());
+                    ev.activity_status = Some("started".to_string());
+                    ev.round = Some((round + 1) as u64);
+                    ch.stage(&ev).await;
+                }
+                let call_ledger_before = last_ledger
+                    .as_ref()
+                    .and_then(Value::as_array)
+                    .map_or(0, |a| a.len());
                 // The TS session parses `argsRaw` and owns every model-
                 // facing envelope (invalid_arguments / unknown_tool /
                 // session_expired / budget + result shapes) — Rust passes
@@ -765,7 +895,21 @@ pub async fn run_web_tool_loop(
                 )
                 .await;
                 let (envelope, fresh) = match rpc {
-                    Err(BridgeError::Cancelled) => break 'outer Outcome::Aborted,
+                    Err(BridgeError::Cancelled) => {
+                        // The client went away mid-call: best-effort
+                        // honest closure of the open activity frame (the
+                        // channel is closing anyway). The TS twin emits no
+                        // cancelled frame — its abort path closes the
+                        // channel directly; documented asymmetry.
+                        if let Some(kind) = act_kind {
+                            let mut ev = StageEvent::new("web:activity");
+                            ev.activity = Some(kind.to_string());
+                            ev.activity_status = Some("cancelled".to_string());
+                            ev.round = Some((round + 1) as u64);
+                            ch.stage(&ev).await;
+                        }
+                        break 'outer Outcome::Aborted;
+                    }
                     Err(err) => {
                         // Transport failure: an explicit honest envelope —
                         // no Rust-side search retry, no fabricated success.
@@ -820,6 +964,26 @@ pub async fn run_web_tool_loop(
                     args = %crate::chat::log_safety::arg_shape(&arguments),
                     "web tool result"
                 );
+                if let Some(kind) = act_kind {
+                    // REAL counts from the record THIS call appended to
+                    // the session ledger (guarded: the snapshot must have
+                    // grown — a transport-failure call mints no record,
+                    // and honest frames then carry status + no counts).
+                    let rec = last_ledger
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .filter(|a| a.len() > call_ledger_before)
+                        .and_then(|a| a.last());
+                    let mut ev = StageEvent::new("web:activity");
+                    ev.activity = Some(kind.to_string());
+                    ev.activity_status =
+                        Some(if ok { "completed" } else { "failed" }.to_string());
+                    ev.round = Some((round + 1) as u64);
+                    ev.detail = rec.and_then(ledger_activity_detail);
+                    ev.done = rec.and_then(|r| r.get("retrieved")).and_then(Value::as_u64);
+                    ev.total = rec.and_then(|r| r.get("requested")).and_then(Value::as_u64);
+                    ch.stage(&ev).await;
+                }
                 // Merge the [S#] citations these calls minted. The TS
                 // session numbers packets from its create seed, and the
                 // create side numbered journaled-prior aliases clear of
@@ -890,18 +1054,21 @@ pub async fn run_web_tool_loop(
         if token.is_cancelled() {
             break 'outer Outcome::Aborted;
         }
+        let round_start_len = streamed_total;
         match stream_round(state, &payload, &url, span, token, ch).await {
             Round::Done(o) => break 'outer o,
             Round::Relay(r, mut held) => {
-                // WS06: the forced final answer gets the SAME release check
-                // as every other round — the audit law names "the normal
-                // finish path" and this path explicitly.
+                // The forced final answer streams LIVE and gets the SAME
+                // audit + revise treatment as every other round — the
+                // audit law names "the normal finish path" and this path
+                // explicitly. The turn ends; the offset never moves again.
                 release_round(
                     ch,
                     &r,
                     &merged,
                     turn_retrieved(&merged, &last_ledger),
                     &mut held,
+                    round_start_len,
                 )
                 .await;
                 if r.finish.as_deref() == Some("tool_calls") {
@@ -938,4 +1105,86 @@ pub async fn run_web_tool_loop(
         Outcome::Failed(msg) => ch.fail(&msg).await,
     }
     // `_guard` drops here: exactly once.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(s: &str) -> Vec<u8> {
+        s.as_bytes().to_vec()
+    }
+
+    fn payload_of(bytes: &[u8]) -> Value {
+        serde_json::from_str(std::str::from_utf8(bytes).unwrap().trim_start_matches("data: "))
+            .unwrap()
+    }
+
+    #[test]
+    fn content_frames_stream_live_byte_identical() {
+        // Streaming reliability law: content is NEVER stripped from the
+        // live path anymore — measured 2026-11-12: 183 deltas / 5295
+        // chars reached zero clients under the old hold-back.
+        let mut held = Vec::new();
+        let f = frame(
+            r#"data: {"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}"#,
+        );
+        let out = hold_round_frame(&f, &mut held).unwrap();
+        assert_eq!(out, f);
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn terminal_content_frame_splits_live_and_held_halves() {
+        // A frame carrying BOTH content and finish_reason: the content +
+        // finish-nulled half streams NOW; the finish-carrying, content-
+        // stripped half parks for the post-audit release.
+        let mut held = Vec::new();
+        let f = frame(
+            r#"data: {"choices":[{"index":0,"delta":{"content":"tail"},"finish_reason":"stop"}]}"#,
+        );
+        let live = hold_round_frame(&f, &mut held).unwrap();
+        assert_eq!(held.len(), 1);
+        let live_choice = payload_of(&live)["choices"][0].clone();
+        assert_eq!(live_choice["finish_reason"], Value::Null);
+        assert_eq!(live_choice["delta"]["content"], "tail");
+        let held_choice = payload_of(&held[0])["choices"][0].clone();
+        assert_eq!(held_choice["finish_reason"], "stop");
+        assert!(held_choice["delta"].get("content").is_none());
+    }
+
+    #[test]
+    fn terminal_without_content_and_done_park_whole_original() {
+        let mut held = Vec::new();
+        let a = frame(r#"data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#);
+        assert!(hold_round_frame(&a, &mut held).is_none());
+        let d = frame("data: [DONE]\n\n");
+        assert!(hold_round_frame(&d, &mut held).is_none());
+        assert_eq!(held.len(), 2);
+        assert_eq!(held[0], a);
+        assert_eq!(held[1], d);
+    }
+
+    #[test]
+    fn unparseable_data_lines_are_swallowed_on_both_sides() {
+        // The relay records nothing from a garbage line either, so
+        // relay.content ≡ forwarded content by construction.
+        let mut held = Vec::new();
+        let f = frame(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\n\ndata: garbage{\n\n",
+        );
+        let out = String::from_utf8(hold_round_frame(&f, &mut held).unwrap()).unwrap();
+        assert!(!out.contains("garbage"));
+        assert!(out.contains("\"content\":\"x\""));
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn utf16_len_matches_js_string_length() {
+        // `contentCutTo` ⇔ JS `String.slice` offsets: UTF-16 code units
+        // on both engines, through emoji and Telugu alike.
+        assert_eq!(utf16_len("😀"), 2);
+        assert_eq!(utf16_len("తెలుగు"), 6);
+        assert_eq!(utf16_len("😀తెలుగు"), 8);
+    }
 }

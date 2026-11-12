@@ -3,18 +3,22 @@ import { useEffect, useRef, useState } from "react";
 import type { Message } from "../lib/types";
 
 /**
- * RUKE-branded processing line shown in place of the old loading dots while
- * a reply streams (first-token wait, and while web sources exist on an
- * MHR model-directed turn — see ChatMessage's mount condition). Every phase it names is derived
- * from a real signal on the message — never a fake "thinking harder" verb:
+ * RUKE-branded processing line shown while a reply streams. Streaming
+ * reliability law (2026-11-12): every verb is derived from an EVENT on the
+ * message — never from a timer or a fake verb:
  *
- *   - webCitations / searchGate headers → the gated search already ran and
- *     pages were fetched, so the line names the queries and the domains.
- *     While sources exist the line is clickable and opens a popup with the
- *     queries + source links (2026-10-22: the cyan gradient ResearchTrailCard
- *     bar was removed; this popup replaces it — click outside closes).
+ *   - web:activity frames → the message's activity list names the REAL
+ *     in-flight action (searching / reading <host>…) and, once done, its
+ *     real counts. The old elapsed-seconds guess cascade is retired:
+ *     time passing is not a signal of what the system is doing.
+ *   - webCitations / searchGate meta → sources the loop actually minted;
+ *     the line names the queries and the domains and is CLICKABLE — the
+ *     popup carries queries, source links, and this turn's action trail
+ *     (2026-10-22: the cyan gradient ResearchTrailCard bar was removed;
+ *     this popup replaces it — click outside closes).
  *   - toolCalls still open (research mode) → names the live tool call.
- *   - reasoning deltas arriving → "Thinking… Ns" with the real elapsed time.
+ *   - reasoning deltas arriving → "Thinking…" (delta presence is the
+ *     signal; the seconds counter is gone).
  *   - nothing yet → the honest "Analyzing your prompt…".
  *
  * Playwright contract: clickable line `web-search-toggle`; popup
@@ -46,16 +50,32 @@ function toolCallLine(name: string, args: string): string {
   return `Running ${name}…`;
 }
 
+/**
+ * One action entry from the web:activity event list → the honest line.
+ * Live frames carry the parsed targets as detail (queries / hosts);
+ * terminal frames carry the executor's real counts (retrieved of
+ * requested) — nothing here is inferred from time.
+ */
+function activityLine(
+  a: NonNullable<Message["webActivity"]>[number],
+  live: boolean,
+): string {
+  const what = a.kind === "search" ? "Web search" : a.kind === "read_page" ? "Page read" : a.kind;
+  if (live) {
+    if (a.kind === "read_page") return a.detail ? `Reading ${a.detail}…` : "Reading a page…";
+    if (a.kind === "search") return a.detail ? `Searching the web — ${a.detail}` : "Searching the web…";
+    return `Running ${a.kind}…`;
+  }
+  const counts = a.done != null && a.total != null ? ` — ${a.done} of ${a.total}` : "";
+  if (a.status === "completed") return `${what} complete${counts}`;
+  if (a.status === "cancelled") return `${what} cancelled`;
+  return `${what} failed`;
+}
+
 export default function ProcessingStatus({ message }: { message: Message }) {
-  const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
   const rowRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -72,8 +92,6 @@ export default function ProcessingStatus({ message }: { message: Message }) {
     };
   }, [open]);
 
-  const secs = Math.max(0, Math.floor((now - message.createdAt) / 1000));
-
   const gate = message.searchGate ?? message.researchLfm;
   const entries = Object.values(message.webCitations ?? {})
     .filter(c => !!c && typeof c.url === "string")
@@ -84,19 +102,28 @@ export default function ProcessingStatus({ message }: { message: Message }) {
     tc.status === "streaming" || tc.status === "pending"
     || tc.status === "awaiting_approval" || tc.status === "running");
 
+  // ONE authoritative event-driven priority (§E law): live tool call →
+  // in-flight web:activity action → minted sources → honestly-aggregated
+  // finished action → reasoning-delta presence → the honest first-token
+  // wait. Elapsed time appears nowhere.
+  const acts = message.webActivity ?? [];
+  const liveAct = [...acts].reverse().find(a => a.status === "started");
+  const doneAct = [...acts].reverse().find(a => a.status !== "started");
   let text: string;
   if (liveCall) {
     text = toolCallLine(liveCall.name, liveCall.args ?? "");
+  } else if (liveAct) {
+    text = activityLine(liveAct, true);
   } else if (entries.length > 0) {
     text = query
       ? `Searching the web for “${query}” — reading ${domains.join(", ")}`
       : `Reading web sources — ${domains.join(", ")}`;
+  } else if (doneAct) {
+    text = activityLine(doneAct, false);
   } else if (message.reasoning) {
-    text = `Thinking… ${secs}s`;
-  } else if (secs < 2) {
-    text = "Analyzing your prompt…";
+    text = "Thinking…";
   } else {
-    text = secs < 6 ? "Thinking…" : `Thinking… ${secs}s`;
+    text = "Analyzing your prompt…";
   }
 
   const logo = (
@@ -174,6 +201,17 @@ export default function ProcessingStatus({ message }: { message: Message }) {
                   <span className="text-white/25 font-mono flex-shrink-0 mt-px">Q{i + 1}</span>
                   <span className="text-white/55">{q.query}</span>
                   <span className="text-white/25 text-[10px] flex-shrink-0">({q.intent})</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {acts.length > 0 && (
+            <div className="px-1.5 py-1 border-t border-white/[0.05] space-y-0.5">
+              {acts.slice(-10).map((a, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                  <span className="text-white/25 font-mono flex-shrink-0 mt-px">R{a.round ?? "-"}</span>
+                  <span className="text-white/55">{activityLine(a, a.status === "started")}</span>
                 </div>
               ))}
             </div>

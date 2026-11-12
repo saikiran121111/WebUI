@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "image attachment turn: parts passthrough byte-identical; the tool loop is ARMED but the model never calls it — nothing attempted, nothing reported",
-    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the image-intent-gate scenario): the gate no longer sits on the chat path, so there is no image-intent hard bypass and NO prefetched evidence — the turn behaves like any other: guidance (skill slot) + user + clock, payload.tools armed, model decides. The scripted model answers directly, so the honest report is EMPTY: zero web: frames beyond decision_done (web:tools rides ONLY tool rounds), zero web_meta frames (empty ledger — WS18: frames report ACTIONS, not intent), zero engine legs (ENGINE_CALLS=0) and exactly ONE upstream fetch (installUpstream throws on any extra fetch ⇒ the zero-search-traffic proof). CONTRACT DISCOVERY still pinned: runVisionEntityPrepass is DEAD (zero call sites) — no vision completion ever precedes the chat forward. The user turn passes through to the upstream UNCHANGED (content array + data URL byte-identical). WS06 release grammar unchanged.",
+    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the image-intent-gate scenario): the gate no longer sits on the chat path, so there is no image-intent hard bypass and NO prefetched evidence — the turn behaves like any other: guidance (skill slot) + user + clock, payload.tools armed, model decides. The scripted model answers directly, so the honest report is EMPTY: zero web: frames beyond decision_done (web:tools rides ONLY tool rounds), zero web_meta frames (empty ledger — WS18: frames report ACTIONS, not intent), zero engine legs (ENGINE_CALLS=0) and exactly ONE upstream fetch (installUpstream throws on any extra fetch ⇒ the zero-search-traffic proof). CONTRACT DISCOVERY still pinned: runVisionEntityPrepass is DEAD (zero call sites) — no vision completion ever precedes the chat forward. The user turn passes through to the upstream UNCHANGED (content array + data URL byte-identical). Live-forward grammar (2026-11-12): the toolless answer round's upstream delta frame rides through byte-forwarded.",
     "comparison": "structural",
     "harness": "__tests__/rust-golden/web.test.ts",
     "env": {
@@ -174,7 +174,7 @@
       "x-decision-mode": "standard_chat"
     },
     "body": {
-      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n",
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\n",
       "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
     }
   },
@@ -194,26 +194,13 @@
         "choices": [
           {
             "index": 0,
-            "delta": {}
-          }
-        ]
-      },
-      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}"
-    },
-    {
-      "kind": "data",
-      "obj": {
-        "choices": [
-          {
-            "index": 0,
             "delta": {
               "content": "search answer"
-            },
-            "finish_reason": null
+            }
           }
         ]
       },
-      "raw": "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}"
+      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}"
     },
     {
       "kind": "done"

@@ -386,6 +386,31 @@
         "nullable": false
       },
       {
+        "name": "activity",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "activityStatus",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "round",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "contentCutTo",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "contentText",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
         "name": "researchLfm",
         "present": "optional-omit-when-absent",
         "nullable": false,

@@ -307,67 +307,111 @@ export interface WebToolLoopOptions {
 }
 
 type RoundOutcome =
-  // WS06: `held` carries this round's terminal frames (finish_reason and/or
-  // [DONE]) which may only go out AFTER the answer content has been audited
-  // and (if needed) repaired — content is buffered, never released raw.
+  // Streaming reliability law (2026-11-12): answer content is NOT buffered —
+  // it streams live. `held` carries only this round's terminal frames
+  // (finish_reason and/or [DONE]); they wait so the end-of-round audit can
+  // revise the already-live text (see `releaseRound`) before the round
+  // closes.
   | { kind: "relay"; relay: ToolStreamRelay; held: Uint8Array[] }
   | { kind: "closed" }; // the channel was already closed or failed
 
 const enc = new TextEncoder();
 
 /**
- * WS06 buffering transform for one outbound SSE frame: strip `delta.content`
- * (the round's answer units accumulate in `relay.content` and are released
- * audited), pass reasoning/other frames through live (gating them would
- * delay thinking for zero verification value), and HOLD the round's
- * terminal frames (`finish_reason`/`[DONE]`) for the post-audit release.
- * Frames that need no rewriting are forwarded byte-identical.
- * Conservative rule: a `data:` line that is neither [DONE] nor parseable
- * JSON is swallowed on this path — the relay records nothing from it either,
- * so forwarding it would smuggle unaudited text to the client.
+ * Streaming reliability law (2026-11-12) for one outbound SSE frame:
+ * answer `delta.content` rides LIVE, byte-identical — the audit never hides
+ * bytes; when it disagrees with the text it REVISES what the client already
+ * received (`web:content_revise`, see `releaseRound`). Reasoning/keep-alive
+ * frames pass through untouched. The round's terminal frames
+ * (`finish_reason`/`[DONE]`) still HOLD, so the single-[DONE] grammar and
+ * the audit-before-round-close ordering stay intact.
+ * SPLIT LAW: one frame carrying BOTH content and a string finish_reason
+ * streams the content half live now (same frame, `finish_reason` nulled)
+ * and holds the terminal half (same frame, `delta.content` deleted).
+ * Conservative rule (unchanged): a `data:` line that is neither [DONE] nor
+ * parseable JSON is swallowed on this path — the relay records nothing from
+ * it either, so forwarding it would smuggle unparsed text to the client.
  */
 function holdRoundFrame(frame: Uint8Array, held: Uint8Array[]): Uint8Array | null {
   const text = new TextDecoder().decode(frame);
   const lines = text.split("\n");
   let terminal = false;
   let done = false;
-  let mutated = false;
-  const out: string[] = [];
+  let split = false;
+  let swallowed = false;
+  const liveLines: string[] = [];
+  const parkLines: string[] = [];
   for (const line of lines) {
     if (!line.startsWith("data:")) {
-      out.push(line);
+      liveLines.push(line);
+      parkLines.push(line);
       continue;
     }
     const data = line.slice("data:".length).trim();
     if (data === "[DONE]") {
       done = true;
+      parkLines.push(line);
       continue;
     }
     if (data === "") {
-      out.push(line);
+      liveLines.push(line);
+      parkLines.push(line);
       continue;
     }
     let v: any;
     try {
       v = JSON.parse(data);
     } catch {
+      swallowed = true;
       continue;
     }
     const choice = Array.isArray(v?.choices) ? v.choices[0] : undefined;
-    if (choice && typeof choice.finish_reason === "string") terminal = true;
-    if (choice?.delta && typeof choice.delta.content === "string") {
-      delete choice.delta.content;
-      mutated = true;
+    if (!choice || typeof choice.finish_reason !== "string") {
+      liveLines.push(line); // streaming law: content rides live, byte-identical
+      continue;
     }
-    out.push("data: " + JSON.stringify(v));
+    terminal = true;
+    if (choice.delta && typeof choice.delta.content === "string") {
+      split = true;
+      const fin: string = choice.finish_reason;
+      choice.finish_reason = null;
+      liveLines.push("data: " + JSON.stringify(v));
+      choice.finish_reason = fin;
+      delete choice.delta.content;
+      parkLines.push("data: " + JSON.stringify(v));
+    } else {
+      parkLines.push(line);
+    }
   }
-  if (!terminal && !done && !mutated) return frame;
-  const stripped = enc.encode(out.join("\n"));
-  if (terminal || done) {
-    held.push(mutated ? stripped : frame);
-    return null;
+  if (!terminal && !done) {
+    if (!swallowed) return frame; // live passthrough, byte-identical
+    return enc.encode(liveLines.join("\n")); // the garbage line simply rides out
   }
-  return stripped;
+  held.push(split || swallowed ? enc.encode(parkLines.join("\n")) : frame);
+  return split ? enc.encode(liveLines.join("\n")) : null;
+}
+
+/**
+ * Safe `web:activity` detail: the search queries or the page hosts the
+ * action is after — strings the gate summary and the action ledger already
+ * show the user. Never the raw tool args, never page bodies.
+ */
+function activityDetail(name: string, args: Record<string, unknown>): string | undefined {
+  const list = name === "web_search" ? args.queries : name === "read_page" ? args.urls : undefined;
+  if (!Array.isArray(list)) return undefined;
+  const parts = list
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => (name === "web_search" ? s : hostOf(s)))
+    .filter((s) => s !== "");
+  return parts.length === 0 ? undefined : parts.join(", ").slice(0, 300);
+}
+
+function hostOf(u: string): string {
+  try {
+    return new URL(u).hostname;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -535,31 +579,35 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
 
     const maxRounds = Math.min(session.budget.maxToolRounds, WEB_TOOL_MAX_ROUNDS_CAP);
 
-    // WS06 (audit item 6) release point: no round's answer text reaches the
-    // client before auditResearchAnswer has checked it against the SERVER's
-    // citation map and action ledger. Content releases as one synthetic
-    // delta (repaired where needed); the round's held terminal frames follow
-    // it, preserving the single-[DONE] grammar and live reasoning stream.
-    // ⇔ web_loop.rs release_round mirror.
+    // Streaming reliability release point (2026-11-12, ⇔ web_loop.rs
+    // release_round): a round's answer text streams LIVE as the model
+    // generates it; at round end auditResearchAnswer still checks it against
+    // the SERVER's citation map and action ledger, and when the audit
+    // disagrees with what streamed, ONE `web:content_revise` frame corrects
+    // the client's displayed content IN PLACE (an empty `contentText` retracts
+    // from the cut entirely). The revise always rides BEFORE the held
+    // terminal frames, so the single-[DONE] grammar and the live reasoning
+    // stream stay intact.
     const retrieveHappened = () =>
       Object.keys(merged).length > 0 || session.actionLedger.some((a) => a.ok);
-    const releaseRound = (relay: ToolStreamRelay, held: Uint8Array[]) => {
-      if (relay.content !== "") {
-        const repaired = auditResearchAnswer(relay.content, Object.keys(merged), retrieveHappened());
-        if (repaired !== "") {
-          ch.raw(
-            enc.encode(
-              "data: " +
-                JSON.stringify({
-                  choices: [{ index: 0, delta: { content: repaired }, finish_reason: null }],
-                }) +
-                "\n\n",
-            ),
-          );
-        }
+    // Client-visible content length in UTF-16 code units — the SAME unit JS
+    // `String.length`/`slice` use (the ⇔ Rust law is `s.encode_utf16().count()`).
+    // `web:content_revise.offsets` index the turn's displayed content by it.
+    let streamedTotal = 0;
+    const releaseRound = (relay: ToolStreamRelay, held: Uint8Array[], roundStartLen: number): number => {
+      let audited = relay.content;
+      if (audited !== "") {
+        audited = auditResearchAnswer(audited, Object.keys(merged), retrieveHappened());
+      }
+      if (audited !== relay.content) {
+        ch.stage({ stage: "web:content_revise", contentCutTo: roundStartLen, contentText: audited });
       }
       for (const f of held) ch.raw(f);
       held.length = 0;
+      // Offset law: after a released round the client's content is
+      // prefix + audited — the revise replaced everything from the cut on.
+      // (After a RETRACTED round the caller cuts to `roundStartLen` instead.)
+      return roundStartLen + audited.length;
     };
 
     // MHR-D: at most ONE harness-feedback round per turn. The diagnosis is
@@ -571,6 +619,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         ch.close();
         return;
       }
+      const roundStartLen = streamedTotal;
       const res = await streamRound(payload, model, signal, ch);
       if (res.kind === "closed") return;
       const relay = res.relay;
@@ -579,17 +628,23 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         // MHR-D (brief 2026-11-05): evidence-driven next action. Before a
         // final answer releases, the harness diagnoses it against the
         // SERVER's actual state (minted citations, action ledger). A
-        // diagnosed-bad answer is HELD BACK entirely — its content never
-        // streamed live, so dropping the round's terminal frames releases
-        // nothing — and the model receives ONE factual report of what the
-        // server did/didn't do, then decides: retrieve more, re-attach
-        // citations, or state the gap. The harness never rewrites the
-        // model's semantics itself. Needs one spare iteration (the tool
-        // budget itself is untouched); with none to spare, no feedback is
-        // faked and the WS06 audit releases the text as before.
+        // diagnosed-bad answer streamed LIVE under the streaming law, so it
+        // is RETRACTED in place (a revise frame cutting back to the round's
+        // start) before its terminal frames are dropped — the client never
+        // keeps text the harness judged wrong. The model receives ONE
+        // factual report of what the server did/didn't do (its own text
+        // stays in model history — the feedback names what it wrote), then
+        // decides: retrieve more, re-attach citations, or state the gap.
+        // The harness never rewrites the model's semantics itself. Needs one
+        // spare iteration (the tool budget itself is untouched); with none
+        // to spare, no feedback is faked and the audit release runs.
         const diag = diagnoseResearchAnswer(relay.content, Object.keys(merged), retrieveHappened());
         if (answerFeedbackNeeded(diag) && !feedbackUsed && round + 1 < maxRounds) {
           feedbackUsed = true;
+          if (relay.content !== "") {
+            ch.stage({ stage: "web:content_revise", contentCutTo: roundStartLen, contentText: "" });
+          }
+          streamedTotal = roundStartLen;
           res.held.length = 0; // never emitted: the NEXT round owns [DONE]
           log.info(
             {
@@ -608,7 +663,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
           payload.messages.push({ role: "user", content: buildAnswerFeedback(diag) });
           continue;
         }
-        releaseRound(relay, res.held);
+        releaseRound(relay, res.held, roundStartLen);
         log.info(
           { model, round: round + 1, finish: relay.finish ?? "none", ms: Date.now() - started },
           "web tool loop complete",
@@ -639,9 +694,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         return;
       }
 
-      // Tool-narration round: release position preserved from WS06 — the
-      // round's (audited) narration content goes out before the census.
-      releaseRound(relay, res.held);
+      // Tool-narration round: the round's live-streamed narration gets the
+      // same end-of-round audit + revise before the census as every other
+      // release path.
+      streamedTotal = releaseRound(relay, res.held, roundStartLen);
 
       // ── assistant turn + tool execution (⇔ browser_loop.rs shapes) ────
       const calls = [...relay.calls.values()];
@@ -697,6 +753,24 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
           continue;
         }
         const args = parsed as Record<string, unknown>;
+        // Activity law (2026-11-12): the client learns what the loop is
+        // ACTUALLY doing, around the exec call itself — started while it
+        // runs, completed/failed with the real counts the action record the
+        // exec mints carries. Never a timer, never a guess. (The invalid-
+        // arguments arm above never started real work, so it carries none.)
+        const actKind =
+          call.name === "web_search" ? "search" : call.name === "read_page" ? "read_page" : null;
+        const actDetail = activityDetail(call.name, args);
+        if (actKind) {
+          ch.stage({
+            stage: "web:activity",
+            activity: actKind,
+            activityStatus: "started",
+            round: round + 1,
+            detail: actDetail,
+          });
+        }
+        const callLedgerBefore = session.actionLedger.length;
         const fresh: CitationSeed[] = [];
         let result: Record<string, unknown>;
         if (call.name === "web_search") {
@@ -712,6 +786,24 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
             remainingBudget: remainingBudget(session),
           };
           recordAction(session, { tool: call.name, ok: false, error: "unknown_tool", requested: 0, retrieved: 0, failed: 0 });
+        }
+        if (actKind) {
+          // ⇔ Rust web_loop.rs: status rides the exec ENVELOPE's ok; the
+          // real counts ride the action record the exec just minted (a
+          // failed/mocked exec records nothing → status honest, no counts).
+          const rec =
+            session.actionLedger.length > callLedgerBefore
+              ? session.actionLedger[session.actionLedger.length - 1]
+              : undefined;
+          ch.stage({
+            stage: "web:activity",
+            activity: actKind,
+            activityStatus: result.ok === true ? "completed" : "failed",
+            round: round + 1,
+            detail: actDetail,
+            done: rec?.retrieved,
+            total: rec?.requested,
+          });
         }
         // Merge the [S#] citations these calls minted. Tools number packets
         // from the session, so keys never collide with the pipeline's map.
@@ -773,13 +865,14 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       ch.close();
       return;
     }
+    const roundStartLen = streamedTotal;
     const last = await streamRound(payload, model, signal, ch);
     if (last.kind === "relay") {
-      // WS06: the forced final answer gets the SAME release check as every
-      // other round — the audit law names "the normal finish path" and this
-      // path explicitly. A model that never called tools still cannot ship
-      // an uncited volatile claim uncited.
-      releaseRound(last.relay, last.held);
+      // The forced final answer gets the SAME release check as every other
+      // round — the audit law names "the normal finish path" and this path
+      // explicitly. A model that never called tools still cannot ship an
+      // uncited volatile claim uncited.
+      releaseRound(last.relay, last.held, roundStartLen);
       if (last.relay.finish === "tool_calls") {
         // The relay swallowed this round's [DONE] (the model called tools
         // again, which we never execute). The grammar still carries exactly

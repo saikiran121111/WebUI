@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "model-directed web research: the (scripted) main model calls web_search, then read_page, then answers; the harness executes, records and cites",
-    "semantics": "MHR-A..D (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the gate-era prefetch scenario): the route arms the read-only tool surface on every progress turn with ZERO prefetched evidence — the model decides. THREE upstream calls: round 1 calls web_search (the harness executes it against the scripted engine pool; a plain-text query mints NO [S#] citations — only pages actually read mint them), round 2 calls read_page on a SERP URL (extractor cascade REAL, mints [S1] for the page), round 3 answers. Tool results travel as role:\"tool\" messages with the exact envelope JSON, and each tool round appends an assistant message carrying tool_calls {id,type:'function',function:{name,arguments}} — never an injected evidence block. Message chain for the FIRST call: guidance (skill slot, FIRST system block), user, runtime_clock; roles [system,user,system]. Every round's payload carries payload.tools = [web_search,read_page]. Stage grammar: decision_done, then per tool round ONE 'web:tools' census frame (detail = called names, done/total rounds) immediately followed by that round's ledger-gated web_meta frame — NO web:gate/planning/searching/reading/reranking/done frames EVER (the prefetch chain is gone from chat). EVIDENCE-HONESTY NOTE (recorded, MHR-E observation): a read_page URL carries no SERP title entry, so packet.title stays EMPTY — the [S#] citation records title:'' and the tool's page entry falls back to the DOMAIN (extractor packets pass through the search-result title, never an HTML <title> sniff). web_meta is LEDGER-GATED (WS18): round 1 emits one (ledger grew, zero new citations — webCitations {}), round 2 emits one with the full merged map ([S1]), and completion emits one final snapshot {toolRounds:2, actions:[web_search,read_page]} — the OVERWRITE law. searchGate/presentation/richResults are ABSENT from every frame (route passes null). Progress response headers NEVER carry X-Web-Citations/X-Search-Gate. WS06: the answer round's content is server-audited and released as ONE synthetic delta frame before the held terminal frames; tool rounds' terminal frames release per round and their [DONE] is swallowed (single-[DONE] grammar). Volatile masking: ws-<sid> / <volatile-at> (header law).",
+    "semantics": "MHR-A..D (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the gate-era prefetch scenario): the route arms the read-only tool surface on every progress turn with ZERO prefetched evidence — the model decides. THREE upstream calls: round 1 calls web_search (the harness executes it against the scripted engine pool; a plain-text query mints NO [S#] citations — only pages actually read mint them), round 2 calls read_page on a SERP URL (extractor cascade REAL, mints [S1] for the page), round 3 answers. Tool results travel as role:\"tool\" messages with the exact envelope JSON, and each tool round appends an assistant message carrying tool_calls {id,type:'function',function:{name,arguments}} — never an injected evidence block. Message chain for the FIRST call: guidance (skill slot, FIRST system block), user, runtime_clock; roles [system,user,system]. Every round's payload carries payload.tools = [web_search,read_page]. Stage grammar: decision_done, then per tool round ONE 'web:tools' census frame (detail = called names, done/total rounds) immediately followed by that round's ledger-gated web_meta frame — NO web:gate/planning/searching/reading/reranking/done frames EVER (the prefetch chain is gone from chat). EVIDENCE-HONESTY NOTE (recorded, MHR-E observation): a read_page URL carries no SERP title entry, so packet.title stays EMPTY — the [S#] citation records title:'' and the tool's page entry falls back to the DOMAIN (extractor packets pass through the search-result title, never an HTML <title> sniff). web_meta is LEDGER-GATED (WS18): round 1 emits one (ledger grew, zero new citations — webCitations {}), round 2 emits one with the full merged map ([S1]), and completion emits one final snapshot {toolRounds:2, actions:[web_search,read_page]} — the OVERWRITE law. searchGate/presentation/richResults are ABSENT from every frame (route passes null). Progress response headers NEVER carry X-Web-Citations/X-Search-Gate. Streaming reliability law (2026-11-12, REPLACES WS06): the answer round's content streams LIVE, byte-forwarded from the upstream delta frames (a web:content_revise frame may later whole-round-replace it after the server audit — none fired here); tool rounds' terminal frames release per round and their [DONE] is swallowed (single-[DONE] grammar). Each tool round opens/closes a web:activity frame pair (started → completed with the REAL ledger counts). Volatile masking: ws-<sid> / <volatile-at> (header law).",
     "comparison": "structural",
     "harness": "__tests__/rust-golden/web.test.ts",
     "env": {
@@ -490,7 +490,7 @@
       "x-decision-mode": "standard_chat"
     },
     "body": {
-      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a1\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus roadmap 2026\\\"],\\\"missing_claims\\\":[\\\"the current milestone dates for project nimbus\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":1,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a2\",\"function\":{\"name\":\"read_page\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"urls\\\":[\\\"https://nimbus.example.com/roadmap-2026\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"read_page\",\"done\":2,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{\"S1\":{\"sourceId\":\"S1\",\"url\":\"https://nimbus.example.com/roadmap-2026\",\"title\":\"nimbus.example.com\",\"domain\":\"nimbus.example.com\"}},\"researchLedger\":{\"toolRounds\":2,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"read_page\",\"ok\":true,\"requested\":1,\"retrieved\":1,\"failed\":0,\"urls\":[\"https://nimbus.example.com/roadmap-2026\"],\"sources\":[\"S1\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{\"S1\":{\"sourceId\":\"S1\",\"url\":\"https://nimbus.example.com/roadmap-2026\",\"title\":\"nimbus.example.com\",\"domain\":\"nimbus.example.com\"}},\"researchLedger\":{\"toolRounds\":2,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"read_page\",\"ok\":true,\"requested\":1,\"retrieved\":1,\"failed\":0,\"urls\":[\"https://nimbus.example.com/roadmap-2026\"],\"sources\":[\"S1\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"}]}}}\n\n",
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a1\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus roadmap 2026\\\"],\\\"missing_claims\\\":[\\\"the current milestone dates for project nimbus\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":1,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"started\",\"round\":1,\"detail\":\"project nimbus roadmap 2026\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"completed\",\"round\":1,\"detail\":\"project nimbus roadmap 2026\",\"done\":5,\"total\":1}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a2\",\"function\":{\"name\":\"read_page\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"urls\\\":[\\\"https://nimbus.example.com/roadmap-2026\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"read_page\",\"done\":2,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"read_page\",\"activityStatus\":\"started\",\"round\":2,\"detail\":\"nimbus.example.com\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"read_page\",\"activityStatus\":\"completed\",\"round\":2,\"detail\":\"nimbus.example.com\",\"done\":1,\"total\":1}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{\"S1\":{\"sourceId\":\"S1\",\"url\":\"https://nimbus.example.com/roadmap-2026\",\"title\":\"nimbus.example.com\",\"domain\":\"nimbus.example.com\"}},\"researchLedger\":{\"toolRounds\":2,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"read_page\",\"ok\":true,\"requested\":1,\"retrieved\":1,\"failed\":0,\"urls\":[\"https://nimbus.example.com/roadmap-2026\"],\"sources\":[\"S1\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{\"S1\":{\"sourceId\":\"S1\",\"url\":\"https://nimbus.example.com/roadmap-2026\",\"title\":\"nimbus.example.com\",\"domain\":\"nimbus.example.com\"}},\"researchLedger\":{\"toolRounds\":2,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":5,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"},{\"tool\":\"read_page\",\"ok\":true,\"requested\":1,\"retrieved\":1,\"failed\":0,\"urls\":[\"https://nimbus.example.com/roadmap-2026\"],\"sources\":[\"S1\"],\"round\":2,\"id\":\"ws-<sid>-a2\",\"at\":\"<volatile-at>\"}]}}}\n\n",
       "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
     }
   },
@@ -563,6 +563,28 @@
         "detail": "web_search",
         "done": 1,
         "total": 8
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "started",
+        "round": 1,
+        "detail": "project nimbus roadmap 2026"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "completed",
+        "round": 1,
+        "detail": "project nimbus roadmap 2026",
+        "done": 5,
+        "total": 1
       }
     },
     {
@@ -655,6 +677,28 @@
     {
       "kind": "stage",
       "obj": {
+        "stage": "web:activity",
+        "activity": "read_page",
+        "activityStatus": "started",
+        "round": 2,
+        "detail": "nimbus.example.com"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "read_page",
+        "activityStatus": "completed",
+        "round": 2,
+        "detail": "nimbus.example.com",
+        "done": 1,
+        "total": 1
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
         "stage": "web_meta",
         "webCitations": {
           "S1": {
@@ -707,26 +751,13 @@
         "choices": [
           {
             "index": 0,
-            "delta": {}
-          }
-        ]
-      },
-      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}"
-    },
-    {
-      "kind": "data",
-      "obj": {
-        "choices": [
-          {
-            "index": 0,
             "delta": {
               "content": "search answer"
-            },
-            "finish_reason": null
+            }
           }
         ]
       },
-      "raw": "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}"
+      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}"
     },
     {
       "kind": "done"

@@ -238,6 +238,21 @@ export interface Message {
   fenceRepair?: string;
   /** Decision Engine mode for this reply: the ONLY renderer/validator allowed. */
   decisionMode?: RendererMode;
+  /**
+   * Streaming reliability law (2026-11-12): REAL per-action web activity
+   * from `web:activity` stage frames (search / read_page, started →
+   * completed/failed/cancelled, real counts) — the ONLY source the
+   * processing line may read. Transient display state: buildBody's
+   * whitelist (lib/chat/client.ts) never ships it upstream.
+   */
+  webActivity?: {
+    kind: string;
+    status: string;
+    detail?: string;
+    done?: number;
+    total?: number;
+    round?: number;
+  }[];
 }
 
 /* ── Conversations ───────────────────────────────────────────────────────── */
@@ -379,6 +394,24 @@ export interface StageEvent {
    */
   turn?: string;
   tabId?: string;
+  /**
+   * Streaming reliability law (2026-11-12):
+   * `web:activity` frames — the real per-action tool activity
+   * (kind ⇔ stages.rs `activity`, lifecycle ⇔ `activity_status`, model
+   * round ⇔ `round`; `detail` carries the safe query/domain, `done`/`total`
+   * carry the REAL retrieval counts). Never a timer guess.
+   * `web:content_revise` frames — an in-place correction of answer bytes
+   * already streamed live: `content_cut_to` is the UTF-16 code-unit offset
+   * into the turn's displayed content where the revision starts,
+   * `content_text` replaces everything from that offset on.
+   * Declaration order is the wire key order — ⇔ stages.rs field order ⇔
+   * manifest ledger.
+   */
+  activity?: string;
+  activityStatus?: string;
+  round?: number;
+  contentCutTo?: number;
+  contentText?: string;
   /** @deprecated pre-rename spelling (2026-10-23); read as a fallback. */
   researchLfm?: {
     depth: string;

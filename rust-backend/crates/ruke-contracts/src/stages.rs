@@ -102,6 +102,25 @@ pub struct StageEvent {
     pub turn: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<String>,
+    /// Streaming reliability law (2026-11-12): `web:activity` frames carry
+    /// the real per-action tool activity — kind (`search` / `read_page`),
+    /// lifecycle (`started` / `updated` / `completed` / `failed` /
+    /// `cancelled`), and the model round; `detail` carries the safe query/
+    /// domain and `done`/`total` carry the real retrieval counts.
+    /// `web:content_revise` frames carry `content_cut_to` (UTF-16 code-unit
+    /// offset into the turn's already-live streamed content where the
+    /// revision starts) and `content_text` (replaces everything from that
+    /// offset on). Declaration order ⇔ `lib/types.ts` ⇔ wire key order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub round: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_cut_to: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_text: Option<String>,
 }
 
 impl StageEvent {
@@ -127,6 +146,11 @@ impl StageEvent {
             surface_revision: None,
             turn: None,
             tab_id: None,
+            activity: None,
+            activity_status: None,
+            round: None,
+            content_cut_to: None,
+            content_text: None,
         }
     }
 }

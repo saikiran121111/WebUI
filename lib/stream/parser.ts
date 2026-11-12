@@ -149,6 +149,15 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
     if (delta?.reasoning_content) {
       push({ reasoning: delta.reasoning_content });
     }
+    // Chat-completions reasoning_details parts (what Strata emits and the
+    // web tool loop relays raw): normalize onto the same reasoning channel
+    // the UI reducer already consumes — live law, never gated.
+    if (Array.isArray(delta?.reasoning_details)) {
+      const partText = delta.reasoning_details
+        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+        .join("");
+      if (partText) push({ reasoning: partText });
+    }
     if (delta?.content) {
       const split = splitter(delta.content);
       if (split.reasoning) push({ reasoning: split.reasoning });

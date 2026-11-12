@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "engine pool returns ZERO results: the harness reports the empty result honestly (no sentinel block), non-fatal",
-    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the sentinel-block scenario): there is no prefetched bundle anymore, so there is no injected 'No web evidence' sentinel — honesty lives in the TOOL ENVELOPE the model itself called: web_search returns ok:true with queryResults[0].resultCount=0 and results=[] (the engines genuinely came back empty; metasearch does NOT throw for an empty pool). The loop records the attempt (ledger ok:true, retrieved:0) and emits ledger-gated web_meta frames (empty citation map — nothing was retrieved, nothing is cited). The answer round still streams through the WS06 release path; a starved turn NEVER produces an error frame. Engine legs: ENGINE_CALLS ≥ 1 proves the retrieval actually ran against the scripted pool.",
+    "semantics": "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the sentinel-block scenario): there is no prefetched bundle anymore, so there is no injected 'No web evidence' sentinel — honesty lives in the TOOL ENVELOPE the model itself called: web_search returns ok:true with queryResults[0].resultCount=0 and results=[] (the engines genuinely came back empty; metasearch does NOT throw for an empty pool). The loop records the attempt (ledger ok:true, retrieved:0) and emits ledger-gated web_meta frames (empty citation map — nothing was retrieved, nothing is cited). The round's web:activity pair stays HONEST on a starved arm: started → completed with done:0 of total:1 — the retrieval really ran and came back empty, so 'completed' is the truth, never 'failed'. The answer round streams LIVE (2026-11-12 law); a starved turn NEVER produces an error frame. Engine legs: ENGINE_CALLS ≥ 1 proves the retrieval actually ran against the scripted pool.",
     "comparison": "structural",
     "harness": "__tests__/rust-golden/web.test.ts",
     "env": {
@@ -316,7 +316,7 @@
       "x-decision-mode": "standard_chat"
     },
     "body": {
-      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a1\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus roadmap 2026\\\"],\\\"missing_claims\\\":[\\\"milestone dates\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":1,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\n",
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-a1\",\"function\":{\"name\":\"web_search\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"queries\\\":[\\\"project nimbus roadmap 2026\\\"],\\\"missing_claims\\\":[\\\"milestone dates\\\"]}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:tools\",\"detail\":\"web_search\",\"done\":1,\"total\":8}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"started\",\"round\":1,\"detail\":\"project nimbus roadmap 2026\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web:activity\",\"activity\":\"search\",\"activityStatus\":\"completed\",\"round\":1,\"detail\":\"project nimbus roadmap 2026\",\"done\":0,\"total\":1}}\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\ndata: {\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}\n\ndata: [DONE]\n\ndata: {\"ruke_stage\":{\"stage\":\"web_meta\",\"webCitations\":{},\"researchLedger\":{\"toolRounds\":1,\"actions\":[{\"tool\":\"web_search\",\"ok\":true,\"requested\":1,\"retrieved\":0,\"failed\":0,\"queries\":[\"project nimbus roadmap 2026\"],\"round\":1,\"id\":\"ws-<sid>-a1\",\"at\":\"<volatile-at>\"}]}}}\n\n",
       "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
     }
   },
@@ -394,6 +394,28 @@
     {
       "kind": "stage",
       "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "started",
+        "round": 1,
+        "detail": "project nimbus roadmap 2026"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "web:activity",
+        "activity": "search",
+        "activityStatus": "completed",
+        "round": 1,
+        "detail": "project nimbus roadmap 2026",
+        "done": 0,
+        "total": 1
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
         "stage": "web_meta",
         "webCitations": {},
         "researchLedger": {
@@ -423,26 +445,13 @@
         "choices": [
           {
             "index": 0,
-            "delta": {}
-          }
-        ]
-      },
-      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{}}]}"
-    },
-    {
-      "kind": "data",
-      "obj": {
-        "choices": [
-          {
-            "index": 0,
             "delta": {
               "content": "search answer"
-            },
-            "finish_reason": null
+            }
           }
         ]
       },
-      "raw": "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"},\"finish_reason\":null}]}"
+      "raw": "{\"id\":\"w1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"search answer\"}}]}"
     },
     {
       "kind": "done"

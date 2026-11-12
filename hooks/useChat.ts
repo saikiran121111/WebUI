@@ -493,6 +493,60 @@ export function useChat({
           } : m));
         }
       }
+      // Streaming reliability law (2026-11-12): content already streamed
+      // LIVE can still be revised/retracted by the server-side audit. The
+      // frame is a whole-round replace (cut = turn-wide UTF-16 offset);
+      // flush queued delta appends FIRST, then rewrite the message AND the
+      // stream accumulator together so a later rAF flush can never
+      // resurrect retracted bytes.
+      if (ev.stage.stage === "web:content_revise") {
+        flushPending(true);
+        const id = assistantIdRef.current;
+        if (id) {
+          const rawCut = ev.stage.contentCutTo;
+          const repl = typeof ev.stage.contentText === "string" ? ev.stage.contentText : "";
+          const applyCut = (base: string): string => {
+            const cut = Number.isFinite(rawCut) ? Math.max(0, Math.trunc(rawCut)) : base.length;
+            return base.slice(0, Math.min(cut, base.length)) + repl;
+          };
+          streamContentRef.current = applyCut(streamContentRef.current);
+          setMessages(prev => prev.map(m =>
+            m.id === id ? { ...m, content: applyCut(typeof m.content === "string" ? m.content : "") } : m
+          ));
+        }
+      }
+      // §D law: per-action activity frames feed the ONE authoritative
+      // activity list on the streaming message — started frames open an
+      // entry, terminal frames close it (matched on the most recent open
+      // entry with the same kind+round, ⇔ the engine's pairing).
+      if (ev.stage.stage === "web:activity") {
+        const id = assistantIdRef.current;
+        if (id) {
+          const entry = {
+            kind: String(ev.stage.activity ?? "unknown"),
+            status: String(ev.stage.activityStatus ?? "started"),
+            ...(typeof ev.stage.detail === "string" && ev.stage.detail ? { detail: ev.stage.detail } : {}),
+            ...(Number.isFinite(ev.stage.done) ? { done: Number(ev.stage.done) } : {}),
+            ...(Number.isFinite(ev.stage.total) ? { total: Number(ev.stage.total) } : {}),
+            ...(Number.isFinite(ev.stage.round) ? { round: Number(ev.stage.round) } : {}),
+          };
+          setMessages(prev => prev.map(m => {
+            if (m.id !== id) return m;
+            const list = m.webActivity ?? [];
+            let at = -1;
+            if (entry.status !== "started") {
+              for (let i = list.length - 1; i >= 0; i--) {
+                if (list[i].kind === entry.kind && list[i].round === entry.round && list[i].status === "started") {
+                  at = i;
+                  break;
+                }
+              }
+            }
+            const next = at >= 0 ? list.map((a, i) => (i === at ? entry : a)) : [...list, entry];
+            return { ...m, webActivity: next.slice(-40) }; // no unbounded per-action flooding
+          }));
+        }
+      }
       const t = progressRef.current;
       if (t) {
         t.noteStage(ev.stage);
@@ -538,7 +592,7 @@ export function useChat({
       setError(ev.finishReason === "error" ? "Generation failed" : null);
       setIsThinking(false);
     }
-  }, [scheduleFlush]);
+  }, [scheduleFlush, flushPending]);
 
   const runRepairRounds = useCallback(async (
     assistantId: string,

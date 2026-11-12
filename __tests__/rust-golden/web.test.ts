@@ -395,9 +395,11 @@ describe("golden: model-directed web tool loop", () => {
         "LEDGER-GATED (WS18): round 1 emits one (ledger grew, zero new citations — webCitations {}), round 2 emits one with the " +
         "full merged map ([S1]), and completion emits one final snapshot {toolRounds:2, actions:[web_search,read_page]} — the " +
         "OVERWRITE law. searchGate/presentation/richResults are ABSENT from every frame (route passes null). Progress response " +
-        "headers NEVER carry X-Web-Citations/X-Search-Gate. WS06: the answer round's content is server-audited and released as " +
-        "ONE synthetic delta frame before the held terminal frames; tool rounds' terminal frames release per round and their " +
-        "[DONE] is swallowed (single-[DONE] grammar). Volatile masking: ws-<sid> / <volatile-at> (header law).",
+        "headers NEVER carry X-Web-Citations/X-Search-Gate. Streaming reliability law (2026-11-12, REPLACES WS06): the " +
+        "answer round's content streams LIVE, byte-forwarded from the upstream delta frames (a web:content_revise frame may " +
+        "later whole-round-replace it after the server audit — none fired here); tool rounds' terminal frames release per " +
+        "round and their [DONE] is swallowed (single-[DONE] grammar). Each tool round opens/closes a web:activity frame " +
+        "pair (started → completed with the REAL ledger counts). Volatile masking: ws-<sid> / <volatile-at> (header law).",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       upstream: [toolCallScript("call-a1", "web_search", R1_ARGS), toolCallScript("call-a2", "read_page", R2_ARGS), CHAT_UPSTREAM],
@@ -409,21 +411,21 @@ describe("golden: model-directed web tool loop", () => {
     });
     expect(run.status).toBe(200);
 
-    // Stage grammar: census frames ONLY on tool rounds; no prefetch chain.
+    // Stage grammar: census frames ONLY on tool rounds, each round opening and
+    // closing its web:activity pair (2026-11-12 law); no prefetch chain.
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
+    expect(seq).toEqual(["decision_done", "web:tools", "web:activity", "web:activity", "web_meta", "web:tools", "web:activity", "web:activity", "web_meta", "web_meta"]);
     const census = stageFrames(logical.frames).filter((o) => o.stage === "web:tools");
     expect(census.map((f) => f.detail)).toEqual(["web_search", "read_page"]);
     expect(census.map((f) => [f.done, f.total])).toEqual([[1, 8], [2, 8]]); // standard budget: maxToolRounds 8 (2026-11-07 re-tune)
     expect(run.headers["x-web-citations"]).toBeUndefined();
     expect(run.headers["x-search-gate"]).toBeUndefined();
 
-    // WS06 release shape: live deltas forward with delta.content stripped;
-    // the audited answer rides ONE synthetic release frame ahead of [DONE].
-    expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{}}]');
-    const releaseAt = run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}');
-    expect(releaseAt).toBeGreaterThan(-1);
-    expect(releaseAt).toBeLessThan(run.text.indexOf("data: [DONE]"));
+    // Live-forward law (2026-11-12, replaces WS06): the upstream answer delta
+    // rides through byte-forwarded with its id preserved — no synthesized
+    // release frame exists anymore. Live-before-[DONE] order.
+    expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{"content":"search answer"}}]');
+    expect(run.text.indexOf('"content":"search answer"')).toBeLessThan(run.text.indexOf("data: [DONE]"));
     // Tool rounds honestly end in front of the browser:
     expect(run.text).toContain('"finish_reason":"tool_calls"');
 
@@ -529,8 +531,10 @@ describe("golden: model-directed web tool loop", () => {
         "so there is no injected 'No web evidence' sentinel — honesty lives in the TOOL ENVELOPE the model itself called: " +
         "web_search returns ok:true with queryResults[0].resultCount=0 and results=[] (the engines genuinely came back empty; " +
         "metasearch does NOT throw for an empty pool). The loop records the attempt (ledger ok:true, retrieved:0) and emits " +
-        "ledger-gated web_meta frames (empty citation map — nothing was retrieved, nothing is cited). The answer round still " +
-        "streams through the WS06 release path; a starved turn NEVER produces an error frame. Engine legs: ENGINE_CALLS ≥ 1 " +
+        "ledger-gated web_meta frames (empty citation map — nothing was retrieved, nothing is cited). The round's " +
+        "web:activity pair stays HONEST on a starved arm: started → completed with done:0 of total:1 — the retrieval really " +
+        "ran and came back empty, so 'completed' is the truth, never 'failed'. The answer round streams LIVE (2026-11-12 " +
+        "law); a starved turn NEVER produces an error frame. Engine legs: ENGINE_CALLS ≥ 1 " +
         "proves the retrieval actually ran against the scripted pool.",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
@@ -539,7 +543,7 @@ describe("golden: model-directed web tool loop", () => {
     });
     expect(ENGINE_CALLS.n).toBeGreaterThanOrEqual(1); // the search genuinely ran
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web_meta"]);
+    expect(seq).toEqual(["decision_done", "web:tools", "web:activity", "web:activity", "web_meta", "web_meta"]);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(logical.done).toBe(true);
 
@@ -585,7 +589,9 @@ describe("golden: model-directed web tool loop", () => {
         "to answer from the evidence it HAS and say what is still missing, plus remainingBudget. The refusal is RECORDED in the " +
         "action ledger (ok:false, error:'budget_exhausted', queries:[the refused query]) — the third web_meta frame re-emits the " +
         "full record, and the completion snapshot carries all four actions. Only 8 rounds exist (maxToolRounds, 2026-11-07 " +
-        "re-tune): four tool rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered within the cap).",
+        "re-tune): four tool rounds + one answer round; the forced-final no-tools directive does NOT trigger (the model answered " +
+        "within the cap). Each tool round's web:activity pair reports honestly: rounds 1-3 close 'completed' with REAL counts; " +
+        "the refused round 4 closes 'failed' with done:0 total:0 — the harness refused BEFORE execution, so nothing ran.",
       comparison: "structural",
       rawBody: chatBody("what is the latest roadmap news for project nimbus", undefined),
       upstream: [
@@ -597,7 +603,14 @@ describe("golden: model-directed web tool loop", () => {
       ],
     });
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:tools", "web_meta", "web:tools", "web_meta", "web:tools", "web_meta", "web:tools", "web_meta", "web_meta"]);
+    expect(seq).toEqual([
+      "decision_done",
+      "web:tools", "web:activity", "web:activity", "web_meta",
+      "web:tools", "web:activity", "web:activity", "web_meta",
+      "web:tools", "web:activity", "web:activity", "web_meta",
+      "web:tools", "web:activity", "web:activity", "web_meta",
+      "web_meta",
+    ]);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(logical.done).toBe(true);
 
@@ -655,7 +668,8 @@ describe("golden: model-directed web tool loop", () => {
         "(empty ledger — WS18: frames report ACTIONS, not intent), zero engine legs (ENGINE_CALLS=0) and exactly ONE upstream " +
         "fetch (installUpstream throws on any extra fetch ⇒ the zero-search-traffic proof). CONTRACT DISCOVERY still pinned: " +
         "runVisionEntityPrepass is DEAD (zero call sites) — no vision completion ever precedes the chat forward. The user turn " +
-        "passes through to the upstream UNCHANGED (content array + data URL byte-identical). WS06 release grammar unchanged.",
+        "passes through to the upstream UNCHANGED (content array + data URL byte-identical). Live-forward grammar " +
+        "(2026-11-12): the toolless answer round's upstream delta frame rides through byte-forwarded.",
       comparison: "structural",
       rawBody: chatBody(content, undefined),
       notes:
@@ -672,11 +686,10 @@ describe("golden: model-directed web tool loop", () => {
     expect(run.headers["x-web-citations"]).toBeUndefined();
     expect(run.headers["x-search-gate"]).toBeUndefined();
 
-    // WS06 release grammar on a toolless turn:
-    expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{}}]');
-    expect(
-      run.text.indexOf('data: {"choices":[{"index":0,"delta":{"content":"search answer"},"finish_reason":null}]}'),
-    ).toBeLessThan(run.text.indexOf("data: [DONE]"));
+    // Live-forward grammar (2026-11-12) on a toolless turn — the upstream
+    // delta frame rides through byte-forwarded (no WS06 synthesis):
+    expect(run.text).toContain('"id":"w1","choices":[{"index":0,"delta":{"content":"search answer"}}]');
+    expect(run.text.indexOf('"content":"search answer"')).toBeLessThan(run.text.indexOf("data: [DONE]"));
 
     expect(upstreamCalls.length).toBe(1);
     const payload = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
