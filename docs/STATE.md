@@ -4613,3 +4613,14 @@ Run one journey per exclusive launcher invocation (`-Grep "MPR-1"` etc.).
   feedback when rounds spare (would re-pin the ONE-feedback law in web-tool-loop-feedback.test.ts) —
   decide on evidence, never rewrite semantics.
 - L1 after the unblock: FULL `npx vitest run` 1564 green; `npx tsc --noEmit` 0; cargo 166 (web-search filters).
+
+## 2026-11-12/13 — streaming+activity cycle: FINAL PLAYWRIGHT LOOP (partial close, time-capped)
+- Gates before loop: rust-golden 56/56 EXIT=0 (4 web-search progress fixtures re-recorded deterministically), full vitest 1720 passed/19 skipped EXIT_V=0, cargo (rust-backend manifest) EXIT=0, npm run build EXIT=0. Impl committed e24703f.
+- Launcher legs via scripts/run-browser-e2e-exclusive.ps1 (lock + fixture/supervisor lifecycle verified live each leg):
+  - greeting.spec.ts: 2 passed EXIT=0
+  - search-gate.spec.ts: 3 passed EXIT=0 (live-search trail popup on new event-driven ProcessingStatus)
+  - chat-stream+progress-panel: 8 passed EXIT=0 (live SSE reasoning+content deltas observed on wire; progress step labels honest)
+  - abort-family.spec.ts: 3 passed EXIT=0
+  - mhr-five-sentences MHR-1 (solo -Grep): 1 passed (5.0m) EXIT=0 — live answer text streamed with re-verify/revise narration visible in bubble
+- NOT RUN (user time-cap 2026-11-13 00:20ish): MHR-2..5 (MHR-2 attempt exited 4 with no captured Playwright output; app logs healthy during it — unclassified launcher/infra anomaly, lock+processes cleaned), reasoning-test, token-meter. Heavy model suites (browser-easy/medium/hard, universal, 10k, captions) intentionally skipped as in prior cycles.
+- Ops notes: solo-leg law — a real MHR journey costs ~5 min, so multi-test legs blow the 10-min foreground ceiling (two 143 kills, stale locks cleaned after verifying owner PID dead each time; detached supervisor pre-warm worked as planned, supervisor later found down on its own before the MHR-2 exit-4).
