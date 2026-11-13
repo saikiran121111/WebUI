@@ -395,17 +395,33 @@ export function planQueries(
 
 /* ── coverage & gap evaluator ───────────────────────────────────────── */
 
+/**
+ * §5d (2026-11-13 brief): claim support is a TRI-STATE, never a boolean
+ * dressed up as a lexical score. "unknown" means the deterministic law
+ * did NOT adjudicate — it must be read as neither supported nor
+ * unsupported ("unknown support must remain explicit").
+ */
+export type SupportStatus = "supported" | "unsupported" | "unknown";
+
 export interface CoverageReport {
-  /** Fraction of query entities with at least one BM25 hit in the
-   * top passage set. 1.0 = full coverage, 0.0 = no entity matched. */
+  /** LEXICAL-COVERAGE axis — fraction of query entities with at least one
+   *  BM25 hit in the top passage set. 1.0 = full coverage, 0.0 = no
+   *  entity matched. Vocabulary overlap ONLY: it asserts nothing about
+   *  claim support (§5d separation — question-word echo scoring high is
+   *  the audited failure). */
   coverage: number;
   /** Entities that had zero matches in the retrieved passages. */
   missingEntities: string[];
-  /** True when a 2nd-hop gap search is warranted. */
+  /** DISPATCH axis: true when a 2nd-hop gap search is warranted. */
   needsGapSearch: boolean;
   /** The specific query to fire for the 2nd hop (null when coverage is
    *  already good). */
   gapQuery: string | null;
+  /** CLAIM-SUPPORT axis (§5d), kept apart from lexical coverage: the
+   *  verdict of the answer-support law on the retrieved passages. */
+  answerSupport: SupportStatus;
+  /** LIST-COMPLETENESS axis input: is this an enumerable answer-unit ask? */
+  enumerativeAsk: boolean;
 }
 
 /**
@@ -547,6 +563,12 @@ export function evaluateCoverage(
 ): CoverageReport {
   const entities = extractEntities(userPrompt);
   const cls = sourceClass(userPrompt);
+  // §5d (2026-11-13 brief): the answer-support scan now runs for EVERY
+  // ask, not only enumerable ones — FINDING support is a fact about the
+  // evidence regardless of question shape (pure regex over the bounded
+  // top-passage set; no model, no unbounded buffer).
+  const enumerativeAsk = ENUMERATIVE_ASK_RE.test(userPrompt);
+  const supportFound = hasAnswerSupport(retrievedPassages, userPrompt);
   if (entities.length === 0) {
     // Actionability law (audit B): whenever recovery is warranted the
     // caller must get a dispatchable query — needsGapSearch and gapQuery
@@ -558,6 +580,10 @@ export function evaluateCoverage(
       missingEntities: [],
       needsGapSearch: sparse,
       gapQuery: sparse ? sourceOperator(cls) + userPrompt.trim() : null,
+      // Nothing was addressable to adjudicate against: the support axis
+      // can only be "supported" (law FOUND the signal) or "unknown".
+      answerSupport: supportFound ? "supported" : "unknown",
+      enumerativeAsk,
     };
   }
 
@@ -576,9 +602,24 @@ export function evaluateCoverage(
   // novel identifier-SHAPED token is not support either (audit item 9) —
   // support requires the token inside a predicate-bearing, un-hedged
   // sentence (identifier shape OR plain proper-name answer forms).
-  const answerGap =
-    ENUMERATIVE_ASK_RE.test(userPrompt) &&
-    !hasAnswerSupport(retrievedPassages, userPrompt);
+  const answerGap = enumerativeAsk && !supportFound;
+
+  // §5d (2026-11-13 brief): "unknown support must remain explicit". The
+  // law can CERTIFY support (a signal found) and, for an addressable
+  // enumerable ask, WITNESS its absence — but silence stays "unknown":
+  //   supported   — the answer-support law found the signal (any ask);
+  //   unsupported — enumerable ask whose entities the evidence DOES
+  //                 address (coverage > 0) yet the law found no support;
+  //   unknown     — NOT adjudicable: the evidence addresses none of the
+  //                 subject (coverage 0), or a non-enumerative ask with
+  //                 no signal — absence of the enumerative law's trigger
+  //                 is not absence of support, and absence of a signal
+  //                 on evidence about something else proves nothing.
+  const answerSupport: SupportStatus = supportFound
+    ? "supported"
+    : enumerativeAsk && coverage > 0
+      ? "unsupported"
+      : "unknown";
 
   const needsGapSearch =
     (coverage < 0.5 && missing.length > 0) ||
@@ -607,7 +648,14 @@ export function evaluateCoverage(
     gapQuery = sourceOperator(cls) + core;
   }
 
-  return { coverage, missingEntities: missing, needsGapSearch, gapQuery };
+  return {
+    coverage,
+    missingEntities: missing,
+    needsGapSearch,
+    gapQuery,
+    answerSupport,
+    enumerativeAsk,
+  };
 }
 
 /**

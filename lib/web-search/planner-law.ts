@@ -40,7 +40,7 @@
  * planner regexes, documented in the Rust header.
  */
 import type { EvidencePacket, EvidencePassage, RankedResult, SearchDecision } from "./types";
-import type { CoverageReport, PlannedQuery } from "./query-planner";
+import type { CoverageReport, PlannedQuery, SupportStatus } from "./query-planner";
 import { sourceClass } from "./query-planner";
 import {
   isEnforceableScope,
@@ -641,11 +641,34 @@ export function applyScopeToPackets<T extends EvidencePacket>(packets: T[], law:
 
 /* ── sufficiency (§11.14) ────────────────────────────────────────────── */
 
+/**
+ * §5d LIST-COMPLETENESS axis: how completely an enumerable ask is
+ * addressed, as far as the deterministic answer-support law can certify.
+ * "addressed" means the law FOUND an un-hedged, predicate-bearing answer
+ * — it never claims a globally exhaustive list. "unknown" stays explicit.
+ */
+export type ListCompleteness =
+  | "addressed"
+  | "not_addressed"
+  | "unknown"
+  | "not_enumerative";
+
 export interface SufficiencyReport {
   /** Task-fit source sufficiency (WS19): named-primary task → settled
    *  by the named authority itself; open task → ≥2 usable domains. */
   enoughSources: boolean;
+  /** LEXICAL+GAP GATE (§5d anatomy note): the legacy expression
+   *  (coverage ≥ 0.6 && !needsGapSearch) is PRESERVED for gate/wire
+   *  continuity — but it is a GATE, not a claim-support assertion. The
+   *  honest support statement is claimSupport below. */
   keyClaimsSupported: boolean;
+  /** CLAIM-SUPPORT axis (§5d, 2026-11-13 brief), separated from lexical
+   *  coverage: the answer-support law's tri-state verdict. "unknown" is
+   *  never promoted to supported nor flattened to unsupported. */
+  claimSupport: SupportStatus;
+  /** LIST-COMPLETENESS axis (§5d), separate from claim support: the
+   *  list-completeness reading of the enumerative-ask + support axes. */
+  listCompleteness: ListCompleteness;
   /** Banded asks must be EVIDENCED by a dated in-band passage — an
    *  undated page proves retrieval, not publication (WS19). */
   freshnessOk: boolean;
@@ -928,7 +951,20 @@ export function evaluateSufficiency(
   // While the coverage evaluator still sees an open answer unit
   // (needsGapSearch), key claims must not be declared supported — three
   // domains repeating the question vocabulary is the audited failure.
+  // §5d (2026-11-13 brief) ANATOMY: this expression stays EXACTLY as-is —
+  // it is a GATE over (lexical score, dispatch state) and every gate
+  // built on it keeps its behavior. What no longer holds is treating it
+  // as the claim-support ANSWER: the axes below report the anatomy
+  // separately, and unknown support stays explicit.
   const keyClaimsSupported = coverage.coverage >= 0.6 && !coverage.needsGapSearch;
+  const claimSupport: SupportStatus = coverage.answerSupport;
+  const listCompleteness: ListCompleteness = !coverage.enumerativeAsk
+    ? "not_enumerative"
+    : coverage.answerSupport === "supported"
+      ? "addressed"
+      : coverage.answerSupport === "unsupported"
+        ? "not_addressed"
+        : "unknown";
 
   // Primary evidence = what the USER (or the armed task scope) named.
   // preferredDomains is an inference and by design an ordering boost
@@ -991,6 +1027,8 @@ export function evaluateSufficiency(
   return {
     enoughSources,
     keyClaimsSupported,
+    claimSupport,
+    listCompleteness,
     freshnessOk,
     primaryPresent,
     independentDomains,

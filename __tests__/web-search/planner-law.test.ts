@@ -411,6 +411,9 @@ describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror r
       missingEntities: [],
       needsGapSearch: false,
       gapQuery: null,
+      // §5d axes: hand-made fake, never ran the answer-support law.
+      answerSupport: "unknown",
+      enumerativeAsk: false,
     };
     const report = evaluateSufficiency(packets, passages, coverage, std, law);
     expect(report.sourceDomains).toEqual(["a.com", "b.com"]); // z.com excluded
@@ -439,6 +442,8 @@ describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror r
     missingEntities: [],
     needsGapSearch,
     gapQuery: null,
+    answerSupport: "unknown",
+    enumerativeAsk: false,
   });
 
   it("sufficiency_named_primary_answers_its_own_catalog_without_more_domains", () => {
@@ -754,10 +759,16 @@ describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror r
       missingEntities: [],
       needsGapSearch: false,
       gapQuery: null,
+      // §5d axes: hand-made fakes state them honestly — these fixtures
+      // never ran the answer-support law, so support is unknown.
+      answerSupport: "unknown",
+      enumerativeAsk: false,
     };
     const suff: SufficiencyReport = {
       enoughSources: false,
       keyClaimsSupported: true,
+      claimSupport: "unknown",
+      listCompleteness: "not_enumerative",
       freshnessOk: true,
       primaryPresent: true,
       independentDomains: true,
@@ -801,10 +812,16 @@ describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror r
       missingEntities: [],
       needsGapSearch: false,
       gapQuery: null,
+      // §5d axes: hand-made fakes state them honestly — these fixtures
+      // never ran the answer-support law, so support is unknown.
+      answerSupport: "unknown",
+      enumerativeAsk: false,
     };
     const suff: SufficiencyReport = {
       enoughSources: false,
       keyClaimsSupported: true,
+      claimSupport: "unknown",
+      listCompleteness: "not_enumerative",
       freshnessOk: true,
       primaryPresent: true,
       independentDomains: true,
@@ -825,6 +842,8 @@ describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror r
     const good: SufficiencyReport = {
       enoughSources: true,
       keyClaimsSupported: true,
+      claimSupport: "unknown",
+      listCompleteness: "not_enumerative",
       freshnessOk: true,
       primaryPresent: true,
       independentDomains: true,
