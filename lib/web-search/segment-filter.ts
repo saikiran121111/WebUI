@@ -150,15 +150,29 @@ export function filterPassageSegments(markdown: string, queryText: string): stri
 
 /**
  * Apply the filter to every passage of a freshly extracted batch — the
- * pipeline hop that keeps Rust and TS byte-parity at the rerank input.
+ * pipeline hop that keeps the rerank input noise-controlled.
  * Prompt-URL/transcript and SERP-baseline packets never go through here.
+ *
+ * §5c (2026-11-13 brief): narrowing the working view must never be
+ * irreversible destruction — important facts may use synonyms or
+ * explanations with no direct query-term overlap. Whenever a pass mutates
+ * a passage, the complete pre-filter bytes are kept on
+ * `originalPassageText` (addressable with the passage url), first-writer-
+ * wins across the main-wave and gap-hop passes, and unchanged passages
+ * carry no copy at all. Bounded ranking/context windows stay honest.
  */
 export function applySegmentFilter(packets: EvidencePacket[], queryText: string): void {
   const q = queryText.trim();
   if (packets.length === 0 || q === "") return;
   for (const packet of packets) {
     for (const passage of packet.passages ?? []) {
-      passage.passageText = filterPassageSegments(passage.passageText, q);
+      const filtered = filterPassageSegments(passage.passageText, q);
+      if (filtered !== passage.passageText) {
+        if (passage.originalPassageText === undefined) {
+          passage.originalPassageText = passage.passageText;
+        }
+        passage.passageText = filtered;
+      }
     }
   }
 }

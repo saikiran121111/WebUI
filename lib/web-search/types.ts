@@ -152,6 +152,16 @@ export interface EvidencePassage {
   domain: string;
   publishedAt?: string;
   passageText: string;
+  /**
+   * §5c (2026-11-13 brief) irreversibility law: when fetch-side segment
+   * filtering narrows `passageText`, the COMPLETE pre-filter passage bytes
+   * are preserved here — source text stays addressable (with the passage's
+   * own url), so "the page was inspected" remains honest even for facts
+   * phrased in synonyms the lexical filter could not see. Absent whenever
+   * filtering did not mutate the passage (no-copy-on-unchanged law); the
+   * FIRST original wins across repeated filter passes.
+   */
+  originalPassageText?: string;
   bm25Score: number;
 }
 
