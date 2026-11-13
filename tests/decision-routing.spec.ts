@@ -28,6 +28,7 @@ interface DecisionEnvelopeLike {
   active_mode?: string;
   skill_to_load?: string | null;
   decided_by?: string;
+  confidence?: number;
 }
 
 async function postDecision(page: Page, message: string): Promise<DecisionEnvelopeLike> {
@@ -91,18 +92,34 @@ test("anatomy retirement: /api/decision routes no anatomy vocabulary to a render
 
   // The remaining deliverable modes still route: the retirement must not
   // have hollowed out the intents the old vocabulary used to compete with.
-  // The last two rows are former anatomy vectors now carried instead by
-  // another deliverable word.
+  // §4a (2026-11-13) flipped the last four rows below: an artifact WORD is
+  // not an artifact REQUEST, so a bare deliverable word with no production
+  // cue before it is now a graceful miss (golden fixture 06 re-recorded with
+  // confidence 0.5; Rust fixture_replay binds the same expectation). The
+  // cue-bound variants stay positive — that is what "still routes" means
+  // post-§4a.
   const POSITIVES: [string, string][] = [
-    ["make me a spreadsheet of the results", "excel"],
-    ["print this pdf", "pdf"],
-    ["chart of this building's architecture", "chart"],
-    ["exploded diagram in html", "html_render"],
-    ["exploded isometric chart", "chart"],
+    ["make me a spreadsheet of the results", "excel"], // production cue + word
+    ["create a pdf", "pdf"],
+    ["make a chart of the revenue", "chart"],
+    ["make an exploded diagram in html", "html_render"],
   ];
   for (const [prompt, expected] of POSITIVES) {
     const env = await postDecision(page, prompt);
     expect(env.active_mode, prompt).toBe(expected);
+  }
+  // Former positives under the retired word-carries-routing semantics —
+  // now honest misses (documented §6 legacy-defect flips, not drift):
+  const WORD_NOT_REQUEST: [string, string][] = [
+    ["print this pdf", "standard_chat"],
+    ["chart of this building's architecture", "standard_chat"],
+    ["exploded diagram in html", "standard_chat"],
+    ["exploded isometric chart", "standard_chat"],
+  ];
+  for (const [prompt, expected] of WORD_NOT_REQUEST) {
+    const env = await postDecision(page, prompt);
+    expect(env.active_mode, prompt).toBe(expected);
+    expect(env.confidence ?? 1, prompt + " (honest uncertain confidence)").toBe(0.5);
   }
 });
 
@@ -117,6 +134,10 @@ test("anatomy retirement: a real chat turn carries the post-retirement mode", as
   // The old deliverable-style ask on the same real chat path: standard_chat
   // now, never the retired renderer.
   expect(await chatTurnMode(page, "anatomy of a jet turbine")).toBe("standard_chat");
-  // A surviving deliverable on the same path still routes to its mode.
-  expect(await chatTurnMode(page, "print this pdf")).toBe("pdf");
+  // §4a flip (2026-11-13): "print this pdf" names a word, it does not
+  // request one — standard_chat on the real path too, matching the fixture.
+  expect(await chatTurnMode(page, "print this pdf")).toBe("standard_chat");
+  // A cue-bound deliverable request still routes to its mode on the real
+  // header-committed path — that is the surviving deliverable, post-§4a.
+  expect(await chatTurnMode(page, "create a pdf")).toBe("pdf");
 });
