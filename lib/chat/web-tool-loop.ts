@@ -16,7 +16,10 @@
  *   `WEB_TOOL_GUIDANCE` system block, injected in the same slot the skill
  *   block uses (before the last user turn — ⇔ Rust
  *   `inject_system_before(messages, last_user_idx, WEB_TOOL_GUIDANCE)`);
- * - upstream SSE is think-scrubbed and forwarded verbatim EXCEPT the round's
+ * - upstream SSE is forwarded RAW (2026-11-13 brief §2: no per-chunk
+ *   decode/scrub; the relay's field splitter routes `<think>` text to a
+ *   reasoning copy for the audit, the client's own splitter does it for
+ *   display) EXCEPT the round's
  *   `data: [DONE]` is swallowed when that round ended in
  *   `finish_reason: "tool_calls"` — each round is a fresh upstream request
  *   and only the FINAL round's `[DONE]` may reach the client (the frozen
@@ -43,6 +46,7 @@ import { childLogger } from "../server/logger";
 import { injectSystemBefore } from "../skills/lazy";
 import { beginUserTurn, endUserTurn } from "../server/inference-busy";
 import { llmApiUrl, llmApiKey } from "../server/settings";
+import { createThinkSplitter } from "../stream/thinkTags";
 import {
   makeWebToolSession,
   seedSessionSourceAliases,
@@ -105,26 +109,10 @@ export const WEB_TOOL_GUIDANCE =
 export const WEB_TOOL_FINAL_DIRECTIVE =
   "TOOL BUDGET EXHAUSTED — no further tool calls are available. Answer the human's request now from the evidence already gathered. State plainly which facts remain unverified, and never invent them.";
 
-/* ── per-chunk helpers (copies of route.ts's — the route module cannot be
-   imported from lib, and the semantics must match the passthrough path
-   byte-for-byte; ⇔ Rust `scrubber::ThinkScrubber` + `error::upstream_headers`) */
-
-const OPEN = "<think>";
-const CLOSE = "</think>";
-
-function scrubThinkTags(text: string): string {
-  const parts: string[] = [];
-  let i = 0;
-  while (i < text.length) {
-    const open = text.indexOf(OPEN, i);
-    if (open === -1) { parts.push(text.slice(i)); break; }
-    parts.push(text.slice(i, open));
-    const close = text.indexOf(CLOSE, open + OPEN.length);
-    if (close === -1) break; // unterminated — drop from open onwards
-    i = close + CLOSE.length;
-  }
-  return parts.join("");
-}
+/* ── upstream request headers (⇔ Rust `error::upstream_headers`). The old
+   per-chunk `scrubThinkTags` copy of route.ts is GONE (2026-11-13 brief §2):
+   it rewrote bytes it never parsed. Transport is raw; the relay below routes
+   `<think>` text inside parsed delta.content for the audit copy. */
 
 function upstreamHeaders(): Record<string, string> {
   return {
@@ -163,14 +151,24 @@ interface CallAcc {
 
 /**
  * Assembles one round's upstream SSE stream: forwards complete frames
- * verbatim, accumulates assistant text + tool-call fragments, and decides
- * which `data: [DONE]` frames reach the client. Direct mirror of the Rust
- * relay in `browser_loop.rs` (frame split at the first `\n\n`, swallow rule
- * `!(sawDone && finish === "tool_calls")`, fragments merged by index).
+ * verbatim, accumulates the think-routed assistant text + tool-call
+ * fragments, and decides which `data: [DONE]` frames reach the client.
+ * Direct mirror of the Rust relay in `browser_loop.rs` (frame split at the
+ * first `\n\n`, swallow rule `!(sawDone && finish === "tool_calls")`,
+ * fragments merged by index, `<think>` field splitter for the audit copy).
  */
 class ToolStreamRelay {
   private buf: Uint8Array = new Uint8Array(0);
   content = "";
+  /** Think text routed out of `<think>` blocks inside `delta.content`
+   *  (never deleted, never part of the answer — ⇔ Rust `reasoning`). */
+  reasoning = "";
+  /** Per-round field splitter ⇔ the client's connection-scoped splitter
+   *  (lib/stream/parser.ts). Edge note: a partial tag parked at a ROUND
+   *  boundary is released as literal text by this flush, while the
+   *  client's splitter still holds it across rounds — documented,
+   *  pathological-only divergence. */
+  private think = createThinkSplitter();
   calls = new Map<number, CallAcc>();
   finish: string | null = null;
 
@@ -220,7 +218,14 @@ class ToolStreamRelay {
     if (typeof choice.finish_reason === "string") this.finish = choice.finish_reason;
     const delta = choice.delta;
     if (!delta || typeof delta !== "object") return;
-    if (typeof delta.content === "string") this.content += delta.content;
+    if (typeof delta.content === "string") {
+      // Route `<think>` text BEFORE it enters either audit copy (⇔ Rust
+      // `ToolStreamRelay::absorb_delta`): the answer copy stays clean and
+      // matches what the client's splitter displays; the text is kept.
+      const split = this.think(delta.content);
+      this.content += split.content;
+      this.reasoning += split.reasoning;
+    }
     if (Array.isArray(delta.tool_calls)) {
       for (const frag of delta.tool_calls) {
         const index = typeof frag?.index === "number" ? frag.index : 0;
@@ -241,6 +246,12 @@ class ToolStreamRelay {
   /** Flush the unterminated remainder of the stream (servers close right
    * after the final `[DONE]` with no trailing blank line). */
   finishFrame(tail: Uint8Array): Uint8Array | null {
+    // Release anything the think splitter holds back (partial tag at
+    // stream end is literal text of the CURRENT channel; ⇔ Rust
+    // `finish()` flushing `think`).
+    const flushed = this.think.flush();
+    this.content += flushed.content;
+    this.reasoning += flushed.reasoning;
     if (tail.length > 0) {
       const merged = new Uint8Array(this.buf.length + tail.length);
       merged.set(this.buf, 0);
@@ -449,9 +460,9 @@ async function streamRound(
       const { value, done } = await reader.read();
       if (done) break;
       if (!value) continue;
-      // Same per-chunk think-tag scrubber as forwardStreamInto.
-      const bytes = new TextEncoder().encode(scrubThinkTags(new TextDecoder().decode(value)));
-      for (const piece of relay.feed(bytes)) {
+      // RAW passthrough (2026-11-13 brief §2, same law as
+      // forwardStreamInto): bytes go to the relay untouched.
+      for (const piece of relay.feed(value)) {
         const f = holdRoundFrame(piece, held);
         if (f) ch.raw(f);
       }

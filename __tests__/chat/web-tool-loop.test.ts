@@ -11,7 +11,8 @@
  *   - citation seeds merge into the [S#] map and re-emit a web_meta frame
  *     (the hooks/useChat OVERWRITE law);
  *   - begin/endUserTurn fires exactly once for the WHOLE loop (Rule 5);
- *   - think-tag scrubbing matches the passthrough path byte-for-byte.
+ *   - the wire is RAW: `<think>` bytes forwarded verbatim; the client's own
+ *     splitter does the field routing (2026-11-13 brief §2).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -227,11 +228,18 @@ describe("plain-answer round", () => {
     expect(sent.tools.map((t: any) => t.function.name)).toEqual(["web_search", "read_page"]);
   });
 
-  it("think tags are scrubbed on the wire, same as the passthrough path", async () => {
+  // 2026-11-13 brief §2 (retired the wire scrubber in BOTH engines): the wire
+  // is RAW — `<think>` bytes ride through verbatim and the CLIENT's own
+  // splitter (lib/stream/parser.ts via createThinkSplitter) routes them to
+  // the reasoning channel. Nothing is deleted server-side, so no answer text
+  // can ever be silently erased. (The relay's split audit copy — content
+  // clean, reasoning kept — is pinned in browser_loop's Rust unit tests.)
+  it("wire stays RAW: <think> bytes arrive verbatim, single DONE preserved", async () => {
     const h = makeHarness();
-    await drive(h, [sseResponse(contentDelta("vis<think>hidden reasoning</think>ible") + finishFrame("stop") + DONE)]);
-    expect(h.rawText).toContain("visible");
-    expect(h.rawText).not.toContain("hidden");
+    const upstream = contentDelta("vis<think>hidden reasoning</think>ible") + finishFrame("stop") + DONE;
+    await drive(h, [sseResponse(upstream)]);
+    expect(h.rawText).toContain("vis<think>hidden reasoning</think>ible");
+    expect((h.rawText.match(/\[DONE\]/g) ?? []).length).toBe(1);
   });
 
   it("upstream HTTP failure uses the verbatim ruke_error contract, not close", async () => {

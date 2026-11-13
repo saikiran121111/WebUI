@@ -1,21 +1,31 @@
 /**
  * Golden corpus — SSE transport vectors (MIGRATION-MAP §6 items: frames split
  * across arbitrary chunks, UTF-8 code points split across chunks, <think>
- * tags split at EVERY byte position incl. unterminated).
+ * handling split at EVERY position incl. unterminated).
  *
  * Recorded through the LEGACY (stream:false) path so the response body is the
- * scrubbed upstream bytes with ZERO stage-frame noise.
+ * upstream bytes with ZERO stage-frame noise.
  *
- * Transport chunk boundaries are NOT the contract for normal traffic — the
- * logical frames are (fixture 01 proves byte-identity). BUT the current TS
- * <think> scrubber DOES depend on chunk boundaries (it decodes+scrubs each
- * chunk independently — a known bug). The matrices in 02/03 pin the buggy TS
- * output per split position AND give the expected-Rust atomic-model output:
- * the Rust incremental state machine is the APPROVED DEVIATION (MIGRATION-MAP
- * "think bug" row, Rule 4). Production TS is NOT touched.
+ * 2026-11-13 brief §2 law (SUPERSEDES the old "approved-deviation" framing —
+ * fixture shape changed, see docs/STATE.md 2026-11-13):
+ * - The transport NEVER decodes or rewrites bytes. Response bytes are
+ *   byte-identical to the upstream stream at EVERY chunk boundary, including
+ *   splits inside multi-byte code points (fixture 03 pins this; the pre-fix
+ *   per-chunk TextDecoder emitted U+FFFD at mid-code-point splits — FIXED,
+ *   `mangledSplitBytes` must be empty).
+ * - `<think>` routing is a FIELD-level law: the stateful splitter (TS
+ *   `lib/stream/thinkTags.ts` ⇔ Rust `chat/scrubber.rs ThinkFieldSplitter`)
+ *   scans already-parsed `delta.content` pieces and never depends on where
+ *   network boundaries fell. Fixture 02 records cross-engine chunk vectors
+ *   (pieces + expected {content, reasoning}) that
+ *   `crates/ruke-server/tests/scrubber_vectors.rs` replays in Rust; think
+ *   text routes to the reasoning channel and an unterminated tail SURVIVES
+ *   (the retired scrubber deleted it — that behavior is gone for both
+ *   engines).
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
+import { createThinkSplitter } from "@/lib/stream/thinkTags";
 import {
   MOCK_LLM_KEY,
   MOCK_LLM_URL,
@@ -25,7 +35,6 @@ import {
   parseLogical,
   runChat,
   setGoldenEnv,
-  thinkScrubAtomicModel,
   writeJsonFixture,
 } from "./support/golden";
 
@@ -108,67 +117,93 @@ describe("golden: sse transport vectors", () => {
     expect(new Set(perCase).size).toBe(1);
   });
 
-  it("02 <think> tag split at EVERY byte position (approved-deviation matrix)", async () => {
-    // Raw upstream byte stream: one frame whose content carries color markup +
-    // one complete <think> block + one UNTERMINATED <think> at the very end.
-    const F = 'data: {"id":"t1","choices":[{"index":0,"delta":{"content":"<font color=\'red\'>A</font><think>secret1</think>B<think>oops"}}]}\n\n';
-    const S = F + DONE_FRAME;
-    const expectedRust = thinkScrubAtomicModel(S);
+  it("02 <think> field-split matrix (cross-engine chunk vectors)", async () => {
+    // The splitter consumes PARSED delta.content pieces — network chunk
+    // boundaries never reach it (fixture 03 pins the raw transport instead).
+    // Matrix: every 2-piece re-framing of each text must route IDENTICALLY to
+    // the atomic single-piece run (chunking invariance), across scripts and
+    // an UNTERMINATED trailing <think> (the class the retired scrubber
+    // silently DELETED — now it survives as reasoning).
+    // BMP-only texts: a char-index split must never cut a UTF-16 surrogate
+    // pair (a lone half is not expressible in JSON — serde_json rejects it).
+    // Non-BMP transport coverage lives in fixture 03's BYTE matrix instead.
+    const TEXTS = [
+      "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "héllo తెలుగు <think>నిరీక్ష</think>end",
+    ];
+
+    function feedPieces(pieces: string[]): { content: string; reasoning: string } {
+      const s = createThinkSplitter();
+      let content = "", reasoning = "";
+      for (const p of pieces) {
+        const o = s(p);
+        content += o.content;
+        reasoning += o.reasoning;
+      }
+      const f = s.flush();
+      return { content: content + f.content, reasoning: reasoning + f.reasoning };
+    }
 
     const cases: Record<string, unknown>[] = [];
-    for (let i = 1; i < S.length; i++) {
-      const run = await runLegacy([S.slice(0, i), S.slice(i)]);
-      const out = run.text;
-      cases.push({
-        splitAtByte: i,
-        tsOutput: out,
-        expectedRust,
-        tsMatchesExpectedRust: out === expectedRust,
-      });
+    const mismatchSplitChars: number[] = [];
+    for (const text of TEXTS) {
+      const atomic = feedPieces([text]);
+      for (let i = 0; i <= text.length; i++) {
+        const pieces = [text.slice(0, i), text.slice(i)];
+        const got = feedPieces(pieces);
+        const match = got.content === atomic.content && got.reasoning === atomic.reasoning;
+        if (!match) mismatchSplitChars.push(i);
+        cases.push({ text, splitAtChar: i, pieces, expected: atomic, replayMatchesAtomic: match });
+      }
     }
-    const mismatchBytes = cases.filter((c) => !c.tsMatchesExpectedRust).map((c) => c.splitAtByte as number);
+    // Multi-piece framings that cut the delimiters themselves across pieces.
+    const multi = ["<thi", "nk>SECRET", "</th", "ink>FINAL"];
+    const multiExpected = feedPieces([multi.join("")]);
+    const multiGot = feedPieces(multi);
+    cases.push({
+      text: multi.join(""), splitAtChar: -1, pieces: multi, expected: multiExpected,
+      replayMatchesAtomic: multiGot.content === multiExpected.content && multiGot.reasoning === multiExpected.reasoning,
+    });
 
     writeJsonFixture("sse/02-think-split-matrix.json", {
-      upstreamStream: S,
-      atomicExpectedRust: expectedRust,
+      texts: TEXTS,
       splitCount: cases.length,
-      mismatchSplitBytes: mismatchBytes,
+      mismatchSplitChars,
       cases,
     }, {
-      scenario: "<think>/</think> split at every byte position (incl. unterminated block)",
+      scenario: "<think>/</think> routing under EVERY re-framing of the content-field pieces (incl. unterminated block, non-Latin scripts)",
       semantics:
-        "tsOutput = the CURRENT TS scrubber's byte-for-byte output when the upstream stream is cut at " +
-        "byte splitAtByte (two chunks): the scrubber decodes+scrubs EACH CHUNK INDEPENDENTLY, so a tag " +
-        "straddling the boundary is not recognized (its halves leak through) and an unterminated block " +
-        "only drops the remainder OF ITS OWN CHUNK. expectedRust = single-pass scrub of the whole stream " +
-        "(atomic model): a split tag is still removed; an unterminated block drops everything from the " +
-        "open tag onward. Rust must reproduce expectedRust for ALL splits.",
-      comparison: "approved-deviation",
+        "pieces = the delta.content slices a single text arrives as (splitAtChar = boundary; -1 = the " +
+        "hand-written multi-piece delimiter framing). expected = atomic single-piece routing. Routing is " +
+        "CONTENT-scoped, so every re-framing must equal the atomic result: mismatchSplitChars must be " +
+        "EMPTY (chunking-invariance law). Think text lands in `reasoning`; an unterminated tail SURVIVES " +
+        "there (the pre-2026-11-13 scrubber deleted it — retired).",
+      comparison: "semantic",
       harness: HARNESS,
       env: ENV_PRE,
       normalization: "none",
       notes:
-        "This is the ONE place where chunk boundaries ARE behavior: it documents the known TS scrubber " +
-        "bug (MIGRATION-MAP 'think bug' row) and defines the Rust state-machine target (approved fix, " +
-        "Rule 4). The client-side lib/stream/thinkTags.ts is a separate TS-side filter and stays TS.",
+        "Shape changed 2026-11-13 (brief §2): the old byte-level upstreamStream/expectedRust scrub " +
+        "matrices are gone with ThinkScrubber. Rust replays each case through ThinkFieldSplitter " +
+        "(crates/ruke-server/tests/scrubber_vectors.rs). Texts are BMP-only: char-index slices must " +
+        "never split a surrogate pair (a lone half cannot be serialized in JSON); non-BMP coverage is " +
+        "pinned at BYTE level in fixture 03.",
     });
 
-    // Contract sanity: every split strictly INSIDE a tag occurrence must mismatch
-    // (the tag is broken, so neither half is recognized).
-    const tagSpans: [number, number][] = [];
-    for (const tag of ["<think>", "</think>"]) {
-      let at = S.indexOf(tag);
-      while (at !== -1) { tagSpans.push([at, at + tag.length]); at = S.indexOf(tag, at + tag.length); }
-    }
-    const insideTag = (i: number) => tagSpans.some(([s, e]) => i > s && i < e);
-    for (const c of cases) {
-      if (insideTag(c.splitAtByte as number)) expect(c.tsMatchesExpectedRust).toBe(false);
-    }
-    expect(mismatchBytes.length).toBeGreaterThan(0);
+    expect(mismatchSplitChars).toEqual([]);
+    const a0 = feedPieces([TEXTS[0]]);
+    expect(a0.content).toBe("<font color='red'>A</font>B");
+    expect(a0.reasoning).toBe("secret1oops"); // unterminated tail SURVIVES (old bug: deleted)
+    expect(multiExpected.content).toBe("FINAL");
+    expect(multiExpected.reasoning).toBe("SECRET");
   });
 
-  it("03 UTF-8 code points split across chunks", async () => {
-    const F = 'data: {"id":"u1","choices":[{"index":0,"delta":{"content":"héllo 🎉"}}]}\n\n';
+  it("03 UTF-8 code points split across chunks (raw transport, byte identity)", async () => {
+    // 2026-11-13 brief §2: the transport never decodes, so a split inside a
+    // multi-byte sequence must change NOTHING. The pre-fix per-chunk
+    // TextDecoder emitted U+FFFD at these splits — this matrix now pins the
+    // FIXED behavior: mangledSplitBytes must be EMPTY.
+    const F = 'data: {"id":"u1","choices":[{"index":0,"delta":{"content":"héllo 🎉 తెలుగు"}}]}\n\n';
     const U = F + DONE_FRAME;
     const enc = new TextEncoder();
     const bytes = enc.encode(U);
@@ -176,42 +211,42 @@ describe("golden: sse transport vectors", () => {
     const cases: Record<string, unknown>[] = [];
     for (let i = 1; i < bytes.length; i++) {
       const run = await runLegacy([bytes.slice(0, i), bytes.slice(i)]);
-      const rec = bytesRecord(run.bytes);
       cases.push({
         splitAtByte: i,
         cutsMidCodePoint: (bytes[i] & 0xc0) === 0x80,
-        tsOutput: rec,
-        expectedRustUtf8: U, // proper streaming decode => byte-identical passthrough
-        tsIsByteIdentical: Buffer.compare(Buffer.from(run.bytes), Buffer.from(U, "utf8")) === 0,
+        responseBytes: bytesRecord(run.bytes),
+        byteIdenticalToUpstream: Buffer.compare(Buffer.from(run.bytes), Buffer.from(U, "utf8")) === 0,
       });
     }
-    const mangledBytes = cases.filter((c) => !c.tsIsByteIdentical).map((c) => c.splitAtByte as number);
-    const midCodePoint = (i: number) => (bytes[i] & 0xc0) === 0x80;
+    const mangledBytes = cases.filter((c) => !c.byteIdenticalToUpstream).map((c) => c.splitAtByte as number);
+    const midCount = cases.filter((c) => c.cutsMidCodePoint).length;
 
     writeJsonFixture("sse/03-utf8-split-matrix.json", {
       upstreamStreamUtf8: U,
       upstreamBytesBase64: Buffer.from(bytes).toString("base64"),
       splitCount: cases.length,
+      midCodePointSplits: midCount,
       mangledSplitBytes: mangledBytes,
       cases,
     }, {
-      scenario: "UTF-8 multi-byte sequences split across upstream chunks",
+      scenario: "UTF-8 multi-byte sequences split across upstream chunks — RAW transport",
       semantics:
-        "CURRENT TS: each chunk is decoded with a FRESH TextDecoder, so a split inside a multi-byte " +
-        "sequence emits U+FFFD and the response bytes are MANGLED (base64 kept per case). expectedRust: " +
-        "one streaming decoder => the response bytes must be byte-identical to the upstream for EVERY " +
-        "split. mangledSplitBytes lists exactly the mid-code-point positions.",
-      comparison: "approved-deviation",
+        "The route forwards RAW bytes (no decode, no rewrite — 2026-11-13 brief §2), so for EVERY split, " +
+        "including cuts strictly inside a multi-byte code point, the response bytes are byte-identical to " +
+        "the upstream. mangledSplitBytes must be EMPTY; the pre-fix per-chunk TextDecoder produced " +
+        "U+FFFD at exactly the cutsMidCodePoint positions.",
+      comparison: "byte-exact",
       harness: HARNESS,
       env: ENV_PRE,
       normalization: "none",
       notes:
-        "Rust target: the proxy decode loop must use a single incremental TextDecoder (or byte-level " +
-        "forwarding) — never a fresh decoder per chunk. This is the fixture proving the fix is required.",
+        "Shape changed 2026-11-13: the old matrix recorded the bug per split (tsOutput vs expectedRustUtf8); " +
+        "the fix landed in BOTH engines (route.ts raw pipe ⇔ Rust forward pumps), so the matrix now pins " +
+        "identity. Rust parity: the same split replay lives in browser_loop.rs relay unit tests.",
     });
 
-    for (const c of cases) {
-      expect(c.tsIsByteIdentical).toBe(!midCodePoint(c.splitAtByte as number));
-    }
+    expect(mangledBytes).toEqual([]);
+    expect(midCount).toBeGreaterThan(0);
+    for (const c of cases) expect(c.byteIdenticalToUpstream).toBe(true);
   });
 });

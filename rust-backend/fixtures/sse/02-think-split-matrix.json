@@ -1,907 +1,1337 @@
 {
   "_meta": {
-    "scenario": "<think>/</think> split at every byte position (incl. unterminated block)",
-    "semantics": "tsOutput = the CURRENT TS scrubber's byte-for-byte output when the upstream stream is cut at byte splitAtByte (two chunks): the scrubber decodes+scrubs EACH CHUNK INDEPENDENTLY, so a tag straddling the boundary is not recognized (its halves leak through) and an unterminated block only drops the remainder OF ITS OWN CHUNK. expectedRust = single-pass scrub of the whole stream (atomic model): a split tag is still removed; an unterminated block drops everything from the open tag onward. Rust must reproduce expectedRust for ALL splits.",
-    "comparison": "approved-deviation",
+    "scenario": "<think>/</think> routing under EVERY re-framing of the content-field pieces (incl. unterminated block, non-Latin scripts)",
+    "semantics": "pieces = the delta.content slices a single text arrives as (splitAtChar = boundary; -1 = the hand-written multi-piece delimiter framing). expected = atomic single-piece routing. Routing is CONTENT-scoped, so every re-framing must equal the atomic result: mismatchSplitChars must be EMPTY (chunking-invariance law). Think text lands in `reasoning`; an unterminated tail SURVIVES there (the pre-2026-11-13 scrubber deleted it — retired).",
+    "comparison": "semantic",
     "harness": "__tests__/rust-golden/sse-vectors.test.ts",
     "env": {
       "WEB_SEARCH_GATE_DISABLED": "1",
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
     },
     "normalization": "none",
-    "notes": "This is the ONE place where chunk boundaries ARE behavior: it documents the known TS scrubber bug (MIGRATION-MAP 'think bug' row) and defines the Rust state-machine target (approved fix, Rule 4). The client-side lib/stream/thinkTags.ts is a separate TS-side filter and stays TS."
+    "notes": "Shape changed 2026-11-13 (brief §2): the old byte-level upstreamStream/expectedRust scrub matrices are gone with ThinkScrubber. Rust replays each case through ThinkFieldSplitter (crates/ruke-server/tests/scrubber_vectors.rs). Texts are BMP-only: char-index slices must never split a surrogate pair (a lone half cannot be serialized in JSON); non-BMP coverage is pinned at BYTE level in fixture 03."
   },
-  "upstreamStream": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-  "atomicExpectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-  "splitCount": 139,
-  "mismatchSplitBytes": [
-    86,
-    87,
-    88,
-    89,
-    90,
-    91,
-    92,
-    93,
-    94,
-    95,
-    96,
-    97,
-    98,
-    99,
-    100,
-    101,
-    102,
-    103,
-    104,
-    105,
-    106,
-    109,
-    110,
-    111,
-    112,
-    113,
-    114,
-    115,
-    116,
-    117,
-    118,
-    119,
-    120,
-    121,
-    122,
-    123,
-    124,
-    125,
-    126,
-    127,
-    128,
-    129,
-    130,
-    131,
-    132,
-    133,
-    134,
-    135,
-    136,
-    137,
-    138,
-    139
+  "texts": [
+    "<font color='red'>A</font><think>secret1</think>B<think>oops",
+    "héllo తెలుగు <think>నిరీక్ష</think>end"
   ],
+  "splitCount": 101,
+  "mismatchSplitChars": [],
   "cases": [
     {
-      "splitAtByte": 1,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 2,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 3,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 4,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 5,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 6,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 7,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 8,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 9,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 10,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 11,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 12,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 13,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 14,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 15,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 16,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 17,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 18,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 19,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 20,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 21,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 22,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 23,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 24,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 25,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 26,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 27,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 28,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 29,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 30,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 31,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 32,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 33,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 34,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 35,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 36,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 37,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 38,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 39,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 40,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 41,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 42,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 43,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 44,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 45,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 46,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 47,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 48,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 49,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 50,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 51,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 52,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 53,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 54,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 55,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 56,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 57,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 58,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 59,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 60,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 61,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 62,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 63,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 64,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 65,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 66,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 67,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 68,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 69,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 70,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 71,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 72,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 73,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 74,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 75,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 76,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 77,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 78,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 79,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 80,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 81,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 82,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 83,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 84,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 85,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 86,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 87,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 88,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 89,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 90,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 91,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font><think>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 92,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>secret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 93,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>ecret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 94,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>cret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 95,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>ret1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 96,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>et1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 97,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>t1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 98,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>1</think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 99,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font></think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 100,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>/think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 101,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>think>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 102,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>hink>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 103,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>ink>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 104,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>nk>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 105,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>k>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 106,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 107,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 108,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": true
-    },
-    {
-      "splitAtByte": 109,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 110,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 111,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 112,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 113,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 114,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B<think>oops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 115,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Boops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 116,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bops\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 117,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bps\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 118,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bs\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 119,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\"}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 120,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B}}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 121,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B}]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 122,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B]}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 123,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B}\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 124,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\n\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 125,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\ndata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 126,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bdata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 127,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bata: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 128,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Bta: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 129,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>Ba: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 130,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B: [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 131,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B [DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 132,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B[DONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 133,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BDONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 134,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BONE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 135,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BNE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 136,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>BE]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 137,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B]\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 138,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\n\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
-    },
-    {
-      "splitAtByte": 139,
-      "tsOutput": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B\n",
-      "expectedRust": "data: {\"id\":\"t1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<font color='red'>A</font>B",
-      "tsMatchesExpectedRust": false
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 0,
+      "pieces": [
+        "",
+        "<font color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 1,
+      "pieces": [
+        "<",
+        "font color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 2,
+      "pieces": [
+        "<f",
+        "ont color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 3,
+      "pieces": [
+        "<fo",
+        "nt color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 4,
+      "pieces": [
+        "<fon",
+        "t color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 5,
+      "pieces": [
+        "<font",
+        " color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 6,
+      "pieces": [
+        "<font ",
+        "color='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 7,
+      "pieces": [
+        "<font c",
+        "olor='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 8,
+      "pieces": [
+        "<font co",
+        "lor='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 9,
+      "pieces": [
+        "<font col",
+        "or='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 10,
+      "pieces": [
+        "<font colo",
+        "r='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 11,
+      "pieces": [
+        "<font color",
+        "='red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 12,
+      "pieces": [
+        "<font color=",
+        "'red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 13,
+      "pieces": [
+        "<font color='",
+        "red'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 14,
+      "pieces": [
+        "<font color='r",
+        "ed'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 15,
+      "pieces": [
+        "<font color='re",
+        "d'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 16,
+      "pieces": [
+        "<font color='red",
+        "'>A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 17,
+      "pieces": [
+        "<font color='red'",
+        ">A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 18,
+      "pieces": [
+        "<font color='red'>",
+        "A</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 19,
+      "pieces": [
+        "<font color='red'>A",
+        "</font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 20,
+      "pieces": [
+        "<font color='red'>A<",
+        "/font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 21,
+      "pieces": [
+        "<font color='red'>A</",
+        "font><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 22,
+      "pieces": [
+        "<font color='red'>A</f",
+        "ont><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 23,
+      "pieces": [
+        "<font color='red'>A</fo",
+        "nt><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 24,
+      "pieces": [
+        "<font color='red'>A</fon",
+        "t><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 25,
+      "pieces": [
+        "<font color='red'>A</font",
+        "><think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 26,
+      "pieces": [
+        "<font color='red'>A</font>",
+        "<think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 27,
+      "pieces": [
+        "<font color='red'>A</font><",
+        "think>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 28,
+      "pieces": [
+        "<font color='red'>A</font><t",
+        "hink>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 29,
+      "pieces": [
+        "<font color='red'>A</font><th",
+        "ink>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 30,
+      "pieces": [
+        "<font color='red'>A</font><thi",
+        "nk>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 31,
+      "pieces": [
+        "<font color='red'>A</font><thin",
+        "k>secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 32,
+      "pieces": [
+        "<font color='red'>A</font><think",
+        ">secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 33,
+      "pieces": [
+        "<font color='red'>A</font><think>",
+        "secret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 34,
+      "pieces": [
+        "<font color='red'>A</font><think>s",
+        "ecret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 35,
+      "pieces": [
+        "<font color='red'>A</font><think>se",
+        "cret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 36,
+      "pieces": [
+        "<font color='red'>A</font><think>sec",
+        "ret1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 37,
+      "pieces": [
+        "<font color='red'>A</font><think>secr",
+        "et1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 38,
+      "pieces": [
+        "<font color='red'>A</font><think>secre",
+        "t1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 39,
+      "pieces": [
+        "<font color='red'>A</font><think>secret",
+        "1</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 40,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1",
+        "</think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 41,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1<",
+        "/think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 42,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</",
+        "think>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 43,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</t",
+        "hink>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 44,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</th",
+        "ink>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 45,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</thi",
+        "nk>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 46,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</thin",
+        "k>B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 47,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think",
+        ">B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 48,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>",
+        "B<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 49,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B",
+        "<think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 50,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<",
+        "think>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 51,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<t",
+        "hink>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 52,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<th",
+        "ink>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 53,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<thi",
+        "nk>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 54,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<thin",
+        "k>oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 55,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<think",
+        ">oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 56,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<think>",
+        "oops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 57,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<think>o",
+        "ops"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 58,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<think>oo",
+        "ps"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 59,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<think>oop",
+        "s"
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<font color='red'>A</font><think>secret1</think>B<think>oops",
+      "splitAtChar": 60,
+      "pieces": [
+        "<font color='red'>A</font><think>secret1</think>B<think>oops",
+        ""
+      ],
+      "expected": {
+        "content": "<font color='red'>A</font>B",
+        "reasoning": "secret1oops"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 0,
+      "pieces": [
+        "",
+        "héllo తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 1,
+      "pieces": [
+        "h",
+        "éllo తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 2,
+      "pieces": [
+        "hé",
+        "llo తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 3,
+      "pieces": [
+        "hél",
+        "lo తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 4,
+      "pieces": [
+        "héll",
+        "o తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 5,
+      "pieces": [
+        "héllo",
+        " తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 6,
+      "pieces": [
+        "héllo ",
+        "తెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 7,
+      "pieces": [
+        "héllo త",
+        "ెలుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 8,
+      "pieces": [
+        "héllo తె",
+        "లుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 9,
+      "pieces": [
+        "héllo తెల",
+        "ుగు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 10,
+      "pieces": [
+        "héllo తెలు",
+        "గు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 11,
+      "pieces": [
+        "héllo తెలుగ",
+        "ు <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 12,
+      "pieces": [
+        "héllo తెలుగు",
+        " <think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 13,
+      "pieces": [
+        "héllo తెలుగు ",
+        "<think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 14,
+      "pieces": [
+        "héllo తెలుగు <",
+        "think>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 15,
+      "pieces": [
+        "héllo తెలుగు <t",
+        "hink>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 16,
+      "pieces": [
+        "héllo తెలుగు <th",
+        "ink>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 17,
+      "pieces": [
+        "héllo తెలుగు <thi",
+        "nk>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 18,
+      "pieces": [
+        "héllo తెలుగు <thin",
+        "k>నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 19,
+      "pieces": [
+        "héllo తెలుగు <think",
+        ">నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 20,
+      "pieces": [
+        "héllo తెలుగు <think>",
+        "నిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 21,
+      "pieces": [
+        "héllo తెలుగు <think>న",
+        "ిరీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 22,
+      "pieces": [
+        "héllo తెలుగు <think>ని",
+        "రీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 23,
+      "pieces": [
+        "héllo తెలుగు <think>నిర",
+        "ీక్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 24,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీ",
+        "క్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 25,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక",
+        "్ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 26,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్",
+        "ష</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 27,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష",
+        "</think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 28,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష<",
+        "/think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 29,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</",
+        "think>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 30,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</t",
+        "hink>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 31,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</th",
+        "ink>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 32,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</thi",
+        "nk>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 33,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</thin",
+        "k>end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 34,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</think",
+        ">end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 35,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</think>",
+        "end"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 36,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</think>e",
+        "nd"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 37,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</think>en",
+        "d"
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "splitAtChar": 38,
+      "pieces": [
+        "héllo తెలుగు <think>నిరీక్ష</think>end",
+        ""
+      ],
+      "expected": {
+        "content": "héllo తెలుగు end",
+        "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>SECRET</think>FINAL",
+      "splitAtChar": -1,
+      "pieces": [
+        "<thi",
+        "nk>SECRET",
+        "</th",
+        "ink>FINAL"
+      ],
+      "expected": {
+        "content": "FINAL",
+        "reasoning": "SECRET"
+      },
+      "replayMatchesAtomic": true
     }
   ]
 }

@@ -27,7 +27,9 @@
 //! - the model gets the tool array + guidance block RETURNED BY THE
 //!   CREATE RPC, injected in the same slot the skill block uses (before
 //!   the last user turn);
-//! - upstream SSE is think-scrubbed and forwarded verbatim EXCEPT the
+//! - upstream SSE is forwarded RAW (2026-11-13 brief §2 retires the
+//!   think-scrubber; the relay's field splitter routes `<think>` text to
+//!   the reasoning channel for the audit copy) EXCEPT the
 //!   round's `data: [DONE]` is swallowed when that round ended in
 //!   `finish_reason: "tool_calls"` — each round is a fresh upstream request
 //!   and only the FINAL round's `[DONE]` may reach the client (the frozen
@@ -94,7 +96,7 @@ use ruke_skills::lazy::inject_system_before;
 use crate::chat::answer_release::{answer_issues, audit_research_answer, diagnose_research_answer};
 use crate::chat::browser_loop::{tool_content, ToolStreamRelay};
 use crate::chat::{
-    error, next_search, next_search::BridgeError, scrubber::ThinkScrubber, sse::ProgressChannel,
+    error, next_search, next_search::BridgeError, sse::ProgressChannel,
 };
 use crate::AppState;
 
@@ -341,7 +343,7 @@ async fn release_round(
 }
 
 /// One upstream request/response round: serialize `payload`, stream the
-/// scrubbed bytes through a fresh relay, forward complete frames to `ch`.
+/// RAW bytes through a fresh relay, forward complete frames to `ch`.
 /// The request/stream block is the browser loop's verbatim (same error
 /// contract via `error::*`); factored into a helper here because the web
 /// loop runs it both for normal rounds and for the forced final round.
@@ -397,12 +399,14 @@ async fn stream_round(
         return Round::Done(Outcome::Failed("No response body from model".to_string()));
     }
 
-    // Stream the round: scrubbed bytes pass through the relay so tool
-    // calls are assembled out-of-band. Content streams LIVE byte-identical
-    // (streaming reliability law); only terminal frames park in `held`
-    // until the answer text passes the release audit (see
+    // Stream the round: RAW bytes pass through the relay so tool calls are
+    // assembled out-of-band and the audit copy routes `<think>` text to the
+    // reasoning channel ([`ToolStreamRelay`] owns the field splitter; the
+    // frames themselves go to the client byte-verbatim — the client's own
+    // splitter does the same routing for display). Content streams LIVE
+    // byte-identical (streaming reliability law); only terminal frames
+    // park in `held` until the answer text passes the release audit (see
     // [`release_round`]).
-    let mut scrubber = ThinkScrubber::default();
     let mut relay = ToolStreamRelay::new();
     let mut held: Vec<Vec<u8>> = Vec::new();
     let mut aborted = false;
@@ -414,18 +418,15 @@ async fn stream_round(
         };
         match chunk {
             Ok(Some(bytes)) => {
-                let out = scrubber.feed(&bytes);
-                if !out.is_empty() {
-                    for piece in relay.feed(&out) {
-                        if let Some(f) = hold_round_frame(&piece, &mut held) {
-                            ch.raw(f).await;
-                        }
+                for piece in relay.feed(&bytes) {
+                    if let Some(f) = hold_round_frame(&piece, &mut held) {
+                        ch.raw(f).await;
                     }
-                    if ch.is_closed() {
-                        token.cancel();
-                        aborted = true;
-                        break;
-                    }
+                }
+                if ch.is_closed() {
+                    token.cancel();
+                    aborted = true;
+                    break;
                 }
             }
             Ok(None) => break,
@@ -437,14 +438,6 @@ async fn stream_round(
     }
     if aborted {
         return Round::Done(Outcome::Aborted);
-    }
-    let tail = scrubber.finish();
-    if !tail.is_empty() {
-        for piece in relay.feed(&tail) {
-            if let Some(f) = hold_round_frame(&piece, &mut held) {
-                ch.raw(f).await;
-            }
-        }
     }
     if let Some(frame) = relay.finish(&[]) {
         if let Some(f) = hold_round_frame(&frame, &mut held) {

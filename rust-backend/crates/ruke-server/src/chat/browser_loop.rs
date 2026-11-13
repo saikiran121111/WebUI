@@ -26,8 +26,10 @@
 //!   `BrowserRuntime::command`, so authority gates, approvals, auth
 //!   handoffs and turn bookkeeping are enforced exactly once, at the
 //!   engine boundary (never duplicated here);
-//! - upstream SSE is passed through byte-verbatim through the
-//!   `<think>` scrubber EXCEPT that the `data: [DONE]` frame of a round
+//! - upstream SSE is passed through byte-verbatim (RAW; the 2026-11-13
+//!   brief retires the byte scrubber — the relay's field splitter routes
+//!   `<think>` text to the reasoning channel for the audit copy only)
+//!   EXCEPT that the `data: [DONE]` frame of a round
 //!   that ended in `finish_reason: "tool_calls"` is swallowed — the
 //!   conversation continues with a fresh upstream request per round, and
 //!   only the final round's `[DONE]` may reach the client (the frozen
@@ -60,7 +62,8 @@ use ruke_browser::errors::BrowserError;
 use ruke_contracts::stages::StageEvent;
 use ruke_skills::lazy::inject_system_before;
 
-use crate::chat::{error, next_search, scrubber::ThinkScrubber, sse::ProgressChannel};
+use crate::chat::scrubber::ThinkFieldSplitter;
+use crate::chat::{error, next_search, sse::ProgressChannel};
 use crate::AppState;
 
 /// Hard cap on model↔engine rounds per chat turn [adapted — bounds a
@@ -190,7 +193,21 @@ pub(crate) struct CallAcc {
 /// decides which `data: [DONE]` frames reach the client.
 pub(crate) struct ToolStreamRelay {
     buf: Vec<u8>,
+    /// Audit copy of the round's ANSWER text: `delta.content` routed
+    /// through the field splitter, so `<think>` text lands in `reasoning`
+    /// — never in the answer, never deleted (2026-11-13 brief §2). This
+    /// copy is what the release audit revises; the client's own splitter
+    /// does the identical routing for display, keeping UTF-16 revise
+    /// offsets aligned.
     pub content: String,
+    /// Audit copy of the round's reasoning text (`<think>` blocks found
+    /// inside `delta.content`). Kept server-side for honesty (the text
+    /// exists, nothing was dropped); the client sees it on its reasoning
+    /// channel from the RAW frames.
+    pub reasoning: String,
+    /// Stateful per-round `<think>` field splitter ⇔ the client's
+    /// connection-scoped `createThinkSplitter` (lib/stream/thinkTags.ts).
+    think: ThinkFieldSplitter,
     pub calls: BTreeMap<usize, CallAcc>,
     pub finish: Option<String>,
     /// OpenAI-style `usage` from the round's final frame (arrives with
@@ -218,6 +235,8 @@ impl ToolStreamRelay {
         Self {
             buf: Vec::new(),
             content: String::new(),
+            reasoning: String::new(),
+            think: ThinkFieldSplitter::default(),
             calls: BTreeMap::new(),
             finish: None,
             usage: None,
@@ -226,7 +245,7 @@ impl ToolStreamRelay {
         }
     }
 
-    /// Feed scrubbed upstream bytes; returns the byte pieces that may go
+    /// Feed RAW upstream bytes; returns the byte pieces that may go
     /// to the client (complete frames minus a swallowed `[DONE]`).
     pub(crate) fn feed(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
         self.buf.extend_from_slice(bytes);
@@ -294,7 +313,13 @@ impl ToolStreamRelay {
             return;
         };
         if let Some(c) = delta.get("content").and_then(Value::as_str) {
-            self.content.push_str(c);
+            // Route `<think>` text to the reasoning channel BEFORE it
+            // enters either audit copy: the answer copy stays clean, the
+            // text is kept (never deleted), and the audit copy matches
+            // what the client's splitter displays.
+            let split = self.think.feed(c);
+            self.content.push_str(&split.content);
+            self.reasoning.push_str(&split.reasoning);
         }
         if let Some(fragments) = delta.get("tool_calls").and_then(Value::as_array) {
             for frag in fragments {
@@ -316,8 +341,14 @@ impl ToolStreamRelay {
     }
 
     /// Flush the unterminated remainder of the stream (servers close
-    /// right after the final `[DONE]` with no trailing blank line).
+    /// right after the final `[DONE]` with no trailing blank line) and
+    /// release anything the think splitter still holds back (a partial
+    /// tag at stream end is literal text of the CURRENT channel — the
+    /// splitter flush does not flip channels; ⇔ the client's `flush()`).
     pub(crate) fn finish(&mut self, tail: &[u8]) -> Option<Vec<u8>> {
+        let flushed = self.think.flush();
+        self.content.push_str(&flushed.content);
+        self.reasoning.push_str(&flushed.reasoning);
         self.buf.extend_from_slice(tail);
         if self.buf.is_empty() {
             return None;
@@ -787,10 +818,9 @@ pub async fn run_tool_loop(
                 break 'outer Outcome::Failed("No response body from model".to_string());
             }
 
-            // Stream the round: scrubbed bytes pass through the relay so
-            // the model's text answer streams verbatim while tool calls
-            // are assembled out-of-band.
-            let mut scrubber = ThinkScrubber::default();
+            // Stream the round: RAW bytes pass through the relay so the
+            // model's answer streams byte-verbatim while tool calls (and
+            // the split audit copies) are assembled out-of-band.
             let mut relay = ToolStreamRelay::new();
             let mut aborted = false;
             loop {
@@ -801,16 +831,13 @@ pub async fn run_tool_loop(
                 };
                 match chunk {
                     Ok(Some(bytes)) => {
-                        let out = scrubber.feed(&bytes);
-                        if !out.is_empty() {
-                            for piece in relay.feed(&out) {
-                                ch.raw(piece).await;
-                            }
-                            if ch.is_closed() {
-                                token.cancel();
-                                aborted = true;
-                                break;
-                            }
+                        for piece in relay.feed(&bytes) {
+                            ch.raw(piece).await;
+                        }
+                        if ch.is_closed() {
+                            token.cancel();
+                            aborted = true;
+                            break;
                         }
                     }
                     Ok(None) => break,
@@ -826,12 +853,6 @@ pub async fn run_tool_loop(
             done_forwarded |= relay.done_forwarded;
             if aborted {
                 break 'outer Outcome::Aborted;
-            }
-            let tail = scrubber.finish();
-            if !tail.is_empty() {
-                for piece in relay.feed(&tail) {
-                    ch.raw(piece).await;
-                }
             }
             if let Some(frame) = relay.finish(&[]) {
                 ch.raw(frame).await;
@@ -1177,6 +1198,53 @@ mod tests {
             "a forwarded sentinel must not be duplicated at the end of the turn"
         );
         assert_eq!(relay.content, "the answer");
+    }
+
+    /// Brief §2 (2026-11-13): `<think>` text arriving inside content deltas is
+    /// ROUTED to the relay's reasoning audit copy — the answer copy stays
+    /// clean and NOTHING is deleted, including an unterminated tail (the
+    /// retired scrubber used to drop it). ⇔ the client's own display splitter
+    /// (lib/stream/thinkTags.ts) routes identically, so revise offsets against
+    /// `relay.content` stay aligned with what the user saw.
+    #[test]
+    fn relay_routes_think_text_to_reasoning_never_deletes() {
+        let mut relay = ToolStreamRelay::new();
+        relay.feed(&frame(r#"{"choices":[{"delta":{"content":"A<think>s</think>B<think>oops"}}]}"#));
+        relay.feed(&frame("[DONE]"));
+        relay.finish(&[]);
+        assert_eq!(relay.content, "AB");
+        assert_eq!(relay.reasoning, "soops");
+    }
+
+    /// Raw-transport byte identity (the Rust half of fixture sse/03): chunks
+    /// split mid-code-point change NOTHING. The forward pumps are
+    /// byte-passthrough by construction; the relay is the only parsing stage,
+    /// so it pins framing survives every split.
+    #[test]
+    fn relay_frames_stay_byte_identical_across_mid_codepoint_splits() {
+        let stream = format!(
+            "data: {}\n\ndata: [DONE]\n\n",
+            r#"{"choices":[{"delta":{"content":"héllo 🎉 తెలుగు"}}]}"#
+        );
+        let bytes = stream.as_bytes();
+        for i in 1..bytes.len() {
+            let mut relay = ToolStreamRelay::new();
+            let mut emitted: Vec<u8> = Vec::new();
+            for piece in [&bytes[..i], &bytes[i..]] {
+                for fr in relay.feed(piece) {
+                    emitted.extend_from_slice(&fr);
+                }
+            }
+            if let Some(tail) = relay.finish(&[]) {
+                emitted.extend_from_slice(&tail);
+            }
+            assert_eq!(
+                emitted, bytes,
+                "split at byte {i} (mid-codepoint: {}) changed frame bytes",
+                (bytes[i] & 0xc0) == 0x80
+            );
+            assert_eq!(relay.content, "héllo 🎉 తెలుగు");
+        }
     }
 
     /// Tool-call fragments split across frames merge by index; frames

@@ -32,23 +32,6 @@ import type { StageEvent } from "../../../lib/types";
 
 const log = childLogger("api/chat");
 
-const OPEN  = "<think>";
-const CLOSE = "</think>";
-
-function scrubThinkTags(text: string): string {
-  const parts: string[] = [];
-  let i = 0;
-  while (i < text.length) {
-    const open = text.indexOf(OPEN, i);
-    if (open === -1) { parts.push(text.slice(i)); break; }
-    parts.push(text.slice(i, open));
-    const close = text.indexOf(CLOSE, open + OPEN.length);
-    if (close === -1) break;  // unterminated — drop from open onwards
-    i = close + CLOSE.length;
-  }
-  return parts.join("");
-}
-
 function upstreamHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -102,7 +85,12 @@ function upstreamErrorResponse(status: number, errText: string): NextResponse {
   );
 }
 
-/** Stream the upstream SSE byte-for-byte through the think-tag scrubber. */
+/** Stream the upstream SSE byte-for-byte, untouched (2026-11-13 brief §2:
+ *  the per-chunk think-scrubber is removed — it decoded each chunk with a
+ *  fresh TextDecoder, mangled multi-byte code points at chunk boundaries,
+ *  and silently deleted everything after an unterminated `<think>`. The
+ *  client's `lib/stream/thinkTags.ts` splitter routes think text to the
+ *  reasoning channel from already-parsed fields instead). */
 function streamUpstream(
   upstream: Response,
   usedSkill: string | null,
@@ -114,11 +102,10 @@ function streamUpstream(
 ): Response {
   const started = Date.now();
   let chunks = 0;
-  const scrubber = new TransformStream({
+  const passthrough = new TransformStream({
     transform(chunk, controller) {
       chunks++;
-      const text = new TextDecoder().decode(chunk);
-      controller.enqueue(new TextEncoder().encode(scrubThinkTags(text)));
+      controller.enqueue(chunk);
     },
     flush() {
       // Main-model turn finished (or the pipe closed): one honest line per
@@ -133,10 +120,10 @@ function streamUpstream(
   // normal completion, upstream error, and client disconnect (the pipe
   // rejects when the Response cancels the readable side).
   upstream
-    .body!.pipeTo(scrubber.writable)
+    .body!.pipeTo(passthrough.writable)
     .catch(() => {})
     .finally(onSettled);
-  return new Response(scrubber.readable, {
+  return new Response(passthrough.readable, {
     status: 200,
     headers: streamHeaders(
       upstream.headers.get("Content-Type"),
@@ -267,14 +254,14 @@ async function forwardStreamInto(
       ch.fail("No response body from model");
       return;
     }
-    // Same per-chunk think-tag scrubber as streamUpstream.
+    // RAW passthrough (same law as streamUpstream): no decode, no rewrite.
     const reader = upstream.body.getReader();
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       if (!value) continue;
       chunks++;
-      ch.raw(new TextEncoder().encode(scrubThinkTags(new TextDecoder().decode(value))));
+      ch.raw(value);
     }
     log.info(
       { model, mode: decisionMode, ms: Date.now() - started, sseChunks: chunks },

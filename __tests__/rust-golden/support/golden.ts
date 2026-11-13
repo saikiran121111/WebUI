@@ -362,21 +362,9 @@ export function bytesRecord(bytes: Uint8Array): { bytes: number; utf8Lossy: stri
   return rec;
 }
 
-/** TS reference copy of the route's CURRENT (buggy) per-chunk scrubber — used
- *  ONLY to compute the expected-Rust "atomic model" for approved-deviation
- *  vectors. Production behavior stays the oracle; this file never runs it. */
-export function thinkScrubAtomicModel(fullText: string): string {
-  const OPEN = "<think>";
-  const CLOSE = "</think>";
-  const parts: string[] = [];
-  let i = 0;
-  while (i < fullText.length) {
-    const open = fullText.indexOf(OPEN, i);
-    if (open === -1) { parts.push(fullText.slice(i)); break; }
-    parts.push(fullText.slice(i, open));
-    const close = fullText.indexOf(CLOSE, open + OPEN.length);
-    if (close === -1) break; // unterminated — drop from open onwards (intended semantic)
-    i = close + CLOSE.length;
-  }
-  return parts.join("");
-}
+// NOTE: the pre-2026-11-13 `thinkScrubAtomicModel` helper (a TS mirror of the
+// route's buggy per-chunk scrubber, used only for the old approved-deviation
+// matrices) was removed together with that scrubber — brief §2 makes the
+// transport RAW and routing FIELD-level, so there is no byte-scrub oracle to
+// mirror anymore. The splitter oracle is the production `lib/stream/thinkTags.ts`
+// itself (fixture 02 in sse-vectors.test.ts feeds it real pieces).

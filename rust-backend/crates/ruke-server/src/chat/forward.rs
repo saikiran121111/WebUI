@@ -6,16 +6,19 @@
 //!   is held for the whole streamed turn and released EXACTLY once —
 //!   `InferenceSlotGuard`'s `Drop` runs on completion, error, abort and
 //!   panic alike),
-//! - stream the upstream body incrementally through the `<think>` scrubber
-//!   into a bounded `mpsc` channel (Rule 8: a slow client suspends the
-//!   upstream read instead of buffering the whole response),
+//! - stream the upstream body RAW into a bounded `mpsc` channel (Rule 8: a
+//!   slow client suspends the upstream read instead of buffering the whole
+//!   response). Raw means RAW: the 2026-11-13 brief §2 retires the Part-4
+//!   byte-scrubber deviation — the transport never decodes, rewrites or
+//!   deletes bytes; the client's own `lib/stream/thinkTags.ts` splitter
+//!   routes `<think>` text inside already-parsed fields (⇔ Rust
+//!   [`super::scrubber::ThinkFieldSplitter`] in the audit relays),
 //! - propagate client abort: `AbortOnDrop` cancels the request's
 //!   cancellation token, the pump's `select!` wakes, dropping the reqwest
 //!   response future/body closes the upstream connection (⇔ `signal.aborted`
 //!   checks + `inner.abort()` in TS),
-//! - never rewrite success bytes: the scrubber only removes `<think>`
-//!   blocks; everything else (including the upstream's own `data: [DONE]`)
-//!   passes byte-verbatim.
+//! - never rewrite success bytes: EVERY byte (including any `<think>`
+//!   markup and the upstream's own `data: [DONE]`) passes byte-verbatim.
 //!
 //! Client-visible failure mapping is in `error.rs`; the two shapes differ
 //! only in HOW the message surfaces (status+JSON body ⇔ `ruke_error` frame).
@@ -36,7 +39,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tracing::Span;
 
-use crate::chat::{error, headers::stream_headers, scrubber::ThinkScrubber, sse::ProgressChannel};
+use crate::chat::{error, headers::stream_headers, sse::ProgressChannel};
 use crate::AppState;
 
 /// Bounded pump queue: ~64 upstream chunks max in flight. Backpressure to
@@ -76,7 +79,7 @@ impl<S> Drop for AbortOnDrop<S> {
 }
 
 /// Legacy path (`forwardStream`): returns a real HTTP response carrying the
-/// scrubbed upstream body with `streamHeaders(upstream.content-type)`.
+/// RAW upstream body with `streamHeaders(upstream.content-type)`.
 /// `web_citations`/`search_gate` are the Part-8 web-gate pair (Rule 2.3):
 /// TS passes `(webCitationMap, webCitationMap ? searchGateMeta : null)`,
 /// so the CALLER enforces the pairing — the gate parameter is only ever
@@ -190,8 +193,12 @@ pub async fn forward_legacy(
     resp
 }
 
-/// Shared pump loop for both shapes: scrubbed chunks into `tx`, exactly
-/// one guard release, client-abort and mid-error handling.
+/// Shared pump loop for both shapes: RAW upstream chunks into `tx`
+/// (byte-for-byte transport — the 2026-11-13 brief §2 retires the
+/// byte-scrubber deviation: the transport is never rewritten; the client's
+/// own `lib/stream/thinkTags.ts` splitter routes `<think>` text inside
+/// already-parsed fields), exactly one guard release, client-abort and
+/// mid-error handling.
 async fn run_pump(
     mut upstream: reqwest::Response,
     _guard: ruke_core::slot::UserTurnGuard,
@@ -202,7 +209,6 @@ async fn run_pump(
     mode: String,
 ) {
     let started = Instant::now();
-    let mut scrubber = ThinkScrubber::default();
     let mut chunks_in = 0u64;
     let mut bytes_out = 0u64;
     let mut aborted = false;
@@ -220,10 +226,9 @@ async fn run_pump(
         match chunk {
             Ok(Some(bytes)) => {
                 chunks_in += 1;
-                let out = scrubber.feed(&bytes);
-                if !out.is_empty() {
-                    bytes_out += out.len() as u64;
-                    if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                if !bytes.is_empty() {
+                    bytes_out += bytes.len() as u64;
+                    if tx.send(Ok(bytes)).await.is_err() {
                         // the response body is gone ⇒ the client disconnected
                         aborted = true;
                         break;
@@ -247,11 +252,8 @@ async fn run_pump(
     if aborted {
         tracing::warn!(parent: &span, "llm stream aborted by client");
     } else if !failed {
-        let tail = scrubber.finish();
-        if !tail.is_empty() {
-            bytes_out += tail.len() as u64;
-            let _ = tx.send(Ok(Bytes::from(tail))).await;
-        }
+        // No scrubber tail: the transport never buffers or rewrites bytes,
+        // so whatever arrived is exactly what the client saw.
         tracing::info!(
             parent: &span,
             model = model.as_str(),
@@ -265,7 +267,7 @@ async fn run_pump(
     // `_guard` drops HERE: exactly once, on every exit path.
 }
 
-/// Progress path (`forwardStreamInto`): pumps scrubbed bytes into the
+/// Progress path (`forwardStreamInto`): pumps RAW bytes into the
 /// `ProgressChannel`; every failure is a `ruke_error` frame with the SAME
 /// message the legacy path puts in its JSON body.
 pub async fn forward_into(
@@ -328,7 +330,6 @@ pub async fn forward_into(
     }
 
     let started = Instant::now();
-    let mut scrubber = ThinkScrubber::default();
     let mut chunks_in = 0u64;
     let mut bytes_out = 0u64;
     let mut aborted = false;
@@ -345,10 +346,9 @@ pub async fn forward_into(
         match chunk {
             Ok(Some(bytes)) => {
                 chunks_in += 1;
-                let out = scrubber.feed(&bytes);
-                if !out.is_empty() {
-                    bytes_out += out.len() as u64;
-                    ch.raw(out).await;
+                if !bytes.is_empty() {
+                    bytes_out += bytes.len() as u64;
+                    ch.raw(bytes.to_vec()).await;
                     if ch.is_closed() {
                         // the client is gone (write failed): stop reading
                         // upstream — ⇔ inner.abort() closing the fetch
@@ -371,11 +371,7 @@ pub async fn forward_into(
         tracing::warn!(parent: span, "llm stream aborted by client");
         ch.close();
     } else {
-        let tail = scrubber.finish();
-        if !tail.is_empty() {
-            bytes_out += tail.len() as u64;
-            ch.raw(tail).await;
-        }
+        // No scrubber tail — raw transport, nothing is held back.
         tracing::info!(
             parent: span,
             model,

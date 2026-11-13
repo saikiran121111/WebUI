@@ -1,925 +1,1002 @@
 {
   "_meta": {
-    "scenario": "UTF-8 multi-byte sequences split across upstream chunks",
-    "semantics": "CURRENT TS: each chunk is decoded with a FRESH TextDecoder, so a split inside a multi-byte sequence emits U+FFFD and the response bytes are MANGLED (base64 kept per case). expectedRust: one streaming decoder => the response bytes must be byte-identical to the upstream for EVERY split. mangledSplitBytes lists exactly the mid-code-point positions.",
-    "comparison": "approved-deviation",
+    "scenario": "UTF-8 multi-byte sequences split across upstream chunks — RAW transport",
+    "semantics": "The route forwards RAW bytes (no decode, no rewrite — 2026-11-13 brief §2), so for EVERY split, including cuts strictly inside a multi-byte code point, the response bytes are byte-identical to the upstream. mangledSplitBytes must be EMPTY; the pre-fix per-chunk TextDecoder produced U+FFFD at exactly the cutsMidCodePoint positions.",
+    "comparison": "byte-exact",
     "harness": "__tests__/rust-golden/sse-vectors.test.ts",
     "env": {
       "WEB_SEARCH_GATE_DISABLED": "1",
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
     },
     "normalization": "none",
-    "notes": "Rust target: the proxy decode loop must use a single incremental TextDecoder (or byte-level forwarding) — never a fresh decoder per chunk. This is the fixture proving the fix is required."
+    "notes": "Shape changed 2026-11-13: the old matrix recorded the bug per split (tsOutput vs expectedRustUtf8); the fix landed in BOTH engines (route.ts raw pipe ⇔ Rust forward pumps), so the matrix now pins identity. Rust parity: the same split replay lives in browser_loop.rs relay unit tests."
   },
-  "upstreamStreamUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-  "upstreamBytesBase64": "ZGF0YTogeyJpZCI6InUxIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiJow6lsbG8g8J+OiSJ9fV19CgpkYXRhOiBbRE9ORV0KCg==",
-  "splitCount": 90,
-  "mangledSplitBytes": [
-    61,
-    67,
-    68,
-    69
-  ],
+  "upstreamStreamUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n",
+  "upstreamBytesBase64": "ZGF0YTogeyJpZCI6InUxIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiJow6lsbG8g8J+OiSDgsKTgsYbgsLLgsYHgsJfgsYEifX1dfQoKZGF0YTogW0RPTkVdCgo=",
+  "splitCount": 109,
+  "midCodePointSplits": 16,
+  "mangledSplitBytes": [],
   "cases": [
     {
       "splitAtByte": 1,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 2,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 3,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 4,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 5,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 6,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 7,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 8,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 9,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 10,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 11,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 12,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 13,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 14,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 15,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 16,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 17,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 18,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 19,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 20,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 21,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 22,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 23,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 24,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 25,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 26,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 27,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 28,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 29,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 30,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 31,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 32,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 33,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 34,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 35,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 36,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 37,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 38,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 39,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 40,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 41,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 42,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 43,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 44,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 45,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 46,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 47,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 48,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 49,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 50,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 51,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 52,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 53,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 54,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 55,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 56,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 57,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 58,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 59,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 60,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 61,
       "cutsMidCodePoint": true,
-      "tsOutput": {
-        "bytes": 95,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"h��llo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": false
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 62,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 63,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 64,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 65,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 66,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 67,
       "cutsMidCodePoint": true,
-      "tsOutput": {
-        "bytes": 99,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo ����\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": false
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 68,
       "cutsMidCodePoint": true,
-      "tsOutput": {
-        "bytes": 96,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo ���\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": false
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 69,
       "cutsMidCodePoint": true,
-      "tsOutput": {
-        "bytes": 93,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo ��\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": false
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 70,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 71,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 72,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 73,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 74,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 75,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 76,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 77,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 78,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 79,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 80,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 81,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 82,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 83,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 84,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 85,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 86,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 87,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 88,
-      "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "cutsMidCodePoint": true,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 89,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
     },
     {
       "splitAtByte": 90,
       "cutsMidCodePoint": false,
-      "tsOutput": {
-        "bytes": 91,
-        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n"
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
       },
-      "expectedRustUtf8": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉\"}}]}\n\ndata: [DONE]\n\n",
-      "tsIsByteIdentical": true
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 91,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 92,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 93,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 94,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 95,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 96,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 97,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 98,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 99,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 100,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 101,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 102,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 103,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 104,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 105,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 106,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 107,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 108,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
+    },
+    {
+      "splitAtByte": 109,
+      "cutsMidCodePoint": false,
+      "responseBytes": {
+        "bytes": 110,
+        "utf8Lossy": "data: {\"id\":\"u1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"héllo 🎉 తెలుగు\"}}]}\n\ndata: [DONE]\n\n"
+      },
+      "byteIdenticalToUpstream": true
     }
   ]
 }
