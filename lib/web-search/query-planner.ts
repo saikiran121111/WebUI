@@ -122,7 +122,10 @@ export function linkedinSearchHosts(
  * (task-scope audit 2026-11-02, brief #4): sentence-initial "What"
  * became `site:what.com`-class queries, "price" became entities[0] →
  * `pricing "price"`, and quoting every generic content word produced
- * over-constrained zero-hit SERPs. Mirrors Rust `strong_entities`.
+ * over-constrained zero-hit SERPs. (Historical note: mirrored Rust
+ * `strong_entities` in the pre-rollback websearch crate; removed
+ * 2026-11-03. Re-verified 2026-11-13: no strong_entities counterpart
+ * in rust-backend — TS-only.)
  */
 function strongEntities(prompt: string): string[] {
   const out: string[] = [];

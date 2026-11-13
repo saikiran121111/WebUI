@@ -1,7 +1,9 @@
 /**
- * P4 presentation-router parity suite (§55 addendum; ⇔ presentation.rs
- * `mod tests`). Shared prompts/expectations with the Rust mirror — change
- * one side, change both in the same commit.
+ * P4 presentation-router suite (§55 addendum). (Historical note: these
+ * vectors were shared with a `presentation.rs` mirror in the Rust
+ * websearch crate; that crate was removed by the 2026-11-03 TS-rollback.
+ * Re-verified 2026-11-13: no presentation.rs in rust-backend — the Rust
+ * side relays the plan TS computed, so these pins are the contract.)
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -12,7 +14,7 @@ import {
 import { derivePlannerLaw } from "../../lib/web-search/planner-law";
 import type { EvidencePacket, RankedResult, SearchDecision } from "../../lib/web-search/types";
 
-/** ⇔ presentation.rs tests::input() — neutral default input. */
+/** Neutral default input for every rung pin. */
 function input(userPrompt: string): PresentationInput {
   return {
     userPrompt,
@@ -24,7 +26,7 @@ function input(userPrompt: string): PresentationInput {
   };
 }
 
-describe("presentation router (⇔ presentation.rs)", () => {
+describe("presentation router (TS-only ladder)", () => {
   it("geo_evidence_wins_everything", () => {
     const plan = planPresentation({ ...input("who invented the telephone"), hasGeoEvidence: true });
     expect(plan).not.toBeNull();
@@ -101,9 +103,9 @@ describe("presentation router (⇔ presentation.rs)", () => {
     expect(a.reason).toBe("app intent");
   });
 
-  it("vocabulary_matches_rust_serde_strings", () => {
-    // ⇔ presentation.rs serde_vocabulary_matches_ts_strings — the TS object
-    // literal key order is the Rust serde field order.
+  it("serialization_field_order_contract", () => {
+    // The TS object literal key order is the wire field order the Rust
+    // chat loop and the UI parse — pinned as a serialization contract.
     const j = JSON.stringify(planPresentation(input("weather in the morning")));
     expect(j).toBe('{"primary":"weather","layout":"inline","reason":"weather intent"}');
     const j2 = JSON.stringify(planPresentation({ ...input("x"), hasGeoEvidence: true }));
@@ -111,7 +113,7 @@ describe("presentation router (⇔ presentation.rs)", () => {
   });
 });
 
-// ── derivePresentation (⇔ presentation.rs derive_presentation tests) ────
+// ── derivePresentation ─────────────────────────────────────────────────
 function dec(): SearchDecision {
   return { search_required: true, reason: "", freshness: "none", depth: "standard", queries: [] };
 }

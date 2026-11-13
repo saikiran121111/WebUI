@@ -613,9 +613,10 @@ const VERTICAL_BY_INTENT: Record<Intent, SourceFn[]> = {
  * disambiguator, not a recency source, and dropping it would hurt exactly
  * the lookups those intents exist for.
  *
- * Rust mirror: `vertical_by_intent(intent, time_scoped)` — the general arm
- * returns an empty vec when the wiki entry is dropped (identical behavior;
- * the wiki is that arm's only engine). Change one table, change both.
+ * (Historical note: the Rust websearch crate mirrored this table as
+ * `vertical_by_intent(intent, time_scoped)`; that crate was removed by the
+ * 2026-11-03 TS-rollback. Re-verified 2026-11-13: no vertical table exists
+ * anywhere in rust-backend — this table is TS-only.)
  *
  * Exported only so the shared vector suite in
  * `__tests__/web-search/retrieval-quality.test.ts` can pin the matrix;
@@ -638,19 +639,42 @@ const NEWS_VERTICAL: SourceFn[] = [bingNewsRssSearch];
 
 /**
  * Dev/tech vertical: githubSearch + stackExchangeSearch + devToSearch.
- * Fires when the intent is "code"/"docs" OR the query mentions a
- * programming language, framework, library, error, or CLI tool.
+ * Fires when the intent is "code"/"docs" OR the query carries a two-tier
+ * dev signal (see queryLooksLikeDev — an unambiguous dev token, or two
+ * distinct dev-vocabulary tokens).
  */
 const DEV_VERTICAL: SourceFn[] = [githubSearch, stackExchangeSearch, devToSearch];
 
 /**
  * Heuristic: does this query look like a dev/tech question?
- * True when the intent is already code/docs, or when the query
- * mentions a programming language, framework, library, error, or CLI tool.
+ * AMBIGUOUS-DOMAIN LAW (2026-11-13 brief L190 — "avoid domain-intent
+ * decisions from ambiguous terms such as stock, package, or series"):
+ * programming names that are also everyday English (go, rust, java,
+ * swift, node, git, express, api, cli, http, error, bug, tutorial…)
+ * must NEVER decide the vertical alone — they only count when a SECOND
+ * distinct dev-vocabulary token co-occur ("rust borrow checker errors",
+ * "git merge conflict"). Unambiguous proper-noun / code-shape tokens
+ * (python, typescript, node.js, express.js, kubernetes, stack overflow…)
+ * win alone, so every measured dev behavior survives byte-identically.
+ * The model channel stays the primary route for real dev queries — the
+ * call site also fires on intent "code"/"docs" regardless of wording;
+ * this heuristic is only the deterministic fallback. Without the law,
+ * "remove rust stains", "best time to go to kyoto", and "trial and
+ * error" all dragged github/stackexchange/devto into the top 20.
+ * (Historical note: the pre-rollback Rust websearch crate had a keyword
+ * dev gate; removed 2026-11-03. Re-verified 2026-11-13: no counterpart
+ * exists in rust-backend.)
+ * Exported only so `__tests__/web-search/domain-ambiguity.test.ts` can
+ * pin the law.
  */
-function queryLooksLikeDev(query: string): boolean {
-  const re = /\b(python|javascript|typescript|node|nodejs|java|kotlin|swift|rust|go|golang|ruby|php|c\+\+|c#|react|angular|vue|svelte|next\.?js|express|nestjs|django|flask|fastapi|sql|graphql|http|api|cli|docker|kubernetes|terraform|aws|azure|github|git|stack\s*overflow|error|exception|bug|tutorial|best\s*practice|refactor)\b/i;
-  return re.test(query);
+const DEV_PRIMARY_RE = /\b(python|javascript|typescript|nodejs|node\.js|golang|kotlin|ruby|php|c\+\+|c#|react|angular|vue|svelte|next\.?js|express\.?js|nestjs|django|flask|fastapi|sql|graphql|docker|kubernetes|terraform|aws|azure|github|stack\s*overflow)\b/i;
+const DEV_SECONDARY_RE = /\b(go|rust|java|swift|node|express|git|api|cli|http|errors?|exceptions?|bugs?|tutorial|best\s*practice|refactor|code|coding|function|method|module|merge|branch|commits?|rebase|repo|repository|compile|compiler|debug|debugging|sdk|runtime|scripts?|npm|pip|cargo|crate|regex|json|yaml)\b/gi;
+
+export function queryLooksLikeDev(query: string): boolean {
+  if (DEV_PRIMARY_RE.test(query)) return true;
+  const hits = new Set<string>();
+  for (const m of query.matchAll(DEV_SECONDARY_RE)) hits.add(m[0].toLowerCase());
+  return hits.size >= 2;
 }
 
 /**
@@ -710,8 +734,8 @@ function capForEngine(engine: string): number {
  * News/dev verticals are routed by intent:
  *   - bingNewsRssSearch ONLY when freshness !== "any" OR intent is "news"
  *   - githubSearch + stackExchangeSearch + devToSearch when the query
- *     looks like a dev/tech question (code/docs intent OR language/framework
- *     mentioned in the query text)
+ *     looks like a dev/tech question (code/docs intent OR the two-tier
+ *     dev vocabulary law — never a single ambiguous everyday word)
  */
 /**
  * Per-searchOne wall-clock cap: a single plan's general-web pool call
@@ -743,7 +767,9 @@ async function searchOne(
   // §14 exfiltration law: deterministically strip well-known credential
   // shapes from every query BEFORE any engine sees it — no model involved,
   // applied at the single chokepoint all engine traffic passes through.
-  // Rust mirror: scrub_secrets() at the head of search_one (metasearch.rs).
+  // (Historical note: the pre-rollback Rust crate had scrub_secrets() at
+  // the head of search_one; removed 2026-11-03 with the crate. Re-verified
+  // 2026-11-13: no scrub routine exists in rust-backend — TS-side only.)
   query = scrubQuerySecrets(query);
   if (allQueries) allQueries = allQueries.map(scrubQuerySecrets);
 

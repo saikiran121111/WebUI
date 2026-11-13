@@ -12,8 +12,11 @@
  * P5 WIRING: the pipeline calls derivePresentation() at bundle assembly and
  * stores the plan on EvidenceBundle.presentation; the rich-result producer
  * builds the envelope from the chosen primary and streams it via the
- * additive `web:surface_*` stage events. Rust mirror: presentation.rs — the
- * ladder order, vocabulary, and reason strings are byte-parity tested.
+ * additive `web:surface_*` stage events. (Historical note: a
+ * `presentation.rs` mirror lived in the Rust websearch crate removed by
+ * the 2026-11-03 TS-rollback. Re-verified 2026-11-13: no presentation.rs
+ * and no ladder vocabulary anywhere in rust-backend — the Rust side only
+ * relays the plan TS computed; this ladder is TS-only.)
  */
 import { domainWithin } from "./domain-match";
 import type { PlannerLaw } from "./planner-law";
@@ -53,6 +56,40 @@ const NEWS_DOMAINS = [
 const rx = (re: RegExp, p: string): boolean => re.test(p);
 
 /**
+ * AMBIGUOUS-DOMAIN LAW (2026-11-13 brief L189/L190: "Rust 'pattern match'
+ * must not select sports"; "avoid domain-intent decisions from ambiguous
+ * terms such as stock, package, or series"). An ambiguous domain keyword
+ * must never decide a surface by ITSELF. Each affected rung carries:
+ *   PRIMARY   — unambiguous multi-word / proper-noun / code-shape forms;
+ *               one hit wins, so every measured positive survives intact
+ *               ("points table", "status page", "s&p", "market cap"…).
+ *   SECONDARY — words whose common-English meaning collides with the
+ *               domain (match/series/goal/fixture, stock/market/price,
+ *               package/version/release/incident…). A rung fires only
+ *               when TWO DISTINCT secondary tokens co-occur — a genuine
+ *               domain ask carries its own second signal ("match score",
+ *               "stock quote", "package tracking"), a common-English use
+ *               never does ("pattern match", "stock photo", "npm package").
+ * Rungs whose whole vocabulary is already unambiguous (weather, news
+ * domains, map, shopping…) keep their single-hit form.
+ */
+function ladderHit(p: string, primary: RegExp, secondary: RegExp): boolean {
+  if (primary.test(p)) return true;
+  const hits = new Set<string>();
+  for (const m of p.matchAll(secondary)) hits.add(m[0].toLowerCase());
+  return hits.size >= 2;
+}
+
+const FIN_PRIMARY = /\b(ticker|s&p|nasdaq|sensex|nifty|bitcoin|ethereum|exchange rate|market cap|crypto price|equit\w*|stock exchange|share price)\b/i;
+const FIN_SECONDARY = /\b(stocks?|shares?|prices?|quotes?|markets?|invest\w*|portfolio|portfolios|dividends?|brokers?|etf|etfs|buy|sell|holdings)\b/gi;
+
+const SPORTS_PRIMARY = /\b(standings?|points table|leaderboard|tournaments?|innings)\b/i;
+const SPORTS_SECONDARY = /\b(match(?:es)?|scores?|series|goals?|fixtures?)\b/gi;
+
+const TRACKER_PRIMARY = /\b(status page|outages?|downtime|tracking number|shipments?|change ?log|release notes)\b/i;
+const TRACKER_SECONDARY = /\b(tracker|trackers|tracking|packages?|versions?|updates?|releases?|incidents?)\b/gi;
+
+/**
  * §56 structured-source routing ladder — checked in priority order.
  * The FIRST signal that fires wins (one primary surface by default);
  * the reason string names the signal so the UI can explain its choice.
@@ -67,15 +104,15 @@ export function planPresentation(input: PresentationInput): PresentationPlan | n
   // 2–4. Structured verticals that retrieval already typed.
   if (rx(/\b(weather|forecast|temperature|humidity|air quality|rain|snow|uv index)\b/i, p))
     return { primary: "weather", layout: "inline", reason: "weather intent" };
-  if (rx(/\b(stock|stocks|share price|shares|ticker|equit|nasdaq|s&p|sensex|nifty|bitcoin|ethereum|crypto price|exchange rate|market cap)\b/i, p))
+  if (ladderHit(p, FIN_PRIMARY, FIN_SECONDARY))
     return { primary: "finance", layout: "inline", reason: "finance intent" };
-  if (rx(/\b(match|score|standing|standings|points table|leaderboard|tournament|fixture|series|innings|goal)\b/i, p)) {
+  if (ladderHit(p, SPORTS_PRIMARY, SPORTS_SECONDARY)) {
     const table = rx(/\b(standing|standings|points table|leaderboard|table)\b/i, p);
     return { primary: "sports", layout: table ? "table" : "inline", reason: table ? "sports standings" : "sports intent" };
   }
 
   // 5. Live-state trackers (status pages, versions, shipments).
-  if (rx(/\b(status page|outage|downtime|incident|tracker|tracking number|shipment|package|version|changelog|release notes)\b/i, p))
+  if (ladderHit(p, TRACKER_PRIMARY, TRACKER_SECONDARY))
     return { primary: "tracker", layout: "inline", reason: "live-state intent" };
 
   // 6–9. Intent-typed asks.
@@ -132,7 +169,7 @@ const YOUTUBE_DOMAINS = ["youtube.com", "youtu.be"];
  * while the Maps companion hop decodes them (§11 law: coordinates come
  * from validated provider data, never inferred from prose). Domain law:
  * ranked results first, then packets, first-seen wins, empties skipped,
- * capped at 5. ⇔ presentation.rs derive_presentation (same vectors).
+ * capped at 5.
  */
 export function derivePresentation(
   userPrompt: string,
