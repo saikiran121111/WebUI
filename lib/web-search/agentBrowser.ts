@@ -36,6 +36,7 @@ import {
 } from "@/lib/web-search/captionProbe";
 import { type CaptionParseMeta, formatCaptionSegments } from "@/lib/web-search/captionFormats";
 import { childLogger } from "@/lib/server/logger";
+import { systemLocale, browserLanguagesFor, acceptLanguageFor } from "./local-context";
 
 /* fingerprint-suite: each pooled context gets a fresh, consistent
  * fingerprint (canvas, webgl, audio, navigator, screen, headers) via
@@ -195,14 +196,24 @@ export const STEALTH_ARGS = [
   "--disable-devtool-features=AutomationControlled",
 ];
 
+/* §5h (2026-11-13 brief): the browser identity claims the MACHINE's
+ * language chain, not a hardcoded developer-locale persona. On the
+ * en-IN user base this derives to exactly the previous constants
+ * (["en-IN","en-US","en"] / "en-IN,en-US;q=0.9,en;q=0.8"), so the
+ * measured WAF persona is byte-identical — while a non-IN machine no
+ * longer browses as if it were India-based. */
+const MACHINE_LOCALE = systemLocale();
+const MACHINE_LANGUAGES = browserLanguagesFor(MACHINE_LOCALE);
+const MACHINE_ACCEPT_LANGUAGE = acceptLanguageFor(MACHINE_LOCALE);
+
 export const STEALTH_INIT_SCRIPT = `
 try {
   Object.defineProperty(navigator, "webdriver", { get: () => undefined });
   delete navigator.__proto__.webdriver;
 } catch (_) {}
 try {
-  Object.defineProperty(navigator, "languages", { get: () => ["en-IN", "en-US", "en"] });
-  Object.defineProperty(navigator, "language", { get: () => "en-IN" });
+  Object.defineProperty(navigator, "languages", { get: () => ${JSON.stringify(MACHINE_LANGUAGES)} });
+  Object.defineProperty(navigator, "language", { get: () => ${JSON.stringify(MACHINE_LOCALE)} });
   Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
   window.chrome = window.chrome || { app: {}, runtime: {} };
 } catch (_) {}
@@ -424,9 +435,9 @@ async function ensurePool(): Promise<void> {
           viewport: fpViewport
             ? { width: fpViewport.width, height: fpViewport.height }
             : { width: 1366, height: 768 },
-          locale: "en-IN",
+          locale: MACHINE_LOCALE,
           extraHTTPHeaders: {
-            "accept-language": "en-IN,en-US;q=0.9,en;q=0.8",
+            "accept-language": MACHINE_ACCEPT_LANGUAGE,
             "sec-ch-ua": secChUa,
             "sec-ch-ua-mobile": secChUaMobile,
             "sec-ch-ua-platform": secChUaPlatform,
@@ -443,7 +454,7 @@ async function ensurePool(): Promise<void> {
            request-scoped headers (same family law as above). */
         try {
           const pinned: Record<string, string> = {
-            "accept-language": "en-IN,en-US;q=0.9,en;q=0.8",
+            "accept-language": MACHINE_ACCEPT_LANGUAGE,
             "sec-ch-ua": secChUa,
             "sec-ch-ua-mobile": secChUaMobile,
             "sec-ch-ua-platform": secChUaPlatform,

@@ -32,6 +32,7 @@ import { splitCoreWords } from "./normalization";
 import { metasearch, stripUrlPlans } from "./metasearch";
 import { tokenize } from "./reranker";
 import type { TaskScope } from "../decision/task-scope";
+import { systemLocale, systemRegionCC, explicitRegionCc } from "./local-context";
 
 type GateQuery = SearchDecision["queries"][number];
 
@@ -82,6 +83,36 @@ export function sourceClass(prompt: string): string | null {
   if (/\breview|rating|versus|vs\b|comparison|benchmark/.test(p)) return "review";
   if (/\bpricing|price|cost|plans?|subscription\b/.test(p)) return "pricing";
   return null;
+}
+
+/**
+ * §5h (2026-11-13 brief) LinkedIn operator hosts — "generic profile
+ * lookup must not force LinkedIn or India-specific hosts; explicit task
+ * region wins, locale is only a context hint."
+ *
+ * Region resolution: explicit unambiguous region mention in the prompt
+ * (explicitRegionCc — see the person-name-ambiguity law there) WINS over
+ * the machine-locale hint (systemRegionCC). LinkedIn maintains exactly
+ * ONE distinct regional subdomain — in.linkedin.com (India); every
+ * other cc.linkedin.com 301s to www, so generating a regional host for
+ * any other cc would emit a dead site: operator. Regional-first ordering
+ * is therefore keyed to the resolved region being India, which preserves
+ * the measured en-IN law ("`site:in.linkedin.com` surfaces the /in/
+ * permalink while `site:linkedin.com/in/` zero-hits on DDG/Bing") on
+ * en-IN machines byte-identically, and on any other machine the generic
+ * permalink form leads and no India-specific host is EVER emitted.
+ * Injectable locale/taskCc for deterministic tests; production call
+ * sites pass only the prompt.
+ */
+export function linkedinSearchHosts(
+  userPrompt: string,
+  locale: string = systemLocale(),
+  taskCc: string | null = explicitRegionCc(userPrompt),
+): [string, string] {
+  const cc = (taskCc ?? systemRegionCC(locale) ?? "").toUpperCase();
+  return cc === "IN"
+    ? ["in.linkedin.com", "linkedin.com/in/"]
+    : ["linkedin.com/in/", "linkedin.com"];
 }
 
 /**
@@ -345,11 +376,11 @@ export function planQueries(
         // poisons the quoted anchor. Strip the lookup-trigger vocabulary
         // (whole words only); what survives IS the person's name. Vision
         // pre-pass hints still take precedence via mergeEntities ordering.
-        // Profiles are indexed on the REGIONAL subdomain (in.linkedin.com
-        // for our en-IN user base) — measured: `"name" site:linkedin.com/in/`
-        // returns zero hits on DDG/Bing while `"name" site:in.linkedin.com`
-        // surfaces the /in/ permalink. Both operator forms go out; the
-        // regional one first.
+        // Host forms come from linkedinSearchHosts() — §5h locale-scope
+        // law: the regional subdomain leads only when the RESOLVED region
+        // (explicit prompt mention ?? machine locale) is India, which
+        // keeps the measured en-IN law byte-identical on en-IN machines
+        // without forcing India hosts on everyone else.
         const nameSpan = userPrompt
           .replace(/https?:\/\/\S+/gi, " ")
           .replace(
@@ -365,12 +396,13 @@ export function planQueries(
             : strong.length >= 2
               ? `"${stripQuotes(strong[0])}" "${stripQuotes(strong[1])}"`
               : anchor;
-        opQuery = `${personAnchor} site:in.linkedin.com`;
+        const [primaryHost, secondaryHost] = linkedinSearchHosts(userPrompt);
+        opQuery = `${personAnchor} site:${primaryHost}`;
         opIntent = "general";
         domains = ["linkedin.com"];
         if (plans.length < 4) {
           plans.push({
-            query: `${personAnchor} site:linkedin.com/in/`,
+            query: `${personAnchor} site:${secondaryHost}`,
             intent: "general",
             preferredDomains: domains,
             origin: "targeted",

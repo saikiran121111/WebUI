@@ -33,6 +33,7 @@ import {
   newCookieJar,
 } from "./net";
 import { childLogger } from "@/lib/server/logger";
+import { systemLocale, systemRegionCC } from "./local-context";
 
 const log = childLogger("web-search/general-pool");
 
@@ -1249,6 +1250,28 @@ export async function bingNewsRssSearch(query: string): Promise<RawSearchResult[
     gate.done();
   }
 }
+/**
+ * §5h (2026-11-13 brief) Google News RSS localization — the ranking
+ * region rides the RESOLVED locale, never a hardcoded developer-locale
+ * constant (the old literal was `hl=en-IN&gl=IN&ceid=IN:en`, which
+ * India-ranked every user's news). Derivation: hl = language subtag
+ * (plus region when the tag carries one), gl/ceid = the tag's region
+ * subtag; a regionless tag falls back exactly like systemGl (US) rather
+ * than inventing a region. Injectable locale for deterministic tests;
+ * an en-IN machine reproduces the old URL byte-for-byte, so measured
+ * behavior is untouched for the actual user base.
+ */
+export function googleNewsRssUrl(query: string, locale: string = systemLocale()): string {
+  const lang = (locale.split(/[-_]/).filter(Boolean)[0] || "en").toLowerCase();
+  const region = systemRegionCC(locale) ?? "US";
+  const hl = systemRegionCC(locale) ? `${lang}-${region}` : lang;
+  return (
+    "https://news.google.com/rss/search?q=" +
+    encodeURIComponent(query) +
+    `&hl=${hl}&gl=${region}&ceid=${region}:${lang}`
+  );
+}
+
 async function bingNewsRssSearchInner(query: string): Promise<RawSearchResult[]> {
   // ── Stage A: Bing News RSS (real target URLs via url= param) ────────
   const bingUrl =
@@ -1275,10 +1298,7 @@ async function bingNewsRssSearchInner(query: string): Promise<RawSearchResult[]>
   // Only keep items where <source url="..."> gave us the real
   // publisher URL — encrypted news.google.com/rss/articles/ wrappers
   // are NOT extractable and must be skipped.
-  const gnewsUrl =
-    "https://news.google.com/rss/search?q=" +
-    encodeURIComponent(query) +
-    "&hl=en-IN&gl=IN&ceid=IN:en";
+  const gnewsUrl = googleNewsRssUrl(query);
   try {
     const res = await fetchUrl(gnewsUrl, {
       timeoutMs: 15_000,

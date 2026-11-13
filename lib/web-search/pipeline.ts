@@ -83,7 +83,7 @@ import {
   mapsCompanionQuery,
   type MapsEvidence,
 } from "./google-maps";
-import { planQueries, evaluateCoverage, runGapMetasearch } from "./query-planner";
+import { planQueries, evaluateCoverage, runGapMetasearch, linkedinSearchHosts } from "./query-planner";
 import {
   getCachedQuery,
   putCachedQuery,
@@ -824,12 +824,16 @@ export async function runWebResearch(
     const liPlans = plans.filter(
       (p) => /linkedin/i.test(p.query) && /site:/i.test(p.query),
     );
-    // Prefer the REGIONAL operator variant — measured: site:linkedin.com/in/
-    // returns 0 hits while site:in.linkedin.com surfaces the /in/ permalink.
+    // §5h: prefer the form the PLANNER's resolved region actually led with
+    // (regional in.linkedin.com only when the resolved region is India —
+    // measured: for en-IN, site:linkedin.com/in/ returns 0 hits while
+    // site:in.linkedin.com surfaces the /in/ permalink; on any other
+    // region the generic permalink leads and no India host is forced).
+    const [liPrimaryHost] = linkedinSearchHosts(ctx.userPrompt);
     const liQuery =
-      liPlans.find((p) => /site:in\.linkedin\.com/i.test(p.query))?.query ??
+      liPlans.find((p) => p.query.toLowerCase().includes(`site:${liPrimaryHost.toLowerCase()}`))?.query ??
       liPlans[0]?.query ??
-      `"${stripFillers(ctx.userPrompt).slice(0, 80)}" site:in.linkedin.com`;
+      `"${stripFillers(ctx.userPrompt).slice(0, 80)}" site:${liPrimaryHost}`;
     log.info({ query: liQuery }, "linkedin person lookup — targeted re-hop");
     const liPlan: SearchPlan[] = [
       {
