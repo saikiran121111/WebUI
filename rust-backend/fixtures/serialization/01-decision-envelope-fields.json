@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "DecisionEnvelope field-by-field comparison classes",
-    "semantics": "Ledger of every envelope field with its comparison class. The confidence '1' vs serde '1.0' and the omitted-vs-null lfm_input/lfm_raw fields are the two known serializer traps for Parts 3/4.",
+    "semantics": "Ledger of every envelope field with its comparison class. The §4a confidence rendering (0.8/0.5 floats; integral 1 only for the repair-passthrough envelope) and the omitted-vs-null lfm_input/lfm_raw fields are the known serializer traps, resolved in ruke-contracts::serialize_confidence (fixture re-recorded 2026-11-13: the pre-§4a note pinned confidence 1 for EVERY decision envelope, which §4a reclassifies as false certainty).",
     "comparison": "semantic",
     "harness": "__tests__/rust-golden/decision-serialization.test.ts",
     "env": {
@@ -11,7 +11,7 @@
     "notes": "Part 3/4 must NOT 'fix' the TS side; the Rust serializer conforms to these bytes (or an explicit approved deviation is recorded)."
   },
   "referenceCall": {
-    "message": "spreadsheet please"
+    "message": "make a spreadsheet"
   },
   "envelopeKeyOrder": [
     "active_mode",
@@ -35,12 +35,12 @@
     {
       "path": "confidence",
       "comparison": "byte-exact",
-      "note": "JS always emits integer 1 (\"1\"). serde_json f64 emits \"1.0\" — BYTE-INEQUAL. Rust serializer must emit 1 (integer). Finding for Parts 3/4; do NOT normalize the TS side."
+      "note": "§4a honest outcomes: 0.8 renders \"0.8\" and 0.5 renders \"0.5\" (JS shortest-roundtrip floats; serde_json emits identical bytes for these). The integral repair-passthrough 1 renders as integer \"1\" — a bare serde_json f64 prints \"1.0\", so ruke-contracts keeps the integer branch. Do NOT normalize the TS side."
     },
     {
       "path": "decided_by",
       "comparison": "byte-exact",
-      "note": "\"in-process-deliverable-match\" | \"in-process-fallback\" (internal-only) | (chat-internal-only: \"repair-passthrough\")"
+      "note": "\"in-process-deliverable-match\" | \"in-process-deliverable-ambiguous\" (§4a mixed deliverables) | \"in-process-fallback\" (internal-only) | (chat-internal-only: \"repair-passthrough\")"
     },
     {
       "path": "stripped_prompt",
@@ -60,7 +60,7 @@
     {
       "path": "disable_validators",
       "comparison": "byte-exact",
-      "note": "string array; ORDER significant (INTENT_ORDER minus active)"
+      "note": "string array; ORDER significant (RENDERER_MODES order minus the active mode)"
     },
     {
       "path": "enable_validator",

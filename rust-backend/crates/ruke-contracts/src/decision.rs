@@ -109,10 +109,10 @@ pub fn mode_fence(mode: RendererMode) -> Option<&'static str> {
 
 /// JS `JSON.stringify` number rendering: a double with no fractional part
 /// inside the safe-integer range prints as an integer literal (`1`, not
-/// `1.0`). The in-process engine hardcodes `confidence: 1`, so this is what
-/// the byte-exact decision fixtures pin. Non-integral values still print via
-/// serde's shortest-roundtrip float formatting (matches JS for the values
-/// this field can actually hold, 0..=1).
+/// `1.0`). The repair-passthrough envelope still pins integral 1; since the
+/// §4a intent law the decision envelopes carry honest 0.8/0.5 confidences,
+/// printed via serde's shortest-roundtrip float formatting (matches JS for
+/// the values this field can actually hold, 0..=1 — `0.8` prints as `0.8`).
 fn serialize_confidence<S>(value: &f64, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -131,8 +131,9 @@ where
 pub struct DecisionEnvelope {
     pub active_mode: RendererMode,
     /// PART-3 RESOLUTION of the Part-2 parity note: the serializer below
-    /// emits integral confidences as JSON integers, so the bytes match the
-    /// JS oracle (`fixtures/decision/01` pins `"confidence":1`).
+    /// matches JS number rendering byte-for-byte. Post-§4a the decision
+    /// fixtures pin the `"confidence":0.8` / `0.5` floats; the integral
+    /// branch stays pinned by the ruke-contracts passthrough golden (`1`).
     #[serde(serialize_with = "serialize_confidence")]
     pub confidence: f64,
     pub decided_by: String,
@@ -174,7 +175,9 @@ impl DecisionEnvelope {
     pub fn fallback(message: &str) -> Self {
         Self {
             active_mode: RendererMode::StandardChat,
-            confidence: 1.0,
+            // §4a: an uncertain no-intent fallback never claims certainty
+            // (mirrors the TS 0.5; the old 1.0 was false confidence).
+            confidence: 0.5,
             decided_by: "in-process-fallback".into(),
             stripped_prompt: message.into(),
             skill_to_load: None,

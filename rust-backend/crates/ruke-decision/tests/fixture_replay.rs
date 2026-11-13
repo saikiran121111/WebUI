@@ -91,12 +91,14 @@ fn decision_route_fixtures_replay_byte_exact() {
 
 #[test]
 fn envelope_confidence_and_key_order_bytes() {
-    // §14 resolution: confidence renders as integer `1`, never `1.0`.
+    // §14 resolution + §4a: JS number rendering — an integral 1 renders as
+    // `1` (still pinned by the ruke-contracts passthrough golden), while
+    // post-§4a decision envelopes render as floats: JSON.stringify(0.8).
     let fix = load("decision/01-route-excel-match.json");
     let r = decision_route(fix["request"]["rawBody"].as_str().unwrap());
     assert!(
-        r.body.contains("\"confidence\":1,"),
-        "confidence must serialize as `1`: {}",
+        r.body.contains("\"confidence\":0.8,"),
+        "confidence must serialize as `0.8`: {}",
         r.body
     );
     assert!(
@@ -148,7 +150,13 @@ fn intent_matcher_vectors_replay_full_envelope_fields() {
             v["stripped_prompt"].as_str().unwrap(),
             "trim for {prompt:?}"
         );
-        assert_eq!(env.confidence, 1.0);
+        // §4a: honest per-outcome confidence (0.8 verb-bound, 0.5
+        // uncertain) — pinned per-vector by the re-recorded corpus.
+        assert_eq!(
+            env.confidence,
+            v["confidence"].as_f64().expect("vector confidence"),
+            "confidence for {prompt:?}"
+        );
     }
     let blank = &fix["blankMessage"];
     let env = get_decision_sync(blank["prompt"].as_str().unwrap(), &[]);

@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "scenario": "POST /api/decision — excel intent match",
-    "semantics": "In-process regex router (zero network): response bytes are JSON.stringify(envelope) — compact, insertion-order key sequence pinned by envelopeKeyOrder.",
+    "scenario": "POST /api/decision — §4a verb-bound excel intent match",
+    "semantics": "In-process regex router (zero network): response bytes are JSON.stringify(envelope) — compact, insertion-order key sequence pinned by envelopeKeyOrder. §4a (2026-11-13): the match needs a production cue bound to the artifact word ('make' before 'spreadsheet'); confidence is the honest verb-bound 0.8 (float rendering == JSON.stringify(0.8)).",
     "comparison": "byte-exact",
     "harness": "__tests__/rust-golden/decision-serialization.test.ts",
     "env": {
@@ -10,20 +10,20 @@
     "normalization": "none — the whole point is that these bytes contain NO timing/volatile fields."
   },
   "request": {
-    "rawBody": "{\"message\":\"put these numbers into my spreadsheet\"}"
+    "rawBody": "{\"message\":\"make a spreadsheet from these numbers\"}"
   },
   "response": {
     "status": 200,
     "headers": {
       "content-type": "application/json"
     },
-    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":1,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"put these numbers into my spreadsheet\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
+    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":0.8,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"make a spreadsheet from these numbers\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
   },
   "envelope": {
     "active_mode": "excel",
-    "confidence": 1,
+    "confidence": 0.8,
     "decided_by": "in-process-deliverable-match",
-    "stripped_prompt": "put these numbers into my spreadsheet",
+    "stripped_prompt": "make a spreadsheet from these numbers",
     "skill_to_load": "xlsx",
     "allowed_code_fence": null,
     "disable_validators": [

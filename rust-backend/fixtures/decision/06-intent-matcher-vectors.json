@@ -1,53 +1,45 @@
 {
   "_meta": {
-    "scenario": "getDecisionSync intent-matcher vectors + blank-message fallback envelope",
-    "semantics": "Pure in-process regex router: ASCII \\b semantics (café boundaries, é-ending résumé demands a word char next, dotted \\.docx dominated by bare docx), JS '.' never crosses \\n (render\\nscene misses), INTENT_ORDER first-match precedence, JS trim() for stripped_prompt, internal-only fallbackEnvelope for blank input. Anatomy retired 2026-11-07 (user directive; the route grew out of the retired architecture-design feature): the old anatomy vocabulary and the audit-finding-5 frame-guard corpus now fall to standard_chat unless another deliverable word carries the turn ('exploded diagram in html' -> html_render).",
+    "scenario": "getDecisionSync §4a intent-law vectors + blank-message fallback envelope",
+    "semantics": "§4a intent law (re-recorded 2026-11-13; every pre-§4a pin below is a documented legacy-defect change, not silent drift): an artifact WORD is not an artifact REQUEST. Quoted/code spans are masked first; clauses split on [.!?\\n;]+ AFTER alnum-dot-alnum runs ('file.docx', 'v2.5') become spaces (filename/version/decimal dots are not clause boundaries — 'create file.docx' binds docs); an artifact word counts as requested only when a production cue precedes it in the same clause — all cue/artifact/direction/negation/meta relations compare MATCH STARTS by order only, never end-vs-start (adjacent matches share their boundary character, so end-vs-start is off-by-one there; fixed in both engines 2026-11-13; this is why 'export as xlsx'/'generate pdf report' were misses before) (cue vocabulary is ENGLISH-ONLY — a non-Latin verb with a Latin artifact word falls gracefully to standard_chat); negation before the word vetoes it; convert/export governs the word directly as the SOURCE format (the word after a to/into/as direction word is the output); summary/outline-style meta phrases mark discussed material; two+ requested intents are ambiguous ('in-process-deliverable-ambiguous') — INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N} consuming word classes in BOTH engines: caféexcel/résumébuilder no longer split, bare résumé matches its own word, résumé2 honestly misses. Honest confidence: 0.8 verb-bound, 0.5 miss/ambiguous — the retired blanket 1.0 was false certainty. Anatomy/3d/cad vocabulary stays standard_chat (retired 2026-11-06/07) unless a §4a cue-bound request survives ('make an exploded diagram in html' -> html_render; 'interior design with html' -> html_render because 'design' is a production cue now).",
     "comparison": "semantic",
-    "notes": "Field-for-field (mode/skill/decided_by/trim) — regex existence only, no span capture.",
+    "notes": "Field-for-field (mode/skill/decided_by/trim/confidence) — regex existence only, no span capture. Re-recorded 2026-11-13 for the §4a intent law (brief §4): the OLD corpus pinned the ASCII-\\b quirks, INTENT_ORDER precedence and confidence 1 as contracts; brief §6 reclassifies those as legacy defects, so their pins moved to the OPPOSITE behavior.",
     "harness": "__tests__/rust-golden/decision-parity.test.ts",
     "env": {},
     "normalization": "none — deterministic zero-network function"
   },
   "vectors": [
     {
-      "prompt": "put these numbers into my spreadsheet",
+      "prompt": "build me a spreadsheet now",
       "active_mode": "excel",
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "put these numbers into my spreadsheet",
-      "confidence": 1
+      "stripped_prompt": "build me a spreadsheet now",
+      "confidence": 0.8
     },
     {
-      "prompt": "an Excel file please",
+      "prompt": "make a spreadsheet from these numbers",
       "active_mode": "excel",
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "an Excel file please",
-      "confidence": 1
+      "stripped_prompt": "make a spreadsheet from these numbers",
+      "confidence": 0.8
     },
     {
-      "prompt": "open the .xlsx",
-      "active_mode": "excel",
-      "skill_to_load": "xlsx",
+      "prompt": "create a pdf",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "open the .xlsx",
-      "confidence": 1
+      "stripped_prompt": "create a pdf",
+      "confidence": 0.8
     },
     {
-      "prompt": "the workbook tab",
-      "active_mode": "excel",
-      "skill_to_load": "xlsx",
+      "prompt": "generate pdf report",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the workbook tab",
-      "confidence": 1
-    },
-    {
-      "prompt": "export as xlsx",
-      "active_mode": "excel",
-      "skill_to_load": "xlsx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "export as xlsx",
-      "confidence": 1
+      "stripped_prompt": "generate pdf report",
+      "confidence": 0.8
     },
     {
       "prompt": "write a word document",
@@ -55,39 +47,31 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "write a word document",
-      "confidence": 1
+      "confidence": 0.8
     },
     {
-      "prompt": "a worddocument template",
+      "prompt": "make a résumé for me",
       "active_mode": "docs",
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "a worddocument template",
-      "confidence": 1
+      "stripped_prompt": "make a résumé for me",
+      "confidence": 0.8
     },
     {
-      "prompt": "attach the .docx",
+      "prompt": "create my résumé",
       "active_mode": "docs",
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "attach the .docx",
-      "confidence": 1
+      "stripped_prompt": "create my résumé",
+      "confidence": 0.8
     },
     {
-      "prompt": "generate docx output",
+      "prompt": "Create a résumé.",
       "active_mode": "docs",
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "generate docx output",
-      "confidence": 1
-    },
-    {
-      "prompt": "update my resume today",
-      "active_mode": "docs",
-      "skill_to_load": "docx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "update my resume today",
-      "confidence": 1
+      "stripped_prompt": "Create a résumé.",
+      "confidence": 0.8
     },
     {
       "prompt": "make me a cv",
@@ -95,31 +79,15 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make me a cv",
-      "confidence": 1
+      "confidence": 0.8
     },
     {
-      "prompt": "print this pdf",
-      "active_mode": "pdf",
-      "skill_to_load": "pdf",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "print this pdf",
-      "confidence": 1
-    },
-    {
-      "prompt": "build a power point",
+      "prompt": "I need a deck of slides for Monday",
       "active_mode": "ppt",
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "build a power point",
-      "confidence": 1
-    },
-    {
-      "prompt": "a powerpoint deck",
-      "active_mode": "ppt",
-      "skill_to_load": "pptx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "a powerpoint deck",
-      "confidence": 1
+      "stripped_prompt": "I need a deck of slides for Monday",
+      "confidence": 0.8
     },
     {
       "prompt": "give me a presentation",
@@ -127,519 +95,47 @@
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "give me a presentation",
-      "confidence": 1
+      "confidence": 0.8
     },
     {
-      "prompt": "save the .pptx",
-      "active_mode": "ppt",
-      "skill_to_load": "pptx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "save the .pptx",
-      "confidence": 1
-    },
-    {
-      "prompt": "export pptx now",
-      "active_mode": "ppt",
-      "skill_to_load": "pptx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "export pptx now",
-      "confidence": 1
-    },
-    {
-      "prompt": "the deck outline",
-      "active_mode": "ppt",
-      "skill_to_load": "pptx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the deck outline",
-      "confidence": 1
-    },
-    {
-      "prompt": "chart the revenue",
+      "prompt": "give me a chart of the sales",
       "active_mode": "chart",
       "skill_to_load": null,
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "chart the revenue",
-      "confidence": 1
+      "stripped_prompt": "give me a chart of the sales",
+      "confidence": 0.8
     },
     {
-      "prompt": "an exploded view of the reactor core",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "an exploded view of the reactor core",
-      "confidence": 1
-    },
-    {
-      "prompt": "cutaway of the marine engine",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "cutaway of the marine engine",
-      "confidence": 1
-    },
-    {
-      "prompt": "anatomy of a jet turbine",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "anatomy of a jet turbine",
-      "confidence": 1
-    },
-    {
-      "prompt": "isometric illustration of the server rack",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "isometric illustration of the server rack",
-      "confidence": 1
-    },
-    {
-      "prompt": "cross-section of the pump housing",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "cross-section of the pump housing",
-      "confidence": 1
-    },
-    {
-      "prompt": "draw me a cutaway of a jet engine",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "draw me a cutaway of a jet engine",
-      "confidence": 1
-    },
-    {
-      "prompt": "can you draw an exploded view of a car engine?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "can you draw an exploded view of a car engine?",
-      "confidence": 1
-    },
-    {
-      "prompt": "how do I get an isometric diagram of the rack?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "how do I get an isometric diagram of the rack?",
-      "confidence": 1
-    },
-    {
-      "prompt": "show the anatomy of a jet turbine as a diagram",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "show the anatomy of a jet turbine as a diagram",
-      "confidence": 1
-    },
-    {
-      "prompt": "What is the anatomy of the knee?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "What is the anatomy of the knee?",
-      "confidence": 1
-    },
-    {
-      "prompt": "What is an isometric exercise?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "What is an isometric exercise?",
-      "confidence": 1
-    },
-    {
-      "prompt": "what's anatomy?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "what's anatomy?",
-      "confidence": 1
-    },
-    {
-      "prompt": "what does anatomy mean?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "what does anatomy mean?",
-      "confidence": 1
-    },
-    {
-      "prompt": "what is the meaning of cutaway?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "what is the meaning of cutaway?",
-      "confidence": 1
-    },
-    {
-      "prompt": "define isometric",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "define isometric",
-      "confidence": 1
-    },
-    {
-      "prompt": "definition of a cross-section",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "definition of a cross-section",
-      "confidence": 1
-    },
-    {
-      "prompt": "how does an exploded view work?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "how does an exploded view work?",
-      "confidence": 1
-    },
-    {
-      "prompt": "how does a cutaway engine work?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "how does a cutaway engine work?",
-      "confidence": 1
-    },
-    {
-      "prompt": "tell me about the anatomy of the knee",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "tell me about the anatomy of the knee",
-      "confidence": 1
-    },
-    {
-      "prompt": "explain the anatomy of a knee",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "explain the anatomy of a knee",
-      "confidence": 1
-    },
-    {
-      "prompt": "isometric exercises for beginners",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "isometric exercises for beginners",
-      "confidence": 1
-    },
-    {
-      "prompt": "anatomy quiz questions",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "anatomy quiz questions",
-      "confidence": 1
-    },
-    {
-      "prompt": "I have an anatomy exam tomorrow, any tips?",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "I have an anatomy exam tomorrow, any tips?",
-      "confidence": 1
-    },
-    {
-      "prompt": "a web page mock",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "a web page mock",
-      "confidence": 1
-    },
-    {
-      "prompt": "the webpage header",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the webpage header",
-      "confidence": 1
-    },
-    {
-      "prompt": "landing page copy",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "landing page copy",
-      "confidence": 1
-    },
-    {
-      "prompt": "landingpage hero",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "landingpage hero",
-      "confidence": 1
-    },
-    {
-      "prompt": "pure html please",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "pure html please",
-      "confidence": 1
-    },
-    {
-      "prompt": "interactive ui",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "interactive ui",
-      "confidence": 1
-    },
-    {
-      "prompt": "interactive page demo",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "interactive page demo",
-      "confidence": 1
-    },
-    {
-      "prompt": "interactive prototype",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "interactive prototype",
-      "confidence": 1
-    },
-    {
-      "prompt": "an interactive demo",
-      "active_mode": "html_render",
-      "skill_to_load": "html-viewer",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "an interactive demo",
-      "confidence": 1
-    },
-    {
-      "prompt": "caféexcel",
-      "active_mode": "excel",
-      "skill_to_load": "xlsx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "caféexcel",
-      "confidence": 1
-    },
-    {
-      "prompt": "the pdfx file",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the pdfx file",
-      "confidence": 1
-    },
-    {
-      "prompt": "what is excelent",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "what is excelent",
-      "confidence": 1
-    },
-    {
-      "prompt": "charts",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "charts",
-      "confidence": 1
-    },
-    {
-      "prompt": "cvx",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "cvx",
-      "confidence": 1
-    },
-    {
-      "prompt": "htmlx dashboard",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "htmlx dashboard",
-      "confidence": 1
-    },
-    {
-      "prompt": "isometrically",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "isometrically",
-      "confidence": 1
-    },
-    {
-      "prompt": "cutaways",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "cutaways",
-      "confidence": 1
-    },
-    {
-      "prompt": "render\nscene",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "render\nscene",
-      "confidence": 1
-    },
-    {
-      "prompt": "word  document",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "word  document",
-      "confidence": 1
-    },
-    {
-      "prompt": "word-document",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "word-document",
-      "confidence": 1
-    },
-    {
-      "prompt": "power  point",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "power  point",
-      "confidence": 1
-    },
-    {
-      "prompt": "résumé",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "résumé",
-      "confidence": 1
-    },
-    {
-      "prompt": "my résumé",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "my résumé",
-      "confidence": 1
-    },
-    {
-      "prompt": "résumé2",
-      "active_mode": "docs",
-      "skill_to_load": "docx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "résumé2",
-      "confidence": 1
-    },
-    {
-      "prompt": "résumébuilder",
-      "active_mode": "docs",
-      "skill_to_load": "docx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "résumébuilder",
-      "confidence": 1
-    },
-    {
-      "prompt": "file.docx",
-      "active_mode": "docs",
-      "skill_to_load": "docx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "file.docx",
-      "confidence": 1
-    },
-    {
-      "prompt": "file.xlsx",
-      "active_mode": "excel",
-      "skill_to_load": "xlsx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "file.xlsx",
-      "confidence": 1
-    },
-    {
-      "prompt": "file.pptx",
-      "active_mode": "ppt",
-      "skill_to_load": "pptx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "file.pptx",
-      "confidence": 1
-    },
-    {
-      "prompt": "presentation in pdf format",
-      "active_mode": "pdf",
-      "skill_to_load": "pdf",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "presentation in pdf format",
-      "confidence": 1
-    },
-    {
-      "prompt": "the interior of the pdf",
-      "active_mode": "pdf",
-      "skill_to_load": "pdf",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "the interior of the pdf",
-      "confidence": 1
-    },
-    {
-      "prompt": "chart of this building's architecture",
+      "prompt": "make a chart of the revenue",
       "active_mode": "chart",
       "skill_to_load": null,
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "chart of this building's architecture",
-      "confidence": 1
+      "stripped_prompt": "make a chart of the revenue",
+      "confidence": 0.8
     },
     {
-      "prompt": "spreadsheet and a chart",
-      "active_mode": "excel",
-      "skill_to_load": "xlsx",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "spreadsheet and a chart",
-      "confidence": 1
-    },
-    {
-      "prompt": "a building cutaway diagram",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "a building cutaway diagram",
-      "confidence": 1
-    },
-    {
-      "prompt": "exploded isometric chart",
-      "active_mode": "chart",
-      "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "exploded isometric chart",
-      "confidence": 1
-    },
-    {
-      "prompt": "exploded diagram in html",
+      "prompt": "build me a landing page",
       "active_mode": "html_render",
       "skill_to_load": "html-viewer",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "exploded diagram in html",
-      "confidence": 1
+      "stripped_prompt": "build me a landing page",
+      "confidence": 0.8
     },
     {
-      "prompt": "tell me a joke",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
+      "prompt": "make an exploded diagram in html",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "tell me a joke",
-      "confidence": 1
+      "stripped_prompt": "make an exploded diagram in html",
+      "confidence": 0.8
     },
     {
-      "prompt": "a model of the city",
-      "active_mode": "standard_chat",
-      "skill_to_load": null,
+      "prompt": "export as xlsx",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "a model of the city",
-      "confidence": 1
+      "stripped_prompt": "export as xlsx",
+      "confidence": 0.8
     },
     {
       "prompt": "   make a deck \t",
@@ -647,23 +143,631 @@
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make a deck",
-      "confidence": 1
+      "confidence": 0.8
     },
     {
-      "prompt": "PDF REPORT",
-      "active_mode": "pdf",
-      "skill_to_load": "pdf",
-      "decided_by": "in-process-deliverable-match",
-      "stripped_prompt": "PDF REPORT",
-      "confidence": 1
-    },
-    {
-      "prompt": "Excel",
+      "prompt": "Make Me A Spreadsheet",
       "active_mode": "excel",
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Make Me A Spreadsheet",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "CREATE A PDF",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "CREATE A PDF",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "create file.docx",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "create file.docx",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "make a \"quarterly\" deck",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "make a \"quarterly\" deck",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "What is a PDF?",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "What is a PDF?",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "Do not create Excel. Explain arrays.",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Do not create Excel. Explain arrays.",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "Explain a deck of cards.",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Explain a deck of cards.",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "Create a résumé2.",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Create a résumé2.",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "put these numbers into my spreadsheet",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "put these numbers into my spreadsheet",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "an Excel file please",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an Excel file please",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "open the .xlsx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "open the .xlsx",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "the workbook tab",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the workbook tab",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "print this pdf",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "print this pdf",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "update my resume today",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "update my resume today",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "save the .pptx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "save the .pptx",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "export pptx now",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "export pptx now",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "the deck outline",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the deck outline",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "a powerpoint deck",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a powerpoint deck",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "presentation in pdf format",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "presentation in pdf format",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "the interior of the pdf",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the interior of the pdf",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "spreadsheet and a chart",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "spreadsheet and a chart",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "chart the revenue",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "chart the revenue",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "chart of this building's architecture",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "chart of this building's architecture",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "do not create excel",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "do not create excel",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "don't create a pdf, just summarize",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "don't create a pdf, just summarize",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "I don't want a presentation, just notes",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "I don't want a presentation, just notes",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "explain the phrase \"make a deck\"",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "explain the phrase \"make a deck\"",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "write a summary of the pdf",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "write a summary of the pdf",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "draft an outline of the deck",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "draft an outline of the deck",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "write a word document about migratory birds",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "write a word document about migratory birds",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "convert the pdf to excel",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "convert the pdf to excel",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "save the deck as a spreadsheet",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "save the deck as a spreadsheet",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "export the deck",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "export the deck",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "make a presentation in pdf format",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-ambiguous",
+      "stripped_prompt": "make a presentation in pdf format",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "create a résumé and a spreadsheet",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-ambiguous",
+      "stripped_prompt": "create a résumé and a spreadsheet",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "make a chart and a deck",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-ambiguous",
+      "stripped_prompt": "make a chart and a deck",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "caféexcel",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "caféexcel",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "résumébuilder",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "résumébuilder",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "résumé",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "résumé",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "my résumé",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "my résumé",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "résumé2",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "résumé2",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "file.docx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "file.docx",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "file.xlsx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "file.xlsx",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "file.pptx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "file.pptx",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "the pdfx file",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "the pdfx file",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "what is excelent",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "what is excelent",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "charts",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "charts",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "cvx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cvx",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "htmlx dashboard",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "htmlx dashboard",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "word  document",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "word  document",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "word-document",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "word-document",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "power  point",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "power  point",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "render\nscene",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "render\nscene",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "कृपया pdf बनाकर दो",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "कृपया pdf बनाकर दो",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "స్ప్రెడ్‌షీట్ సృష్టించండి",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "స్ప్రెడ్‌షీట్ సృష్టించండి",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "hi make pdf",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "hi make pdf",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "an exploded view of the reactor core",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an exploded view of the reactor core",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "cutaway of the marine engine",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cutaway of the marine engine",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "anatomy of a jet turbine",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "anatomy of a jet turbine",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "isometric illustration of the server rack",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "isometric illustration of the server rack",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "cross-section of the pump housing",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "cross-section of the pump housing",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "What is the anatomy of the knee?",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "What is the anatomy of the knee?",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "What is an isometric exercise?",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "What is an isometric exercise?",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "what's anatomy?",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "what's anatomy?",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "define isometric",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "define isometric",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "isometric exercises for beginners",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "isometric exercises for beginners",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "anatomy quiz questions",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "anatomy quiz questions",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "I have an anatomy exam tomorrow, any tips?",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "I have an anatomy exam tomorrow, any tips?",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "render scene",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "render scene",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "3D building model",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "3D building model",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "an architectural sketch",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "an architectural sketch",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "exploded isometric chart",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "exploded isometric chart",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "exploded diagram in html",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "exploded diagram in html",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "interior design with html",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "interior design with html",
+      "confidence": 0.8
+    },
+    {
+      "prompt": "a model of the city",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "a model of the city",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "tell me a joke",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "tell me a joke",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "PDF REPORT",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "PDF REPORT",
+      "confidence": 0.5
+    },
+    {
+      "prompt": "Excel",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "Excel",
-      "confidence": 1
+      "confidence": 0.5
     }
   ],
   "blankMessage": {

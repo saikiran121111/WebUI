@@ -4,9 +4,11 @@
  *
  * /api/decision returns NextResponse.json(envelope) — the EXACT JSON bytes
  * (key order included) are the contract the Rust DecisionEnvelope serializer
- * must reproduce. `confidence: 1` renders as integer `1` in JS; serde_json
- * would render a Rust f64 as `1.0` — that is a parity TRAP, recorded here as
- * a finding for Parts 3/4 (do NOT silently normalize).
+ * must reproduce. JS number rendering: the §4a decision confidences render
+ * as floats (`0.8`, `0.5`); the integral repair-passthrough 1 renders as
+ * `1` while a bare serde_json f64 prints `1.0` — the parity TRAP resolved
+ * in ruke-contracts' serialize_confidence (integral -> integer, else
+ * shortest-roundtrip float; do NOT normalize the TS side).
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
@@ -68,17 +70,19 @@ describe("golden: decision envelope serialization", () => {
   it("01 excel intent match — exact response bytes", async () => {
     const { r, envelope } = await recordDecision(
       "decision/01-route-excel-match.json",
-      "POST /api/decision — excel intent match",
+      "POST /api/decision — §4a verb-bound excel intent match",
       "In-process regex router (zero network): response bytes are JSON.stringify(envelope) — compact, " +
-        "insertion-order key sequence pinned by envelopeKeyOrder.",
-      JSON.stringify({ message: "put these numbers into my spreadsheet" }),
+        "insertion-order key sequence pinned by envelopeKeyOrder. §4a (2026-11-13): the match needs a " +
+        "production cue bound to the artifact word ('make' before 'spreadsheet'); confidence is the " +
+        "honest verb-bound 0.8 (float rendering == JSON.stringify(0.8)).",
+      JSON.stringify({ message: "make a spreadsheet from these numbers" }),
     );
     expect(r.status).toBe(200);
     expect(envelope!.active_mode).toBe("excel");
     expect(envelope!.decided_by).toBe("in-process-deliverable-match");
-    expect(envelope!.confidence).toBe(1);
-    expect(r.bodyText).toContain('"confidence":1');
-    expect(r.bodyText).not.toContain('"confidence":1.0');
+    expect(envelope!.confidence).toBe(0.8); // §4a: a verb-bound match never claims 1
+    expect(r.bodyText).toContain('"confidence":0.8');
+    expect(r.bodyText).not.toContain('"confidence":0.80');
   });
 
   it("02 standard miss with history — stripped_prompt verbatim", async () => {
@@ -86,12 +90,13 @@ describe("golden: decision envelope serialization", () => {
     const { envelope } = await recordDecision(
       "decision/02-route-standard-with-history.json",
       "POST /api/decision — no intent match (standard_chat) with conversationHistory",
-      "Regex miss still yields decided_by 'in-process-deliverable-match' with active_mode standard_chat " +
-        "(NOT a fallback flag): the envelope is ALWAYS built; stripped_prompt is ALWAYS verbatim equal to " +
-        "the incoming message — history never alters it. CONTRACT DISCOVERY: the history field the route " +
-        "reads is named 'conversationHistory' (an unknown 'history' key is silently ignored). skill_to_load " +
-        "is null for standard_chat; enable_validator is ALWAYS the active mode id; disable_validators is " +
-        "every OTHER mode in INTENT_ORDER.",
+      "§4a no-intent miss still yields decided_by 'in-process-deliverable-match' with active_mode " +
+        "standard_chat (NOT a fallback flag) and honest confidence 0.5: the envelope is ALWAYS built; " +
+        "stripped_prompt is ALWAYS verbatim equal to the incoming message — history never alters it. " +
+        "CONTRACT DISCOVERY: the history field the route reads is named 'conversationHistory' (an " +
+        "unknown 'history' key is silently ignored). skill_to_load is null for standard_chat; " +
+        "enable_validator is ALWAYS the active mode id; disable_validators is every OTHER mode in " +
+        "RENDERER_MODES order.",
       JSON.stringify({
         message: msg,
         conversationHistory: [{ role: "user", content: "earlier question" }, { role: "assistant", content: "earlier reply" }],
@@ -101,6 +106,7 @@ describe("golden: decision envelope serialization", () => {
     expect(envelope!.stripped_prompt).toBe(msg);
     expect(envelope!.skill_to_load).toBeNull();
     expect(envelope!.enable_validator).toBe("standard_chat");
+    expect(envelope!.confidence).toBe(0.5); // §4a: an uncertain outcome never claims 1
   });
 
   it("03 whitespace-only message — rejected by the route guard", async () => {
@@ -141,18 +147,18 @@ describe("golden: decision envelope serialization", () => {
   });
 
   it("06 field-by-field comparison classes (serialization ledger)", async () => {
-    const excel = await postDecision(JSON.stringify({ message: "spreadsheet please" }));
+    const excel = await postDecision(JSON.stringify({ message: "make a spreadsheet" }));
     const env = JSON.parse(excel.bodyText) as Record<string, unknown>;
 
     // 11 rows in EXACTLY the observed insertion order (see fixture 01 envelopeKeyOrder).
     const LEDGER = [
       { path: "active_mode", comparison: "byte-exact", note: "string enum of mode ids" },
-      { path: "confidence", comparison: "byte-exact", note: 'JS always emits integer 1 ("1"). serde_json f64 emits "1.0" — BYTE-INEQUAL. Rust serializer must emit 1 (integer). Finding for Parts 3/4; do NOT normalize the TS side.' },
-      { path: "decided_by", comparison: "byte-exact", note: '"in-process-deliverable-match" | "in-process-fallback" (internal-only) | (chat-internal-only: "repair-passthrough")' },
+      { path: "confidence", comparison: "byte-exact", note: '§4a honest outcomes: 0.8 renders "0.8" and 0.5 renders "0.5" (JS shortest-roundtrip floats; serde_json emits identical bytes for these). The integral repair-passthrough 1 renders as integer "1" — a bare serde_json f64 prints "1.0", so ruke-contracts keeps the integer branch. Do NOT normalize the TS side.' },
+      { path: "decided_by", comparison: "byte-exact", note: '"in-process-deliverable-match" | "in-process-deliverable-ambiguous" (§4a mixed deliverables) | "in-process-fallback" (internal-only) | (chat-internal-only: "repair-passthrough")' },
       { path: "stripped_prompt", comparison: "byte-exact", note: "ALWAYS verbatim === incoming message" },
       { path: "skill_to_load", comparison: "byte-exact", note: "core skill name (MODE_SKILL) or null; null MUST serialize as JSON null (present), not omitted" },
       { path: "allowed_code_fence", comparison: "byte-exact", note: "string or null; null MUST serialize as JSON null (present), not omitted" },
-      { path: "disable_validators", comparison: "byte-exact", note: "string array; ORDER significant (INTENT_ORDER minus active)" },
+      { path: "disable_validators", comparison: "byte-exact", note: "string array; ORDER significant (RENDERER_MODES order minus the active mode)" },
       { path: "enable_validator", comparison: "byte-exact", note: "ALWAYS the active mode id (observed for excel AND standard_chat)" },
       { path: "task_constraints", comparison: "byte-exact", note: "always [] in the in-process engine" },
       { path: "extracted_entities", comparison: "byte-exact", note: "always [] in the in-process engine" },
@@ -171,7 +177,7 @@ describe("golden: decision envelope serialization", () => {
     expect(extras, `envelope carries keys not in the ledger: ${extras.join(",")}`).toEqual([]);
 
     writeJsonFixture("serialization/01-decision-envelope-fields.json", {
-      referenceCall: { message: "spreadsheet please" },
+      referenceCall: { message: "make a spreadsheet" },
       envelopeKeyOrder: Object.keys(env),
       fields: LEDGER,
       neverPresentFields: NEVER_PRESENT.map((k) => ({ path: k, note: "OMITTED from the JSON object — absence, not null. Rust struct must skip-serialize these (serde default+skip) or leave them out entirely." })),
@@ -179,8 +185,11 @@ describe("golden: decision envelope serialization", () => {
     }, {
       scenario: "DecisionEnvelope field-by-field comparison classes",
       semantics:
-        "Ledger of every envelope field with its comparison class. The confidence '1' vs serde '1.0' and " +
-        "the omitted-vs-null lfm_input/lfm_raw fields are the two known serializer traps for Parts 3/4.",
+        "Ledger of every envelope field with its comparison class. The §4a confidence rendering (0.8/0.5 " +
+        "floats; integral 1 only for the repair-passthrough envelope) and the omitted-vs-null " +
+        "lfm_input/lfm_raw fields are the known serializer traps, resolved in " +
+        "ruke-contracts::serialize_confidence (fixture re-recorded 2026-11-13: the pre-§4a note pinned " +
+        "confidence 1 for EVERY decision envelope, which §4a reclassifies as false certainty).",
       comparison: "semantic",
       harness: HARNESS,
       env: ENV_PRE,
