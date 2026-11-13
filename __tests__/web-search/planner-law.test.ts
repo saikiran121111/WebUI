@@ -600,6 +600,150 @@ describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror r
     expect(demand.missing_claims).toContain("additional independent sources");
   });
 
+  /* ── §5 (2026-11-13 brief): "Invalid/future dates must not
+     automatically satisfy freshness" + "Compare the same entity/
+     variant/metric/unit/place/time before declaring a contradiction.
+     Alpha's price and Beta's price are not contradictory merely
+     because they differ." Novel entities (Vantage-X, Corvus-Y, Nimbus,
+     Helios), places (Bortnia, Crelandia) and years below — test data
+     ONLY, never mirrored in production heuristics. Every changed
+     heuristic keeps a positive control beside it. ── */
+
+  it("future_dated_evidence_never_evidences_a_freshness_band", () => {
+    // deep: demandWaveQueries > 0 only arms the gap demand at this depth.
+    const dd = dec("deep", "week");
+    const law = emptyLaw("vantage-x price", dd);
+    const dated = (sourceId: string, domain: string, publishedAt: string): EvidencePassage => ({
+      ...ep(sourceId, domain, "Vantage-X tablet price is 49 dollars"),
+      publishedAt,
+    });
+    const packets = [pk("s1", "a.com", "direct"), pk("s2", "b.com", "direct")];
+
+    // THE DEFECT: the lookback was one-sided (now - t <= band), so any
+    // future stamp — now - t is negative — trivially satisfied every
+    // freshness band.
+    const future = evaluateSufficiency(
+      packets,
+      [dated("s1", "a.com", "2099-01-01T00:00:00Z"), dated("s2", "b.com", "2099-01-02T00:00:00Z")],
+      cov(),
+      dd,
+      law,
+    );
+    expect(future.freshnessOk).toBe(false);
+    expect(future.stopEarly).toBe(false);
+    const demand = buildGapDemand("vantage-x price", cov(), future, dd, law, [])!;
+    expect(demand.missing_claims).toContain("fresh dated evidence");
+
+    // Positive control 1: publication metadata carries timezone/clock
+    // slop — a modest future skew must still satisfy the band (the fix
+    // is a bounded tolerance, not a zero).
+    const skewed = evaluateSufficiency(
+      packets,
+      [
+        dated("s1", "a.com", new Date(Date.now() + 2 * 3_600_000).toISOString()),
+        dated("s2", "b.com", new Date(Date.now() + 2 * 3_600_000).toISOString()),
+      ],
+      cov(),
+      dd,
+      law,
+    );
+    expect(skewed.freshnessOk).toBe(true);
+    expect(skewed.stopEarly).toBe(true);
+
+    // Positive control 2 (2026-11-04 law, untouched): an UNPARSEABLE
+    // date passes — absence of a parseable date is not proof of
+    // staleness.
+    const junk = evaluateSufficiency(
+      packets,
+      [dated("s1", "a.com", "not-a-date"), dated("s2", "b.com", "no-such-day 2026")],
+      cov(),
+      dd,
+      law,
+    );
+    expect(junk.freshnessOk).toBe(true);
+  });
+
+  const contra = (t1: string, t2: string) => {
+    const dd = dec("deep", "any");
+    const law = emptyLaw("vantage-x price", dd);
+    const report = evaluateSufficiency(
+      [pk("s1", "a.com", "direct"), pk("s2", "b.com", "direct")],
+      [ep("s1", "a.com", t1), ep("s2", "b.com", t2)],
+      cov(),
+      dd,
+      law,
+    );
+    return { report, dd, law };
+  };
+
+  it("disjoint_named_entities_never_contradict", () => {
+    // The brief's rule, novel entities: two DIFFERENT products priced
+    // differently are not a contradiction — mere difference is not
+    // comparison.
+    const { report, dd, law } = contra(
+      "Vantage-X Pro tablet price $499",
+      "Corvus-Y Ultra laptop price $349",
+    );
+    expect(report.contradictionSuspected).toBe(false);
+    expect(report.contradictionMetrics).toEqual([]);
+    expect(report.stopEarly).toBe(true); // every other gate already passes
+    expect(buildGapDemand("vantage-x price", cov(), report, dd, law, [])).toBeNull();
+  });
+
+  it("same_entity_same_unit_difference_is_still_a_contradiction", () => {
+    // Positive control: the comparability gate must NOT disarm a
+    // genuine conflict (same anchors, same currency, different numbers).
+    const { report, dd, law } = contra(
+      "Vantage-X Pro tablet price $499",
+      "Vantage-X Pro tablet price jumped to $549",
+    );
+    expect(report.contradictionSuspected).toBe(true);
+    expect(report.contradictionMetrics).toEqual(["price"]);
+    expect(report.stopEarly).toBe(false);
+    const demand = buildGapDemand("vantage-x price", cov(), report, dd, law, [])!;
+    expect(demand.missing_claims).toContain("conflicting price across sources");
+  });
+
+  it("variant_words_separate_values_without_being_entities", () => {
+    // "model" names a category, never the compared variant — the
+    // variant words themselves (Pro/Basic) are the anchors.
+    const { report } = contra("the Pro model price is $49", "the Basic model price is $19");
+    expect(report.contradictionSuspected).toBe(false);
+  });
+
+  it("different_currencies_are_not_comparable_values", () => {
+    // Same entity, same metric — but €899 vs $949 are different
+    // metrics' values, so NO contradiction may be declared.
+    const { report } = contra("Nimbus phone price €899", "Nimbus phone price $949");
+    expect(report.contradictionSuspected).toBe(false);
+  });
+
+  it("different_scales_are_not_comparable_but_the_same_scale_is", () => {
+    expect(
+      contra("Helios revenue reached $5 million", "Helios revenue reached $5 billion")
+        .report.contradictionSuspected,
+    ).toBe(false);
+    // Positive control: scale AGREEMENT never disarms the scan.
+    expect(
+      contra("Helios revenue reached $5 million", "Helios revenue reached $7 million")
+        .report.contradictionSuspected,
+    ).toBe(true);
+  });
+
+  it("place_and_time_context_separate_values", () => {
+    const place = contra("In Bortnia the price is 100", "In Crelandia the price is 60");
+    expect(place.report.contradictionSuspected).toBe(false);
+    const time = contra("By 2030 the price is 40", "By 2031 the price is 60");
+    expect(time.report.contradictionSuspected).toBe(false);
+  });
+
+  it("same_value_written_differently_is_not_a_difference", () => {
+    // 10.50 and 10.5 are ONE number — the old scan compared value
+    // STRINGS and fabricated a difference out of formatting.
+    const { report } = contra("The price is 10.50 dollars", "The price is 10.5 dollars");
+    expect(report.contradictionSuspected).toBe(false);
+  });
+
   it("gap_demand_variants_never_repeat_a_used_query", () => {
     const deep = dec("deep", "year");
     const prompt = "rust performance price report analysis final extra";

@@ -676,34 +676,198 @@ function countedSourceIds(packets: EvidencePacket[]): Set<string> {
   return ok;
 }
 
-// Contradiction scan: same metric word, different numeric values from
-// DIFFERENT sources. Currency symbols stay outside the pattern body so
-// the Rust mirror can share the ASCII pattern (post-check adds them).
-const METRIC_VALUE_RE =
-  /\b(price|cost|salary|revenue|funding|valuation|population|score|rating)\b\D{0,12}?(\d[\d,]*(?:\.\d+)?)/gi;
+// Contradiction scan (TS-only — the planner_law.rs mirror died with the
+// 2026-11-03 TS rollback; the stale "Rust mirror" parity comment retired
+// 2026-11-13 §5).
+//
+// §5 law (2026-11-13 brief): "Compare the same entity/variant/metric/
+// unit/place/time before declaring a contradiction. Alpha's price and
+// Beta's price are not contradictory merely because they differ."
+// A metric is suspected conflicting ONLY when a cross-source value PAIR
+// passes the comparability gate:
+//   • the NUMBERS differ — 10.50 and 10.5 are ONE value (the old scan
+//     compared value STRINGS and fabricated differences out of format);
+//   • the units do not contradict — explicit currencies or scales that
+//     DISAGREE (€ vs $, "million" vs "billion") end comparability; an
+//     absent unit is a WILDCARD, so "10.50 dollars" vs plain "12.00"
+//     stays comparable (missing unit metadata proves nothing);
+//   • the clause anchors are not DISJOINT — content words (entity,
+//     variant, place, year) in a fixed window around the match.
+//     {vantage-x, pro, tablet} vs {corvus-y, laptop} proves two
+//     subjects, not one conflict. Generic category words ("model",
+//     "version", ...) name a KIND, never the compared value, so they
+//     never anchor; and a MISSING anchor on either side keeps the pair
+//     comparable — the passages were collected FOR this task's subject,
+//     and inventing a separation guesses exactly as hard as inventing a
+//     conflict.
+// The scan only ever SUSPENDS a suspicion (it adds gap-wave demand and
+// blocks stopEarly), so an incomparable pair fails toward honest
+// unknown: no "conflicting ..." claim is ever asserted from an
+// unproven pair. The metric vocabulary is the same English word list
+// the scan has always used (documented limitation: non-Latin passages
+// never match the pattern at all), now derived once so the pattern and
+// the anchor filter can never drift apart.
+const CONTRA_METRIC_WORDS = [
+  "price", "cost", "salary", "revenue", "funding", "valuation",
+  "population", "score", "rating",
+];
+const METRIC_VALUE_RE = new RegExp(
+  String.raw`\b(${CONTRA_METRIC_WORDS.join("|")})\b\D{0,12}?(\d[\d,]*(?:\.\d+)?)`,
+  "gi",
+);
+const CONTRA_METRIC_FORMS = new Set([
+  ...CONTRA_METRIC_WORDS, "prices", "costs", "salaries", "revenues",
+  "valuations", "populations", "scores", "ratings",
+]);
+// Anchor noise classes (English-only, exactly like the metric pattern):
+const CONTRA_ANCHOR_STOP = new Set([
+  "the", "a", "an", "and", "or", "but", "so", "then", "than", "of", "in",
+  "on", "at", "to", "for", "from", "by", "with", "as", "is", "are", "was",
+  "were", "be", "been", "being", "it", "its", "this", "that", "these",
+  "those", "there", "here", "they", "them", "their", "he", "she", "his",
+  "her", "not", "no", "very", "more", "most", "other", "some", "only",
+  "also", "just", "into", "over", "under", "about", "per", "each", "every",
+]);
+const CONTRA_GENERIC_WORDS = new Set([
+  "model", "models", "version", "versions", "variant", "variants",
+  "edition", "editions", "product", "products", "item", "items", "unit",
+  "units", "plan", "plans", "tier", "tiers", "package", "packages",
+  "option", "options", "type", "types", "kind", "kinds", "release",
+  "releases", "update", "updates",
+]);
+const CONTRA_SCALE_RE = /\b(?:thousand|million|billion|trillion)\b/gi;
+const CONTRA_CURRENCY_RE =
+  /[$€£₹]|\b(?:usd|dollars?|eur|euros?|gbp|pounds?|inr|rupees?|yen|yuan|renminbi|won|krw|cad|aud|chf|brl|rub|lira|dirham|rial)\b/giu;
+const CURRENCY_CANON: Record<string, string> = {
+  $: "usd", "€": "eur", "£": "gbp", "₹": "inr",
+  usd: "usd", dollar: "usd", dollars: "usd",
+  eur: "eur", euro: "eur", euros: "eur",
+  gbp: "gbp", pound: "gbp", pounds: "gbp",
+  inr: "inr", rupee: "inr", rupees: "inr",
+  yen: "jpy", yuan: "cny", renminbi: "cny",
+  won: "krw", krw: "krw", cad: "cad", aud: "aud", chf: "chf",
+  brl: "brl", rub: "rub", lira: "try", dirham: "aed", rial: "sar",
+};
+const CONTRA_UNIT_WORDS = new Set([
+  "thousand", "million", "billion", "trillion", "usd", "dollars",
+  "dollar", "eur", "euros", "euro", "gbp", "pounds", "pound", "inr",
+  "rupees", "rupee", "yen", "yuan", "renminbi", "won", "krw", "cad",
+  "aud", "chf", "brl", "rub", "lira", "dirham", "rial",
+]);
+// Same tokenizer shape as task-scope's TOKEN_RE (Unicode-aware); the
+// §5 comparison gate is language-neutral even though the metric
+// pattern is English-only.
+const CONTRA_TOKEN_RE = /[\p{L}\p{N}][\p{L}\p{N}'&_.+#-]*/gu;
+
+// The unit token nearest the value across the three regions that can
+// legally touch it (the metric→value gap, then a small margin on each
+// side). Region bases are absolute passage offsets so distances are
+// comparable.
+function nearestUnitToken(
+  regions: [string, number][],
+  valueStart: number,
+  re: RegExp,
+): string | null {
+  let best: string | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const [text, base] of regions) {
+    for (const u of text.matchAll(re)) {
+      const dist = Math.abs(base + (u.index ?? 0) - valueStart);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = u[0];
+      }
+    }
+  }
+  return best;
+}
+
+// Entity/variant/place/time anchors: content words flanking the match
+// (the matched span itself — metric word, gap filler, value — never
+// anchors). Numeric tokens <3 chars are fragments, not anchors.
+function metricAnchors(head: string, tail: string, value: number): string[] {
+  const out: string[] = [];
+  for (const raw of `${head} ${tail}`.matchAll(CONTRA_TOKEN_RE)) {
+    const t = raw[0].toLowerCase();
+    if (CONTRA_ANCHOR_STOP.has(t)) continue;
+    if (CONTRA_GENERIC_WORDS.has(t)) continue;
+    if (CONTRA_METRIC_FORMS.has(t)) continue;
+    if (CONTRA_UNIT_WORDS.has(t)) continue;
+    if (/^\d/.test(t)) {
+      if (t.length < 3) continue;
+      if (Number(t.replace(/[.,]/g, "")) === value) continue; // the value itself
+    }
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+interface MetricHit {
+  sourceId: string;
+  value: number;
+  currency: string | null;
+  scale: string | null;
+  anchors: string[];
+}
 
 function detectContradictions(passages: { sourceId: string; passageText: string }[]): { metrics: string[]; suspected: boolean } {
-  const byMetric = new Map<string, Map<string, Set<string>>>();
+  const byMetric = new Map<string, MetricHit[]>();
   for (const p of passages) {
     for (const m of p.passageText.matchAll(METRIC_VALUE_RE)) {
       const metric = m[1].toLowerCase();
-      const value = m[2].replace(/,/g, "");
-      if (!byMetric.has(metric)) byMetric.set(metric, new Map());
-      const per = byMetric.get(metric)!;
-      if (!per.has(p.sourceId)) per.set(p.sourceId, new Set());
-      per.get(p.sourceId)!.add(value);
+      const value = Number(m[2].replace(/,/g, ""));
+      if (!Number.isFinite(value)) continue;
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      const valueStart = end - m[2].length;
+      const beforeText = p.passageText.slice(Math.max(0, start - 16), start);
+      const gapText = m[0].slice(m[1].length, m[0].length - m[2].length);
+      const afterText = p.passageText.slice(end, Math.min(p.passageText.length, end + 16));
+      const regions: [string, number][] = [
+        [beforeText, start - beforeText.length],
+        [gapText, start + m[1].length],
+        [afterText, end],
+      ];
+      const cur = nearestUnitToken(regions, valueStart, CONTRA_CURRENCY_RE);
+      const scale = nearestUnitToken(regions, valueStart, CONTRA_SCALE_RE);
+      const hit: MetricHit = {
+        sourceId: p.sourceId,
+        value,
+        currency: cur ? CURRENCY_CANON[cur.toLowerCase()] ?? null : null,
+        scale: scale ? scale.toLowerCase() : null,
+        anchors: metricAnchors(
+          p.passageText.slice(Math.max(0, start - 90), start),
+          p.passageText.slice(end, Math.min(p.passageText.length, end + 90)),
+          value,
+        ),
+      };
+      if (!byMetric.has(metric)) byMetric.set(metric, []);
+      byMetric.get(metric)!.push(hit);
     }
   }
   const metrics: string[] = [];
-  for (const [metric, per] of byMetric) {
-    const values = new Set<string>();
-    let sourcesWithValues = 0;
-    for (const set of per.values()) {
-      if (set.size === 0) continue;
-      sourcesWithValues += 1;
-      for (const v of set) values.add(v);
+  for (const [metric, hits] of byMetric) {
+    let conflict = false;
+    outer: for (let i = 0; i < hits.length; i++) {
+      for (let j = i + 1; j < hits.length; j++) {
+        const a = hits[i];
+        const b = hits[j];
+        if (a.sourceId === b.sourceId) continue; // cross-source only (unchanged law)
+        if (a.value === b.value) continue; // same number, different format
+        if (a.currency && b.currency && a.currency !== b.currency) continue;
+        if (a.scale && b.scale && a.scale !== b.scale) continue;
+        if (
+          a.anchors.length &&
+          b.anchors.length &&
+          !a.anchors.some((t) => b.anchors.includes(t))
+        ) {
+          continue; // disjoint subject anchors — different things entirely
+        }
+        conflict = true;
+        break outer;
+      }
     }
-    if (sourcesWithValues >= 2 && values.size >= 2) metrics.push(metric);
+    if (conflict) metrics.push(metric);
   }
   return { metrics, suspected: metrics.length > 0 };
 }
@@ -714,6 +878,16 @@ function detectContradictions(passages: { sourceId: string; passageText: string 
  * inside a deliberately generous window — a page re-dated on update can
  * legitimately sit just outside the nominal band. An unparseable date
  * passes: absence of a parseable date is not proof of staleness.
+ *
+ * §5 (2026-11-13 brief): "Invalid/future dates must not automatically
+ * satisfy freshness." The window is TWO-SIDED now. A parseable stamp
+ * may lead the present by at most FRESHNESS_FUTURE_TOLERANCE_MS —
+ * publication metadata carries timezone/clock slop, so a page stamped
+ * slightly ahead is real — but anything further ahead (bogus or
+ * epoch-junk stamps) can never EVIDENCE a banded ask. The old
+ * single-sided lookback (now - t <= band) passed EVERY future date,
+ * because now - t is negative; "published 2099" silently satisfied
+ * "this week". Unparseable dates keep passing (that law is untouched).
  */
 const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
   realtime: 2,
@@ -722,11 +896,14 @@ const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
   month: 45,
   year: 400,
 };
+const FRESHNESS_FUTURE_TOLERANCE_MS = 86_400_000; // one day of clock/tz slop
 function publishedAtWithinBand(publishedAt: string, freshness: string): boolean {
   const t = Date.parse(publishedAt);
   if (!Number.isFinite(t)) return true;
+  const now = Date.now();
+  if (t - now > FRESHNESS_FUTURE_TOLERANCE_MS) return false;
   const days = FRESHNESS_LOOKBACK_DAYS[freshness] ?? 400;
-  return Date.now() - t <= days * 86_400_000;
+  return now - t <= days * 86_400_000;
 }
 
 /**
