@@ -9,9 +9,11 @@
  * enforces a strict top-level allowlist. Everything here is deterministic
  * text law so the answer never depends on an extra LLM call (§11.22).
  *
- * Domain-control law (search-policy correction 2026-11-02):
+ * Domain-control law (search-policy correction 2026-11-02; §4b clause-
+ * binding amendment 2026-11-13 — cues attach to their own clause, target,
+ * polarity, and provenance, never to an entire segment):
  * `blockedDomains` is a HARD exclusion populated ONLY when the USER
- * explicitly blocks a domain (a block-scope segment they wrote) or a
+ * explicitly blocks a domain (a block cue bound to that domain token) or a
  * request-level domain policy requires it — never auto-populated because
  * a source is merely weaker. Reddit/Quora/Wikipedia/forums are NEVER
  * blocked by default: their weakness is a RANKING problem owned by the
@@ -105,17 +107,70 @@ export interface PlannerLaw {
   budget: SearchBudget;
 }
 
-// Sentence segmentation must NOT shred dotted domains: a "." splits only
-// when it ends a sentence (whitespace or end-of-text follows), while "!",
-// "?", and newlines always split. No lookaround (regex-crate parity):
-// `(?:\s|$)` consumes the terminator. ⇔ re_segment_split in planner_law.rs.
-const SEGMENT_SPLIT_RE = /(?:[!?\n]+|\.(?:\s|$))/;
+// §4b clause segmentation (2026-11-13 brief): an instruction binds to its
+// OWN clause. A "." splits only when it ENDS a sentence (whitespace or
+// end-of-text follows) so dotted domains ("alpha.com") survive; ";", "!",
+// "?", and newlines always split — the missing ";" was the audited hole:
+// "Do not use alpha.com; use beta.com." used to be ONE segment, so its
+// block cue draped "use beta.com" too. No lookaround: `(?:\s|$)` consumes
+// the terminator. (The retired comment claimed parity with
+// `re_segment_split` in planner_law.rs — that mirror was removed with the
+// crate in the 2026-11-03 TS rollback; this layer is TS-only.)
+const SEGMENT_SPLIT_RE = /(?:[!?\n;]+|\.(?:\s|$))/;
 const DOMAIN_TOKEN_RE = /(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}/gi;
 const SITE_OP_RE = /\bsite:\s*([a-z0-9][a-z0-9.:-]*(?:\/[^\s]*)?)/gi;
-const ONLY_SCOPE_RE =
-  /\bonly\s+(?:search|searching|use|using|check|checking|consult|look|refer|stick|restrict|trust|results?|from)\b/i;
-const BLOCK_SCOPE_RE =
-  /\b(?:don'?t|do\s+not|never|avoid|skip|exclude|without)\b/i;
+/**
+ * §4b polarity cues (2026-11-13 brief). These REPLACE the segment-level
+ * ONLY_SCOPE_RE/BLOCK_SCOPE_RE tests: one cue draping a whole segment
+ * made "Do not use alpha.com; use beta.com." block BOTH domains and
+ * "Only use alpha.com, never beta.com." allow BOTH. Polarity now binds
+ * per token: the nearest cue starting BEFORE the token inside the
+ * token's own clause decides it; a block cue earlier than an allow cue
+ * governs it ("never trust X" blocks X); a token with no preceding cue
+ * creates NO policy at all (a bare mention is never an allow-list entry).
+ */
+const ALLOW_CUE_RE =
+  /\b(?:only|just|exclusively|purely|solely|stick to|restrict(?:ed)? to|confine(?:d)? to|limit(?:ed)? to|trust)\b/gi;
+const BLOCK_CUE_RE =
+  /\b(?:don'?t|do\s+not|does\s+not|never|avoid|skip|exclude|without)\b/gi;
+/**
+ * §4b provenance masking (2026-11-13 brief): quoted speech, typographic
+ * quotes, guillemets, inline code, and fenced code NEVER create user
+ * policy — "Explaining a quoted restriction can activate that
+ * restriction" was the audited defect. Spans become equal-length blanks
+ * so every clause/cue/token offset stays aligned. ASCII apostrophes are
+ * deliberately NOT span delimiters: they sit inside block cues ("don't").
+ */
+const FENCED_CODE_RE = /```[\s\S]*?```/g;
+const QUOTE_SPAN_RE = /`[^`\n]*`|"[^"]*"|“[^”]*”|«[^»]*»/g;
+function maskNonUserSpans(text: string): string {
+  return text
+    .replace(FENCED_CODE_RE, (m) => " ".repeat(m.length))
+    .replace(QUOTE_SPAN_RE, (m) => " ".repeat(m.length));
+}
+
+interface CuePos {
+  start: number;
+  block: boolean;
+}
+
+/**
+ * Effective polarity of one token occurrence (true = blocked, false =
+ * allowed, null = the mention creates no policy). Cues sorted by start;
+ * only cues starting BEFORE the token count. The nearest cue wins,
+ * except that a block cue governs any allow cue following it in the same
+ * clause ("never trust X" → blocked; "only use X, never Y" → X allowed,
+ * Y blocked).
+ */
+function tokenPolarity(cues: CuePos[], tokenStart: number): boolean | null {
+  let polarity: boolean | null = null;
+  for (const c of cues) {
+    if (c.start >= tokenStart) break;
+    if (c.block) polarity = true;
+    else if (polarity === null) polarity = false;
+  }
+  return polarity;
+}
 /** Platform names usable as block verbs without a written domain token.
  *  NEVER a default block-list: consulted ONLY inside block-scope segments
  *  the USER wrote (policy correction 2026-11-02 — weak sources are softly
@@ -214,20 +269,37 @@ export function derivePlannerLaw(
       ? [...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]
       : [];
 
-  for (const seg of userPrompt.split(SEGMENT_SPLIT_RE)) {
-    const domains = (seg.match(DOMAIN_TOKEN_RE) ?? []).map(normalizeDomain);
+  // §4b domain-policy law (2026-11-13 brief): instructions bind to their
+  // own CLAUSE, their own TARGET token, their own POLARITY, and their own
+  // PROVENANCE. Quoted/code spans are masked (space-filled, offsets
+  // preserved) BEFORE scanning — explaining a quoted restriction is not
+  // user policy. Every domain/platform token occurrence then takes its
+  // polarity from the cue law above; a cueless mention creates no policy.
+  const policyText = maskNonUserSpans(userPrompt);
+  for (const clause of policyText.split(SEGMENT_SPLIT_RE)) {
+    const cues: CuePos[] = [];
+    for (const m of clause.matchAll(ALLOW_CUE_RE)) cues.push({ start: m.index!, block: false });
+    for (const m of clause.matchAll(BLOCK_CUE_RE)) cues.push({ start: m.index!, block: true });
+    if (cues.length === 0) continue;
+    cues.sort((a, b) => a.start - b.start);
+
+    // Every token occurrence keeps its own start so per-occurrence
+    // polarity is exact ("only use X, never Y" has BOTH polarities).
+    const occurrences: { domain: string; start: number }[] = [];
+    for (const m of clause.matchAll(DOMAIN_TOKEN_RE)) {
+      occurrences.push({ domain: normalizeDomain(m[0]), start: m.index! });
+    }
     // Plural-tolerant lookup: "don't use reddits" still blocks reddit.com.
-    const names = (seg.match(BLOCK_NAMES_RE) ?? []).flatMap((n) => {
-      const k = n.toLowerCase();
+    for (const m of clause.matchAll(BLOCK_NAMES_RE)) {
+      const k = m[0].toLowerCase();
       const d = NAME_TO_DOMAIN[k] ?? NAME_TO_DOMAIN[k.replace(/s$/, "")];
-      return d ? [d] : [];
-    });
-    const tokens = [...new Set([...domains, ...names])];
-    if (tokens.length === 0) continue;
-    if (ONLY_SCOPE_RE.test(seg)) {
-      for (const d of tokens) pushUnique(allowed, d);
-    } else if (BLOCK_SCOPE_RE.test(seg)) {
-      for (const d of tokens) pushUnique(blocked, d);
+      if (d) occurrences.push({ domain: d, start: m.index! });
+    }
+    for (const o of occurrences) {
+      if (!o.domain) continue;
+      const polarity = tokenPolarity(cues, o.start);
+      if (polarity === null) continue;
+      pushUnique(polarity ? blocked : allowed, o.domain);
     }
   }
 

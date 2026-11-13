@@ -1,7 +1,11 @@
 /**
- * P4 planner-law parity suite (§11.25 suites B+F; ⇔ planner_law.rs
- * `mod tests`). Shared prompts/expectations with the Rust mirror — change
- * one side, change both in the same commit.
+ * P4 planner-law suite (§11.25 suites B+F). The Rust mirror
+ * (planner_law.rs mod tests) was removed with the crate in the
+ * 2026-11-03 TS rollback — this law layer is TS-only; the pinned prompts
+ * document the domain-policy law itself, not a cross-runtime replay.
+ * §4b (2026-11-13 brief): a domain instruction binds to its own CLAUSE,
+ * its own TARGET, its own POLARITY, and its own PROVENANCE — never to an
+ * entire segment, and never through a quote or a code span.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -103,6 +107,78 @@ describe("planner law (⇔ planner_law.rs)", () => {
     // prior, they are never auto-blocked).
     const law = emptyLaw("avoid reddits at all costs", dec("standard", "none"));
     expect(law.blockedDomains).toEqual(["reddit.com"]);
+  });
+
+  /* ── §4b clause-bound domain policy (2026-11-13 brief) ─────────────── */
+
+  it("s4b_do_not_clause_blocks_only_its_own_target", () => {
+    // Brief reproduction: "Do not use alpha.com; use beta.com." used to be
+    // ONE segment whose block cue blocked BOTH domains.
+    const law = emptyLaw("Do not use alpha.com; use beta.com.", dec("standard", "none"));
+    expect(law.blockedDomains).toEqual(["alpha.com"]);
+    // The second clause carries NO cue: a bare "use beta.com" is neither
+    // blocked NOR a fabricated allow-list entry — it creates no policy.
+    expect(law.allowedDomains).toEqual([]);
+  });
+
+  it("s4b_never_clause_blocks_only_its_own_target", () => {
+    // Brief reproduction: "Only use alpha.com, never beta.com." used to
+    // ALLOW both — the segment-level only-scope test draped the segment
+    // and the block cue was ignored entirely.
+    const law = emptyLaw("Only use alpha.com, never beta.com.", dec("standard", "none"));
+    expect(law.allowedDomains).toEqual(["alpha.com"]);
+    expect(law.blockedDomains).toEqual(["beta.com"]);
+  });
+
+  it("s4b_quoted_restriction_never_becomes_user_policy", () => {
+    // Brief reproduction: "Explaining a quoted restriction can activate
+    // that restriction." The quoted span is masked before scanning; the
+    // surrounding words carry no cue-bound token.
+    const law = emptyLaw(
+      'My old boss always said "never use reddit.com" — that mindset aged badly.',
+      dec("standard", "none"),
+    );
+    expect(law.blockedDomains).toEqual([]);
+    expect(law.allowedDomains).toEqual([]);
+  });
+
+  it("s4b_code_spans_and_fences_create_no_policy", () => {
+    // Provenance law: code is not user policy. The inline span and the
+    // fence both mask to blanks, offsets included.
+    const law = emptyLaw(
+      "the snippet `skip medium.com` compiles and the fence below runs:\n```\ndon't use twitter.com\n```\nlooks fine",
+      dec("standard", "none"),
+    );
+    expect(law.blockedDomains).toEqual([]);
+  });
+
+  it("s4b_block_cue_governs_a_later_allow_cue_in_its_clause", () => {
+    // "Never trust X" is a block, not an allow — polarity composition,
+    // not just nearest-cue.
+    const law = emptyLaw("Never trust quora.com for medical advice.", dec("standard", "none"));
+    expect(law.blockedDomains).toEqual(["quora.com"]);
+    expect(law.allowedDomains).toEqual([]);
+  });
+
+  it("s4b_positive_controls_cue_binding_survives", () => {
+    const std = dec("standard", "none");
+    // One block cue binds every target of its own conjoined clause.
+    expect(emptyLaw("do not use reddit.com or quora.com", std).blockedDomains)
+      .toEqual(["reddit.com", "quora.com"]);
+    // An allow cue still allows its own clause's targets.
+    expect(emptyLaw("only use github.com for this library", std).allowedDomains)
+      .toEqual(["github.com"]);
+    // A trust cue is an explicit restriction by the user's own words.
+    expect(emptyLaw("trust github.com, nowhere else matters", std).allowedDomains)
+      .toEqual(["github.com"]);
+    // A cueless mention creates NO policy at all (never a default block).
+    const mention = emptyLaw("what do people on reddit.com say about this?", std);
+    expect(mention.blockedDomains).toEqual([]);
+    expect(mention.allowedDomains).toEqual([]);
+    // A block in one sentence never bleeds into the next sentence.
+    const twoSent = emptyLaw("Don't use twitter.com. Check facebook.com instead.", std);
+    expect(twoSent.blockedDomains).toEqual(["twitter.com"]);
+    expect(twoSent.allowedDomains).toEqual([]); // "Check" is not an allow cue
   });
 
   it("derive_prompt_site_operator_is_allowed", () => {
