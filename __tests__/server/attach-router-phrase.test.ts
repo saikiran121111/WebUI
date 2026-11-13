@@ -1,7 +1,8 @@
 /**
  * I22 router additions pinned for TS⇔Rust parity (the ruke-attach router
- * mirrors these exact boundary cases, including the ASCII-word-byte `\b`
- * emulation): "the last N minutes" resolves against the index's own
+ * mirrors these exact boundary cases, including the §6 Unicode word class
+ * `[\p{L}\p{N}\p{M}_]` ⇔ router.rs `is_word_char`): "the last N minutes"
+ * resolves against the index's own
  * duration at the TURN layer (routeQuery only carries `lastSec`), and the
  * exhaustive phrase list grew the natural continuations users actually
  * type. Adversarial spellings pin the boundary semantics so the Rust
@@ -19,7 +20,7 @@ describe("last-N-minutes (I22)", () => {
     expect(routeQuery("cover the last 2m of the lecture")).toEqual({ mode: "time_range", lastSec: 120 });
     expect(routeQuery("what happened during the last 90 minutes")).toEqual({ mode: "time_range", lastSec: 5400 });
   });
-  it("boundary parity spellings (ASCII-word-byte rule)", () => {
+  it("boundary parity spellings (Unicode-word-class rule)", () => {
     // "lastx": 'x' is a word byte on BOTH sides of the boundary ⇒ no match.
     expect(routeQuery("lastx 10 minutes into it").mode).toBe("point_qa");
     // Trailing glue "minutesx": every minutes?|mins?|m alternative word-glues
@@ -28,9 +29,11 @@ describe("last-N-minutes (I22)", () => {
     // whole_video keyword match and takes over.
     expect(routeQuery("last 10 minutesx into it").mode).toBe("point_qa");
     expect(routeQuery("last 10 minutesx summary").mode).toBe("whole_video");
-    // "cafélast": é is NOT a word byte in JS \b (non-unicode regex) nor in
-    // the Rust emulation ⇒ the boundary before 'l' exists on both sides.
-    expect(routeQuery("cafélast 10 minutes summary")).toEqual({ mode: "time_range", lastSec: 600 });
+    // §6 FLIP (was: { mode: "time_range", lastSec: 600 }): é IS a word char
+    // under the Unicode class, so "cafélast" is dead-candidate glue — the
+    // same route as the ASCII "minutesx summary" pin above: the whole_video
+    // keyword takes over. The OLD pin pinned the ASCII-\b defect itself.
+    expect(routeQuery("cafélast 10 minutes summary")).toEqual({ mode: "whole_video" });
   });
   it("absolute timestamps still win (lastMin rule runs after them)", () => {
     expect(routeQuery("12:34:567")).toEqual({ mode: "time_range", fromSec: 574, toSec: 934 });

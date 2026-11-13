@@ -1,13 +1,17 @@
 //! `lib/server/attachindex/router.ts` — regex-only query routing, zero LLM.
 //!
-//! WORD-BOUNDARY PARITY (`\b`): JS `\b` is ASCII-only (`[A-Za-z0-9_]`)
-//! while the regex crate's `\b` is Unicode-word, so every `\b` is STRIPPED
-//! from the Rust pattern and enforced manually: a candidate is accepted
-//! only when the byte before its start and the byte after its end are NOT
-//! ASCII word bytes (string edges count as non-word). A multibyte neighbor
-//! never looks like an ASCII word byte, matching JS's "non-ASCII char is a
-//! non-word char" behavior. On rejection the scan resumes at
-//! `candidate_start + 1` — the JS engine's per-position retry.
+//! WORD-BOUNDARY PARITY (§6 Unicode law): JS enforces boundaries with
+//! `(?<![\p{L}\p{N}\p{M}_])` / `(?![\p{L}\p{N}\p{M}_])`. (The retired JS
+//! `\b` was ASCII-only, so every non-ASCII letter looked like a boundary —
+//! "café1:45" routed where "this1:45" did not.) The regex crate has no
+//! lookaround, so every `\b` is STRIPPED from the Rust pattern and enforced
+//! manually: a candidate is accepted only when the CHAR before its start
+//! and the CHAR after its end are OUTSIDE `[\p{L}\p{N}\p{M}_]` (string
+//! edges count as outside). Combining marks belong to their word, so
+//! mark-final Indic/Thai words glue exactly like Latin words. On rejection
+//! the scan resumes at `candidate_start + 1` — the JS engine's per-position
+//! retry (every pattern here starts with an ASCII byte, so that offset is
+//! always a char boundary).
 //!
 //! Why one candidate per start position suffices (no length re-tries):
 //! every pattern's variable-width piece (`\d{1,2}`, `\d{1,3}`, `minutes?`,
@@ -93,20 +97,29 @@ fn whole_kw() -> &'static Regex {
     })
 }
 
-/// `PRONOUN_RE` (`/\b(…)\b/gi` from `turn.ts`) lives here so the
-/// word-boundary emulation exists exactly once.
+/// `PRONOUN_RE` from `turn.ts` lives here so the §6 Unicode word-boundary
+/// emulation exists exactly once.
 pub(crate) fn pronoun_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| re(r"(?i)(?:why|how come|that|this|these|those|it|its|they|them|there|here)"))
 }
 
-fn is_ascii_word_byte(b: u8) -> bool {
-    b == b'_' || b.is_ascii_alphanumeric()
+/// §6 word class, byte-for-byte the JS lookaround class
+/// `[\p{L}\p{N}\p{M}_]` (letters, numbers, combining marks, underscore).
+fn word_class() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| re(r"[\p{L}\p{N}\p{M}_]"))
+}
+
+fn is_word_char(c: char) -> bool {
+    word_class().is_match(c.encode_utf8(&mut [0u8; 4]))
 }
 
 fn word_bounds_ok(hay: &str, start: usize, end: usize) -> bool {
-    let prev_ok = start == 0 || !is_ascii_word_byte(hay.as_bytes()[start - 1]);
-    let next_ok = end == hay.len() || !is_ascii_word_byte(hay.as_bytes()[end]);
+    // Match offsets are always char boundaries, so the neighbors are whole
+    // code points — exactly what the JS `/u` lookbehind/lookahead reads.
+    let prev_ok = start == 0 || !is_word_char(hay[..start].chars().next_back().expect("char boundary"));
+    let next_ok = end == hay.len() || !is_word_char(hay[end..].chars().next().expect("char boundary"));
     prev_ok && next_ok
 }
 
@@ -297,8 +310,8 @@ mod tests {
         // Left-glued digits: "this1:45" — every candidate has a word byte
         // before it ⇒ no time at all.
         assert_eq!(route_query("this1:45").mode, QueryMode::PointQa);
-        // Non-ASCII neighbor is NOT an ASCII word byte ⇒ boundary OK.
-        // c = 1*60+45 = 105 ⇒ window (max(0,105-180), 105+180).
+        // Spaced boundary survives the §6 class change (c = 105 ⇒ window
+        // (max(0,105-180), 105+180); the boundary is the SPACE, not é).
         assert_eq!(tr("café 1:45"), (Some(0.0), Some(285.0)));
         // Trailing-glued word after "first 5 minutes".
         assert_eq!(route_query("first 5 minutesx").mode, QueryMode::PointQa);
@@ -310,6 +323,56 @@ mod tests {
         );
         // "everytime" has no space inside "every time".
         assert_eq!(route_query("everytime we meet").mode, QueryMode::PointQa);
+    }
+
+    /// §6 independently-generated held-out family (⇔ the TS
+    /// `attach-boundary-heldout` suite): glue is glue in EVERY script —
+    /// the retired ASCII-`\b` emulation routed non-ASCII-glued timestamps
+    /// because a multibyte neighbor never looked like an ASCII word byte.
+    /// Combining marks (Telugu vowel signs, Devanagari virama, Thai sara)
+    /// join the class, so mark-final words glue exactly like Latin words.
+    #[test]
+    fn unicode_word_class_heldout() {
+        for q in [
+            "café1:45",
+            "ప్రిస్టూడియో2:30",
+            "दृश्य3:20",
+            "कंप्यूटर्3:20",
+            "片段1:05",
+            "วิดีโอ4:45",
+        ] {
+            assert_eq!(route_query(q).mode, QueryMode::PointQa, "{q}");
+        }
+        // Positive controls: spaced boundaries route exactly like ASCII.
+        assert_eq!(tr("café 1:45"), (Some(0.0), Some(285.0)));
+        assert_eq!(
+            tr("ప్రిస్టూడియో 2:30 నుండి 4:15 వరకు"),
+            (Some(150.0), Some(255.0))
+        );
+        assert_eq!(tr("दृश्य 3:20"), (Some(20.0), Some(380.0)));
+        assert_eq!(tr("片段 1:05"), (Some(0.0), Some(245.0)));
+        assert_eq!(tr("วิดีโอ 4:45"), (Some(105.0), Some(465.0)));
+        // Mark-final glue on the whole_video cue (Telugu anusvara) vs spaced.
+        assert_eq!(route_query("జాప్తంsummarize").mode, QueryMode::PointQa);
+        assert_eq!(
+            route_query("జాప్తం summarize").mode,
+            QueryMode::WholeVideo
+        );
+        // Pronoun guard: glued pronouns are never counted; spaced ones are.
+        assert_eq!(
+            count_bounded(
+                pronoun_re(),
+                "caféit and caféthey explain how the rendering pipeline handles occlusion culling in deferred shaders for this scene"
+            ),
+            1
+        );
+        assert_eq!(
+            count_bounded(
+                pronoun_re(),
+                "why does it look wrong when they bake that into the lightmap during this pass here"
+            ),
+            6
+        );
     }
 
     #[test]
@@ -356,10 +419,12 @@ mod tests {
             route_query("last 10 minutesx summary").mode,
             QueryMode::WholeVideo
         );
-        // é is not an ASCII word byte on either side ⇒ boundary survives.
+        // §6 FLIP (was last_sec Some(600.0)): é IS a word char under the
+        // Unicode class ⇒ "cafélast" is dead-candidate glue; the rest
+        // routes on its own (mirror of the TS attach-router-phrase pin).
         assert_eq!(
-            route_query("cafélast 10 minutes summary").last_sec,
-            Some(600.0)
+            route_query("cafélast 10 minutes summary").mode,
+            QueryMode::WholeVideo
         );
         // Absolute timestamps still win (this rule runs after them).
         assert_eq!(

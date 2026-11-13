@@ -66,6 +66,10 @@ const VECTORS: string[] = [
   "word  document", "word-document", "power  point", "render\nscene",
   // — held-out non-Latin (§6): the cue vocabulary is ENGLISH-ONLY —
   "कृपया pdf बनाकर दो", "స్ప్రెడ్‌షీట్ సృష్టించండి", "hi make pdf",
+  // — §6 \p{M} generalization: mark-joined Latin cues are GLUE (blocked),
+  //   the spaced controls route — the English verb keeps the cue law live —
+  "create కంప్యూటర్pdf", "create కంప్యూటర్ pdf",
+  "create कंप्यूटर्resume", "create कंप्यूटर् resume",
   // — retired anatomy/3d/cad vocabulary (2026-11-06/07) stays standard_chat —
   "an exploded view of the reactor core", "cutaway of the marine engine", "anatomy of a jet turbine",
   "isometric illustration of the server rack", "cross-section of the pump housing",
@@ -136,6 +140,13 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
     // The English-only cue vocabulary falls gracefully (§6 held-out non-Latin):
     expect(at("कृपया pdf बनाकर दो").active_mode).toBe("standard_chat");
     expect(at("hi make pdf").active_mode).toBe("pdf"); // control
+    // §6 \p{M}: words ending in combining marks (virama) glue Latin cues,
+    // exactly like Latin glue ("pdfx"); under the retired class the mark
+    // looked like a boundary and these fired.
+    expect(at("create కంప్యూటర్pdf").active_mode).toBe("standard_chat");
+    expect(at("create కంప్యూటర్ pdf").active_mode).toBe("pdf");
+    expect(at("create कंप्यूटर्resume").active_mode).toBe("standard_chat");
+    expect(at("create कंप्यूटर् resume").active_mode).toBe("docs");
     // Trim contract unchanged:
     expect(at("   make a deck \t").stripped_prompt).toBe("make a deck");
     expect(at("   make a deck \t").active_mode).toBe("ppt");
@@ -170,7 +181,7 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
         "the word vetoes it; convert/export governs the word directly as the SOURCE format (the word " +
         "after a to/into/as direction word is the output); summary/outline-style meta phrases mark " +
         "discussed material; two+ requested intents are ambiguous ('in-process-deliverable-ambiguous') " +
-        "— INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N} consuming word classes in BOTH " +
+        "— INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N}/\\p{M} consuming word classes in BOTH" +
         "engines: caféexcel/résumébuilder no longer split, bare résumé matches its own word, résumé2 " +
         "honestly misses. Honest confidence: 0.8 verb-bound, 0.5 miss/ambiguous — the retired blanket " +
         "1.0 was false certainty. Anatomy/3d/cad vocabulary stays standard_chat (retired 2026-11-06/07) " +

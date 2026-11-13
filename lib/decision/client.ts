@@ -94,8 +94,12 @@ const ARTIFACT_MODES: ArtifactMode[] = ["excel", "docs", "pdf", "ppt", "chart", 
  * Artifact WORD inventory (a word's mere presence proves nothing — the
  * cue/negation/direction/meta rules above decide whether it is requested).
  */
-const WB_L = String.raw`(?:^|[^\p{L}\p{N}_])`;
-const WB_R = String.raw`(?:[^\p{L}\p{N}_]|$)`;
+// §6 generalization: \p{M} (combining marks) joins the word class. Words in
+// Telugu/Devanagari/Thai end in marks (vowel signs, virama/matras), so the
+// old class treated the END of those words as a boundary — the cue rules
+// failed to generalize for exactly the scripts held-out vectors test.
+const WB_L = String.raw`(?:^|[^\p{L}\p{N}\p{M}_])`;
+const WB_R = String.raw`(?:[^\p{L}\p{N}\p{M}_]|$)`;
 const wordRe = (body: string) => new RegExp(`${WB_L}(?:${body})${WB_R}`, "giu");
 
 const ARTIFACT_WORD_RES: Record<ArtifactMode, RegExp> = {

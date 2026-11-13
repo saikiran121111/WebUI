@@ -136,7 +136,19 @@ function rules(ref: AttachmentRef): string {
 }
 
 const FOLLOWUP_MAX = 60;
-const PRONOUN_RE = /\b(why|how come|that|this|these|those|it|its|they|them|there|here)\b/gi;
+// §6: same Unicode word class as the router (⇔ ruke-attach router.rs
+// `pronoun_re` + `is_word_char`), so pronouns glued inside non-ASCII words
+// ("caféit") are never counted; JS `\b` counted them because é was not an
+// ASCII word byte. Variable-width lookbehind + \p classes need the `u` flag.
+const wordBoundaryRe = (body: string, flags: string) =>
+  new RegExp(
+    `${String.raw`(?<![\p{L}\p{N}\p{M}_])(?:${body})(?![\p{L}\p{N}\p{M}_])`}`,
+    `${flags}u`,
+  );
+const PRONOUN_RE = wordBoundaryRe(
+  "why|how come|that|this|these|those|it|its|they|them|there|here",
+  "gi",
+);
 
 /**
  * Multi-turn follow-up guard: a short ("why does that happen?") or

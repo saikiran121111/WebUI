@@ -54,8 +54,13 @@ use ruke_skills::jsstr::js_trim;
 
 /// Unicode word classes shared by every matcher (mirrors the TS `WB_L` /
 /// `WB_R` constants; `String.raw` there, raw strings here).
-const WB_L: &str = r"(?:^|[^\p{L}\p{N}_])";
-const WB_R: &str = r"(?:[^\p{L}\p{N}_]|$)";
+// §6 generalization: \p{M} joins the class. Indic/Thai words routinely END
+// in combining marks (vowel signs, virama), so without \p{M} the end of
+// those words looked like a boundary and cues fired through glue that Latin
+// script would block — failing to generalize for exactly the held-out
+// scripts. Mirrors the TS `client.ts` constants after the same change.
+const WB_L: &str = r"(?:^|[^\p{L}\p{N}\p{M}_])";
+const WB_R: &str = r"(?:[^\p{L}\p{N}\p{M}_]|$)";
 
 fn word_re(body: &str) -> Regex {
     Regex::new(&format!("(?i){WB_L}(?:{body}){WB_R}")).unwrap()
@@ -479,6 +484,27 @@ mod tests {
         assert_eq!(mode_for("create file.docx"), RendererMode::Docs);
         assert_eq!(mode_for("file.xlsx"), RendererMode::StandardChat);
         assert_eq!(mode_for("file.pptx"), RendererMode::StandardChat);
+    }
+
+    #[test]
+    fn mark_final_words_glue_like_latin_words() {
+        // §6 \p{M} generalization: Telugu/Devanagari words routinely end in
+        // combining marks (virama here). Under the retired class the mark
+        // looked like a boundary, so the Latin cue fired THROUGH glue that
+        // Latin script would block ("కంప్యూటర్pdf" ≠ "pdfx"). The English
+        // verb stays (the cue law needs one); only the boundary class is
+        // under test — the spaced control routes, the glued one must not.
+        assert_eq!(
+            mode_for("create కంప్యూటర్pdf"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(mode_for("create కంప్యూటర్ pdf"), RendererMode::Pdf);
+        // Same law for the docs cue joined by a Devanagari virama:
+        assert_eq!(
+            mode_for("create कंप्यूटर्resume"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(mode_for("create कंप्यूटर् resume"), RendererMode::Docs);
     }
 
     #[test]

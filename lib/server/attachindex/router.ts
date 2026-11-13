@@ -15,8 +15,22 @@ export interface RoutedQuery {
   lastSec?: number;
 }
 
-const HMS = /\b(\d{1,2}):([0-5]\d):([0-5]\d)\b/g;
-const MS = /\b(\d{1,2}):([0-5]\d)\b/g;
+/**
+ * §6 Unicode word-boundary law (⇔ ruke-attach router.rs `is_word_char`):
+ * JS `\b` is ASCII-only, so it treated every non-ASCII letter as a word
+ * BOUNDARY — "café1:45" fired the timestamp rules while "this1:45" did not.
+ * `[\p{L}\p{N}\p{M}_]` makes glue glue in EVERY script, and combining marks
+ * (Telugu vowel signs, Devanagari matras/virama, Thai sara) belong to their
+ * word, never to a boundary. Variable-width lookbehind is fine in V8; the
+ * `u` flag is required for the \p classes.
+ */
+const WB_L = String.raw`(?<![\p{L}\p{N}\p{M}_])`;
+const WB_R = String.raw`(?![\p{L}\p{N}\p{M}_])`;
+const wordRe = (body: string, flags = "") =>
+  new RegExp(`${WB_L}(?:${body})${WB_R}`, flags + (flags.includes("u") ? "" : "u"));
+
+const HMS = wordRe(String.raw`(\d{1,2}):([0-5]\d):([0-5]\d)`, "g");
+const MS = wordRe(String.raw`(\d{1,2}):([0-5]\d)`, "g");
 
 /**
  * Regex-only query routing (zero LLM calls). Order matters: explicit time
@@ -29,11 +43,11 @@ export function routeQuery(q: string): RoutedQuery {
   // Explicit timestamps: "from 1:00:00 to 1:30:00", "around 12:30".
   const times: number[] = [];
   const stripped = q
-    .replace(new RegExp(HMS.source, "g"), (_s, h, m, s) => {
+    .replace(HMS, (_s, h, m, s) => {
       times.push(+h * 3600 + +m * 60 + +s);
       return " ";
     })
-    .replace(new RegExp(MS.source, "g"), (_s, m, s) => {
+    .replace(MS, (_s, m, s) => {
       times.push(+m * 60 + +s);
       return " ";
     });
@@ -45,10 +59,10 @@ export function routeQuery(q: string): RoutedQuery {
     return { mode: "time_range", fromSec: Math.max(0, c - 180), toSec: c + 180 };
   }
 
-  const firstMin = /\bfirst\s+(\d{1,3})\s*(?:minutes?|mins?|m)\b/.exec(text);
+  const firstMin = wordRe(String.raw`first\s+(\d{1,3})\s*(?:minutes?|mins?|m)`).exec(text);
   if (firstMin) return { mode: "time_range", fromSec: 0, toSec: +firstMin[1] * 60 };
 
-  const atMin = /\b(?:at|around)\s+(?:minute|min)\s*(\d{1,3})\b/.exec(text);
+  const atMin = wordRe(String.raw`(?:at|around)\s+(?:minute|min)\s*(\d{1,3})`).exec(text);
   if (atMin) {
     const c = +atMin[1] * 60;
     return { mode: "time_range", fromSec: Math.max(0, c - 180), toSec: c + 180 };
@@ -56,24 +70,24 @@ export function routeQuery(q: string): RoutedQuery {
 
   // I22: "show me the last 10 minutes" — no absolute anchor exists until
   // the turn consults meta.durationSec.
-  const lastMin = /\blast\s+(\d{1,3})\s*(?:minutes?|mins?|m)\b/.exec(text);
+  const lastMin = wordRe(String.raw`last\s+(\d{1,3})\s*(?:minutes?|mins?|m)`).exec(text);
   if (lastMin) return { mode: "time_range", lastSec: +lastMin[1] * 60 };
 
-  const block = /\b(?:module|section|chapter|part|lesson|unit)\s+(\d{1,2})\b/.exec(text);
+  const block = wordRe(String.raw`(?:module|section|chapter|part|lesson|unit)\s+(\d{1,2})`).exec(text);
   if (block) return { mode: "sequential", blockIndex: +block[1] - 1 };
 
   if (
-    /\b(every time|all (?:the )?times|how many times|list every|every mention|each mention|wherever|any time|mentioned how often|all (?:the )?mentions?|list all)\b/.test(
-      text,
-    )
+    wordRe(
+      String.raw`every time|all (?:the )?times|how many times|list every|every mention|each mention|wherever|any time|mentioned how often|all (?:the )?mentions?|list all`,
+    ).test(text)
   ) {
     return { mode: "exhaustive" };
   }
 
   if (
-    /\b(summar(?:y|ize|ise)|outline|course notes|main points|key points|whole (?:video|course|lecture)|entire (?:video|course|lecture)|teach me the (?:whole|entire)|walk me through the (?:whole|entire)|from (?:the )?beginning to (?:the )?end)\b/.test(
-      text,
-    )
+    wordRe(
+      String.raw`summar(?:y|ize|ise)|outline|course notes|main points|key points|whole (?:video|course|lecture)|entire (?:video|course|lecture)|teach me the (?:whole|entire)|walk me through the (?:whole|entire)|from (?:the )?beginning to (?:the )?end`,
+    ).test(text)
   ) {
     return { mode: "whole_video" };
   }
