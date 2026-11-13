@@ -28,6 +28,7 @@
  */
 import type { SearchPlan } from "./metasearch";
 import type { SearchGateContext, SearchDecision } from "./types";
+import { splitCoreWords } from "./normalization";
 import { metasearch, stripUrlPlans } from "./metasearch";
 import { tokenize } from "./reranker";
 import type { TaskScope } from "../decision/task-scope";
@@ -549,6 +550,8 @@ const GAP_STOPWORDS = new Set([
   "is", "are", "was", "were", "be", "been", "being", "the", "a", "an",
   "for", "of", "in", "on", "at", "to", "and", "or", "with", "about",
   "from", "tell", "me", "please", "give", "show", "list", "any", "all",
+  // §5e: short function words belong on the list, not on a length filter.
+  "it", "we",
 ]);
 
 function sourceOperator(cls: string | null): string {
@@ -638,11 +641,12 @@ export function evaluateCoverage(
       // Every entity matched but the ANSWER unit is missing: derive the
       // recovery query from the user's own content words — never a
       // canned phrase list.
-      const words = userPrompt
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, " ")
-        .split(/\s+/)
-        .filter((w) => w.length > 2 && !GAP_STOPWORDS.has(w));
+      // §5e: shared Unicode-aware splitter (normalization.ts) — the old
+      // ASCII class dropped every non-Latin content word from the
+      // recovery query; the length filter now lives on the stop-list.
+      const words = splitCoreWords(userPrompt).filter(
+        (w) => !GAP_STOPWORDS.has(w),
+      );
       core = words.length > 0 ? words.join(" ") : userPrompt.trim();
     }
     gapQuery = sourceOperator(cls) + core;

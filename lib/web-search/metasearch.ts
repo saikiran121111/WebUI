@@ -27,6 +27,7 @@ import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
 import type { RawSearchResult, RankedResult } from "./types";
 import { FRAGMENT_ROUTE_RE } from "./types";
+import { splitCoreWords } from "./normalization";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
 import { scrubQuerySecrets } from "./ssrf";
@@ -167,8 +168,15 @@ export function normalizeUrl(raw: string): string {
  * Expanded meta-stopwords: non-topical query modifiers that do NOT
  * contribute to the core subject of a search. These are stripped from
  * `queryCoreTokens()` so "Next.js 15 App Router server actions error
- * handling best practices" yields ["next.js", "app", "router", "server",
- * "actions"] (not ["best", "practices", "error", "handling"]).
+ * handling best practices" yields ["next.js", "15", "app", "router",
+ * "server", "actions"] (not ["best", "practices", "error", "handling"]).
+ * §5e (2026-11-13) changes: the old version ALSO stopped bare numerals
+ * ("15"…"100") — dropping "100" while retaining "101" is incoherent, and
+ * numbers are content (identifiers/versions/quantities), so that block is
+ * removed. And since the implicit length>2 filter is GONE (code-unit
+ * length mangles every non-Latin script), short function words ("it",
+ * "we") and the contraction-FOLD forms are listed EXPLICITLY here — an
+ * auditable list, not an accidental character-count rule.
  */
 const META_STOP_WORDS = new Set([
   // generic modifiers
@@ -199,19 +207,25 @@ const META_STOP_WORDS = new Set([
   "rather", "too", "only", "the", "a", "an", "this", "that",
   "these", "those", "here", "there", "who", "whom", "whose",
   "shall", "may", "might", "must", "do", "does", "did",
-  "im", "ill", "ive", "dont", "cant", "wont", "our", "our",
-  "them", "they", "he", "she", "its", "her", "him", "us",
-  // standalone small numbers that are just version/quantity modifiers
-  "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
-  "25", "30", "32", "50", "100",
+  "im", "ill", "ive", "dont", "cant", "wont", "our",
+  "them", "they", "he", "she", "its", "her", "him", "us", "it", "we",
+  // §5e: apostrophes fold BEFORE splitting (normalization.ts), so these
+  // are exactly what the splitter emits for contractions — the list must
+  // know the folded forms. NO bare numerals (§5e: numbers are content).
+  "whats", "thats", "theres", "heres", "whos", "hows", "lets",
+  "wasnt", "isnt", "arent", "doesnt", "didnt", "wouldnt", "shouldnt",
+  "couldnt", "hasnt", "havent", "hadnt", "youre", "theyre", "shes", "hes",
 ]);
 
 export function queryCoreTokens(query: string): string[] {
-  const tokens = query
-    .toLowerCase()
-    .replace(/[^a-z0-9\s.]/g, " ")
-    .split(/\s+/)
-    .filter((t) => t.length > 2 && !META_STOP_WORDS.has(t));
+  // §5e: the SHARED Unicode splitter (lib/web-search/normalization.ts).
+  // The old ASCII class erased every non-Latin query into an empty core
+  // set; the length>2 filter erased short entities (C/Go) and short words
+  // of every non-Latin script. Noise control is now EXPLICIT: the
+  // meta-stop-list + apostrophe folding, both auditable.
+  const tokens = splitCoreWords(query, { keepDots: true }).filter(
+    (t) => !META_STOP_WORDS.has(t),
+  );
   // Preserve dotted tech names (next.js, node.js, etc.) as whole tokens.
   // The replace() step preserves "." so "next.js" survives as one token.
   return [...new Set(tokens)];
@@ -237,7 +251,13 @@ function normalizeToken(token: string): string {
  * compounds count as their constituent words. That is the counterexample
  * to over-correcting: this is boundary matching, not stricter literalism.
  */
-const WORD_SHAPE_RE = /[\p{L}\p{N}]+(?:[._\-'+#][\p{L}\p{N}]+)*/gu;
+// §5e (2026-11-13): + \p{M}. Devanagari/Telugu vowel signs (matras) are
+// combining MARKS — neither L nor N — so without \p{M} "मुंबई" shattered
+// into partial runs and non-Latin text could never be MENTIONED no matter
+// how well the query side normalized. The 2026-11-04 reranker audit caught
+// exactly this trap; ASCII bytes are byte-identical (\p{M} matches nothing
+// in ASCII).
+const WORD_SHAPE_RE = /[\p{L}\p{N}\p{M}]+(?:[._\-'+#][\p{L}\p{N}\p{M}]+)*/gu;
 function mentionTokenSet(text: string): Set<string> {
   const out = new Set<string>();
   for (const m of text.matchAll(WORD_SHAPE_RE)) {

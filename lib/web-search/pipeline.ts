@@ -26,6 +26,7 @@
  * to the WebUI in real time.
  */
 import { runSearchGate } from "./search-gate";
+import { splitCoreWords } from "./normalization";
 import type { SearchGateContext } from "./types";
 import { retrievalModeForFreshness } from "./types";
 import {
@@ -157,20 +158,24 @@ export const PIPELINE_CEILING_MS = 240_000;
  * hyderabad I wan to eat biryani" → "biryani restaurant manikonda hyderabad"
  *
  * This is a generic word-frequency filter, not a hardcoded topic rule.
+ * (Exported 2026-11-13 §5e as an internal test seam for the normalization
+ * pins; no app-layer importers.)
  */
-function stripFillers(prompt: string): string {
+export function stripFillers(prompt: string): string {
   const filler = new Set([
     "tell", "me", "what", "is", "the", "a", "an", "i", "want", "to",
     "so", "you", "can", "could", "please", "how", "about", "in", "on",
     "at", "by", "for", "from", "with", "that", "this", "these", "those",
     "there", "here", "want", "would", "like", "need", "look", "find",
-    "show", "give", "get", "best", "top", "good",
+    "show", "give", "get", "best", "top", "good", "it", "we",
   ]);
-  return prompt
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !filler.has(w))
+  // §5e: shared Unicode-aware splitter (normalization.ts). The old ASCII
+  // class turned every non-Latin prompt into an EMPTY recovery query, and
+  // the length>2 filter went with it — function-word noise ("it", "we")
+  // is in the list above now, explicitly, instead of dying by character
+  // count that silently mangles every other script.
+  return splitCoreWords(prompt)
+    .filter((w) => !filler.has(w))
     .slice(0, 10)
     .join(" ");
 }
