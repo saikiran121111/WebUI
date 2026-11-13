@@ -210,16 +210,18 @@ fn rules(r: &AttachmentRef) -> String {
     ));
     s.push_str(if is_video {
         concat!(
-            "You are given this video's complete saved record — its visuals and its speech are one thing: speak ",
-            "of what the record shows about the video as a whole, and never claim to have watched, seen or heard ",
-            "it yourself. Never mention transcription, retrieval, indexing, frames, sampled images or keyframes, ",
-            "and never attribute content to a particular frame. Give timestamps only when the user asks for them ",
-            "or when a time reference genuinely helps.",
+            "This video's complete saved record is kept locally and you are shown the parts of it that matter to ",
+            "this question — its visuals and its speech are one thing: speak of what the record shows about the ",
+            "video as a whole, and never claim to have watched, seen or heard it yourself. Never mention ",
+            "transcription, retrieval, indexing, frames, sampled images or keyframes, and never attribute content ",
+            "to a particular frame. Give timestamps only when the user asks for them or when a time reference ",
+            "genuinely helps.",
         )
     } else if timed {
         concat!(
-            "You are given this recording's complete saved record: speak of what the recording says; never claim ",
-            "to have heard it yourself, and never mention transcription, retrieval or indexing.",
+            "This recording's complete saved record is kept locally and you are shown the parts that matter to ",
+            "this question: speak of what the recording says; never claim to have heard it yourself, and never ",
+            "mention transcription, retrieval or indexing.",
         )
     } else {
         "You have read this document directly; never mention retrieval or indexing."
@@ -473,7 +475,7 @@ pub async fn build_attachment_turn(
         }
 
         let mut block = format!(
-            "<knowledge_index name=\"{name}\">\nPassages retrieved from the complete content of \"{name}\" (the full text is preserved locally — nothing was truncated):\n{text}",
+            "<knowledge_index name=\"{name}\">\nPassages relevant to this question, retrieved from \"{name}\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\n{text}",
             name = r.name,
             text = ev.text,
         );
@@ -596,10 +598,10 @@ mod tests {
         let v = rules(&ref_of("att_x1", "V", "video"));
         // Segment 4 of the base ends "…was processed. " and the video
         // variant starts "You have watched…" — one space, no re-flowing.
-        assert!(v.contains("do not explain how the content was processed. You are given this video's complete saved record"));
+        assert!(v.contains("do not explain how the content was processed. This video's complete saved record is kept locally and you are shown the parts of it that matter to this question"));
         assert!(v.ends_with("when a time reference genuinely helps."));
         let a = rules(&ref_of("att_x1", "A", "audio"));
-        assert!(a.ends_with("You are given this recording's complete saved record: speak of what the recording says; never claim to have heard it yourself, and never mention transcription, retrieval or indexing."));
+        assert!(a.ends_with("This recording's complete saved record is kept locally and you are shown the parts that matter to this question: speak of what the recording says; never claim to have heard it yourself, and never mention transcription, retrieval or indexing."));
         let d = rules(&ref_of("att_x1", "D", "document"));
         assert!(d.ends_with(
             "You have read this document directly; never mention retrieval or indexing."
@@ -822,7 +824,7 @@ mod tests {
         assert_eq!(n, 1);
         assert_eq!(msgs.len(), 2);
         let sys = msgs[0]["content"].as_str().unwrap();
-        assert!(sys.starts_with("<knowledge_index name=\"Doc\">\nPassages retrieved from the complete content of \"Doc\" (the full text is preserved locally — nothing was truncated):\n[00:00:10 - 00:00:20]\nmitosis cells divide\n"));
+        assert!(sys.starts_with("<knowledge_index name=\"Doc\">\nPassages relevant to this question, retrieved from \"Doc\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\n[00:00:10 - 00:00:20]\nmitosis cells divide\n"));
         assert!(sys.ends_with("You have read this document directly; never mention retrieval or indexing.\n</knowledge_index>"));
         let parts = msgs[1]["content"].as_array().unwrap();
         assert_eq!(parts.len(), 3);
@@ -889,9 +891,9 @@ mod tests {
         let sys = msgs[0]["content"].as_str().unwrap();
         assert!(sys.starts_with("<course_notes name=\"Vid\">\nCourse notes distilled from the extracted content of \"Vid\":\nCell cycle notes here.\n"));
         assert!(sys.contains("Cite the [HH:MM:SS] block headers of the notes.\n</course_notes>"));
-        assert!(sys.contains("You are given this video's complete saved record"));
+        assert!(sys.contains("This video's complete saved record is kept locally"));
         // No hybrid knowledge_index block (turn.ts:188 unconditional continue).
-        assert!(!sys.contains("Passages retrieved"));
+        assert!(!sys.contains("Passages relevant to this question"));
         assert!(!sys.contains("<knowledge_index"));
     }
 

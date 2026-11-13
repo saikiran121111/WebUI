@@ -169,7 +169,10 @@ describe("golden: attachment retrieval", () => {
       semantics:
         "refs stripped from the forwarded payload; BM25+cosine+RRF over 3 seeded chunks -> pack picks all " +
         "three (TOP_K/neighbor expansion, budget not hit) -> ONE knowledge_index system block appended, " +
-        "verbatim: 'Passages retrieved from the complete content ...' + text rules + </knowledge_index>. " +
+        "verbatim: 'Passages relevant to this question, retrieved from ...' + text rules + </knowledge_index>. " +
+        "§5k (2026-11-13, brief L195): RE-RECORDED wording law — completeness may only qualify the " +
+        "locally-preserved copy, never the shown selection ('nothing was truncated' was a completeness " +
+        "over-claim over a retrieval sample); both runtimes + corpus moved together. " +
         "Frames: retrieval then retrieval_done {1,1} (done==total == injected block count). " +
         "PRODUCTION BUG RECORDED (not fixed, §8): the route ALWAYS passes lastUserIdx+1 to " +
         "buildAttachmentTurn (route.ts:450) assuming a skill block was injected at lastUserIdx — but " +
@@ -237,7 +240,9 @@ describe("golden: attachment retrieval", () => {
       scenario: "video attachment, explicit timestamp (time_range) on standard_chat — keyframes lost",
       semantics:
         "'around 1:45:00' -> routeQuery single HMS -> time_range [c-180, c+180] -> only the overlapping " +
-        "chunk survives, with a [01:45:00 - 01:46:00] header (fmtStamp). rules() uses the video variant. " +
+        "chunk survives, with a [01:45:00 - 01:46:00] header (fmtStamp). rules() uses the video variant " +
+        "(§5k 2026-11-13: the time_range sample of one chunk out of the whole video must never be called a " +
+        "complete record — RE-RECORDED header + rules bytes). " +
         "PRODUCTION BUG RECORDED (not fixed, §8): nearestFrames DID load the keyframe, but " +
         "buildAttachmentTurn appends frames to messages[userIdx] (turn.ts:224) where userIdx = lastUserIdx+1 — " +
         "undefined on standard_chat (no skill block, no shift) — so the frame is SILENTLY DROPPED: the " +
@@ -275,7 +280,8 @@ describe("golden: attachment retrieval", () => {
         "user turn — intro text 'Moments from the attached video...' + image_url (data:image/jpeg;base64," +
         "fixed 1x1 jpeg). Message order: [decision_skill, runtime_clock, knowledge_index, user] " +
         "(P1 2026-11-01 live-clock injection adds the second system block). Proves the off-by-one in " +
-        "04 is specifically the missing-shift case, not the whole injection design.",
+        "04 is specifically the missing-shift case, not the whole injection design. " +
+        "§5k (2026-11-13): RE-RECORDED header + video rules bytes (coverage-honest wording).",
       comparison: "structural",
       rawBody: JSON.stringify({
         decision_mode: "excel",
@@ -309,7 +315,8 @@ describe("golden: attachment retrieval", () => {
         "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including " +
         "the standard_chat off-by-one: block after the user turn; P1 2026-11-01: order is user, " +
         "runtime_clock, knowledge); only the stage FRAMES are absent on the " +
-        "legacy path (stage() is a no-op), so retrieval_done never appears.",
+        "legacy path (stage() is a no-op), so retrieval_done never appears. " +
+        "§5k (2026-11-13): RE-RECORDED header bytes (coverage-honest wording).",
       comparison: "byte-exact",
       streamFalse: true,
       rawBody: userTurn("According to the indexed lecture notes, what happens in the Calvin cycle?", {

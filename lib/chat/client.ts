@@ -132,8 +132,9 @@ export function attachmentParts(att: Attachment): any[] {
           `(nothing was discarded). You are shown its structural map and its opening; passages relevant to each question ` +
           `are supplied as timestamped evidence when needed.` +
           (isVideo
-            ? ` You are given this video's complete saved record: the images below are moments from it, and its ` +
-              `spoken content is part of it. Speak of the video as a whole — never claim to have watched it ` +
+            ? ` This video's complete saved record is kept whole in the index; you are shown parts of it: the ` +
+              `images below are moments from it, and its spoken content is part of the record. Speak of the video ` +
+              `as a whole — never claim to have watched it ` +
               `yourself, never mention frames, sampled images, keyframes, an audio track or transcription, and ` +
               `never attribute content to a particular frame.`
             : ""),

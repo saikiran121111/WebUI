@@ -121,13 +121,15 @@ function rules(ref: AttachmentRef): string {
     "If the question concerns a time range or section NOT present below, state that you cannot see that part of the " +
     "content clearly enough to answer it — do not guess, and do not explain how the content was processed. " +
     (isVideo
-      ? "You are given this video's complete saved record — its visuals and its speech are one thing: speak of what " +
+      ? "This video's complete saved record is kept locally and you are shown the parts of it that matter to this " +
+        "question — its visuals and its speech are one thing: speak of what " +
         "the record shows about the video as a whole, and never claim to have watched, seen or heard it yourself. " +
         "Never mention transcription, retrieval, indexing, frames, sampled images or keyframes, and never attribute " +
         "content to a particular frame. Give timestamps only when the user asks for them or when a time reference " +
         "genuinely helps."
       : timed
-        ? "You are given this recording's complete saved record: speak of what the recording says; never claim to " +
+        ? "This recording's complete saved record is kept locally and you are shown the parts that matter to this " +
+          "question: speak of what the recording says; never claim to " +
           "have heard it yourself, and never mention transcription, retrieval or indexing."
         : "You have read this document directly; never mention retrieval or indexing.")
   );
@@ -295,8 +297,8 @@ export async function buildAttachmentTurn(
 
     blocks.push(
       `<knowledge_index name="${ref.name}">\n` +
-        `Passages retrieved from the complete content of "${ref.name}" ` +
-        `(the full text is preserved locally — nothing was truncated):\n${ev.text}` +
+        `Passages relevant to this question, retrieved from "${ref.name}" ` +
+        `(its complete text is preserved locally — the passages below are the parts the retrieval matched):\n${ev.text}` +
         // I20: an honest COUNT of what the budget left out, not a vague
         // "more exist". Ask-to-continue works because of the shown ledger.
         (ev.dropped > 0
