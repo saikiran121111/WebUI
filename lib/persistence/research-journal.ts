@@ -174,25 +174,112 @@ function tokens(text: string): Set<string> {
 }
 
 /**
- * Pick the journal turns a follow-up should see: turns whose queries,
- * titles or domains share a content token with the prompt (≥1 overlap),
- * most-recent first, bounded (default 2 — the audit law is "relevant",
- * not "everything we ever fetched").
+ * Evidence-reuse law (2026-11-13 brief L193: "One shared generic token
+ * plus recency is insufficient to reuse prior evidence. Recheck
+ * relevance and temporal applicability."). Two independent rechecks:
+ *
+ * RELEVANCE — only DISTINGUISHING tokens count. Closed-class ask
+ * vocabulary (GENERIC_TOKENS below — interrogatives, auxiliaries,
+ * prepositions, politeness verbs, URL boilerplate) never identifies a
+ * research subject, so an overlap made only of those words selects
+ * nothing. One shared distinguishing token still suffices: the audit
+ * law is "relevant", not "everything we ever fetched", and a genuine
+ * follow-up usually names the subject exactly once.
+ *
+ * TEMPORAL APPLICABILITY — when the caller supplies the CURRENT ask's
+ * freshness band, each journaled source must be content-applicable to
+ * that band, reusing the §5a/§5f retrieval laws: a parseable
+ * publishedAt is the content's currency and must fall inside the
+ * two-sided window (an old-dated page does NOT become fresh because
+ * the server re-read it — fetchedAt is a re-read attestation, not
+ * content currency, exactly §5f's old-page-new-edit law); a source
+ * with no parseable publishedAt is attested by fetchedAt inside the
+ * window (stricter than §5a's unparseable-dates-pass law, because the
+ * journal holds its own fetch attestation). Unparseable stamps attest
+ * nothing. Unknown/absent band ⇒ the 400-day fallback, mirroring
+ * stampWithinBand's `?? 400`. A turn whose every source fails the
+ * band is NOT silently reused — the current turn retrieves live anyway
+ * and answers from fresh evidence.
+ *
+ * REUSE_BAND_DAYS MIRRORS planner-law's FRESHNESS_LOOKBACK_DAYS; the
+ * leaf keeps its own copy so lib/persistence never pulls metasearch/
+ * reranker into the persistence graph, and a test pins the two tables
+ * byte-equal — drift is a test failure.
  */
+export const REUSE_BAND_DAYS: Record<string, number> = {
+  realtime: 2,
+  day: 3,
+  week: 10,
+  month: 45,
+  year: 400,
+};
+const REUSE_FUTURE_TOLERANCE_MS = 86_400_000; // ⇔ FRESHNESS_FUTURE_TOLERANCE_MS
+
+/**
+ * Closed-class ask vocabulary — never identifies a research subject.
+ * Explicit stop-list (the established law: callers own their lists);
+ * after tokens()'s length>2 filter only ≥3-letter members can matter.
+ * Deliberately conservative: topical words (weather, support, price,
+ * news…) are NOT here — only words whose meaning never points at what
+ * was fetched.
+ */
+const GENERIC_TOKENS = new Set([
+  // interrogatives / deixis / pronouns
+  "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
+  "this", "that", "these", "those", "here", "there", "they", "them",
+  "their", "theirs", "him", "his", "her", "hers", "yours", "ours", "its",
+  // auxiliaries
+  "does", "did", "done", "had", "have", "has", "was", "were", "are",
+  "been", "being", "will", "would", "can", "could", "shall", "should",
+  "may", "might", "must", "not",
+  // prepositions / conjunctions / time deixis
+  "with", "within", "without", "about", "above", "below", "from", "into",
+  "onto", "over", "under", "upon", "than", "then", "before", "after",
+  "between", "during", "against", "across", "around", "for", "and", "but",
+  "today", "tomorrow", "yesterday", "now",
+  // ask verbs and politeness
+  "ask", "asked", "asks", "tell", "tells", "show", "shows", "give",
+  "gives", "find", "finds", "say", "says", "said", "mean", "means",
+  "know", "knows", "want", "wants", "need", "needs", "like", "explain",
+  "explains", "explained", "define", "defines", "describe", "describes",
+  "please", "thanks", "thank",
+  // quantifiers / generic nouns / task adjectives
+  "more", "most", "less", "least", "much", "many", "some", "such",
+  "every", "each", "both", "other", "another", "same", "all", "thing",
+  "things", "stuff", "way", "ways", "kind", "sort", "question",
+  "questions", "answer", "answers", "topic", "topics", "info",
+  "information", "details", "example", "examples", "best", "top", "new",
+  "latest", "recent", "old",
+  // URL boilerplate (every journaled url tokenizes to these)
+  "https", "http", "www", "com", "org", "net", "edu", "gov",
+]);
+
 export function selectPriorEvidence(
   turns: JournalTurn[],
   prompt: string,
-  opts?: { maxTurns?: number },
+  opts?: { maxTurns?: number; freshness?: string; nowMs?: number },
 ): JournalTurn[] {
   const pt = tokens(prompt);
   if (pt.size === 0) return [];
+  const now = Number.isFinite(opts?.nowMs) ? (opts!.nowMs as number) : Date.now();
+  const bandMs = (REUSE_BAND_DAYS[opts?.freshness ?? ""] ?? 400) * 86_400_000;
+  const withinBand = (t: number): boolean =>
+    t - now <= REUSE_FUTURE_TOLERANCE_MS && now - t <= bandMs;
+  const applicable = (t: JournalTurn): boolean =>
+    t.sources.some((s) => {
+      const pub = s.publishedAt ? Date.parse(s.publishedAt) : NaN;
+      if (Number.isFinite(pub)) return withinBand(pub);
+      const fetchMs = s.fetchedAt ? Date.parse(s.fetchedAt) : NaN;
+      return Number.isFinite(fetchMs) && withinBand(fetchMs);
+    });
   const scored = turns
     .map((t) => {
+      if (!applicable(t)) return { t, score: 0 };
       const et = tokens(
         [t.queries.join(" "), ...t.sources.map((s) => `${s.title} ${s.domain} ${s.url}`)].join(" "),
       );
       let score = 0;
-      for (const w of pt) if (et.has(w)) score++;
+      for (const w of pt) if (et.has(w) && !GENERIC_TOKENS.has(w)) score++;
       return { t, score };
     })
     .filter((x) => x.score >= 1)

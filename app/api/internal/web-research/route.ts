@@ -117,7 +117,11 @@ export async function POST(req: NextRequest) {
   // marker it captured before stripping). Selects the SERVER journal —
   // identity, never a routing switch, never proof of a fetch. Prior
   // evidence is read BEFORE the run so the journal seen here reflects
-  // only EARLIER turns.
+  // only EARLIER turns. No freshness opts here: the gate verdict for
+  // THIS prompt is computed inside runWebResearch, after this read —
+  // the selector's no-band context then applies the honest 400-day
+  // fallback window (⇔ stampWithinBand's ??400 law), never a fabricated
+  // band. The relevance floor (distinguishing tokens) still applies.
   const conversationId =
     typeof body?.conversationId === "string" && body.conversationId.trim()
       ? body.conversationId.slice(0, 200)

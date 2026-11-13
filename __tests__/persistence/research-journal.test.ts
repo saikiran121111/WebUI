@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { FRESHNESS_LOOKBACK_DAYS } from "@/lib/web-search/planner-law";
 
 let journal: typeof import("@/lib/persistence/research-journal");
 let tmpDir: string;
@@ -173,5 +174,116 @@ describe("follow-up rehydration selects on relevance, recency and conversation (
     const dupB = turn("dup2", 6_000_000, ["boreal docs again"], "https://dup.example/page");
     const built = journal.buildPriorEvidenceBlock([dupB, dupA], "S1");
     expect(Object.keys(built.citations)).toHaveLength(1);
+  });
+});
+
+describe("evidence-reuse law (brief 2026-11-13 L193: shared generic token + recency is insufficient)", () => {
+  // Fixed clock so band math is deterministic regardless of wall time.
+  const NOW = Date.parse("2026-11-13T12:00:00.000Z");
+  const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString();
+
+  const boreal = turn("boreal-x", 2_000_000, ["arborworks boreal platform documentation"], "https://docs.arborworks.example/platform");
+  const weather = turn("weather-x", 3_000_000, ["hyderabad weather forecast today"], "https://weather.example/hyderabad");
+
+  it("relevance: an overlap of generic ask vocabulary alone selects nothing", () => {
+    // Old law: "today" (in the weather query) + recency rode the block.
+    expect(journal.selectPriorEvidence([boreal, weather], "what about today?")).toEqual([]);
+  });
+
+  it("relevance: URL boilerplate and modal politeness never identify a subject", () => {
+    // Every journaled url carries ".example"; prompts say "please".
+    // Old law: both turns shared "example" → newest two were picked.
+    const picked = journal.selectPriorEvidence(
+      [boreal, weather],
+      "what example should I use, please?",
+      { nowMs: NOW },
+    );
+    expect(picked).toEqual([]);
+  });
+
+  it("temporal: a banded ask never silently rides stale-dated evidence", () => {
+    const stale = turn("stale", 9_000_000, ["boreal price update"], "https://stale.example/p", {
+      source: { publishedAt: ago(130), fetchedAt: ago(120) },
+    });
+    const picked = journal.selectPriorEvidence([stale], "boreal price update", {
+      nowMs: NOW,
+      freshness: "day",
+    });
+    expect(picked).toEqual([]);
+  });
+
+  it("temporal: the same evidence rides for an unbanded ask (provenance qualifies it)", () => {
+    const stale = turn("stale2", 9_000_001, ["boreal price update"], "https://stale.example/p", {
+      source: { publishedAt: ago(130), fetchedAt: ago(120) },
+    });
+    const picked = journal.selectPriorEvidence([stale], "boreal price update", {
+      nowMs: NOW,
+      freshness: "none",
+    });
+    expect(picked).toHaveLength(1);
+  });
+
+  it("temporal: evidence inside the band rides", () => {
+    const fresh = turn("fresh", 9_000_002, ["boreal price update"], "https://fresh.example/p", {
+      source: { publishedAt: ago(4), fetchedAt: ago(3) },
+    });
+    const picked = journal.selectPriorEvidence([fresh], "boreal price update", {
+      nowMs: NOW,
+      freshness: "week",
+    });
+    expect(picked).toHaveLength(1);
+  });
+
+  it("temporal (§5f): fresh publication rescues an old server re-read", () => {
+    const rescued = turn("rescued", 9_000_003, ["boreal price update"], "https://r.example/p", {
+      source: { publishedAt: ago(2), fetchedAt: ago(120) },
+    });
+    const picked = journal.selectPriorEvidence([rescued], "boreal price update", {
+      nowMs: NOW,
+      freshness: "week",
+    });
+    expect(picked).toHaveLength(1);
+  });
+
+  it("temporal (§5a two-sided): a future junk stamp can never satisfy a band", () => {
+    const junk = turn("junk", 9_000_004, ["boreal price update"], "https://j.example/p", {
+      source: { publishedAt: "2099-01-01", fetchedAt: ago(1) },
+    });
+    const picked = journal.selectPriorEvidence([junk], "boreal price update", {
+      nowMs: NOW,
+      freshness: "week",
+    });
+    expect(picked).toEqual([]);
+  });
+
+  it("temporal: an undated source is attested by its fetch date", () => {
+    const undatedFresh = turn("udf", 9_000_005, ["boreal mystery page"], "https://u1.example/p", {
+      source: { publishedAt: undefined, fetchedAt: ago(4) },
+    });
+    expect(
+      journal.selectPriorEvidence([undatedFresh], "boreal mystery page", { nowMs: NOW, freshness: "week" }),
+    ).toHaveLength(1);
+    const undatedStale = turn("uds", 9_000_006, ["boreal mystery page"], "https://u2.example/p", {
+      source: { publishedAt: undefined, fetchedAt: ago(120) },
+    });
+    expect(
+      journal.selectPriorEvidence([undatedStale], "boreal mystery page", { nowMs: NOW, freshness: "week" }),
+    ).toEqual([]);
+  });
+
+  it("control: a genuine one-token subject overlap still rides (floor = ONE distinguishing token)", () => {
+    const picked = journal.selectPriorEvidence([boreal, weather], "what did Boreal say about support tiers?", {
+      nowMs: NOW,
+      freshness: "none",
+    });
+    expect(picked).toHaveLength(1);
+    expect(picked[0].queries.join(" ")).toMatch(/Boreal/i);
+  });
+
+  it("the leaf-mirrored band table is byte-identical to planner law's", () => {
+    // The mirror exists so lib/persistence stays a leaf module (importing
+    // planner-law would drag metasearch/reranker into the persistence
+    // graph). Same law, same numbers — pinned, drift is a test failure.
+    expect(journal.REUSE_BAND_DAYS).toEqual(FRESHNESS_LOOKBACK_DAYS);
   });
 });

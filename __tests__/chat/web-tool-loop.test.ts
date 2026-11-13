@@ -129,7 +129,12 @@ function channelFor(h: Harness): WebProgressChannel {
 }
 
 function payloadFor(): any {
-  return { model: "test-model", messages: [{ role: "user", content: "what is the latest?" }] };
+  // Subject-bearing follow-up (evidence-reuse law 2026-11-13): the old
+  // vector "what is the latest?" shared ONLY generic vocabulary with the
+  // journal — precisely the "one generic token + recency" reuse the brief
+  // forbids. Rehydration mechanics (slot law, aliases, pills) are pinned
+  // identically either way.
+  return { model: "test-model", messages: [{ role: "user", content: "what did Voltara Systems ship?" }] };
 }
 
 async function drive(
@@ -153,7 +158,7 @@ async function drive(
   await runWebToolLoop({
     payload: opts.payload ?? payloadFor(),
     lastUserIdx: 0,
-    fullText: "what is the latest?",
+    fullText: "what did Voltara Systems ship?",
     model: "test-model",
     depth: opts.depth ?? "standard",
     webCitationMap: opts.citationMap === undefined
@@ -564,18 +569,21 @@ describe("brief §5 — prior-evidence rehydration (journal as sole memory)", ()
   it("an irrelevant journal is never dumped into context (relevance gate)", async () => {
     // Scoring reads queries + titles + domains + urls (research-journal
     // tokens()) — so "irrelevant" must be irrelevant in ALL of them, not
-    // just the query line (the fixture's original title/url said "latest").
+    // just the query line. (2026-11-13 evidence-reuse law: this fixture
+    // formerly shared the "Voltara Systems" entity token with the new
+    // subject-bearing prompt — an ENTIRELY different company makes the
+    // disjointness law-visible instead of leaning on one scrubbed word.)
     mocks.readJournal.mockReturnValue([
       {
         at: JOURNAL_FIXTURE[0].at,
         currentDate: "2026-11-04",
-        queries: ["Voltara Series B funding valuation"],
+        queries: ["Halden Capital Series B funding valuation"],
         freshness: "any",
         sources: [
           {
-            url: "https://voltara.example/news/series-b",
-            title: "Voltara Systems raises Series B",
-            domain: "voltara.example",
+            url: "https://haldencapital.example/news/series-b",
+            title: "Halden Capital raises Series B",
+            domain: "haldencapital.example",
             publishedAt: "",
             fetchedAt: "2026-11-04T09:00:00.000Z",
             excerpt: "Halden Capital led the round.",

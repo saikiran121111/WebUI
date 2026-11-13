@@ -530,7 +530,12 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         : null;
     let priorBlock = "";
     if (conversation) {
-      const priorTurns = selectPriorEvidence(readResearchJournal(conversation.id), fullText);
+      // §5 (brief L193) evidence-reuse recheck: the gate's freshness band
+      // rides into the selector so prior evidence must be temporally
+      // applicable to THIS ask, not just token-adjacent and recent.
+      const priorTurns = selectPriorEvidence(readResearchJournal(conversation.id), fullText, {
+        freshness: opts.searchGateMeta?.freshness ?? "any",
+      });
       if (priorTurns.length > 0) {
         const built = buildPriorEvidenceBlock(priorTurns, `S${seed}`);
         for (const [alias, cit] of Object.entries(built.citations)) {

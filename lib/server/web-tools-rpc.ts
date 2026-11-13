@@ -153,7 +153,12 @@ export async function handleWebToolsRpc(
     let priorAliasMax = seed - 1;
     let priorEvidence: { block: string; citations: Record<string, unknown> } | null = null;
     if (conversation) {
-      const priorTurns = selectPriorEvidence(readResearchJournal(conversation.id), question);
+      // §5 (brief L193) evidence-reuse recheck: the bridge's freshness
+      // verdict (same value that drives liveRequired above) gates whether
+      // stale prior evidence may ride this turn.
+      const priorTurns = selectPriorEvidence(readResearchJournal(conversation.id), question, {
+        freshness,
+      });
       if (priorTurns.length > 0) {
         const built = buildPriorEvidenceBlock(priorTurns, `S${Math.max(0, priorAliasMax)}`);
         if (built.block.trim() !== "") {

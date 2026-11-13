@@ -916,14 +916,19 @@ function detectContradictions(passages: { sourceId: string; passageText: string 
  * passage carries — publication AND update — so a bogus future UPDATE
  * stamp can never satisfy the band either.
  */
-const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
+// Exported (2026-11-13 brief §5 evidence-reuse law): the journal reuse
+// re-check in lib/persistence/research-journal.ts MIRRORS this table as a
+// leaf-local constant (importing planner-law there would drag metasearch/
+// reranker into the persistence graph via query-planner). The mirror is
+// pinned ≡ to these exact values by a test — drift is a test failure.
+export const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
   realtime: 2,
   day: 3,
   week: 10,
   month: 45,
   year: 400,
 };
-const FRESHNESS_FUTURE_TOLERANCE_MS = 86_400_000; // one day of clock/tz slop
+export const FRESHNESS_FUTURE_TOLERANCE_MS = 86_400_000; // one day of clock/tz slop
 function stampWithinBand(stamp: string, freshness: string): boolean {
   const t = Date.parse(stamp);
   if (!Number.isFinite(t)) return true;
