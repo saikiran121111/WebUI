@@ -54,7 +54,9 @@ function toolCallLine(name: string, args: string): string {
  * One action entry from the web:activity event list → the honest line.
  * Live frames carry the parsed targets as detail (queries / hosts);
  * terminal frames carry the executor's real counts (retrieved of
- * requested) — nothing here is inferred from time.
+ * requested) — nothing here is inferred from time. Turn-end closures the
+ * client stamps itself ("cancelled" / "interrupted", §3 closure law) carry
+ * no counts: the action genuinely never resolved.
  */
 function activityLine(
   a: NonNullable<Message["webActivity"]>[number],
@@ -69,6 +71,9 @@ function activityLine(
   const counts = a.done != null && a.total != null ? ` — ${a.done} of ${a.total}` : "";
   if (a.status === "completed") return `${what} complete${counts}`;
   if (a.status === "cancelled") return `${what} cancelled`;
+  // Client-stamped turn-end closure (2026-11-13 brief §3): the action was
+  // still in flight when the stream ended without it resolving.
+  if (a.status === "interrupted") return `${what} interrupted`;
   return `${what} failed`;
 }
 

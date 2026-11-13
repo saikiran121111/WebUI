@@ -286,6 +286,29 @@ export default function HomePage() {
     }
   }, [messages, hasScrolledUp, pinToBottom]);
 
+  // §3 (2026-11-13 brief): async layout growth — images finishing, lazily
+  // mounted studio viewers, table reflow — changes content height WITHOUT a
+  // `messages` state change, so the effect above cannot re-pin. Watch the
+  // content wrapper instead: while the user is following, keep the bottom
+  // pinned. (A scrollTop write resizes no observed box, so there is no
+  // feedback loop; the callback reuses the same one-rAF-per-frame pin.)
+  const messagesContentRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const wrap = messagesContentRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) pinToBottom();
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [pinToBottom]);
+
+  // §3 cleanup law: a pin scheduled in the last frame before unmount must
+  // not fire against a detached container.
+  useEffect(() => () => {
+    if (pinRafRef.current != null) cancelAnimationFrame(pinRafRef.current);
+  }, []);
+
   // Observe scroll position. Wheel-up unpins immediately so a pending pin
   // can't yank the user back down mid-generation.
   useEffect(() => {
@@ -303,7 +326,13 @@ export default function HomePage() {
       if (wentUp && dist > 8) setHasScrolledUp(true);
       else if (dist <= 8) setHasScrolledUp(false);
     };
+    // §3 nested-scroll boundary: scrollers marked data-nested-scroll (the
+    // reasoning box) own their wheel/touch intent — the bubbled event must
+    // NOT unpin the list; the inner controller follows the box itself.
+    const inNested = (t: EventTarget | null): boolean =>
+      t instanceof Element && !!t.closest("[data-nested-scroll]");
     const onWheel = (e: WheelEvent) => {
+      if (inNested(e.target)) return;
       if (e.deltaY < 0) {
         // Synchronous: a rAF pin scheduled earlier this frame must not yank
         // the user back down before React flushes hasScrolledUp.
@@ -313,11 +342,35 @@ export default function HomePage() {
         onScroll();
       }
     };
+    // Touch parity (§3): dragging a finger DOWN the screen moves content UP
+    // — the same upward intent as wheel-up, so unpin synchronously. Keyboard
+    // paging and scrollbar drags already fire real scroll events, which the
+    // direction-aware listener above covers; nested scrollers are excluded.
+    let lastTouchY: number | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      lastTouchY = inNested(e.target) ? null : (e.touches[0]?.clientY ?? null);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (inNested(e.target)) return;
+      const y = e.touches[0]?.clientY ?? null;
+      if (lastTouchY != null && y != null && y > lastTouchY + 4) {
+        stickToBottomRef.current = false;
+        setHasScrolledUp(true);
+      }
+      if (y != null) lastTouchY = y;
+    };
+    const onTouchEnd = () => { lastTouchY = null; };
     c.addEventListener("scroll", onScroll, { passive: true });
     c.addEventListener("wheel", onWheel, { passive: true });
+    c.addEventListener("touchstart", onTouchStart, { passive: true });
+    c.addEventListener("touchmove", onTouchMove, { passive: true });
+    c.addEventListener("touchend", onTouchEnd, { passive: true });
     return () => {
       c.removeEventListener("scroll", onScroll);
       c.removeEventListener("wheel", onWheel);
+      c.removeEventListener("touchstart", onTouchStart);
+      c.removeEventListener("touchmove", onTouchMove);
+      c.removeEventListener("touchend", onTouchEnd);
     };
   }, []);
 
@@ -496,7 +549,7 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col min-w-0 relative">
         {/* Scrollable message area */}
         <div ref={messagesContainerRef} data-testid="messages-scroll" className="chat-messages-scroll flex-1 overflow-y-auto">
-          <div className={`max-w-3xl mx-auto px-4 py-8 ${messages.length === 0 ? "min-h-full flex flex-col pb-[14vh]" : "pb-40"}`}>
+          <div ref={messagesContentRef} className={`max-w-3xl mx-auto px-4 py-8 ${messages.length === 0 ? "min-h-full flex flex-col pb-[14vh]" : "pb-40"}`}>
             {messages.length === 0 ? (
               <EmptyState
                 onSend={(text, atts) => runSend(text, atts)}

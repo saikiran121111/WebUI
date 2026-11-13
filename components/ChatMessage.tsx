@@ -403,6 +403,10 @@ function ReasoningBlock({ text }: { text: string }) {
       {expanded && (
         <motion.div
           ref={boxRef}
+          // §3 nested-scroll boundary: the chat-list controller ignores
+          // wheel/touch events originating inside this scroller (its own
+          // controller above owns the intent).
+          data-nested-scroll
           initial={{ opacity: 0, height: 0, marginTop: 0 }}
           animate={{ opacity: 1, height: "auto", marginTop: 8 }}
           transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}

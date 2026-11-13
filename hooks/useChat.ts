@@ -24,7 +24,7 @@ import {
   type BrokenFence,
 } from "../lib/render/fenceRepair";
 import { isRendererMode, type RendererMode } from "../lib/decision/types";
-import { buildResearchToolDefs, decodeSseHeaders } from "../lib/chat/streamHelpers";
+import { buildResearchToolDefs, closeOpenActivityEntries, decodeSseHeaders } from "../lib/chat/streamHelpers";
 import { sanitizeRichResult, type RichResult } from "../lib/web-search/rich-results";
 import {
   computeBaselines,
@@ -335,6 +335,10 @@ export function useChat({
   const assistantIdRef = useRef<string | null>(null);
   const streamContentRef = useRef<string>("");
   const reasoningStartRef = useRef<number | null>(null);
+  /** §3 (2026-11-13): accumulated reasoning INTERVAL ms for the turn. */
+  const reasoningMsAccumRef = useRef(0);
+  /** Start of the currently-open reasoning interval; null = not reasoning now. */
+  const reasoningIntervalStartRef = useRef<number | null>(null);
   const sendBusyRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const decisionModeRef = useRef<RendererMode | null>(null);
@@ -366,8 +370,14 @@ export function useChat({
       const next = { ...m };
       if (content) next.content = (m.content as string) + content;
       if (reasoning) next.reasoning = (m.reasoning as string) + reasoning;
-      if (reasoning && m.reasoningMs == null && reasoningStartRef.current != null) {
-        next.reasoningMs = Date.now() - reasoningStartRef.current;
+      // §3 (2026-11-13): reasoningMs = TOTAL across the ACTUAL reasoning
+      // intervals (thinking→tool→thinking cycles accumulate; closed
+      // intervals stay closed). Replaces the old first-flush latency stamp,
+      // which read as a fake "Thought for 0.0s" and poisoned the ETA baseline.
+      if (reasoning && reasoningStartRef.current != null) {
+        const elapsed = reasoningMsAccumRef.current
+          + (reasoningIntervalStartRef.current != null ? Date.now() - reasoningIntervalStartRef.current : 0);
+        if (elapsed > 0) next.reasoningMs = elapsed;
       }
       return next;
     }));
@@ -379,6 +389,28 @@ export function useChat({
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+  }, []);
+
+  // §3 (2026-11-13 brief): thinking DURATION spans the ACTUAL intervals. An
+  // interval opens with the first reasoning delta after a gap and closes when
+  // the turn moves on — content starts, a web action starts (the model paused
+  // reasoning to act), or the turn finalizes. Tool rounds and writing are
+  // never billed as thinking.
+  const closeReasoningInterval = useCallback(() => {
+    const start = reasoningIntervalStartRef.current;
+    if (start == null) return;
+    reasoningMsAccumRef.current += Date.now() - start;
+    reasoningIntervalStartRef.current = null;
+  }, []);
+
+  // §3 closure law: an activity opened by a "started" frame must not outlive
+  // its turn. Engines close per-action; this stamps any entry still open when
+  // the TURN ends (user cancel → "cancelled"; stream error / unresolved
+  // action → "interrupted"). Pure logic lives in the lib helper (testable).
+  const closeOpenActivities = useCallback((id: string, status: "cancelled" | "interrupted") => {
+    setMessages(prev => prev.map(m => m.id === id
+      ? { ...m, webActivity: closeOpenActivityEntries(m.webActivity, status) }
+      : m));
   }, []);
 
   const scheduleFlush = useCallback(() => {
@@ -410,6 +442,8 @@ export function useChat({
     setReasoningContent("");
     reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
+    reasoningMsAccumRef.current = 0;
+    reasoningIntervalStartRef.current = null;
     pendingContentRef.current = "";
     pendingReasoningRef.current = "";
     stopProgressTick();
@@ -439,6 +473,8 @@ export function useChat({
     setReasoningContent("");
     reasoningContentStateRef.current = "";
     reasoningStartRef.current = null;
+    reasoningMsAccumRef.current = 0;
+    reasoningIntervalStartRef.current = null;
     stopProgressTick();
     progressRef.current = null;
     fenceOpenedRef.current = false;
@@ -520,6 +556,7 @@ export function useChat({
       // entry, terminal frames close it (matched on the most recent open
       // entry with the same kind+round, ⇔ the engine's pairing).
       if (ev.stage.stage === "web:activity") {
+        closeReasoningInterval(); // the engine is acting — thinking is on hold (§3 interval law)
         const id = assistantIdRef.current;
         if (id) {
           const entry = {
@@ -556,8 +593,12 @@ export function useChat({
     }
 
     if (ev.reasoning) {
-      if (reasoningStartRef.current == null) {
-        reasoningStartRef.current = Date.now();
+      if (reasoningStartRef.current == null) reasoningStartRef.current = Date.now();
+      // One interval + tracker beat per reasoning RESUMPTION, so a
+      // thinking→tool→thinking cycle reopens the "Thinking…" step instead of
+      // leaving the panel stuck on the previous phase (§3 cycle law).
+      if (reasoningIntervalStartRef.current == null) {
+        reasoningIntervalStartRef.current = Date.now();
         progressRef.current?.noteReasoningStart();
       }
       pendingReasoningRef.current += ev.reasoning;
@@ -565,6 +606,7 @@ export function useChat({
       scheduleFlush();
     }
     if (ev.content) {
+      closeReasoningInterval(); // writing has begun: the thinking interval ends
       streamContentRef.current += ev.content;
       pendingContentRef.current += ev.content;
       setIsThinking(false);
@@ -595,7 +637,7 @@ export function useChat({
       setError(ev.finishReason === "error" ? ev.errorMessage || "Generation failed" : null);
       setIsThinking(false);
     }
-  }, [scheduleFlush, flushPending]);
+  }, [scheduleFlush, flushPending, closeReasoningInterval]);
 
   const runRepairRounds = useCallback(async (
     assistantId: string,
@@ -714,6 +756,8 @@ export function useChat({
       setReasoningContent("");
       reasoningContentStateRef.current = "";
       reasoningStartRef.current = null;
+      reasoningMsAccumRef.current = 0;
+      reasoningIntervalStartRef.current = null;
       pendingContentRef.current = "";
       pendingReasoningRef.current = "";
       setIsThinking(!!curEffort && curEffort !== "off");
@@ -823,7 +867,10 @@ export function useChat({
         },
       );
 
-      // Flush any pending rAF-batched deltas before finalizing.
+      // Flush any pending rAF-batched deltas before finalizing. Close the
+      // reasoning interval FIRST so the final reasoningMs excludes the
+      // finalize bookkeeping itself.
+      closeReasoningInterval();
       flushPending(true);
 
       if (!controller.signal.aborted) {
@@ -842,6 +889,9 @@ export function useChat({
       }
 
       if (!controller.signal.aborted) {
+        // §3 closure safety net: engines close every action, so an entry
+        // still open here means its terminal frame never arrived.
+        closeOpenActivities(assistantMsg.id, "interrupted");
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now() } : m
         ));
@@ -850,6 +900,7 @@ export function useChat({
         reasoningContentStateRef.current = "";
         finishProgress("complete");
       } else {
+        closeOpenActivities(assistantMsg.id, "cancelled");
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && m.state === "streaming"
             ? { ...m, state: "complete", finishedAt: Date.now() }
@@ -862,12 +913,16 @@ export function useChat({
       if (e?.name !== "AbortError") {
         const msg = e?.message ?? "Generation failed";
         setError(msg);
+        closeReasoningInterval();
+        if (assistantId) closeOpenActivities(assistantId, "interrupted");
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, state: "error", error: msg } : m
         ));
         setStatus("error");
         finishProgress("error");
       } else {
+        closeReasoningInterval();
+        if (assistantId) closeOpenActivities(assistantId, "cancelled");
         finishProgress("aborted");
       }
       setReasoningContent("");
@@ -884,14 +939,17 @@ export function useChat({
       setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
   }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending,
-      flushProgress, stopProgressTick, finishProgress, compact, materializeLlmHistory]);
+      flushProgress, stopProgressTick, finishProgress, compact, materializeLlmHistory,
+      closeReasoningInterval, closeOpenActivities]);
 
   const stop = useCallback(() => {
     const id = assistantIdRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
+    closeReasoningInterval();
     flushPending(true);
     if (id) {
+      closeOpenActivities(id, "cancelled");
       setMessages(prev => prev.map(m =>
         m.id === id && m.state === "streaming"
           ? { ...m, state: "complete", finishedAt: Date.now() }
@@ -902,7 +960,7 @@ export function useChat({
     setError(null);
     setIsThinking(false);
     finishProgress("aborted");
-  }, [flushPending, finishProgress]);
+  }, [flushPending, finishProgress, closeReasoningInterval, closeOpenActivities]);
 
   const retry = useCallback(() => {
     if (lastInputRef.current) {

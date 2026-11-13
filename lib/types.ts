@@ -241,7 +241,8 @@ export interface Message {
   /**
    * Streaming reliability law (2026-11-12): REAL per-action web activity
    * from `web:activity` stage frames (search / read_page, started →
-   * completed/failed/cancelled, real counts) — the ONLY source the
+   * completed/failed/cancelled/interrupted, real counts — the last status
+   * is the client's turn-end closure stamp, §3 law 2026-11-13) — the ONLY source the
    * processing line may read. Transient display state: buildBody's
    * whitelist (lib/chat/client.ts) never ships it upstream.
    */

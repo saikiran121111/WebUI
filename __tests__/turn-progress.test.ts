@@ -211,6 +211,33 @@ describe("TurnProgressTracker — measured thinking/writing ETAs", () => {
     expect(s.steps.find(x => x.id === "routing")!.status).toBe("done");
   });
 
+  it("§3 cycle law: a RESUMED reasoning interval reopens the thinking step", () => {
+    // thinking → content (cycle closes thinking) → reasoning resumes
+    // (thinking→tool→thinking): the step must honestly go active again.
+    const t = new TurnProgressTracker({ reasoningMs: 10_000, completionTokens: null });
+    t.noteReasoningStart();
+    t.noteContent(5);
+    expect(t.snapshot(Date.now()).steps.find(x => x.id === "thinking")!.status).toBe("done");
+    t.noteReasoningStart();
+    const th = t.snapshot(t.startedAt + 5_000).steps.find(x => x.id === "thinking")!;
+    expect(th.status).toBe("active");
+    expect(th.label).toBe("Thinking…");
+    // Fresh interval clock: 5s into a 10s median ETA = 50%.
+    expect(th.percent).toBe(50);
+  });
+
+  it("§3 monotonic floor: reopening never walks the thinking bar backwards", () => {
+    const t = new TurnProgressTracker({ reasoningMs: 10_000, completionTokens: null });
+    t.noteReasoningStart();
+    const high = t.snapshot(t.startedAt + 9_000).steps.find(x => x.id === "thinking")!.percent;
+    t.noteContent(5);          // closes at 100, floor stays at the measured 90
+    t.noteReasoningStart();    // reopen
+    const th = t.snapshot(t.startedAt + 9_100).steps.find(x => x.id === "thinking")!;
+    expect(th.status).toBe("active");
+    expect(th.percent).toBeGreaterThanOrEqual(high); // floor keeps it >= the measured high
+    expect(th.percent).toBeLessThanOrEqual(95);      // active phases never snap past 95
+  });
+
   it("a fence opening yields exactly one real output artifact", () => {
     const t = new TurnProgressTracker(NO_BASELINES);
     t.noteStage(stage({ stage: "decision_done", mode: "pdf" }));

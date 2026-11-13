@@ -47,6 +47,27 @@ export function decodeSseHeaders(
 }
 
 /** Tool definitions injected when the user selects research mode. */
+/**
+ * §3 activity-closure law (2026-11-13 brief): every `web:activity` entry a
+ * "started" frame opened must CLOSE when the turn ends. Engines pair a
+ * terminal frame per action, but a user cancel / stream error / dropped
+ * connection leaves the in-flight action's terminal frame unsent — this
+ * stamps the honest closure on any entry still open, so a live "Searching…"
+ * line can never outlive its turn.
+ *
+ * Statuses are the renderer's existing vocabulary (`ProcessingStatus`
+ * activityLine): "cancelled" = the user stopped the turn; "interrupted" =
+ * the stream ended while the action was unresolved. Idempotent: returns the
+ * SAME list reference when nothing is open (no spurious re-render objects).
+ */
+export function closeOpenActivityEntries<T extends { status: string }>(
+  list: T[] | undefined,
+  status: "cancelled" | "interrupted",
+): T[] | undefined {
+  if (!list || !list.some((a) => a.status === "started")) return list;
+  return list.map((a) => (a.status === "started" ? { ...a, status } : a));
+}
+
 export function buildResearchToolDefs(): any[] {
   return [
     {

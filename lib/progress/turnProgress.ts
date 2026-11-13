@@ -257,7 +257,18 @@ export class TurnProgressTracker {
 
   noteReasoningStart(): void {
     this.done("routing");
-    this.addStep("thinking", "Thinking…", THINKING_WEIGHT, "active", 5);
+    const ex = this.steps.find((s) => s.id === "thinking");
+    if (ex && ex.status === "done") {
+      // §3 (2026-11-13 brief): reasoning RESUMES after tools/writing closed
+      // the step (thinking→tool→thinking cycle). Reopen the step honestly —
+      // active again with a fresh interval clock. The monotonic floor keeps
+      // the bar from walking backwards, so a cycle never looks broken.
+      ex.status = "active";
+      ex.label = "Thinking…";
+      ex.percent = Math.min(95, Math.max(5, ex.floor));
+    } else {
+      this.addStep("thinking", "Thinking…", THINKING_WEIGHT, "active", 5);
+    }
     this.steps.find((s) => s.id === "thinking")!.thinkingStartedAt = Date.now();
   }
 
@@ -409,6 +420,13 @@ export class TurnProgressTracker {
   private done(id: string): void {
     const s = this.steps.find((x) => x.id === id);
     if (s && s.status !== "pending") {
+      if (s.status === "active") {
+        // Persist the last honestly-measured live percent as the floor
+        // BEFORE closing (livePercent is lazy — it never writes back). A
+        // reopened step (thinking→tool→thinking, §3 cycle law) then starts
+        // from the old high water mark instead of rewinding the bar.
+        s.floor = this.livePercent(s, Date.now());
+      }
       s.status = "done";
       s.percent = 100;
     }
