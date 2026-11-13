@@ -30,6 +30,47 @@ semantics, **comparison class**, env preconditions, normalization notes.
   knowingly buggy (`sse/02` think split, `sse/03` UTF-8 split; MIGRATION-MAP Rule 4). The Rust
   port conforms to the recorded `expectedRust*` values, not to the mangled TS bytes.
 
+## Brief §6 (2026-11-13/14): three-way classification of every recorded expectation
+
+Every fixture pin is classified as one of three kinds — the brief forbids letting
+a fixture silently promote a defect into a contract:
+
+1. **Protocol/serialization contract** — the BYTES are the spec; changing them is a
+   contract change, never a bugfix: `decision/01–05` envelope bytes (incl. integer
+   `confidence` serialization), `errors/*` full header sets, chat byte-exact bodies,
+   `skills/06` sha256 hashes, `attachments/*` + `attachments/store/` on-disk bytes.
+   These replay byte-exact in Rust and were NEVER re-recorded for §5a–§5l.
+2. **Semantic expectation** — behavioral pins that record CURRENT correct semantics
+   (`comparison: "semantic"`): `decision/06` intent vectors, the attach rules behind
+   `attachments/*`, web tool-envelope ledgers. Re-recorded only when the underlying
+   law legitimately evolves (e.g. §4a intent law, §5l word class — each re-record is
+   logged in the fixture `_meta` notes and in this README).
+3. **Known legacy defect** — pins that recorded a BUG. §6 requires fixing the defect
+   in BOTH runtimes and moving the pin to the corrected behavior, never exempting
+   the example in production:
+   - `sse/02`/`sse/03` approved-deviation matrices — RESOLVED 2026-10-26 (Rust
+     conforms to recorded `expectedRust*`, not to mangled TS bytes).
+   - `decision/06` pre-§4a pins (ASCII-`\b` splits, INTENT_ORDER precedence,
+     confidence `1`) — flipped 2026-11-13 to corrected semantics; notes field says so.
+   - `attach-router-phrase` `cafélast 10 minutes` pin — flipped 2026-11-14 (§5l):
+     the old pin required the ASCII-`\b` defect; the Unicode class makes the glued
+     phrase dead so the query honestly routes `whole_video`. Fixture bytes unaffected
+     (no golden fixture query contains glued non-ASCII; replays stayed byte-exact).
+   - Injection off-by-one family — **RECORDED, deliberately not fixed** (Part-2 §8):
+     the recorded `lastUserIdx+1` ordering is what shipped and what clients rely on;
+     it is pinned as a recorded legacy behavior with its web half already superseded.
+   - `ruke-modality` / `ruke-task-scope` ASCII scans — **kept as-is, not a defect**:
+     they scan brand/domain/latin-token surfaces where ASCII-only word logic IS the
+     correct scope; §5l's Unicode class applies to free-text query routing. This is
+     "valid compatibility coverage", not overfitting.
+
+Held-out law: independently generated held-out families live in TESTS, never in
+production sources and never as fixture examples —
+`__tests__/server/attach-boundary-heldout.test.ts` ↔ `router.rs
+unicode_word_class_heldout`, `engine.rs mark_final_words_glue_like_latin_words`,
+decision/06's non-Latin vectors. Every flipped heuristic ships a spaced positive
+control AND a glued counterexample, in English + Telugu + Devanagari + Han + Thai.
+
 ## Determinism & normalization rules
 
 - Stage-event `ms` timing digits are replaced with `"<ms>"` (`normalizeBodyMs` / `normalizeMs`).

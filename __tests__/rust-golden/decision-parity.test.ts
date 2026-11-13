@@ -181,7 +181,7 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
         "the word vetoes it; convert/export governs the word directly as the SOURCE format (the word " +
         "after a to/into/as direction word is the output); summary/outline-style meta phrases mark " +
         "discussed material; two+ requested intents are ambiguous ('in-process-deliverable-ambiguous') " +
-        "— INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N}/\\p{M} consuming word classes in BOTH" +
+        "— INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N}/\\p{M} consuming word classes in BOTH " +
         "engines: caféexcel/résumébuilder no longer split, bare résumé matches its own word, résumé2 " +
         "honestly misses. Honest confidence: 0.8 verb-bound, 0.5 miss/ambiguous — the retired blanket " +
         "1.0 was false certainty. Anatomy/3d/cad vocabulary stays standard_chat (retired 2026-11-06/07) " +
