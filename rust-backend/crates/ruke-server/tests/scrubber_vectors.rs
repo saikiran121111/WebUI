@@ -38,10 +38,7 @@ fn run_pieces(pieces: &[String]) -> (String, String) {
 fn think_field_split_matrix_replays_cross_engine_vectors() {
     let fx = load_fixture("sse/02-think-split-matrix.json");
     assert!(
-        fx["mismatchSplitChars"]
-            .as_array()
-            .unwrap()
-            .is_empty(),
+        fx["mismatchSplitChars"].as_array().unwrap().is_empty(),
         "the TS harness recorded a chunking-invariance violation"
     );
     let cases = fx["cases"].as_array().unwrap();
@@ -100,21 +97,28 @@ fn unterminated_think_tail_survives_as_reasoning() {
 fn utf8_transport_matrix_records_zero_mangling() {
     let fx = load_fixture("sse/03-utf8-split-matrix.json");
     assert!(
-        fx["mangledSplitBytes"]
-            .as_array()
-            .unwrap()
-            .is_empty(),
+        fx["mangledSplitBytes"].as_array().unwrap().is_empty(),
         "raw transport: some split mangled the response bytes"
     );
-    assert!(fx["midCodePointSplits"].as_u64().unwrap() > 0, "the matrix must include cuts strictly inside multi-byte code points");
+    assert!(
+        fx["midCodePointSplits"].as_u64().unwrap() > 0,
+        "the matrix must include cuts strictly inside multi-byte code points"
+    );
     let stream = fx["upstreamStreamUtf8"].as_str().unwrap();
     // Base64 cross-check WITHOUT a base64 dependency (workspace law): the
     // record must start with base64("data: ") and its padded length must
     // decode to exactly the recorded stream length.
     let b64 = fx["upstreamBytesBase64"].as_str().unwrap();
-    assert!(b64.starts_with("ZGF0YTog"), "base64 record drift (must start with base64 of \"data: \")");
+    assert!(
+        b64.starts_with("ZGF0YTog"),
+        "base64 record drift (must start with base64 of \"data: \")"
+    );
     let pad = b64.chars().rev().take_while(|&c| c == '=').count();
-    assert_eq!((b64.len() / 4) * 3 - pad, stream.len(), "base64 length must match the stream");
+    assert_eq!(
+        (b64.len() / 4) * 3 - pad,
+        stream.len(),
+        "base64 length must match the stream"
+    );
 
     let cases = fx["cases"].as_array().unwrap();
     assert_eq!(cases.len(), fx["splitCount"].as_u64().unwrap() as usize);

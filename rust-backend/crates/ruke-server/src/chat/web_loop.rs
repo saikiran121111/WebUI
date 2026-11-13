@@ -95,9 +95,7 @@ use ruke_skills::lazy::inject_system_before;
 
 use crate::chat::answer_release::{answer_issues, audit_research_answer, diagnose_research_answer};
 use crate::chat::browser_loop::{tool_content, ToolStreamRelay};
-use crate::chat::{
-    error, next_search, next_search::BridgeError, sse::ProgressChannel,
-};
+use crate::chat::{error, next_search, next_search::BridgeError, sse::ProgressChannel};
 use crate::AppState;
 
 /// Fallback guidance block ⇔ TS `WEB_TOOL_GUIDANCE`
@@ -1115,12 +1113,27 @@ mod tests {
         // must NOT silence the check line. ⇔ TS retrieveHappened tests.
         let empty = CitationMap::new();
         assert!(!turn_retrieved(&empty, &None));
-        assert!(!turn_retrieved(&empty, &Some(serde_json::json!([{"ok": true, "retrieved": 0}]))));
-        assert!(!turn_retrieved(&empty, &Some(serde_json::json!([{"ok": true}]))));
-        assert!(!turn_retrieved(&empty, &Some(serde_json::json!([{"ok": false, "retrieved": 9}]))));
-        assert!(turn_retrieved(&empty, &Some(serde_json::json!([{"ok": true, "retrieved": 3}]))));
+        assert!(!turn_retrieved(
+            &empty,
+            &Some(serde_json::json!([{"ok": true, "retrieved": 0}]))
+        ));
+        assert!(!turn_retrieved(
+            &empty,
+            &Some(serde_json::json!([{"ok": true}]))
+        ));
+        assert!(!turn_retrieved(
+            &empty,
+            &Some(serde_json::json!([{"ok": false, "retrieved": 9}]))
+        ));
+        assert!(turn_retrieved(
+            &empty,
+            &Some(serde_json::json!([{"ok": true, "retrieved": 3}]))
+        ));
         let mut cites = CitationMap::new();
-        cites.insert("S1".to_string(), serde_json::json!({ "url": "https://example.com" }));
+        cites.insert(
+            "S1".to_string(),
+            serde_json::json!({ "url": "https://example.com" }),
+        );
         assert!(turn_retrieved(&cites, &None));
     }
 

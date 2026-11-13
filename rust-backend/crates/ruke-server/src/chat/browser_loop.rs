@@ -1209,7 +1209,9 @@ mod tests {
     #[test]
     fn relay_routes_think_text_to_reasoning_never_deletes() {
         let mut relay = ToolStreamRelay::new();
-        relay.feed(&frame(r#"{"choices":[{"delta":{"content":"A<think>s</think>B<think>oops"}}]}"#));
+        relay.feed(&frame(
+            r#"{"choices":[{"delta":{"content":"A<think>s</think>B<think>oops"}}]}"#,
+        ));
         relay.feed(&frame("[DONE]"));
         relay.finish(&[]);
         assert_eq!(relay.content, "AB");
@@ -1239,7 +1241,8 @@ mod tests {
                 emitted.extend_from_slice(&tail);
             }
             assert_eq!(
-                emitted, bytes,
+                emitted,
+                bytes,
                 "split at byte {i} (mid-codepoint: {}) changed frame bytes",
                 (bytes[i] & 0xc0) == 0x80
             );

@@ -170,9 +170,27 @@ mod tests {
     #[test]
     fn partial_open_tag_is_held_not_emitted() {
         let mut s = ThinkFieldSplitter::default();
-        assert_eq!(s.feed("abc<"), SplitOut { content: "abc".into(), reasoning: String::new() });
-        assert_eq!(s.feed("think>xyz"), SplitOut { content: String::new(), reasoning: "xyz".into() });
-        assert_eq!(s.feed("</think>tail"), SplitOut { content: "tail".into(), reasoning: String::new() });
+        assert_eq!(
+            s.feed("abc<"),
+            SplitOut {
+                content: "abc".into(),
+                reasoning: String::new()
+            }
+        );
+        assert_eq!(
+            s.feed("think>xyz"),
+            SplitOut {
+                content: String::new(),
+                reasoning: "xyz".into()
+            }
+        );
+        assert_eq!(
+            s.feed("</think>tail"),
+            SplitOut {
+                content: "tail".into(),
+                reasoning: String::new()
+            }
+        );
     }
 
     #[test]
@@ -187,15 +205,30 @@ mod tests {
     fn single_delta_routes_four_sections() {
         assert_eq!(
             feed_all(&["a<think>b</think>c<think>d</think>e"]),
-            SplitOut { content: "ace".into(), reasoning: "bd".into() }
+            SplitOut {
+                content: "ace".into(),
+                reasoning: "bd".into()
+            }
         );
     }
 
     #[test]
     fn flush_releases_held_partial_open_as_literal_content() {
         let mut s = ThinkFieldSplitter::default();
-        assert_eq!(s.feed("x<thi"), SplitOut { content: "x".into(), reasoning: String::new() });
-        assert_eq!(s.flush(), SplitOut { content: "<thi".into(), reasoning: String::new() });
+        assert_eq!(
+            s.feed("x<thi"),
+            SplitOut {
+                content: "x".into(),
+                reasoning: String::new()
+            }
+        );
+        assert_eq!(
+            s.flush(),
+            SplitOut {
+                content: "<thi".into(),
+                reasoning: String::new()
+            }
+        );
         assert_eq!(s.flush(), SplitOut::default()); // terminal-safe
     }
 
@@ -204,7 +237,10 @@ mod tests {
         let mut s = ThinkFieldSplitter::default();
         assert_eq!(
             s.feed("<think>still thinking"),
-            SplitOut { content: String::new(), reasoning: "still thinking".into() }
+            SplitOut {
+                content: String::new(),
+                reasoning: "still thinking".into()
+            }
         );
         assert_eq!(s.flush(), SplitOut::default());
     }
@@ -214,7 +250,13 @@ mod tests {
         let mut s = ThinkFieldSplitter::default();
         s.feed("<think>abc");
         assert_eq!(s.feed("</th"), SplitOut::default());
-        assert_eq!(s.flush(), SplitOut { content: String::new(), reasoning: "</th".into() });
+        assert_eq!(
+            s.flush(),
+            SplitOut {
+                content: String::new(),
+                reasoning: "</th".into()
+            }
+        );
     }
 
     #[test]
