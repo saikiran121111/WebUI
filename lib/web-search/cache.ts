@@ -8,6 +8,23 @@
  *   query_cache(query_hash, freshness, plan_json, hits, created_at, expires_at)
  *   page_cache (url_hash, url, extracted, tier, cached_at, expires_at)
  *
+ * §5g (2026-11-13 brief) KEY LAW — "include actual retrieval-affecting
+ * settings in cache keys": every input that changes what a row STORES must
+ * change the row's IDENTITY, or one retrieval silently impersonates another.
+ *   query_cache key  = per-plan (query|freshness|intent|preferredDomains|
+ *                    normalized relevanceAnchor), sorted, PLUS the Google
+ *                    ranking region (gl). The anchor gates the fused-pool
+ *                    relevance floor in metasearch — which results survive
+ *                    into results_json depends on it — and Google's gl
+ *                    region rewrites Google's contribution; the DB outlives
+ *                    OS-locale changes.
+ *   page_cache key   = url PLUS the body-affecting kill-switch settings
+ *                    (adblock: ad-ridden vs clean body; browser pool:
+ *                    JS-rendered vs raw-DOM body).
+ * Fingerprints are SCOPED to what each table's content actually consumes
+ * (gl never touches page bodies; extraction switches never touch SERPs) —
+ * over-inclusion would shred the legitimate hit rate the cache exists for.
+ *
  * Wall-clock TTL (5 hours real-world time, NOT process uptime):
  *   - Every row stores `created_at` and `expires_at` as Unix epoch
  *     milliseconds (Date.now()), so the expiry survives app restarts.
@@ -22,6 +39,9 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { SearchPlan, RankedResult } from "./metasearch";
+import { systemGl } from "./engines";
+import { adblockDisabled } from "./adblock";
+import { browserPoolDisabled } from "./agentBrowser";
 
 const DB_PATH = join(
   process.cwd(),
@@ -188,7 +208,7 @@ export function hash(s: string): string {
 
 /* ── query cache ───────────────────────────────────────────────────────── */
 
-export function queryCacheKey(plans: SearchPlan[]): string {
+export function queryCacheKey(plans: SearchPlan[], gl: string = systemGl()): string {
   // (audit 2026-11-04) freshness is part of the KEY: the engine applies
   // time filters per freshness tier, so "zepto bread price" as realtime
   // and as "any" produce DIFFERENT SERPs with different TTLs. Query-only
@@ -204,11 +224,36 @@ export function queryCacheKey(plans: SearchPlan[]): string {
         .map((d) => d.toLowerCase().trim())
         .sort()
         .join(",");
-      return `${p.query.toLowerCase().trim()}|${p.freshness ?? "any"}|${p.intent ?? "general"}|${domains}`;
+      // §5g: the anchor is retrieval-affecting — the fused-pool relevance
+      // floor (metasearch) filters results_json per ANCHOR token set, so
+      // two turns sharing plan tuples but different anchors produce
+      // DIFFERENT cached pools and must not share a row. Normalized with
+      // the same case/whitespace folding as queries.
+      const anchor = (p.relevanceAnchor ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+      return `${p.query.toLowerCase().trim()}|${p.freshness ?? "any"}|${p.intent ?? "general"}|${domains}|${anchor}`;
     })
     .sort()
     .join("|");
-  return hash(normalized);
+  // §5g: Google's gl region (machine Intl locale) re-ranks Google's SERP
+  // contribution, and this DB persists across OS-locale changes. `gl` is
+  // injectable for deterministic tests (same pattern as freshnessFit's
+  // nowMs); production call sites pass nothing.
+  return hash(`${normalized}::gl=${gl.toLowerCase()}`);
+}
+
+/**
+ * §5g page_cache key. The stored BODY depends on extraction settings that
+ * never appear in the URL: the adblock kill-switch (ad-ridden vs clean
+ * text) and the browser-pool kill-switch (JS-rendered vs raw-DOM text).
+ * Settings are read per call so a flag flip can never resurrect a row
+ * written under the opposite regime. Fingerprints stay SCOPED: the gl
+ * region changes SERP composition, not page bodies, so it is absent here.
+ */
+export function pageCacheKey(
+  url: string,
+  fingerprint: string = `ab=${adblockDisabled() ? 1 : 0}|bw=${browserPoolDisabled() ? 1 : 0}`,
+): string {
+  return hash(`${url}|${fingerprint}`);
 }
 
 export function getCachedQuery(
@@ -296,7 +341,7 @@ export function getCachedPage(url: string): {
   tier: string;
 } | null {
   maybePurge();
-  const key = hash(url);
+  const key = pageCacheKey(url);
   // (audit 2026-11-04) A cache READ failure (SQLITE_BUSY from a concurrent
   // writer, corrupt row) must degrade to a miss, never reject the whole
   // extraction call — a cache is an optimization, not a dependency.
@@ -352,7 +397,7 @@ export function putCachedPage(
            expires_at = excluded.expires_at`,
       )
       .run(
-        hash(url),
+        pageCacheKey(url),
         url,
         extracted, // full text — no truncation
         tier,

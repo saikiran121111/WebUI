@@ -723,7 +723,7 @@ function unwrapGoogleHref(href: string): string {
  * comes from the machine's own Intl locale (en-IN → "in"), so brand
  * and commerce queries rank the user's country's sites first. No
  * hardcoded location — it IS the user's system. */
-function systemGl(): string {
+export function systemGl(): string {
   try {
     const locale = new Intl.DateTimeFormat().resolvedOptions().locale ?? "en-US";
     const region = locale.split("-").filter(Boolean).pop() ?? "US";
