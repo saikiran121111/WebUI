@@ -116,7 +116,11 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
       error = e;
       console.error("[PARSER] error:", e);
       done = true;
-      push({ finishReason: (e as Error)?.name === "AbortError" ? "abort" : "error" });
+      const kind = (e as Error)?.name === "AbortError" ? "abort" : "error";
+      push({
+        finishReason: kind,
+        errorMessage: kind === "error" ? (e as Error)?.message || undefined : undefined,
+      });
       if (resolve) {
         const r = resolve;
         resolve = null;
@@ -136,9 +140,14 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
     // carries these keys, so mock specs and third-party streams are untouched.
     if (json?.ruke_stage) { push({ stage: json.ruke_stage }); return; }
     if (json?.ruke_error) {
-      // Same surface as today's non-200 upstream: finishReason "error".
+      // Same surface as today's non-200 upstream: finishReason "error" —
+      // plus the server's ACTUAL failure detail. The wire always carried
+      // `{ruke_error:{message}}`; the parser used to drop it so the UI
+      // printed a generic label over a specific reason (brief 2026-11-13).
       sawFinish = true;
-      push({ finishReason: "error" });
+      const msg =
+        typeof json.ruke_error?.message === "string" ? json.ruke_error.message : "";
+      push({ finishReason: "error", errorMessage: msg || undefined });
       return;
     }
 

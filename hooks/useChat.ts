@@ -589,7 +589,10 @@ export function useChat({
     }
     if (ev.finishReason === "abort" || ev.finishReason === "error") {
       setStatus(ev.finishReason === "abort" ? "aborted" : "error");
-      setError(ev.finishReason === "error" ? "Generation failed" : null);
+      // The server's real failure detail when it has one; the generic label
+      // only survives when the wire carried nothing truthful (brief
+      // 2026-11-13 §2: never bury the actual reason behind a fixed string).
+      setError(ev.finishReason === "error" ? ev.errorMessage || "Generation failed" : null);
       setIsThinking(false);
     }
   }, [scheduleFlush, flushPending]);

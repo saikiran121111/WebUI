@@ -22,11 +22,13 @@
 //!    are otherwise released UNTOUCHED: the harness never qualifies a claim
 //!    "(unverified)", and a minted citation is NEVER removed, moved or
 //!    altered — even when an adjacent marker in the same sentence is fake.
-//!  R2 SEMANTIC SUPPORT (the model's, diagnosis-only since MHR-F): the
-//!    volatile-claim detectors (currency/percent/rating/temperature/date/
-//!    coordinate/price- or weather-word + digit, no resolving [S#]) live in
-//!    diagnose_research_answer ONLY — reported to the model once through
-//!    the byte-locked harness feedback, never rewritten on release.
+//!  R2 SEMANTIC SUPPORT (the model's; diagnosis CLOSED to log telemetry
+//!    by the 2026-11-13 brief): the volatile-claim detectors (currency/
+//!    percent/rating/temperature/date/coordinate/price- or weather-word +
+//!    digit, no resolving [S#]) live in diagnose_research_answer ONLY —
+//!    written to the SERVER LOG (tracing::warn!), never to the model,
+//!    never rewritten on release. They are lexical PRIORS that over-match
+//!    (a '%' in CSS) and under-match; a flag decides nothing user-visible.
 //!  R3 action check (kept at release): research-claiming wording on a turn
 //!    where NOTHING was retrieved (empty citation map, no successful ledger
 //!    action) gets a prepended server-attested check line. The LEDGER
@@ -37,18 +39,25 @@
 //! idempotency law: the integrity layer only REMOVES bytes, so released
 //! text is safe to persist, replay, and audit again on follow-up turns.
 //!
-//! MHR-D (brief 2026-11-05) adds the NON-DESTRUCTIVE half:
-//! [`diagnose_research_answer`] runs the SAME detectors but only REPORTS
-//! the server's actual state (fabricated markers, unsupported sentences
-//! VERBATIM, research wording without retrieval). The loop holds a
-//! diagnosed-bad answer back and injects ONE byte-locked feedback message
-//! ([`build_answer_feedback`] — pinned by the matrix's mhrD section) into
-//! the EXISTING tool loop; the MODEL then decides the next action. The
-//! harness never rewrites semantics with thresholds or phrase patches.
-//! MHR-F (WS26, 2026-11-06) CLOSED that half-state: the release audit
-//! enforces CITATION INTEGRITY only, and semantic support rides the
-//! diagnosis→feedback channel alone (the mhrF matrix section pins the
-//! separation).
+//! MHR-D (brief 2026-11-05) added the NON-DESTRUCTIVE half; the
+//! 2026-11-13 brief CLOSED its destructive tail. The loop used to RETRACT
+//! a flagged answer (an empty-contentText revise erasing live text) and
+//! feed ONE byte-locked "[Harness feedback]" message back into the tool
+//! loop. That lifecycle silently deleted and regenerated whole answers on
+//! a heuristic flag, and its header claimed the answer text "was held
+//! back and NOT released to the human" — the feedback bytes never reached
+//! the human at all, so the report was not a truthful account of where
+//! the text went. [`diagnose_research_answer`] now exists for SERVER
+//! TELEMETRY ONLY (the loop emits tracing::warn!): released text changes
+//! only via R1/R3, the model is never lectured, no streamed text is
+//! erased, and no regeneration round is bought by a flag. Detector laws
+//! pinned by the matrix (`diagnose`/`separation` sections): DATE
+//! VALIDITY — an a/b/c numeral triple is a date only if it reads
+//! plausibly as m/d/y or d/m/y with a 2-4 digit year ("31/39/40"
+//! compiler line numbers are NOT a date); HEDGE LAW — the word
+//! "unverified" never bypasses the report; CITATION IDENTITY — a
+//! resolvable [S#] proves the reference resolves, NOT that its passage
+//! supports the sentence.
 //!
 //! Cross-language byte-lock: BOTH this module and the TS side read the ONE
 //! vendored truth matrix `rust-backend/fixtures/answer-release/matrix.json`
@@ -83,8 +92,14 @@ static RE_RATING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?:rated|rating|score|stars?)\b|\bout of \d").unwrap());
 static RE_TEMP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)°\s?[CF]\b|\b(?:degrees?|celsius|fahrenheit)\b").unwrap());
+// Date law (matrix "D", 2026-11-13): an a/b/c numeral triple is a date
+// only when the first two fields fit a PLAUSIBLE m/d OR d/m ordering with
+// a 2-4 digit year ("31/39/40" compiler line numbers, "13/45/2026"
+// ratios — not dates). ⇔ TS RE_DATE stays pattern-equivalent; neither
+// half uses lookaround (the regex crate forbids it; the TS mirror does
+// not need it).
 static RE_DATE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b")
+    Regex::new(r"(?i)\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])|(?:0?[1-9]|[12]\d|3[01])/(?:0?[1-9]|1[0-2]))/\d{2,4}\b")
         .unwrap()
 });
 static RE_COORDS: LazyLock<Regex> =
@@ -123,11 +138,6 @@ static RE_RESEARCH_WORDING: LazyLock<Regex> = LazyLock::new(|| {
 static RE_MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[S(\d+)\]").unwrap());
 static RE_DOUBLE_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" {2,}").unwrap());
 static RE_PUNCT_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ([.,;:!?])").unwrap());
-/// Kept for the DIAGNOSIS half only (MHR-F): sentences that already carry
-/// "unverified" wording are not re-reported as unsupported. The release
-/// path no longer produces or inspects qualifiers at all.
-static RE_UNVERIFIED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)unverified").unwrap());
-
 fn marker_ids(s: &str) -> Vec<String> {
     RE_MARKER
         .captures_iter(s)
@@ -249,9 +259,9 @@ fn split_sentences(s: &str) -> Vec<String> {
 /// resolves to a minted source is left byte-intact (never removed, however
 /// the sentence reads); a marker that resolves to NOTHING is a broken
 /// reference and its bytes are stripped. Nothing else on the sentence
-/// changes — semantic support is the model's job via the diagnosis→
-/// feedback channel, and volatile-claim qualification is exactly the
-/// semantic patching the harness may not do.
+/// changes — semantic support is the model's job (the harness's diagnosis
+/// of it is log telemetry only), and volatile-claim qualification is
+/// exactly the semantic patching the harness may not do.
 fn audit_sentence(sentence: &str, ids: &HashSet<String>) -> String {
     if sentence.is_empty() || !sentence.chars().any(|c| !c.is_whitespace()) {
         return sentence.to_string();
@@ -279,18 +289,15 @@ fn audit_sentence(sentence: &str, ids: &HashSet<String>) -> String {
     out
 }
 
-/* ══ MHR-D: non-destructive diagnosis (same detectors, report-only) ════
- * ⇔ TS `diagnoseResearchAnswer / answerFeedbackNeeded / buildAnswerFeedback`
- * in lib/chat/answer-release.ts. The loop may not "repair" the model's
- * words into semantic correctness — that is the model's job. The harness
- * reports the ACTUAL server state truthfully and ONCE (fabricated markers,
- * sentences resolving to no minted source — quoted VERBATIM, research
- * wording without retrieval), holds the diagnosed-bad answer back, and
- * injects ONE byte-locked feedback message into the EXISTING tool loop;
- * the model decides the next action (retrieve / re-attach / state the gap).
- * Rewrites nothing; since MHR-F (WS26) the release audit enforces CITATION
- * INTEGRITY only, and this diagnosis→feedback channel is the SOLE route
- * for semantic support.
+/* ══ Answer diagnosis (MHR-D; telemetry-only since 2026-11-13) ════════
+ * The loop may not "repair" the model's words into semantic correctness —
+ * that is the model's job. The harness's job is to OBSERVE the ACTUAL
+ * server state truthfully: which markers don't resolve, which sentences
+ * resolve to NO minted source, whether "research" wording is backed by
+ * retrieval at all. The diagnosis rides the SERVER LOG ONLY (the loop
+ * emits tracing::warn!) — never a model-facing message, never the user's
+ * history, titles or exports.
+ * ⇔ TS diagnoseResearchAnswer / answerIssues in lib/chat/answer-release.ts.
  */
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
@@ -319,15 +326,23 @@ pub fn diagnose_research_answer(text: &str, ids: &HashSet<String>, retrieved: bo
         if marker_ids.is_empty() && !sentence.bytes().any(|b| b.is_ascii_digit()) {
             continue;
         }
-        // stillValid law identical to the audit: one resolvable marker means
-        // the sentence IS sourced — dangling extras ride under `unresolved`.
+        // CITATION IDENTITY law (re-commented 2026-11-13): a resolvable
+        // [S#] proves the REFERENCE resolves — NOT that its passage
+        // SUPPORTS the sentence. A sentence with at least one resolving
+        // marker is skipped because the harness owns no claim-evidence
+        // matcher: that is the documented identity-vs-support LIMITATION,
+        // not a support verdict. A dangling extra marker is still
+        // reported under `unresolved`.
         if marker_ids.iter().any(|id| ids.contains(id)) {
             continue;
         }
         let misattributed = marker_ids.iter().any(|id| !ids.contains(id));
         let digit = sentence.bytes().any(|b| b.is_ascii_digit());
         let volatile = digit && VOLATILE.iter().any(|re| re.is_match(&sentence));
-        if (misattributed || volatile) && !RE_UNVERIFIED.is_match(&sentence) {
+        // HEDGE law (2026-11-13): no hedge word — not even "unverified" —
+        // bypasses the report. The flag is log-only, so false positives
+        // decide nothing.
+        if misattributed || volatile {
             unsupported.push(sentence); // VERBATIM — report, never rewrite
         }
     }
@@ -399,40 +414,6 @@ fn sentences_of(prose: &str) -> Vec<String> {
 
 pub fn answer_issues(d: &Diagnosis) -> bool {
     !d.unresolved.is_empty() || !d.unsupported.is_empty() || d.claims_research
-}
-
-/// ⇔ TS FEEDBACK_HEADER/FEEDBACK_FOOTER — the bytes live INSIDE the message
-/// the model reads; the matrix mhrD `feedback` fields pin the full render.
-const FEEDBACK_HEADER: &str = "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:";
-const FEEDBACK_FOOTER: &str = "Decide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged.";
-
-pub fn build_answer_feedback(d: &Diagnosis) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    if !d.unresolved.is_empty() {
-        let marks: Vec<String> = d.unresolved.iter().map(|id| format!("[{id}]")).collect();
-        let avail = if d.available.is_empty() {
-            "none".to_string()
-        } else {
-            d.available.join(", ")
-        };
-        lines.push(format!(
-            "- Citation marker(s) {} do not exist. Sources minted this turn: {avail}.",
-            marks.join(", ")
-        ));
-    }
-    if !d.unsupported.is_empty() {
-        let quoted: Vec<String> = d.unsupported.iter().map(|s| format!("\"{s}\"")).collect();
-        lines.push(format!(
-            "- Unsupported claim sentence(s): {}",
-            quoted.join(", ")
-        ));
-    }
-    if d.claims_research {
-        lines.push(
-            "- The text claims web research, but no retrieval succeeded this turn.".to_string(),
-        );
-    }
-    format!("{FEEDBACK_HEADER}\n{}\n{FEEDBACK_FOOTER}", lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -528,7 +509,8 @@ mod tests {
             "Boreal costs $99 [S1]."
         );
         // MHR-F: the broken REFERENCE is stripped (integrity); the words
-        // are never qualified (semantics is the model's job via feedback).
+        // are never qualified (semantics is the model's job; the harness
+        // only logs its diagnosis).
         assert_eq!(
             audit_research_answer("Boreal costs $99 [S9].", &ids, true),
             "Boreal costs $99."
@@ -543,10 +525,11 @@ mod tests {
         );
     }
 
-    /* ── MHR-D: the vendored mhrD diagnose cases ══════════════════════
+    /* ── The vendored `diagnose` cases (matrix v4) ════════════════════
      * Same matrix, same fictional entities — diagnosis byte-parity with
-     * TS `__tests__/chat/answer-release.test.ts`. Held-answer feedback is
-     * the model-facing contract: byte-exact or the promise is a lie.
+     * TS `__tests__/chat/answer-release.test.ts`. The diagnosis is
+     * telemetry: it reports SERVER state; it is never rendered to the
+     * human and never sent to the model (2026-11-13 feedback law).
      */
 
     struct MhrCase {
@@ -555,14 +538,13 @@ mod tests {
         citations: HashSet<String>,
         retrieved: bool,
         expected: Diagnosis,
-        feedback: String,
     }
 
     fn mhr_matrix() -> Vec<MhrCase> {
         let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
-        v["mhrD"]["diagnoseCases"]
+        v["diagnose"]["cases"]
             .as_array()
-            .expect("mhrD.diagnoseCases array")
+            .expect("diagnose.cases array")
             .iter()
             .map(|c| MhrCase {
                 name: c["name"].as_str().unwrap_or("").to_string(),
@@ -576,7 +558,6 @@ mod tests {
                 retrieved: c["retrieved"].as_bool().unwrap(),
                 expected: serde_json::from_value(c["expected"].clone())
                     .expect("expected matches Diagnosis shape"),
-                feedback: c["feedback"].as_str().unwrap_or("").to_string(),
             })
             .collect()
     }
@@ -584,28 +565,14 @@ mod tests {
     #[test]
     fn the_mhrd_matrix_section_is_present() {
         let cases = mhr_matrix();
-        assert!(cases.len() >= 8, "mhrD must vend ≥8 diagnose cases");
+        assert!(cases.len() >= 13, "diagnose must vend ≥13 cases");
     }
 
     #[test]
     fn every_mhrd_case_diagnoses_identically_to_ts() {
         for c in &mhr_matrix() {
             let d = diagnose_research_answer(&c.text, &c.citations, c.retrieved);
-            assert_eq!(d, c.expected, "mhrD case: {}", c.name);
-            assert_eq!(
-                answer_issues(&d),
-                !c.feedback.is_empty(),
-                "feedback gate on case: {}",
-                c.name
-            );
-            if !c.feedback.is_empty() {
-                assert_eq!(
-                    build_answer_feedback(&d),
-                    c.feedback,
-                    "feedback bytes on case: {}",
-                    c.name
-                );
-            }
+            assert_eq!(d, c.expected, "diagnose case: {}", c.name);
         }
     }
 
@@ -613,7 +580,7 @@ mod tests {
     fn mhrd_diagnosis_is_non_destructive_a_clean_answer_stays_silent() {
         // The report quotes VERBATIM — never the retired "(unverified)"
         // rewrite (MHR-F) — and a clean fully-cited answer fires
-        // nothing at all (the feedback round must not haunt good turns).
+        // nothing at all (the warn line must not haunt good answers).
         let ids: HashSet<String> = ["S1".to_string()].into_iter().collect();
         let d = diagnose_research_answer("Boreal costs $99 [S9] per seat.", &ids, true);
         assert_eq!(
@@ -632,7 +599,8 @@ mod tests {
      * CITATION INTEGRITY only (a [S#] marker resolving to no minted source
      * is stripped; semantics are NEVER rewritten; a minted citation is
      * never removed), while the diagnosis reports the full semantic state
-     * byte-exactly through the mhrD feedback contract.
+     * byte-exactly as internal telemetry (the `diagnose` half of the
+     * matrix; the 2026-11-13 brief deleted the feedback contract).
      */
 
     struct FReleaseCase {
@@ -650,7 +618,6 @@ mod tests {
         retrieved: bool,
         expected_release: String,
         expected_diagnosis: Diagnosis,
-        feedback: String,
     }
 
     fn cited(c: &serde_json::Value) -> HashSet<String> {
@@ -664,9 +631,9 @@ mod tests {
 
     fn mhrf_release_matrix() -> Vec<FReleaseCase> {
         let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
-        v["mhrF"]["releaseCases"]
+        v["separation"]["releaseCases"]
             .as_array()
-            .expect("mhrF.releaseCases array")
+            .expect("separation.releaseCases array")
             .iter()
             .map(|c| FReleaseCase {
                 name: c["name"].as_str().unwrap_or("").to_string(),
@@ -680,9 +647,9 @@ mod tests {
 
     fn mhrf_sep_matrix() -> Vec<FSepCase> {
         let v: serde_json::Value = serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
-        v["mhrF"]["separationCases"]
+        v["separation"]["separationCases"]
             .as_array()
-            .expect("mhrF.separationCases array")
+            .expect("separation.separationCases array")
             .iter()
             .map(|c| FSepCase {
                 name: c["name"].as_str().unwrap_or("").to_string(),
@@ -692,7 +659,6 @@ mod tests {
                 expected_release: c["expectedRelease"].as_str().unwrap().to_string(),
                 expected_diagnosis: serde_json::from_value(c["expectedDiagnosis"].clone())
                     .expect("expectedDiagnosis matches Diagnosis shape"),
-                feedback: c["feedback"].as_str().unwrap_or("").to_string(),
             })
             .collect()
     }
@@ -700,9 +666,9 @@ mod tests {
     #[test]
     fn the_mhrf_matrix_section_is_present() {
         let r = mhrf_release_matrix();
-        assert!(r.len() >= 5, "mhrF must vend ≥5 releaseCases");
+        assert!(r.len() >= 5, "separation must vend ≥5 releaseCases");
         let s = mhrf_sep_matrix();
-        assert!(s.len() >= 3, "mhrF must vend ≥3 separationCases");
+        assert!(s.len() >= 5, "separation must vend ≥5 separationCases");
     }
 
     #[test]
@@ -730,20 +696,6 @@ mod tests {
                 "mhrF separation diagnosis on case: {}",
                 c.name
             );
-            assert_eq!(
-                answer_issues(&d),
-                !c.feedback.is_empty(),
-                "feedback gate on mhrF case: {}",
-                c.name
-            );
-            if !c.feedback.is_empty() {
-                assert_eq!(
-                    build_answer_feedback(&d),
-                    c.feedback,
-                    "feedback bytes on mhrF case: {}",
-                    c.name
-                );
-            }
         }
     }
 

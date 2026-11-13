@@ -66,19 +66,20 @@
 //!   never a synthetic delta replay. The single-`[DONE]` grammar is
 //!   unchanged. ⇔ TS `holdRoundFrame`/`releaseRound` in
 //!   lib/chat/web-tool-loop.ts.
-//! - MHR-D (brief 2026-11-05) evidence-driven next action: before the
-//!   release, the completion round is DIAGNOSED (report-only, same
-//!   detectors). A diagnosed-bad answer is RETRACTED IN PLACE (a
-//!   `web:content_revise` frame with empty `contentText` erases the
-//!   round's live text) and ONE byte-locked feedback message (the model's
-//!   retracted text + the actual server state) enters the EXISTING loop —
-//!   the MODEL decides what to do next (retrieve / re-attach citations /
-//!   state the gap). At most one feedback per turn; it costs a loop
-//!   ITERATION, never the tool budget; no feedback is faked when no
-//!   iteration is spare. ⇔ TS web-tool-loop.ts `feedbackUsed` wiring. The
-//!   destructive WS06 repair still runs on every release (its result
-//!   ships as a revise frame) until MHR-F evolves it (deliberate
-//!   half-state).
+//! - MHR-D (brief 2026-11-05; CLOSED by the 2026-11-13 brief) answer
+//!   diagnosis: before the release, the completion round is DIAGNOSED
+//!   (report-only, same detectors) and the diagnosis rides the SERVER LOG
+//!   ONLY (`tracing::warn!`) — internal telemetry, never shown to the
+//!   human (not history, titles or exports) and never sent back to the
+//!   model. The old lifecycle — retract the flagged answer with an empty-
+//!   `contentText` revise, feed one byte-locked "[Harness feedback]"
+//!   message into the loop, let the model regenerate — is GONE: it
+//!   silently deleted a live answer and bought a regeneration round on a
+//!   heuristic flag, and its report text claimed the answer "was held
+//!   back" when those bytes never reached the human at all. Release is
+//!   the MHR-F INTEGRITY audit only: strip unresolvable `[S#]` bytes and
+//!   prepend the ledger-computed R3 check line when warranted, in place,
+//!   via the one revise frame. ⇔ TS web-tool-loop.ts completion branch.
 
 use std::collections::HashSet;
 use std::time::Instant;
@@ -90,9 +91,7 @@ use tracing::Span;
 use ruke_contracts::stages::{CitationMap, StageEvent};
 use ruke_skills::lazy::inject_system_before;
 
-use crate::chat::answer_release::{
-    answer_issues, audit_research_answer, build_answer_feedback, diagnose_research_answer,
-};
+use crate::chat::answer_release::{answer_issues, audit_research_answer, diagnose_research_answer};
 use crate::chat::browser_loop::{tool_content, ToolStreamRelay};
 use crate::chat::{
     error, next_search, next_search::BridgeError, scrubber::ThinkScrubber, sse::ProgressChannel,
@@ -158,7 +157,9 @@ fn hold_round_frame(frame: &[u8], held: &mut Vec<Vec<u8>>) -> Option<Vec<u8>> {
     let mut live: Vec<String> = Vec::new();
     let mut park: Vec<String> = Vec::new();
     fn first_choice(v: &Value) -> Option<&Value> {
-        v.get("choices").and_then(Value::as_array).and_then(|a| a.first())
+        v.get("choices")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
     }
     for line in text.split('\n') {
         let Some(rest) = line.strip_prefix("data:") else {
@@ -282,16 +283,22 @@ fn host_of(u: &str) -> Option<String> {
 }
 
 /// Did the turn actually obtain anything? Computed ONLY from server state:
-/// the citation map the pipeline/tools minted, or a successful action in
-/// the ledger snapshot the exec RPCs carried (⇔ TS `retrieveHappened`).
+/// the citation map the pipeline/tools minted, or an action that RAN **and
+/// retrieved something** in the ledger snapshot the exec RPCs carried
+/// (⇔ TS `retrieveHappened`). Brief 2026-11-13: `ok` alone is NOT
+/// retrieval — it is the envelope verdict; a zero-admission search rides
+/// `ok: true, retrieved: 0`, and the R3 check line must still fire. Only
+/// `retrieved > 0` counts.
 fn turn_retrieved(merged: &CitationMap, last_ledger: &Option<Value>) -> bool {
     !merged.is_empty()
         || last_ledger
             .as_ref()
             .and_then(Value::as_array)
             .map(|a| {
-                a.iter()
-                    .any(|r| r.get("ok").and_then(Value::as_bool) == Some(true))
+                a.iter().any(|r| {
+                    r.get("ok").and_then(Value::as_bool) == Some(true)
+                        && r.get("retrieved").and_then(Value::as_i64).unwrap_or(0) > 0
+                })
             })
             .unwrap_or(false)
 }
@@ -301,8 +308,9 @@ fn turn_retrieved(merged: &CitationMap, last_ledger: &Option<Value>) -> bool {
 /// it instead of gating it — audit against the server citation map +
 /// action ledger, and when the audit changes the text ONE
 /// `web:content_revise` frame — `content_cut_to` (UTF-16 code units into
-/// the turn's displayed content) + `content_text` (empty = full
-/// retraction) — replaces everything from the cut on, then the round's
+/// the turn's displayed content) + `content_text` (never empty under the
+/// 2026-11-13 law: the audit corrects text in place and NEVER retracts
+/// live content) — replaces everything from the cut on, then the round's
 /// held terminal frames go out. The turn keeps exactly one finish and one
 /// `[DONE]`, and the live reasoning stream never waited. Returns the
 /// displayed content length (UTF-16 units) after the release — the next
@@ -349,7 +357,9 @@ async fn stream_round(
         Ok(b) => b,
         Err(e) => {
             tracing::error!(parent: span, "web turn payload re-serialize failed: {e}");
-            return Round::Done(Outcome::Failed("Generation failed".to_string()));
+            return Round::Done(Outcome::Failed(format!(
+                "Generation failed (internal payload error: {e})"
+            )));
         }
     };
     let headers = match error::upstream_headers(&state.settings.llm_api_key()) {
@@ -515,7 +525,8 @@ pub async fn run_web_tool_loop(
                 parent: span,
                 "web tool loop cannot start: the research bridge is not configured"
             );
-            ch.fail("Generation failed").await;
+            ch.fail("The research backend is not running — this turn cannot search the web.")
+                .await;
             return;
         }
     };
@@ -563,7 +574,8 @@ pub async fn run_web_tool_loop(
                 err = %e,
                 "web tool session create failed — the turn cannot run tools"
             );
-            ch.fail("Generation failed").await;
+            ch.fail("The research engine could not start this search — please try again.")
+                .await;
             return;
         }
     };
@@ -577,7 +589,8 @@ pub async fn run_web_tool_loop(
             parent: span,
             "web tool session create returned no sessionId — protocol failure"
         );
-        ch.fail("Generation failed").await;
+        ch.fail("The research engine returned an invalid session — please try again.")
+            .await;
         return;
     }
     let guidance = created
@@ -661,10 +674,6 @@ pub async fn run_web_tool_loop(
     // into the TS session on every exec call (its `Math.max` mirror keeps
     // the TS budget accounting consistent even though Rust drives).
     let mut rounds_used = 0usize;
-    // MHR-D: at most ONE harness-feedback round per turn — a second
-    // diagnosed-bad answer releases through the (still destructive) WS06
-    // audit instead. ⇔ TS `feedbackUsed` in lib/chat/web-tool-loop.ts.
-    let mut feedback_used = false;
     // P3b action-record law: the TS session owns the ledger (every tool
     // action incl. rejections); Rust only carries the latest snapshot the
     // exec RPC returns — it never reconstructs the record itself.
@@ -673,8 +682,8 @@ pub async fn run_web_tool_loop(
     // Streaming offset law (⇔ TS `streamedTotal`): UTF-16 code units of
     // answer content the client has legitimately seen across ALL rounds —
     // the unit `contentCutTo` rides the wire in. Each round starts at
-    // this offset; a released round advances it, a retracted round resets
-    // it. ⇔ JS `String.length`/`slice` semantics (utf16_len).
+    // this offset and a released round advances it. ⇔ JS
+    // `String.length`/`slice` semantics (utf16_len).
     let mut streamed_total = 0usize;
     let outcome = 'outer: {
         for round in 0..max_rounds {
@@ -689,52 +698,35 @@ pub async fn run_web_tool_loop(
             };
 
             if relay.finish.as_deref() != Some("tool_calls") || relay.calls.is_empty() {
-                // MHR-D evidence-driven next action: diagnose the answer
-                // against SERVER state (citation map + ledger snapshot —
-                // never prose). If anything is wrong the round's text —
-                // already streamed LIVE — is RETRACTED IN PLACE (a revise
-                // frame with empty `contentText` erases this round's
-                // content) and its held terminal frames never reach the
-                // client (the NEXT round owns `[DONE]`); ONE byte-locked
-                // feedback rides into the EXISTING loop and the MODEL
-                // decides. The feedback costs a loop iteration, NOT the
-                // tool budget (rounds_used and the census only count tool
-                // rounds), and needs a spare iteration — never faked at
-                // the round cap. ⇔ TS web-tool-loop.ts completion branch.
+                // The feedback lifecycle is CLOSED (brief 2026-11-13): a
+                // flagged answer is NEVER retracted and the model is NEVER
+                // sent a "[Harness feedback]" report. That lifecycle
+                // silently deleted a live answer and bought a
+                // regeneration round on a heuristic flag, and its report
+                // text claimed the answer "was held back" when in fact
+                // those bytes never reached the human — not a truthful
+                // account. The diagnosis now rides the SERVER LOG ONLY
+                // (internal telemetry: never the human's history, titles
+                // or exports; never model-facing). The release stays the
+                // INTEGRITY audit — release_round strips only
+                // unresolvable [S#] bytes and may prepend the ledger-
+                // computed R3 check line, in place, via one revise frame.
+                // ⇔ TS web-tool-loop.ts completion branch.
                 let ids: HashSet<String> = merged.keys().cloned().collect();
                 let diag = diagnose_research_answer(
                     &relay.content,
                     &ids,
                     turn_retrieved(&merged, &last_ledger),
                 );
-                if answer_issues(&diag) && !feedback_used && round + 1 < max_rounds {
-                    feedback_used = true;
-                    if !relay.content.is_empty() {
-                        let mut ev = StageEvent::new("web:content_revise");
-                        ev.content_cut_to = Some(round_start_len as u64);
-                        ev.content_text = Some(String::new());
-                        ch.stage(&ev).await;
-                    }
-                    streamed_total = round_start_len;
-                    held.clear(); // never emitted: the NEXT round owns [DONE]
-                    tracing::info!(
+                if answer_issues(&diag) {
+                    tracing::warn!(
                         parent: span,
                         round = round + 1,
-                        unresolved = diag.unresolved.len(),
-                        unsupported = diag.unsupported.len(),
+                        unresolved = ?diag.unresolved,
+                        unsupported = ?diag.unsupported,
                         claims_research = diag.claims_research,
-                        "web answer retracted; harness feedback issued"
+                        "web answer diagnosis flagged; released through the integrity audit (server telemetry only — never shown to the human, never sent to the model)"
                     );
-                    let messages = payload
-                        .get_mut("messages")
-                        .and_then(Value::as_array_mut)
-                        .expect("messages array present (tool loop only runs with it)");
-                    messages.push(json!({
-                        "role": "assistant",
-                        "content": if relay.content.is_empty() { Value::Null } else { json!(relay.content) }
-                    }));
-                    messages.push(json!({"role": "user", "content": build_answer_feedback(&diag)}));
-                    continue;
                 }
 
                 // Release point: this round's LIVE-streamed answer text is
@@ -976,8 +968,7 @@ pub async fn run_web_tool_loop(
                         .and_then(|a| a.last());
                     let mut ev = StageEvent::new("web:activity");
                     ev.activity = Some(kind.to_string());
-                    ev.activity_status =
-                        Some(if ok { "completed" } else { "failed" }.to_string());
+                    ev.activity_status = Some(if ok { "completed" } else { "failed" }.to_string());
                     ev.round = Some((round + 1) as u64);
                     ev.detail = rec.and_then(ledger_activity_detail);
                     ev.done = rec.and_then(|r| r.get("retrieved")).and_then(Value::as_u64);
@@ -1116,8 +1107,28 @@ mod tests {
     }
 
     fn payload_of(bytes: &[u8]) -> Value {
-        serde_json::from_str(std::str::from_utf8(bytes).unwrap().trim_start_matches("data: "))
-            .unwrap()
+        serde_json::from_str(
+            std::str::from_utf8(bytes)
+                .unwrap()
+                .trim_start_matches("data: "),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn turn_retrieved_requires_actually_retrieved_something() {
+        // Brief 2026-11-13: `ok` is the ENVELOPE verdict, not proof of
+        // retrieval — a zero-admission search rides ok:true/retrieved:0 and
+        // must NOT silence the check line. ⇔ TS retrieveHappened tests.
+        let empty = CitationMap::new();
+        assert!(!turn_retrieved(&empty, &None));
+        assert!(!turn_retrieved(&empty, &Some(serde_json::json!([{"ok": true, "retrieved": 0}]))));
+        assert!(!turn_retrieved(&empty, &Some(serde_json::json!([{"ok": true}]))));
+        assert!(!turn_retrieved(&empty, &Some(serde_json::json!([{"ok": false, "retrieved": 9}]))));
+        assert!(turn_retrieved(&empty, &Some(serde_json::json!([{"ok": true, "retrieved": 3}]))));
+        let mut cites = CitationMap::new();
+        cites.insert("S1".to_string(), serde_json::json!({ "url": "https://example.com" }));
+        assert!(turn_retrieved(&cites, &None));
     }
 
     #[test]

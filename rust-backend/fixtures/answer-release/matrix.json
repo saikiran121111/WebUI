@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "_law": "WS06 (audit 2026-11-05 item 6): research answers may only RELEASE after a server-enforced action/citation/claim check — in TypeScript (lib/chat/answer-release.ts, wired by lib/chat/web-tool-loop.ts) and in Rust (crates/ruke-server/src/chat/answer_release.rs, wired by chat/web_loop.rs). This matrix is the ONE truth for the repair semantics: both sides read these exact bytes (vitest reads this file; Rust include_str!'s it). No brand/site rules — inputs are generic. MHR-D (brief 2026-11-05): the mhrD section byte-locks the NON-DESTRUCTIVE diagnosis (same detectors as the audit, reporting only) and the exact harness-feedback message injected into the existing tool loop when an answer is held back — the MODEL then decides the next action (retrieve / re-attach citations / state the gap). MHR-F (WS26, 2026-11-06) evolved the release law and retired that half-state: the `cases` below now pin CITATION-INTEGRITY-ONLY release — a marker that resolves to NO minted source is stripped, sentence semantics are NEVER rewritten, and a minted citation is never removed; semantic support is REPORTED to the model through the mhrD diagnosis/feedback. The mhrF section pins the separation.",
+  "version": 4,
+  "_law": "WS06 (audit 2026-11-05 item 6): research answers may only RELEASE after a server-enforced action/citation check — in TypeScript (lib/chat/answer-release.ts, wired by lib/chat/web-tool-loop.ts) and in Rust (crates/ruke-server/src/chat/answer_release.rs, wired by chat/web_loop.rs). This matrix is the ONE truth for the release/diagnosis semantics: both sides read these exact bytes (vitest reads this file; Rust include_str!'s it). No brand/site rules — inputs are generic. The 2026-11-13 brief CLOSED the MHR-D feedback lifecycle: answer content streams LIVE byte-identical, terminal frames park until release, and the release audit enforces CITATION INTEGRITY ONLY (an [S#] marker that resolves to NO server-minted source is a broken reference — its bytes are stripped with residue cleanup; research-claiming wording on a turn with empty citations and no retrieved action gets the ledger-computed SERVER_CHECK_LINE prepended). The harness NEVER erases released text, NEVER injects a model-facing feedback message, and NEVER regenerates an answer because a heuristic flagged it; the diagnosis (diagnose.cases) is INTERNAL SERVER TELEMETRY ONLY — it rides the server log (logger.warn / tracing::warn!), never the user's history, titles, exports, or the model's payload. serverCheckLine stays a server attestation computed from the turn's action ledger (a fact about the harness, not a content rewrite). Detector laws the matrix pins: (P) volatile-fact detectors are lexical PRIORS — they over-match (a '%' in CSS, a price word in a question) and under-match; they decide NOTHING user-visible, only the log. (D) DATE VALIDITY: an a/b/c numeral triple is a date ONLY if it reads plausibly as m/d/y or d/m/y with a 2-4 digit year — 31/39/40 (compiler line numbers) is NOT a date, 05/12/2026 and 12/05/2026 are. (I) CITATION IDENTITY: a resolvable [S#] proves the reference resolves, not that its passage supports the sentence — a flagged sentence is REPORTED regardless of a resolvable marker, an adjacent valid marker, or hedge words. (H) HEDGE LAW: the word 'unverified' does not bypass the report. (S) SEGMENTATION: fenced blocks and inline code are byte-protected on release and invisible to diagnosis. Sections: `cases` pin the release audit; `diagnose.cases` pin the telemetry report shape (date law + hedge law included); `separation` pins that a diagnosed sentence still releases integrity-only — diagnosis never changes a byte the human sees.",
   "serverCheckLine": "(Server check: no successful web retrieval this turn — the text below is unverified background knowledge, not research.)",
   "cases": [
     {
@@ -121,95 +121,113 @@
       "citations": ["S1"],
       "retrieved": true,
       "expected": "- Price: $99\n- Plan: free [S1]"
+    },
+    {
+      "name": "a compiler line-number log releases byte-intact (date-validity law; integrity sees no markers)",
+      "text": "Build failed at line 31/39/40. Fix the syntax error.",
+      "citations": ["S1"],
+      "retrieved": true,
+      "expected": "Build failed at line 31/39/40. Fix the syntax error."
     }
   ],
-  "mhrD": {
-    "_law": "MHR-D (brief 2026-11-05): the SAME detectors run NON-DESTRUCTIVELY first — diagnoseResearchAnswer reports the actual harness state (fabricated [S#] markers, sentences whose volatile/mis-cited claims resolve to NO minted source, research wording on a zero-retrieval turn) without rewriting a byte. When the loop holds such an answer back, the harness injects ONE feedback message into the EXISTING tool loop (this matrix byte-locks it) and the MODEL decides the next action: retrieve more, re-attach citations, or state the gap. One feedback per turn; the model then continues with tools still armed — no second research engine. Feedback triggers whenever any diagnosis field is non-empty.",
-    "diagnoseCases": [
+  "diagnose": {
+    "_law": "2026-11-13 brief: the diagnosis is INTERNAL SERVER TELEMETRY — the same detectors as the audit, reporting only, written to the SERVER LOG (logger.warn / tracing::warn!). It rewrites nothing, erases nothing, and never reaches the human UI or the model's payload: the harness does not lecture the model, retract a streamed answer, or regenerate on a heuristic flag. A flagged sentence may be a FALSE POSITIVE (a re-stated user constraint, CSS percentages, compiler line numbers) — that is acceptable precisely because a flag decides nothing user-visible. Laws: DATE VALIDITY (a/b/c is a date only when plausible as m/d/y or d/m/y with a 2-4 digit year — line-number/ratio triples are not dates); CITATION IDENTITY (a resolvable [S#] means the reference resolves, NOT that the sentence is semantically supported — an unsupported volatile sentence with a resolvable marker is still reported when its own marker fails to resolve; a sentence with only resolvable markers is skipped, the documented identity-vs-support limitation); HEDGE LAW (the word 'unverified' never bypasses the report); SEGMENTATION (fenced/inline code invisible, same byte-protection law as the audit).",
+    "cases": [
       {
         "name": "a fabricated citation AND its unsupported volatile sentence are both reported",
         "text": "Boreal costs $99 [S9] per seat.",
         "citations": ["S1", "S2"],
         "retrieved": true,
-        "expected": { "unresolved": ["S9"], "available": ["S1", "S2"], "unsupported": ["Boreal costs $99 [S9] per seat."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Citation marker(s) [S9] do not exist. Sources minted this turn: S1, S2.\n- Unsupported claim sentence(s): \"Boreal costs $99 [S9] per seat.\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": ["S9"], "available": ["S1", "S2"], "unsupported": ["Boreal costs $99 [S9] per seat."], "claimsResearch": false }
       },
       {
-        "name": "a clean fully-cited answer diagnoses empty — no feedback",
+        "name": "a clean fully-cited answer diagnoses empty — nothing logged",
         "text": "Boreal costs $99 [S1] per seat.",
         "citations": ["S1"],
         "retrieved": true,
-        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false },
-        "feedback": ""
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false }
       },
       {
         "name": "a dangling marker inside an otherwise-sourced sentence is still reported (citation integrity, not silent stripping)",
         "text": "Boreal supports SAML [S1] and SCIM [S7].",
         "citations": ["S1"],
         "retrieved": true,
-        "expected": { "unresolved": ["S7"], "available": ["S1"], "unsupported": [], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Citation marker(s) [S7] do not exist. Sources minted this turn: S1.\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": ["S7"], "available": ["S1"], "unsupported": [], "claimsResearch": false }
       },
       {
-        "name": "research wording on a zero-retrieval turn is reported (the model may still retrieve or relabel)",
+        "name": "research wording on a zero-retrieval turn is reported (telemetry only — the answer still releases with the ledger check line)",
         "text": "According to my searches, Boreal leads.",
         "citations": [],
         "retrieved": false,
-        "expected": { "unresolved": [], "available": [], "unsupported": [], "claimsResearch": true },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- The text claims web research, but no retrieval succeeded this turn.\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": [], "available": [], "unsupported": [], "claimsResearch": true }
       },
       {
         "name": "every unsupported sentence is quoted verbatim",
         "text": "The Pro tier costs $49 per month. It launched in October 2026.",
         "citations": ["S1"],
         "retrieved": true,
-        "expected": { "unresolved": [], "available": ["S1"], "unsupported": ["The Pro tier costs $49 per month.", "It launched in October 2026."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Unsupported claim sentence(s): \"The Pro tier costs $49 per month.\", \"It launched in October 2026.\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": ["The Pro tier costs $49 per month.", "It launched in October 2026."], "claimsResearch": false }
       },
       {
-        "name": "an already-honest answer diagnoses empty — the harness never lectures honesty",
+        "name": "an honest hedge does NOT bypass the report — the word 'unverified' never bypasses semantic evaluation (2026-11-13 hedge law)",
         "text": "The Pro tier costs $49, unverified. It supports SCIM [S1].",
         "citations": ["S1"],
         "retrieved": true,
-        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false },
-        "feedback": ""
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": ["The Pro tier costs $49, unverified."], "claimsResearch": false }
       },
       {
         "name": "fenced code is invisible to diagnosis too (same byte-protection as the audit)",
         "text": "Prices:\n```json\n{\"cost\": \"$49 [S9]\"}\n```\nDone.",
         "citations": ["S1"],
         "retrieved": true,
-        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false },
-        "feedback": ""
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false }
       },
       {
         "name": "fabricated markers dedupe and sort numerically; only sentences whose sources ALL fail to resolve are quoted",
         "text": "Boreal costs $99 [S9] [S10]. It launched [S2]. See [S2] again.",
         "citations": ["S1", "S2"],
         "retrieved": true,
-        "expected": { "unresolved": ["S9", "S10"], "available": ["S1", "S2"], "unsupported": ["Boreal costs $99 [S9] [S10]."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Citation marker(s) [S9], [S10] do not exist. Sources minted this turn: S1, S2.\n- Unsupported claim sentence(s): \"Boreal costs $99 [S9] [S10].\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": ["S9", "S10"], "available": ["S1", "S2"], "unsupported": ["Boreal costs $99 [S9] [S10]."], "claimsResearch": false }
       },
       {
         "name": "an unsupported volatile fact with zero sources minted still gets a precise state report",
         "text": "Expect 31°C today.",
         "citations": [],
         "retrieved": false,
-        "expected": { "unresolved": [], "available": [], "unsupported": ["Expect 31°C today."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Unsupported claim sentence(s): \"Expect 31°C today.\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": [], "available": [], "unsupported": ["Expect 31°C today."], "claimsResearch": false }
       },
       {
         "name": "available citations sort numerically regardless of map order",
         "text": "Boreal costs $99 [S4] per seat.",
         "citations": ["S10", "S2", "S1"],
         "retrieved": true,
-        "expected": { "unresolved": ["S4"], "available": ["S1", "S2", "S10"], "unsupported": ["Boreal costs $99 [S4] per seat."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Citation marker(s) [S4] do not exist. Sources minted this turn: S1, S2, S10.\n- Unsupported claim sentence(s): \"Boreal costs $99 [S4] per seat.\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expected": { "unresolved": ["S4"], "available": ["S1", "S2", "S10"], "unsupported": ["Boreal costs $99 [S4] per seat."], "claimsResearch": false }
+      },
+      {
+        "name": "compiler line numbers are NOT a date — a/b/c needs a plausible m/d or d/m and a 2-4 digit year (2026-11-13 date law)",
+        "text": "Build failed at line 31/39/40.",
+        "citations": ["S1"],
+        "retrieved": true,
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false }
+      },
+      {
+        "name": "POSITIVE CONTROL: a plausible date IS detected (the date law narrows, it does not disable)",
+        "text": "Boreal launched 05/12/2026.",
+        "citations": ["S1"],
+        "retrieved": true,
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": ["Boreal launched 05/12/2026."], "claimsResearch": false }
+      },
+      {
+        "name": "a numeral triple no calendar reading fits is not a date either",
+        "text": "The ratio is 13/45/2026.",
+        "citations": ["S1"],
+        "retrieved": true,
+        "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false }
       }
     ]
   },
-  "mhrF": {
-    "_law": "MHR-F (WS26, 2026-11-06): CITATION INTEGRITY and SEMANTIC SUPPORT are separate concerns with separate owners. Integrity is the HARNESS's: the [S#] grammar is minted by the server, so a marker resolving to NO minted source is a broken reference — the release path strips the marker bytes (whitespace/punctuation residue cleanup only) and NEVER otherwise touches the sentence's words. A marker that DOES resolve is never removed, moved or altered, even when an adjacent marker in the same sentence is fabricated. Semantic SUPPORT is the MODEL's job: the mhrD diagnosis reports unsupported claims and fabricated markers to the model ONCE (byte-locked harness feedback; the model then retrieves / re-attaches / states the gap). The release path no longer qualifies any sentence with '(unverified)' — the volatile-word detectors live in the diagnosis ONLY. The SERVER_CHECK_LINE is a server attestation computed from the turn's own action ledger (a fact about the harness, not a content rewrite) and stays in force. releaseCases pin the release law; separationCases pin that the SAME input still diagnoses (semantics REPORTED to the model) while releasing integrity-only. Known limitation (shared with MHR-D, documented not hidden): the diagnosis cannot see the human's own turn, so a re-stated user constraint is still REPORTED (one self-healing feedback round) even though it now releases byte-intact.",
+  "separation": {
+    "_law": "MHR-F (WS26, 2026-11-06) + the 2026-11-13 brief: CITATION INTEGRITY and SEMANTIC SUPPORT are separate concerns with separate owners. Integrity is the HARNESS's: the [S#] grammar is minted by the server, so a marker resolving to NO minted source is a broken reference — the release path strips the marker bytes (whitespace/punctuation residue cleanup only) and NEVER otherwise touches the sentence's words. A marker that DOES resolve is never removed, moved or altered, even when an adjacent marker in the same sentence is fabricated. Semantic SUPPORT is the MODEL's — and since 2026-11-13 the harness's diagnosis is INTERNAL TELEMETRY ONLY: it never reaches the model as a message, never retracts streamed text, and never triggers a regeneration. releaseCases pin the release law; separationCases pin that the SAME input still DIAGNOSES (log-only) while releasing integrity-only — a diagnosis flag changes ZERO bytes the human sees, false-positive volatile matches included. Known limitation (documented, not hidden): the diagnosis cannot see the human's own turn, so a re-stated user constraint is still reported as telemetry — harmless, since telemetry decides nothing. releaseCases are shared byte-for-byte with `cases`.",
     "releaseCases": [
       {
         "name": "uncited volatile sentence releases byte-intact (reported by diagnosis, never rewritten)",
@@ -249,31 +267,44 @@
     ],
     "separationCases": [
       {
-        "name": "same uncited claim: released byte-intact, yet still REPORTED to the model",
+        "name": "same uncited claim: released byte-intact, yet still REPORTED (log telemetry only)",
         "text": "The Pro tier costs $49 per month.",
         "citations": ["S1"],
         "retrieved": true,
         "expectedRelease": "The Pro tier costs $49 per month.",
-        "expectedDiagnosis": { "unresolved": [], "available": ["S1"], "unsupported": ["The Pro tier costs $49 per month."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Unsupported claim sentence(s): \"The Pro tier costs $49 per month.\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expectedDiagnosis": { "unresolved": [], "available": ["S1"], "unsupported": ["The Pro tier costs $49 per month."], "claimsResearch": false }
       },
       {
-        "name": "same fabricated marker: stripped from the release, reported VERBATIM in the feedback",
+        "name": "same fabricated marker: stripped from the release, reported VERBATIM in the log",
         "text": "It supports SCIM [S7].",
         "citations": ["S1"],
         "retrieved": true,
         "expectedRelease": "It supports SCIM.",
-        "expectedDiagnosis": { "unresolved": ["S7"], "available": ["S1"], "unsupported": ["It supports SCIM [S7]."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Citation marker(s) [S7] do not exist. Sources minted this turn: S1.\n- Unsupported claim sentence(s): \"It supports SCIM [S7].\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expectedDiagnosis": { "unresolved": ["S7"], "available": ["S1"], "unsupported": ["It supports SCIM [S7]."], "claimsResearch": false }
       },
       {
-        "name": "re-stated user budget: released untouched AND still reported (documented diagnosis limitation, self-healing)",
+        "name": "re-stated user budget: released untouched AND still reported (documented limitation — telemetry decides nothing)",
         "text": "You asked for apartments under €800 per month. Kodumaja lists 14 options [S1].",
         "citations": ["S1"],
         "retrieved": true,
         "expectedRelease": "You asked for apartments under €800 per month. Kodumaja lists 14 options [S1].",
-        "expectedDiagnosis": { "unresolved": [], "available": ["S1"], "unsupported": ["You asked for apartments under €800 per month."], "claimsResearch": false },
-        "feedback": "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:\n- Unsupported claim sentence(s): \"You asked for apartments under €800 per month.\"\nDecide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged."
+        "expectedDiagnosis": { "unresolved": [], "available": ["S1"], "unsupported": ["You asked for apartments under €800 per month."], "claimsResearch": false }
+      },
+      {
+        "name": "hedge law: an honest hedge is reported as telemetry yet releases byte-intact",
+        "text": "The Pro tier costs $49, unverified.",
+        "citations": ["S1"],
+        "retrieved": true,
+        "expectedRelease": "The Pro tier costs $49, unverified.",
+        "expectedDiagnosis": { "unresolved": [], "available": ["S1"], "unsupported": ["The Pro tier costs $49, unverified."], "claimsResearch": false }
+      },
+      {
+        "name": "false-positive volatile match (CSS percentage) releases untouched — a diagnosis flag never changes human-visible bytes",
+        "text": "Set the container to width: 50%.",
+        "citations": ["S1"],
+        "retrieved": true,
+        "expectedRelease": "Set the container to width: 50%.",
+        "expectedDiagnosis": { "unresolved": [], "available": ["S1"], "unsupported": ["Set the container to width: 50%."], "claimsResearch": false }
       }
     ]
   }

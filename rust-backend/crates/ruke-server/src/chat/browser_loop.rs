@@ -748,7 +748,9 @@ pub async fn run_tool_loop(
                 Ok(b) => b,
                 Err(e) => {
                     tracing::error!(parent: span, "browser turn payload re-serialize failed: {e}");
-                    break 'outer Outcome::Failed("Generation failed".to_string());
+                    break 'outer Outcome::Failed(format!(
+                        "Generation failed (internal payload error: {e})"
+                    ));
                 }
             };
             let headers = match error::upstream_headers(&state.settings.llm_api_key()) {

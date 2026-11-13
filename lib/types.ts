@@ -426,6 +426,10 @@ export interface StreamEvent {
   reasoning?: string;
   toolCalls?: StreamToolCallDelta[];
   finishReason?: string | null;
+  /** Truthful failure detail carried by a `ruke_error` frame (or the
+   * transport error itself) — the UI shows this instead of inventing a
+   * generic label (brief 2026-11-13: never bury the real reason). */
+  errorMessage?: string;
   usage?: Usage;
   /** Server progress phase (ruke_stage SSE frame). */
   stage?: StageEvent;

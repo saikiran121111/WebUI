@@ -11,9 +11,12 @@
 //! - [`forward`] — `forwardStream` (legacy) + `forwardStreamInto`
 //!   (progress), bounded backpressure, cancellation, the exactly-once
 //!   inference-slot guard.
-//! - [`scrubber`] — incremental UTF-8-safe `<think>` scrubber implementing
-//!   the APPROVED FIX (atomic-scrub semantics; the TS per-network-chunk
-//!   bug is NOT reproduced — §10/§21).
+//! - [`scrubber`] — stateful think-tag FIELD splitter (2026-11-13 brief §2,
+//!   superseding the Part-4 byte-scrubber deviation): the Rust port of the
+//!   client's `lib/stream/thinkTags.ts` `createThinkSplitter`. It routes
+//!   `<think>` text to the reasoning channel INSIDE already-parsed SSE
+//!   fields; the transport is never rewritten and answer text is never
+//!   silently deleted.
 //! - [`sse`] — `ProgressChannel`: `ruke_stage`/`ruke_error`/`[DONE]`
 //!   grammar with the closed latch.
 //! - [`headers`] — `streamHeaders` (application headers).

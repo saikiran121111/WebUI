@@ -23,13 +23,14 @@
  *    are otherwise released UNTOUCHED: the harness never qualifies a claim
  *    "(unverified)", and a minted citation is NEVER removed, moved or
  *    altered — even when an adjacent marker in the same sentence is fake.
- *  R2 SEMANTIC SUPPORT (the model's, diagnosis-only since MHR-F): the
- *    volatile-claim detectors (currency/percent/rating/temperature/date/
- *    coordinate/price- or weather-word + digit, no resolving [S#]) live in
- *    diagnoseResearchAnswer ONLY — reported to the model once through the
- *    byte-locked harness feedback, never rewritten on release. Correct
- *    local answers (re-stated user constraints, conversational numbers)
- *    release byte-intact.
+ *  R2 SEMANTIC SUPPORT (the model's; diagnosis CLOSED to log telemetry by
+ *    the 2026-11-13 brief): the volatile-claim detectors (currency/percent/
+ *    rating/temperature/date/coordinate/price- or weather-word + digit, no
+ *    resolving [S#]) live in diagnoseResearchAnswer ONLY — written to the
+ *    SERVER LOG, never to the model, never rewritten on release. They are
+ *    lexical PRIORS that over-match (a '%' in CSS) and under-match; a flag
+ *    decides nothing user-visible. Correct local answers (re-stated user
+ *    constraints, conversational numbers) release byte-intact.
  *  R3 action check (kept at release): research-claiming wording
  *    ("according to my searches…") on a turn where NOTHING was retrieved
  *    (empty citation map and no successful action in the ledger) gets a
@@ -44,19 +45,24 @@
  * law: the integrity layer only removes bytes, so released text is safe to
  * persist, replay, and audit again on follow-up turns.
  *
- * MHR-D (brief 2026-11-05) adds the NON-DESTRUCTIVE half:
- * diagnoseResearchAnswer runs the SAME detectors but only REPORTS the
- * server's actual state (fabricated markers, unsupported sentences verbatim,
- * research wording without retrieval). The tool loop consults the diagnosis
- * before releasing: when it finds anything, the held answer is discarded
- * (its content was already stripped from live frames) and ONE byte-locked
- * feedback message (buildAnswerFeedback — pinned by the matrix's mhrD
- * section) enters the EXISTING tool loop; the MODEL then decides the next
- * action: retrieve, re-attach citations, or state the gap. The harness
- * never rewrites semantics with thresholds or phrase patches. MHR-F
- * (WS26, 2026-11-06) CLOSED that half-state: the release audit enforces
- * CITATION INTEGRITY only, and semantic support rides the diagnosis→
- * feedback channel alone (mhrF matrix section pins the separation).
+ * MHR-D (brief 2026-11-05) added the NON-DESTRUCTIVE half; the 2026-11-13
+ * brief CLOSED its destructive tail. The loop used to RETRACT a flagged
+ * answer (an empty-contentText revise erasing live text) and feed ONE
+ * byte-locked "[Harness feedback]" message back into the tool loop. That
+ * lifecycle silently deleted and regenerated whole answers on a heuristic
+ * flag, and its header claimed the answer text "was held back and NOT
+ * released to the human" — the feedback bytes never reached the human at
+ * all, so the report was not a truthful account of where the text went.
+ * diagnoseResearchAnswer now exists for SERVER TELEMETRY ONLY (the loop
+ * emits logger.warn / tracing::warn!): released text changes only via
+ * R1/R3, the model is never lectured, no streamed text is erased, and no
+ * regeneration round is bought by a flag. Detector laws pinned by the
+ * matrix (`diagnose`/`separation` sections): DATE VALIDITY — an a/b/c
+ * numeral triple is a date only if it reads plausibly as m/d/y or d/m/y
+ * with a 2-4 digit year ("31/39/40" compiler line numbers are NOT a date;
+ * 05/12/2026 and 12/05/2026 are); HEDGE LAW — the word "unverified" never
+ * bypasses the report; CITATION IDENTITY — a resolvable [S#] proves the
+ * reference resolves, NOT that its passage supports the sentence.
  *
  * ⇔ Rust `crates/ruke-server/src/chat/answer_release.rs` (wired into
  * chat/web_loop.rs). Both sides read the ONE vendored truth matrix
@@ -77,8 +83,13 @@ const RE_CURRENCY =
 const RE_PERCENT = /\d[\d.,]*\s?(?:%|percent)/i;
 const RE_RATING = /\b(?:rated|rating|score|stars?)\b|\bout of \d/i;
 const RE_TEMP = /°\s?[CF]\b|\b(?:degrees?|celsius|fahrenheit)\b/i;
+// Date law (matrix "D", 2026-11-13): an a/b/c numeral triple is a date
+// only when the first two fields fit a PLAUSIBLE m/d OR d/m ordering with
+// a 2-4 digit year — compiler line-number/ratio triples ("31/39/40",
+// "13/45/2026") are not dates. The alternation is Rust-regex-safe (no
+// lookaround; ⇔ answer_release.rs RE_DATE must stay byte-equivalent).
 const RE_DATE =
-  /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/i;
+  /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:(?:0?[1-9]|1[0-2])\/(?:0?[1-9]|[12]\d|3[01])|(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2]))\/\d{2,4}\b/i;
 const RE_COORDS = /-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,2}\.\d{3,}/;
 const RE_PRICEWORD =
   /\b(?:price|pricing|cost|costs|fee|fees|paid|subscription|priced|fare|ticket)\b|\bstarts at\b/i;
@@ -178,8 +189,9 @@ function auditSentences(prose: string, ids: Set<string>): string {
  * is left byte-intact (never removed, however the sentence reads); a marker
  * that resolves to NOTHING is a broken reference and its bytes are
  * stripped. Nothing else on the sentence changes — semantic support is the
- * model's job via the diagnosis→feedback channel, and volatile-claim
- * qualification is exactly the semantic patching the harness may not do. */
+ * model's job (the harness's diagnosis of it is log telemetry only, and
+ * volatile-claim qualification is exactly the semantic patching the
+ * harness may not do). */
 function auditSentence(sentence: string, ids: Set<string>): string {
   if (!sentence || !/[^\s]/.test(sentence)) return sentence;
   const markerIds = [...sentence.matchAll(RE_MARKER)].map((m) => "S" + m[1]);
@@ -193,14 +205,15 @@ function auditSentence(sentence: string, ids: Set<string>): string {
   return out;
 }
 
-/* ══ MHR-D: non-destructive diagnosis (same detectors, report-only) ════
+/* ══ Answer diagnosis (MHR-D; telemetry-only since 2026-11-13) ════════
  * The loop may not "repair" the model's words into semantic correctness —
- * that is the model's job. The harness's job is to report the ACTUAL
- * server state truthfully and once: which markers don't exist, which
- * sentences resolve to NO minted source, whether "research" wording is
- * backed by retrieval at all. diagnoseResearchAnswer rewrites nothing;
- * buildAnswerFeedback renders that report byte-exactly (matrix mhrD).
- * ⇔ Rust answer_release.rs diagnose_research_answer / build_answer_feedback.
+ * that is the model's job. The harness's job is to OBSERVE the ACTUAL
+ * server state truthfully: which markers don't resolve, which sentences
+ * resolve to NO minted source, whether "research" wording is backed by
+ * retrieval at all. The diagnosis rides the SERVER LOG ONLY (the loop
+ * emits logger.warn / tracing::warn!) — never a model-facing message,
+ * never the user's history, titles or exports.
+ * ⇔ Rust answer_release.rs diagnose_research_answer / answer_issues.
  */
 
 export interface AnswerDiagnosis {
@@ -264,13 +277,19 @@ export function diagnoseResearchAnswer(
     const invalid = markerIds.filter((id) => !ids.has(id));
     for (const id of invalid) unresolved.add(id);
     if (markerIds.length === 0 && !/\d/.test(sentence)) continue;
-    // stillValid law identical to the audit: one marker that resolves means
-    // the sentence IS sourced — a dangling extra marker is reported under
-    // `unresolved`, never as an unsupported claim.
+    // CITATION IDENTITY law (re-commented 2026-11-13): a resolvable [S#]
+    // proves the REFERENCE resolves — NOT that its passage SUPPORTS the
+    // sentence. A sentence with at least one resolving marker is skipped
+    // because the harness owns no claim-evidence matcher: that is the
+    // documented identity-vs-support LIMITATION, not a support verdict.
+    // A dangling extra marker is still reported under `unresolved`.
     if (markerIds.some((id) => ids.has(id))) continue;
     const misattributed = invalid.length > 0;
     const volatile = /\d/.test(sentence) && VOLATILE.some((re) => re.test(sentence));
-    if ((misattributed || volatile) && !/unverified/i.test(sentence)) {
+    // HEDGE law (2026-11-13): no hedge word — not even "unverified" —
+    // bypasses the report. The flag is log-only, so false positives
+    // (re-stated user constraints, CSS percentages) decide nothing.
+    if (misattributed || volatile) {
       unsupported.push(sentence); // VERBATIM — report, never rewrite
     }
   }
@@ -296,29 +315,10 @@ function sentencesOf(prose: string): string[] {
   return out;
 }
 
-export function answerFeedbackNeeded(d: AnswerDiagnosis): boolean {
+/** Telemetry gate (2026-11-13): true when the diagnosis has anything to
+ * say. It decides ONLY whether the loop writes its warn line — it never
+ * gates a release, retracts text, or feeds the model. ⇔ Rust
+ * answer_release.rs answer_issues. */
+export function answerIssues(d: AnswerDiagnosis): boolean {
   return d.unresolved.length > 0 || d.unsupported.length > 0 || d.claimsResearch;
-}
-
-const FEEDBACK_HEADER =
-  "[Harness feedback] Your answer text was held back and NOT released to the human. Actual server state this turn:";
-const FEEDBACK_FOOTER =
-  "Decide the next action yourself: run web_search/read_page to retrieve the missing facts, re-attach your claims to the minted [S#] source ids, or state plainly which requested facts could not be verified. Never repeat the held text unchanged.";
-
-/** Render the diagnosis as the ONE model-facing message (matrix mhrD bytes). */
-export function buildAnswerFeedback(d: AnswerDiagnosis): string {
-  const lines: string[] = [];
-  if (d.unresolved.length > 0) {
-    const marks = d.unresolved.map((id) => `[${id}]`).join(", ");
-    const avail = d.available.length > 0 ? d.available.join(", ") : "none";
-    lines.push(`- Citation marker(s) ${marks} do not exist. Sources minted this turn: ${avail}.`);
-  }
-  if (d.unsupported.length > 0) {
-    const quoted = d.unsupported.map((s) => `"${s}"`).join(", ");
-    lines.push(`- Unsupported claim sentence(s): ${quoted}`);
-  }
-  if (d.claimsResearch) {
-    lines.push("- The text claims web research, but no retrieval succeeded this turn.");
-  }
-  return FEEDBACK_HEADER + "\n" + lines.join("\n") + "\n" + FEEDBACK_FOOTER;
 }

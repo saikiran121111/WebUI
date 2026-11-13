@@ -72,8 +72,7 @@ import {
 // laws; a prompt is not enforcement. ⇔ Rust chat/answer_release.rs.
 import {
   auditResearchAnswer,
-  answerFeedbackNeeded,
-  buildAnswerFeedback,
+  answerIssues,
   diagnoseResearchAnswer,
 } from "./answer-release";
 import type { StageEvent } from "../types";
@@ -584,12 +583,20 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
     // generates it; at round end auditResearchAnswer still checks it against
     // the SERVER's citation map and action ledger, and when the audit
     // disagrees with what streamed, ONE `web:content_revise` frame corrects
-    // the client's displayed content IN PLACE (an empty `contentText` retracts
-    // from the cut entirely). The revise always rides BEFORE the held
+    // the client's displayed content IN PLACE. Since 2026-11-13 an empty
+    // `contentText` NEVER retracts live text — a flagged answer releases,
+    // it is never erased. The revise always rides BEFORE the held
     // terminal frames, so the single-[DONE] grammar and the live reasoning
     // stream stay intact.
+    // Brief 2026-11-13: `ok` is the ENVELOPE verdict (the call ran and the
+    // journal recorded honestly), NOT proof anything was retrieved. A
+    // `web_search` that admitted zero results rides `ok: true,
+    // retrieved: 0`; treating any ok as retrieval let the R3 server check
+    // line go silent on exactly the turns that needed it. ⇔ Rust
+    // `turn_retrieved`.
     const retrieveHappened = () =>
-      Object.keys(merged).length > 0 || session.actionLedger.some((a) => a.ok);
+      Object.keys(merged).length > 0 ||
+      session.actionLedger.some((a) => a.ok && a.retrieved > 0);
     // Client-visible content length in UTF-16 code units — the SAME unit JS
     // `String.length`/`slice` use (the ⇔ Rust law is `s.encode_utf16().count()`).
     // `web:content_revise.offsets` index the turn's displayed content by it.
@@ -606,13 +613,8 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       held.length = 0;
       // Offset law: after a released round the client's content is
       // prefix + audited — the revise replaced everything from the cut on.
-      // (After a RETRACTED round the caller cuts to `roundStartLen` instead.)
       return roundStartLen + audited.length;
     };
-
-    // MHR-D: at most ONE harness-feedback round per turn. The diagnosis is
-    // report-only; the MODEL decides the next action. ⇔ web_loop.rs.
-    let feedbackUsed = false;
 
     for (let round = 0; round < maxRounds; round++) {
       if (signal?.aborted) {
@@ -625,43 +627,29 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       const relay = res.relay;
 
       if (relay.finish !== "tool_calls" || relay.calls.size === 0) {
-        // MHR-D (brief 2026-11-05): evidence-driven next action. Before a
-        // final answer releases, the harness diagnoses it against the
-        // SERVER's actual state (minted citations, action ledger). A
-        // diagnosed-bad answer streamed LIVE under the streaming law, so it
-        // is RETRACTED in place (a revise frame cutting back to the round's
-        // start) before its terminal frames are dropped — the client never
-        // keeps text the harness judged wrong. The model receives ONE
-        // factual report of what the server did/didn't do (its own text
-        // stays in model history — the feedback names what it wrote), then
-        // decides: retrieve more, re-attach citations, or state the gap.
-        // The harness never rewrites the model's semantics itself. Needs one
-        // spare iteration (the tool budget itself is untouched); with none
-        // to spare, no feedback is faked and the audit release runs.
+        // The feedback lifecycle is CLOSED (brief 2026-11-13): a flagged
+        // answer is NEVER retracted and the model is NEVER sent a
+        // "[Harness feedback]" report. That lifecycle silently deleted a
+        // live answer and bought a regeneration round on a heuristic flag,
+        // and its report text claimed the answer "was held back" when in
+        // fact those bytes never reached the human — not a truthful account.
+        // The diagnosis now rides the SERVER LOG ONLY (internal telemetry:
+        // never the human's history, titles or exports; never model-
+        // facing). The release stays the INTEGRITY audit — releaseRound
+        // strips only unresolvable [S#] bytes and may prepend the ledger-
+        // computed R3 check line, in place, via one revise frame.
         const diag = diagnoseResearchAnswer(relay.content, Object.keys(merged), retrieveHappened());
-        if (answerFeedbackNeeded(diag) && !feedbackUsed && round + 1 < maxRounds) {
-          feedbackUsed = true;
-          if (relay.content !== "") {
-            ch.stage({ stage: "web:content_revise", contentCutTo: roundStartLen, contentText: "" });
-          }
-          streamedTotal = roundStartLen;
-          res.held.length = 0; // never emitted: the NEXT round owns [DONE]
-          log.info(
+        if (answerIssues(diag)) {
+          log.warn(
             {
               model,
               round: round + 1,
-              unresolved: diag.unresolved.length,
-              unsupported: diag.unsupported.length,
+              unresolved: diag.unresolved,
+              unsupported: diag.unsupported,
               claimsResearch: diag.claimsResearch,
             },
-            "web answer held; harness feedback issued",
+            "web answer diagnosis flagged; released through the integrity audit (server telemetry only — never shown to the human, never sent to the model)",
           );
-          payload.messages.push({
-            role: "assistant",
-            content: relay.content === "" ? null : relay.content,
-          });
-          payload.messages.push({ role: "user", content: buildAnswerFeedback(diag) });
-          continue;
         }
         releaseRound(relay, res.held, roundStartLen);
         log.info(
