@@ -435,7 +435,9 @@ export function journalWebSearchSources(
       url: r.url,
       title: r.title,
       domain: r.domain,
-      publishedAt: r.publishedDate ?? "",
+      // §5f honesty: an engine that gave no publication date stays ABSENT.
+      // Writing "" conflated "no date" with a (weird) real stamp.
+      ...(r.publishedDate ? { publishedAt: r.publishedDate } : {}),
       fetchedAt: new Date().toISOString(),
       excerpt: r.snippet,
     })),

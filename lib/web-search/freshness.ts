@@ -12,6 +12,11 @@
  * fits the band, and demotes content that is ancient relative to the
  * band. Undated results stay NEUTRAL (×1.0) — we never fabricate a date,
  * and we never punish a source for metadata we could not read.
+ *
+ * §5f (2026-11-13 brief) note: rank consumes the PUBLICATION kind ONLY.
+ * `freshnessFit` must NEVER be called with a page's update stamp — the
+ * UPDATE kind participates only in planner-law's freshness-BAND
+ * satisfaction, held to the identical two-sided §5a standard there.
  */
 
 /** Freshness classes that carry a time band (⇔ Rust `is_time_scoped_freshness`). */

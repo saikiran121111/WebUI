@@ -46,7 +46,8 @@ import {
 } from "./net";
 import type { RankedResult } from "./metasearch";
 import { getCachedPage, putCachedPage } from "./cache";
-import { schemaExtract, schemaExtractFromBlocks } from "./schema-extract";
+import { schemaExtract, schemaExtractFromBlocks, parseDeclaredTimes, schemaTimesFromBlocks } from "./schema-extract";
+import type { DeclaredTimes } from "./schema-extract";
 import { platformAdapter } from "./platform-api";
 import { unpackHydration } from "./hydration-unpacker";
 import {
@@ -427,6 +428,16 @@ interface TierOutput {
   tableCount?: number;
   /** Number of <pre><code> blocks preserved (docs signal). */
   codeBlockCount?: number;
+  /**
+   * §5f (2026-11-13 brief) time-kind law: the page's OWN declared times,
+   * parsed from that tier's body source — JSON-LD `datePublished`/
+   * `dateModified` + og `article:*_time` meta for the HTML tiers, the
+   * renderer's already-parsed JSON-LD + meta map for the browser tier.
+   * Distinct kinds: `publishedAt` = publication, `modifiedAt` = update.
+   * ABSENT — never guessed — where the tier fetched no HTML body (cache
+   * replay, jina markdown, adapter JSON, wayback text).
+   */
+  times?: DeclaredTimes;
 }
 
 /**
@@ -655,6 +666,11 @@ async function extractDirect(
       codeBlockCount,
     };
   }
+  // §5f: the page's declared times ride their OWN typed slots — the
+  // schema-facts block renders them for DISPLAY only, which is exactly
+  // how every temporal signal used to collapse into one "publishedAt".
+  // Cost: two bounded regex passes over a body already paid for.
+  const declared = parseDeclaredTimes(page.body);
   return {
     tier: "direct",
     markdown: md,
@@ -665,10 +681,32 @@ async function extractDirect(
       ? { resolvedUrl: page.resolvedUrl }
       : {}),
     ...(page.insecureTls ? { insecureTls: true } : {}),
+    ...(declared.publishedAt || declared.modifiedAt ? { times: declared } : {}),
     mode: det.mode,
     tableCount,
     codeBlockCount,
   };
+}
+
+/**
+ * §5f (2026-11-13 brief) time-kind law at the packet layer: merge the
+ * tier's page-DECLARED times into their own slots —
+ *  - update slot (`modifiedAt`): adopt as-is; nothing else ever writes it,
+ *    so an update can never masquerade as a publication stamp;
+ *  - publication slot (`publishedAt`): fill ONLY when absent. The engine's
+ *    indexed date is retrieval evidence; a page's self-declared date must
+ *    not rewrite what the index surfaced (all rank/band pins keep their
+ *    exact bytes). Where a tier fetched no HTML body, `times` is absent
+ *    and nothing is written — never a guess.
+ */
+function applyDeclaredTimes(
+  packet: EvidencePacket,
+  out: { times?: DeclaredTimes } | null | undefined,
+): void {
+  const t = out?.times;
+  if (!t) return;
+  if (t.modifiedAt) packet.modifiedAt = t.modifiedAt;
+  if (!packet.publishedAt && t.publishedAt) packet.publishedAt = t.publishedAt;
 }
 
 /** Tier 1.5: keyless platform API adapter (JSON rewrite; platform-api.ts). */
@@ -840,7 +878,7 @@ export function timeoutFallbackPacket(
  */
 async function extractBrowser(
   result: RankedResult,
-): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string; finalUrl?: string } | null> {
+): Promise<{ markdown: string; status: number | null; blocked: boolean; blockedReason: string; finalUrl?: string; times?: DeclaredTimes } | null> {
   // §6: navigate the RAW engine URL (fetch truth); canonical stays comparison-only.
   const fetchUrl = result.url || result.canonical;
   try {
@@ -912,7 +950,18 @@ async function extractBrowser(
     if (markdown.length < 60) {
       return { markdown, status: r.status, blocked: false, blockedReason: "browser returned little content" };
     }
-    return { markdown, status: r.status ?? 200, blocked: false, blockedReason: "", finalUrl: r.finalUrl };
+    // §5f: reuse the JSON-LD blocks and meta map the one-pass renderer
+    // ALREADY returned — declared times ride the renderer's own work
+    // instead of a second parse of the rendered document.
+    const declared = schemaTimesFromBlocks(r.jsonLd, r.meta);
+    return {
+      markdown,
+      status: r.status ?? 200,
+      blocked: false,
+      blockedReason: "",
+      finalUrl: r.finalUrl,
+      ...(declared.publishedAt || declared.modifiedAt ? { times: declared } : {}),
+    };
   } catch (e: any) {
     return {
       markdown: "",
@@ -977,6 +1026,8 @@ async function extractLinkPreview(
   const cleaned = stripWafChallengeText(combined);
   if (!hasMeaningfulContent(cleaned)) return null;
 
+  // §5f: bot bodies carry the same metadata channels as browser HTML.
+  const declaredLp = parseDeclaredTimes(page.body);
   return {
     tier: "direct",
     markdown:
@@ -988,6 +1039,7 @@ async function extractLinkPreview(
       ? { resolvedUrl: page.resolvedUrl }
       : {}),
     ...(page.insecureTls ? { insecureTls: true } : {}),
+    ...(declaredLp.publishedAt || declaredLp.modifiedAt ? { times: declaredLp } : {}),
     mode: structOut.mode,
     tableCount: structOut.tableCount,
     codeBlockCount: structOut.codeBlockCount,
@@ -1336,6 +1388,7 @@ export async function extractUrl(
     // §12: a TLS-unverified body is never cached — the cache row carries
     // no note, so a replay would silently launder it into a verified read.
     if (!crossed && !directOut.insecureTls) putCachedPage(url, directOut.markdown, "direct");
+    applyDeclaredTimes(packet, directOut);
     return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
   }
 
@@ -1372,6 +1425,7 @@ export async function extractUrl(
       bm25Score: 0,
     });
     if (!crossed && !directOut.insecureTls) putCachedPage(url, directOut.markdown, "metadata");
+    applyDeclaredTimes(packet, directOut);
     return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_METADATA" };
   }
 
@@ -1416,6 +1470,7 @@ export async function extractUrl(
         bm25Score: 0,
       });
       if (!crossed && !linkPreviewOut.insecureTls) putCachedPage(url, linkPreviewOut.markdown, "direct");
+      applyDeclaredTimes(packet, linkPreviewOut);
       return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_DIRECT" };
     }
   }
@@ -1471,6 +1526,7 @@ export async function extractUrl(
         bm25Score: 0,
       });
       if (!crossed) putCachedPage(url, browserOut.markdown, "browser");
+      applyDeclaredTimes(packet, browserOut);
       return { ...packet, classification: crossed ? "SUCCESS_REDIRECTED" : "SUCCESS_BROWSER" };
     }
   }

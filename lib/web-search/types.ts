@@ -151,6 +151,16 @@ export interface EvidencePassage {
   title: string;
   domain: string;
   publishedAt?: string;
+  /**
+   * §5f (2026-11-13 brief) time-kind law: "Separate publication, update,
+   * observation, fetch, and claim-validity times." This is the page's
+   * declared UPDATE kind — its OWN slot, never a second publication stamp
+   * and never copied from `publishedAt`. Freshness BAND satisfaction may
+   * ride it (planner-law `stampWithinBand`); RANK never does (freshness.ts
+   * §11.10 stays publication-kind). Absent when the page declared no
+   * update time — never inferred.
+   */
+  modifiedAt?: string;
   passageText: string;
   /**
    * §5c (2026-11-13 brief) irreversibility law: when fetch-side segment
@@ -212,6 +222,14 @@ export interface EvidencePacket {
   title: string;
   domain: string;
   publishedAt?: string;
+  /**
+   * §5f (2026-11-13 brief) time-kind law: the document's declared UPDATE
+   * stamp in its own slot (see EvidencePassage.modifiedAt). Merged once by
+   * the tier that fetched the body (extractor `applyDeclaredTimes`), then
+   * inherited by reranker's flattened passages. The publication kind
+   * (`publishedAt`) is NEVER overwritten from it.
+   */
+  modifiedAt?: string;
   extraction: "direct" | "jina-fallback" | "snippet-only";
   passages: EvidencePassage[];
   /**

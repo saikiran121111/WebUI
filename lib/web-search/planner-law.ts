@@ -911,6 +911,10 @@ function detectContradictions(passages: { sourceId: string; passageText: string 
  * single-sided lookback (now - t <= band) passed EVERY future date,
  * because now - t is negative; "published 2099" silently satisfied
  * "this week". Unparseable dates keep passing (that law is untouched).
+ *
+ * §5f (2026-11-13 brief): this window rides EVERY typed time stamp a
+ * passage carries — publication AND update — so a bogus future UPDATE
+ * stamp can never satisfy the band either.
  */
 const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
   realtime: 2,
@@ -920,8 +924,8 @@ const FRESHNESS_LOOKBACK_DAYS: Record<string, number> = {
   year: 400,
 };
 const FRESHNESS_FUTURE_TOLERANCE_MS = 86_400_000; // one day of clock/tz slop
-function publishedAtWithinBand(publishedAt: string, freshness: string): boolean {
-  const t = Date.parse(publishedAt);
+function stampWithinBand(stamp: string, freshness: string): boolean {
+  const t = Date.parse(stamp);
   if (!Number.isFinite(t)) return true;
   const now = Date.now();
   if (t - now > FRESHNESS_FUTURE_TOLERANCE_MS) return false;
@@ -1013,9 +1017,25 @@ export function evaluateSufficiency(
   // ask passes only when at least one kept passage carries a real
   // publication date inside the band. Dated-but-stale still fails, and
   // the gap demand asks for dated evidence (`${entity} ${year}` base).
+  const stampInBand = (stamp: string | undefined): boolean =>
+    !!stamp && stampWithinBand(stamp, decision.freshness);
+  // §5f (2026-11-13 brief) time-kind separation: the band is satisfied by
+  // EITHER typed kind under the SAME two-sided law — a guide republished
+  // last week genuinely IS fresh for a "this week" ask (the publication-
+  // only check forced a wasted gap search while the freshest source was
+  // already in hand), and an undated document with an in-band update
+  // stamp still evidences temporal applicability. ONE exception:
+  // "realtime". A live-value ask (price / score / version NOW) is
+  // evidenced only by freshly PUBLISHED content — an ancient page whose
+  // typo-fix edit landed an hour ago is not a fresh quote — so an update
+  // stamp must never satisfy the realtime band (counterexample-pinned).
   const freshnessOk =
     !freshnessBanded ||
-    kept.some((p) => p.publishedAt && publishedAtWithinBand(p.publishedAt, decision.freshness));
+    kept.some(
+      (p) =>
+        stampInBand(p.publishedAt) ||
+        (decision.freshness !== "realtime" && stampInBand(p.modifiedAt)),
+    );
 
   const contradiction = detectContradictions(kept);
   const pagesUseful = counted.size >= 1;

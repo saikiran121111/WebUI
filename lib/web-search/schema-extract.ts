@@ -403,3 +403,147 @@ function formatGeneric(item: any, t: string): string {
   const name = v(item.name) || v(item.headline) || v(item.title) || t;
   return section("## " + (t || "Schema") + (name ? ": " + name : ""), lines);
 }
+
+/* ── §5f declared-times channel (2026-11-13 brief) ────────────────────────
+ * "Separate publication, update, observation, fetch, and claim-validity
+ * times." schemaExtract() already renders datePublished/dateModified as
+ * DISPLAY facts — this channel keeps the SAME page-declared stamps in a
+ * TYPED per-kind slot so freshness decisions can tell publication from
+ * update instead of merging every temporal signal into one ambiguous
+ * "publishedAt".
+ *
+ * Laws: metadata-only, ISO-only, first-valid-wins, absent-stays-absent.
+ *  - sources: JSON-LD `datePublished`/`dateModified` (bounded walk, any
+ *    depth incl. @graph) + OpenGraph `article:published_time` /
+ *    `article:modified_time` meta tags;
+ *  - the value must LOOK like an ISO date/datetime AND Date.parse it —
+ *    prose numbers (a compiler log's "line 31/39/40"), bogus months, and
+ *    human formats ("November 8, 2026") are rejected. A wrong stamp
+ *    poisons every time decision; absence stays neutral (the downstream
+ *    unparseable-dates law already handles that honestly);
+ *  - a malformed JSON-LD block is skipped, never an error.
+ */
+
+export interface DeclaredTimes {
+  /** when the page DECLARES it was published (datePublished /
+      article:published_time). */
+  publishedAt?: string;
+  /** when the page DECLARES it was updated (dateModified /
+      article:modified_time). NEVER copied from the publication kind. */
+  modifiedAt?: string;
+}
+
+type TimeKind = "publishedAt" | "modifiedAt";
+
+const TIME_JSON_KEYS: Record<string, TimeKind> = {
+  datePublished: "publishedAt",
+  dateModified: "modifiedAt",
+};
+const TIME_META_KEYS: Record<string, TimeKind> = {
+  "article:published_time": "publishedAt",
+  "article:modified_time": "modifiedAt",
+};
+
+// ISO head: 4-digit year + "-MM" (day and time parts optional). The
+// deliberate rejection of V8's loose forms ("1/2/3", "Nov 8 2026") is
+// what keeps prose from masquerading as metadata.
+const ISO_STAMP_RE =
+  /^\d{4}-\d{2}(?:-\d{2})?(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function validStamp(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const s = value.trim();
+  if (!ISO_STAMP_RE.test(s)) return undefined;
+  return Number.isFinite(Date.parse(s)) ? s : undefined;
+}
+
+/** Bounded walk over parsed JSON-LD: depth ≤ 8, ≤ 4000 nodes — a hostile
+    page must never turn freshness extraction into an unbounded tree walk. */
+function scanJsonForTimes(
+  node: unknown,
+  found: Map<TimeKind, string>,
+  budget: { nodes: number },
+  depth = 0,
+): void {
+  if (depth > 8 || budget.nodes++ > 4000) return;
+  if (Array.isArray(node)) {
+    for (const item of node) scanJsonForTimes(item, found, budget, depth + 1);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  for (const [k, val] of Object.entries(node as Record<string, unknown>)) {
+    const kind = TIME_JSON_KEYS[k];
+    if (kind) {
+      if (!found.has(kind)) {
+        const s = validStamp(val);
+        if (s) found.set(kind, s);
+      }
+    } else {
+      scanJsonForTimes(val, found, budget, depth + 1);
+    }
+  }
+}
+
+function timesFromMap(found: Map<TimeKind, string>): DeclaredTimes {
+  const out: DeclaredTimes = {};
+  const p = found.get("publishedAt");
+  if (p) out.publishedAt = p;
+  const m = found.get("modifiedAt");
+  if (m) out.modifiedAt = m;
+  return out;
+}
+
+/** Declared times from ALREADY-parsed JSON-LD blocks plus a meta map —
+    the browser one-pass tier hands back both, so its stamps ride the
+    renderer's own work instead of re-parsing the rendered document. */
+export function schemaTimesFromBlocks(
+  blocks: unknown[],
+  meta?: Record<string, unknown>,
+): DeclaredTimes {
+  const found = new Map<TimeKind, string>();
+  const budget = { nodes: 0 };
+  for (const b of blocks) scanJsonForTimes(b, found, budget);
+  if (meta) {
+    for (const [mk, kind] of Object.entries(TIME_META_KEYS)) {
+      if (found.has(kind)) continue;
+      const s = validStamp(meta[mk]);
+      if (s) found.set(kind, s);
+    }
+  }
+  return timesFromMap(found);
+}
+
+/** Declared times from a raw HTML document (JSON-LD scripts + article:*
+    meta). Never throws: a page with broken markup simply HAS no declared
+    times. */
+export function parseDeclaredTimes(html: string): DeclaredTimes {
+  if (!html || html.length < 40) return {};
+  const found = new Map<TimeKind, string>();
+  const budget = { nodes: 0 };
+  const scriptRe = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  let scanned = 0;
+  while (scanned < 20 && (m = scriptRe.exec(html)) !== null) {
+    scanned++;
+    const raw = m[1].trim();
+    if (!raw) continue;
+    try {
+      scanJsonForTimes(JSON.parse(sanitizeLdJson(raw)), found, budget);
+    } catch {
+      /* malformed block — skip, same rule as schemaExtract() */
+    }
+  }
+  const tagRe = /<meta\b[^>]*>/gi;
+  let tag: RegExpExecArray | null;
+  while ((tag = tagRe.exec(html)) !== null) {
+    const keyM = /(?:property|name)\s*=\s*["']([^"']+)["']/i.exec(tag[0]);
+    if (!keyM) continue;
+    const kind = TIME_META_KEYS[keyM[1].toLowerCase()];
+    if (!kind || found.has(kind)) continue;
+    const contentM = /content\s*=\s*["']([^"']*)["']/i.exec(tag[0]);
+    if (!contentM) continue;
+    const s = validStamp(contentM[1]);
+    if (s) found.set(kind, s);
+  }
+  return timesFromMap(found);
+}

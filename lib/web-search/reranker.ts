@@ -567,6 +567,7 @@ export function rerank(
       title: rec.packet.title,
       domain,
       publishedAt: rec.packet.publishedAt,
+      modifiedAt: rec.packet.modifiedAt,
       passageText: rec.chunk,
       bm25Score: Math.round(score * 1000) / 1000,
     });
@@ -595,6 +596,7 @@ export function rerank(
           title: neighbor.packet.title,
           domain: neighbor.packet.domain,
           publishedAt: neighbor.packet.publishedAt,
+          modifiedAt: neighbor.packet.modifiedAt,
           passageText: "[Context] " + neighbor.chunk,
           bm25Score: 0,
         });
