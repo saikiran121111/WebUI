@@ -226,15 +226,27 @@ function normalizeToken(token: string): string {
 }
 
 /**
- * Normalize text for matching: lowercase + strip punctuation, and also
- * generate a version with dots/dashes removed so "next.js" matches "nextjs".
+ * Whole-word mention set for a result text (§5b, 2026-11-13 brief): a core
+ * token counts as a MENTION only when it EQUALS a whole token of the text
+ * after punctuation-insensitive normalization. Matching used to be
+ * `text.includes(token)`, so substring coincidences counted — the brief's
+ * reproduction: query "rust memory" accepted "Trust fund." because
+ * "trust" contains the substring "rust". Each raw word contributes its
+ * parts split on . _ - ' + # AND its joined form, so dotted technical
+ * names still match both ways ("next.js" ⇔ "nextjs") and hyphenated
+ * compounds count as their constituent words. That is the counterexample
+ * to over-correcting: this is boundary matching, not stricter literalism.
  */
-function normalizeTextForMatch(text: string): string {
-  const lower = text.toLowerCase();
-  const stripped = lower.replace(/[.\-_]/g, "");
-  // Combine both forms so a token like "nextjs" matches both "next.js"
-  // and "nextjs" in the result text.
-  return lower + " " + stripped;
+const WORD_SHAPE_RE = /[\p{L}\p{N}]+(?:[._\-'+#][\p{L}\p{N}]+)*/gu;
+function mentionTokenSet(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of text.matchAll(WORD_SHAPE_RE)) {
+    const raw = m[0].toLowerCase();
+    out.add(raw);
+    for (const part of raw.split(/[._\-'+#]+/)) if (part) out.add(part);
+    out.add(raw.replace(/[._\-'+#]/g, ""));
+  }
+  return out;
 }
 
 /**
@@ -242,20 +254,22 @@ function normalizeTextForMatch(text: string): string {
  * subject tokens (or at least 2 tokens when the query has ≥3 core
  * tokens, or at least 1 when the query has 1–2 core tokens).
  *
- * Matching is punctuation-insensitive: "next.js" matches "nextjs",
- * "node-js", etc.
+ * Matching is whole-token and punctuation-insensitive: "next.js" matches
+ * "nextjs", "node-js", etc., but "rust" NEVER matches inside "trust".
+ *
+ * An EMPTY core-token set proves nothing: it yields false, not true —
+ * "we could not verify relevance" must never be reported as "every
+ * result is relevant" (§5b law; the fusion starvation guard keeps pools
+ * under separate honest cover, it does not claim relevance).
  *
  * Used as a gate on vertical (Wikipedia/HN/arXiv/StackExchange)
  * results so a fuzzy token match like "Manikonda Chalapathi Rau →
  * Lucknow" is dropped before it can poison the RRF fusion.
  */
 export function meetsLexicalThreshold(text: string, coreTokens: string[]): boolean {
-  if (coreTokens.length === 0) return true;
-  const normalized = normalizeTextForMatch(text);
-  const hits = coreTokens.filter((t) => {
-    const norm = normalizeToken(t);
-    return normalized.includes(norm);
-  }).length;
+  if (coreTokens.length === 0) return false;
+  const mentions = mentionTokenSet(text);
+  const hits = coreTokens.filter((t) => mentions.has(normalizeToken(t))).length;
   // A result is relevant when it matches:
   //   - ≥40% of the core tokens, OR
   //   - at least 2 core tokens when the query has ≥3 core tokens, OR
@@ -268,25 +282,30 @@ export function meetsLexicalThreshold(text: string, coreTokens: string[]): boole
 
 /**
  * Count the results that share at least `minHits` core subject tokens with
- * `anchorText` (the user's prompt, normally). Same normalization as
- * meetsLexicalThreshold, but with the pipeline's fixed dynamic floor —
- * this is the metric pipeline.ts uses for its aggregate relevance gate,
- * so metasearch() can report how much relevance its own floor kept.
+ * `anchorText` (the user's prompt, normally). Same whole-token
+ * normalization as meetsLexicalThreshold (no substring coincidences), but
+ * with the pipeline's fixed dynamic floor — this is the metric
+ * pipeline.ts uses for its aggregate relevance gate, so metasearch() can
+ * report how much relevance its own floor kept.
+ *
+ * When the anchor yields no core tokens the count is 0, never
+ * `results.length`: an unverifiable anchor establishes ZERO relevant
+ * results (§5b law). pipeline.ts's floor then honestly fires its broad
+ * recovery pass instead of silently accepting an unverified pool.
  */
 export function countLexicallyRelevant(
   results: { title: string; snippet: string; url: string }[],
   anchorText: string,
 ): number {
   const core = queryCoreTokens(anchorText);
-  if (core.length === 0) return results.length;
+  if (core.length === 0) return 0;
   const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
   const pctFloor = Math.ceil(core.length * 0.4);
   const absFloor = core.length >= 3 ? 2 : 1;
   const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;
   return results.filter((r) => {
-    const raw = `${r.title} ${r.snippet ?? ""} ${r.url}`.toLowerCase();
-    const combined = raw + " " + raw.replace(/[.\-_]/g, "");
-    return normTokens.filter((t) => combined.includes(t)).length >= minHits;
+    const mentions = mentionTokenSet(`${r.title} ${r.snippet ?? ""} ${r.url}`);
+    return normTokens.filter((t) => mentions.has(t)).length >= minHits;
   }).length;
 }
 
