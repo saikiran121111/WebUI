@@ -42,7 +42,13 @@
 import type { EvidencePacket, EvidencePassage, RankedResult, SearchDecision } from "./types";
 import type { CoverageReport, PlannedQuery } from "./query-planner";
 import { sourceClass } from "./query-planner";
-import { isEnforceableScope, registrableHost, scopeHosts, type TaskScope } from "../decision/task-scope";
+import {
+  isEnforceableScope,
+  isOperationalScope,
+  registrableHost,
+  scopeHosts,
+  type TaskScope,
+} from "../decision/task-scope";
 import { systemRegionName } from "./local-context";
 
 /* ── budget (§11.21) ─────────────────────────────────────────────────── */
@@ -99,6 +105,19 @@ export interface PlannerLaw {
    * Empty ⇒ behavior is byte-identical to the pre-audit baseline.
    */
   mandatoryHosts: string[];
+  /**
+   * §4c (2026-11-13 brief): the named authority itself, kept APART from
+   * the evidence wall. A scope whose intent is enforceable (site_info /
+   * operate / compare_sites) and whose targets the equality law resolved
+   * DID name its source — the WS19 task-fit sufficiency law ("a task
+   * that named its authority is answered by that primary") must keep
+   * seeing that fact even though §4c retired the automatic corroboration
+   * ban, which moved mandatoryHosts to OPERATE-only. Naming is a
+   * research-subject fact; walling is an operational authorization.
+   * Consumed ONLY by sufficiency's named-primary gates and the gap
+   * demand's primary-source wording — never by packet admission.
+   */
+  namedScopeHosts: string[];
   /** Coarse localization phrase from the user's own words, or null. */
   location: string | null;
   /** "pdf" | "github" | "profiles" | "official_docs" | "reviews" |
@@ -250,11 +269,18 @@ function systemLocationFallback(prompt: string): string | null {
  * law's preferred list (model suggested sources are honored as
  * preference, never as an allow-list).
  *
- * `scope` (task-scope audit, brief #5): when the server-derived task
- * scope is enforceable, its verified hosts become MANDATORY — a hard
- * operational boundary kept strictly apart from these soft research
- * preferences. Optional parameter: existing 2-arg callers keep their
- * exact behavior (mandatoryHosts = []). Mirrors Rust `derive_law`.
+ * `scope` (task-scope audit, brief #5; §4c hard-boundary split
+ * 2026-11-13): when the server-derived task scope is OPERATIONAL
+ * (isOperationalScope — an ACTION destination the human authorized),
+ * its hosts become MANDATORY — a hard operational boundary kept
+ * strictly apart from these soft research preferences. A site_info or
+ * compare_sites scope contributes NO mandatory hosts (it names the
+ * sites the turn is ABOUT; those hosts ride as ordering via the
+ * `origin: "scope"` companion wave + preferredDomains) — never an
+ * automatic ban on outside corroboration. Optional parameter: existing
+ * 2-arg callers keep their exact behavior (mandatoryHosts = []).
+ * (No Rust mirror: planner_law.rs was removed with the crate in the
+ * 2026-11-03 TS rollback.)
  */
 export function derivePlannerLaw(
   userPrompt: string,
@@ -264,10 +290,15 @@ export function derivePlannerLaw(
   const allowed: string[] = [];
   const blocked: string[] = [];
   const preferred: string[] = [];
-  const mandatory: string[] =
+  // §4c: an enforceable scope with resolved hosts NAMED its authority —
+  // that research-subject fact is recorded separately from the wall.
+  const namedScope: string[] =
     scope && isEnforceableScope(scope)
       ? [...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]
       : [];
+  // Only an OPERATE scope turns the named hosts into an exclusive
+  // evidence boundary (operate always IS enforceable — enforce_ladder).
+  const mandatory: string[] = scope && isOperationalScope(scope) ? namedScope : [];
 
   // §4b domain-policy law (2026-11-13 brief): instructions bind to their
   // own CLAUSE, their own TARGET token, their own POLARITY, and their own
@@ -349,6 +380,7 @@ export function derivePlannerLaw(
     blockedDomains: blocked,
     preferredDomains: preferred,
     mandatoryHosts: mandatory,
+    namedScopeHosts: namedScope,
     location: extractLocation(userPrompt) ?? systemLocationFallback(userPrompt),
     expectedSourceTypes: expected,
     budget: budgetForDepth(decision.depth),
@@ -362,18 +394,25 @@ export function derivePlannerLaw(
  * real retrieval evidence, the gap/demand waves that ride this same
  * law object must enforce it. Mutates and returns the law (the
  * pipeline holds it as a const reference; in-place refresh keeps
- * every downstream consumer honest). Mirrors Rust `apply_scope_to_law`.
+ * every downstream consumer honest). §4c (2026-11-13): refresh is
+ * OPERATE-only, exactly like the initial derivation — a
+ * site_info/compare_sites scope NEVER folds hosts into the wall.
+ * (No Rust mirror: planner_law.rs was removed with the crate in the
+ * 2026-11-03 TS rollback.)
  */
 export function applyScopeToLaw(law: PlannerLaw, scope: TaskScope | null | undefined): PlannerLaw {
-  law.mandatoryHosts =
+  const namedScope: string[] =
     scope && isEnforceableScope(scope)
       ? [...new Set(scopeHosts(scope).map(normalizeDomain).filter(Boolean))]
       : [];
+  law.namedScopeHosts = namedScope;
+  law.mandatoryHosts = scope && isOperationalScope(scope) ? namedScope : [];
   return law;
 }
 
-/* ── corroborated destination verification (audit 2026-11-03 items 3/5;
- * live symptom 2026-11-04: "zepto should search zepto") ────────────────
+/* ── destination affinity from title evidence (audit 2026-11-03 items
+ * 3/5; live symptom 2026-11-04: "zepto should search zepto"; §4c
+ * re-anchoring 2026-11-13 brief) ───────────────────────────────────────
  *
  * The TaskScope law resolves destinations by EQUALITY ONLY: the
  * normalized brand must equal the registrable label. That law is NOT
@@ -381,45 +420,42 @@ export function applyScopeToLaw(law: PlannerLaw, scope: TaskScope | null | undef
  * never resolve on string similarity alone, because resemblance is
  * not identity (zeptodiscounts.com is not Zepto).
  *
- * But the live SERP carries identity evidence a bare URL cannot show:
- * a result whose TITLE opens with the brand phrase as its leading words
- * AND whose registrable label belongs to the brand's own word family
- * (the label starts with the brand phrase) is the site speaking for
- * itself. A <title>, though, is SELF-DECLARED — any squatter can title
- * itself "Brand …" — so the self-claim is a floor, never the whole
- * proof (§7 credibility law, 2026-11-04):
+ * The live SERP carries identity evidence a bare URL cannot show, and
+ * §4c draws the honest line EXACTLY: title evidence never PROVES
+ * official identity, so it may only ORDER — never resolve, never join
+ * mandatoryHosts, never restrict outside corroboration. Two
+ * related-looking TLDs are NOT independent witnesses either: a title
+ * is self-declared on every host of a family, so zeptonow.com +
+ * zeptonow.in self-claiming the same brand is ONE voice echoing
+ * itself — the 2026-11-04 "mutual corroboration" credibility gate is
+ * retired as exactly that fallacy (distinct domains are not
+ * automatically independent sources). What a single self-claiming
+ * label family DOES earn (registrable label starts with the brand
+ * phrase AND the title OPENS with the phrase): destination AFFINITY —
+ * the family's most-cited registrable host joins preferredDomains
+ * (site: companion wave, fusion preferred-boost, reranker authority
+ * tier). This deliberately SUPPORTS entities whose official hostname
+ * differs from their name (Zepto at zeptonow.com, support sites whose
+ * host carries the brand plus a qualifier) without pretending the
+ * evidence proves identity:
  *   - title-leading only (timesofindia.com's "Zepto expands…") =
- *     third-party COVERAGE, never a destination;
+ *     third-party COVERAGE, never the destination itself;
  *   - label-prefix only (zeptodiscounts.com with any other title) =
  *     resemblance, never identity;
- *   - a PADDED label standing ALONE (examplemartdiscounts.com titled
- *     "ExampleMart Discounts") = STILL resemblance: a lone
- *     self-declaration corroborates nothing. It verifies only when TWO
- *     distinct registrable hosts of the SAME padded family both
- *     self-claim (zeptonow.com + zeptonow.in) — mutual corroboration
- *     is evidence; a lone lookalike earns the honest unresolved state;
- *   - the EXACT brand label (examplemart.com titled "ExampleMart …")
- *     verifies on its own self-claim: a squatter cannot register the
- *     brand's exact domain, so exact label + leading title is as close
- *     to speaking-for-itself as a SERP can ever show;
  *   - ≥2 distinct label families both self-claiming the brand =
- *     genuine ambiguity — nothing is verified (a squatter loudly
- *     titling itself "Zepto…" earns exactly that ambiguity).
- * Hosts within ONE corroborated family agree on identity: the
- * most-corroborated registrable host of that family is verified.
+ *     genuine AMBIGUITY — nothing is boosted (a squatter loudly
+ *     titling itself "Zepto…" earns exactly that ambiguity, never a
+ *     resolution);
+ *   - padded vs exact label makes NO difference any more — a padded
+ *     family standing alone (examplemartdiscounts.com titled
+ *     "ExampleMart Discounts") is only ever an affinity candidate.
+ * Within one family, the most-cited registrable host carries the
+ * affinity. An unresolved target STAYS honestly unresolved: uncertainty
+ * and ambiguity are preserved, never guessed away.
  *
- * A verified destination joins plannerLaw.preferredDomains (the site:
- * companion wave, the fusion preferred-boost, the reranker's
- * user-designated authority tier — ORDER). For an ENFORCEABLE intent it
- * goes further (§7 propagation, 2026-11-04): task-scope's
- * applyVerifiedDestinations RESOLVES the target to the verified host,
- * and applyScopeToLaw folds it into mandatoryHosts — the admission wall
- * then holds a site-specific answer (price/stock/rating) INSIDE the
- * verified site, and unverifiable targets stay honestly unresolved
- * (discovery legal, but no false verification). Research intent stays
- * ordering-only: research is never scope-enforced. Universal by
- * construction: no brand table, no TLD guessing, no website list —
- * evidence comes only from the SERP the engines already returned. */
+ * Universal by construction: no brand table, no TLD guessing, no
+ * website list — evidence comes only from the SERP the engines
+ * already returned. */
 export interface DestinationEvidenceRow {
   url: string;
   title?: string;
@@ -445,7 +481,7 @@ function titleLeadsPhrase(title: string, phrase: string): boolean {
   }
 }
 
-export function corroborateDestinations(
+export function destinationAffinities(
   scope: TaskScope,
   rows: DestinationEvidenceRow[],
 ): { phrase: string; host: string }[] {
@@ -467,18 +503,16 @@ export function corroborateDestinations(
       fam.set(host, (fam.get(host) ?? 0) + 1);
       families.set(ln, fam);
     }
-    // zero families = no evidence; two+ families = honest ambiguity —
-    // in both cases NOTHING is verified (the target stays unresolved).
+    // zero families = no evidence; two+ families = honest AMBIGUITY —
+    // in both cases NOTHING is boosted (§4c: ambiguity is preserved,
+    // never guessed away; the target stays unresolved either way).
     if (families.size !== 1) continue;
-    const [famLabel, fam] = [...families.entries()][0];
-    // §7 credibility: a lone self-claiming PADDED label is the squatter
-    // shape (anyone can title-pad a lookalike); it verifies only through
-    // mutual corroboration — 2+ distinct registrable hosts of the same
-    // family. The exact brand label cannot be squatted, so a lone
-    // exact-label self-claim stands on its own.
-    // shortcut: a colluding squatter network across 2+ TLDs could still
-    // earn this; registry/WHOIS identity is the upgrade, out of scope.
-    if (famLabel !== pn && fam.size < 2) continue;
+    // §4c (2026-11-13): padded labels no longer need "corroboration"
+    // from sibling TLDs — same-family hosts self-declaring on lookalike
+    // domains is ONE voice, not independent evidence, so family size
+    // never decided anything real. A single self-claiming family is a
+    // candidate for ORDERING regardless of host count; ordering is
+    // cheap-to-reverse ranking, not identity verification.
     let best = "";
     let bestCount = -1;
     for (const [host, count] of [...families.values()][0]) {
@@ -720,11 +754,17 @@ export function evaluateSufficiency(
   const keyClaimsSupported = coverage.coverage >= 0.6 && !coverage.needsGapSearch;
 
   // Primary evidence = what the USER (or the armed task scope) named.
-  // preferredDomains is an evidence-corroborated INFERENCE and by design
-  // an ordering boost only (see corroborateDestinations) — a lookalike
-  // that merely earned corroboration must never satisfy the "primary
-  // present" gate (2026-11-04 audit fix).
-  const primaries = [...law.mandatoryHosts, ...law.allowedDomains];
+  // preferredDomains is an inference and by design an ordering boost
+  // only (see destinationAffinities) — a lookalike that merely earned
+  // affinity must never satisfy the "primary present" gate
+  // (2026-11-04 audit fix, §4c-confirmed: ordering never resolves).
+  // §4c: namedScopeHosts carries a site_info/compare_sites scope's own
+  // resolved authority for THIS task-fit law — naming a source is a
+  // research-subject fact, and WS19's "task named its authority"
+  // exemption survives even though only OPERATE now walls evidence.
+  const primaries = [
+    ...new Set([...law.mandatoryHosts, ...law.namedScopeHosts, ...law.allowedDomains]),
+  ];
   const namedPrimary = primaries.length > 0;
   const primaryPresent =
     !namedPrimary ||
@@ -838,7 +878,7 @@ export function buildGapDemand(
     reasons.push("conflicting values across sources");
   }
   if (!sufficiency.primaryPresent) {
-    missing.push(`primary source (${law.mandatoryHosts[0] ?? law.allowedDomains[0] ?? law.preferredDomains[0] ?? "asked-for source"})`);
+    missing.push(`primary source (${law.mandatoryHosts[0] ?? law.namedScopeHosts[0] ?? law.allowedDomains[0] ?? law.preferredDomains[0] ?? "asked-for source"})`);
     desired.push("official_docs");
     reasons.push("official/primary source missing");
   }
@@ -863,7 +903,8 @@ export function buildGapDemand(
     bases.push(`${sufficiency.contradictionMetrics[0]} ${entity} official`);
   }
   if (!sufficiency.primaryPresent) {
-    const d = law.mandatoryHosts[0] ?? law.allowedDomains[0] ?? law.preferredDomains[0];
+    const d =
+      law.mandatoryHosts[0] ?? law.namedScopeHosts[0] ?? law.allowedDomains[0] ?? law.preferredDomains[0];
     if (d) bases.push(`${entity} site:${d}`);
   }
   if (!sufficiency.freshnessOk) bases.push(`${entity} ${year}`);

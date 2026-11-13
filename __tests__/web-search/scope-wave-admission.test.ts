@@ -15,6 +15,15 @@
  * registrable boundary then laundered off-site content past the named-site
  * wall while the citation kept the on-scope identity.
  *
+ * §4c (2026-11-13 brief) RE-ANCHORS the wall: mandatoryHosts — and with it
+ * every packet admission above — arms ONLY under OPERATE scope ("site_info
+ * /compare_sites must not automatically ban outside corroboration"). For
+ * a SITE_INFO named-site run the identical boundary-crossing mirrors now
+ * ADMIT — a documented flip of the audit-era pins below — with each packet
+ * cited at its honest FINAL origin (never rebranded to the scope host).
+ * The anti-laundering WALL law stays fully pinned, one intent over, at
+ * OPERATE (the scopedScopeOperate legs).
+ *
  * Positive controls (assertions strengthened, never weakened):
  *  - the UNSCOPED run of each identical scenario KEEPS the mirror content
  *    (the admission is a no-op with no armed boundary — the waves are not
@@ -61,6 +70,23 @@ const f = vi.hoisted(() => {
     // (literals inlined: the vi.hoisted factory runs before module consts)
     scopedScope: {
       intent: "site_info",
+      targets: [
+        {
+          phrase: "arborworks.example.com",
+          state: "resolved",
+          host: "arborworks.example.com",
+          url: "https://arborworks.example.com/",
+          candidates: [],
+          provenance: "explicit_domain",
+        },
+      ],
+      excludedPhrases: [],
+      authorizedHosts: [],
+    },
+    // §4c twin: the SAME named site under OPERATE — the one intent that
+    // arms the evidence wall (mandatory-host admission gates).
+    scopedScopeOperate: {
+      intent: "operate",
       targets: [
         {
           phrase: "arborworks.example.com",
@@ -188,6 +214,8 @@ import { runWebResearch } from "@/lib/web-search/pipeline";
 
 const scopedRun = () =>
   runWebResearch({ userPrompt: PROMPT, scope: f.scopedScope } as any);
+const scopedRunOperate = () =>
+  runWebResearch({ userPrompt: PROMPT, scope: f.scopedScopeOperate } as any);
 const unscopedRun = () =>
   runWebResearch({ userPrompt: PROMPT, scope: undefined } as any);
 
@@ -209,21 +237,53 @@ beforeEach(() => {
 
 /* ── WAVE 1: gap hop ─────────────────────────────────────────────────────── */
 
-it("named-site scope: an off-site redirect landed by the GAP wave never reaches topPassages (audit repro)", async () => {
+it("§4c flip: a SITE_INFO named-site scope ADMITS the gap-wave mirror, cited at its final origin", async () => {
+  // DOCUMENTED FIXTURE CHANGE (2026-11-13): this was the audit WS07 repro
+  // pin — off-site gap-wave content reaching topPassages was called a
+  // defect. §4c re-anchors: a named-site SITE_INFO scope is a source
+  // PREFERENCE, not an exclusive evidence restriction, so outside
+  // corroboration is legal here. The anti-laundering law moves to OPERATE
+  // (next test), where an operational boundary genuinely exists.
   f.initialRows = [f.row("/overview-0")];
   f.metaQueue = [[f.row("/redirect-mirror"), f.row("/redirect-wall")]];
 
   const b = await scopedRun();
   expect(b).not.toBeNull();
-  // The repro must actually exercise the gap wave.
+  // The scenario must still actually exercise the gap wave.
   expect(b!.gapSearchFired).toBe(true);
 
-  // THE DEFECT: the mirror crossed the boundary during the gap wave.
-  expect(hasHost(b, "counterfeit-host.example.net")).toBe(false);
-  expect(hasText(b, "Zephyr-Q91")).toBe(false);
+  // The mirror LANDS — and the identity law still binds: the packet is
+  // cited at the final origin it actually landed on, never rebranded to
+  // the scope host that merely led the SERP.
+  expect(hasHost(b, "counterfeit-host.example.net")).toBe(true);
+  expect(hasText(b, "Zephyr-Q91")).toBe(true);
+  const mirror = b!.topPassages.find((p: any) =>
+    p.url.includes("counterfeit-host.example.net"),
+  );
+  expect(mirror!.domain).toBe("counterfeit-host.example.net");
 
   // Control — the wave's FAIL packet (honest auth-wall state) survives,
   // and its SERP identity was on-scope so the wall itself is reported evidence.
+  expect(hasText(b, "OFFSITE-WALL-MARKER")).toBe(true);
+});
+
+it("OPERATE scope (the intent that walls): an off-site redirect landed by the GAP wave never reaches topPassages", async () => {
+  // The 2026-11-05 audit law, re-anchored to OPERATE: an operational task
+  // on a named site is an exclusive destination — off-site evidence never
+  // crosses its boundary, whatever the SERP led with.
+  f.initialRows = [f.row("/overview-0")];
+  f.metaQueue = [[f.row("/redirect-mirror"), f.row("/redirect-wall")]];
+
+  const b = await scopedRunOperate();
+  expect(b).not.toBeNull();
+  expect(b!.gapSearchFired).toBe(true);
+
+  // THE DEFECT (operational boundary): the mirror crossed the boundary
+  // during the gap wave and never lands.
+  expect(hasHost(b, "counterfeit-host.example.net")).toBe(false);
+  expect(hasText(b, "Zephyr-Q91")).toBe(false);
+
+  // The wave's FAIL packet still survives — a wall is an honest state.
   expect(hasText(b, "OFFSITE-WALL-MARKER")).toBe(true);
 });
 
@@ -240,8 +300,11 @@ it("control: the UNSCOPED run keeps the identical gap-wave mirror (no-op law, wa
 
 /* ── WAVE 2: route-follow hop ────────────────────────────────────────────── */
 
-it("named-site scope: an off-site redirect landed by the ROUTE-FOLLOW hop never reaches topPassages", async () => {
-  // The overview NAMES a route to the answer; following it redirects off-site.
+it("§4c: the SITE_INFO route-follow mirror is ADMITTED, cited at its final origin", async () => {
+  // DOCUMENTED FIXTURE CHANGE (§4c flip of the audit route-follow pin):
+  // the hop still FETCHES the named route, the redirect still crosses the
+  // boundary, and the republication now lands as legitimate outside
+  // corroboration — with the packet cited where it actually ended up.
   f.overviewText =
     "ArborWorks foundation models overview. See the [supported model catalog](https://docs.arborworks.example.com/reference/model-catalog) and the [models mirror](https://docs.arborworks.example.com/redirect-deep). ";
   f.initialRows = [f.row("/overview-0")];
@@ -252,9 +315,12 @@ it("named-site scope: an off-site redirect landed by the ROUTE-FOLLOW hop never 
   // The route hop actually fetched both named routes.
   expect(f.reads).toContain("https://docs.arborworks.example.com/redirect-deep");
 
-  // THE DEFECT: the followed route redirected across the boundary.
-  expect(hasHost(b, "rewrite-echo.example.org")).toBe(false);
-  expect(hasText(b, "Quartz-V88")).toBe(false);
+  expect(hasHost(b, "rewrite-echo.example.org")).toBe(true);
+  expect(hasText(b, "Quartz-V88")).toBe(true);
+  const mirror = b!.topPassages.find((p: any) =>
+    p.url.includes("rewrite-echo.example.org"),
+  );
+  expect(mirror!.domain).toBe("rewrite-echo.example.org");
 
   // Control: the on-scope catalog route still answers through the same hop.
   expect(hasText(b, "Boreal-X17")).toBe(true);
@@ -274,7 +340,7 @@ it("control: the UNSCOPED run keeps the identical route-follow mirror", async ()
 
 /* ── WAVE 3: deep demand wave ────────────────────────────────────────────── */
 
-it("named-site scope: an off-site redirect landed by the DEEP DEMAND wave never reaches topPassages", async () => {
+it("§4c: the SITE_INFO deep-demand mirror is ADMITTED (outside corroboration is legal)", async () => {
   f.depth = "deep";
   // WS19 deliberate fixture evolution: this wave USED to arm on the
   // universal three-domain count alone — for a named-scope run whose own
@@ -295,9 +361,11 @@ it("named-site scope: an off-site redirect landed by the DEEP DEMAND wave never 
   expect(b).not.toBeNull();
   expect(b!.demandWaveFired).toBe(true);
 
-  // THE DEFECT: the demand wave's row redirected across the boundary.
-  expect(hasHost(b, "offsite-demand.example.net")).toBe(false);
-  expect(hasText(b, "Iridium-W77")).toBe(false);
+  // §4c flip: the demand wave's mirror row now LANDS — source preference
+  // is not an exclusive restriction — and the wave itself is exactly what
+  // a named-source run should be able to corroborate against.
+  expect(hasHost(b, "offsite-demand.example.net")).toBe(true);
+  expect(hasText(b, "Iridium-W77")).toBe(true);
 
   // Control: the in-scope gap-wave row merged through the SAME admission.
   expect(f.reads).toContain("https://docs.arborworks.example.com/overview-1");

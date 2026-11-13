@@ -19,6 +19,7 @@ import {
   resolveTaskScope,
   isFollowUp,
   isEnforceableScope,
+  isOperationalScope,
   routesToBrowserTurn,
   browserActivates,
   explicitBrowserRequest,
@@ -177,10 +178,61 @@ describe("task-scope laws (TS side)", () => {
   });
 
   it("follow-up inheritance needs a real previous scope", () => {
-    expect(isFollowUp("now find the price")).toBe(true);
+    // §4c (2026-11-13): "now" is a temporal adverb, NOT anaphora — this
+    // pin was the legacy brittle-cue leg (fixture "followup-inherits-
+    // previous-scope"); the predicate is now false AND the no-previous
+    // merge still lands scope-free, as before.
+    expect(isFollowUp("now find the price")).toBe(false);
     const got = mergeTaskScope(null, "now find the price");
     expect(got.intent).toBe("none");
     expect(got.targets).toHaveLength(0);
+  });
+
+  it("§4c continuation cues: anaphora, not connectives (⇔ rust follow_up_cues_are_anaphora_not_connectives)", () => {
+    // Counterexamples first: bare connectives and temporals alone are NOT
+    // continuation evidence — "now"/"and" once carried the wrong subject
+    // across turns...
+    expect(isFollowUp("now find the price")).toBe(false);
+    expect(isFollowUp("and find the price")).toBe(false);
+    expect(isFollowUp("Write a short poem")).toBe(false);
+    // ...then the positive controls: the SAME connective before a verbless
+    // interrogative fragment still resolves against the previous scope
+    // (leading scaffold stripped, interrogative head), the additive "too"
+    // refers back to the previous proposition, and "its" is anaphora.
+    expect(isFollowUp("and what about the delivery fee")).toBe(true);
+    expect(isFollowUp("add bread too")).toBe(true);
+    expect(isFollowUp("find its price")).toBe(true);
+    // The predicate proves NOTHING without an antecedent: with no previous
+    // scope, a pronoun-headed research ask stands on its own.
+    expect(mergeTaskScope(null, "what is its rating?").intent).toBe("research");
+    // The reset law (fixture leg "bare-now-ask-resets-scope", inline
+    // double): a fresh "now" ask against an operate session drops it.
+    const prev: TaskScope = {
+      intent: "operate",
+      targets: [{ phrase: "Zepto", state: "unresolved", host: "", url: "", candidates: [], provenance: "none" }],
+      excludedPhrases: [],
+      authorizedHosts: [],
+    };
+    const reset = mergeTaskScope(prev, "now find the price");
+    expect(reset.intent).toBe("none");
+    expect(reset.targets).toHaveLength(0);
+  });
+
+  it("§4c evidence-wall split: site_info resolves, only operate walls (⇔ rust enforce_ladder)", () => {
+    const op = deriveTaskScope("order milk on Zepto");
+    expect(isEnforceableScope(op)).toBe(true);
+    // Only OPERATE scopes carry the evidence wall (mandatory-host drop /
+    // read gates). Operate is always also enforceable (one direction).
+    expect(isOperationalScope(op)).toBe(true);
+    // Counterexample: site_info PASSES the enforceable gate (its resolved
+    // target drives resolution, gate carry, and ordering) but is NOT
+    // operational — outside corroboration is never banned there.
+    const si = deriveTaskScope("what's the price of milk on blinkit");
+    expect(isEnforceableScope(si)).toBe(true);
+    expect(isOperationalScope(si)).toBe(false);
+    expect(
+      isOperationalScope({ intent: "none", targets: [], excludedPhrases: [], authorizedHosts: [] }),
+    ).toBe(false);
   });
 
   it("fold carries scope across short follow-ups", () => {

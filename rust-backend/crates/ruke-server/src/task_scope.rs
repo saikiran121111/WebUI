@@ -100,12 +100,33 @@ pub struct TaskScope {
     pub authorized_hosts: Vec<String>,
 }
 
-/// Enforcement law (brief #1/#3): research is NEVER scope-enforced.
+/// Site-specific scopes: their RESOLVED destinations may drive URL-shaped
+/// resolution promotion, the gate's preferred-domain carry, and the
+/// browser's destination affinity (with its one-shot human authorization).
+/// Research is NEVER scope-enforced (brief #1/#3). Since brief §4c
+/// (2026-11-13) this predicate is NOT the evidence wall any more — the
+/// mandatoryHosts / admission boundary is the narrower
+/// [`is_operational_scope`] below: a site_info or compare_sites turn names
+/// the sites it is ABOUT, and folding those hosts into a hard boundary
+/// would automatically ban outside corroboration.
+/// ⇔ `isEnforceableScope` in `lib/decision/task-scope.ts`.
 pub fn is_enforceable_scope(scope: &TaskScope) -> bool {
     matches!(
         scope.intent,
         TaskIntent::Operate | TaskIntent::SiteInfo | TaskIntent::CompareSites
     )
+}
+
+/// §4c hard-boundary law (2026-11-13 brief): ONLY an OPERATE scope — a
+/// destination the human authorized an ACTION at — may become a
+/// mandatoryHosts / admission wall. Explicit source restrictions from the
+/// user's own words ("only use X", "never Y") are enforced separately by
+/// the §4b cue law on any intent; site_info/compare_sites hosts ride as
+/// ORDERING only (the `origin: "scope"` companion wave, fusion boost,
+/// rerank authority tier). ⇔ `isOperationalScope` in
+/// `lib/decision/task-scope.ts`.
+pub fn is_operational_scope(scope: &TaskScope) -> bool {
+    scope.intent == TaskIntent::Operate
 }
 
 /// Browser routing law — the SCOPE half (brief #2/#3): only an
@@ -794,7 +815,7 @@ const STOP_TOKENS: &[&str] = &[
     "but", "so", "then", "than", "that", "this", "these", "those", "who", "which", "as", "by",
     "up", "down", "out", "into", "over", "under", "again", "now", "here", "there", "today",
     "tonight", "tomorrow", "my", "your", "his", "her", "their", "our", "its", "me", "you", "he",
-    "she", "they", "it", "not", "please", "pls", "vs", "versus",
+    "she", "they", "it", "not", "please", "pls", "too", "also", "vs", "versus",
 ];
 
 // Words stripped from the END of a noun phrase ("Blinkit App" → "Blinkit").
@@ -893,9 +914,28 @@ const INTERROG: &[&str] = &["who", "what", "when", "where", "why", "how", "which
 const COPULAS: &[&str] = &[
     "is", "was", "are", "were", "will", "would", "can", "could", "does", "did", "has", "have",
 ];
+// §4c continuation law (2026-11-13 brief): "now", "and", "but", "then",
+// "here", "there" are NOT continuation evidence — bare connectives and
+// temporal/locative adverbs appear everywhere and once proved
+// continuation of the wrong subject ("now find the price" no longer
+// inherits an unrelated previous destination). KEPT cues are GENUINE
+// ANAPHORA: pronouns/demonstratives whose antecedent only exists in a
+// PREVIOUS scope (merge_task_scope applies this predicate solely when one
+// does — "insufficient proof on its own" holds: with nothing to resolve
+// against, a pronoun proves nothing), and the ADDITIVE adverbs "too"/
+// "also", which refer back to the previous action's proposition ("add
+// bread too" = also add bread to the same cart). The removed connectives
+// stay non-content tokens via CONJ_STOPS / STOP_TOKENS / TRAILING_STRIP
+// ("too"/"also" join STOP_TOKENS as NP terminators), so the Pass-3
+// locative law is otherwise byte-identical; only the continuation law
+// moved. ⇔ `FOLLOW_CUES` in `lib/decision/task-scope.ts`.
 const FOLLOW_CUES: &[&str] = &[
-    "it", "its", "them", "this", "that", "same", "again", "too", "also", "then", "now", "but",
-    "and", "here", "there",
+    "it", "its", "them", "this", "that", "same", "again", "too", "also",
+];
+// Leading connectives stripped before the Tier-2 fragment test — the
+// FRAGMENT'S SHAPE decides, never its leading connective (§4c).
+const CONTINUATION_SCAFFOLD: &[&str] = &[
+    "and", "or", "but", "so", "then", "nor", "too", "also", "now",
 ];
 
 // Content-token law (audit WS01, 2026-11-05): a token belonging to NONE of
@@ -1797,13 +1837,21 @@ pub fn resolve_task_scope(
 
 // ─── Turn-to-turn continuity (brief #6: follow-ups must not lose scope) ────
 
-/// Two-tier continuation law (2026-11-03 audit #5: "every short request
+/// Two-tier continuation law, §4c restatement (2026-11-13 brief: "'now',
+/// 'and', ordinary pronouns, or a short question are INSUFFICIENT proof of
+/// continuation"; the 2026-11-03 audit #5 lesson — "every short request
 /// counted as continuation" carried a prior purchase into "Write a short
-/// poem"). Tier 1: an ANAPHORIC cue (it/them/this/same/again/…) marks a
-/// follow-up anywhere in the turn. Tier 2: a bare elliptical FRAGMENT — at
-/// most six tokens and OPENING with an interrogative, preposition, article,
-/// or "only" — continues only when it carries no intent of its own. A full
-/// request with its own verb ("Write a short poem") is never a follow-up.
+/// poem" — stays fully intact). Tier 1: GENUINE ANAPHORA ONLY
+/// (it/its/them/this/that/same/again) anywhere in the turn. Tier 2: a bare
+/// elliptical FRAGMENT — leading connectives stripped (a leading "and"/
+/// "now"/"too" adds nothing), then at most six tokens OPENING with an
+/// interrogative, preposition, article, or "only". Neither tier PROVES
+/// continuation by itself: merge_task_scope applies this predicate ONLY
+/// when a previous non-empty scope exists, so the antecedent is a real
+/// prior subject — a connective, a pronoun, or a short question with
+/// nothing to resolve against never conjures a scope. A full request with
+/// its own verb ("Write a short poem") is never a follow-up.
+/// ⇔ `isFollowUp` in `lib/decision/task-scope.ts`.
 pub fn is_follow_up(prompt: &str) -> bool {
     let toks = tokenize(prompt);
     if toks.is_empty() {
@@ -1812,10 +1860,15 @@ pub fn is_follow_up(prompt: &str) -> bool {
     if toks.iter().any(|t| in_list(FOLLOW_CUES, &t.clean)) {
         return true;
     }
-    if toks.len() > 6 {
+    let mut i = 0;
+    while i < toks.len() && in_list(CONTINUATION_SCAFFOLD, &toks[i].clean) {
+        i += 1;
+    }
+    let rest = &toks[i..];
+    if rest.is_empty() || rest.len() > 6 {
         return false;
     }
-    let head = toks[0].clean.as_str();
+    let head = rest[0].clean.as_str();
     is_interrog(head) || in_list(PREPS, head) || in_list(ARTICLES, head) || in_list(ONLY_LEAD, head)
 }
 
@@ -1842,9 +1895,11 @@ fn union_lists(a: &[String], b: &[String]) -> Vec<String> {
 ///    the previous turn's ACTION — an inferred operate/site scope must not
 ///    become an immutable permission boundary on a later research turn.
 ///    Continuation of an ongoing site task still survives through rule 3
-///    (a pure follow-up with no intent of its own inherits the scope whole),
-///    which is what browser-session operate continuity ("add bread too")
-///    relies on.
+///    (a pure follow-up with no intent of its own inherits the scope
+///    whole), which is what browser-session operate continuity relies on:
+///    "add bread too" derives NO intent (a targetless turn can never be
+///    operate — the ladder at the intent decision), so it carries the
+///    session via rule 3 on the additive-anaphora cue "too" (§4c law).
 ///    Non-anaphoric intent turns stand alone.
 /// 3. A derivation with neither intent nor destinations inherits the previous
 ///    scope on a genuine follow-up; otherwise the topic changed and the
@@ -2206,8 +2261,13 @@ mod tests {
     #[test]
     fn enforce_ladder() {
         assert!(!is_enforceable_scope(&empty_scope()));
+        assert!(!is_operational_scope(&empty_scope()));
         let s = derive_task_scope("order milk on Zepto");
         assert!(is_enforceable_scope(&s));
+        // §4c WALL SPLIT: only OPERATE scopes carry the evidence wall
+        // (mandatory-host drop/read gates). An operate scope is always
+        // also enforceable — the ladder order is one-directional.
+        assert!(is_operational_scope(&s));
         assert!(!s.targets.is_empty());
         // bare name is never a guessed domain — resolution needs real candidates
         assert_eq!(s.targets[0].state, TargetState::Unresolved);
@@ -2219,5 +2279,53 @@ mod tests {
         );
         assert_eq!(r.targets[0].host, "zepto.com");
         assert_eq!(scope_hosts(&r), vec!["zepto.com".to_string()]);
+        // §4c counterexample: site_info PASSES the enforceable gate (its
+        // resolved target drives resolution, gate carry, and ordering) but
+        // is NOT operational — outside corroboration is never banned there.
+        // ⇔ vitest "§4c evidence-wall split" in task-scope.test.ts.
+        let si = derive_task_scope("what's the price of milk on blinkit");
+        assert!(is_enforceable_scope(&si));
+        assert!(!is_operational_scope(&si));
+    }
+
+    #[test]
+    fn follow_up_cues_are_anaphora_not_connectives() {
+        // §4c continuation law — counterexamples first: bare connectives and
+        // temporals alone are NOT continuation evidence...
+        assert!(!is_follow_up("now find the price"));
+        assert!(!is_follow_up("and find the price"));
+        assert!(!is_follow_up("Write a short poem"));
+        // ...then the positive controls: the SAME connective before a verbless
+        // interrogative fragment still resolves against the previous scope
+        // (leading scaffold stripped, interrogative head), additive "too"
+        // refers back to the previous proposition, and "its" is anaphora.
+        assert!(is_follow_up("and what about the delivery fee"));
+        assert!(is_follow_up("add bread too"));
+        assert!(is_follow_up("find its price"));
+        // The predicate proves NOTHING without an antecedent: with no
+        // previous scope, a pronoun-headed research ask stands on its own.
+        assert_eq!(
+            merge_task_scope(None, "what is its rating?").intent,
+            TaskIntent::Research
+        );
+        // And the reset law: a fresh "now" ask against an operate session
+        // (fixture leg "bare-now-ask-resets-scope") — inline double of the
+        // corpus leg so the law is pinned in-code too.
+        let prev = TaskScope {
+            intent: TaskIntent::Operate,
+            targets: vec![SiteTarget {
+                phrase: "Zepto".into(),
+                state: TargetState::Unresolved,
+                host: String::new(),
+                url: String::new(),
+                candidates: vec![],
+                provenance: TargetProvenance::NoProvenance,
+            }],
+            excluded_phrases: vec![],
+            authorized_hosts: vec![],
+        };
+        let reset = merge_task_scope(Some(&prev), "now find the price");
+        assert_eq!(reset.intent, TaskIntent::NoScope);
+        assert!(reset.targets.is_empty());
     }
 }

@@ -5,9 +5,13 @@
  *
  * Three universal mechanisms, all evidence-driven — no brand table, no
  * website list, no TLD guessing anywhere in this file's law:
- *   1. corroborated DESTINATION verification (planner-law): a target the
- *      equality-only TaskScope law leaves unresolved is verified only when
- *      title-lead AND label-family agree (both signals, one family).
+ *   1. destination AFFINITY (planner-law, §4c 2026-11-13 re-anchoring): a
+ *      target the equality-only TaskScope law leaves unresolved STAYS
+ *      unresolved — self-claiming titles only ever ORDER results (the
+ *      preferredDomains boost). Title-lead + ONE label family earns the
+ *      boost; it never proves identity, and a lone self-claim is one
+ *      voice, not corroboration (the old two-signal "verified
+ *      destination" fold retired with applyVerifiedDestinations).
  *   2. hostname↔query-token AFFINITY boost (metasearch fusion): order-only,
  *      rarity-gated (df over the fused pool substitutes for any stopword
  *      or brand list).
@@ -16,14 +20,10 @@
  *      prompt (line added after the date — existing prefix pins hold).
  */
 import { describe, expect, it, vi } from "vitest";
-import { corroborateDestinations, derivePlannerLaw } from "../../lib/web-search/planner-law";
+import { destinationAffinities, derivePlannerLaw } from "../../lib/web-search/planner-law";
 import { reciprocalRankFuse } from "../../lib/web-search/metasearch";
 import { localContextLine, systemRegionName } from "../../lib/web-search/local-context";
-import {
-  applyVerifiedDestinations,
-  scopeHosts,
-  type TaskScope,
-} from "../../lib/decision/task-scope";
+import { type TaskScope } from "../../lib/decision/task-scope";
 import type { RawSearchResult, SearchDecision } from "../../lib/web-search/types";
 
 function unresolvedScope(phrase: string): TaskScope {
@@ -37,12 +37,15 @@ function unresolvedScope(phrase: string): TaskScope {
 
 const row = (url: string, title: string) => ({ url, title });
 
-describe("corroborated destination verification (audit items 3/5)", () => {
-  it("brand≠domain identity verifies when title AND label family agree", () => {
+describe("destination affinity from self-claiming title evidence (audit items 3/5, §4c: ORDERING ONLY — never resolves)", () => {
+  it("brand≠domain earns the ordering boost when title AND label family agree", () => {
     // Zepto/zeptonow.com: the brand word is not the domain word, yet the
     // sites speak for themselves (leading title + label prefix). The two
-    // zeptonow hosts share ONE label family, so identity is unambiguous.
-    const v = corroborateDestinations(unresolvedScope("zepto"), [
+    // zeptonow hosts share ONE label family, so the boost is unambiguous.
+    // §4c: this orders zeptonow.com up via preferredDomains; the target
+    // itself stays unresolved unless resolveTarget's URL-equality law
+    // matches it against real retrieval candidates.
+    const v = destinationAffinities(unresolvedScope("zepto"), [
       row("https://zeptonow.com/instant-grocery", "Zepto - India's Fastest Grocery Delivery"),
       row("https://zeptonow.in/", "Zepto | Quick Grocery in Minutes"),
     ]);
@@ -52,7 +55,7 @@ describe("corroborated destination verification (audit items 3/5)", () => {
   it("title-leading coverage from an unrelated label NEVER verifies", () => {
     // timesofindia/economictimes TITLES lead with the brand — third-party
     // coverage, not the destination itself.
-    const v = corroborateDestinations(unresolvedScope("zepto"), [
+    const v = destinationAffinities(unresolvedScope("zepto"), [
       row("https://timesofindia.indiatimes.com/zepto-expands", "Zepto expands to 100 new cities"),
       row("https://economictimes.com/zepto-raises", "Zepto raises Series H round"),
     ]);
@@ -60,7 +63,7 @@ describe("corroborated destination verification (audit items 3/5)", () => {
   });
 
   it("label-prefix resemblance without a self-claiming title NEVER verifies", () => {
-    const v = corroborateDestinations(unresolvedScope("zepto"), [
+    const v = destinationAffinities(unresolvedScope("zepto"), [
       row("https://zeptodiscounts.com/", "Save 50% on groceries near you"),
       row("https://zepto-sale.info/", "Best grocery coupons online"),
     ]);
@@ -70,35 +73,39 @@ describe("corroborated destination verification (audit items 3/5)", () => {
   it("two self-claiming label families = honest ambiguity = nothing verified", () => {
     // A squatter loudly titling itself "Zepto..." earns exactly the
     // ambiguity that protects the real destination from a wrong guess.
-    const v = corroborateDestinations(unresolvedScope("zepto"), [
+    const v = destinationAffinities(unresolvedScope("zepto"), [
       row("https://zeptonow.com/", "Zepto - Quick Delivery"),
       row("https://zeptodiscounts.com/", "Zepto Discounts - Daily Deals"),
     ]);
     expect(v).toEqual([]);
   });
 
-  it("§7 credibility: a LONE padded-label self-claim verifies nothing", () => {
-    // Anyone can title-pad a lookalike domain ("Zepto Discounts"); one
-    // self-claiming padded host is exactly the squatter shape. Without a
-    // second distinct in-family host to corroborate, the target stays
-    // honestly unresolved — no promotion, no boundary.
+  it("§4c: a LONE padded-label self-claim earns ORDERING, same as an exact claim", () => {
+    // DOCUMENTED FLIP of the 2026-11-05 "§7 credibility" pin. The old law
+    // treated a lone padded family as too weak to VERIFY identity — but §4c
+    // retired identity-by-title entirely: a title self-claim is ONE VOICE
+    // whoever the label is (the one-voice fallacy the mutual-corroboration
+    // gate rested on). Padded and exact labels are therefore treated the
+    // SAME for ordering, and neither ever resolves or walls off outside
+    // sources — an ambiguous or squatter label just gets a boost that
+    // retrieval still outranks.
     expect(
-      corroborateDestinations(unresolvedScope("zepto"), [
+      destinationAffinities(unresolvedScope("zepto"), [
         row("https://zeptodiscounts.com/", "Zepto Discounts - Save 50% on Groceries"),
       ]),
-    ).toEqual([]);
+    ).toEqual([{ phrase: "zepto", host: "zeptodiscounts.com" }]);
     expect(
-      corroborateDestinations(unresolvedScope("examplemart"), [
+      destinationAffinities(unresolvedScope("examplemart"), [
         row("https://examplemartdiscounts.com/", "ExampleMart Discounts"),
       ]),
-    ).toEqual([]);
+    ).toEqual([{ phrase: "examplemart", host: "examplemartdiscounts.com" }]);
   });
 
   it("§7 credibility: the EXACT brand label self-claims alone (unsquattable)", () => {
     // examplemart.com is the label itself, not a padded lookalike — the
     // title self-claim stands on its own, no second host required.
     expect(
-      corroborateDestinations(unresolvedScope("examplemart"), [
+      destinationAffinities(unresolvedScope("examplemart"), [
         row("https://examplemart.com/deals", "ExampleMart - Official Deals Page"),
       ]),
     ).toEqual([{ phrase: "examplemart", host: "examplemart.com" }]);
@@ -108,7 +115,7 @@ describe("corroborated destination verification (audit items 3/5)", () => {
     // zeptonow.com + zeptonow.in (padded family, distinct registrable
     // hosts) is real multi-site identity — mirrors the first vector above.
     expect(
-      corroborateDestinations(unresolvedScope("examplemart"), [
+      destinationAffinities(unresolvedScope("examplemart"), [
         row("https://examplemartnow.com/", "ExampleMart - Groceries in Minutes"),
         row("https://examplemartnow.in/", "ExampleMart | Quick Delivery"),
       ]),
@@ -116,7 +123,7 @@ describe("corroborated destination verification (audit items 3/5)", () => {
   });
 
   it("multi-word brand verifies through the spaced title boundary", () => {
-    const v = corroborateDestinations(unresolvedScope("the north face"), [
+    const v = destinationAffinities(unresolvedScope("the north face"), [
       row("https://www.thenorthface.com/en-in", "The North Face® Official Site | India"),
     ]);
     expect(v).toEqual([{ phrase: "the north face", host: "thenorthface.com" }]);
@@ -131,51 +138,21 @@ describe("corroborated destination verification (audit items 3/5)", () => {
       excludedPhrases: [],
       authorizedHosts: [],
     };
-    expect(corroborateDestinations(scope, [row("https://amazon.in/dp/1", "Amazon.in: Buy Online")])).toEqual([]);
+    expect(destinationAffinities(scope, [row("https://amazon.in/dp/1", "Amazon.in: Buy Online")])).toEqual([]);
   });
 });
 
-/* ── §7 propagation: verified destination → ENFORCEABLE boundary ──────── */
-
-describe("applyVerifiedDestinations folds credibility into the scope law", () => {
-  it("a credible verified host resolves the target and arms the boundary", () => {
-    const scope = unresolvedScope("zepto");
-    const out = applyVerifiedDestinations(scope, [{ phrase: "zepto", host: "zeptonow.com" }]);
-    expect(out).not.toBe(scope);
-    expect(out.targets[0]).toEqual({
-      phrase: "zepto",
-      state: "resolved",
-      host: "zeptonow.com",
-      url: "",
-      candidates: [],
-      provenance: "resolved_search",
-    });
-    expect(scopeHosts(out)).toEqual(["zeptonow.com"]); // applyScopeToLaw will arm this
-    expect(scope.targets[0].state).toBe("unresolved"); // input scope untouched
-  });
-
-  it("research intent is NEVER promoted (scope law stays ordering-only)", () => {
-    const scope: TaskScope = {
-      intent: "research",
-      targets: [{ phrase: "zepto", state: "unresolved", host: "", url: "", candidates: [], provenance: "none" }],
-      excludedPhrases: [],
-      authorizedHosts: [],
-    };
-    expect(applyVerifiedDestinations(scope, [{ phrase: "zepto", host: "zeptonow.com" }])).toBe(scope);
-  });
-
-  it("an already-resolved target is never re-decided by search evidence", () => {
-    const scope: TaskScope = {
-      intent: "operate",
-      targets: [
-        { phrase: "amazon.in", state: "resolved", host: "amazon.in", url: "", candidates: [], provenance: "explicit_domain" },
-      ],
-      excludedPhrases: [],
-      authorizedHosts: [],
-    };
-    expect(applyVerifiedDestinations(scope, [{ phrase: "amazon.in", host: "hijacked.example" }])).toBe(scope);
-  });
-});
+/* ── §4c (2026-11-13): applyVerifiedDestinations RETIRED ──────────────────
+ * The fold that promoted a "verified destination" into a RESOLVED target
+ * (and thereby armed the mandatory boundary) is deleted: title evidence
+ * never proves identity, and the mutual-corroboration gate it leaned on
+ * was the one-voice fallacy (two pages from one label family are one
+ * voice). destinationAffinities output is consumed ONLY as preferredDomains
+ * ordering in the pipeline; an unresolved target stays unresolved unless
+ * resolveTarget's URL-equality law matches a real retrieval candidate.
+ * "Already-resolved targets are never re-decided by search evidence" stays
+ * pinned above via the destinationAffinities amazon.in leg (returns []).
+ */
 
 /* ── affinity (fusion order boost) ─────────────────────────────────────── */
 

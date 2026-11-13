@@ -84,7 +84,7 @@ function scopeWith(host: string, intent: TaskScope["intent"] = "operate"): TaskS
   };
 }
 
-describe("planner law (⇔ planner_law.rs)", () => {
+describe("planner law (TS-owned law since the 2026-11-03 rollback; Rust mirror removed)", () => {
   it("derive_only_scope_allowed_and_blocked_names", () => {
     // Fixture law (search-policy correction 2026-11-02): reddit and quora
     // land in blockedDomains ONLY because the USER explicitly wrote
@@ -710,11 +710,15 @@ describe("planner law (⇔ planner_law.rs)", () => {
     );
     // "paper" maps through sourceClass to the pdf class — the SAME classMap
     // runs on both sides, so Rust yields ["pdf"] too.
-    // mandatoryHosts sits right after preferredDomains — the Rust struct
-    // declares mandatory_hosts in the same position (serde order ⇔
-    // declaration order). Empty here: no operational scope was supplied.
+    // KEY-ORDER contract (documented fixture change 2026-11-13, §4c): the
+    // ⇔ Rust serde claim is historical — planner_law.rs was removed with
+    // the crate in the 2026-11-03 TS rollback, so this golden now pins
+    // the TS law's own serialized vocabulary/order. §4c added
+    // namedScopeHosts (the named-authority fact kept APART from the
+    // OPERATE-only wall), declared right after mandatoryHosts. Both are
+    // empty here: no scope was supplied to this 2-arg derivation.
     expect(JSON.stringify(law)).toBe(
-      '{"allowedDomains":["arxiv.org"],"blockedDomains":["reddit.com","quora.com"],"preferredDomains":[],"mandatoryHosts":[],"location":null,"expectedSourceTypes":["pdf"],"budget":{"maxQueryWaves":4,"maxPageFetches":10,"maxGapPageFetches":3,"demandWaveQueries":0,"maxPassages":15}}',
+      '{"allowedDomains":["arxiv.org"],"blockedDomains":["reddit.com","quora.com"],"preferredDomains":[],"mandatoryHosts":[],"namedScopeHosts":[],"location":null,"expectedSourceTypes":["pdf"],"budget":{"maxQueryWaves":4,"maxPageFetches":10,"maxGapPageFetches":3,"demandWaveQueries":0,"maxPassages":15}}',
     );
   });
 });

@@ -43,7 +43,7 @@ import {
   applyScopeToLaw,
   applyScopeToPackets,
   buildGapDemand,
-  corroborateDestinations,
+  destinationAffinities,
   derivePlannerLaw,
   evaluateSufficiency,
   normalizeDomain,
@@ -52,7 +52,6 @@ import {
   type SufficiencyReport,
 } from "./planner-law";
 import {
-  applyVerifiedDestinations,
   deriveTaskScope,
   isEnforceableScope,
   resolveTaskScope,
@@ -963,45 +962,37 @@ export async function runWebResearch(
       );
     }
 
-    // Corroborated destination verification (audit items 3/5, live
-    // symptom 2026-11-04; §7 tightening 2026-11-04): equality-only URL
-    // resolution can never see a brand≠domain identity (Zepto/
-    // zeptonow.com). corroborateDestinations demands CREDIBLE identity
-    // evidence — exact brand label, or a padded family corroborated by
-    // 2+ distinct hosts; a lone title-padded lookalike stays honest-
-    // unresolved (resemblance is not identity). When credible, the
-    // verified destination joins preferredDomains (site: companion wave
-    // + fusion boost + designated authority tier) AND, for an
-    // ENFORCEABLE intent, resolves the target into the mandatory
-    // boundary (applyVerifiedDestinations + in-place applyScopeToLaw):
-    // the applyDomainControl wall below and the gap/demand waves then
-    // hold a site-specific answer INSIDE the verified site. Research
-    // intent is never scope-enforced — ordering-only, as always.
-    const verified = corroborateDestinations(
+    // §4c destination affinity (supersedes the 2026-11-04 §7
+    // verification/propagation law): TITLE evidence never verifies
+    // official identity and never resolves a target into a mandatory
+    // boundary — exact-label equality and a title prefix are similarity,
+    // not identity, and sibling TLDs self-claiming together are one
+    // voice, not two witnesses. Equality resolution above stays (a real
+    // SERP URL whose registrable label equals the phrase is a factual
+    // match, provenance-tagged). When ONE label family self-claims, its
+    // most-cited host joins preferredDomains (site: companion wave +
+    // fusion boost + authority tier): entities whose official hostname
+    // differs from their name (Zepto → zeptonow.com) are SUPPORTED with
+    // ordering, never guessed into enforcement, and the target stays
+    // honestly unresolved. Two+ families (ambiguity) earn nothing.
+    // Outside corroboration is never banned; the operate wall still
+    // comes only from real resolution plus the human's own §4b cue law.
+    const affinities = destinationAffinities(
       activeScope,
       searchResults.map((r) => ({ url: r.url, title: r.title })),
     );
-    if (verified.length > 0) {
-      const promoted = applyVerifiedDestinations(activeScope, verified);
-      if (promoted !== activeScope) {
-        activeScope = promoted;
-        applyScopeToLaw(plannerLaw, activeScope);
-        log.info(
-          { destinations: verified.map((v) => ({ phrase: v.phrase, host: v.host })) },
-          "verified destination folded into the mandatory task-scope boundary",
-        );
-      }
-      for (const v of verified) {
-        const d = normalizeDomain(v.host);
-        if (d && !plannerLaw.preferredDomains.includes(d)) plannerLaw.preferredDomains.push(d);
-      }
+    for (const v of affinities) {
+      const d = normalizeDomain(v.host);
+      if (d && !plannerLaw.preferredDomains.includes(d)) plannerLaw.preferredDomains.push(d);
+    }
+    if (affinities.length > 0) {
       onProgress?.({
         stage: "scope",
-        detail: "Target site verified from title evidence",
+        detail: "Destination ordering boost from title evidence",
       });
       log.info(
-        { destinations: verified.map((v) => ({ phrase: v.phrase, host: v.host })) },
-        "destination verified from corroborated SERP identity evidence",
+        { destinations: affinities.map((v) => ({ phrase: v.phrase, host: v.host })) },
+        "destination affinity from self-claiming title evidence (ordering only; target left unresolved)",
       );
     }
   }
@@ -1253,10 +1244,15 @@ export async function runWebResearch(
   // 2026-11-04: a resolved scope host was landing in the "general"
   // authority tier INSIDE its own mandatory evidence pool and losing to
   // news coverage there). Designation is order-only in the reranker.
+  // §4c (2026-11-13): namedScopeHosts keeps a site_info/compare_sites
+  // scope's resolved authority in this ORDERING tier even though the
+  // evidence wall moved to OPERATE-only — designation is ranking, and
+  // naming is exactly what §4c preserved for non-operate scopes.
   const designatedDomains = [
     ...plannerLaw.allowedDomains,
     ...plannerLaw.preferredDomains,
     ...plannerLaw.mandatoryHosts,
+    ...plannerLaw.namedScopeHosts,
   ];
   let topPassages = rerank(packets, ctx.userPrompt, qTexts, 15, {
     ...(singleUrlQuery ? { singleDomainUnlimited: true } : {}),

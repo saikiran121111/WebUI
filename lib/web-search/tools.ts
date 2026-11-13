@@ -34,6 +34,7 @@ import { retrievalModeForFreshness } from "./types";
 import { domainWithin } from "./domain-match";
 import {
   isEnforceableScope,
+  isOperationalScope,
   resolveTaskScope,
   scopeHosts,
   type TaskScope,
@@ -853,15 +854,17 @@ async function readOneUrl(
     // registrable boundary and serve content from a site the scope law
     // would never admit. admitReadUrls checked the REQUESTED URL; the
     // FINAL primary document must pass the same wall, or the redirect
-    // launders off-site content into a site-bound answer. With an armed
-    // scope the read fails honestly, naming the landing site; with no
-    // boundary the page is kept and the entry carries the final origin
-    // truthfully (redirectedTo) — the passages already name the site
-    // that served them.
+    // launders off-site content into a site-bound answer. §4c
+    // (2026-11-13): the wall is OPERATE-only — only the human-authorized
+    // ACTION destination rejects the redirect honestly, naming the
+    // landing site. For a site_info/compare scope an off-site landing IS
+    // truthful evidence about the site asked about: the page is kept and
+    // the entry carries the final origin truthfully (redirectedTo) — the
+    // passages already name the site that served them.
     const redirected = classification === "SUCCESS_REDIRECTED" && packet.url !== url;
     if (redirected) {
       const sHosts =
-        session.scope && isEnforceableScope(session.scope) ? scopeHosts(session.scope) : [];
+        session.scope && isOperationalScope(session.scope) ? scopeHosts(session.scope) : [];
       if (sHosts.length > 0 && !sHosts.some((h) => domainWithin(hostOf(packet.url), h))) {
         return {
           entry: { url, fetched: false, redirectedTo: packet.url },
@@ -1125,7 +1128,9 @@ async function readRetainedBatch(
     }
     // §7 scope law applies to the retained copy exactly as to the fetch:
     // an off-scope document is never served, even from local memory.
-    if (session.scope && isEnforceableScope(session.scope)) {
+    // §4c (2026-11-13): OPERATE-only — outside copies stay served for a
+    // site_info/compare scope; corroboration about a site is not banned.
+    if (session.scope && isOperationalScope(session.scope)) {
       const sHosts = scopeHosts(session.scope);
       if (sHosts.length > 0 && !sHosts.some((h) => domainWithin(hostOf(doc.url), h))) {
         failures.push({
@@ -1290,7 +1295,10 @@ function invalidArgsEnvelope(
  */
 function admitReadUrls(session: WebToolSession, urls: string[], notices: string[]): string[] {
   const allowed = Math.max(0, session.budget.maxReadUrls - session.readUrlsUsed);
-  const sHosts = session.scope && isEnforceableScope(session.scope)
+  // §4c (2026-11-13): the scope filter is OPERATE-only — an
+  // authorizedAction destination bounds reads; a site_info/compare scope
+  // never bans reading outside corroboration.
+  const sHosts = session.scope && isOperationalScope(session.scope)
     ? scopeHosts(session.scope)
     : [];
   const admitted = sHosts.length === 0
@@ -1417,33 +1425,41 @@ export async function execWebSearchTool(
     }
   }
 
-  // Task-scope admission (audit 2026-11-02, brief #4/#6/#9): a site-bound
-  // operational scope is enforced on evidence ADMITTED to this session —
-  // off-scope results are dropped with HONEST notices (never silent), and
+  // Task-scope admission (audit 2026-11-02, brief #4/#6/#9; §4c split
+  // 2026-11-13): EQUALITY resolution runs for every site-specific scope —
   // unresolved targets resolve ONLY through real SERP urls (validated PSL
-  // hosts), never a fabricated domain. The session scope only narrows.
-  // No mandatory hosts (unresolved-only scope) ⇒ discovery stays legal,
-  // matching planner-law's two-mode domain control.
+  // hosts), never a fabricated domain. The evidence-DROP wall is
+  // OPERATE-only: only the destination the human authorized an ACTION at
+  // sheds outside results (with HONEST notices, never silent). A
+  // site_info/compare scope names the sites the turn is ABOUT — dropping
+  // outside evidence there would automatically ban the independent
+  // corroboration an answer ABOUT a site needs; those hosts ride as
+  // ordering only (companion wave, preferred boost, authority tier), and
+  // the user's explicit §4b blocks/allow-lists still apply on any intent.
+  // The session scope only narrows. No hosts resolved ⇒ discovery stays
+  // legal, matching planner-law's two-mode domain control.
   if (session.scope && isEnforceableScope(session.scope)) {
     if (session.scope.targets.some((t) => t.state === "unresolved")) {
       session.scope = resolveTaskScope(session.scope, merged.map((r) => r.url));
     }
-    const hosts = scopeHosts(session.scope);
-    if (hosts.length > 0) {
-      const dropped: string[] = [];
-      for (let i = merged.length - 1; i >= 0; i -= 1) {
-        const r = merged[i];
-        const host = hostOf(r.url) || r.domain;
-        if (!hosts.some((h) => domainWithin(host, h))) {
-          dropped.push(host || r.domain || "?");
-          merged.splice(i, 1);
+    if (isOperationalScope(session.scope)) {
+      const hosts = scopeHosts(session.scope);
+      if (hosts.length > 0) {
+        const dropped: string[] = [];
+        for (let i = merged.length - 1; i >= 0; i -= 1) {
+          const r = merged[i];
+          const host = hostOf(r.url) || r.domain;
+          if (!hosts.some((h) => domainWithin(host, h))) {
+            dropped.push(host || r.domain || "?");
+            merged.splice(i, 1);
+          }
         }
-      }
-      for (const d of dropped.slice(0, 3)) {
-        notices.push(`off-scope result dropped: ${d} (task scope: ${hosts.join(", ")})`);
-      }
-      if (dropped.length > 3) {
-        notices.push(`(${dropped.length - 3} more off-scope results dropped)`);
+        for (const d of dropped.slice(0, 3)) {
+          notices.push(`off-scope result dropped: ${d} (task scope: ${hosts.join(", ")})`);
+        }
+        if (dropped.length > 3) {
+          notices.push(`(${dropped.length - 3} more off-scope results dropped)`);
+        }
       }
     }
   }

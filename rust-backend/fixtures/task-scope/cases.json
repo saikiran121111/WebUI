@@ -15,6 +15,17 @@
     "NEVER resolves — PSL validity is not ownership evidence.",
     "Fixtures are ASCII-only (char-offset parity); non-ASCII targets are",
     "a documented limitation.",
+    "§4c continuation law (2026-11-13 brief): bare connectives and",
+    "temporals ('now', 'and', 'but', 'then') are NOT continuation evidence;",
+    "genuine anaphora (pronouns/demonstratives/'same'/'again') plus the",
+    "additive adverbs 'too'/'also' are — and they prove continuation ONLY",
+    "when a previous scope exists to resolve the antecedent against. A",
+    "short question or a bare 'now' asks on its own and RESETS the scope.",
+    "Documented flip: 'followup-inherits-previous-scope' ('now find the",
+    "price') was the legacy brittle-cue pin; it is renamed and its",
+    "expectation inverted by design, with the surviving continuity legs",
+    "('its', 'same', 'and what about…', 'add bread too') kept as positive",
+    "controls.",
     "Enums: intent = none|research|site_info|operate|compare_sites;",
     "state = unresolved|resolved|ambiguous;",
     "provenance = none|explicit_url|explicit_domain|resolved_search|resolved_cache|ambiguous."
@@ -429,6 +440,24 @@
       ],
       "excludedPhrases": [],
       "authorizedHosts": []
+    },
+    {
+      "_why": "§4c (2026-11-13): a bare temporal head ('now') on its own ask is not continuation evidence and derives no site — the merge table decides what it does to a PREVIOUS scope; standalone it must be scope-free.",
+      "name": "temporal-now-no-scope-ask",
+      "prompt": "now find the price",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
+    },
+    {
+      "_why": "§4c positive control: 'add bread too' has no site of its own (no preposition, no site-taking verb; 'bread' stays unbound as in 'buy milk on blinkit' where 'milk' never binds), so it derives NO intent — session continuity comes from the merge fold on the additive cue 'too', never from this turn inventing a destination.",
+      "name": "elliptical-add-no-site",
+      "prompt": "add bread too",
+      "intent": "none",
+      "targets": [],
+      "excludedPhrases": [],
+      "authorizedHosts": []
     }
   ],
   "resolutions": [
@@ -498,7 +527,8 @@
   ],
   "merges": [
     {
-      "name": "followup-inherits-previous-scope",
+      "_why": "§4c INVERTED LEGACY PIN (documented fixture change, 2026-11-13): this was 'followup-inherits-previous-scope' — 'now' as a bare temporal once proved continuation of the wrong subject. 'now' is not anaphora; a fresh ask with its own verb resets the scope. The name records the new expectation.",
+      "name": "bare-now-ask-resets-scope",
       "prev": {
         "intent": "operate",
         "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
@@ -506,12 +536,7 @@
         "authorizedHosts": []
       },
       "prompt": "now find the price",
-      "expect": {
-        "intent": "operate",
-        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
-        "excludedPhrases": [],
-        "authorizedHosts": []
-      }
+      "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
     },
     {
       "name": "target-change-replaces-scope",
@@ -597,6 +622,35 @@
         "authorizedHosts": []
       },
       "prompt": "Write a short poem",
+      "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
+    },
+    {
+      "_why": "§4c positive control: a leading connective is stripped BEFORE the fragment test ('and what about…' is an interrogative-headed fragment with no verb of its own), so the elliptical question still resolves its antecedent against the previous scope — the connective itself is not what carries it.",
+      "name": "connective-headed-fragment-carries",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "and what about the delivery fee",
+      "expect": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
+    },
+    {
+      "_why": "§4c counterexample to the control above: the SAME leading connective before an imperative verb ask ('and find the price') is a complete fresh ask, not a fragment — it resets. One connective removal must not turn every following ask into a continuation.",
+      "name": "connective-headed-ask-resets",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "and find the price",
       "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
     }
   ]
