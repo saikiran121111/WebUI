@@ -11,7 +11,7 @@
  */
 
 import { childLogger } from "../logger";
-import { llmApiUrl, llmApiKey } from "../settings";
+import { sharedUpstreamCompletion } from "../upstream-bridge";
 import {
   buildTranscript,
   chunkTurns,
@@ -66,13 +66,13 @@ export const callMainModel: CallModel = async (system, user, { model, maxTokens,
     else signal.addEventListener("abort", () => ctrl.abort(), { once: true });
   }
   try {
-    const res = await fetch(llmApiUrl(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + llmApiKey(),
-      },
-      body: JSON.stringify({
+    // Brief §3.1: shared-endpoint door (Rust admission in Rust mode —
+    // where the title queue itself lives on the Rust side — process-local
+    // capacity-1 in TS-only mode). throwOnAbort preserves the queue
+    // contract: an abort (user turn winning the slot, or the 150 s timer)
+    // THROWS, and the queue turns that into a graceful yield.
+    const ans = await sharedUpstreamCompletion({
+      body: {
         model: model || "default",
         stream: false,
         temperature: 0.2,
@@ -87,11 +87,13 @@ export const callMainModel: CallModel = async (system, user, { model, maxTokens,
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-      }),
+      },
+      label: "title-generation",
       signal: ctrl.signal,
+      throwOnAbort: true,
     });
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
+    if (!ans || ans.status < 200 || ans.status >= 300) return null;
+    const data = ans.json as { choices?: { message?: { content?: unknown } }[] } | null;
     const content = data?.choices?.[0]?.message?.content;
     return typeof content === "string" && content.trim() ? content : null;
   } finally {

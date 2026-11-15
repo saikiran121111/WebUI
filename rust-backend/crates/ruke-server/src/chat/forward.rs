@@ -118,6 +118,29 @@ pub async fn forward_legacy(
         }
     };
 
+    // Brief §3.1: the CAPACITY-1 admission permit for the upstream
+    // generation. Acquired here (just before the POST) and MOVED INTO THE
+    // PUMP below, so it is held across the ENTIRE streamed response —
+    // never released when headers arrive. Early-return paths (non-2xx,
+    // no-body, errors) drop it at fn exit, exactly like `guard`.
+    let permit = match state.admission.acquire(&token).await {
+        Ok(p) => p,
+        Err(ruke_core::admission::AdmissionError::QueueFull) => {
+            tracing::warn!(parent: span, "llm stream rejected: shared-endpoint queue full");
+            return error::json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Model endpoint is busy; please retry.",
+            );
+        }
+        Err(ruke_core::admission::AdmissionError::Cancelled) => {
+            tracing::warn!(parent: span, "llm stream aborted by client");
+            return error::json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &error::unreachable_message(&url),
+            );
+        }
+    };
+
     // TS checks `signal.aborted` before/after the fetch; axum cannot
     // observe a disconnect before the response exists, and the abort arm
     // below returns the same 503 the TS fall-through produces, so the
@@ -175,7 +198,7 @@ pub async fn forward_legacy(
     let pump_mode = decision_mode.to_string();
     tokio::spawn(async move {
         run_pump(
-            upstream, guard, tx, pump_token, pump_span, pump_model, pump_mode,
+            upstream, guard, permit, tx, pump_token, pump_span, pump_model, pump_mode,
         )
         .await;
     });
@@ -199,9 +222,15 @@ pub async fn forward_legacy(
 /// own `lib/stream/thinkTags.ts` splitter routes `<think>` text inside
 /// already-parsed fields), exactly one guard release, client-abort and
 /// mid-error handling.
+///
+/// `_permit` is the §3.1 capacity-1 upstream-generation permit: it drops
+/// HERE — when the response body has fully drained or the pump aborted —
+/// never at headers-arrival, so the shared endpoint is exclusively ours for
+/// the ENTIRE streamed response.
 async fn run_pump(
     mut upstream: reqwest::Response,
     _guard: ruke_core::slot::UserTurnGuard,
+    _permit: ruke_core::admission::AdmissionPermit,
     tx: mpsc::Sender<Result<Bytes, io::Error>>,
     token: CancellationToken,
     span: Span,
@@ -292,6 +321,23 @@ pub async fn forward_into(
         None => {
             tracing::error!(parent: span, "llm server unreachable");
             ch.fail(&error::unreachable_message(&url)).await;
+            return;
+        }
+    };
+
+    // §3.1: capacity-1 upstream permit, named `_permit` so it lives to the
+    // END of the function — held across the whole inline pump, released
+    // exactly once on every exit path (mirrors `_guard` above).
+    let _permit = match state.admission.acquire(token).await {
+        Ok(p) => p,
+        Err(ruke_core::admission::AdmissionError::QueueFull) => {
+            tracing::warn!(parent: span, "llm stream rejected: shared-endpoint queue full");
+            ch.fail("Model endpoint is busy; please retry.").await;
+            return;
+        }
+        Err(ruke_core::admission::AdmissionError::Cancelled) => {
+            tracing::warn!(parent: span, "llm stream aborted by client");
+            ch.close();
             return;
         }
     };

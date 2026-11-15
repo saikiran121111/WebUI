@@ -716,6 +716,7 @@ mod tests {
             url: "http://127.0.0.1:1/x".into(),
             key: "k".into(),
             model: "default".into(),
+            admission: std::sync::Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         }
     }
 

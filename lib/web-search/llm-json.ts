@@ -14,6 +14,7 @@
  */
 import { childLogger } from "@/lib/server/logger";
 import { llmApiUrl, llmApiKey } from "@/lib/server/settings";
+import { sharedUpstreamCompletion } from "@/lib/server/upstream-bridge";
 import {
   registerTitleCall,
   unregisterTitleCall,
@@ -77,7 +78,6 @@ export async function jsonCompletion<T = Record<string, unknown>>(
   o: JsonCompletionOptions,
 ): Promise<T | null> {
   const label = o.label ?? "json-call";
-  const endpoint = o.endpoint ?? MAIN_LLM_ENDPOINT();
   const timeoutMs = o.timeoutMs ?? 30_000;
 
   const ctrl = new AbortController();
@@ -107,21 +107,23 @@ export async function jsonCompletion<T = Record<string, unknown>>(
   }
 
   const started = Date.now();
+  // Brief §3.1: shared-endpoint door (Rust admission in Rust mode;
+  // process-local capacity-1 otherwise). An explicit per-call `endpoint`
+  // override runs under the local admission (the bridge route only
+  // reaches the configured main model).
   try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + LLM_API_KEY(),
-      },
-      body: JSON.stringify(body),
+    const ans = await sharedUpstreamCompletion({
+      body,
+      label,
+      timeoutMs,
       signal: ctrl.signal,
+      targetUrl: o.endpoint,
     });
-    if (!res.ok) {
-      log.warn({ label, status: res.status }, "json call non-200");
+    if (!ans || ans.status < 200 || ans.status >= 300) {
+      log.warn({ label, status: ans?.status ?? null }, "json call non-200 / busy / unreachable");
       return null;
     }
-    const data: any = await res.json().catch(() => null);
+    const data: any = ans.json;
     const msg = data?.choices?.[0]?.message ?? {};
     const content = typeof msg.content === "string" ? msg.content : "";
     const reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";

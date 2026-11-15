@@ -107,6 +107,7 @@ pub fn test_state(upstream: Option<(&str, &str)>) -> (AppState, TempDir) {
         settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
         slot: slot.clone(),
         turns: Arc::new(TurnCounter::new()),
+        admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         root: repo_root(),
         http: reqwest::Client::new(),
         attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),

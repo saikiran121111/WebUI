@@ -106,6 +106,7 @@ async fn rust_turn(fx: &Value, user_idx: usize, root: &std::path::Path) -> (Vec<
         url: PORT9_URL.to_string(),
         key: "golden-key".into(),
         model: "default".into(),
+        admission: std::sync::Arc::new(ruke_core::admission::UpstreamAdmission::new()),
     };
     let embedder = FixedEmbedder(QUERY_VEC.to_vec());
     let n = build_attachment_turn(

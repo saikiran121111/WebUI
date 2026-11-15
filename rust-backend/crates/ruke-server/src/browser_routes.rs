@@ -65,9 +65,10 @@ fn wire_error(e: &BrowserError) -> Response {
     (StatusCode::OK, Json(e.to_wire())).into_response()
 }
 
-/// Bridge-secret gate shared by the RPC and the ticket hop. Rule 17:
-/// log a boolean, never the secret or the presented header value.
-fn bridge_ok(headers: &HeaderMap) -> bool {
+/// Bridge-secret gate shared by the RPC, the ticket hop, and the internal
+/// completion bridge (`crate::internal_completion`). Rule 17: log a
+/// boolean, never the secret or the presented header value.
+pub(crate) fn bridge_ok(headers: &HeaderMap) -> bool {
     let Some(expected) = bridge_secret() else {
         return true; // dev mode: the loopback bind is the guard
     };
@@ -97,6 +98,12 @@ fn bridge_secret() -> Option<String> {
     std::env::var(crate::ipc::ENV_SECRET)
         .ok()
         .filter(|s| !s.is_empty())
+}
+
+/// Rule-17-safe boolean view of the same fact, for logs on other
+/// bridge-gated surfaces.
+pub(crate) fn bridge_secret_present() -> bool {
+    bridge_secret().is_some()
 }
 
 // ── Browser Panel socket (Phase 3) ─────────────────────────────────────────

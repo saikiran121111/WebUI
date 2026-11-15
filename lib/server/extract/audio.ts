@@ -3,7 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { childLogger } from "../logger";
-import { llmApiUrl } from "../settings";
+import { sharedUpstreamCompletion } from "../upstream-bridge";
 import { readPcmRange } from "./ffmpeg";
 
 const execFileP = promisify(execFile);
@@ -110,11 +110,13 @@ async function tryLlmReload(): Promise<void> {
     await postJson(LLM_RELOAD_URL, {}, 120_000);
     return;
   }
-  await postJson(
-    llmApiUrl(),
-    { model: "default", messages: [{ role: "user", content: "x" }], max_tokens: 1, stream: false },
-    120_000,
-  );
+  // Brief §3.1: even a 1-token warm-up is an UPSTREAM GENERATION — it
+  // goes through the shared door, never around the one-serve authority.
+  await sharedUpstreamCompletion({
+    body: { model: "default", messages: [{ role: "user", content: "x" }], max_tokens: 1, stream: false },
+    label: "audio-llm-warmup",
+    timeoutMs: 120_000,
+  });
 }
 
 export interface AsrStageOpts {

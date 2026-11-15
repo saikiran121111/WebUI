@@ -26,19 +26,12 @@ import {
 // implementation serving the TS loop and the Rust transport alike).
 import { gateDisabledByEnv } from "../../../lib/web-search/search-gate";
 import { runWebToolLoop } from "../../../lib/chat/web-tool-loop";
-import { llmApiUrl, llmApiKey } from "../../../lib/server/settings";
+import { llmApiUrl } from "../../../lib/server/settings";
 import { rustEnabled, rustProxy } from "../../../lib/server/rustProxy";
+import { sharedUpstreamStream } from "../../../lib/server/upstream-bridge";
 import type { StageEvent } from "../../../lib/types";
 
 const log = childLogger("api/chat");
-
-function upstreamHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Authorization: "Bearer " + llmApiKey(),
-    Accept: "text/event-stream",
-  };
-}
 
 /** Search-gate summary surfaced in the Research Trail card. */
 interface ResearchMeta {
@@ -164,7 +157,12 @@ async function forwardStream(
     // Playwright runs: an abandoned chart stream left the next real-model
     // test's two turns hanging with empty replies).
     log.info({ model, mode: decisionMode, url: llmApiUrl() }, "llm stream start");
-    const upstream = await fetch(llmApiUrl(), { method: "POST", headers: upstreamHeaders(), body, signal });
+    // Brief §3.1: the shared-endpoint door. This TS stream only runs when
+    // Next owns the chat pipeline (rustEnabled() routes this whole handler
+    // through rustProxy otherwise), so the process-local capacity-1 gate
+    // is the right authority here; the permit is released when the
+    // RESPONSE drains or the consumer cancels — never at headers arrival.
+    const upstream = await sharedUpstreamStream({ body, signal, label: "chat-stream" });
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
       log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
@@ -189,6 +187,11 @@ async function forwardStream(
     // AbortError is the browser walking away mid-stream — expected, not a fault.
     if ((err as Error)?.name === "AbortError") {
       log.warn({ model }, "llm stream aborted by client");
+    } else if ((err as Error)?.name === "UpstreamBusyError") {
+      // Honest busy: the bounded local queue is saturated — never a
+      // silent pile-up behind the one-serve endpoint.
+      release();
+      return NextResponse.json({ error: (err as Error).message }, { status: 503 });
     } else {
       log.error({ model, err: (err as Error).message }, "llm server unreachable");
     }
@@ -242,7 +245,9 @@ async function forwardStreamInto(
   let chunks = 0;
   try {
     log.info({ model, mode: decisionMode, url: llmApiUrl() }, "llm stream start");
-    const upstream = await fetch(llmApiUrl(), { method: "POST", headers: upstreamHeaders(), body, signal });
+    // Brief §3.1: shared-endpoint door (see forwardStream for the same
+    // authority note); permit releases at full-response drain.
+    const upstream = await sharedUpstreamStream({ body, signal, label: "chat-progress-stream" });
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
       log.error({ model, status: upstream.status }, `llm upstream error: ${errText.slice(0, 200)}`);
@@ -272,6 +277,8 @@ async function forwardStreamInto(
     if ((err as Error)?.name === "AbortError") {
       log.warn({ model }, "llm stream aborted by client");
       ch.close();
+    } else if ((err as Error)?.name === "UpstreamBusyError") {
+      ch.fail((err as Error).message);
     } else {
       const host = (() => { try { return new URL(llmApiUrl()).host; } catch { return "the configured port"; } })();
       log.error({ model, err: (err as Error).message }, "llm server unreachable");

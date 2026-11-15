@@ -1291,6 +1291,7 @@ dependencies = [
  "parking_lot",
  "regex",
  "reqwest",
+ "ruke-core",
  "ruke-skills",
  "serde",
  "serde_json",

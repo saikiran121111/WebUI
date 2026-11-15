@@ -58,6 +58,7 @@ pub mod chat;
 pub mod conversations_routes;
 pub mod decision_routes;
 pub mod ipc;
+pub mod internal_completion;
 pub mod model_stats;
 pub mod persistence;
 pub mod settings_routes;
@@ -72,6 +73,16 @@ pub struct AppState {
     pub settings: Arc<SettingsStore>,
     pub slot: Arc<InferenceSlot>,
     pub turns: Arc<TurnCounter>,
+    /// Shared-endpoint admission (brief §3.1): the ONE capacity-1 permit
+    /// authority for upstream GENERATION requests. The slot above counts
+    /// logical turn LEASES (many turns may coexist); this gates actual
+    /// HTTP generations so at most one generation — headers through full
+    /// stream — is in flight against the shared endpoint at any instant.
+    /// Every upstream POST in this process acquires through it; TS-side
+    /// one-shot helpers route through `/api/ruke/internal/completion`
+    /// (internal_completion.rs) so the authority stays singular even
+    /// across the loopback bridge.
+    pub admission: Arc<ruke_core::admission::UpstreamAdmission>,
     /// Project root: the anchor for `skills/`, `.cskills/` and scenario
     /// JSON paths used by skill routing and the decision skill block.
     pub root: PathBuf,
@@ -162,6 +173,14 @@ pub fn build_router(state: AppState) -> Router {
         // routes no longer proxy to this server). Plain paths stay
         // Next-owned on this server (guard test below).
         .route("/api/ruke/decision", post(decision_routes::decision_post))
+        // Brief §3.1 (2026-11-15): the internal completion bridge — TS-
+        // owned helper generations (search gate plan, llm-json) ride the
+        // SAME capacity-1 upstream admission as chat, over the bridge-
+        // secret loopback hop. Non-streaming only; see the module header.
+        .route(
+            "/api/ruke/internal/completion",
+            post(internal_completion::completion_post),
+        )
         // Browser Use (Phase 2): the command RPC for the browser panel /
         // tool loop. Errors ride the wire contract with HTTP 200; only
         // auth failures use a status code (browser_routes.rs).
@@ -233,6 +252,7 @@ mod tests {
             settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
             slot: slot.clone(),
             turns: Arc::new(TurnCounter::new()),
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
             root: tmp.path().to_path_buf(),
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(ruke_attach::UnavailableEmbedder),

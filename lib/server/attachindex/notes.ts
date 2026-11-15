@@ -1,5 +1,5 @@
 import { childLogger } from "../logger";
-import { llmApiUrl, llmApiKey } from "../settings";
+import { sharedUpstreamCompletion } from "../upstream-bridge";
 import { fmtStamp } from "./format";
 import { writeNotes } from "./store";
 import type { LoadedIndex } from "./types";
@@ -34,13 +34,13 @@ async function noteForBlock(
   model: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const res = await fetch(llmApiUrl(), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + llmApiKey(),
-    },
-    body: JSON.stringify({
+  // Brief §3.1: shared-endpoint door — mirrors the Rust attach-notes path
+  // exactly: a full queue degrades this block like a network failure
+  // (answerForBlock then marks the run degraded), while a cancel THROWS so
+  // the run aborts. (In Rust mode this TS route is not the notes owner —
+  // the Rust authority covers its own path.)
+  const ans = await sharedUpstreamCompletion({
+    body: {
       model,
       stream: false,
       temperature: 0.2,
@@ -56,13 +56,15 @@ async function noteForBlock(
         },
         { role: "user", content: `${header}\n${body}` },
       ],
-    }),
+    },
+    label: "attach-notes-block",
     // Same zombie-generation lesson as the chat route: if the browser walks
     // away, the shared inference slot must be released immediately.
     signal,
+    throwOnAbort: true,
   });
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => null);
+  if (!ans || ans.status < 200 || ans.status >= 300) return null;
+  const data = ans.json as { choices?: { message?: { content?: unknown } }[] } | null;
   const content = data?.choices?.[0]?.message?.content;
   return typeof content === "string" && content.trim() ? content.trim() : null;
 }

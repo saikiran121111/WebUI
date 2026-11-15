@@ -43,6 +43,11 @@ pub struct NotesLlm {
     pub url: String,
     pub key: String,
     pub model: String,
+    /// Brief §3.1: note distillation is an upstream GENERATION against the
+    /// shared one-at-a-time endpoint, so it admits through the SAME
+    /// capacity-1 authority as chat. A full queue degrades exactly like a
+    /// network failure (spine summary; I24 keeps the run uncached).
+    pub admission: std::sync::Arc<ruke_core::admission::UpstreamAdmission>,
 }
 
 /// The system prompt, byte-exact against the TS string concatenation.
@@ -78,6 +83,22 @@ async fn note_for_block(
         ]),
     );
     let body_json = serde_json::to_string(&Value::Object(payload)).unwrap_or_else(|_| "{}".into());
+
+    // §3.1: admit immediately before the POST; the permit lives to the END
+    // of this fn — across the non-streamed body read below — never at
+    // headers-arrival. QueueFull degrades like a fetch rejection;
+    // Cancelled is the TS AbortError re-throw.
+    let _permit = match llm.admission.acquire(token).await {
+        Ok(p) => p,
+        Err(ruke_core::admission::AdmissionError::QueueFull) => {
+            tracing::warn!(
+                target: "attachindex/notes",
+                "note block skipped: shared-endpoint queue full"
+            );
+            return Ok(None);
+        }
+        Err(ruke_core::admission::AdmissionError::Cancelled) => return Err(Cancelled),
+    };
 
     let sent = tokio::select! {
         biased;
@@ -262,6 +283,7 @@ mod tests {
             url: "http://127.0.0.1:1/x".into(),
             key: "k".into(),
             model: "default".into(),
+            admission: std::sync::Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         // No spine blocks: the loop never calls note_for_block, so TS
         // would also NOT throw — but generateNotes pre-checks the token
@@ -288,6 +310,7 @@ mod tests {
             url: "http://127.0.0.1:1/x".into(),
             key: "k".into(),
             model: "default".into(),
+            admission: std::sync::Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         let notes = generate_notes(
             Path::new("."),
@@ -379,6 +402,7 @@ mod tests {
             url: "http://127.0.0.1:1/x".into(),
             key: "k".into(),
             model: "default".into(),
+            admission: std::sync::Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         let notes = generate_notes(&root, "att_degr01", &idx, &http, &llm, &token)
             .await
@@ -447,6 +471,7 @@ mod tests {
             url: format!("http://127.0.0.1:{port}/v1/chat/completions"),
             key: "k".into(),
             model: "default".into(),
+            admission: std::sync::Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         let notes = generate_notes(&root, "att_cach01", &idx, &http, &llm, &token)
             .await

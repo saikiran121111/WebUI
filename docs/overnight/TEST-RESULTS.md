@@ -1,0 +1,42 @@
+# TEST-RESULTS — overnight 2026-11-15
+
+Format: command · exit code · counts · log path.
+
+## P0 baseline (HEAD ec256bd, before edits)
+- `npx tsc --noEmit --incremental false` · exit 0 · `.data/overnight/base-tsc.log`
+- `npx vitest run` · exit 0 · 156 files (2 skipped) · 1866 passed / 19 skipped · `base-vitest.log` · 237 s
+- `npm run contracts:check` · exit 0 (both --check OK) · `base-contracts.log`
+- `cargo test --workspace` · running in background · `base-cargo.log`
+
+## P1 admission rewiring — gate runs (uncommitted P1 work on ec256bd)
+- Rust targeted: `cargo test -p ruke-server internal_completion --target-dir /d/Projects/WebUI/target-ci` · exit 0 · 3/3 (after test-deadlock fix; earlier run killed mid-suite — VOID, not counted)
+- Rust full: `cargo test -p ruke-core -p ruke-attach -p ruke-server --target-dir /d/Projects/WebUI/target-ci` · exit 0 · ruke-attach 66 · ruke-core 26 (incl. 7 admission-law tests) · ruke-server unit 183 · admission_exclusion 1 · attachment_replay 6 · browser_ui_routes 1 · golden_replay 19 · scrubber_vectors 3 · store_compat 6 · `docs/overnight/logs/rust-full-1.log`
+- `npm run typecheck` · exit 0 (after 2 fixes; first run surfaced the 3 errors above)
+- `npx vitest run` post-rewire #1 · exit 1 · 56 failed / 8 files (header drift + stub gaps) · `logs/vitest-2.log`
+- targeted 3 web-tool-loop files · exit 0 · 30/30
+- `npx vitest run` full #2 · exit 0 · 156 passed / 2 skipped files · 1866 passed / 19 skipped tests · `logs/vitest-3.log`
+- `npm run contracts:check` · exit 0
+- `npm run build` · started background · `logs/next-build-1.log` (result to be appended)
+- cargo fmt: NOT run (--all forbidden; workspace not rustfmt-clean — touched files follow surrounding style by hand)
+
+## P1.4 lock protocol — gates (2026-11-15)
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-playwright-lock.ps1` → **ALL PASS (16/16), exit 0.**
+  Covers: atomic CreateNew acquire; full runId/owner/PID/phase/started/heartbeat record; live-holder
+  reads LIVE; second acquire refused (IOException 0x80070050); live lock physically undeletable;
+  heartbeat child advances heartbeat while preserving runId+PID; owner-only release REFUSES a tampered
+  (foreign-token) lock and leaves it in place; dead holder's lease breaks ONLY with printed proof
+  (PID absent); live holder's lease NEVER breaks and file stays intact.
+- Launcher offline smoke: `[ScriptBlock]::Create` parse OK; planted foreign lock +
+  `run-browser-e2e-exclusive.ps1 -LockInfo` → evidence line, `LockInfo mode: inspecting only`, **exit 3**,
+  foreign lock untouched, no servers started. Temp lock cleaned up.
+- PS 5.1 portability fixes (first run surfaced them): recycle-detection tolerance sign
+  (`AddSeconds(-2)` → real holder must be LIVE; reuse = started clearly AFTER the lock);
+  `FileAlreadyExistsException` doesn't exist on .NET Framework → `catch [IOException]` +
+  HResult -2147024816 guard (test + launcher); heartbeat child opened Write-only then Read
+  (NotSupportedException) → FileAccess ReadWrite; module informational `Write-Output` polluted
+  boolean returns → Write-Warning/Write-Host.
+- `npm run build` (`docs/overnight/logs/next-build-1.log`): route manifest printed, **EXIT=0**.
+
+## P1.6 Strata unload/reload probe (2026-11-15)
+- Read-only: `GET /health` → 200 ok (`loaded: true`, `api_key: false`, serving capacity 1).
+- Idempotent live probes: `POST /load` → **200 {"status":"loaded"}**; `POST /v1/load` → **200** (full metadata; model still loaded, /health unchanged). No unload was ever triggered — forbidden during Claude inference by SPEC §5; unload semantics verified from the running install's source + its own test suite instead.

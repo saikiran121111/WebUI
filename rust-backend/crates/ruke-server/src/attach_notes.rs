@@ -96,6 +96,7 @@ async fn notes_post_inner(
         url: state.settings.llm_api_url(),
         key: state.settings.llm_api_key(),
         model: "default".into(),
+        admission: state.admission.clone(),
     };
     match generate_notes(&state.root, att_id, &index, &state.http, &llm, token).await {
         Err(Cancelled) => {
@@ -143,6 +144,7 @@ mod tests {
             settings: Arc::new(SettingsStore::new(tmp.path().join("settings.json"))),
             slot: slot.clone(),
             turns: Arc::new(TurnCounter::new()),
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
             root: tmp.path().to_path_buf(),
             http: reqwest::Client::new(),
             attach_embedder: Arc::new(UnavailableEmbedder),

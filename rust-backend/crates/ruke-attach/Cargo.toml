@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ruke-skills.workspace = true
+ruke-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true

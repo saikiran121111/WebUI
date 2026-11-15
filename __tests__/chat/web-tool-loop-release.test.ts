@@ -88,6 +88,7 @@ function sseResponse(sse: string, chunkSize = 97): unknown {
   return {
     ok: true,
     status: 200,
+    headers: new Headers({ "content-type": "text/event-stream" }),
     body: {
       getReader: () => ({
         read: async () => {

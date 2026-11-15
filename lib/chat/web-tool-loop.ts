@@ -45,7 +45,8 @@
 import { childLogger } from "../server/logger";
 import { injectSystemBefore } from "../skills/lazy";
 import { beginUserTurn, endUserTurn } from "../server/inference-busy";
-import { llmApiUrl, llmApiKey } from "../server/settings";
+import { llmApiUrl } from "../server/settings";
+import { sharedUpstreamStream } from "../server/upstream-bridge";
 import { createThinkSplitter } from "../stream/thinkTags";
 import {
   makeWebToolSession,
@@ -109,18 +110,12 @@ export const WEB_TOOL_GUIDANCE =
 export const WEB_TOOL_FINAL_DIRECTIVE =
   "TOOL BUDGET EXHAUSTED — no further tool calls are available. Answer the human's request now from the evidence already gathered. State plainly which facts remain unverified, and never invent them.";
 
-/* ── upstream request headers (⇔ Rust `error::upstream_headers`). The old
-   per-chunk `scrubThinkTags` copy of route.ts is GONE (2026-11-13 brief §2):
-   it rewrote bytes it never parsed. Transport is raw; the relay below routes
-   `<think>` text inside parsed delta.content for the audit copy. */
-
-function upstreamHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Authorization: "Bearer " + llmApiKey(),
-    Accept: "text/event-stream",
-  };
-}
+/* ── Upstream transport lives behind ONE door: sharedUpstreamStream in
+   lib/server/upstream-bridge (Brief §3.1). The old upstreamHeaders()/raw
+   fetch copy of route.ts is GONE — headers, the bearer key, and the
+   capacity-1 admission are the door's job. (The 2026-11-13 brief §2 law
+   stands too: transport is raw; the relay below routes `<think>` text
+   inside parsed delta.content for the audit copy.) */
 
 /** ⇔ `browser_loop.rs MAX_TOOL_RESULT_CHARS` — one shared cap for both
  * tool loops, declared locally to keep lib/chat independent of the Rust
@@ -439,7 +434,13 @@ async function streamRound(
 ): Promise<RoundOutcome> {
   const body = JSON.stringify(payload);
   try {
-    const upstream = await fetch(llmApiUrl(), { method: "POST", headers: upstreamHeaders(), body, signal });
+    // Brief §3.1: shared-endpoint door (TS-only-mode loop; Rust mode runs
+    // the loop in ruke-server with its own admission). The round's permit
+    // releases when the RESPONSE fully drains (the reader loop below ends)
+    // — strictly BEFORE tool executors and their jsonCompletion/gate
+    // calls run, so a helper generation can never nest inside a held
+    // permit (the deadlock law, TS mirror).
+    const upstream = await sharedUpstreamStream({ body, signal, label: "web-tool-round" });
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
       log.error({ model, status: upstream.status }, `web round upstream error: ${errText.slice(0, 200)}`);
@@ -484,6 +485,8 @@ async function streamRound(
     if ((err as Error)?.name === "AbortError") {
       log.warn({ model }, "web tool loop stream aborted by client");
       ch.close();
+    } else if ((err as Error)?.name === "UpstreamBusyError") {
+      ch.fail((err as Error).message);
     } else {
       const host = (() => { try { return new URL(llmApiUrl()).host; } catch { return "the configured port"; } })();
       log.error({ model, err: (err as Error).message }, "llm server unreachable");

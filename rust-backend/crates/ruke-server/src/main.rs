@@ -10,7 +10,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use ruke_core::{config, settings::SettingsStore, slot::InferenceSlot, turn::TurnCounter};
+use ruke_core::{
+    admission::UpstreamAdmission, config, settings::SettingsStore, slot::InferenceSlot,
+    turn::TurnCounter,
+};
 use ruke_server::{
     build_router, chat, init_tracing,
     persistence::ConversationStore,
@@ -26,6 +29,12 @@ async fn main() {
     let settings = Arc::new(SettingsStore::new(config::settings_path(&root)));
     let port = config::backend_port();
     let slot = Arc::new(InferenceSlot::new());
+    // Brief §3.1: the ONE capacity-1 authority for upstream generation
+    // requests (the slot above counts logical turn leases instead). Every
+    // Strata POST in this process — chat forwards, web/browser rounds,
+    // titles, attachment notes, and the TS helpers' internal-completion
+    // route — serializes through this instance.
+    let admission = Arc::new(UpstreamAdmission::new());
     let http = reqwest::Client::new();
 
     // Conversations dir mirrors the TS persistence chain
@@ -62,6 +71,7 @@ async fn main() {
         settings: settings.clone(),
         slot: slot.clone(),
         turns: Arc::new(TurnCounter::new()),
+        admission: admission.clone(),
         root: root.clone(),
         // No client timeouts: a slow local model is normal operation, and
         // the TS baseline `fetch` has none either (MIGRATION-MAP §2).
@@ -95,6 +105,7 @@ async fn main() {
             Arc::new(HttpTitleModel {
                 http: http.clone(),
                 settings,
+                admission: admission.clone(),
             }),
         )),
         // TS-ownership rollback (2026-11-03): web research and the web

@@ -81,6 +81,7 @@ function sseResponse(sse: string, chunkSize = 97): unknown {
   return {
     ok: true,
     status: 200,
+    headers: new Headers({ "content-type": "text/event-stream" }),
     body: {
       getReader: () => ({
         read: async () => {
@@ -249,7 +250,15 @@ describe("plain-answer round", () => {
 
   it("upstream HTTP failure uses the verbatim ruke_error contract, not close", async () => {
     const h = makeHarness();
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, text: async () => "model overloaded" })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        headers: new Headers(),
+        text: async () => "model overloaded",
+      })),
+    );
     await runWebToolLoop({
       payload: payloadFor(),
       lastUserIdx: 0,

@@ -22,11 +22,10 @@ import {
   unregisterTitleCall,
 } from "@/lib/server/inference-busy";
 import {
-  MAIN_LLM_ENDPOINT,
-  LLM_API_KEY,
   THINKING_OFF_BODY,
   extractJsonObject,
 } from "./llm-json";
+import { sharedUpstreamCompletion } from "@/lib/server/upstream-bridge";
 
 const log = childLogger("web-search/vision-prepass");
 
@@ -98,20 +97,14 @@ export async function runVisionEntityPrepass(
 
   const started = Date.now();
   try {
-    const res = await fetch(MAIN_LLM_ENDPOINT(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + LLM_API_KEY(),
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      log.warn({ status: res.status }, "vision pre-pass non-200");
+    // Brief §3.1: shared-endpoint door — the multimodal pre-pass is an
+    // upstream generation too (never a bypass of the one-serve authority).
+    const ans = await sharedUpstreamCompletion({ body, label: "vision-prepass", timeoutMs, signal: ctrl.signal });
+    if (!ans || ans.status < 200 || ans.status >= 300) {
+      log.warn({ status: ans?.status ?? null }, "vision pre-pass non-200 / busy / unreachable");
       return empty;
     }
-    const data: any = await res.json().catch(() => null);
+    const data: any = ans.json;
     const msg = data?.choices?.[0]?.message ?? {};
     const content = typeof msg.content === "string" ? msg.content : "";
     const reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";

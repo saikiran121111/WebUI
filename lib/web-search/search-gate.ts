@@ -53,7 +53,7 @@
  * (veto re-verify + always-search rules fallback) was removed 2026-11-04.
  */
 import { childLogger } from "@/lib/server/logger";
-import { llmApiUrl, llmApiKey } from "@/lib/server/settings";
+import { sharedUpstreamCompletion } from "@/lib/server/upstream-bridge";
 import {
   SearchGateResult,
   SearchGateContext,
@@ -65,15 +65,12 @@ import { localContextLine } from "./local-context";
 
 const log = childLogger("web-search/search-gate");
 
-/**
- * Live endpoint resolution: WEB_SEARCH_LLM_ENDPOINT (explicit override) or the
- * shared settings.json/env/fallback chain — settings.json wins so a UI edit
- * reaches the web-search pipeline without a server restart. This is the ONLY
- * model the gate may call (no LFM port, no secondary gateway).
- */
-function endpoint(): string {
-  return process.env.WEB_SEARCH_LLM_ENDPOINT ?? llmApiUrl();
-}
+// Endpoint policy (unchanged law, now enforced by the shared door in
+// lib/server/upstream-bridge.ts): the gate may call ONLY the main model —
+// settings.json/env/fallback chain via the Rust admission's configured
+// upstream, with WEB_SEARCH_LLM_ENDPOINT as a dev override (local
+// admission then manages it, since the bridge route only reaches the
+// configured main). No LFM port, no secondary gateway.
 
 /**
  * Ceiling for the AUTHORITATIVE main-model gate call. It emits a full
@@ -1031,29 +1028,25 @@ async function mainModelGate(ctx: SearchGateContext): Promise<SearchDecision | n
 
   let content = "";
   let reasoning = "";
-  try {
-    const res = await fetch(endpoint(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + llmApiKey(),
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(MAIN_GATE_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      log.warn({ status: res.status }, "gate non-200");
-      return null;
-    }
-    const data: any = await res.json();
-    const msg = data?.choices?.[0]?.message ?? {};
-    content = typeof msg.content === "string" ? msg.content : "";
-    reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
-  } catch (e: unknown) {
-    const err = e as { message: string };
-    log.warn({ err: err.message, timeoutMs: MAIN_GATE_TIMEOUT_MS }, "gate unreachable / timeout");
+  // Brief §3.1: the gate plan is an upstream generation — it goes through
+  // the ONE shared-endpoint door (Rust admission in Rust mode; local
+  // capacity-1 otherwise). A dev WEB_SEARCH_LLM_ENDPOINT override targets
+  // a different server, which the bridge route cannot reach, so the
+  // helper runs it under the local admission instead (still managed).
+  const ans = await sharedUpstreamCompletion({
+    body,
+    label: "search-gate-plan",
+    timeoutMs: MAIN_GATE_TIMEOUT_MS,
+    targetUrl: process.env.WEB_SEARCH_LLM_ENDPOINT?.trim() || undefined,
+  });
+  if (!ans || ans.status < 200 || ans.status >= 300) {
+    log.warn({ status: ans?.status ?? null, timeoutMs: MAIN_GATE_TIMEOUT_MS }, "gate non-200 / busy / unreachable");
     return null;
   }
+  const data: any = ans.json;
+  const msg = data?.choices?.[0]?.message ?? {};
+  content = typeof msg.content === "string" ? msg.content : "";
+  reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
 
   for (const raw of [content, reasoning]) {
     const decision = parseMainGateJson(raw, ctx);

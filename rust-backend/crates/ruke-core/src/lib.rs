@@ -16,6 +16,7 @@
 //! before any await point (see `slot.rs`, which collects handles under the
 //! lock and cancels after releasing it).
 
+pub mod admission;
 pub mod config;
 pub mod settings;
 pub mod slot;

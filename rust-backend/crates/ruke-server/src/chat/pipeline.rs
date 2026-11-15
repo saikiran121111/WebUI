@@ -187,6 +187,7 @@ pub async fn run_turn_pipeline(
                     url: state.settings.llm_api_url(),
                     key: state.settings.llm_api_key(),
                     model: model.to_string(),
+                    admission: state.admission.clone(),
                 };
                 build_attachment_turn(
                     messages,

@@ -792,6 +792,25 @@ pub async fn run_tool_loop(
                 }
             };
 
+            // §3.1: capacity-1 admission permit for THIS round's upstream
+            // request, held across the entire streamed response. Dropped
+            // EXPLICITLY below once the round's body has drained, BEFORE
+            // tool execution — never held across anything that could call
+            // back for another generation (deadlock law). The `break
+            // 'outer` paths drop it via unwind.
+            let permit = match state.admission.acquire(&token).await {
+                Ok(p) => p,
+                Err(ruke_core::admission::AdmissionError::QueueFull) => {
+                    tracing::warn!(parent: span, "browser round rejected: shared-endpoint queue full");
+                    break 'outer Outcome::Failed(
+                        "Model endpoint is busy; please retry.".to_string(),
+                    );
+                }
+                Err(ruke_core::admission::AdmissionError::Cancelled) => {
+                    break 'outer Outcome::Aborted;
+                }
+            };
+
             let sent = tokio::select! {
                 biased;
                 _ = token.cancelled() => break 'outer Outcome::Aborted,
@@ -913,6 +932,13 @@ pub async fn run_tool_loop(
                 );
                 break 'outer Outcome::Finished;
             }
+
+            // The round's response has fully drained ⇒ release the §3.1
+            // permit NOW, before acting on the tool calls: the browser
+            // engine hop and any later round must re-acquire, and no path
+            // may hold a permit while something else needs one (deadlock
+            // law — a permit is never held across a nested generation).
+            drop(permit);
 
             // ── assistant turn + tool execution ─────────────────────────
             let messages = payload

@@ -370,6 +370,24 @@ async fn stream_round(
         }
     };
 
+    // §3.1: capacity-1 admission permit for THIS round's upstream request.
+    // `_permit` drops when stream_round RETURNS — i.e. after the response
+    // body has fully drained — so the permit never rides across the
+    // caller's bridge tools_rpc (which may call back IN via the internal
+    // completion route; holding it there would self-deadlock).
+    let _permit = match state.admission.acquire(token).await {
+        Ok(p) => p,
+        Err(ruke_core::admission::AdmissionError::QueueFull) => {
+            tracing::warn!(parent: span, "web round rejected: shared-endpoint queue full");
+            return Round::Done(Outcome::Failed(
+                "Model endpoint is busy; please retry.".to_string(),
+            ));
+        }
+        Err(ruke_core::admission::AdmissionError::Cancelled) => {
+            return Round::Done(Outcome::Aborted);
+        }
+    };
+
     let sent = tokio::select! {
         biased;
         _ = token.cancelled() => None,

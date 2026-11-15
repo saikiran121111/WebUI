@@ -211,6 +211,13 @@ impl TitleCallModel for UnconfiguredTitleModel {
 pub struct HttpTitleModel {
     pub http: reqwest::Client,
     pub settings: Arc<SettingsStore>,
+    /// Brief §3.1: title generations serialize through the shared
+    /// admission. A queued title that loses the race (cancelled by a new
+    /// user turn via the slot's title-cancellation) rides the same
+    /// silent-`None` seam as a failed fetch — a title is best-effort, and
+    /// honest QueueFull (a full bounded wait list) skips this job rather
+    /// than piling up behind live chat traffic.
+    pub admission: Arc<ruke_core::admission::UpstreamAdmission>,
 }
 
 impl TitleCallModel for HttpTitleModel {
@@ -224,6 +231,7 @@ impl TitleCallModel for HttpTitleModel {
     ) -> BoxFuture<'static, Option<String>> {
         let http = self.http.clone();
         let settings = Arc::clone(&self.settings);
+        let admission = Arc::clone(&self.admission);
         Box::pin(async move {
             let url = settings.llm_api_url();
             let key = settings.llm_api_key();
@@ -258,7 +266,31 @@ impl TitleCallModel for HttpTitleModel {
 
             let fut = {
                 let url = url.clone();
+                let admission = Arc::clone(&admission);
+                let acq_token = token.clone();
                 async move {
+                    // Brief §3.1: hold the capacity-1 permit across the
+                    // ENTIRE title generation (queue → send → read →
+                    // parse). A new user turn cancels `token`, which both
+                    // aborts a queued acquire (Cancelled ⇒ skip, exactly
+                    // like the pre-abort signal) and — via the outer
+                    // select below — a generation mid-flight. `_permit`
+                    // is dropped at the end of this block or when the
+                    // select/timer drops this future.
+                    let _permit = match admission.acquire(&acq_token).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            match e {
+                                ruke_core::admission::AdmissionError::QueueFull => {
+                                    tracing::warn!(
+                                        "title generation skipped: shared-endpoint queue full"
+                                    );
+                                }
+                                ruke_core::admission::AdmissionError::Cancelled => {}
+                            }
+                            return None;
+                        }
+                    };
                     let res = match http
                         .post(&url)
                         .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -731,6 +763,7 @@ mod tests {
         let model = HttpTitleModel {
             http: reqwest::Client::new(),
             settings,
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         let token = CancellationToken::new();
         // plan_title end-to-end with the real HTTP seam:
@@ -789,6 +822,7 @@ mod tests {
         let model = HttpTitleModel {
             http: reqwest::Client::new(),
             settings,
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         assert_eq!(
             model
@@ -802,6 +836,7 @@ mod tests {
         let model = HttpTitleModel {
             http: reqwest::Client::new(),
             settings,
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         assert_eq!(
             model
@@ -818,6 +853,7 @@ mod tests {
         let model = HttpTitleModel {
             http: reqwest::Client::new(),
             settings,
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         assert_eq!(
             model
@@ -831,6 +867,7 @@ mod tests {
         let model = HttpTitleModel {
             http: reqwest::Client::new(),
             settings,
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         assert_eq!(
             model
@@ -847,6 +884,7 @@ mod tests {
         let model = HttpTitleModel {
             http: reqwest::Client::new(),
             settings,
+            admission: Arc::new(ruke_core::admission::UpstreamAdmission::new()),
         };
         let token = CancellationToken::new();
         token.cancel(); // TS: outer signal already aborted ⇒ inner.abort() ⇒ fetch rejects WITHOUT network I/O
