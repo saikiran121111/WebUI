@@ -87,3 +87,116 @@ describe("createThinkSplitter — holdback across chunk boundaries", () => {
     expect(whole.reasoning).toBe("midx");
   });
 });
+
+/**
+ * F17 (2026-11-15) — fence-awareness: an inline tag inside a fenced code
+ * block (``` or ~~~) is LITERAL text of the current channel. Every case
+ * below mirrors its twin in
+ * rust-backend/crates/ruke-server/src/chat/scrubber.rs (cross-engine law).
+ */
+describe("createThinkSplitter — F17 fence-awareness", () => {
+  const feedAll = (pieces: string[]) => {
+    const s = createThinkSplitter();
+    let content = "";
+    let reasoning = "";
+    for (const p of pieces) {
+      const o = s(p);
+      content += o.content;
+      reasoning += o.reasoning;
+    }
+    const f = s.flush();
+    return { content: content + f.content, reasoning: reasoning + f.reasoning };
+  };
+
+  const FENCED = "pre\n```html\n<think>literal</think>\n```\npost";
+
+  it("a tag inside a fence stays content and never routes to reasoning", () => {
+    const out = feedAll([FENCED]);
+    expect(out.content).toBe(FENCED);
+    expect(out.reasoning).toBe("");
+  });
+
+  it("every byte cut of a fenced text routes identically", () => {
+    const whole = feedAll([FENCED]);
+    for (let cut = 1; cut < FENCED.length; cut++) {
+      const out = feedAll([FENCED.slice(0, cut), FENCED.slice(cut)]);
+      expect(out, `cut=${cut}`).toEqual(whole);
+    }
+    const charPieces = [...FENCED].map((c) => c);
+    expect(feedAll(charPieces)).toEqual(whole);
+  });
+
+  it("tilde fence with info string holds tags literal", () => {
+    const text = "~~~js [S9]\nx <think>y\n~~~\nz";
+    const out = feedAll([text]);
+    expect(out.content).toBe(text);
+    expect(out.reasoning).toBe("");
+  });
+
+  it("a fence inside a reasoning block protects the close tag", () => {
+    const text = "<think>\n```\n</think> is literal\n```\n</think>tail";
+    const out = feedAll([text]);
+    // The OPEN delimiter itself is consumed (routed markers are never
+    // emitted); fenced text — including the `</think>` spelling — stays
+    // verbatim reasoning until the fence closes, then the real close tag.
+    expect(out.reasoning).toBe("\n```\n</think> is literal\n```\n");
+    expect(out.content).toBe("tail");
+  });
+
+  it("a shorter close run does not close the fence", () => {
+    const text = "```\n<think>t\n``\nu";
+    const out = feedAll([text]);
+    expect(out.content).toBe(text);
+    expect(out.reasoning).toBe("");
+  });
+
+  it("a longer close run closes the fence", () => {
+    const out = feedAll(["````\nx\n`````\n<think>t</think>y"]);
+    expect(out.content).toBe("````\nx\n`````\ny");
+    expect(out.reasoning).toBe("t");
+  });
+
+  it("a backtick fence whose info contains a backtick is not a fence", () => {
+    const out = feedAll(["```a`b\n<think>t\n```"]);
+    expect(out.content).toBe("```a`b\n");
+    expect(out.reasoning).toBe("t\n```");
+  });
+
+  it("an indent of up to three spaces still opens and closes a fence", () => {
+    const text = "   ```\n<think>t</think>\n   ```\npost";
+    const out = feedAll([text]);
+    expect(out.content).toBe(text);
+    expect(out.reasoning).toBe("");
+  });
+
+  it("four-space indent is never a fence", () => {
+    const out = feedAll(["    ```\n<think>t</think>\n    ```\nx"]);
+    expect(out.content).toBe("    ```\n\n    ```\nx");
+    expect(out.reasoning).toBe("t");
+  });
+
+  it("tags inside an unclosed fence are never swallowed (flush keeps all)", () => {
+    const out = feedAll(["```x\n<thi"]);
+    expect(out.content).toBe("```x\n<thi");
+    expect(out.reasoning).toBe("");
+  });
+
+  it("an incomplete fence opener flushes as literal", () => {
+    const s = createThinkSplitter();
+    expect(s("a\n``").content).toBe("a\n");
+    expect(s.flush()).toEqual({ content: "``", reasoning: "" });
+  });
+
+  it("trailing spaces/tabs after the close run still close the fence", () => {
+    const out = feedAll(["```\nx\n``` \t\n<think>t</think>y"]);
+    expect(out.content).toBe("```\nx\n``` \t\ny");
+    expect(out.reasoning).toBe("t");
+  });
+
+  it("a blank line does not close a fence", () => {
+    const text = "```\nx\n\n<think>t</think>\n```\ny";
+    const out = feedAll([text]);
+    expect(out.content).toBe(text);
+    expect(out.reasoning).toBe("");
+  });
+});

@@ -64,10 +64,17 @@ fn think_field_split_matrix_replays_cross_engine_vectors() {
             exp["reasoning"].as_str().unwrap(),
             "reasoning mismatch replaying {pieces:?}"
         );
-        assert!(
-            !content.contains("<think>") && !content.contains("</think>"),
-            "delimiters never leak into the answer channel"
-        );
+        // F17 (2026-11-15): fence-literal delimiters are LEGITIMATE channel
+        // text — a fence-free text's channels must never contain a delimiter
+        // spelling; a fence-y text's channels legitimately do.
+        let text = case["text"].as_str().unwrap();
+        if !(text.contains("```") || text.contains("~~~")) {
+            assert!(
+                !content.contains("<think>") && !content.contains("</think>")
+                    && !reasoning.contains("<think>") && !reasoning.contains("</think>"),
+                "delimiters never leak into a channel for fence-free texts"
+            );
+        }
         replays += 1;
     }
     assert!(replays > 0, "the matrix must carry cases");

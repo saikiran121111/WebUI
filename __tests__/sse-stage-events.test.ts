@@ -93,3 +93,56 @@ describe("parser — ruke_stage progress frames", () => {
     expect(usage?.completionTokens).toBe(7);
   });
 });
+
+/**
+ * F17 (2026-11-15) — reasoning fields are STRUCTURALLY exclusive per delta:
+ * a provider mirroring the same reasoning through BOTH `reasoning_content`
+ * and `reasoning_details` must never duplicate the UI reasoning channel.
+ * Precedence is protocol shape (prefer structured details text when it
+ * carries any), never string-matching dedupe.
+ */
+describe("parser — reasoning channel structural exclusivity", () => {
+  it("mirrors ONE reasoning event when both fields carry the same text", async () => {
+    mockFetchWithSse([
+      'data: {"choices":[{"delta":{"reasoning_content":"abc","reasoning_details":[{"type":"reasoning.text","text":"abc"}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const events = await collect();
+    const reasonings = events.filter(e => e.reasoning);
+    expect(reasonings).toHaveLength(1);
+    expect(reasonings[0].reasoning).toBe("abc");
+  });
+
+  it("prefers the structured details text and joins its parts", async () => {
+    mockFetchWithSse([
+      'data: {"choices":[{"delta":{"reasoning_content":"scalar","reasoning_details":[{"text":"one "},{"text":"two"}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const events = await collect();
+    const reasonings = events.filter(e => e.reasoning);
+    expect(reasonings).toHaveLength(1);
+    expect(reasonings[0].reasoning).toBe("one two");
+  });
+
+  it("falls back to reasoning_content when details carry no text", async () => {
+    mockFetchWithSse([
+      'data: {"choices":[{"delta":{"reasoning_content":"scalar","reasoning_details":[{"type":"reasoning.encrypted","id":"x"}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const events = await collect();
+    const reasonings = events.filter(e => e.reasoning);
+    expect(reasonings).toHaveLength(1);
+    expect(reasonings[0].reasoning).toBe("scalar");
+  });
+
+  it("single-field deltas keep working unchanged", async () => {
+    mockFetchWithSse([
+      'data: {"choices":[{"delta":{"reasoning_content":"from-scalar"}}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning_details":[{"text":"from-details"}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const events = await collect();
+    const reasonings = events.filter(e => e.reasoning).map(e => e.reasoning);
+    expect(reasonings).toEqual(["from-scalar", "from-details"]);
+  });
+});

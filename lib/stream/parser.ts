@@ -155,17 +155,21 @@ export function createStreamParser(opts: StreamOptions): StreamHandle & AsyncIte
     const delta = choice?.delta;
     const finish = choice?.finish_reason;
 
-    if (delta?.reasoning_content) {
+    // Reasoning fields are STRUCTURALLY exclusive per delta (F17,
+    // 2026-11-15): a provider mirroring the same reasoning through BOTH
+    // `reasoning_content` and `reasoning_details` must not duplicate the
+    // UI channel. Precedence follows protocol shape — prefer the
+    // structured `reasoning_details` text when it carries any, else the
+    // scalar `reasoning_content`. NEVER string-matching dedupe.
+    const detailsText = Array.isArray(delta?.reasoning_details)
+      ? delta.reasoning_details
+          .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+          .join("")
+      : "";
+    if (detailsText) {
+      push({ reasoning: detailsText });
+    } else if (typeof delta?.reasoning_content === "string" && delta.reasoning_content) {
       push({ reasoning: delta.reasoning_content });
-    }
-    // Chat-completions reasoning_details parts (what Strata emits and the
-    // web tool loop relays raw): normalize onto the same reasoning channel
-    // the UI reducer already consumes — live law, never gated.
-    if (Array.isArray(delta?.reasoning_details)) {
-      const partText = delta.reasoning_details
-        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-        .join("");
-      if (partText) push({ reasoning: partText });
     }
     if (delta?.content) {
       const split = splitter(delta.content);

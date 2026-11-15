@@ -127,9 +127,16 @@ describe("golden: sse transport vectors", () => {
     // BMP-only texts: a char-index split must never cut a UTF-16 surrogate
     // pair (a lone half is not expressible in JSON — serde_json rejects it).
     // Non-BMP transport coverage lives in fixture 03's BYTE matrix instead.
+    // F17 (2026-11-15) adds fence texts: a fence-literal `<think>` stays in
+    // the answer channel, and fence protection works INSIDE a reasoning
+    // block too. Every 2-piece re-framing of these must still equal the
+    // atomic routing (fence-candidate lines park whole — chunking law).
     const TEXTS = [
       "<font color='red'>A</font><think>secret1</think>B<think>oops",
       "héllo తెలుగు <think>నిరీక్ష</think>end",
+      "pre\n```html\n<think>literal</think>\n```\npost",
+      "<think>\n```\n</think>lit\n```\n</think>tail",
+      "````\nx\n`````\n<think>t</think>y",
     ];
 
     function feedPieces(pieces: string[]): { content: string; reasoning: string } {
@@ -171,7 +178,7 @@ describe("golden: sse transport vectors", () => {
       mismatchSplitChars,
       cases,
     }, {
-      scenario: "<think>/</think> routing under EVERY re-framing of the content-field pieces (incl. unterminated block, non-Latin scripts)",
+      scenario: "<think>/</think> routing under EVERY re-framing of the content-field pieces (incl. unterminated block, non-Latin scripts, F17 fenced-code literals)",
       semantics:
         "pieces = the delta.content slices a single text arrives as (splitAtChar = boundary; -1 = the " +
         "hand-written multi-piece delimiter framing). expected = atomic single-piece routing. Routing is " +
@@ -183,6 +190,9 @@ describe("golden: sse transport vectors", () => {
       env: ENV_PRE,
       normalization: "none",
       notes:
+        "Fence texts (added 2026-11-15 F17): a `<think>` inside a fenced code block is LITERAL text of " +
+        "the current channel, so for THOSE texts the channels legitimately contain delimiter spellings — " +
+        "the Rust replay's leak assertion is therefore scoped to fence-free texts. " +
         "Shape changed 2026-11-13 (brief §2): the old byte-level upstreamStream/expectedRust scrub " +
         "matrices are gone with ThinkScrubber. Rust replays each case through ThinkFieldSplitter " +
         "(crates/ruke-server/tests/scrubber_vectors.rs). Texts are BMP-only: char-index slices must " +
@@ -196,6 +206,14 @@ describe("golden: sse transport vectors", () => {
     expect(a0.reasoning).toBe("secret1oops"); // unterminated tail SURVIVES (old bug: deleted)
     expect(multiExpected.content).toBe("FINAL");
     expect(multiExpected.reasoning).toBe("SECRET");
+    // F17 atomic routings recorded into the matrix (Rust replays them).
+    const aFence = feedPieces([TEXTS[2]]);
+    expect(aFence.content).toBe(TEXTS[2]); // fence-literal tag never routes
+    expect(aFence.reasoning).toBe("");
+    const aFenceInThink = feedPieces([TEXTS[3]]);
+    // The OPEN marker itself is consumed, so reasoning begins at the "\n".
+    expect(aFenceInThink.reasoning).toBe("\n```\n</think>lit\n```\n");
+    expect(aFenceInThink.content).toBe("tail");
   });
 
   it("03 UTF-8 code points split across chunks (raw transport, byte identity)", async () => {

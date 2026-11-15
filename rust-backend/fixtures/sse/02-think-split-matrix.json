@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "scenario": "<think>/</think> routing under EVERY re-framing of the content-field pieces (incl. unterminated block, non-Latin scripts)",
+    "scenario": "<think>/</think> routing under EVERY re-framing of the content-field pieces (incl. unterminated block, non-Latin scripts, F17 fenced-code literals)",
     "semantics": "pieces = the delta.content slices a single text arrives as (splitAtChar = boundary; -1 = the hand-written multi-piece delimiter framing). expected = atomic single-piece routing. Routing is CONTENT-scoped, so every re-framing must equal the atomic result: mismatchSplitChars must be EMPTY (chunking-invariance law). Think text lands in `reasoning`; an unterminated tail SURVIVES there (the pre-2026-11-13 scrubber deleted it — retired).",
     "comparison": "semantic",
     "harness": "__tests__/rust-golden/sse-vectors.test.ts",
@@ -9,13 +9,16 @@
       "settings_llm_override": "http://127.0.0.1:9/v1/chat/completions"
     },
     "normalization": "none",
-    "notes": "Shape changed 2026-11-13 (brief §2): the old byte-level upstreamStream/expectedRust scrub matrices are gone with ThinkScrubber. Rust replays each case through ThinkFieldSplitter (crates/ruke-server/tests/scrubber_vectors.rs). Texts are BMP-only: char-index slices must never split a surrogate pair (a lone half cannot be serialized in JSON); non-BMP coverage is pinned at BYTE level in fixture 03."
+    "notes": "Fence texts (added 2026-11-15 F17): a `<think>` inside a fenced code block is LITERAL text of the current channel, so for THOSE texts the channels legitimately contain delimiter spellings — the Rust replay's leak assertion is therefore scoped to fence-free texts. Shape changed 2026-11-13 (brief §2): the old byte-level upstreamStream/expectedRust scrub matrices are gone with ThinkScrubber. Rust replays each case through ThinkFieldSplitter (crates/ruke-server/tests/scrubber_vectors.rs). Texts are BMP-only: char-index slices must never split a surrogate pair (a lone half cannot be serialized in JSON); non-BMP coverage is pinned at BYTE level in fixture 03."
   },
   "texts": [
     "<font color='red'>A</font><think>secret1</think>B<think>oops",
-    "héllo తెలుగు <think>నిరీక్ష</think>end"
+    "héllo తెలుగు <think>నిరీక్ష</think>end",
+    "pre\n```html\n<think>literal</think>\n```\npost",
+    "<think>\n```\n</think>lit\n```\n</think>tail",
+    "````\nx\n`````\n<think>t</think>y"
   ],
-  "splitCount": 101,
+  "splitCount": 217,
   "mismatchSplitChars": [],
   "cases": [
     {
@@ -1315,6 +1318,1514 @@
       "expected": {
         "content": "héllo తెలుగు end",
         "reasoning": "నిరీక్ష"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 0,
+      "pieces": [
+        "",
+        "pre\n```html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 1,
+      "pieces": [
+        "p",
+        "re\n```html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 2,
+      "pieces": [
+        "pr",
+        "e\n```html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 3,
+      "pieces": [
+        "pre",
+        "\n```html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 4,
+      "pieces": [
+        "pre\n",
+        "```html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 5,
+      "pieces": [
+        "pre\n`",
+        "``html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 6,
+      "pieces": [
+        "pre\n``",
+        "`html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 7,
+      "pieces": [
+        "pre\n```",
+        "html\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 8,
+      "pieces": [
+        "pre\n```h",
+        "tml\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 9,
+      "pieces": [
+        "pre\n```ht",
+        "ml\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 10,
+      "pieces": [
+        "pre\n```htm",
+        "l\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 11,
+      "pieces": [
+        "pre\n```html",
+        "\n<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 12,
+      "pieces": [
+        "pre\n```html\n",
+        "<think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 13,
+      "pieces": [
+        "pre\n```html\n<",
+        "think>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 14,
+      "pieces": [
+        "pre\n```html\n<t",
+        "hink>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 15,
+      "pieces": [
+        "pre\n```html\n<th",
+        "ink>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 16,
+      "pieces": [
+        "pre\n```html\n<thi",
+        "nk>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 17,
+      "pieces": [
+        "pre\n```html\n<thin",
+        "k>literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 18,
+      "pieces": [
+        "pre\n```html\n<think",
+        ">literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 19,
+      "pieces": [
+        "pre\n```html\n<think>",
+        "literal</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 20,
+      "pieces": [
+        "pre\n```html\n<think>l",
+        "iteral</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 21,
+      "pieces": [
+        "pre\n```html\n<think>li",
+        "teral</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 22,
+      "pieces": [
+        "pre\n```html\n<think>lit",
+        "eral</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 23,
+      "pieces": [
+        "pre\n```html\n<think>lite",
+        "ral</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 24,
+      "pieces": [
+        "pre\n```html\n<think>liter",
+        "al</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 25,
+      "pieces": [
+        "pre\n```html\n<think>litera",
+        "l</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 26,
+      "pieces": [
+        "pre\n```html\n<think>literal",
+        "</think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 27,
+      "pieces": [
+        "pre\n```html\n<think>literal<",
+        "/think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 28,
+      "pieces": [
+        "pre\n```html\n<think>literal</",
+        "think>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 29,
+      "pieces": [
+        "pre\n```html\n<think>literal</t",
+        "hink>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 30,
+      "pieces": [
+        "pre\n```html\n<think>literal</th",
+        "ink>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 31,
+      "pieces": [
+        "pre\n```html\n<think>literal</thi",
+        "nk>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 32,
+      "pieces": [
+        "pre\n```html\n<think>literal</thin",
+        "k>\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 33,
+      "pieces": [
+        "pre\n```html\n<think>literal</think",
+        ">\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 34,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>",
+        "\n```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 35,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n",
+        "```\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 36,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n`",
+        "``\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 37,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n``",
+        "`\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 38,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n```",
+        "\npost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 39,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n```\n",
+        "post"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 40,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n```\np",
+        "ost"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 41,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n```\npo",
+        "st"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 42,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n```\npos",
+        "t"
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "pre\n```html\n<think>literal</think>\n```\npost",
+      "splitAtChar": 43,
+      "pieces": [
+        "pre\n```html\n<think>literal</think>\n```\npost",
+        ""
+      ],
+      "expected": {
+        "content": "pre\n```html\n<think>literal</think>\n```\npost",
+        "reasoning": ""
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 0,
+      "pieces": [
+        "",
+        "<think>\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 1,
+      "pieces": [
+        "<",
+        "think>\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 2,
+      "pieces": [
+        "<t",
+        "hink>\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 3,
+      "pieces": [
+        "<th",
+        "ink>\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 4,
+      "pieces": [
+        "<thi",
+        "nk>\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 5,
+      "pieces": [
+        "<thin",
+        "k>\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 6,
+      "pieces": [
+        "<think",
+        ">\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 7,
+      "pieces": [
+        "<think>",
+        "\n```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 8,
+      "pieces": [
+        "<think>\n",
+        "```\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 9,
+      "pieces": [
+        "<think>\n`",
+        "``\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 10,
+      "pieces": [
+        "<think>\n``",
+        "`\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 11,
+      "pieces": [
+        "<think>\n```",
+        "\n</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 12,
+      "pieces": [
+        "<think>\n```\n",
+        "</think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 13,
+      "pieces": [
+        "<think>\n```\n<",
+        "/think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 14,
+      "pieces": [
+        "<think>\n```\n</",
+        "think>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 15,
+      "pieces": [
+        "<think>\n```\n</t",
+        "hink>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 16,
+      "pieces": [
+        "<think>\n```\n</th",
+        "ink>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 17,
+      "pieces": [
+        "<think>\n```\n</thi",
+        "nk>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 18,
+      "pieces": [
+        "<think>\n```\n</thin",
+        "k>lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 19,
+      "pieces": [
+        "<think>\n```\n</think",
+        ">lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 20,
+      "pieces": [
+        "<think>\n```\n</think>",
+        "lit\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 21,
+      "pieces": [
+        "<think>\n```\n</think>l",
+        "it\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 22,
+      "pieces": [
+        "<think>\n```\n</think>li",
+        "t\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 23,
+      "pieces": [
+        "<think>\n```\n</think>lit",
+        "\n```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 24,
+      "pieces": [
+        "<think>\n```\n</think>lit\n",
+        "```\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 25,
+      "pieces": [
+        "<think>\n```\n</think>lit\n`",
+        "``\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 26,
+      "pieces": [
+        "<think>\n```\n</think>lit\n``",
+        "`\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 27,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```",
+        "\n</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 28,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n",
+        "</think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 29,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n<",
+        "/think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 30,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</",
+        "think>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 31,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</t",
+        "hink>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 32,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</th",
+        "ink>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 33,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</thi",
+        "nk>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 34,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</thin",
+        "k>tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 35,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</think",
+        ">tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 36,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</think>",
+        "tail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 37,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</think>t",
+        "ail"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 38,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</think>ta",
+        "il"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 39,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</think>tai",
+        "l"
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "<think>\n```\n</think>lit\n```\n</think>tail",
+      "splitAtChar": 40,
+      "pieces": [
+        "<think>\n```\n</think>lit\n```\n</think>tail",
+        ""
+      ],
+      "expected": {
+        "content": "tail",
+        "reasoning": "\n```\n</think>lit\n```\n"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 0,
+      "pieces": [
+        "",
+        "````\nx\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 1,
+      "pieces": [
+        "`",
+        "```\nx\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 2,
+      "pieces": [
+        "``",
+        "``\nx\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 3,
+      "pieces": [
+        "```",
+        "`\nx\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 4,
+      "pieces": [
+        "````",
+        "\nx\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 5,
+      "pieces": [
+        "````\n",
+        "x\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 6,
+      "pieces": [
+        "````\nx",
+        "\n`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 7,
+      "pieces": [
+        "````\nx\n",
+        "`````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 8,
+      "pieces": [
+        "````\nx\n`",
+        "````\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 9,
+      "pieces": [
+        "````\nx\n``",
+        "```\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 10,
+      "pieces": [
+        "````\nx\n```",
+        "``\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 11,
+      "pieces": [
+        "````\nx\n````",
+        "`\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 12,
+      "pieces": [
+        "````\nx\n`````",
+        "\n<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 13,
+      "pieces": [
+        "````\nx\n`````\n",
+        "<think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 14,
+      "pieces": [
+        "````\nx\n`````\n<",
+        "think>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 15,
+      "pieces": [
+        "````\nx\n`````\n<t",
+        "hink>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 16,
+      "pieces": [
+        "````\nx\n`````\n<th",
+        "ink>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 17,
+      "pieces": [
+        "````\nx\n`````\n<thi",
+        "nk>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 18,
+      "pieces": [
+        "````\nx\n`````\n<thin",
+        "k>t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 19,
+      "pieces": [
+        "````\nx\n`````\n<think",
+        ">t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 20,
+      "pieces": [
+        "````\nx\n`````\n<think>",
+        "t</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 21,
+      "pieces": [
+        "````\nx\n`````\n<think>t",
+        "</think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 22,
+      "pieces": [
+        "````\nx\n`````\n<think>t<",
+        "/think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 23,
+      "pieces": [
+        "````\nx\n`````\n<think>t</",
+        "think>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 24,
+      "pieces": [
+        "````\nx\n`````\n<think>t</t",
+        "hink>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 25,
+      "pieces": [
+        "````\nx\n`````\n<think>t</th",
+        "ink>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 26,
+      "pieces": [
+        "````\nx\n`````\n<think>t</thi",
+        "nk>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 27,
+      "pieces": [
+        "````\nx\n`````\n<think>t</thin",
+        "k>y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 28,
+      "pieces": [
+        "````\nx\n`````\n<think>t</think",
+        ">y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 29,
+      "pieces": [
+        "````\nx\n`````\n<think>t</think>",
+        "y"
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
+      },
+      "replayMatchesAtomic": true
+    },
+    {
+      "text": "````\nx\n`````\n<think>t</think>y",
+      "splitAtChar": 30,
+      "pieces": [
+        "````\nx\n`````\n<think>t</think>y",
+        ""
+      ],
+      "expected": {
+        "content": "````\nx\n`````\ny",
+        "reasoning": "t"
       },
       "replayMatchesAtomic": true
     },

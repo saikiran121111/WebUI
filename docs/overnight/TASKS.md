@@ -12,6 +12,8 @@ Check a box only after acceptance passes; evidence in TEST-RESULTS.md.
   - [x] P1.5 External-client coordination — **blocked, documented**: Claude Code (this agent) talks to the same Strata endpoint (capacity one); not coordinable without human relaunch → live Playwright gate stays blocked per §3.3 (DECISIONS D-003)
   - [x] P1.6 Resource swap — **passed**: live Strata 0.1.59 install verified (serve/server.py `POST /unload[?wait=]` 409-busy-never-mid-turn + `POST /load` idempotent; JSON+no-Origin clients accepted; no API key on this instance). Live safe probes: /load + /v1/load → 200, state unchanged. /unload live-fire NOT sent (would evict this very session's model — SPEC §5 forbids unloading during Claude inference); semantics pinned by install source + its test_web_load_unload.py. Hooks enabled in gitignored `.env.local` (URLs only, endpoint values identical to fallbacks → zero behavior change).
 - [ ] P2 Repair streaming, activity, scroll, conversational behavior (F16, F17, F18, F19, F01)
+  - F17: **CODE+TESTS DONE 2026-11-15** (fence-aware splitter TS⇔Rust + reasoning-field structural exclusivity; all TS gates + Rust scrubber/vector suites green — see TEST-RESULTS.md). OPEN: full ruke-server cargo suite on resume.
+  - F16, F18, F19, F01: not started.
 - [ ] P3 Repair intent, scope, policy, retrieval, evidence semantics (F02, F03, F04, F05, F06, F07)
 - [ ] P4 Repair artifact data fidelity + attachment durability (F11, F12, F08, F09, F10, F14, F15, F20, F21)
 - [ ] P5 Python supervisor, contracts, resource manager (uv project, zero heavy imports at startup, versioned contracts)
