@@ -12,16 +12,18 @@ does not expose, or a human-labelled real recording. Nothing blocked was scored 
 | item | value |
 |---|---|
 | starting branch / HEAD | `local` / `002b9692b10a3d927933a8514a2245bcf8969001` |
-| ending branch / HEAD | `local` / `002b9692b10a3d927933a8514a2245bcf8969001` - **nothing committed, staged, pushed or reset**, per instruction |
+| ending branch / HEAD | `local` / `5a0370a67c8f8c1d327198adff7409cfa15dc82b` (session 62). One commit was created on the local branch **only because the user explicitly authorized it** (DECISIONS **D-031**); every earlier session ran with nothing committed, and **no push / remote operation was ever performed** |
 | original audit baseline | `ec256bd726f5dda15e3af9fc3fa3d3d7fa47e3a6` |
 | prior implementation commit | `face1f76dca7d34f153f7880e0240c5e8325073c` |
 | work-tree status at the FINAL audit (after P10 cleanup, session 61) | **192** porcelain entries = 133 modified tracked + 1 ` D` (the renamed fixture pair) + 58 untracked entries, **441 files when expanded with `-uall`** |
 | tracked diff size | `git diff --shortstat` -> **134 files changed, 11764 insertions(+), 2889 deletions(-)** |
-| staged | **0** (`git diff --cached --stat` empty) |
+| staged at the session-61 FINAL audit | **0** (`git diff --cached --stat` empty) |
+| session-62 commit | `5a0370a67c8f8c1d327198adff7409cfa15dc82b` -> **385 files changed, +54720 / -2888**; the only remaining porcelain entries are ` M tsconfig.tsbuildinfo`, `?? mcp-out/`, `?? python-backend/ruke_ml.egg-info/` (build artifacts / run debris, deliberately uncommitted) |
 
 Dirty-file handling:
 - Everything dirty is this run's own work. No unrelated user work existed or was touched.
-  No `reset`, `stash`, `checkout --`, `clean`, `commit` or `push` was ever run.
+  No `reset`, `stash`, `checkout --`, `clean` or `push` was ever run. The single `git commit` on
+  `local` (session 62) was separately authorized by the user and is recorded as D-031.
 - Debris removal: this run's own harness/scratch trees outside the repo
   (`scratch-s37/40/43/46/48/53/55/57/59`, `test-data-s48`, `tmp-devcheck-data`) were deleted at
   P10 after copying every cited exit-code file into `docs/overnight/logs/`; `scratch-s49`
@@ -35,7 +37,7 @@ Dirty-file handling:
   corrected rather than the expectation quietly edited. Rust replay tests reference the new
   name and the suite passes.
 - `git diff` warnings are only "LF will be replaced by CRLF" - no line-ending mass rewrite
-  was committed because nothing was committed.
+  the session-62 commit records content changes only; no line-ending configuration was altered.
 - Never-modified guard re-verified every session:
   `node_modules/next/dist/compiled/@vercel/nft/index.js` pristine, sha256 prefix
   **`21FDA49AD240564F`** (it had been patched in an early session to work around a build

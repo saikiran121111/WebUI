@@ -1,15 +1,21 @@
-# STATE - Ruke overnight run, FINAL checkpoint (session 61, 2026-11-16)
+# STATE - Ruke overnight run, FINAL checkpoint (session 62, 2026-11-16)
 
 Verdict: **PARTIAL (~99 percent of the declared scope)**. Never COMPLETE - the open items are
 asset/licence-gated model qualities plus two live measurements deliberately not taken.
 
 ## Identity (measured this session)
-- branch **local**, HEAD **002b9692b10a3d927933a8514a2245bcf8969001** unchanged; original audit
-  baseline ec256bd726f5dda15e3af9fc3fa3d3d7fa47e3a6, prior implementation commit
-  face1f76dca7d34f153f7880e0240c5e8325073c
-- nothing staged / committed / pushed / reset / stashed / cleaned, ever
-- porcelain **192** = 133 modified + 1 D (the renamed fixture pair) + 58 untracked entries
-  (441 files expanded); git diff --shortstat -> **134 files, +11764 / -2889**; staged **0**
+- branch **local**, HEAD **5a0370a67c8f8c1d327198adff7409cfa15dc82b** (session 62 commit, message: "overnight run P0-P11:
+  admission + streaming + evidence/artifact repairs, python capability jobs, media timeline seam,
+  gates + e2e evidence"). Authorized separately by the user - DECISIONS **D-031**. **No push and
+  no remote operation.** No reset / stash / checkout -- / clean.
+- Chain: ec256bd (audit baseline) -> face1f7 (P1 admission) -> 002b969 (F17 fence checkpoint) ->
+  5a0370a67c8f8c1d327198adff7409cfa15dc82b (this run: **385 files, +54720 / -2888**)
+  There is **one docs-only follow-up commit** on top of it (it records this file's own save and D-031).
+  The implementation commit stays 5a0370a. Always re-read HEAD with git rev-parse rather than trusting
+  the number in this file.
+- Remaining porcelain after the commit: **3** entries - ` M tsconfig.tsbuildinfo`, `?? mcp-out/`,
+  `?? python-backend/ruke_ml.egg-info/` (build artifacts + Playwright/MCP page snapshots, left
+  uncommitted on purpose)
 - guard: node_modules/next/dist/compiled/@vercel/nft/index.js sha256 prefix **21FDA49AD240564F** pristine
 
 ## Phase / task
@@ -59,10 +65,11 @@ same command line; a non-zero result is written there as shutdown_failed with th
 scheduled timer, no forced kill of unrelated applications, no infinite retry.
 
 ## How to resume if this machine comes back before the work is done
-1. Read this file, then TASKS.md (session-61 block), DECISIONS.md (through **D-030**),
+1. Read this file, then TASKS.md (session-61/62 blocks), DECISIONS.md (through **D-031**),
    FINDINGS.md (session-61 G1 ledger update), TEST-RESULTS.md (SESSION 61 gate block), and
    FINAL-REPORT.md sections 1, 3, 9 (G1), 10, 11, 14.
-2. Re-verify: HEAD 002b969, porcelain 192, staged 0, nft hash prefix 21FDA49AD240564F, lock absent,
+2. Re-verify: HEAD 5a0370a67c8f8c1d327198adff7409cfa15dc82b, porcelain 3 (build artifacts only), clean otherwise, nft hash
+   prefix 21FDA49AD240564F, lock absent,
    ports 3000/3101/3210 free, Strata still on 8080.
 3. Newest evidence: logs/{s61-vitest-full.log, s61-build.log, s61-typecheck-full.log,
    s61-contracts.log, s61-python.log, s61-targeted.log, s60-timeline2.log, rust-full-s58.log,

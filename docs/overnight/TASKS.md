@@ -261,3 +261,18 @@ BLOCKED = needs a human credential/asset; NOT_RUN = feasible, not yet done.
   PaddleOCR quality, pyannote licence, ASR+OCR+document+video quality on real media, frozen
   temporal_video_localisation, F01 live A/B, F19 jitter. Verdict stays PARTIAL.
 - [x] P11 host shutdown issued at 2026-11-16 10:27:59 (record: docs/overnight/logs/shutdown-s61.log)
+
+### Session 62 (git, docs honesty)
+- [x] Single commit on `local` under user authorization (D-031): HEAD
+  `5a0370a67c8f8c1d327198adff7409cfa15dc82b`, **385 files, +54720 / -2888**, exit **0**. No push,
+  no remote operation, no reset/stash/checkout --/clean. Build artifacts and run debris
+  (tsconfig.tsbuildinfo, mcp-out/, python-backend/ruke_ml.egg-info/) stayed uncommitted.
+- [x] FINAL-REPORT section 1, STATE.md Identity/resume blocks and this block corrected so the
+  docs no longer imply "nothing was ever committed".
+- No source file changed in session 62, so no gate was re-run (no new evidence to justify it).
+- [x] Docs commit (amended into the docs-only follow-up on top of 5a0370a) recorded the authorized
+  local commit and corrected the git-state rows. Branch `local` is **ahead 2** of origin/local and
+  was **never pushed**. No reset/stash/checkout --/clean; tree clean except the 3 build-artifact
+  entries deliberately left out.
+
+- [x] P11 host shutdown re-issued as session 62's final host action (2026-11-16 11:09:16) because the machine was back up and the user resumed work; request + exit code in docs/overnight/logs/shutdown-s62.log. Prior request: shutdown-s61.log.

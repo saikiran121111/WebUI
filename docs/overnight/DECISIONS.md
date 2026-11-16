@@ -312,3 +312,27 @@ index write lock AFTER indexContent has switched the generation, discarding scra
 failure. Rationale: a durable record must not exist for an index generation that was never
 installed, and a second probe costs a second ffmpeg subprocess for zero new information. The
 byte-exact coverageNote/transcript assertions stayed untouched and still pass.
+
+## D-031 (session 62) - one commit on the local branch, authorized by the user, no push
+The original brief said "Commit unless separately authorized" / do not commit, and sessions 1-61
+therefore ran with **zero** commits (every gate ran against the dirty tree, which is why the
+FINAL-REPORT work-tree rows quoted 192 porcelain entries). At session 62 the user explicitly asked:
+"if the requirement is done can you push the changes into git local branch". Read against the repo
+layout (branch `local`, remote `origin` = github.com/saikiran121111/WebUI.git, upstream
+`origin/local`), that authorizes **a commit onto the local branch**, not a remote publish, so the
+brief's standing "no push / no publish / no deploy" rule still holds. Executed:
+```
+git add -A -- lib app components hooks scripts __tests__ rust-backend docs python-backend CODEX.md
+git reset -q -- python-backend/ruke_ml.egg-info
+git commit -m "overnight run P0-P11: admission + streaming + evidence/artifact repairs, python capability jobs, media timeline seam, gates + e2e evidence"
+```
+-> exit **0**, `HEAD = 5a0370a67c8f8c1d327198adff7409cfa15dc82b`, **385 files changed,
++54720 insertions / -2888 deletions**. Deliberately left out of the commit: `tsconfig.tsbuildinfo`
+(incremental build cache), `mcp-out/` (Playwright/MCP page + console snapshots from run debris),
+`python-backend/ruke_ml.egg-info/` (setuptools build metadata). `.venv` self-ignores (uv writes a
+`.gitignore` inside it); `.data/`, `.ai-coordination/`, `.cache/`, `settings.json` and
+`node_modules/` are already gitignored, so no user data or secret entered the commit. A secret
+scan of `docs/overnight/logs/*` and `docs/overnight/*.md` (sk- prefixes, Bearer values, api-key
+keys, RUKE_BROWSER_BRIDGE_SECRET=) returned **no matches**. No file was deleted or staged to make
+the tree look clean; the renamed fixture pair (the ` D` entry plus its new untracked name) was
+committed as a rename. Nothing was pushed.
